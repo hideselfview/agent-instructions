@@ -125,8 +125,12 @@ down. No singletons.
 `?? ""`, no `try?` when the error matters, no `.ok()` dropping a Result, no
 `let _ = …` swallowing one. If data should be present, its absence is a bug
 — surface it with `expect()`, `Result`, or make the types prevent it.
-Falling back to a default — or silently discarding the error — hides broken
-assumptions and creates silent failures downstream.
+Masking is bad on every axis: it hides broken assumptions and creates silent
+failures downstream; it impedes structure discovery by erasing the failure
+cases that are part of the system's real shape (when *can* this fail? what
+does it mean when it does? what should the type encode?); and it lies about
+correctness — code that "works" because errors are silenced isn't working,
+just quiet.
 
 **Every bug fix starts with a failing test.** *Before* you debug, before you
 even investigate — write a test that reproduces the failure. Run it, confirm
