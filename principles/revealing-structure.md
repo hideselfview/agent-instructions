@@ -7,10 +7,12 @@ system has structure with lots and lots of details. The failure mode is
 never "too much detail" — it's failing to discover or realize the details
 the system actually has.
 
-Missing, unrealized, or unimplemented structure is the root cause of
-bugs, stratified abstractions, sibling bugs, and design debt. Two
-implementations that produce the same behavior are not equally valuable
-— the one that fully realizes the structure is strictly better.
+Missing, unrealized, or unimplemented structure is the foremost cause of
+applications that don't feel right or feel like they have something
+missing. It also produces stratified abstractions, sibling bugs, and
+design debt. Two implementations that produce the same behavior are not
+equally valuable — the one that fully realizes the structure is strictly
+better.
 
 ## Structure vs human-ease
 
