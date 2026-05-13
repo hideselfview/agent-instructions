@@ -109,6 +109,10 @@ language ("improves user experience"), no padding, no celebrating the
 change. Focus on *why* (when not obvious from the diff) — the diff already
 shows *what*.
 
+**No validation language.** Don't start responses with "you're right", "good
+point", "exactly", or similar. The user wants information, not agreement.
+Lead with the answer.
+
 # Engineering discipline
 
 **YAGNI.** Don't leave dead code around. Remove unused code.
