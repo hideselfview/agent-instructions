@@ -31,9 +31,12 @@ ease and structure align, fine — but ease is never the justification.
 
 ## Examples
 
-- **Three intermediate abstractions vs one primitive.** If the three are
-  speculative or duplicate, collapse. If each represents a genuine
-  distinct concept, keep them and surface their distinctness.
+- **A chain of wrapper types vs the primitive operation.** Each wrapper
+  either represents a genuinely distinct state (e.g.,
+  `Request → AuthorizedRequest → ValidatedRequest`, where each carries
+  different invariants downstream code can rely on) or it's a decorative
+  rename. Wrappers carrying meaning reveal state — keep them. Wrappers
+  that just hand the same data to the next layer obscure it — collapse.
 - **Compound struct conflating distinct concepts vs separate types.**
   Separate types reveal structure when the concepts are actually
   distinct.
