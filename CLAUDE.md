@@ -32,10 +32,12 @@ better-structured. The other rules below derive from this one. *(See
 
 **Never guess or speculate.** Always investigate thoroughly and never hand
 wave. Make sure that all your claims are facts backed up by specific lines of
-code or logs. Adding logs is your best friend — be eager to add them any time
-something isn't behaving as expected. Log generously to see what's *really*
-happening; never reason about behavior from the outside when you could read
-it directly.
+code or logs. Read files **completely** before claiming what they do — not
+just the top, not just the imports, not just the function signature. Partial
+reads produce confident-sounding wrong claims about what code does or doesn't
+do. Adding logs is your best friend — be eager to add them any time something
+isn't behaving as expected. Log generously to see what's *really* happening;
+never reason about behavior from the outside when you could read it directly.
 
 **Never stop working.** NEVER ask things like "want to keep going?", "good
 stopping point?", "should I continue?", or any variation. Never hesitate. Always
