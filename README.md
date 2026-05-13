@@ -17,12 +17,11 @@ that check out this repo).
 
 ```bash
 git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instructions
-ln -sf ~/dev/agent-instructions/CLAUDE.md ~/.claude/CLAUDE.md
-ln -sf ~/dev/agent-instructions/rules/rust-patterns.md ~/.claude/rules/rust-patterns.md
-ln -sf ~/dev/agent-instructions/rules/swiftui.md ~/.claude/rules/swiftui.md
+~/dev/agent-instructions/install.sh
 ```
 
-Edits in either location reflect everywhere.
+`install.sh` symlinks `CLAUDE.md` and every file under `rules/` into
+`~/.claude/`. It's idempotent — re-run after pulling new rules.
 
 ## CI consumption (PR review)
 
