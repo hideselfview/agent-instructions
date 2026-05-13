@@ -121,11 +121,12 @@ implementation. *(See `principles/question-necessity.md`.)*
 **Dependency injection.** Initialize dependencies at the top and pass them
 down. No singletons.
 
-**Never mask errors with defaults.** No `unwrap_or_else(|| "default")`, no `??
-""`, no `try?` when the error matters. If data should be present, its absence
-is a bug — surface it with `expect()`, `Result`, or make the types prevent it.
-Falling back to a default hides broken assumptions and creates silent failures
-downstream.
+**Never mask errors with defaults.** No `unwrap_or_else(|| "default")`, no
+`?? ""`, no `try?` when the error matters, no `.ok()` dropping a Result, no
+`let _ = …` swallowing one. If data should be present, its absence is a bug
+— surface it with `expect()`, `Result`, or make the types prevent it.
+Falling back to a default — or silently discarding the error — hides broken
+assumptions and creates silent failures downstream.
 
 **Every bug fix starts with a failing test.** *Before* you debug, before you
 even investigate — write a test that reproduces the failure. Run it, confirm
