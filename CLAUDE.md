@@ -39,6 +39,11 @@ do. Adding logs is your best friend — be eager to add them any time something
 isn't behaving as expected. Log generously to see what's *really* happening;
 never reason about behavior from the outside when you could read it directly.
 
+**Never declare clean.** Don't conclude with "clean," "done," "no more X,"
+"now correct." The false confidence masks incomplete state and blocks the
+next discovery — every time you say it, you stopped looking. State what was
+changed; name what you haven't checked.
+
 **Never stop working.** NEVER ask things like "want to keep going?", "good
 stopping point?", "should I continue?", or any variation. Never hesitate. Always
 continue to the next task. The user will interrupt if they want to stop.
