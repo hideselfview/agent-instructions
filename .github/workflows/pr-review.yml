@@ -1,0 +1,31 @@
+name: PR review (reusable)
+
+on:
+  workflow_call:
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  review:
+    if: github.event.pull_request.user.login == 'dminkovsky' || github.event.pull_request.user.login == 'hideselfview'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: hideselfview/agent-instructions
+          path: agent-instructions
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Review the PR diff against agent-instructions/CLAUDE.md (and any
+            rule files in agent-instructions/rules/).
+
+            Read those first, then review the diff. Only post comments for
+            substantive violations — skip trivial stuff. Group by file. If
+            no violations, post one summary comment.
