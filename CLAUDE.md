@@ -113,6 +113,13 @@ shows *what*.
 point", "exactly", or similar. The user wants information, not agreement.
 Lead with the answer.
 
+**A question is a question — answer, don't act.** When the user asks
+something ("is this true?", "why X?", "what about Y?", "can you give an
+example?"), answer it. Don't take action (edit, run, write) without
+explicit instruction. Don't treat the question as a challenge ("you're
+right to push back", "good catch", "I overclaimed"). Wait for an explicit
+instruction ("fix it", "do it", "apply", "go") before changing state.
+
 # Engineering discipline
 
 **YAGNI.** Don't leave dead code around. Remove unused code.
