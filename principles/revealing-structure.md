@@ -31,26 +31,21 @@ ease and structure align, fine — but ease is never the justification.
 
 ## Examples
 
-- **A chain of wrapper types vs the primitive operation.** Each wrapper
-  either represents a genuinely distinct state (e.g.,
-  `Request → AuthorizedRequest → ValidatedRequest`, where each carries
-  different invariants downstream code can rely on) or it's a decorative
-  rename. Wrappers carrying meaning reveal state — keep them. Wrappers
-  that just hand the same data to the next layer obscure it — collapse.
-- **Compound struct conflating distinct concepts vs separate types.**
-  Separate types reveal structure when the concepts are actually
-  distinct.
-- **Sugar helpers invented preemptively vs primitives first.**
-  Primitives-first reveals structure; preemptive sugar conceals the real
-  shape until patterns prove themselves.
-- **A fix that suppresses a symptom vs one that addresses the root.** The
-  root fix reveals structure; the symptom-fix hides it.
-- **An abstraction parameter that conflates two distinct things vs
-  separate parameters per concept.** Separate reveals structure;
-  conflated obscures ownership.
-- **A test that pins observed behavior vs intended structure.**
-  Intended-structure reveals; observed-behavior ossifies the current
-  shape.
+- **Wrapper chain.** Each wrapper either represents a distinct state with
+  different invariants (`Request → AuthorizedRequest → ValidatedRequest`)
+  or it's a decorative rename. Keep the meaningful; collapse the
+  decorative.
+- **Compound vs separate types.** Splitting reveals when distinct
+  concepts are sharing one container. Merging hides ownership.
+- **Primitives first, sugar later.** Sugar invented before patterns are
+  real hides the shape; sugar added after they're proven reveals it.
+- **Root vs symptom.** Symptom-patches hide why the symptom appeared and
+  seed sibling bugs. Fix the cause.
+- **One parameter per concept.** Two counts named "count, count2"
+  obscure which is which. Separate by meaning, not by index.
+- **Test the contract, not the behavior.** Assert what the structure
+  guarantees, not what the current code happens to output. Observation
+  tests ossify today's shape.
 
 ## Failure modes
 
