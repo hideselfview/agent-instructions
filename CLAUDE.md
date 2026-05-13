@@ -141,6 +141,12 @@ even for "obvious" fixes. The failing test is the receipt that you understood
 the bug, not just patched a symptom; the passing test is the receipt that the
 fix actually addressed it.
 
+**Test the real unit, not a reconstruction.** The test must call the actual
+function or service that has the bug. Manually reconstructing the conditions
+in isolation (calling sub-functions in the order you think causes the bug)
+is just another program — it proves nothing about the real code. Identify
+the unit that contains the bug, write a test that exercises that unit.
+
 **Never re-implement production logic in tests, mocks, or previews.** Tests
 should exercise the real production code with mock *inputs*, not re-derive
 its outputs. If your test setup duplicates what production does, you're
