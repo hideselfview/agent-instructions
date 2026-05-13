@@ -16,10 +16,10 @@ that check out this repo).
 ## Local setup (Claude Code)
 
 ```bash
-git clone git@github.com:hideselfview/agent-instructions.git ~/agent-instructions
-ln -sf ~/agent-instructions/CLAUDE.md ~/.claude/CLAUDE.md
-ln -sf ~/agent-instructions/rules/rust-patterns.md ~/.claude/rules/rust-patterns.md
-ln -sf ~/agent-instructions/rules/swiftui.md ~/.claude/rules/swiftui.md
+git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instructions
+ln -sf ~/dev/agent-instructions/CLAUDE.md ~/.claude/CLAUDE.md
+ln -sf ~/dev/agent-instructions/rules/rust-patterns.md ~/.claude/rules/rust-patterns.md
+ln -sf ~/dev/agent-instructions/rules/swiftui.md ~/.claude/rules/swiftui.md
 ```
 
 Edits in either location reflect everywhere.
