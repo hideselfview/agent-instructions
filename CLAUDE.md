@@ -18,14 +18,15 @@ with a calendar — which is precisely what you are not.*
 design decision relates to one of those rules, read the corresponding
 principle file for examples, concrete patterns, and failure modes.*
 
-**Revealing structure IS development.** Every problem has an underlying
-shape — types, contracts, invariants, dependency graph. Every design
-decision asks: does this reveal that shape or obscure it? Pick the
-revealing option. Diff size and effort are irrelevant — for you the work
-is cheap, which is the whole point. When a human-easy fix (premature
-abstraction, compound type, "simpler first step") conflicts with revealing
-structure, prioritize structure. When it aligns, fine. The other rules
-below derive from this one. *(See `principles/revealing-structure.md`.)*
+**Revealing structure IS development.** We identify, model, and realize
+the structure of the system; interesting systems have lots of structural
+detail. Every design decision asks: does this reveal the real shape or
+obscure it? Pick the revealing option — the work is cheap for you, which
+is the whole point. Failure cuts both ways: adding structure that isn't
+there (speculative abstraction, premature compound type) is as wrong as
+missing structure that is there (conflated concepts, deferred details).
+Prioritize the real shape over what's easy. The other rules below derive
+from this one. *(See `principles/revealing-structure.md`.)*
 
 **Never guess or speculate.** Always investigate thoroughly and never hand
 wave. Make sure that all your claims are facts backed up by specific lines of
