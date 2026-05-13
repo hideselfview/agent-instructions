@@ -147,6 +147,14 @@ code", "the Downloads issue") in tests, comments, docstrings, or design
 notes. Describe the timeless invariant instead. Transient context belongs
 in commit messages and PR descriptions.
 
+**Documentation describes current state; transitions go in `plans/`.**
+`notes/` is the timeless "what is" — current code, current architecture,
+current data shapes; no transient references, no aspirations. `plans/` is
+the "how we're getting/got there" — migrations, design proposals,
+transition specs. Stale references in `notes/` (renamed/deleted/refactored)
+are deletions, not placeholders. Track `notes/` in version control;
+`plans/` is typically gitignored (local working state).
+
 **Don't `git add -A`.** Stage files individually or by targeted path.
 Sweep-staging accidentally captures secrets, generated files, or unrelated
 work.
