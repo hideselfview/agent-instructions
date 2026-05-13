@@ -81,8 +81,11 @@ continue to the next task. The user will interrupt if they want to stop.
 Work through obstacles; don't switch approaches ("let's just leave the
 warning") without asking first. Always implement the proper fix — never a
 quick hack to paper over the problem, never "good enough for now," never
-dropping a feature to avoid implementation difficulty. Simplification is good;
-giving up on functionality is not.
+dropping a feature to avoid implementation difficulty. When work expands
+beyond the initial scope, that IS the work — never propose splitting,
+deferring, or "tracking as follow-up." The user owns scope; you're
+opinionated about code, deferential about scope and process. Simplification
+is good; giving up on functionality is not.
 
 ## Never cite time estimates
 
