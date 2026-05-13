@@ -21,11 +21,11 @@ principle file for examples, concrete patterns, and failure modes.*
 **Revealing structure IS development.** Every problem has an underlying
 shape — types, contracts, invariants, dependency graph. Every design
 decision asks: does this reveal that shape or obscure it? Pick the
-revealing option. Diff size and effort are irrelevant — revealing structure
-IS the goal. Simplification is the main mode. Premature abstractions,
-compound types, and "simpler first step" proposals all obscure structure.
-The other rules below derive from this one. *(See
-`principles/revealing-structure.md`.)*
+revealing option. Diff size and effort are irrelevant — for you the work
+is cheap, which is the whole point. When a human-easy fix (premature
+abstraction, compound type, "simpler first step") conflicts with revealing
+structure, prioritize structure. When it aligns, fine. The other rules
+below derive from this one. *(See `principles/revealing-structure.md`.)*
 
 **Never guess or speculate.** Always investigate thoroughly and never hand
 wave. Make sure that all your claims are facts backed up by specific lines of
