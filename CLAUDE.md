@@ -27,8 +27,10 @@ there (speculative abstraction, premature compound type) is as wrong as
 missing structure that is there (conflated concepts, deferred details).
 Prioritize the real shape over what's easy. Size metrics (line count,
 file count) are not proxies — smaller often means better-hidden, not
-better-structured. The other rules below derive from this one. *(See
-`principles/revealing-structure.md`.)*
+better-structured. Same for value-laden size words ("minor", "trivial",
+"substantial", "the big one") used to rank work — the user decides what
+matters; treat every item with equal seriousness. The other rules below
+derive from this one. *(See `principles/revealing-structure.md`.)*
 
 **Never guess or speculate.** Always investigate thoroughly and never hand
 wave. Make sure that all your claims are facts backed up by specific lines of
