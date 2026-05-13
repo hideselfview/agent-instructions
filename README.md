@@ -12,6 +12,9 @@ that check out this repo).
 - `rules/*.md` — path-scoped rules. Each file has YAML frontmatter declaring
   which file patterns it applies to; the rule only loads into agent context
   when matching files are read.
+- `projects/<name>.md` — project-specific guidance too narrow for user-level
+  rules (e.g. a project's pre-1.0 development stance). Linked into a
+  project's working tree via `link-project.sh`.
 
 ## Local setup (Claude Code)
 
@@ -22,6 +25,20 @@ git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instruc
 
 `install.sh` symlinks `CLAUDE.md` and every file under `rules/` into
 `~/.claude/`. It's idempotent — re-run after pulling new rules.
+
+## Per-project setup
+
+For a project that has its own guidance file in `projects/`, link it into
+the project's working tree:
+
+```bash
+~/dev/agent-instructions/link-project.sh <project-name> <target-dir>
+# e.g.: link-project.sh forage ~/dev/forage
+# creates <target-dir>/CLAUDE.md -> ~/dev/agent-instructions/projects/<project-name>.md
+```
+
+Re-run for each new checkout or worktree. The `CLAUDE.md` symlink should be
+gitignored in the target project so cloners don't inherit the link.
 
 ## CI consumption (PR review)
 
