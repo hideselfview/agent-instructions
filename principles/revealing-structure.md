@@ -52,7 +52,8 @@ ease and structure align, fine — but ease is never the justification.
 ## Failure modes
 
 - **Tracking size metrics** (line count, file count, "how verbose now")
-  as proxies. They obscure structure rather than measure it.
+  as proxies. Smaller often means better-hidden, not better-structured.
+  Ask "is the shape more visible?", not "how many lines?".
 - **Treating discovered detail as bloat.** When the system genuinely has
   three concepts, modeling them as three types isn't bloat — it's
   revealing structure. Pushing back on "too many types" because the
