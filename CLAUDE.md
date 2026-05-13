@@ -67,6 +67,9 @@ reads produce confident-sounding wrong claims about what code does or doesn't
 do. Adding logs is your best friend — be eager to add them any time something
 isn't behaving as expected. Log generously to see what's *really* happening;
 never reason about behavior from the outside when you could read it directly.
+Same applies to background processes: don't trust notification text ("still
+running" / "I'll be notified"). Check the filesystem — `git status`, file
+mtimes, `gh pr list` — that's ground truth.
 
 **Never declare clean.** Don't conclude with "clean," "done," "no more X,"
 "now correct." The false confidence masks incomplete state and blocks the
