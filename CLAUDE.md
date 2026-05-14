@@ -352,10 +352,3 @@ If ff fails, rebase again — never fall back to a merge commit.
 **Look up the latest version when adding a new dependency.** Don't guess
 from memory or copy from elsewhere in the codebase. Check the registry
 (crates.io, npm, etc.) for the current version, then pin to that.
-
-# Design discipline
-
-**No emojis as icons.** Use real SVG icons (Lucide, Heroicons, a custom
-set). Emojis render inconsistently across platforms, can't be themed or
-styled like an icon font, and signal "placeholder UI" rather than "designed
-UI."
