@@ -37,17 +37,21 @@ re-run after pulling new rules.
 
 ## Per-project setup
 
-For a project that has its own guidance file in `projects/`, link it into
-the project's working tree:
+`install.sh` auto-links every `projects/<name>.md` to
+`~/dev/<name>/CLAUDE.md` (skipping projects whose target dir doesn't
+exist on this machine). For projects following that convention,
+nothing else to do.
+
+For projects at non-conventional paths, use `link-project.sh`:
 
 ```bash
 ~/dev/agent-instructions/link-project.sh <project-name> <target-dir>
-# e.g.: link-project.sh forage ~/dev/forage
+# e.g.: link-project.sh forage ~/work/forage
 # creates <target-dir>/CLAUDE.md -> ~/dev/agent-instructions/projects/<project-name>.md
 ```
 
-Re-run for each new checkout or worktree. The `CLAUDE.md` symlink should be
-gitignored in the target project so cloners don't inherit the link.
+The `CLAUDE.md` symlink should be gitignored in the target project so
+cloners don't inherit the link.
 
 ## CI consumption (PR review)
 
