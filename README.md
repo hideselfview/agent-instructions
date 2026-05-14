@@ -39,19 +39,8 @@ re-run after pulling new rules.
 
 `install.sh` auto-links every `projects/<name>.md` to
 `~/dev/<name>/CLAUDE.md` (skipping projects whose target dir doesn't
-exist on this machine). For projects following that convention,
-nothing else to do.
-
-For projects at non-conventional paths, use `link-project.sh`:
-
-```bash
-~/dev/agent-instructions/link-project.sh <project-name> <target-dir>
-# e.g.: link-project.sh forage ~/work/forage
-# creates <target-dir>/CLAUDE.md -> ~/dev/agent-instructions/projects/<project-name>.md
-```
-
-The `CLAUDE.md` symlink should be gitignored in the target project so
-cloners don't inherit the link.
+exist on this machine). The `CLAUDE.md` symlink should be gitignored
+in the target project so cloners don't inherit the link.
 
 ## CI consumption (PR review)
 
