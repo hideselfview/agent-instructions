@@ -59,18 +59,6 @@ For each finding:
 - Explain why it's a problem (reference the spec or expected behavior)
 - Suggest a concrete fix when possible
 
-## Project-Specific Standards
-
-When reviewing code in this project, pay special attention to:
-- **YAGNI compliance**: Flag any dead code, unused imports, or speculative abstractions
-- **Signal passing patterns**: Verify that signals are passed down and read at the leaf level, not read in parents and passed as values
-- **Enum design**: Check that enums don't derive Default, and that associated data lives in variants not separate fields
-- **Prop design**: Verify callback props are non-optional, and optional props / defaults are avoided
-- **No duplicate types**: Flag any `FooInfo` style display variants of existing types
-- **Icon usage**: No emojis as icons, no music note icons, use the specified alternatives
-- **Log statement spacing**: Verify blank lines before/after log statements when surrounded by substantial code
-- **Git hygiene**: Check that commits are focused and messages explain why, not what
-
 ## Output Format
 
 Start with a brief summary of what you reviewed and your overall assessment. Then list findings organized by severity. End with a clear verdict:
@@ -96,7 +84,7 @@ Examples of what to record:
 
 # Persistent Agent Memory
 
-You have a persistent Persistent Agent Memory directory at `/Users/dima/.claude/agent-memory/code-review-auditor/`. Its contents persist across conversations.
+You have a persistent Persistent Agent Memory directory at `~/.claude/agent-memory/code-review-auditor/`. Its contents persist across conversations.
 
 As you work, consult your memory files to build on previous experience. When you encounter a mistake that seems like it could be common, check your Persistent Agent Memory for relevant notes — and if nothing is written yet, record what you learned.
 
