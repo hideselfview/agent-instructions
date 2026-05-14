@@ -5,6 +5,16 @@ via uniffi (bae-bridge → bae-macos, bae-ios, bae-android, bae-web), and
 a cloud sync layer (bae-proxy) supporting S3 / Google Drive / Dropbox /
 OneDrive.
 
+## Stylization: bae is always lowercase
+
+"bae" is always lowercase in user-visible strings — UI text, labels,
+docs, error messages, window titles, button text, alt text, meta
+descriptions, filenames (`bae.dmg`, `bae Library`), URLs (`bae://`).
+Never "Bae" or "BAE".
+
+Exception: code identifiers (variables, functions, types) follow
+language conventions.
+
 ## Greenfield — break things and move on
 
 Pre-1.0. `rm -rf ~/.bae` is the migration strategy. When the canonical
