@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Check that staged markdown files are formatted with mdformat.
+# Width and other options come from .mdformat.toml at the repo root.
+
+set -euo pipefail
+
+md_files=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.md$' || true)
+
+if [[ -z "$md_files" ]]; then
+  exit 0
+fi
+
+if ! command -v mdformat >/dev/null 2>&1; then
+  echo "pre-commit: mdformat not on PATH. Run ./install.sh to set it up." >&2
+  exit 1
+fi
+
+if ! mdformat --version 2>/dev/null | grep -q mdformat_frontmatter; then
+  echo "pre-commit: mdformat-frontmatter plugin missing. Run ./install.sh." >&2
+  exit 1
+fi
+
+# shellcheck disable=SC2086
+if ! mdformat --check $md_files; then
+  echo >&2
+  echo "Markdown files are not formatted. Fix with:" >&2
+  echo "  mdformat $md_files" >&2
+  exit 1
+fi

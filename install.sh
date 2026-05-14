@@ -1,13 +1,26 @@
 #!/usr/bin/env bash
 # Symlink agent-instructions content into ~/.claude/ so Claude Code reads
 # this repo's files as its user-level CLAUDE.md, rules, principles, and
-# agents.
+# agents. Also installs the markdown pre-commit hook for this repo.
 #
 # Idempotent — safe to re-run after pulling new files.
 
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Pre-commit hook: enforce mdformat on markdown files.
+if ! command -v mdformat >/dev/null 2>&1; then
+  echo "Installing mdformat via pipx..."
+  command -v pipx >/dev/null 2>&1 || brew install pipx
+  pipx install mdformat
+fi
+if ! mdformat --version 2>/dev/null | grep -q mdformat_frontmatter; then
+  echo "Injecting mdformat-frontmatter plugin..."
+  pipx inject mdformat mdformat-frontmatter
+fi
+git -C "$repo" config core.hooksPath .githooks
+echo "Configured $repo git hooks -> .githooks"
 
 ln -sf "$repo/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
 echo "Linked ~/.claude/CLAUDE.md -> $repo/CLAUDE.md"
