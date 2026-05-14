@@ -2,6 +2,12 @@ name: PR review (reusable)
 
 on:
   workflow_call:
+    inputs:
+      project:
+        description: 'agent-instructions project name (matches projects/<name>.md). Defaults to the calling repo name; pass explicitly when the repo and project names differ (e.g., foragelang repo → forage project).'
+        required: false
+        type: string
+        default: ${{ github.event.repository.name }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -27,7 +33,7 @@ jobs:
             agent-instructions/agents/code-review-auditor.md, with rules
             from agent-instructions/CLAUDE.md, any rule files in
             agent-instructions/rules/, and project-specific guidance in
-            agent-instructions/projects/${{ github.event.repository.name }}.md
+            agent-instructions/projects/${{ inputs.project }}.md
             (skip the project file if it doesn't exist).
 
             Read those first, then review the diff. Only post comments for
