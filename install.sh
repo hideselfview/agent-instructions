@@ -12,6 +12,9 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ln -sf "$repo/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
 echo "Linked ~/.claude/CLAUDE.md -> $repo/CLAUDE.md"
 
+ln -sf "$repo/settings.json" "$HOME/.claude/settings.json"
+echo "Linked ~/.claude/settings.json -> $repo/settings.json"
+
 for subdir in rules principles agents; do
   mkdir -p "$HOME/.claude/$subdir"
   for f in "$repo/$subdir"/*.md; do

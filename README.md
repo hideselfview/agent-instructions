@@ -12,9 +12,17 @@ that check out this repo).
 - `rules/*.md` — path-scoped rules. Each file has YAML frontmatter declaring
   which file patterns it applies to; the rule only loads into agent context
   when matching files are read.
+- `principles/*.md` — elaborated principles referenced from CLAUDE.md. Loaded
+  on demand when an agent reaches for the longer-form treatment of a rule.
+- `agents/*.md` — subagent definitions (code-review-auditor, product-engineer,
+  etc.) used by Claude Code's Agent tool.
 - `projects/<name>.md` — project-specific guidance too narrow for user-level
   rules (e.g. a project's pre-1.0 development stance). Linked into a
   project's working tree via `link-project.sh`.
+- `settings.json` — portable Claude Code settings: env vars, permission
+  default mode, enabled plugins, UI prefs. Linked into `~/.claude/`.
+  Machine-specific overrides go in `~/.claude/settings.local.json` (not in
+  this repo).
 
 ## Local setup (Claude Code)
 
@@ -23,8 +31,9 @@ git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instruc
 ~/dev/agent-instructions/install.sh
 ```
 
-`install.sh` symlinks `CLAUDE.md` and every file under `rules/` into
-`~/.claude/`. It's idempotent — re-run after pulling new rules.
+`install.sh` symlinks `CLAUDE.md`, `settings.json`, and every file under
+`rules/`, `principles/`, and `agents/` into `~/.claude/`. It's idempotent —
+re-run after pulling new rules.
 
 ## Per-project setup
 

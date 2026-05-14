@@ -34,6 +34,8 @@ Focus on recently changed code (not the entire codebase). Examine:
 - **Edge cases**: What happens with empty inputs, null values, boundary conditions, concurrent access, large datasets?
 - **Error handling**: Are errors caught, propagated, and reported appropriately? Are there silent failures?
 - **Side effects**: Does the code have unintended consequences on other parts of the system?
+- **Redundancy**: Are there multiple places parsing, fetching, or deriving the same data? Independent derivations drift apart (one branch starts using a different grouping, invariant, or shape) and produce silent bugs. Flag and recommend consolidation to a single source.
+- **Suppressed incompletion signals**: `_param` placeholders on parameters that should be wired, `let _ = …` swallowing a Result, `#[allow(dead_code)]` on temporarily-unused code, `// TODO` markers in committed code, `--no-verify` bypasses. All hide missing wiring or unfinished work. Flag unless the suppression is genuinely permanent (forced trait signature, callback contract). The warning was the reminder.
 
 ### 3. Cross-Reference
 - Compare the implementation against the spec point by point

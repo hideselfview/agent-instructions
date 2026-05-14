@@ -44,3 +44,64 @@ Legitimate reasons to take a prop/binding when context is also available:
   — the prop is the only path.
 - The component is intentionally pure / prop-driven — doesn't touch
   context at all.
+
+## State describes what is, not what should happen
+
+Don't use observable state fields as imperative command triggers. The
+"set a flag, observe via `.task(id:)`/`onChange`, reset the flag"
+pattern conflates two concepts: state is what the UI *is*; commands are
+what should *happen once*. Packing a one-shot command into an observable
+field leaks it through every reader, requires edge-triggered guards,
+and creates subtle bugs (equal-value sets don't re-fire).
+
+For ephemeral commands (scroll, flash, focus, play-this-once), use
+pub/sub:
+
+- **SwiftUI**: `PassthroughSubject` / `AsyncStream` — sender publishes,
+  receiver subscribes via `.onReceive`.
+- **React**: event emitter or imperative ref method.
+- **Dioxus**: channel or explicit signal dispatch.
+
+Diagnostic: if you find yourself writing `uiState.xyz = value` followed
+by a reader that resets `uiState.xyz = nil` after handling, the design
+is wrong — replace with a subject.
+
+## Pub/sub over ref-registration
+
+When component A needs to push imperative updates to component B —
+bypassing the normal reactive flow — prefer pub/sub: B subscribes to a
+stream A publishes to. Avoid ref-registration, where intermediate
+containers collect refs to B and the parent calls methods on them.
+
+Registration forces every layer in the hierarchy to know B's type and
+wire the connection, leaking B through containers that shouldn't care
+about it. Pub/sub lets B self-wire at construction — no registration
+step, no leaked types, no coupling through the tree.
+
+Framework instances:
+
+- **SwiftUI**: `PassthroughSubject` / `AsyncStream` — A publishes, B
+  subscribes via `.onReceive` or a `.task` await loop.
+- **React**: event emitter (`EventTarget`, mitt, RxJS subject) or a
+  context with a callback registry.
+- **Dioxus**: channel (`futures::channel::mpsc`) or a signal B watches.
+
+Fall back to registration only when the update requires calling
+multiple methods on a stateful object that can't be captured in a
+single message.
+
+## Reducers must not read state to write state
+
+Event handlers that mutate state must derive their output purely from
+the event payload. If a reducer reaches into other state slices
+(`summaries[albumId]`) to compute what it writes
+(`storageSummaries[releaseId]`), the store becomes ordering-dependent
+— whichever slice populated first wins — and forces fallback defaults
+on cache miss.
+
+Fix: widen the event payload so the reducer is a pure function of the
+event. Events can carry foreign-key ids, but must not require the
+reducer to dereference them against other slices. On the producer side
+(emitter, bridge, backend), this may mean joining data before emitting
+so the event payload mirrors what every reducer consumer needs — not
+the raw DB row.

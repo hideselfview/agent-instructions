@@ -23,8 +23,10 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
-            Review the PR diff against agent-instructions/CLAUDE.md (and any
-            rule files in agent-instructions/rules/).
+            Review the PR diff using the methodology and checklist in
+            agent-instructions/agents/code-review-auditor.md, with rules
+            from agent-instructions/CLAUDE.md and any rule files in
+            agent-instructions/rules/.
 
             Read those first, then review the diff. Only post comments for
             substantive violations — skip trivial stuff. Group by file. If
