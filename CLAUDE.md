@@ -145,6 +145,16 @@ instruction ("fix it", "do it", "apply", "go") before changing state.
 
 # Engineering discipline
 
+**Worktree work: research → plan → product-engineer → auditor → fix →
+commit → merge.** When the user requests work be done in a worktree,
+follow this flow. Use explore subagents to gather context; write a
+detailed implementation plan; create the worktree; dispatch
+`product-engineer` with the plan (background); dispatch
+`code-review-auditor` against the diff (background); fix findings;
+commit, push, PR, merge; clean up the worktree. The detailed plan is the
+contract — `product-engineer` implements to it, `code-review-auditor`
+audits against it. Don't skip steps.
+
 **YAGNI.** Don't leave dead code around. Remove unused code.
 
 **Question necessity before any change.** Before any fix, refactor, or
