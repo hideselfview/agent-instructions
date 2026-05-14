@@ -7,10 +7,9 @@ a CLI, an LSP, and Forage Studio for interactive authoring.
 
 ## Greenfield — no migrations, no compat shims
 
-Pre-1.0 — break things and move on. When you change the canonical definition
-of anything (schema, AST, IR, binary format, capture/replay fixtures, hub-api
-KV entries, LSP wire messages), edit the definition and update every caller in
-one PR. No migration shims, no dual-shape compatibility flags, no
+Pre-1.0 — break things and move on. When you change the canonical definition of
+anything (schema, AST, IR, binary format, capture/replay fixtures, hub-api KV
+entries, LSP wire messages), edit the definition and update every caller in one
+PR. No migration shims, no dual-shape compatibility flags, no
 `#[serde(default)]` to silently absorb renamed fields. If a fixture is stale,
 regenerate it.
-

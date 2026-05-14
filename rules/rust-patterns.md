@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**/*.rs"
+  - '**/*.rs'
 ---
 
 # Rust patterns
@@ -34,6 +34,6 @@ When the compiler warns about unused code, two options:
    - Feature-gated: `#[cfg(feature = "some-feature")]`
    - Platform-specific: `#[cfg(target_os = "macos")]`
 
-`#[allow(dead_code)]` is banned — it hides the decision behind a
-permanent suppression. `#[cfg(...)]` instead makes the context explicit
-and forces a compiler error if test-only code is used in production.
+`#[allow(dead_code)]` is banned — it hides the decision behind a permanent
+suppression. `#[cfg(...)]` instead makes the context explicit and forces a
+compiler error if test-only code is used in production.
