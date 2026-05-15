@@ -31,7 +31,7 @@ jobs:
           prompt: |
             Review the PR diff using the methodology and checklist in
             agent-instructions/agents/code-review-auditor.md, with rules
-            from agent-instructions/CLAUDE.md, any rule files in
+            from agent-instructions/instructions.md, any rule files in
             agent-instructions/rules/, and project-specific guidance in
             agent-instructions/projects/${{ inputs.project }}.md
             (skip the project file if it doesn't exist).
