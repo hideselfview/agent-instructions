@@ -1,0 +1,139 @@
+# Writing style
+
+**No marketing language anywhere.** Applies to all written artifacts — code,
+comments, docs, notes, UI text, error messages, commit messages, PR
+descriptions. No "improves user experience," "seamless," "powerful," "elegant,"
+"robust," "intuitive," "delightful," etc. State what it does plainly.
+
+**Commit messages: brief, why not what.** State what happened. No padding, no
+celebrating the change. Focus on *why* (when not obvious from the diff) — the
+diff already shows *what*.
+
+**PR descriptions: narrative prose, not changelogs.** Explain the situation, the
+problem, and the approach in a few sentences. The diff shows *what* changed —
+the PR body explains *why*. No bullet lists of "changed X to Y in file Z" — that
+duplicates the diff. Test plan section can stay as bullets since those are
+actionable items.
+
+# Code rules
+
+**PRs are single-concern.** Each PR is one focused change that's trivial to
+understand at a glance. Never bundle unrelated fixes into a grab-bag PR — if an
+audit surfaces N findings, that's N PRs (or commits queued for separate PRs),
+not one.
+
+**YAGNI.** Don't leave dead code around. Delete at the root, not at the consumer
+— filtering or guarding around dead code preserves it. After deletion, fields
+that existed only to model the dead case become required. *(See
+`principles/yagni.md`. Pairs with question-necessity: YAGNI is retrospective,
+question-necessity is prospective.)*
+
+**Question necessity before any change.** Before any fix, refactor, or addition:
+ask "do we need this?" and "what could change so we don't need this?" The
+duplicate might already be handled upstream; the bug might be a symptom of a
+deeper problem; the new abstraction might dissolve if the right concept is
+introduced. The meta-question fires before the implementation. *(See
+`principles/question-necessity.md`.)*
+
+**Dependency injection.** Initialize dependencies at the top and pass them down.
+No singletons.
+
+**Never mask errors with defaults.** No `unwrap_or_else(|| "default")`, no
+`?? ""`, no `try?` when the error matters, no `.ok()` dropping a Result, no
+`let _ = …` swallowing one. If data should be present, its absence is a bug —
+surface it with `expect()`, `Result`, or make the types prevent it. Masking is
+bad on every axis: it hides broken assumptions and creates silent failures
+downstream; it impedes structure discovery by erasing the failure cases that are
+part of the system's real shape (when *can* this fail? what does it mean when it
+does? what should the type encode?); and it lies about correctness — code that
+"works" because errors are silenced isn't working, just quiet.
+
+The *only* escape hatch — when a silent skip is genuinely correct behavior (the
+value really is optional, the case really should be skipped) — is to log the
+bail-out at the skip point: `warn!` if it's rare/abnormal, `debug!` if it's
+common-but-noteworthy. Include the input that triggered it; "skipping CUE path
+with no UTF-8 stem: {:?}" is actionable, "skipping" alone is useless. This is
+the only exception. If you don't want to log, you don't have a legitimate skip —
+you have a masked error. (Pure functional Option-returning helpers don't count
+as bail-outs; this covers exceptional skips on the main path.)
+
+API design follows: when a function would take `Option<T>` just to `unwrap_or`
+internally, split into two — one that requires the value, a `_default()` wrapper
+that generates the default and calls the first. The default stays explicit at
+the boundary, not buried inside.
+
+```rust
+// Bad — Option<String> exists so internal unwrap_or can fire
+pub fn create_library(name: Option<String>) -> Result<Config> {
+    let name = name.unwrap_or_else(generate_library_name);
+    ...
+}
+
+// Good — required param, separate default wrapper
+pub fn create_library(name: String) -> Result<Config> { ... }
+pub fn create_library_default() -> Result<Config> {
+    create_library(generate_library_name())
+}
+```
+
+**Never fill in arguments with zero-valued defaults.** Sibling to the rule
+above, on the construction side. When you don't know what a parameter should be,
+don't pass `0`/`nil`/`None`/`""` because it "looks safe" — trace to the real
+value at the source. The default that type-checks often silently breaks
+downstream (a `samples_to_skip: 0` looks harmless but causes seconds of replay
+artifacts in audio playback). If the parameter genuinely is optional, the
+signature should use `Option`/`Optional` so the absence is explicit. Exception:
+test code can pass defaults for parameters not exercised by the test.
+
+**Use the project's logger for real logs.** Any log that will live in committed
+code goes through the project's structured logger —
+`tracing::info!`/`warn!`/`error!`, the project's `Logger.<category>` helper, the
+language's standard logging crate, whatever the codebase uses. Not
+`println!`/`print`/`console.log`. Structured loggers give you levels,
+categories, filtering, persistence; stdout prints don't. Temporary investigative
+prints are fine during active debugging but must be removed before commit.
+
+**Every bug fix starts with a failing test.** *Before* you debug, before you
+even investigate — write a test that reproduces the failure. Run it, confirm it
+fails. Then fix the code, run again, confirm it passes. No exceptions — even for
+"obvious" fixes. The failing test is the receipt that you understood the bug,
+not just patched a symptom; the passing test is the receipt that the fix
+actually addressed it. When narrating a bug fix, don't say "The fix: …" before
+there's a test — say "The test: …" first.
+
+**Test the real unit, not a reconstruction.** The test must call the actual
+function or service that has the bug. Manually reconstructing the conditions in
+isolation (calling sub-functions in the order you think causes the bug) is just
+another program — it proves nothing about the real code. Identify the unit that
+contains the bug, write a test that exercises that unit.
+
+**Never re-implement production logic in tests, mocks, or previews.** Tests
+should exercise the real production code with mock *inputs*, not re-derive its
+outputs. If your test setup duplicates what production does, you're checking the
+duplicate against itself, not validating production. Anti-patterns:
+
+- A `FooTestImpl` that hand-codes the same business logic `Foo` has.
+- A test helper that constructs the expected output by running its own version
+  of the algorithm.
+- Mocking so deep that the test exercises the mock chain, not the production
+  module.
+- A SwiftUI `#Preview` that rewrites the view's body to make it render — now the
+  preview shows a parallel implementation, not what ships.
+
+**No transient references in code, tests, or notes.** Don't reference the
+current task, fix, or session ("repro for today's bug", "fails on current code",
+"the Downloads issue") in tests, comments, docstrings, or design notes. Describe
+the timeless invariant instead. Transient context belongs in commit messages and
+PR descriptions.
+
+**Documentation describes current state; transitions go in `plans/`.** `notes/`
+is the timeless "what is" — current code, current architecture, current data
+shapes; no transient references, no aspirations. `plans/` is the "how we're
+getting/got there" — migrations, design proposals, transition specs. Stale
+references in `notes/` (renamed/deleted/refactored) are deletions, not
+placeholders. Track `notes/` in version control; `plans/` is typically
+gitignored (local working state).
+
+**Look up the latest version when adding a new dependency.** Don't guess from
+memory or copy from elsewhere in the codebase. Check the registry (crates.io,
+npm, etc.) for the current version, then pin to that.

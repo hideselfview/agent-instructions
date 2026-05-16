@@ -9,6 +9,18 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Assemble instructions.md from agent + code sources. instructions.md is
+# generated (gitignored) and serves as the symlink target for global CLAUDE.md
+# and AGENTS.md. Source files: instructions-agent.md (operating manual) and
+# instructions-code.md (rules for code, tests, docs, commits, PRs). The latter
+# is also loaded directly by the PR-review workflow.
+{
+  cat "$repo/instructions-agent.md"
+  echo
+  cat "$repo/instructions-code.md"
+} > "$repo/instructions.md"
+echo "Generated $repo/instructions.md from instructions-agent.md + instructions-code.md"
+
 # Pre-commit hook: enforce mdformat on markdown files.
 if ! command -v mdformat >/dev/null 2>&1; then
   echo "Installing mdformat via pipx..."
