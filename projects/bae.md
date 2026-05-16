@@ -25,6 +25,8 @@ stale, regenerate it.
 
 ## No real artist/album/song names in artifacts
 
+> Blocking
+
 Never use real artist, album, or song names in any durable written artifact:
 code, tests, UI strings, docs, mockups, PR titles/descriptions, commit messages,
 plan docs, issue bodies. Use descriptive placeholders that carry the same
@@ -34,8 +36,6 @@ Title", "rel-123".
 The only safe place for a real name is ephemeral chat that won't be indexed or
 linked later. Before finalizing any PR title/body, commit message, or plan doc,
 scan and replace.
-
-Enforced on every PR by `.github/workflows/ai-block-names.yml`.
 
 ## SPM cache recovery (bae-macos)
 
