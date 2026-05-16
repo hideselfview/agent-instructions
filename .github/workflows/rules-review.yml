@@ -12,6 +12,10 @@ on:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
 
+concurrency:
+  group: rules-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   review:
     if: github.event.pull_request.user.login == 'dminkovsky' || github.event.pull_request.user.login == 'hideselfview'
