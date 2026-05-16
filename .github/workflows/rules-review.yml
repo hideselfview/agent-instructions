@@ -31,7 +31,12 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
           prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
             Check the PR diff for violations of the rules in:
 
             - agent-instructions/instructions-code.md (general code rules
@@ -48,5 +53,11 @@ jobs:
             violations of the rules in the files above. If something is
             questionable but not a clear rule violation, skip it.
 
-            Quote the specific rule each finding violates. Group by file.
-            If no violations, post one summary comment saying so.
+            Post findings through GitHub — do NOT put review text in your
+            final message, since the action discards it. For each
+            line-anchored violation, call
+            `mcp__github_inline_comment__create_inline_comment` with
+            `confirmed: true`; quote the specific rule the finding
+            violates. Use `gh pr comment` only for violations that aren't
+            line-anchored (e.g., commit message or PR description rules).
+            If there are no violations, exit without posting anything.
