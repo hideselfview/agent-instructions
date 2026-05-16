@@ -35,7 +35,7 @@ The only safe place for a real name is ephemeral chat that won't be indexed or
 linked later. Before finalizing any PR title/body, commit message, or plan doc,
 scan and replace.
 
-Enforced on every PR by `.github/workflows/ai-bae-rules-review.yml`.
+Enforced on every PR by `.github/workflows/ai-rules-review.yml`.
 
 ## SPM cache recovery (bae-macos)
 
