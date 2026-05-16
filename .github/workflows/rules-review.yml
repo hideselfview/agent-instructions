@@ -47,6 +47,13 @@ jobs:
 
             Read those files first, then review the diff.
 
+            Some rules in those files have a dedicated CI workflow
+            that blocks PRs on violations. Look for a footer like
+            "Enforced on every PR by `.github/workflows/<name>`"
+            inside the rule body. Skip any rule with such a footer
+            — it's checked by its own workflow that fails the PR
+            on violation, so duplicate findings here are noise.
+
             This is a rules check, not a code review. Do not critique
             design, suggest refactors, propose alternative approaches, or
             comment on architecture. Only flag concrete, citeable
