@@ -1,0 +1,49 @@
+name: Rules review (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: 'agent-instructions project name (matches projects/<name>.md). Defaults to the calling repo name; pass explicitly when the repo and project names differ (e.g., foragelang repo → forage project).'
+        required: false
+        type: string
+        default: ${{ github.event.repository.name }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  review:
+    if: github.event.pull_request.user.login == 'dminkovsky' || github.event.pull_request.user.login == 'hideselfview'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: hideselfview/agent-instructions
+          path: agent-instructions
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Check the PR diff for violations of the rules in:
+
+            - agent-instructions/instructions-code.md (general code rules
+              for code, tests, docs, commit messages, PR descriptions)
+            - agent-instructions/rules/*.md (language and framework rules)
+            - agent-instructions/projects/${{ inputs.project }}.md
+              (project-specific rules; skip if the file doesn't exist)
+
+            Read those files first, then review the diff.
+
+            This is a rules check, not a code review. Do not critique
+            design, suggest refactors, propose alternative approaches, or
+            comment on architecture. Only flag concrete, citeable
+            violations of the rules in the files above. If something is
+            questionable but not a clear rule violation, skip it.
+
+            Quote the specific rule each finding violates. Group by file.
+            If no violations, post one summary comment saying so.
