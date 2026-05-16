@@ -115,7 +115,5 @@ Then list findings organized by severity. End with a clear verdict:
   explicitly asked.
 - Only flag issues introduced by the current changes. Do not flag pre-existing
   linter errors, warnings, or test failures unrelated to the current work.
-- Be specific and actionable. Vague concerns like "this could be better" are not
-  helpful without a concrete suggestion.
 - If you lack sufficient context to evaluate something, you should always
   exhaustively seek to obtain that context.
