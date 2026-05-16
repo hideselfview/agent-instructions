@@ -80,7 +80,7 @@ jobs:
 
             If no violations, output `{"violations": []}`.
 
-      - name: Post review (and fail on blocking)
+      - name: Post inline comments + summary review
         if: steps.claude.outputs.structured_output != ''
         env:
           GH_TOKEN: ${{ steps.claude.outputs.github_token }}
@@ -91,35 +91,36 @@ jobs:
         run: |
           set -euo pipefail
 
-          count=$(jq '.violations | length' <<<"$FINDINGS")
-          if [ "$count" -eq 0 ]; then
+          total=$(jq '.violations | length' <<<"$FINDINGS")
+          if [ "$total" -eq 0 ]; then
             echo "No violations."
             exit 0
           fi
 
-          has_blocking=$(jq -r 'any(.violations[]; .blocking)' <<<"$FINDINGS")
-          if [ "$has_blocking" = "true" ]; then
+          blocking=$(jq '[.violations[] | select(.blocking)] | length' <<<"$FINDINGS")
+          informational=$((total - blocking))
+
+          # One standalone inline comment per violation (not bundled into a review).
+          jq -c '.violations[]' <<<"$FINDINGS" | while read -r v; do
+            jq -n --argjson v "$v" --arg sha "$HEAD_SHA" \
+              '{commit_id: $sha, path: $v.path, line: $v.line, side: "RIGHT", body: $v.body}' \
+              | gh api -X POST "/repos/$REPO/pulls/$PR_NUMBER/comments" --input -
+          done
+
+          # Separate summary review — short body, no nested comments.
+          if [ "$blocking" -gt 0 ]; then
             event="REQUEST_CHANGES"
-            body="Blocking rule violations detected — see inline comments. Fix before merging."
+            summary="**$blocking blocking** finding(s), $informational informational — see inline comments. Blocking findings must be fixed before merging."
           else
             event="COMMENT"
-            body="Rule findings — see inline comments."
+            summary="$informational informational finding(s) — see inline comments."
           fi
 
-          review=$(jq \
-            --arg sha "$HEAD_SHA" \
-            --arg event "$event" \
-            --arg body "$body" \
-            '{
-              commit_id: $sha,
-              event: $event,
-              body: $body,
-              comments: [.violations[] | {path, line, body, side: "RIGHT"}]
-            }' <<<"$FINDINGS")
+          jq -n --arg sha "$HEAD_SHA" --arg event "$event" --arg body "$summary" \
+            '{commit_id: $sha, event: $event, body: $body}' \
+            | gh api -X POST "/repos/$REPO/pulls/$PR_NUMBER/reviews" --input -
 
-          echo "$review" | gh api -X POST "/repos/$REPO/pulls/$PR_NUMBER/reviews" --input -
-
-          if [ "$has_blocking" = "true" ]; then
-            echo "::error::Blocking rule violations found in PR diff."
+          if [ "$blocking" -gt 0 ]; then
+            echo "::error::$blocking blocking rule violation(s) found in PR diff."
             exit 1
           fi
