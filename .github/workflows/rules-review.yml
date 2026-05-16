@@ -20,7 +20,9 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      # Caller repo (the PR's code) into ./ so Claude can see the diff.
       - uses: actions/checkout@v4
+      # Rules repo into ./agent-instructions/ so the prompt's paths resolve.
       - uses: actions/checkout@v4
         with:
           repository: hideselfview/agent-instructions
