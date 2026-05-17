@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       project:
-        description: 'agent-instructions project name (matches projects/<name>.md). Defaults to the calling repo name; pass explicitly when the repo and project names differ (e.g., foragelang repo → forage project).'
+        description: "agent-instructions project name (matches projects/<name>.md). Defaults to the calling repo name; pass explicitly when the repo and project names differ (e.g., foragelang repo → forage project)."
         required: false
         type: string
         default: ${{ github.event.repository.name }}
@@ -46,8 +46,9 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: >-
+            --model claude-opus-4-7
             --allowedTools "Read,Glob,Grep,Bash(gh pr diff:*),Bash(gh pr view:*)"
-            --json-schema '{"type":"object","required":["violations"],"properties":{"violations":{"type":"array","items":{"type":"object","required":["blocking","path","line","body"],"properties":{"blocking":{"type":"boolean"},"path":{"type":"string"},"line":{"type":"integer"},"body":{"type":"string"}}}}}}'
+            --json-schema '{"type":"object","required":["findings"],"properties":{"findings":{"type":"array","items":{"type":"object","required":["blocking","path","line","body"],"properties":{"blocking":{"type":"boolean"},"path":{"type":"string"},"line":{"type":"integer"},"body":{"type":"string"}}}}}}'
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
@@ -66,31 +67,33 @@ jobs:
             right after the heading). All other rules are
             informational.
 
-            Then read the PR diff (`gh pr diff $PR_NUMBER`) and find
-            line-anchored violations. This is a rules check, not a
-            code review — do not critique design, suggest refactors,
-            propose alternative approaches, or comment on
-            architecture. Only flag concrete, citeable violations of
-            the rules above. If something is questionable but not a
-            clear rule violation, skip it. Only line-anchored
-            violations — skip rules that apply to commit messages,
-            PR descriptions, or other non-line-anchored content.
+            Then read the PR diff (`gh pr diff $PR_NUMBER`) and flag
+            line-anchored violations of the rules loaded above. Stay
+            concrete and citeable; if something is questionable but
+            not clearly a rule violation, skip it. For rules that
+            need cross-file context (e.g., "Don't duplicate existing
+            logic"), use Grep/Read across the whole codebase, not
+            just the changed files. Skip rules that apply to commit
+            messages, PR descriptions, or other non-line-anchored
+            content.
 
             Output structured findings as JSON matching the schema.
             Do NOT post anything via tools. The post-step will
             submit a single PR review with all your findings and
             request changes if any are blocking.
 
-            For each violation, populate:
+            For each finding, populate:
             - `blocking`: true if the violated rule has the `> Blocking`
               marker, false otherwise.
             - `path`: file path as it appears in the diff.
             - `line`: line number in the new version of the file.
             - `body`: explanation, including which rule was violated
               (e.g., "Violates **\"Never mask errors with defaults\"**
-              (instructions-code.md): …").
+              (instructions-code.md): …"). For cross-file findings,
+              cite the existing file/symbol that the diff duplicates
+              or could share with.
 
-            If no violations, output `{"violations": []}`.
+            If no findings, output `{"findings": []}`.
 
       - name: Post inline comments + summary review
         if: steps.claude.outputs.structured_output != ''
@@ -109,17 +112,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          total=$(jq '.violations | length' <<<"$FINDINGS")
+          total=$(jq '.findings | length' <<<"$FINDINGS")
           if [ "$total" -eq 0 ]; then
-            echo "No violations."
+            echo "No findings."
             exit 0
           fi
 
-          blocking=$(jq '[.violations[] | select(.blocking)] | length' <<<"$FINDINGS")
+          blocking=$(jq '[.findings[] | select(.blocking)] | length' <<<"$FINDINGS")
           informational=$((total - blocking))
 
-          # One standalone inline comment per violation (not bundled into a review).
-          jq -c '.violations[]' <<<"$FINDINGS" | while read -r v; do
+          # One standalone inline comment per finding (not bundled into a review).
+          jq -c '.findings[]' <<<"$FINDINGS" | while read -r v; do
             jq -n --argjson v "$v" --arg sha "$HEAD_SHA" \
               '{commit_id: $sha, path: $v.path, line: $v.line, side: "RIGHT", body: $v.body}' \
               | gh api -X POST "/repos/$REPO/pulls/$PR_NUMBER/comments" --input -
@@ -139,6 +142,6 @@ jobs:
             | gh api -X POST "/repos/$REPO/pulls/$PR_NUMBER/reviews" --input -
 
           if [ "$blocking" -gt 0 ]; then
-            echo "::error::$blocking blocking rule violation(s) found in PR diff."
+            echo "::error::$blocking blocking finding(s) in PR diff."
             exit 1
           fi
