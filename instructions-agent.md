@@ -237,7 +237,3 @@ branches still reference the *old* SHA in their history; git's merge-base falls
 back to a much older ancestor and replays too many commits, duplicating work and
 producing conflicts that don't represent real diffs. The single-rebase-on-tip
 model side-steps this entirely.
-
-When inheriting an existing per-branch chain from a previous workflow,
-reconstruct the chain branch first via cherry-pick or rebase of each unique
-content commit, then set the PR markers from that single history.
