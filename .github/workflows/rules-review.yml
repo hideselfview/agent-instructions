@@ -87,7 +87,13 @@ jobs:
       - name: Post inline comments + summary review
         if: steps.claude.outputs.structured_output != ''
         env:
-          GH_TOKEN: ${{ steps.claude.outputs.github_token }}
+          # workflow's GITHUB_TOKEN — has the pull-requests: write
+          # we declared on the job. Reviews + inline comments post as
+          # github-actions[bot] rather than claude[bot], which is a
+          # cosmetic difference. The action's own
+          # steps.claude.outputs.github_token returned 401 from the
+          # post-step against /pulls/{n}/comments and /pulls/{n}/reviews.
+          GH_TOKEN: ${{ github.token }}
           FINDINGS: ${{ steps.claude.outputs.structured_output }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
