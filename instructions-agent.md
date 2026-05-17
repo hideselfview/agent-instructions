@@ -237,6 +237,66 @@ back to a much older ancestor and replays too many commits, duplicating work and
 producing conflicts that don't represent real diffs. The single-rebase-on-tip
 model side-steps this entirely.
 
+**Don't pre-scaffold for downstream chain PRs.** When a later chain PR will
+introduce a feature with its own shape, the earlier PR should not add dead
+scaffolding (sentinel fields, always-empty `Vec`s with branching, always-`None`
+params) to make room for it. Each chain PR introduces only the structure its own
+content needs; the downstream PR introduces the real shape from scratch when it
+has the context to design it correctly. Pre-scaffolding is usually wrong twice:
+dead infrastructure in the upstream PR, and a shape that turns out wrong when
+the downstream PR designs the real thing.
+
+Exception: when avoiding the sentinel would require substantial detour code,
+keep the sentinel and add a code comment naming the downstream context that
+removes it:
+
+```rust
+// Sentinel: removed in <next chain PR / feature> which introduces the real
+// <choice> shape. Only here to keep this PR's diff focused on <what it adds>.
+identities: Vec<Identity>,
+```
+
+Reviewers skip flagging commented sentinels; readers know they're transient.
+
+Example. PR `#N` (chain bottom) introduces a new `Identity` model. PR `#N+3`
+adds a user picker for that identity.
+
+Wrong — PR `#N` pre-scaffolds for `#N+3`:
+
+```rust
+pub enum Command {
+    Run {
+        identities: Vec<Identity>,  // always Vec::new() today
+        // …
+    },
+}
+fn process(/* … */, command_identities: Vec<Identity>) {
+    let identities = if command_identities.is_empty() {
+        derived_identities
+    } else {
+        command_identities
+    };
+}
+```
+
+Every caller passes `Vec::new()`; the `else` arm never fires. When `#N+3` lands,
+the real shape isn't `Vec<Identity>` — it's `choice: IdentityChoice` +
+`overrides: Option<UserEdit>`. The scaffolding gets thrown away.
+
+Right — PR `#N` ships only what it needs:
+
+```rust
+pub enum Command {
+    Run { /* … */ }    // no identity field
+}
+fn process(/* … */) {
+    let identities = derived_identities;
+}
+```
+
+PR `#N+3` introduces `choice` and `overrides` from scratch with the correct
+shape.
+
 **Chain navigation at the top of each PR description.** Each PR's description
 begins with a one-line nav block (bold links), then a horizontal rule, then the
 PR's actual body:
