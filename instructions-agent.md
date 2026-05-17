@@ -218,3 +218,26 @@ latest.
 **Fast-forward merges only.** No merge commits in `main`'s history. Rebase the
 branch onto current `main` first, then `git merge --ff-only`. If ff fails,
 rebase again — never fall back to a merge commit.
+
+**Chained PRs are one branch with markers, not N branches.** When a stream of
+work ships as a chain of PRs (`#1 → #2 → … #N`, each targeting the previous),
+treat the whole chain as a single linear branch. The PR-specific branches are
+*markers* — labels that point at specific commits in one history, not
+independent branches you maintain in parallel.
+
+Edit anywhere in the chain with a single `git rebase -i main` on the chain tip:
+mark the target commit `edit`, amend or add a fix commit, continue. After the
+rebase the chain has new SHAs end-to-end. Walk the new commits and
+`git branch -f <pr-branch> <sha>` for each PR marker, then
+`git push --force-with-lease origin <all-pr-branches>` in one batched push.
+
+**Don't cascade-rebase** (don't iterate "rebase branch 2 onto branch 1, then
+branch 3 onto branch 2, …"). When an upstream commit's SHA changes, downstream
+branches still reference the *old* SHA in their history; git's merge-base falls
+back to a much older ancestor and replays too many commits, duplicating work and
+producing conflicts that don't represent real diffs. The single-rebase-on-tip
+model side-steps this entirely.
+
+When inheriting an existing per-branch chain from a previous workflow,
+reconstruct the chain branch first via cherry-pick or rebase of each unique
+content commit, then set the PR markers from that single history.
