@@ -35,6 +35,20 @@ deeper problem; the new abstraction might dissolve if the right concept is
 introduced. The meta-question fires before the implementation. *(See
 `principles/question-necessity.md`.)*
 
+**Don't duplicate existing logic.** Before adding code, check whether the same
+logic already lives elsewhere in the repo. A push-event handler that re-derives
+state already computed by a reducer should call into the existing
+implementation, or factor the shared piece into a helper both call — not
+parallel it. Two implementations of the same thing drift; the one updated first
+becomes a silent bug in the other.
+
+**Parameterize near-duplicates when cheap.** Two or more near-copy blocks
+introduced in the same change should collapse into one function/component with
+parameters when the parameterization is small, local, and the variation maps to
+a real distinction (a literal, a different type, a small expression). Skip when
+the abstraction would be awkward, invent a parameter without meaning, or couple
+unrelated callers — but the default for obvious near-copies is to parameterize.
+
 **Dependency injection.** Initialize dependencies at the top and pass them down.
 No singletons.
 
