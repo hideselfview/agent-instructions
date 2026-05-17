@@ -239,21 +239,24 @@ producing conflicts that don't represent real diffs. The single-rebase-on-tip
 model side-steps this entirely.
 
 **Chain navigation at the top of each PR description.** Each PR's description
-begins with a one-line nav block, then a horizontal rule, then the PR's actual
-body:
+begins with a one-line nav block (bold links), then a horizontal rule, then the
+PR's actual body:
 
 ```
-[Prev](https://github.com/.../pull/N-1) | [Next](https://github.com/.../pull/N+1)
+**[Prev](https://github.com/.../pull/N-1)** | **[Next](https://github.com/.../pull/N+1)**
 
 ---
 
 …actual PR body…
 ```
 
-For the bottom PR (`base: main`), drop the `[Prev]` half and the separator — the
-line is just `[Next](…)`. For the tip PR, drop the `[Next]` half — the line is
-just `[Prev](…)`. Reviewers can walk the chain forward or backward from any PR
-without leaving the diff view.
+For the *original* chain root (the first PR opened, never had a predecessor),
+drop the `[Prev]` half — the line is just `**[Next](…)**`. For the chain tip,
+drop the `[Next]` half — the line is just `**[Prev](…)**`. Reviewers can walk
+the chain forward or backward from any PR without leaving the diff view.
+
+Links to merged PRs stay valid — keep `[Prev]` pointing at a merged predecessor
+so post-merge readers can still walk the chain back to its context.
 
 **Merging a chain into `main`.** Always the bottom PR first (the one whose base
 is `main`). Locally:
@@ -264,6 +267,6 @@ is configured for it). Branch deletion triggers GitHub to auto-retarget the
 next-in-chain PR's base to `main`. If `main` moved beyond the merged PR while
 other work landed in parallel, rebase the chain onto current `main` and
 force-push the remaining markers per the rule above; if not, the chain tip is
-already on top of `main` and no rebase runs. Drop the now-stale `[Prev]` link
-from the new head PR's nav (the merged PR's own description stays frozen). Then
-repeat for the next bottom PR.
+already on top of `main` and no rebase runs. Leave the new head PR's `[Prev]`
+link to the merged PR in place — the link still resolves and preserves
+traceability. Then repeat for the next bottom PR.
