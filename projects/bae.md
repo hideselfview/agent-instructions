@@ -6,12 +6,16 @@ Personal music library + playback. Rust core (bae-core), platform UIs via uniffi
 
 ## Stylization: bae is always lowercase
 
+> Blocking
+
 "bae" is always lowercase in user-visible strings — UI text, labels, docs, error
 messages, window titles, button text, alt text, meta descriptions, filenames
 (`bae.dmg`, `bae Library`), URLs (`bae://`). Never "Bae" or "BAE".
 
 Exception: code identifiers (variables, functions, types) follow language
-conventions.
+conventions. This covers env var names (`BAE_PORT`), HTTP header names
+(`X-Bae-Signature`), and other wire/config keys mentioned in prose — they're
+identifiers, not user-visible strings.
 
 ## Greenfield — break things and move on
 
