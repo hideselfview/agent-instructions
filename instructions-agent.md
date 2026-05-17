@@ -237,3 +237,33 @@ branches still reference the *old* SHA in their history; git's merge-base falls
 back to a much older ancestor and replays too many commits, duplicating work and
 producing conflicts that don't represent real diffs. The single-rebase-on-tip
 model side-steps this entirely.
+
+**Chain navigation at the top of each PR description.** Each PR's description
+begins with a one-line nav block, then a horizontal rule, then the PR's actual
+body:
+
+```
+[Prev](https://github.com/.../pull/N-1) | [Next](https://github.com/.../pull/N+1)
+
+---
+
+…actual PR body…
+```
+
+For the bottom PR (`base: main`), drop the `[Prev]` half and the separator — the
+line is just `[Next](…)`. For the tip PR, drop the `[Next]` half — the line is
+just `[Prev](…)`. Reviewers can walk the chain forward or backward from any PR
+without leaving the diff view.
+
+**Merging a chain into `main`.** Always the bottom PR first (the one whose base
+is `main`). Locally:
+`git checkout main && git merge --ff-only <bottom-pr-branch> && git push origin main`.
+Delete the merged branch (`git branch -d <name>` and
+`git push origin --delete <name>` — GitHub may auto-delete on merge if the repo
+is configured for it). Branch deletion triggers GitHub to auto-retarget the
+next-in-chain PR's base to `main`. If `main` moved beyond the merged PR while
+other work landed in parallel, rebase the chain onto current `main` and
+force-push the remaining markers per the rule above; if not, the chain tip is
+already on top of `main` and no rebase runs. Drop the now-stale `[Prev]` link
+from the new head PR's nav (the merged PR's own description stays frozen). Then
+repeat for the next bottom PR.
