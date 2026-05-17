@@ -18,7 +18,15 @@ concurrency:
 
 jobs:
   review:
-    if: github.event.pull_request.user.login == 'dminkovsky' || github.event.pull_request.user.login == 'hideselfview'
+    # Author allowlist + skip non-base-change `edited` events. Callers
+    # subscribe to `edited` to catch base-ref retargets (no native trigger
+    # exists for that), but the same event also fires on title/description
+    # edits — `github.event.changes.base` is the discriminator.
+    if: |
+      (github.event.pull_request.user.login == 'dminkovsky'
+        || github.event.pull_request.user.login == 'hideselfview')
+      && (github.event.action != 'edited'
+        || github.event.changes.base != null)
     runs-on: ubuntu-latest
     permissions:
       contents: read
