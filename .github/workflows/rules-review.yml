@@ -113,28 +113,31 @@ jobs:
           set -euo pipefail
 
           total=$(jq '.findings | length' <<<"$FINDINGS")
-          if [ "$total" -eq 0 ]; then
-            echo "No findings."
-            exit 0
-          fi
-
           blocking=$(jq '[.findings[] | select(.blocking)] | length' <<<"$FINDINGS")
           informational=$((total - blocking))
 
-          # One standalone inline comment per finding (not bundled into a review).
-          jq -c '.findings[]' <<<"$FINDINGS" | while read -r v; do
-            jq -n --argjson v "$v" --arg sha "$HEAD_SHA" \
-              '{commit_id: $sha, path: $v.path, line: $v.line, side: "RIGHT", body: $v.body}' \
-              | gh api -X POST "/repos/$REPO/pulls/$PR_NUMBER/comments" --input -
-          done
+          # Inline comments first (only when findings exist).
+          if [ "$total" -gt 0 ]; then
+            jq -c '.findings[]' <<<"$FINDINGS" | while read -r v; do
+              jq -n --argjson v "$v" --arg sha "$HEAD_SHA" \
+                '{commit_id: $sha, path: $v.path, line: $v.line, side: "RIGHT", body: $v.body}' \
+                | gh api -X POST "/repos/$REPO/pulls/$PR_NUMBER/comments" --input -
+            done
+          fi
 
-          # Separate summary review — short body, no nested comments.
+          # Summary review. APPROVE when no blocking — this dismisses
+          # any prior REQUEST_CHANGES the bot left on an earlier push so
+          # the merge isn't gated on a stale blocking review. COMMENT
+          # can't dismiss a prior REQUEST_CHANGES; only APPROVE does.
           if [ "$blocking" -gt 0 ]; then
             event="REQUEST_CHANGES"
             summary="**$blocking blocking** finding(s), $informational informational — see inline comments. Blocking findings must be fixed before merging."
+          elif [ "$total" -gt 0 ]; then
+            event="APPROVE"
+            summary="No blocking findings. $informational informational finding(s) — see inline comments."
           else
-            event="COMMENT"
-            summary="$informational informational finding(s) — see inline comments."
+            event="APPROVE"
+            summary="No findings."
           fi
 
           jq -n --arg sha "$HEAD_SHA" --arg event "$event" --arg body "$summary" \
