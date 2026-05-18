@@ -38,6 +38,15 @@ deeper problem; the new abstraction might dissolve if the right concept is
 introduced. The meta-question fires before the implementation. *(See
 `principles/question-necessity.md`.)*
 
+**Compose existing primitives before adding new ones.** When a need arises, list
+the primitives already in the system that touch the concern and sketch how they
+combine into the answer. Adding a new primitive — a function, method, keyword,
+endpoint, trait, config flag — when existing ones combine is a major red flag. A
+domain name in the new primitive's name (a specific provider, ontology, vendor,
+external service) is a tell that you're baking a specific case into vocabulary
+that should stay generic. *(See `principles/composable-primitives.md`. Pairs
+with question-necessity and YAGNI.)*
+
 **Write today's shape, not tomorrow's.** Code is cheap to write and cheap to
 rewrite. Don't introduce today-wrong shapes to make tomorrow's change smaller.
 If today's logic always returns 0 or 1 items, the type is `Option<T>` — not
