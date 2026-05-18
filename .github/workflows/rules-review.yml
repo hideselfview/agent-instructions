@@ -131,34 +131,35 @@ jobs:
               marker, false otherwise.
             - `path`: file path as it appears in the diff.
             - `line`: line number in the new version of the file.
-            - `body`: structured as four short parts, in this order.
-              Write for someone who will spend 30 seconds reading.
+            - `body`: write for someone who will spend 30 seconds
+              reading. Lead with a one-line problem statement citing
+              the rule by name and file (e.g. `Violates **"Never mask
+              errors with defaults"** (instructions-code.md):` then
+              the specific defect in 8–15 words). Bold the rule name.
 
-              1. **One-line problem statement** citing the rule by
-                 name and file (e.g. `Violates **"Never mask errors
-                 with defaults"** (instructions-code.md):` then the
-                 specific defect in 8–15 words). Bold the rule name.
-              2. **Concrete "today" code block** — a minimal markdown
-                 code fence (```rust / ```swift / etc.) showing the
-                 violating snippet from the diff. Paraphrase only
-                 what's needed to make the issue legible; don't paste
-                 entire functions.
-              3. **"After fix" code block** — same language fence,
-                 the shape the fix should take. Keep both blocks tight
-                 and parallel so the diff is obvious at a glance.
-              4. **One sentence on the principle** — why the rule
-                 exists, what breaks without it. Not the rule text
-                 verbatim; the consequence of ignoring it in this
-                 specific case (e.g. "every new platform has to relearn
-                 the URL trivia", "the silent skip hides a network
-                 failure from the user").
+              When the fix shape isn't obvious from the problem
+              statement, add a "today" code fence (```rust / ```swift
+              / etc.) showing the violating snippet from the diff and
+              an "after" code fence showing the fix shape. Keep both
+              blocks tight and parallel. Skip the fences when the fix
+              is obvious from the problem statement (deleting a
+              phrase, rewriting a comment, renaming an identifier) —
+              code blocks add noise to trivial fixes.
+
+              When the consequence of ignoring the rule isn't
+              self-evident, end with one sentence on what breaks in
+              this specific case (e.g. "every new platform has to
+              relearn the URL trivia", "the silent skip hides a
+              network failure from the user"). Not the rule text
+              verbatim. Omit when self-evident.
 
               For cross-file findings, cite the existing file/symbol
-              the diff duplicates or could share with in part 1.
+              the diff duplicates or could share with in the problem
+              statement.
 
-              Skip parts 2/3 only when the violation isn't expressible
-              as code (e.g. a missing log statement) — but still keep
-              the four-part rhythm: state, illustrate, fix, principle.
+              Coverage beats format. Surface every real finding, even
+              when the body is just the one-line problem statement.
+              A short finding is better than a missing one.
 
             If no findings, output `{"findings": []}`.
 
