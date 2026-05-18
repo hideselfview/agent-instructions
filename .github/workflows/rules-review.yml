@@ -131,26 +131,11 @@ jobs:
               marker, false otherwise.
             - `path`: file path as it appears in the diff.
             - `line`: line number in the new version of the file.
-            - `body`: one short sentence flagging the violation.
-              Format: `Violates **"Rule Name"** (file.md):` then the
-              specific defect in 8–15 words. Bold the rule name.
-              Quote the offending snippet inline with backticks when
-              it sharpens the defect.
-
-              No code fences. No "principle" or "why" sentence. No
-              before/after blocks. The reader is a developer looking
-              at the line in their IDE — they need the flag, not an
-              explanation. The rule file has the rationale.
-
-              Cross-file findings add one clause naming the foreign
-              file/symbol (e.g. `duplicates
-              bae-core/src/util/format.rs::format_bytes`). Non-obvious
-              fixes add one clause sketching the shape (e.g. `prefer
-              Option<T>`, `move to bae-core`).
-
-              Coverage beats elaboration. Surface every real finding.
-              If you can't cite a specific rule from a specific file,
-              don't flag it.
+            - `body`: explanation, including which rule was violated
+              (e.g., "Violates **\"Never mask errors with defaults\"**
+              (instructions-code.md): …"). For cross-file findings,
+              cite the existing file/symbol that the diff duplicates
+              or could share with.
 
             If no findings, output `{"findings": []}`.
 
