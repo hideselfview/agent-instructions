@@ -91,12 +91,18 @@ make the code cleaner but don't affect correctness.
 **💭 Questions** — Areas where the intent is unclear and clarification is needed
 before a judgment can be made.
 
-For each finding:
+Each finding is one sentence: `file:line — specific defect`. Quote the offending
+snippet inline with backticks when it sharpens the point. Add one extra clause
+for cross-file context (`duplicates logic in foo.rs:42`) or a non-obvious fix
+sketch (`prefer Option<T>`) when needed, but don't write paragraphs or
+before/after code blocks. The reader is triaging — they need the flag, not an
+explanation.
 
-- State the specific file and location
-- Describe what you found
-- Explain why it's a problem (reference the spec or expected behavior)
-- Suggest a concrete fix when possible
+Coverage beats elaboration. Surface every real defect, including 🔵 minor and 💭
+questions. A short finding is better than a missing one. The verbose per-finding
+format suppresses recall: the model implicitly trades coverage for compliance
+with the structure, and the findings that get dropped first are exactly the
+small textual ones that take seconds to fix.
 
 ## Output Format
 
