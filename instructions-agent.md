@@ -237,14 +237,13 @@ back to a much older ancestor and replays too many commits, duplicating work and
 producing conflicts that don't represent real diffs. The single-rebase-on-tip
 model side-steps this entirely.
 
-**Don't pre-scaffold for downstream chain PRs.** When a later chain PR will
-introduce a feature with its own shape, the earlier PR should not add dead
-scaffolding (sentinel fields, always-empty `Vec`s with branching, always-`None`
-params) to make room for it. Each chain PR introduces only the structure its own
-content needs; the downstream PR introduces the real shape from scratch when it
-has the context to design it correctly. Pre-scaffolding is usually wrong twice:
-dead infrastructure in the upstream PR, and a shape that turns out wrong when
-the downstream PR designs the real thing.
+**Don't pre-scaffold for downstream chain PRs.** Specific application of "Write
+today's shape, not tomorrow's" (instructions-code.md) to PR chains. Each chain
+PR introduces only the structure its own content needs; the downstream PR
+introduces the real shape from scratch when it has the context to design it
+correctly. Pre-scaffolding is usually wrong twice: dead infrastructure in the
+upstream PR, and a shape that turns out wrong when the downstream PR designs the
+real thing.
 
 Exception: when avoiding the sentinel would require substantial detour code,
 keep the sentinel and add a code comment naming the downstream context that
