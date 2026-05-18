@@ -130,13 +130,12 @@ jobs:
             done
           fi
 
-          # Summary review. COMMENT (not APPROVE) when no blocking
-          # because github-actions[bot] is forbidden from approving PRs
-          # (HTTP 422 "GitHub Actions is not permitted to approve pull
-          # requests."). The consequence: a prior REQUEST_CHANGES from
-          # an earlier push isn't dismissed when the next run is clean;
-          # the human reviewer dismisses it manually. Same PAT/App
-          # limitation as the dedup above.
+          # Summary review. COMMENT (not APPROVE) when no blocking —
+          # github-actions[bot] is forbidden from approving PRs (HTTP
+          # 422 "GitHub Actions is not permitted to approve pull
+          # requests"). To unblock merge when prior runs left a stale
+          # REQUEST_CHANGES, we dismiss those reviews directly via the
+          # dismissals endpoint (no approval permission needed).
           if [ "$blocking" -gt 0 ]; then
             event="REQUEST_CHANGES"
             summary="**$blocking blocking** finding(s), $informational informational — see inline comments. Blocking findings must be fixed before merging."
@@ -151,6 +150,22 @@ jobs:
           jq -n --arg sha "$HEAD_SHA" --arg event "$event" --arg body "$summary" \
             '{commit_id: $sha, event: $event, body: $body}' \
             | gh api -X POST "/repos/$REPO/pulls/$PR_NUMBER/reviews" --input -
+
+          # Dismiss prior REQUEST_CHANGES reviews from this bot when
+          # the new run has no blocking findings — the request was
+          # addressed and shouldn't keep gating merge. Dismiss is a
+          # different endpoint from review submission and doesn't trip
+          # the "Actions can't approve" rule.
+          if [ "$blocking" -eq 0 ]; then
+            gh api "/repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "CHANGES_REQUESTED") | .id' \
+              | while read -r rid; do
+                gh api -X PUT "/repos/$REPO/pulls/$PR_NUMBER/reviews/$rid/dismissals" \
+                  -f message="Superseded by a later run that found no blocking findings." \
+                  >/dev/null \
+                  || echo "warning: failed to dismiss review $rid"
+              done
+          fi
 
           if [ "$blocking" -gt 0 ]; then
             echo "::error::$blocking blocking finding(s) in PR diff."
