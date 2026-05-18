@@ -112,79 +112,39 @@ jobs:
         run: |
           set -euo pipefail
 
-          REPO_OWNER="${REPO%/*}"
-          REPO_NAME="${REPO#*/}"
-
           total=$(jq '.findings | length' <<<"$FINDINGS")
           blocking=$(jq '[.findings[] | select(.blocking)] | length' <<<"$FINDINGS")
           informational=$((total - blocking))
 
-          # Existing unresolved bot review threads, with thread ids
-          # (only GraphQL exposes those — REST returns comment ids).
-          # Drives both de-dup (don't repost what's already there) and
-          # auto-resolve (close threads the new run no longer flags).
-          THREADS=$(gh api graphql -f query="
-          {
-            repository(owner: \"$REPO_OWNER\", name: \"$REPO_NAME\") {
-              pullRequest(number: $PR_NUMBER) {
-                reviewThreads(first: 100) {
-                  nodes {
-                    id
-                    isResolved
-                    comments(first: 1) {
-                      nodes { path line author { login } }
-                    }
-                  }
-                }
-              }
-            }
-          }" --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
-            | select(.isResolved == false)
-            | select(.comments.nodes[0].author.login == "github-actions")
-            | {id: .id, path: .comments.nodes[0].path, line: .comments.nodes[0].line}]')
-
-          # Post only findings whose (path, line) isn't already covered
-          # by an unresolved bot thread. Preserves the existing thread
-          # (and any discussion under it) when the user pushes a partial
-          # fix that doesn't touch that comment's line.
+          # Inline comments (only when findings exist).
+          # NOTE: no de-dup against prior runs. We tried resolving stale
+          # threads + skipping (path, line) duplicates via GraphQL, but
+          # github-actions[bot] gets "Resource not accessible by
+          # integration" on `resolveReviewThread`. Dedup would need a
+          # PAT or GitHub App with broader scope.
           if [ "$total" -gt 0 ]; then
-            jq -c --argjson existing "$THREADS" '
-              .findings[]
-              | . as $f
-              | select(($existing | map(select(.path == $f.path and .line == $f.line)) | length) == 0)
-            ' <<<"$FINDINGS" | while read -r v; do
+            jq -c '.findings[]' <<<"$FINDINGS" | while read -r v; do
               jq -n --argjson v "$v" --arg sha "$HEAD_SHA" \
                 '{commit_id: $sha, path: $v.path, line: $v.line, side: "RIGHT", body: $v.body}' \
                 | gh api -X POST "/repos/$REPO/pulls/$PR_NUMBER/comments" --input -
             done
           fi
 
-          # Resolve bot threads the new run didn't re-flag — their
-          # finding is no longer present at that (path, line), so the
-          # push addressed it.
-          FINDINGS_ARR=$(jq '.findings' <<<"$FINDINGS")
-          echo "$THREADS" | jq -c --argjson findings "$FINDINGS_ARR" '
-            .[]
-            | . as $t
-            | select(($findings | map(select(.path == $t.path and .line == $t.line)) | length) == 0)
-          ' | while read -r t; do
-            tid=$(jq -r '.id' <<<"$t")
-            gh api graphql -f query="mutation { resolveReviewThread(input: {threadId: \"$tid\"}) { thread { isResolved } } }" >/dev/null \
-              || echo "warning: failed to resolve thread $tid"
-          done
-
-          # Summary review. APPROVE when no blocking — this dismisses
-          # any prior REQUEST_CHANGES the bot left on an earlier push so
-          # the merge isn't gated on a stale blocking review. COMMENT
-          # can't dismiss a prior REQUEST_CHANGES; only APPROVE does.
+          # Summary review. COMMENT (not APPROVE) when no blocking
+          # because github-actions[bot] is forbidden from approving PRs
+          # (HTTP 422 "GitHub Actions is not permitted to approve pull
+          # requests."). The consequence: a prior REQUEST_CHANGES from
+          # an earlier push isn't dismissed when the next run is clean;
+          # the human reviewer dismisses it manually. Same PAT/App
+          # limitation as the dedup above.
           if [ "$blocking" -gt 0 ]; then
             event="REQUEST_CHANGES"
             summary="**$blocking blocking** finding(s), $informational informational — see inline comments. Blocking findings must be fixed before merging."
           elif [ "$total" -gt 0 ]; then
-            event="APPROVE"
+            event="COMMENT"
             summary="No blocking findings. $informational informational finding(s) — see inline comments."
           else
-            event="APPROVE"
+            event="COMMENT"
             summary="No findings."
           fi
 
