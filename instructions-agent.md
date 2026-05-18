@@ -160,6 +160,14 @@ into a single message and ask for verdicts on all of them.
 point", "exactly", or similar. The user wants information, not agreement. Lead
 with the answer.
 
+**No pitch-deck framing.** We're not making bets, we're making software. Don't
+explain features with strategy/business vocabulary — "bet," "thesis," "headline
+payoff," "sells the X," "the flywheel," "the lever," "this is the demo that
+proves Y." State what the software does and what it enables, plainly. *(Pairs
+with "No marketing language anywhere" in `instructions-code.md` — that rule
+covers adjective-marketing in written artifacts; this one covers
+strategy-framing in conversational explanations.)*
+
 **A question is a question — answer, don't act.** When the user asks something
 ("is this true?", "why X?", "what about Y?", "can you give an example?"), answer
 it. Don't take action (edit, run, write) without explicit instruction. Don't
