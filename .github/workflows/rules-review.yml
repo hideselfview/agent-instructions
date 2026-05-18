@@ -33,15 +33,59 @@ jobs:
       pull-requests: write
       id-token: write
     steps:
+      # Skip review while prior bot comments are still unresolved.
+      # Resolving them is the user's signal that the findings were
+      # addressed (or accepted as known); only then does it make sense
+      # to spend tokens on a fresh review and post a new round of
+      # findings. Without this guard, every push posts duplicate
+      # comments on top of unresolved ones.
+      - id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          REPO_OWNER="${REPO%/*}"
+          REPO_NAME="${REPO#*/}"
+
+          UNRESOLVED=$(gh api graphql -f query="
+          {
+            repository(owner: \"$REPO_OWNER\", name: \"$REPO_NAME\") {
+              pullRequest(number: $PR_NUMBER) {
+                reviewThreads(first: 100) {
+                  nodes {
+                    isResolved
+                    comments(first: 1) {
+                      nodes { author { login } }
+                    }
+                  }
+                }
+              }
+            }
+          }" --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
+            | select(.isResolved == false)
+            | select(.comments.nodes[0].author.login == "github-actions")] | length')
+
+          if [ "$UNRESOLVED" -gt 0 ]; then
+            echo "::notice::Skipping review — $UNRESOLVED unresolved bot comment(s). Resolve them to trigger a fresh review."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Caller repo (the PR's code) into ./ so Claude can see the diff.
-      - uses: actions/checkout@v4
+      - if: steps.guard.outputs.skip != 'true'
+        uses: actions/checkout@v4
       # Rules repo into ./agent-instructions/ so the prompt's paths resolve.
-      - uses: actions/checkout@v4
+      - if: steps.guard.outputs.skip != 'true'
+        uses: actions/checkout@v4
         with:
           repository: hideselfview/agent-instructions
           path: agent-instructions
 
-      - id: claude
+      - if: steps.guard.outputs.skip != 'true'
+        id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
