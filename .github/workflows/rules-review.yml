@@ -131,11 +131,34 @@ jobs:
               marker, false otherwise.
             - `path`: file path as it appears in the diff.
             - `line`: line number in the new version of the file.
-            - `body`: explanation, including which rule was violated
-              (e.g., "Violates **\"Never mask errors with defaults\"**
-              (instructions-code.md): …"). For cross-file findings,
-              cite the existing file/symbol that the diff duplicates
-              or could share with.
+            - `body`: structured as four short parts, in this order.
+              Write for someone who will spend 30 seconds reading.
+
+              1. **One-line problem statement** citing the rule by
+                 name and file (e.g. `Violates **"Never mask errors
+                 with defaults"** (instructions-code.md):` then the
+                 specific defect in 8–15 words). Bold the rule name.
+              2. **Concrete "today" code block** — a minimal markdown
+                 code fence (```rust / ```swift / etc.) showing the
+                 violating snippet from the diff. Paraphrase only
+                 what's needed to make the issue legible; don't paste
+                 entire functions.
+              3. **"After fix" code block** — same language fence,
+                 the shape the fix should take. Keep both blocks tight
+                 and parallel so the diff is obvious at a glance.
+              4. **One sentence on the principle** — why the rule
+                 exists, what breaks without it. Not the rule text
+                 verbatim; the consequence of ignoring it in this
+                 specific case (e.g. "every new platform has to relearn
+                 the URL trivia", "the silent skip hides a network
+                 failure from the user").
+
+              For cross-file findings, cite the existing file/symbol
+              the diff duplicates or could share with in part 1.
+
+              Skip parts 2/3 only when the violation isn't expressible
+              as code (e.g. a missing log statement) — but still keep
+              the four-part rhythm: state, illustrate, fix, principle.
 
             If no findings, output `{"findings": []}`.
 
