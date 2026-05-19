@@ -1,0 +1,28 @@
+name: "PR #636 smoke — release-identity edit-metadata sheet"
+project: bae
+diff_file: ../diffs/pr636.diff
+
+# PR #636 introduces the EditMetadataSheet and its plumbing. The diff
+# contains ~8 task-code transient references ("A7", "A9", and
+# "EditMetadataSheet" as a caller name in parens) across 6 files —
+# the exact pattern class the bot stopped catching when we moved from
+# the working #634 era to the iteration-on-prompt era.
+#
+# Expected list is one per file with at least one task-code violation,
+# not one per individual line — the bot should flag at least one finding
+# per file. Anything beyond this is bonus precision; anything missed is
+# the failure mode we're trying to diagnose.
+
+expected:
+  - rule: "No transient references"
+    path: bae-bridge/src/handle.rs
+  - rule: "No transient references"
+    path: bae-bridge/src/types.rs
+  - rule: "No transient references"
+    path: bae-core/src/db/client.rs
+  - rule: "No transient references"
+    path: bae-core/src/import/types.rs
+  - rule: "No transient references"
+    path: bae-core/src/library/manager.rs
+  - rule: "No transient references"
+    path: bae-macos/bae/bae/Views/EditMetadataSheet.swift
