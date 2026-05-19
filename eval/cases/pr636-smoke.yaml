@@ -26,3 +26,10 @@ expected:
     path: bae-core/src/library/manager.rs
   - rule: "No transient references"
     path: bae-macos/bae/bae/Views/EditMetadataSheet.swift
+
+  # `artistText: track.artistOverride ?? ""` — `?? <default>` is banned
+  # by the tightened parent rule (no Swift carve-outs for "semantically
+  # correct nil"). Either rewrite to keep the nil/empty distinction or
+  # log per the parent's escape hatch.
+  - rule: "Never mask errors with defaults"
+    path: bae-macos/bae/bae/Views/EditMetadataSheet.swift

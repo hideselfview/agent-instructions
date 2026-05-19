@@ -107,33 +107,3 @@ writing `uiState.lightbox?.currentIndex` is two overlapping accesses.
 Rule of thumb: if a view action mutates `@Observable` state based on its current
 value, that read-modify-write must be a single `mutating func` on the state
 type.
-
-## Don't mask errors with `try?` and `??`
-
-Concrete Swift instances of CLAUDE.md "Never mask errors with defaults."
-
-`try?` rules:
-
-- Banned: `(try? someCall()) ?? []` — returns empty results; user sees "no
-  results" instead of "search failed." Use `do/catch` and set an error state.
-- Banned: `(try? someCall()) ?? false` — hides failure behind a default boolean.
-  Propagate the error.
-- Banned: `try?` in a `Task.detached` with no error reporting — fire-and-forget
-  that silently fails. Use `do/catch` and report via the project's error sink.
-- Allowed: `try?` for genuinely non-critical operations where failure doesn't
-  affect the user — temp file cleanup, `Task.sleep` cancellation, JSON
-  serialization of non-essential caches.
-- Allowed: `try?` inside a non-throwing closure where the result is cosmetic
-  (e.g., a "likely-X" badge check).
-
-`??` rules:
-
-- Banned: `x ?? ""` to construct `URL(string: x ?? "")` — use
-  `x.flatMap { URL(string: $0) }` instead. The empty string just produces nil
-  with extra steps.
-- Banned: `selectedThing?.value ?? 0` where `selectedThing` could be stale from
-  an async callback. Capture the value at call time, not callback time.
-- Allowed: `dict[key] ?? defaultValue` where the default is semantically correct
-  (e.g., `progress[name] ?? 0` means 0% progress).
-- Allowed: `optionalString ?? ""` for display-only text in SwiftUI `Text()`
-  views — empty text is the correct visual for nil.
