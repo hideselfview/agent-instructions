@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """Rules-review eval. Replays the production prompt via the local
-claude-code CLI (same invocation production uses, same auth)."""
+claude-code CLI (same invocation production uses, same auth).
+
+Each case can optionally pin a historical agent-instructions commit
+via `replay.agent_instructions_sha` and a specific model via
+`replay.model`. Without `replay`, the case runs against the current
+agent-instructions HEAD and the current production model."""
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -13,42 +19,110 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EVAL_DIR = REPO_ROOT / "eval"
 CASES_DIR = EVAL_DIR / "cases"
 
-MODEL = "claude-opus-4-7"
+DEFAULT_MODEL = "claude-opus-4-7"
+DEFAULT_ROOT_KEY = "findings"
 
-JSON_SCHEMA = {
-    "type": "object",
-    "required": ["findings"],
-    "properties": {
-        "findings": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "required": ["blocking", "path", "line", "body"],
-                "properties": {
-                    "blocking": {"type": "boolean"},
-                    "path": {"type": "string"},
-                    "line": {"type": "integer"},
-                    "body": {"type": "string"},
+
+def schema_for(root_key: str) -> dict:
+    return {
+        "type": "object",
+        "required": [root_key],
+        "properties": {
+            root_key: {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["blocking", "path", "line", "body"],
+                    "properties": {
+                        "blocking": {"type": "boolean"},
+                        "path": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "body": {"type": "string"},
+                    },
                 },
             },
         },
-    },
-}
+    }
 
 
-def load_rules(project: str) -> str:
-    """Concatenate the rule files in the order the production prompt reads them."""
-    sources = [REPO_ROOT / "instructions-code.md"]
-    sources.extend(sorted((REPO_ROOT / "rules").glob("*.md")))
-    project_md = REPO_ROOT / "projects" / f"{project}.md"
-    if project_md.exists():
-        sources.append(project_md)
+def git_show(sha: str, relpath: str) -> str:
+    """Read a file at a specific commit of agent-instructions."""
+    out = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "show", f"{sha}:{relpath}"],
+        capture_output=True, text=True, check=True,
+    )
+    return out.stdout
 
-    chunks = []
-    for path in sources:
-        rel = path.relative_to(REPO_ROOT)
-        chunks.append(f"=== {rel} ===\n{path.read_text()}")
+
+def git_ls_tree(sha: str, dirpath: str) -> list[str]:
+    """List files in a directory at a specific commit."""
+    out = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-tree", "--name-only", f"{sha}", f"{dirpath}/"],
+        capture_output=True, text=True, check=True,
+    )
+    return [line for line in out.stdout.splitlines() if line.endswith(".md")]
+
+
+def load_rules(project: str, sha: str | None = None) -> str:
+    """Concatenate the rule files in the order the production prompt reads them.
+    When `sha` is set, fetch each file at that historical commit."""
+    if sha:
+        paths = ["instructions-code.md"]
+        paths.extend(sorted(git_ls_tree(sha, "rules")))
+        project_md = f"projects/{project}.md"
+        # Best-effort: skip if absent at that SHA
+        try:
+            git_show(sha, project_md)
+            paths.append(project_md)
+        except subprocess.CalledProcessError:
+            pass
+        chunks = [f"=== {p} ===\n{git_show(sha, p)}" for p in paths]
+    else:
+        sources = [REPO_ROOT / "instructions-code.md"]
+        sources.extend(sorted((REPO_ROOT / "rules").glob("*.md")))
+        project_md = REPO_ROOT / "projects" / f"{project}.md"
+        if project_md.exists():
+            sources.append(project_md)
+        chunks = [f"=== {p.relative_to(REPO_ROOT)} ===\n{p.read_text()}" for p in sources]
     return "\n\n".join(chunks)
+
+
+def load_prompt_template(sha: str | None) -> tuple[str, str]:
+    """Extract the `prompt:` value and the json-schema root key from
+    .github/workflows/rules-review.yml at the given SHA (or current).
+    Returns (prompt_template, schema_root_key)."""
+    if sha:
+        wf_text = git_show(sha, ".github/workflows/rules-review.yml")
+    else:
+        wf_text = (REPO_ROOT / ".github/workflows/rules-review.yml").read_text()
+
+    wf = yaml.safe_load(wf_text)
+    # Walk steps to find the claude-code-action invocation
+    steps = wf["jobs"]["review"]["steps"]
+    for step in steps:
+        uses = step.get("uses", "")
+        if "claude-code-action" in uses:
+            with_block = step.get("with", {})
+            template = with_block["prompt"]
+            claude_args = with_block.get("claude_args", "")
+            # Extract root key from --json-schema 'JSON'
+            m = re.search(r'"required":\s*\[\s*"(\w+)"\s*\]', claude_args)
+            root_key = m.group(1) if m else DEFAULT_ROOT_KEY
+            return template, root_key
+    raise RuntimeError("Could not find claude-code-action step in workflow")
+
+
+def render_template(template: str, project: str) -> str:
+    """Replace the GitHub Actions template variables used by the
+    production prompt. ${{ github.repository }} / pull_request.number
+    don't matter for the eval (the prompt asks the model to fetch a
+    diff via gh, but we inline the diff instead). `inputs.project`
+    selects which projects/<x>.md to load."""
+    rendered = template
+    rendered = re.sub(r"\$\{\{\s*inputs\.project\s*\}\}", project, rendered)
+    rendered = re.sub(r"\$\{\{\s*github\.repository\s*\}\}", "eval/case", rendered)
+    rendered = re.sub(r"\$\{\{\s*github\.event\.pull_request\.number\s*\}\}", "0", rendered)
+    return rendered
 
 
 def build_diff(case: dict, case_dir: Path) -> str:
@@ -65,53 +139,33 @@ def build_diff(case: dict, case_dir: Path) -> str:
     return "\n".join(parts)
 
 
-def build_prompt(case: dict, rules: str, diff: str) -> str:
-    """Mirrors the production prompt in rules-review.yml, except the
-    rule files and diff are inlined here (the production prompt has the
-    model fetch them via Read / `gh pr diff`)."""
-    return f"""Each rule below has a severity — blocking or informational.
-A rule is blocking if its body contains a `> Blocking` blockquote
-(anywhere within the rule's content). All other rules are informational.
+def build_prompt(prompt_template: str, project: str, rules: str, diff: str) -> str:
+    """Render the production prompt template and append the inlined
+    rule files and diff. The production prompt asks the model to fetch
+    rules via Read and the diff via `gh pr diff $PR_NUMBER`; the eval
+    side-steps that by providing both directly in the prompt body."""
+    rendered = render_template(prompt_template, project)
+    return f"""{rendered}
 
-Review the diff below and flag line-anchored violations of the rules
-loaded above. Stay concrete and citeable; if something is questionable
-but not clearly a rule violation, skip it. Skip rules that apply to
-commit messages, PR descriptions, or other non-line-anchored content.
-
-Output structured findings as JSON matching the schema.
-
-For each finding, populate:
-- `blocking`: true if the violated rule has the `> Blocking` marker,
-  false otherwise.
-- `path`: file path as it appears in the diff.
-- `line`: line number in the new version of the file.
-- `body`: explanation, including which rule was violated (e.g.,
-  "Violates **\\"Never mask errors with defaults\\"**
-  (instructions-code.md): …"). For cross-file findings, cite the
-  existing file/symbol that the diff duplicates or could share with.
-
-If no findings, output `{{"findings": []}}`.
-
---- RULES ---
+--- RULES (loaded inline by the eval runner) ---
 {rules}
 
---- DIFF ---
+--- DIFF (inlined; ignore the `gh pr diff` instruction above) ---
 {diff}
 """
 
 
-def call_claude(prompt: str) -> tuple[list, float]:
-    """Invoke claude-code CLI in print mode with the structured-output
-    schema. Same invocation shape the production GitHub Action uses.
-    Prompt goes via stdin — it can be 100KB+ (rules + diff).
+def call_claude(prompt: str, model: str, root_key: str) -> tuple[list, float]:
+    """Invoke claude-code CLI with the historical or current model and
+    schema. Prompt goes via stdin — it can be 100KB+ (rules + diff).
 
     Returns (findings, cost_usd)."""
     proc = subprocess.run(
         [
             "claude",
             "-p",
-            "--model", MODEL,
-            "--json-schema", json.dumps(JSON_SCHEMA),
+            "--model", model,
+            "--json-schema", json.dumps(schema_for(root_key)),
             "--output-format", "json",
         ],
         input=prompt,
@@ -129,12 +183,12 @@ def call_claude(prompt: str) -> tuple[list, float]:
         raise RuntimeError(f"claude stdout was not JSON: {e}\nstdout (head):\n{proc.stdout[:1500]}")
 
     structured = envelope.get("structured_output")
-    if not isinstance(structured, dict) or "findings" not in structured:
+    if not isinstance(structured, dict) or root_key not in structured:
         raise RuntimeError(
-            f"no structured_output.findings in envelope. result={envelope.get('result', '')[:500]}"
+            f"no structured_output.{root_key} in envelope. result={envelope.get('result', '')[:500]}"
         )
     cost = envelope.get("total_cost_usd", 0.0)
-    return structured.get("findings", []), cost
+    return structured.get(root_key, []), cost
 
 
 def match(expected: dict, finding: dict) -> bool:
@@ -163,14 +217,21 @@ def compare(expected: list, found: list) -> dict:
 
 def run_case(case_path: Path) -> dict:
     case = yaml.safe_load(case_path.read_text())
-    rules = load_rules(case.get("project", "bae"))
+    project = case.get("project", "bae")
+    replay = case.get("replay") or {}
+    sha = replay.get("agent_instructions_sha")
+    model = replay.get("model", DEFAULT_MODEL)
+    rules = load_rules(project, sha)
+    prompt_template, root_key = load_prompt_template(sha)
     diff = build_diff(case, case_path.parent)
-    prompt = build_prompt(case, rules, diff)
-    found, cost = call_claude(prompt)
+    prompt = build_prompt(prompt_template, project, rules, diff)
+    found, cost = call_claude(prompt, model, root_key)
     return {
         "name": case.get("name", case_path.stem),
         "found": found,
         "cost": cost,
+        "model": model,
+        "sha": sha or "HEAD",
         **compare(case.get("expected", []), found),
     }
 
@@ -201,7 +262,7 @@ def main():
         total_cost += result["cost"]
         status = "✓" if not result["missed"] and not result["unexpected"] else "✗"
         suffix = f" (+{n_extra} extra)" if n_extra else ""
-        print(f"{status} {path.name}: caught {n_caught}/{n_exp}{suffix}  ${result['cost']:.2f}  — {result['name']}")
+        print(f"{status} {path.name}: caught {n_caught}/{n_exp}{suffix}  ${result['cost']:.2f}  [{result['model']} @ {result['sha'][:9]}]  — {result['name']}")
         for m in result["missed"]:
             print(f"   MISSED: {m['rule']} @ {m.get('path', '?')}:{m.get('line', '?')}")
         for e in result["unexpected"]:
