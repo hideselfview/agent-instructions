@@ -19,6 +19,8 @@ expected:
   - rule: "No transient references"
     path: bae-bridge/src/types.rs
   - rule: "No transient references"
+    path: bae-core/src/album_detail.rs
+  - rule: "No transient references"
     path: bae-core/src/db/client.rs
   - rule: "No transient references"
     path: bae-core/src/import/types.rs

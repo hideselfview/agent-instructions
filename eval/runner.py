@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Rules-review eval. Replays the production prompt against corpus cases."""
+"""Rules-review eval. Replays the production prompt via the local
+claude-code CLI (same invocation production uses, same auth)."""
 
-import os
+import json
+import subprocess
 import sys
 from pathlib import Path
 
 import yaml
-from anthropic import Anthropic
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EVAL_DIR = REPO_ROOT / "eval"
@@ -14,24 +15,20 @@ CASES_DIR = EVAL_DIR / "cases"
 
 MODEL = "claude-opus-4-7"
 
-REPORT_TOOL = {
-    "name": "report_findings",
-    "description": "Report all rule violations found in the diff. Call exactly once.",
-    "input_schema": {
-        "type": "object",
-        "required": ["findings"],
-        "properties": {
-            "findings": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["blocking", "path", "line", "body"],
-                    "properties": {
-                        "blocking": {"type": "boolean"},
-                        "path": {"type": "string"},
-                        "line": {"type": "integer"},
-                        "body": {"type": "string"},
-                    },
+JSON_SCHEMA = {
+    "type": "object",
+    "required": ["findings"],
+    "properties": {
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["blocking", "path", "line", "body"],
+                "properties": {
+                    "blocking": {"type": "boolean"},
+                    "path": {"type": "string"},
+                    "line": {"type": "integer"},
+                    "body": {"type": "string"},
                 },
             },
         },
@@ -69,27 +66,31 @@ def build_diff(case: dict, case_dir: Path) -> str:
 
 
 def build_prompt(case: dict, rules: str, diff: str) -> str:
-    return f"""Read the rule files (loaded below).
+    """Mirrors the production prompt in rules-review.yml, except the
+    rule files and diff are inlined here (the production prompt has the
+    model fetch them via Read / `gh pr diff`)."""
+    return f"""Each rule below has a severity — blocking or informational.
+A rule is blocking if its body contains a `> Blocking` blockquote
+(anywhere within the rule's content). All other rules are informational.
 
-Each rule has a severity — blocking or informational. A rule is blocking
-if its body contains a `> Blocking` blockquote (anywhere within the
-rule's content). All other rules are informational.
+Review the diff below and flag line-anchored violations of the rules
+loaded above. Stay concrete and citeable; if something is questionable
+but not clearly a rule violation, skip it. Skip rules that apply to
+commit messages, PR descriptions, or other non-line-anchored content.
 
-Then review the diff below and flag line-anchored violations. Stay
-concrete and citeable; if something is questionable but not clearly a
-rule violation, skip it. Skip rules that apply to commit messages, PR
-descriptions, or other non-line-anchored content.
+Output structured findings as JSON matching the schema.
 
-Call the `report_findings` tool exactly once with all violations. For
-each finding, populate:
-- `blocking`: true if the violated rule has the `> Blocking` marker.
+For each finding, populate:
+- `blocking`: true if the violated rule has the `> Blocking` marker,
+  false otherwise.
 - `path`: file path as it appears in the diff.
 - `line`: line number in the new version of the file.
 - `body`: explanation, including which rule was violated (e.g.,
   "Violates **\\"Never mask errors with defaults\\"**
-  (instructions-code.md): …").
+  (instructions-code.md): …"). For cross-file findings, cite the
+  existing file/symbol that the diff duplicates or could share with.
 
-If no findings, call the tool with `{{"findings": []}}`.
+If no findings, output `{{"findings": []}}`.
 
 --- RULES ---
 {rules}
@@ -99,19 +100,41 @@ If no findings, call the tool with `{{"findings": []}}`.
 """
 
 
-def call_claude(prompt: str) -> list:
-    client = Anthropic()
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=4096,
-        tools=[REPORT_TOOL],
-        tool_choice={"type": "tool", "name": "report_findings"},
-        messages=[{"role": "user", "content": prompt}],
+def call_claude(prompt: str) -> tuple[list, float]:
+    """Invoke claude-code CLI in print mode with the structured-output
+    schema. Same invocation shape the production GitHub Action uses.
+    Prompt goes via stdin — it can be 100KB+ (rules + diff).
+
+    Returns (findings, cost_usd)."""
+    proc = subprocess.run(
+        [
+            "claude",
+            "-p",
+            "--model", MODEL,
+            "--json-schema", json.dumps(JSON_SCHEMA),
+            "--output-format", "json",
+        ],
+        input=prompt,
+        capture_output=True,
+        text=True,
+        timeout=600,
     )
-    for block in response.content:
-        if block.type == "tool_use" and block.name == "report_findings":
-            return block.input.get("findings", [])
-    raise RuntimeError(f"Model did not call report_findings. content={response.content!r}")
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"claude exited {proc.returncode}\nstderr:\n{proc.stderr[:2000]}"
+        )
+    try:
+        envelope = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"claude stdout was not JSON: {e}\nstdout (head):\n{proc.stdout[:1500]}")
+
+    structured = envelope.get("structured_output")
+    if not isinstance(structured, dict) or "findings" not in structured:
+        raise RuntimeError(
+            f"no structured_output.findings in envelope. result={envelope.get('result', '')[:500]}"
+        )
+    cost = envelope.get("total_cost_usd", 0.0)
+    return structured.get("findings", []), cost
 
 
 def match(expected: dict, finding: dict) -> bool:
@@ -143,10 +166,11 @@ def run_case(case_path: Path) -> dict:
     rules = load_rules(case.get("project", "bae"))
     diff = build_diff(case, case_path.parent)
     prompt = build_prompt(case, rules, diff)
-    found = call_claude(prompt)
+    found, cost = call_claude(prompt)
     return {
         "name": case.get("name", case_path.stem),
         "found": found,
+        "cost": cost,
         **compare(case.get("expected", []), found),
     }
 
@@ -161,6 +185,7 @@ def main():
     total_expected = 0
     total_caught = 0
     total_extra = 0
+    total_cost = 0.0
     for path in cases:
         try:
             result = run_case(path)
@@ -173,9 +198,10 @@ def main():
         total_expected += n_exp
         total_caught += n_caught
         total_extra += n_extra
+        total_cost += result["cost"]
         status = "✓" if not result["missed"] and not result["unexpected"] else "✗"
         suffix = f" (+{n_extra} extra)" if n_extra else ""
-        print(f"{status} {path.name}: caught {n_caught}/{n_exp}{suffix}  — {result['name']}")
+        print(f"{status} {path.name}: caught {n_caught}/{n_exp}{suffix}  ${result['cost']:.2f}  — {result['name']}")
         for m in result["missed"]:
             print(f"   MISSED: {m['rule']} @ {m.get('path', '?')}:{m.get('line', '?')}")
         for e in result["unexpected"]:
@@ -183,7 +209,7 @@ def main():
 
     recall = total_caught / total_expected if total_expected else 0.0
     print()
-    print(f"=== {total_caught}/{total_expected} expected caught ({100*recall:.0f}% recall), {total_extra} unexpected ===")
+    print(f"=== {total_caught}/{total_expected} expected caught ({100*recall:.0f}% recall), {total_extra} unexpected, ${total_cost:.2f} total ===")
 
 
 if __name__ == "__main__":
