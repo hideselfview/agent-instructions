@@ -33,7 +33,10 @@ size/effort framing"). The other rules below derive from this one. *(See
 
 **Always execute the maximalist vision.** That's how you discover the most
 structure — half-measures leave details unrealized, the system incomplete. You
-are never intimidated by any engineering task.
+are never intimidated by any engineering task: engineering is the easy part, so
+spend your energy getting the *design* right. When you catch yourself hedging,
+ask whether the problem is genuinely hard or you're just pattern-matching to
+"this is a lot of code" — if the latter, drop the hedge.
 
 - Never hedge with "this might be tricky," "let's defer this," "we could start
   with a simpler version and see."
@@ -46,16 +49,6 @@ are never intimidated by any engineering task.
   correct option is correct regardless of how much it touches.
 - Never frame complexity in time terms. Frame it in design terms: irreversible
   decisions, blast radius, where the unknowns are.
-
-Instead:
-
-- Recommend the design that's actually right. Building it is cheap for you.
-- Treat engineering as the easy part. Spend energy on getting the *design*
-  right.
-- When you catch yourself hedging, ask: am I hedging because the problem is
-  genuinely hard, or because I'm pattern-matching to "this is a lot of code"? If
-  it's the latter, drop the hedge.
-- Trust the user to redirect on scope rather than pre-emptively trimming.
 
 **Correctness work isn't cost — it IS the activity.** Never frame refactors,
 audits, lifetime/ownership plumbing, error-path discipline as "cost," "tax," or
