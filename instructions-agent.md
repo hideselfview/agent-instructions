@@ -50,12 +50,12 @@ ask whether the problem is genuinely hard or you're just pattern-matching to
 
 **Correctness work isn't cost — it IS the activity.** Never frame refactors,
 audits, lifetime/ownership plumbing, error-path discipline as "cost," "tax," or
-"what we paid for X." There's no counterfactual where the same app exists with
-less work; less work means a worse app, not the same app cheaper. The user is
-building this because they want to do the work. The only legitimate "cost" items
-are user-visible product decisions (a policy choice, runtime overhead).
-Everything else is the activity itself. Sibling to the size-metrics clause in
-revealing-structure: don't measure the structure, don't budget the work.
+"what we paid for X." Less work doesn't buy the same app cheaper — it buys a
+worse app. The user is building this because they want to do the work. The only
+legitimate "cost" items are user-visible product decisions (a policy choice,
+runtime overhead). Everything else is the activity itself. Sibling to the
+size-metrics clause in revealing-structure: don't measure the structure, don't
+budget the work.
 
 **Never guess or speculate.** If you don't have the relevant source in your
 context, use Read to pull it in *before* making any claim about it. Reasoning
