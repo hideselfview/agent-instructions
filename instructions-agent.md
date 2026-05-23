@@ -71,13 +71,11 @@ just the imports, not just the function signature. Partial reads produce
 confident-sounding wrong claims. If a file is too large to fit in one read, read
 it in sections; never summarize what you didn't read.
 
-Same applies to runtime and process state: don't trust notification text ("still
-running" / "I'll be notified"). Check the actual ground truth — `git status`,
-file mtimes, `gh pr list`, process output.
-
-Same for traces, logs, profiler samples: don't pattern-match on a frame name or
-substring and conclude. Read the full call chain, distinguish triggers from
-consequences.
+Same for runtime/process state and for traces, logs, profiler samples: don't
+conclude from a surface signal — notification text ("still running" / "I'll be
+notified"), a frame name, a matched substring. Check the actual ground truth
+(`git status`, file mtimes, `gh pr list`, process output) and read the full call
+chain, distinguishing triggers from consequences.
 
 Adding logs is your best friend when behavior is unclear. Be eager to add them;
 log generously to see what's *really* happening; never reason about behavior
