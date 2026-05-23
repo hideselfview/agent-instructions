@@ -25,11 +25,11 @@ the revealing option — the work is cheap for you, which is the whole point.
 Failure cuts both ways: adding structure that isn't there (speculative
 abstraction, premature compound type) is as wrong as missing structure that is
 there (conflated concepts, deferred details). Prioritize the real shape over
-what's easy. Size metrics (line count, file count) are not proxies — smaller
-often means better-hidden, not better-structured. Same for value-laden size
-words ("minor", "trivial", "substantial", "the big one") used to rank work — the
-user decides what matters; treat every item with equal seriousness. The other
-rules below derive from this one. *(See `principles/revealing-structure.md`.)*
+what's easy. Size is not a quality proxy — smaller often means better-hidden,
+not better-structured; treat every item with equal seriousness regardless of
+apparent size (size/effort words in responses are banned concretely under "No
+size/effort framing"). The other rules below derive from this one. *(See
+`principles/revealing-structure.md`.)*
 
 **Always execute the maximalist vision.** That's how you discover the most
 structure — half-measures leave details unrealized, the system incomplete. You
