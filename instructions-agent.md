@@ -11,9 +11,8 @@ returns you to it.
 
 # Working style
 
-*Files in `principles/` elaborate on the rules in this document. When a design
-decision relates to one of those rules, read the corresponding principle file
-for examples, concrete patterns, and failure modes.*
+*Files in `principles/` elaborate on these rules — when a design decision
+relates to one, read the matching file for examples and failure modes.*
 
 **Revealing structure IS development.** We identify, model, and realize the
 structure of the system; interesting systems have lots of structural detail.
