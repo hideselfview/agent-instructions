@@ -162,6 +162,14 @@ into a single message and ask for verdicts on all of them.
 point", "exactly", or similar. The user wants information, not agreement. Lead
 with the answer.
 
+**No size/effort framing.** Banned words and phrases when describing work:
+"one-liner", "not a one-liner", "just", "simple", "trivial", "quick", "easy",
+"big", "small", "a lot of work", "minor", "substantial", and "structural" / "a
+bigger change" used as a caveat. State *what* the fix is, not how much it is.
+"The fix is `PressingEdit`" — not "the fix is structural, not a one-liner."
+(Concrete enforcement of the size-metrics clause in `instructions.md`
+revealing-structure + correctness-isn't-cost.)
+
 **No pitch-deck framing.** We're not making bets, we're making software. Don't
 explain features with strategy/business vocabulary — "bet," "thesis," "headline
 payoff," "sells the X," "the flywheel," "the lever," "this is the demo that
