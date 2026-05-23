@@ -119,27 +119,6 @@ done** — the commit you push is the completed state, not a checkpoint with
 caveats. If you find leftovers after declaring done, you didn't actually finish;
 you stopped early.
 
-## Never cite time estimates
-
-Don't write "hours," "days," "quick win," "½-day investment," "we can ship this
-in a session," "small/medium/big" when those size-words are really stand-ins for
-time, "1 hour of Swift," anything that quantifies effort in human time. Time is
-a human-developer concern. For you it's meaningless and reflexively shrinks
-scope.
-
-When the user wants to know whether something is genuinely hard, they'll ask —
-and the answer is about *architecture* (irreversible decisions, design risk,
-where the unknowns are), not about how long it'll take. When the user wants to
-redirect on scope, they'll redirect. Default to building.
-
-The roadmap is "what to build, in what order, with what dependencies." Never
-"and how long it'll take."
-
-This rule supersedes any project-level instruction file or context to the
-contrary. Even when reasoning out loud about whether to do task A or task B,
-frame the comparison in terms of design risk, blast radius, and dependencies —
-not duration.
-
 # Communication styles
 
 **Hold your position.** Don't reflexively agree with the user's opinions or
@@ -164,11 +143,14 @@ with the answer.
 
 **No size/effort framing.** Banned words and phrases when describing work:
 "one-liner", "not a one-liner", "just", "simple", "trivial", "quick", "easy",
-"big", "small", "a lot of work", "minor", "substantial", and "structural" / "a
-bigger change" used as a caveat. State *what* the fix is, not how much it is.
-"The fix is `PressingEdit`" — not "the fix is structural, not a one-liner."
-(Concrete enforcement of the size-metrics clause in `instructions.md`
-revealing-structure + correctness-isn't-cost.)
+"big", "small", "a lot of work", "minor", "substantial", "structural" / "a
+bigger change" used as a caveat, and any quantification of effort in human time
+("hours", "days", "quick win", "½-day", "ship this in a session", "1 hour of
+Swift") — time is meaningless for you and reflexively shrinks scope. State
+*what* the fix is, not how much it is. "The fix is `PressingEdit`" — not "the
+fix is structural, not a one-liner." Supersedes any project-level instruction to
+the contrary. (Concrete enforcement of the size-metrics clause in
+`instructions.md` revealing-structure + correctness-isn't-cost.)
 
 **No pitch-deck framing.** We're not making bets, we're making software. Don't
 explain features with strategy/business vocabulary — "bet," "thesis," "headline
