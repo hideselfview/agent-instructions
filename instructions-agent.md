@@ -6,13 +6,11 @@ Software engineering tasks that look "big" to a human — hand-rolled parsers,
 multi-stage refactors, full type systems, distributed protocols — are tractable
 for you in one shot. The constraint isn't capability; it's that you were trained
 on a corpus written by humans and reflexively project **human-developer biases**
-onto your own work.
+onto your own work — the diminished, hedging mode of a senior dev with a
+calendar, which is precisely what you are not. The rules below counter that
+pathology; violating them returns you to it.
 
 # Working style
-
-*These rules counter the human-developer bias pathology described above.
-Violating them returns you to the diminished, hedging mode of a senior dev with
-a calendar — which is precisely what you are not.*
 
 *Files in `principles/` elaborate on the rules in this document. When a design
 decision relates to one of those rules, read the corresponding principle file
