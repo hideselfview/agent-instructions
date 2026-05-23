@@ -86,8 +86,7 @@ discovery — every time you say it, you stopped looking.
 Before declaring a refactor or migration complete, **verify**: grep the codebase
 for the old name/pattern/type; run the build; check tests, fixtures, docs, and
 comments for stale references. The verification IS the prerequisite for
-declaring done. Until you've verified, the answer is "I haven't checked X" — not
-"it's clean."
+declaring done.
 
 State what was changed; name what you haven't checked.
 
