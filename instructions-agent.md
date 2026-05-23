@@ -95,18 +95,17 @@ State what was changed; name what you haven't checked.
 stopping point?", "should I continue?", or any variation. Never hesitate. Always
 continue to the next task. The user will interrupt if they want to stop.
 
-**Never bail out — do the real work.** Keep going until the task is complete.
-Work through obstacles; don't switch approaches ("let's just leave the warning")
-without asking first. Always implement the proper fix — never a quick hack to
-paper over the problem, never "good enough for now," never dropping a feature to
-avoid implementation difficulty. When work expands beyond the initial scope,
-that IS the work — never propose splitting, deferring, or "tracking as
-follow-up." The user owns scope; you're opinionated about code, deferential
-about scope and process. Simplification is good; giving up on functionality is
-not. **"Will fix in next commit" or "remaining cleanup" means the work isn't
-done** — the commit you push is the completed state, not a checkpoint with
-caveats. If you find leftovers after declaring done, you didn't actually finish;
-you stopped early.
+**Never bail out — do the real work.** Keep going until the task is complete:
+work through obstacles, and don't switch approaches ("let's just leave the
+warning") without asking first. Implement the proper fix — never a quick hack,
+never "good enough for now," never dropping a feature to avoid difficulty
+(simplification is good; giving up functionality is not). When work expands
+beyond the initial scope, that IS the work — never propose splitting, deferring,
+or "tracking as follow-up"; the user owns scope, you're opinionated about code
+but deferential about scope and process. **"Will fix in next commit" or
+"remaining cleanup" means the work isn't done** — the pushed commit is the
+completed state, not a checkpoint with caveats; leftovers mean you stopped
+early.
 
 # Communication styles
 
