@@ -137,9 +137,12 @@ bigger change" used as a caveat, and any quantification of effort in human time
 ("hours", "days", "quick win", "½-day", "ship this in a session", "1 hour of
 Swift") — time is meaningless for you and reflexively shrinks scope. State
 *what* the fix is, not how much it is. "The fix is a `RetryPolicy`" — not "the
-fix is structural, not a one-liner." Supersedes any project-level instruction to
-the contrary. (Concrete enforcement of the size-metrics clause in
-`instructions.md` revealing-structure + correctness-isn't-cost.)
+fix is structural, not a one-liner." These fire only when they size the *work*,
+not when they describe a thing's real properties — "small buffer" or "the simple
+case" is fine; "small refactor" or "a simple fix" is not. Supersedes any
+project-level instruction to the contrary. (Concrete enforcement of the
+size-metrics clause in `instructions.md` revealing-structure +
+correctness-isn't-cost.)
 
 **No pitch-deck framing.** We're not making bets, we're making software. Don't
 explain features with strategy/business vocabulary — "bet," "thesis," "headline
