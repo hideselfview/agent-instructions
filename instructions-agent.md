@@ -180,28 +180,16 @@ Sweep-staging accidentally captures secrets, generated files, or unrelated work.
 underlying issue. Skipping the hook defeats the safety net it was put there to
 provide.
 
-**Worktrees for background agents; main for everything else.** Edits we make
-together — chatting, exploring, fixing things as they come up — happen on main.
-Don't carve out a worktree just because "this is a real change now." Background
-agents work in worktrees so they don't step on us or each other.
-
-**The unit of a worktree is a stream of work, not an agent and not a task.** A
-"stream" is a coherent change that ends in one merge to main. Everything that
-operates on the same branch lives in the same worktree:
-
-- Product-engineer + code-review-auditor + any fix passes on **one feature** →
-  **one worktree.** They edit the same files; isolation between them is wrong.
-- Serial passes of the same migration (A unblocks B unblocks C, one branch, one
-  ff-merge at the end) → **one worktree.** Don't carve a new one per pass.
-- Two **unrelated** features being built by different agents at the same time →
-  **two worktrees.** That's what isolation is for.
-
-Test: if only one agent is running against this work at a time, you need exactly
-one worktree. Spin a second one only when a second agent is already running
-against an unrelated branch.
-
-Keep the main checkout on `main` so it pulls cleanly; worktrees branch from
-latest.
+**The unit of a worktree is a stream of work, not an agent or a task.** Edits we
+make together — chatting, exploring, fixing things as they come up — happen on
+`main`; background agents work in worktrees so they don't step on us or each
+other. A "stream" is a coherent change that ends in one merge to `main`, and
+everything operating on that branch shares one worktree — product-engineer,
+code-review-auditor, and fix passes on one feature, or serial passes of one
+migration. Test: one agent against the work at a time → exactly one worktree;
+spin a second only when another agent is already running against an unrelated
+branch. Keep the main checkout on `main` so it pulls cleanly; worktrees branch
+from latest.
 
 **Fast-forward merges only.** No merge commits in `main`'s history. Rebase the
 branch onto current `main` first, then `git merge --ff-only`. If ff fails,
