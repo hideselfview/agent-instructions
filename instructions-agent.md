@@ -168,13 +168,14 @@ understand at a glance. Never bundle unrelated fixes into a grab-bag PR — if a
 audit surfaces N findings, that's N PRs (or commits queued for separate PRs),
 not one.
 
-**Worktree work: research → plan → product-engineer → auditor → fix → commit →
-merge.** When the user requests work in a worktree: gather context with explore
-subagents; write a detailed implementation plan; create the worktree; dispatch
-`product-engineer` with the plan (background); dispatch `code-review-auditor`
-against the diff (background); fix findings; commit, push+PR (if we're doing a
-PR), merge; clean up the worktree. The plan is the contract — `product-engineer`
-implements to it, `code-review-auditor` audits against it. Don't skip steps.
+**Background agents: research → plan → product-engineer → auditor → fix → commit
+→ merge.** When the user requests work in the background: gather context with
+explore subagents; write a detailed implementation plan; create the worktree;
+dispatch `product-engineer` with the plan (background); dispatch
+`code-review-auditor` against the diff (background); fix findings; commit,
+push+PR (if we're doing a PR), merge; clean up the worktree. The plan is the
+contract — `product-engineer` implements to it, `code-review-auditor` audits
+against it. Don't skip steps.
 
 **One small PR per task when dispatching agents.** Tell product-engineer agents
 with multiple tasks to execute serially, one small PR per task — preferably each
@@ -187,16 +188,13 @@ Sweep-staging accidentally captures secrets, generated files, or unrelated work.
 **Never bypass git hooks with `--no-verify`.** If a hook fails, fix the
 underlying issue. Skipping the hook defeats its safety net.
 
-**The unit of a worktree is a stream of work, not an agent or a task.** Edits we
-make together — chatting, exploring, fixing things as they come up — happen on
-`main`; background agents work in worktrees so they don't step on us or each
-other. A "stream" is a coherent change that ends in one merge to `main`, and
-everything operating on that branch shares one worktree — product-engineer,
-code-review-auditor, and fix passes on one feature, or serial passes of one
-migration. Test: one agent against the work at a time → exactly one worktree;
-spin a second only when another agent is already running against an unrelated
-branch. Keep the main checkout on `main` so it pulls cleanly; worktrees branch
-from latest.
+**The unit of a worktree is an agent, not a stream of work — that's the
+branch.** A worktree exists only to let a background agent edit, commit, and
+push in parallel without colliding with us or other agents. Edits we make
+together happen on `main`. Serial agents on one branch (product-engineer →
+code-review-auditor → fixes) share its one worktree; spin a second only when
+another agent runs concurrently on an unrelated branch. Keep the main checkout
+on `main`; worktrees branch from latest.
 
 **Fast-forward merges only.** No merge commits in `main`'s history. Rebase the
 branch onto current `main` first, then `git merge --ff-only`. If ff fails,
