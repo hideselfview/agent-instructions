@@ -1,219 +1,127 @@
-name: Rules review (reusable)
+name: rules review (matrix, reusable)
+
+# Reusable per-rule matrix reviewer. Replaces the old single-pass reviewer,
+# which was bimodal/unreliable (engaged a rule or skipped it, ~coin-flip).
+# Each matrix job sees ONLY one rule's atomic file — rules/<slug>.md, or
+# projects/<project>-rules/<slug>.md for project-specific rules — plus the PR
+# diff, then posts violations as inline comments. Callers pass the PR number,
+# head SHA, their agent-instructions project name, and the JSON slug list of
+# rules that apply to them. Manual trigger on the caller side for now (an auto
+# PR trigger comes later).
+#
+# Reviewer: claude-code-action @51ea8ea7 (Claude Code 2.1.142), sonnet-4-6,
+# violations schema. Rules read live from agent-instructions main.
 
 on:
   workflow_call:
     inputs:
-      project:
-        description: "agent-instructions project name (matches projects/<name>.md). Defaults to the calling repo name; pass explicitly when the repo and project names differ (e.g., foragelang repo → forage project)."
-        required: false
+      pr_number:
+        description: "PR number to review"
+        required: true
         type: string
-        default: ${{ github.event.repository.name }}
+      checkout_ref:
+        description: "caller ref to check out (PR head SHA)"
+        required: true
+        type: string
+      project:
+        description: "agent-instructions project name (for projects/<project>-rules/)"
+        required: true
+        type: string
+      slugs:
+        description: "JSON array of rule slugs to review"
+        required: true
+        type: string
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
 
-concurrency:
-  group: rules-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   review:
-    # Author allowlist + skip non-base-change `edited` events. Callers
-    # subscribe to `edited` to catch base-ref retargets (no native trigger
-    # exists for that), but the same event also fires on title/description
-    # edits — `github.event.changes.base` is the discriminator.
-    if: |
-      (github.event.pull_request.user.login == 'dminkovsky'
-        || github.event.pull_request.user.login == 'hideselfview')
-      && (github.event.action != 'edited'
-        || github.event.changes.base != null)
+    strategy:
+      fail-fast: false
+      matrix:
+        slug: ${{ fromJSON(inputs.slugs) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
       id-token: write
     steps:
-      # Skip review while prior bot comments are still unresolved.
-      # Resolving them is the user's signal that the findings were
-      # addressed (or accepted as known); only then does it make sense
-      # to spend tokens on a fresh review and post a new round of
-      # findings. Without this guard, every push posts duplicate
-      # comments on top of unresolved ones.
-      - id: guard
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          REPO_OWNER="${REPO%/*}"
-          REPO_NAME="${REPO#*/}"
-
-          UNRESOLVED=$(gh api graphql -f query="
-          {
-            repository(owner: \"$REPO_OWNER\", name: \"$REPO_NAME\") {
-              pullRequest(number: $PR_NUMBER) {
-                reviewThreads(first: 100) {
-                  nodes {
-                    isResolved
-                    comments(first: 1) {
-                      nodes { author { login } }
-                    }
-                  }
-                }
-              }
-            }
-          }" --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
-            | select(.isResolved == false)
-            | select(.comments.nodes[0].author.login == "github-actions")] | length')
-
-          if [ "$UNRESOLVED" -gt 0 ]; then
-            echo "::notice::Skipping review — $UNRESOLVED unresolved bot comment(s). Resolve them to trigger a fresh review."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # Caller repo (the PR's code) into ./ so Claude can see the diff.
-      - if: steps.guard.outputs.skip != 'true'
-        uses: actions/checkout@v4
-      # Rules repo into ./agent-instructions/ so the prompt's paths resolve.
-      - if: steps.guard.outputs.skip != 'true'
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref }}
+      - uses: actions/checkout@v4
         with:
           repository: hideselfview/agent-instructions
-          path: agent-instructions
-
-      - if: steps.guard.outputs.skip != 'true'
-        id: claude
-        uses: anthropics/claude-code-action@v1
+          ref: main
+          path: _ai
+      - name: Pick the one rule, delete the rest
+        run: |
+          slug="${{ matrix.slug }}"
+          if [ -f "_ai/rules/$slug.md" ]; then
+            cp "_ai/rules/$slug.md" "$GITHUB_WORKSPACE/THE_RULE.md"
+          elif [ -f "_ai/projects/${{ inputs.project }}-rules/$slug.md" ]; then
+            cp "_ai/projects/${{ inputs.project }}-rules/$slug.md" "$GITHUB_WORKSPACE/THE_RULE.md"
+          else
+            echo "no rule file for slug: $slug" >&2; exit 1
+          fi
+          rm -rf "$GITHUB_WORKSPACE/_ai"
+          echo "=== THE_RULE.md ==="; cat "$GITHUB_WORKSPACE/THE_RULE.md"
+      - id: claude
+        uses: anthropics/claude-code-action@51ea8ea73a139f2a74ff649e3092c25a904aed7e
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: >-
-            --model claude-opus-4-7
             --allowedTools "Read,Glob,Grep,Bash(gh pr diff:*),Bash(gh pr view:*)"
-            --json-schema '{"type":"object","required":["findings"],"properties":{"findings":{"type":"array","items":{"type":"object","required":["blocking","path","line","body"],"properties":{"blocking":{"type":"boolean"},"path":{"type":"string"},"line":{"type":"integer"},"body":{"type":"string"}}}}}}'
+            --json-schema '{"type":"object","required":["violations"],"properties":{"violations":{"type":"array","items":{"type":"object","required":["blocking","path","line","body"],"properties":{"blocking":{"type":"boolean"},"path":{"type":"string"},"line":{"type":"integer"},"body":{"type":"string"}}}}}}'
           prompt: |
             REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+            PR NUMBER: ${{ inputs.pr_number }}
 
-            Read the rule files first:
+            The ONLY rule you are enforcing is in the file ./THE_RULE.md.
+            Read it — that is the complete and only rule. There are no other
+            rules.
 
-            - agent-instructions/instructions-agent.md (agent behavior +
-              writing rules: commit messages, PR descriptions)
-            - agent-instructions/rules/*.md (code, language, and framework
-              rules; each has `digest` / `paths` / `blocking` frontmatter)
-            - agent-instructions/projects/${{ inputs.project }}.md
-              (project facts; skip if the file doesn't exist)
-            - agent-instructions/projects/${{ inputs.project }}-rules/*.md
-              (project-specific rules; skip if the dir doesn't exist)
-
-            Each rule has a severity — blocking or informational. A rule
-            in rules/ or projects/<name>-rules/ is blocking if its
-            frontmatter has `blocking: true`. All other rules are
-            informational.
-
-            Then read the PR diff (`gh pr diff $PR_NUMBER`) and flag
-            line-anchored violations of the rules loaded above. Stay
-            concrete and citeable; if something is questionable but
-            not clearly a rule violation, skip it. For rules that
-            need cross-file context (e.g., "Don't duplicate existing
-            logic"), use Grep/Read across the whole codebase, not
-            just the changed files. Skip rules that apply to commit
-            messages, PR descriptions, or other non-line-anchored
-            content.
+            Then read the PR diff (`gh pr diff $PR_NUMBER`) and flag every
+            line-anchored violation of that one rule. Use Grep/Read across the
+            repo if the rule needs cross-file context. Be exhaustive.
 
             Output structured findings as JSON matching the schema.
-            Do NOT post anything via tools. The post-step will
-            submit a single PR review with all your findings and
-            request changes if any are blocking.
 
-            For each finding, populate:
-            - `blocking`: true if the violated rule has the `> Blocking`
-              marker, false otherwise.
+            For each violation, populate:
+            - `blocking`: the value of the `blocking:` field in the rule's frontmatter.
             - `path`: file path as it appears in the diff.
             - `line`: line number in the new version of the file.
-            - `body`: explanation, including which rule was violated
-              (e.g., "Violates **\"Never mask errors with defaults\"**
-              (rules/never-mask-errors-with-defaults.md): …"). For cross-file findings,
-              cite the existing file/symbol that the diff duplicates
-              or could share with.
+            - `body`: explanation of the violation.
 
-            If no findings, output `{"findings": []}`.
+            If no violations, output `{"violations": []}`.
 
-      - name: Post inline comments + summary review
-        if: steps.claude.outputs.structured_output != ''
+      - name: Dump + post findings
+        if: always()
         env:
-          # workflow's GITHUB_TOKEN — has the pull-requests: write
-          # we declared on the job. Reviews + inline comments post as
-          # github-actions[bot] rather than claude[bot], which is a
-          # cosmetic difference. The action's own
-          # steps.claude.outputs.github_token returned 401 from the
-          # post-step against /pulls/{n}/comments and /pulls/{n}/reviews.
+          OUT: ${{ steps.claude.outputs.structured_output }}
           GH_TOKEN: ${{ github.token }}
-          FINDINGS: ${{ steps.claude.outputs.structured_output }}
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SHA: ${{ inputs.checkout_ref }}
+          PR: ${{ inputs.pr_number }}
+          SLUG: ${{ matrix.slug }}
         run: |
-          set -euo pipefail
-
-          total=$(jq '.findings | length' <<<"$FINDINGS")
-          blocking=$(jq '[.findings[] | select(.blocking)] | length' <<<"$FINDINGS")
-          informational=$((total - blocking))
-
-          # Inline comments (only when findings exist).
-          # NOTE: no de-dup against prior runs. We tried resolving stale
-          # threads + skipping (path, line) duplicates via GraphQL, but
-          # github-actions[bot] gets "Resource not accessible by
-          # integration" on `resolveReviewThread`. Dedup would need a
-          # PAT or GitHub App with broader scope.
-          if [ "$total" -gt 0 ]; then
-            jq -c '.findings[]' <<<"$FINDINGS" | while read -r v; do
-              jq -n --argjson v "$v" --arg sha "$HEAD_SHA" \
-                '{commit_id: $sha, path: $v.path, line: $v.line, side: "RIGHT", body: $v.body}' \
-                | gh api -X POST "/repos/$REPO/pulls/$PR_NUMBER/comments" --input -
-            done
+          set -uo pipefail
+          if [ -z "${OUT:-}" ]; then
+            echo "RESULT slug=$SLUG ERROR no structured_output"; exit 0
           fi
-
-          # Summary review. COMMENT (not APPROVE) when no blocking —
-          # github-actions[bot] is forbidden from approving PRs (HTTP
-          # 422 "GitHub Actions is not permitted to approve pull
-          # requests"). To unblock merge when prior runs left a stale
-          # REQUEST_CHANGES, we dismiss those reviews directly via the
-          # dismissals endpoint (no approval permission needed).
-          if [ "$blocking" -gt 0 ]; then
-            event="REQUEST_CHANGES"
-            summary="**$blocking blocking** finding(s), $informational informational — see inline comments. Blocking findings must be fixed before merging."
-          elif [ "$total" -gt 0 ]; then
-            event="COMMENT"
-            summary="No blocking findings. $informational informational finding(s) — see inline comments."
-          else
-            event="COMMENT"
-            summary="No findings."
-          fi
-
-          jq -n --arg sha "$HEAD_SHA" --arg event "$event" --arg body "$summary" \
-            '{commit_id: $sha, event: $event, body: $body}' \
-            | gh api -X POST "/repos/$REPO/pulls/$PR_NUMBER/reviews" --input -
-
-          # Dismiss prior REQUEST_CHANGES reviews from this bot when
-          # the new run has no blocking findings — the request was
-          # addressed and shouldn't keep gating merge. Dismiss is a
-          # different endpoint from review submission and doesn't trip
-          # the "Actions can't approve" rule.
-          if [ "$blocking" -eq 0 ]; then
-            gh api "/repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate \
-              --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "CHANGES_REQUESTED") | .id' \
-              | while read -r rid; do
-                gh api -X PUT "/repos/$REPO/pulls/$PR_NUMBER/reviews/$rid/dismissals" \
-                  -f message="Superseded by a later run that found no blocking findings." \
-                  >/dev/null \
-                  || echo "warning: failed to dismiss review $rid"
-              done
-          fi
-
-          if [ "$blocking" -gt 0 ]; then
-            echo "::error::$blocking blocking finding(s) in PR diff."
-            exit 1
-          fi
+          echo "RESULT slug=$SLUG count=$(jq '.violations | length' <<<"$OUT")"
+          echo "OUTJSON slug=$SLUG :: $OUT"
+          # Post each finding as an inline PR comment, tagged with the rule
+          # slug so they're identifiable / bulk-closable. Non-fatal: a line
+          # outside the diff yields a 422; skip and continue.
+          jq -c '.violations[]' <<<"$OUT" | while read -r v; do
+            jq -n --argjson v "$v" --arg sha "$SHA" --arg slug "$SLUG" \
+              '{commit_id:$sha, path:$v.path, line:$v.line, side:"RIGHT",
+                body:("**[rules-review: `" + $slug + "`]**\n\n" + $v.body)}' \
+              | gh api -X POST "/repos/$REPO/pulls/$PR/comments" --input - >/dev/null \
+              && echo "posted $SLUG @ $(jq -r .path <<<"$v"):$(jq -r .line <<<"$v")" \
+              || echo "skip $SLUG @ $(jq -r .path <<<"$v"):$(jq -r .line <<<"$v") (line not in diff?)"
+          done
