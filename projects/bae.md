@@ -76,6 +76,14 @@ no filtering, no orchestration, no mutable state, no event filtering. If you
 need to add functionality, add it to bae-core; the bridge calls it. Never add
 "just a quick helper" to the bridge.
 
+**Bridge types are defined in Rust, generated per language.** The `Bridge*`
+records/enums live in `bae-bridge/src/types.rs` (`uniffi::Record` /
+`uniffi::Enum`). The Swift/Kotlin equivalents are generated at build and
+gitignored (`bae-macos/bae/bae/bae_bridge.swift`, `bae-bridge/swift-bindings/`)
+— absent from the repo and from review. To check a bridge type's
+existence/fields, or whether a UI type duplicates one, read
+`bae-bridge/src/types.rs`; never conclude from the (missing) generated file.
+
 Bridge boundary violations to flag:
 
 - Swift computes a derived value from multiple bridge fields instead of
