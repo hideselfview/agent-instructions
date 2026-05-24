@@ -48,7 +48,8 @@ always-on (same priority as `CLAUDE.md`). So:
   `instructions-agent.md`, always-on by being part of `instructions.md`.
 
 Rule of thumb: `rules/` = scoped rules (always have `paths`);
-`instructions-agent.md` = always-on behavior.
+`instructions-agent.md` = always-on behavior; `projects/<name>-rules/` =
+project-specific scoped rules.
 
 ## Local setup
 
@@ -64,10 +65,18 @@ idempotent — re-run after pulling new rules.
 
 ## Per-project setup
 
-`install.sh` auto-links every `projects/<name>.md` to both
-`~/dev/<name>/CLAUDE.md` and `~/dev/<name>/AGENTS.md` (skipping projects whose
-target dir doesn't exist on this machine). Those symlinks should be gitignored
-in the target project so cloners don't inherit them.
+A project gets two things, both auto-linked by `install.sh` (projects whose
+target dir doesn't exist on this machine are skipped):
+
+- `projects/<name>.md` → `~/dev/<name>/CLAUDE.md` and `~/dev/<name>/AGENTS.md` —
+  the always-on project facts.
+- `projects/<name>-rules/*.md` → `~/dev/<name>/.claude/rules/` — path-scoped
+  project rules. Same frontmatter as user-level `rules/` (`digest` / `paths` /
+  `blocking`); Claude Code loads each body when a matching file is read, exactly
+  like the user-level rules. The CI matrix reviews them alongside `rules/`.
+
+Gitignore both `CLAUDE.md`/`AGENTS.md` and `.claude/rules/` in the target
+project so cloners don't inherit the machine-local symlinks.
 
 ## CI consumption (PR review)
 
