@@ -219,6 +219,14 @@ the downstream PR designs the real shape from scratch when it has the context.
 Pre-scaffolding is usually wrong twice: dead infrastructure upstream, and a
 shape that turns out wrong once the downstream PR designs it for real.
 
+A chain *grows* its shapes — each PR extends what earlier PRs introduced; it
+never *reshapes* them (rebuilding a prior PR's structure later is the smell that
+the shape was committed before it was understood). Re-authoring a chain from a
+known end-state doesn't license front-loading the final shape: introduce each
+PR's own shape, trimmed to what it uses, and let it accrete. With hindsight the
+dead-infra / wrong-shape risks fade, but the reviewability one stays — a reader
+of an early PR must not see a field, param, or helper only a later PR uses.
+
 Exception: when avoiding the sentinel would require a detour through unrelated
 code, keep the sentinel and add a code comment naming the downstream context
 that removes it:
