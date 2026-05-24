@@ -31,3 +31,7 @@ When you find a violation:
 - Free functions in a topic-named file → wrap public API in
   `enum Topic { static func ... }`.
 - Junk-drawer extensions file → split into per-type extension files.
+
+This matters less in tests. A test file may group several `*Tests` suites for
+one area under a topic name (e.g. `LibraryStoreTests.swift`); the rule targets
+production junk-drawer dumping, not test organization.
