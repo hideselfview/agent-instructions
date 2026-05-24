@@ -16,15 +16,6 @@ SHAs end-to-end. Walk the new commits and `git branch -f <pr-branch> <sha>` for
 each PR marker, then `git push --force-with-lease origin <all-pr-branches>` in
 one batched push.
 
-### Don't cascade-rebase
-
-Don't iterate "rebase branch 2 onto branch 1, then branch 3 onto branch 2, …".
-When an upstream commit's SHA changes, downstream branches still reference the
-*old* SHA in their history; git's merge-base falls back to a much older ancestor
-and replays too many commits, duplicating work and producing conflicts that
-don't represent real diffs. The single-rebase-on-tip model side-steps this
-entirely.
-
 ## Chain navigation in PR descriptions
 
 Each PR's description begins with a one-line nav block (bold links), then a
