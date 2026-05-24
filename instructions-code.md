@@ -8,9 +8,8 @@ State what it does plainly. *(Pairs with "No pitch-deck framing" in
 `instructions-agent.md` — that rule covers strategy/business vocabulary
 specifically.)*
 
-**Commit messages: brief, why not what.** State what happened. No padding, no
-celebrating the change. Focus on *why* (when not obvious from the diff) — the
-diff already shows *what*.
+**Commit messages: brief, why not what.** No padding, no celebrating the change.
+Focus on *why* (when not obvious from the diff) — the diff already shows *what*.
 
 **PR descriptions: narrative prose, not changelogs.** Explain the situation, the
 problem, and the approach in a few sentences. The diff shows *what* changed —
