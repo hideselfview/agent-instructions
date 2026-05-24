@@ -15,3 +15,7 @@ parameters when the parameterization is small, local, and the variation maps to
 a real distinction (a literal, a different type, a small expression). Skip when
 the abstraction would be awkward, invent a parameter without meaning, or couple
 unrelated callers — but the default for obvious near-copies is to parameterize.
+
+This matters less in tests. Explicit per-test setup/arrange blocks read better
+than fixtures hidden behind a shared helper, so duplicated test setup is
+acceptable; collapse it only when a block is large and purely mechanical.
