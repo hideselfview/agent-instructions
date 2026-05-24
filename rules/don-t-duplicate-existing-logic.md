@@ -15,3 +15,8 @@ state already computed by a reducer should call into the existing
 implementation, or factor the shared piece into a helper both call — not
 parallel it. Two implementations of the same thing drift; the one updated first
 becomes a silent bug in the other.
+
+Flag re-implemented logic, not similar shape. If two functions already call the
+same helpers for their common steps and differ in the rest, the shared piece is
+factored — don't flag structural parallelism between operations that diverge by
+design.
