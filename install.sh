@@ -9,17 +9,12 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Assemble instructions.md from agent + code sources. instructions.md is
-# generated (gitignored) and serves as the symlink target for global CLAUDE.md
-# and AGENTS.md. Source files: instructions-agent.md (operating manual) and
-# instructions-code.md (rules for code, tests, docs, commits, PRs). The latter
-# is also loaded directly by the PR-review workflow.
-{
-  cat "$repo/instructions-agent.md"
-  echo
-  cat "$repo/instructions-code.md"
-} > "$repo/instructions.md"
-echo "Generated $repo/instructions.md from instructions-agent.md + instructions-code.md"
+# Generate instructions.md (gitignored): instructions-agent.md + a digest index
+# built from rules/*.md frontmatter. Serves as the symlink target for the global
+# CLAUDE.md / AGENTS.md. Rule bodies are delivered separately by Claude Code's
+# path-scoped loading of rules/ (symlinked below); the PR-review workflow reads
+# rules/ directly.
+python3 "$repo/generate.py"
 
 # Pre-commit hook: enforce mdformat on markdown files.
 if ! command -v mdformat >/dev/null 2>&1; then
@@ -69,5 +64,25 @@ for f in "$repo/projects"/*.md; do
     echo "Linked $target_dir/AGENTS.md -> $f"
   else
     echo "Skipped $name (no $target_dir)"
+  fi
+done
+
+# Per-project rule files. Convention: projects/<name>-rules/*.md are path-scoped
+# rules for that project, symlinked into ~/dev/<name>/.claude/rules/ so Claude
+# Code loads them project-scoped. Gitignore .claude/rules/ in the target repo.
+for rules_dir in "$repo/projects"/*-rules; do
+  [[ -d "$rules_dir" ]] || continue
+  name="$(basename "$rules_dir")"
+  name="${name%-rules}"
+  if [[ -d "$HOME/dev/$name" ]]; then
+    target_dir="$HOME/dev/$name/.claude/rules"
+    mkdir -p "$target_dir"
+    for f in "$rules_dir"/*.md; do
+      [[ -f "$f" ]] || continue
+      ln -sf "$f" "$target_dir/$(basename "$f")"
+      echo "Linked $target_dir/$(basename "$f") -> $f"
+    done
+  else
+    echo "Skipped ${name}-rules (no $HOME/dev/$name)"
   fi
 done

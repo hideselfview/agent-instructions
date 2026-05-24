@@ -99,16 +99,18 @@ jobs:
 
             Read the rule files first:
 
-            - agent-instructions/instructions-code.md (general code rules
-              for code, tests, docs, commit messages, PR descriptions)
-            - agent-instructions/rules/*.md (language and framework rules)
+            - agent-instructions/instructions-agent.md (agent behavior +
+              writing rules: commit messages, PR descriptions)
+            - agent-instructions/rules/*.md (code, language, and framework
+              rules; each has `digest` / `paths` / `blocking` frontmatter)
             - agent-instructions/projects/${{ inputs.project }}.md
-              (project-specific rules; skip if the file doesn't exist)
+              (project facts; skip if the file doesn't exist)
+            - agent-instructions/projects/${{ inputs.project }}-rules/*.md
+              (project-specific rules; skip if the dir doesn't exist)
 
-            Each rule has a severity — blocking or informational. A
-            rule is blocking if its body contains a `> Blocking`
-            blockquote (anywhere within the rule's content, usually
-            right after the heading). All other rules are
+            Each rule has a severity — blocking or informational. A rule
+            in rules/ or projects/<name>-rules/ is blocking if its
+            frontmatter has `blocking: true`. All other rules are
             informational.
 
             Then read the PR diff (`gh pr diff $PR_NUMBER`) and flag
@@ -133,7 +135,7 @@ jobs:
             - `line`: line number in the new version of the file.
             - `body`: explanation, including which rule was violated
               (e.g., "Violates **\"Never mask errors with defaults\"**
-              (instructions-code.md): …"). For cross-file findings,
+              (rules/never-mask-errors-with-defaults.md): …"). For cross-file findings,
               cite the existing file/symbol that the diff duplicates
               or could share with.
 

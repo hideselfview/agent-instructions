@@ -60,5 +60,5 @@ is already on top of `main` and no rebase runs. Leave the new head PR's `[Prev]`
 link to the merged PR in place — the link still resolves and preserves
 traceability. Then repeat for the next bottom PR.
 
-See also: `instructions-agent.md` (`# Agent workflow`), `instructions-code.md`
-(PR shape and description rules).
+See also: `instructions-agent.md` (`# Agent workflow`, `# Writing style`) for PR
+shape and description rules.

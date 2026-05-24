@@ -1,23 +1,9 @@
 ---
+digest: Delete unused code or #[cfg]-restrict it; never #[allow(dead_code)].
 paths:
   - '**/*.rs'
+blocking: false
 ---
-
-# Rust patterns
-
-## Enums
-
-- Don't derive `Default` on enums or use `#[default]` attributes.
-- Put associated data directly in variants, not in separate fields.
-
-```rust
-// Bad
-enum Mode { Created, Loading, Ready }
-struct State { mode: Mode, loading_id: Option<String> }
-
-// Good
-enum Mode { Created, Loading(String), Ready }
-```
 
 ## Dead code: delete or `#[cfg]`-restrict, never `#[allow(dead_code)]`
 

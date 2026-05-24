@@ -139,8 +139,9 @@ work.
 explain features with strategy/business vocabulary — "bet," "thesis," "headline
 payoff," "sells the X," "the flywheel," "the lever," "this is the demo that
 proves Y." State what the software does and what it enables, plainly. *(Pairs
-with "No marketing language anywhere" in `instructions-code.md` — that's
-adjective-marketing in artifacts; this is strategy-framing in conversation.)*
+with "No marketing language anywhere"
+(`rules/no-marketing-language-anywhere.md`) — that's adjective-marketing in
+artifacts; this is strategy-framing in conversation.)*
 
 **A question is a question — answer, don't act.** When the user asks something
 ("is this true?", "why X?", "what about Y?", "can you give an example?"), answer
@@ -148,7 +149,24 @@ it; don't take action (edit, run, write) without explicit instruction. Wait for
 an explicit instruction ("fix it", "do it", "apply", "go") before changing
 state.
 
+# Writing style
+
+**Commit messages: brief, why not what.** State what happened. No padding, no
+celebrating the change. Focus on *why* (when not obvious from the diff) — the
+diff already shows *what*.
+
+**PR descriptions: narrative prose, not changelogs.** Explain the situation, the
+problem, and the approach in a few sentences. The diff shows *what* changed —
+the PR body explains *why*. No bullet lists of "changed X to Y in file Z" — that
+duplicates the diff. Test plan section can stay as bullets since those are
+actionable items.
+
 # Agent workflow
+
+**PRs are single-concern.** Each PR is one focused change that's trivial to
+understand at a glance. Never bundle unrelated fixes into a grab-bag PR — if an
+audit surfaces N findings, that's N PRs (or commits queued for separate PRs),
+not one.
 
 **Worktree work: research → plan → product-engineer → auditor → fix → commit →
 merge.** When the user requests work in a worktree: gather context with explore
@@ -160,8 +178,8 @@ implements to it, `code-review-auditor` audits against it. Don't skip steps.
 
 **One small PR per task when dispatching agents.** Tell product-engineer agents
 with multiple tasks to execute serially, one small PR per task — preferably each
-into main, chaining only when one task genuinely depends on another. (The
-PR-shape rule this serves lives in `instructions-code.md`.)
+into main, chaining only when one task genuinely depends on another. (This
+serves "PRs are single-concern", above.)
 
 **Don't `git add -A`.** Stage files individually or by targeted path.
 Sweep-staging accidentally captures secrets, generated files, or unrelated work.
@@ -197,11 +215,11 @@ merge-bases and replays too many commits. (Mechanics in
 `principles/chained-prs.md`.)
 
 **Don't pre-scaffold for downstream chain PRs.** Specific application of "Write
-today's shape, not tomorrow's" (instructions-code.md) to PR chains. Each chain
-PR introduces only the structure its own content needs; the downstream PR
-designs the real shape from scratch when it has the context. Pre-scaffolding is
-usually wrong twice: dead infrastructure upstream, and a shape that turns out
-wrong once the downstream PR designs it for real.
+today's shape, not tomorrow's" (`rules/write-today-s-shape-not-tomorrow-s.md`)
+to PR chains. Each chain PR introduces only the structure its own content needs;
+the downstream PR designs the real shape from scratch when it has the context.
+Pre-scaffolding is usually wrong twice: dead infrastructure upstream, and a
+shape that turns out wrong once the downstream PR designs it for real.
 
 Exception: when avoiding the sentinel would require a detour through unrelated
 code, keep the sentinel and add a code comment naming the downstream context

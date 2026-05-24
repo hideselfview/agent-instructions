@@ -1,12 +1,13 @@
 # now-doing
 
-We're walking the release-identity PR chain (starting at bae-fm/bae#636) and,
-for each PR, running the isolated-rule eval experiment against it, adjudicating
-its posted findings together as true/false positives, and tuning as we go —
-rewording rules that miss or over-fire, adding fixtures or samples where the
-signal is noisy, and merging redundant rules — then merging each PR once we've
-extracted what the experiment taught us. The eval harness lives in
-`agent-instructions/eval/` (per-rule files in `rules-atomic/`, generator
-`split_rules.py`); the experiment workflows are
-`bae/.github/workflows/v1-*-experiment.yml`, which post findings to the PR as
-`🧪`-tagged inline comments.
+Rules are atomic files — one per rule under `rules/<slug>.md` (and
+`projects/<name>-rules/<slug>.md` for project rules), each carrying `digest` /
+`paths` / `blocking` frontmatter. `generate.py` (run by `install.sh`) stitches
+the digests into the always-on `instructions.md` index; Claude Code path-loads
+each full body when a matching file is read. The CI reviewer is
+`bae/.github/workflows/rules-review-matrix.yml` — a matrix that reviews one rule
+per job by copying its file directly from this repo (no split step).
+
+Still open: walk the release-identity PR chain (bae-fm/bae#636) — adjudicate
+each PR's matrix findings together as true/false positives, fix the real ones,
+then merge.

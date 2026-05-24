@@ -4,18 +4,9 @@ Personal music library + playback. Rust core (bae-core), platform UIs via uniffi
 (bae-bridge → bae-macos, bae-ios, bae-android, bae-web), and a cloud sync layer
 (bae-proxy) supporting S3 / Google Drive / Dropbox / OneDrive.
 
-## Stylization: bae is always lowercase
-
-> Blocking
-
-"bae" is always lowercase in user-visible strings — UI text, labels, docs, error
-messages, window titles, button text, alt text, meta descriptions, filenames
-(`bae.dmg`, `bae Library`), URLs (`bae://`). Never "Bae" or "BAE".
-
-Exception: code identifiers (variables, functions, types) follow language
-conventions. This covers env var names (`BAE_PORT`), HTTP header names
-(`X-Bae-Signature`), and other wire/config keys mentioned in prose — they're
-identifiers, not user-visible strings.
+Project rules are path-scoped atomic files in `projects/bae-rules/`, symlinked
+into this project's `.claude/rules/` by `install.sh`. This file holds the
+always-on project facts.
 
 ## Greenfield — break things and move on
 
@@ -27,19 +18,14 @@ migration shims, no dual-shape compatibility flags, no `#[serde(default)]` to
 silently absorb renames, no fallback decoders for old data. If a fixture is
 stale, regenerate it.
 
-## No real artist/album/song names in artifacts
+## Bridge types are defined in Rust, generated per language
 
-> Blocking
-
-Never use real artist, album, or song names in any durable written artifact:
-code, tests, UI strings, docs, mockups, PR titles/descriptions, commit messages,
-plan docs, issue bodies. Use descriptive placeholders that carry the same
-meaning — "2×LP vinyl rip", "the release", "Artist Name", "Album Title", "Track
-Title", "rel-123".
-
-The only safe place for a real name is ephemeral chat that won't be indexed or
-linked later. Before finalizing any PR title/body, commit message, or plan doc,
-scan and replace.
+The `Bridge*` records/enums live in `bae-bridge/src/types.rs` (`uniffi::Record`
+/ `uniffi::Enum`). The Swift/Kotlin equivalents are generated at build and
+gitignored (`bae-macos/bae/bae/bae_bridge.swift`, `bae-bridge/swift-bindings/`)
+— absent from the repo and from review. To check a bridge type's
+existence/fields, or whether a UI type duplicates one, read
+`bae-bridge/src/types.rs`; never conclude from the (missing) generated file.
 
 ## SPM cache recovery (bae-macos)
 
@@ -62,53 +48,3 @@ cd bae-macos/bae && xcodebuild -project bae.xcodeproj \
 
 VPN can cause incomplete git fetches that corrupt the SPM cache; disconnect
 before re-running if you're on VPN.
-
-## UI and bridge thinness (letter of the law)
-
-The generic "UI iterates and renders" rule (in `rules/reactive-ui.md`) is
-enforced strictly in bae because cross-platform UI is the goal: macOS today, iOS
-/ Android / web ahead. Anything in the UI is something we'd rewrite per
-platform.
-
-**bae-bridge is ONLY type translation.** It converts bae-core types ↔
-uniffi/Swift types and nothing else. No DB lookups, no API calls, no formatting,
-no filtering, no orchestration, no mutable state, no event filtering. If you
-need to add functionality, add it to bae-core; the bridge calls it. Never add
-"just a quick helper" to the bridge.
-
-**Bridge types are defined in Rust, generated per language.** The `Bridge*`
-records/enums live in `bae-bridge/src/types.rs` (`uniffi::Record` /
-`uniffi::Enum`). The Swift/Kotlin equivalents are generated at build and
-gitignored (`bae-macos/bae/bae/bae_bridge.swift`, `bae-bridge/swift-bindings/`)
-— absent from the repo and from review. To check a bridge type's
-existence/fields, or whether a UI type duplicates one, read
-`bae-bridge/src/types.rs`; never conclude from the (missing) generated file.
-
-Bridge boundary violations to flag:
-
-- Swift computes a derived value from multiple bridge fields instead of
-  receiving a pre-computed field (e.g., `badAudioCount > 0 || badImageCount > 0`
-  instead of `isIncomplete`).
-- Swift formats raw data for display (ms → duration, bytes → size, dates →
-  strings) instead of receiving a pre-formatted label.
-- Swift switches on bridge string/enum values to make domain decisions (e.g.,
-  `source == "musicbrainz"` to build a URL) instead of receiving the result as a
-  field.
-- Swift sorts/filters bridge arrays using domain rules instead of receiving
-  pre-sorted/pre-filtered data.
-- Swift groups flat arrays into structured data (tracks by side) instead of
-  receiving pre-grouped data.
-- Swift constructs URLs, file paths, or identifiers from bridge field values
-  instead of receiving them pre-built.
-- String literals in Swift that encode domain knowledge (source names, format
-  names, status strings) — those are bae-core concepts.
-
-## Error display path
-
-Every surfaced error must have a display path:
-
-- `AppService.lastError` shows via the global alert.
-- Per-view errors show inline.
-- Import errors show in the candidate's error state.
-
-If you add a new error path, verify it's displayed somewhere before committing.
