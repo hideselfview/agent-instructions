@@ -6,6 +6,7 @@ paths:
   - '**/build.gradle*'
   - '**/*.podspec'
 blocking: false
+review: false  # reviewer has no network to check registries; authoring-only
 ---
 
 **Look up the latest version when adding a new dependency.** Don't guess from

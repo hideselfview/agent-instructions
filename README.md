@@ -16,9 +16,11 @@ via `~/.claude/` symlinks and Codex via `~/.codex/` symlinks) and CI agents
 - `CLAUDE.md` / `AGENTS.md` — repo-level aliases to `instructions.md`, so the
   repo can be opened directly by Claude Code or Codex.
 - `rules/*.md` — one code rule per file. Frontmatter: `digest` (the one-liner
-  stitched into `instructions.md`), `paths` (globs scoping when the body loads),
-  `blocking`. The body loads into agent context only when a matching file is
-  read; the CI matrix reviews these files directly.
+  stitched into `instructions.md`), `paths` (globs scoping when the body loads
+  and which repos the CI matrix enrolls the rule for), `blocking` (whether a
+  violation blocks the PR), and optional `review: false` for authoring-only
+  rules the CI reviewer can't verify. The body loads into agent context only
+  when a matching file is read.
 - `principles/*.md` — elaborated principles referenced from `instructions.md`.
   Loaded on demand when an agent reaches for the longer-form treatment of a
   rule.
@@ -72,8 +74,9 @@ target dir doesn't exist on this machine are skipped):
   the always-on project facts.
 - `projects/<name>-rules/*.md` → `~/dev/<name>/.claude/rules/` — path-scoped
   project rules. Same frontmatter as user-level `rules/` (`digest` / `paths` /
-  `blocking`); Claude Code loads each body when a matching file is read, exactly
-  like the user-level rules. The CI matrix reviews them alongside `rules/`.
+  `blocking` / optional `review`); Claude Code loads each body when a matching
+  file is read, exactly like the user-level rules. The CI matrix reviews them
+  alongside `rules/`.
 
 Gitignore both `CLAUDE.md`/`AGENTS.md` and `.claude/rules/` in the target
 project so cloners don't inherit the machine-local symlinks.
@@ -90,7 +93,14 @@ diff, and posts violations as inline comments tagged with the rule. The
 isolation removes the cross-rule attention dilution that sinks the single-pass
 review.
 
-Reference implementation: `bae`'s `.github/workflows/rules-review-matrix.yml` —
-a matrix over rule slugs; each job checks out this repo, copies the one
-`rules/<slug>.md` it owns to an isolated file, deletes the rest, then runs
-`claude-code-action`. `blocking` comes from the rule's frontmatter.
+The reusable workflow `.github/workflows/rules-review.yml` implements this.
+Consumers don't opt into rules: a `discover` job runs
+`.github/scripts/discover_rules.py`, which enrolls every rule whose `paths`
+match a tracked file in the consumer's repo (the universe is `rules/` plus the
+consumer's `projects/<name>-rules/`), then feeds the matrix. A consumer caller
+passes only its `project` name and, optionally, an `exclude` list to drop an
+applicable rule it opts out of — excluding an unknown slug fails the job, so a
+rename surfaces. Rules flagged `review: false` are never enrolled. `blocking`
+comes from the rule's frontmatter.
+
+Reference caller: `forage`'s `.github/workflows/ai-rules-review.yml`.

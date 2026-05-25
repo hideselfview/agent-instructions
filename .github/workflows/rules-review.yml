@@ -2,12 +2,14 @@ name: rules review (matrix, reusable)
 
 # Reusable per-rule matrix reviewer. Replaces the old single-pass reviewer,
 # which was bimodal/unreliable (engaged a rule or skipped it, ~coin-flip).
-# Each matrix job sees ONLY one rule's atomic file — rules/<slug>.md, or
-# projects/<project>-rules/<slug>.md for project-specific rules — plus the PR
-# diff, then posts violations as inline comments. Callers pass the PR number,
-# head SHA, their agent-instructions project name, and the JSON slug list of
-# rules that apply to them. Manual trigger on the caller side for now (an auto
-# PR trigger comes later).
+#
+# The `discover` job derives the rule set from each rule's `paths` frontmatter:
+# a rule runs when one of its globs matches a tracked file in the caller's repo
+# (the universe is rules/ plus the caller's projects/<project>-rules/). Callers
+# don't opt in — they get every applicable rule, and may drop one via `exclude`.
+# Each matrix job then sees ONLY one rule's atomic file — rules/<slug>.md, or
+# projects/<project>-rules/<slug>.md — plus the PR diff, and posts violations as
+# inline comments.
 #
 # Reviewer: claude-code-action @51ea8ea7 (Claude Code 2.1.142), sonnet-4-6,
 # violations schema. Rules read live from agent-instructions main.
@@ -27,20 +29,49 @@ on:
         description: "agent-instructions project name (for projects/<project>-rules/)"
         required: true
         type: string
-      slugs:
-        description: "JSON array of rule slugs to review"
-        required: true
+      exclude:
+        description: "JSON array of applicable rule slugs to skip (optional)"
+        required: false
+        default: "[]"
         type: string
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
 
 jobs:
+  discover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      slugs: ${{ steps.compute.outputs.slugs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref }}
+      - uses: actions/checkout@v4
+        with:
+          repository: hideselfview/agent-instructions
+          ref: main
+          path: _ai
+      - id: compute
+        env:
+          PROJECT: ${{ inputs.project }}
+          EXCLUDE: ${{ inputs.exclude }}
+        run: |
+          slugs=$(python3 _ai/.github/scripts/discover_rules.py \
+            --rules-root _ai --consumer "$GITHUB_WORKSPACE" \
+            --project "$PROJECT" --exclude "$EXCLUDE")
+          echo "discovered: $slugs"
+          echo "slugs=$slugs" >> "$GITHUB_OUTPUT"
+
   review:
+    needs: discover
+    if: needs.discover.outputs.slugs != '[]'
     strategy:
       fail-fast: false
       matrix:
-        slug: ${{ fromJSON(inputs.slugs) }}
+        slug: ${{ fromJSON(needs.discover.outputs.slugs) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

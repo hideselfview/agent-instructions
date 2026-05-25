@@ -41,9 +41,9 @@ def main():
     lines = [
         "# Rules index",
         "",
-        "Each rule below lives in full at `rules/<file>` and is enforced by the CI",
-        "review. Its full body loads automatically when you edit a file its `paths`",
-        "match; read the file directly when a rule is relevant before then.",
+        "Each rule below lives in full at `rules/<file>`. Its full body loads",
+        "automatically when you edit a file its `paths` match; read the file",
+        "directly when a rule is relevant before then.",
         "",
     ]
     for name, fname, digest in entries:
