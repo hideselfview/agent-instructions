@@ -95,9 +95,10 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: RULES_REVIEW_PROMPT.md
           output-file: RULES_REVIEW_OUTPUT.json
+          codex-home: ${{ runner.temp }}/codex-home
           sandbox: workspace-write
           safety-strategy: drop-sudo
-          codex-args: '["--ephemeral","--ignore-user-config","--ignore-rules","--ask-for-approval","never","--config","project_doc_max_bytes=0","--output-schema","RULES_REVIEW_SCHEMA.json"]'
+          codex-args: '["--ephemeral","--ignore-rules","--config","project_doc_max_bytes=0","--output-schema","RULES_REVIEW_SCHEMA.json"]'
       - name: Dump + post findings
         if: always()
         env:
