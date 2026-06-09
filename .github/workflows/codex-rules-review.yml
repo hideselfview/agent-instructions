@@ -24,6 +24,21 @@ on:
         required: false
         default: "[]"
         type: string
+      model:
+        description: "Codex model to use (optional; action default when empty)"
+        required: false
+        default: ""
+        type: string
+      effort:
+        description: "Codex reasoning effort to use (optional; action default when empty)"
+        required: false
+        default: ""
+        type: string
+      max_parallel:
+        description: "Maximum concurrent rule review jobs"
+        required: false
+        default: 1
+        type: number
     secrets:
       OPENAI_API_KEY:
         required: true
@@ -60,6 +75,7 @@ jobs:
     if: needs.discover.outputs.slugs != '[]'
     strategy:
       fail-fast: false
+      max-parallel: ${{ inputs.max_parallel }}
       matrix:
         slug: ${{ fromJSON(needs.discover.outputs.slugs) }}
     runs-on: ubuntu-latest
@@ -95,6 +111,8 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: RULES_REVIEW_PROMPT.md
           output-file: RULES_REVIEW_OUTPUT.json
+          model: ${{ inputs.model }}
+          effort: ${{ inputs.effort }}
           codex-home: ${{ runner.temp }}/codex-home
           sandbox: workspace-write
           safety-strategy: drop-sudo
