@@ -40,6 +40,20 @@ echo "Linked ~/.codex/AGENTS.md -> $repo/instructions.md"
 ln -sf "$repo/settings.json" "$HOME/.claude/settings.json"
 echo "Linked ~/.claude/settings.json -> $repo/settings.json"
 
+if [[ -d "$repo/skills" ]]; then
+  mkdir -p "$HOME/.codex/skills"
+  for skill_dir in "$repo/skills"/*; do
+    [[ -d "$skill_dir" ]] || continue
+    target="$HOME/.codex/skills/$(basename "$skill_dir")"
+    if [[ -e "$target" && ! -L "$target" ]]; then
+      echo "Skipped $target (exists and is not a symlink)"
+      continue
+    fi
+    ln -sfn "$skill_dir" "$target"
+    echo "Linked $target -> $skill_dir"
+  done
+fi
+
 for subdir in rules principles agents; do
   mkdir -p "$HOME/.claude/$subdir"
   for f in "$repo/$subdir"/*.md; do

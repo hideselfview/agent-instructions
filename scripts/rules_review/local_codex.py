@@ -131,6 +131,7 @@ def run_codex_for_rule(
         "exec",
         "--ephemeral",
         "--ignore-rules",
+        "--skip-git-repo-check",
         "--config",
         "project_doc_max_bytes=0",
         "--output-schema",

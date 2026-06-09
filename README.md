@@ -34,6 +34,7 @@ via `~/.claude/` symlinks and Codex via `~/.codex/` symlinks) and CI agents
 - `settings.json` — portable Claude Code settings: env vars, permission default
   mode, enabled plugins, UI prefs. Linked into `~/.claude/`. Machine-specific
   overrides go in `~/.claude/settings.local.json` (not in this repo).
+- `skills/` — Codex skills linked into `~/.codex/skills/` by `install.sh`.
 
 ## Where a rule goes
 
@@ -62,8 +63,9 @@ git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instruc
 
 `install.sh` symlinks `instructions.md` to `~/.claude/CLAUDE.md` and
 `~/.codex/AGENTS.md`, links `settings.json` into `~/.claude/`, and links every
-file under `rules/`, `principles/`, and `agents/` into `~/.claude/`. It's
-idempotent — re-run after pulling new rules.
+file under `rules/`, `principles/`, and `agents/` into `~/.claude/`. It also
+links repo skills into `~/.codex/skills/`. It's idempotent — re-run after
+pulling new rules.
 
 ## Per-project setup
 
