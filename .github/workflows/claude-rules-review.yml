@@ -12,8 +12,7 @@ name: rules review (matrix, reusable)
 # inline comments.
 #
 # Claude-backed reviewer. Discovery, prompt, schema, and inline-comment posting
-# are shared with the Codex sibling workflow through
-# .github/scripts/rules_review_common.py.
+# use the shared scripts under scripts/rules_review/.
 
 on:
   workflow_call:
@@ -60,7 +59,7 @@ jobs:
           PROJECT: ${{ inputs.project }}
           EXCLUDE: ${{ inputs.exclude }}
         run: |
-          slugs=$(python3 _ai/.github/scripts/discover_rules.py \
+          slugs=$(python3 _ai/scripts/rules_review/discover_rules.py \
             --rules-root _ai --consumer "$GITHUB_WORKSPACE" \
             --project "$PROJECT" --exclude "$EXCLUDE")
           echo "discovered: $slugs"
@@ -92,7 +91,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp _ai/.github/scripts/rules_review_common.py "$GITHUB_WORKSPACE/rules_review_common.py"
+          cp _ai/scripts/rules_review/common.py "$GITHUB_WORKSPACE/rules_review_common.py"
           python3 rules_review_common.py prepare \
             --rules-root _ai \
             --project "${{ inputs.project }}" \

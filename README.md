@@ -93,32 +93,29 @@ diff, and posts violations as inline comments tagged with the rule. The
 isolation removes the cross-rule attention dilution that sinks the single-pass
 review.
 
-The reusable workflows `.github/workflows/claude-rules-review.yml` (Claude) and
-`.github/workflows/codex-rules-review.yml` (Codex) implement this. Consumers
-don't opt into rules: a `discover` job runs `.github/scripts/discover_rules.py`,
-which enrolls every rule whose `paths` match a tracked file in the consumer's
-repo (the universe is `rules/` plus the consumer's `projects/<name>-rules/`),
-then feeds the matrix. A consumer caller passes only its `project` name and,
-optionally, an `exclude` list to drop an applicable rule it opts out of —
-excluding an unknown slug fails the job, so a rename surfaces. Rules flagged
-`review: false` are never enrolled. `blocking` comes from the rule's
-frontmatter.
+The reusable workflow `.github/workflows/claude-rules-review.yml` implements
+this for Claude-backed CI. Consumers don't opt into rules: a `discover` job runs
+`scripts/rules_review/discover_rules.py`, which enrolls every rule whose `paths`
+match a tracked file in the consumer's repo (the universe is `rules/` plus the
+consumer's `projects/<name>-rules/`), then feeds the matrix. A consumer caller
+passes only its `project` name and, optionally, an `exclude` list to drop an
+applicable rule it opts out of — excluding an unknown slug fails the job, so a
+rename surfaces. Rules flagged `review: false` are never enrolled. `blocking`
+comes from the rule's frontmatter.
 
-Reference caller: `forage`'s `.github/workflows/ai-rules-review.yml`. The Codex
-workflow uses the same inputs and `exclude` behavior, but the caller passes
-`OPENAI_API_KEY` instead of `CLAUDE_CODE_OAUTH_TOKEN`.
+Reference caller: `forage`'s `.github/workflows/ai-rules-review.yml`.
 
 ## Local Codex PR review
 
-Use `.github/scripts/local_codex_rules_review.py` when Codex review should run
-from a local Codex login/config instead of a GitHub Actions API key. It reuses
-the same rule discovery, prompt/schema generation, finding parsing, and inline
-comment posting code as the reusable workflows.
+Use `scripts/rules_review/local_codex.py` when Codex review should run from a
+local Codex login/config instead of a GitHub Actions API key. It reuses the same
+rule discovery, prompt/schema generation, finding parsing, and inline comment
+posting code as the reusable workflows.
 
 Example:
 
 ```bash
-python3 ~/dev/agent-instructions/.github/scripts/local_codex_rules_review.py \
+python3 ~/dev/agent-instructions/scripts/rules_review/local_codex.py \
   --consumer ~/dev/<project> \
   --project <project> \
   --repo <owner>/<repo> \

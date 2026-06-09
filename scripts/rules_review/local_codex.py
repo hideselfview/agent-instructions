@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-import rules_review_common
+import common
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -54,7 +54,7 @@ def discover_slugs(rules_root: Path, consumer: Path, project: str, exclude: str)
     raw = checked_stdout(
         [
             sys.executable,
-            str(rules_root / ".github" / "scripts" / "discover_rules.py"),
+            str(rules_root / "scripts" / "rules_review" / "discover_rules.py"),
             "--rules-root",
             str(rules_root),
             "--consumer",
@@ -89,11 +89,11 @@ def prepare_rule_workspace(
     view: Path,
 ) -> Path:
     rule_dir.mkdir(parents=True, exist_ok=True)
-    rules_review_common.select_rule(rules_root, project, slug, rule_dir / "THE_RULE.md")
+    common.select_rule(rules_root, project, slug, rule_dir / "THE_RULE.md")
     shutil.copyfile(diff, rule_dir / "PR_DIFF.patch")
     shutil.copyfile(view, rule_dir / "PR_VIEW.json")
-    rules_review_common.write_schema(rule_dir / "RULES_REVIEW_SCHEMA.json")
-    rules_review_common.write_prompt(repo, pr_number, rule_dir / "RULES_REVIEW_PROMPT.md")
+    common.write_schema(rule_dir / "RULES_REVIEW_SCHEMA.json")
+    common.write_prompt(repo, pr_number, rule_dir / "RULES_REVIEW_PROMPT.md")
 
     repo_link = rule_dir / "CONSUMER_REPO"
     try:
@@ -169,7 +169,7 @@ def run_codex_for_rule(
                 error=f"failed to start {codex_bin}: {e}",
             )
 
-    findings, parse_error = rules_review_common.load_findings(output)
+    findings, parse_error = common.load_findings(output)
     violations = findings["violations"] if findings else []
     error = parse_error
     if result.returncode != 0:
@@ -270,7 +270,7 @@ def main() -> int:
     diff = work_dir / "PR_DIFF.patch"
     view = work_dir / "PR_VIEW.json"
     try:
-        rules_review_common.fetch_pr_context(repo, args.pr_number, diff, view)
+        common.fetch_pr_context(repo, args.pr_number, diff, view)
     except subprocess.CalledProcessError as e:
         raise SystemExit(f"{e.cmd} exited {e.returncode} while fetching PR context") from e
 
@@ -319,7 +319,7 @@ def main() -> int:
         for result in results:
             if result.error:
                 continue
-            rules_review_common.post_findings(
+            common.post_findings(
                 SimpleNamespace(
                     findings=str(result.output),
                     repo=repo,
