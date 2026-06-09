@@ -1,0 +1,115 @@
+name: codex rules review (matrix, reusable)
+
+# Codex-backed sibling to claude-rules-review.yml. Discovery, prompt, schema,
+# and inline-comment posting are shared through
+# .github/scripts/rules_review_common.py.
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+        type: string
+      checkout_ref:
+        description: "caller ref to check out (PR head SHA)"
+        required: true
+        type: string
+      project:
+        description: "agent-instructions project name (for projects/<project>-rules/)"
+        required: true
+        type: string
+      exclude:
+        description: "JSON array of applicable rule slugs to skip (optional)"
+        required: false
+        default: "[]"
+        type: string
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      slugs: ${{ steps.compute.outputs.slugs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref }}
+      - uses: actions/checkout@v4
+        with:
+          repository: hideselfview/agent-instructions
+          ref: main
+          path: _ai
+      - id: compute
+        env:
+          PROJECT: ${{ inputs.project }}
+          EXCLUDE: ${{ inputs.exclude }}
+        run: |
+          slugs=$(python3 _ai/.github/scripts/discover_rules.py \
+            --rules-root _ai --consumer "$GITHUB_WORKSPACE" \
+            --project "$PROJECT" --exclude "$EXCLUDE")
+          echo "discovered: $slugs"
+          echo "slugs=$slugs" >> "$GITHUB_OUTPUT"
+
+  review:
+    needs: discover
+    if: needs.discover.outputs.slugs != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        slug: ${{ fromJSON(needs.discover.outputs.slugs) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref }}
+      - uses: actions/checkout@v4
+        with:
+          repository: hideselfview/agent-instructions
+          ref: main
+          path: _ai
+      - name: Prepare rule review inputs
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp _ai/.github/scripts/rules_review_common.py "$GITHUB_WORKSPACE/rules_review_common.py"
+          python3 rules_review_common.py prepare \
+            --rules-root _ai \
+            --project "${{ inputs.project }}" \
+            --slug "${{ matrix.slug }}" \
+            --repo "${{ github.repository }}" \
+            --pr-number "${{ inputs.pr_number }}"
+          rm -rf "$GITHUB_WORKSPACE/_ai"
+          echo "=== THE_RULE.md ==="; cat "$GITHUB_WORKSPACE/THE_RULE.md"
+      - id: codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: RULES_REVIEW_PROMPT.md
+          output-file: RULES_REVIEW_OUTPUT.json
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+          codex-args: '["--ephemeral","--ignore-user-config","--ignore-rules","--ask-for-approval","never","--config","project_doc_max_bytes=0","--output-schema","RULES_REVIEW_SCHEMA.json"]'
+      - name: Dump + post findings
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.checkout_ref }}
+          PR: ${{ inputs.pr_number }}
+          SLUG: ${{ matrix.slug }}
+        run: |
+          python3 rules_review_common.py post-findings \
+            --findings RULES_REVIEW_OUTPUT.json \
+            --repo "$REPO" \
+            --sha "$SHA" \
+            --pr-number "$PR" \
+            --slug "$SLUG"

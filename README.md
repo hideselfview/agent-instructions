@@ -93,14 +93,17 @@ diff, and posts violations as inline comments tagged with the rule. The
 isolation removes the cross-rule attention dilution that sinks the single-pass
 review.
 
-The reusable workflow `.github/workflows/rules-review.yml` implements this.
-Consumers don't opt into rules: a `discover` job runs
-`.github/scripts/discover_rules.py`, which enrolls every rule whose `paths`
-match a tracked file in the consumer's repo (the universe is `rules/` plus the
-consumer's `projects/<name>-rules/`), then feeds the matrix. A consumer caller
-passes only its `project` name and, optionally, an `exclude` list to drop an
-applicable rule it opts out of — excluding an unknown slug fails the job, so a
-rename surfaces. Rules flagged `review: false` are never enrolled. `blocking`
-comes from the rule's frontmatter.
+The reusable workflows `.github/workflows/claude-rules-review.yml` (Claude) and
+`.github/workflows/codex-rules-review.yml` (Codex) implement this. Consumers
+don't opt into rules: a `discover` job runs `.github/scripts/discover_rules.py`,
+which enrolls every rule whose `paths` match a tracked file in the consumer's
+repo (the universe is `rules/` plus the consumer's `projects/<name>-rules/`),
+then feeds the matrix. A consumer caller passes only its `project` name and,
+optionally, an `exclude` list to drop an applicable rule it opts out of —
+excluding an unknown slug fails the job, so a rename surfaces. Rules flagged
+`review: false` are never enrolled. `blocking` comes from the rule's
+frontmatter.
 
-Reference caller: `forage`'s `.github/workflows/ai-rules-review.yml`.
+Reference caller: `forage`'s `.github/workflows/ai-rules-review.yml`. The Codex
+workflow uses the same inputs and `exclude` behavior, but the caller passes
+`OPENAI_API_KEY` instead of `CLAUDE_CODE_OAUTH_TOKEN`.
