@@ -107,3 +107,29 @@ frontmatter.
 Reference caller: `forage`'s `.github/workflows/ai-rules-review.yml`. The Codex
 workflow uses the same inputs and `exclude` behavior, but the caller passes
 `OPENAI_API_KEY` instead of `CLAUDE_CODE_OAUTH_TOKEN`.
+
+## Local Codex PR review
+
+Use `.github/scripts/local_codex_rules_review.py` when Codex review should run
+from a local Codex login/config instead of a GitHub Actions API key. It reuses
+the same rule discovery, prompt/schema generation, finding parsing, and inline
+comment posting code as the reusable workflows.
+
+Example:
+
+```bash
+python3 ~/dev/agent-instructions/.github/scripts/local_codex_rules_review.py \
+  --consumer ~/dev/<project> \
+  --project <project> \
+  --repo <owner>/<repo> \
+  --pr-number <number> \
+  --sha "$(gh pr view <number> --repo <owner>/<repo> --json headRefOid --jq .headRefOid)" \
+  --exclude '["every-bug-fix-starts-with-a-failing-test"]' \
+  --jobs 1 \
+  --post
+```
+
+The runner does not set a model or reasoning effort unless `--model` or
+`--effort` is passed, so Codex uses the local defaults. Add `--slug <rule>` to
+rerun one discovered rule, or omit `--post` to keep findings local in the
+printed summary and `SUMMARY.json`.
