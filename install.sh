@@ -49,12 +49,12 @@ fi
 ln -sf "$repo/codex/config.toml" "$codex_config_target"
 echo "Linked ~/.codex/config.toml -> $repo/codex/config.toml"
 
-ln -sf "$repo/settings.json" "$HOME/.claude/settings.json"
-echo "Linked ~/.claude/settings.json -> $repo/settings.json"
+ln -sf "$repo/claude/settings.json" "$HOME/.claude/settings.json"
+echo "Linked ~/.claude/settings.json -> $repo/claude/settings.json"
 
-if [[ -d "$repo/skills" ]]; then
+if [[ -d "$repo/codex/skills" ]]; then
   mkdir -p "$HOME/.codex/skills"
-  for skill_dir in "$repo/skills"/*; do
+  for skill_dir in "$repo/codex/skills"/*; do
     [[ -d "$skill_dir" ]] || continue
     target="$HOME/.codex/skills/$(basename "$skill_dir")"
     if [[ -e "$target" && ! -L "$target" ]]; then
@@ -66,7 +66,7 @@ if [[ -d "$repo/skills" ]]; then
   done
 fi
 
-for subdir in rules principles agents; do
+for subdir in rules principles; do
   mkdir -p "$HOME/.claude/$subdir"
   for f in "$repo/$subdir"/*.md; do
     [[ -f "$f" ]] || continue
@@ -75,6 +75,16 @@ for subdir in rules principles agents; do
     echo "Linked ~/.claude/$subdir/$name -> $f"
   done
 done
+
+if [[ -d "$repo/claude/agents" ]]; then
+  mkdir -p "$HOME/.claude/agents"
+  for f in "$repo/claude/agents"/*.md; do
+    [[ -f "$f" ]] || continue
+    name="$(basename "$f")"
+    ln -sf "$f" "$HOME/.claude/agents/$name"
+    echo "Linked ~/.claude/agents/$name -> $f"
+  done
+fi
 
 # Per-project instruction symlinks. Convention: each projects/<name>.md
 # targets ~/dev/<name>/CLAUDE.md and ~/dev/<name>/AGENTS.md. Skip projects whose
