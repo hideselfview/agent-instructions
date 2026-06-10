@@ -1,7 +1,5 @@
 {
   "env": {
-    "CLAUDE_CODE_EFFORT_LEVEL": "max",
-    "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
     "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"
   },
   "permissions": {
@@ -11,6 +9,7 @@
     "rust-analyzer-lsp@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true
   },
+  "effortLevel": "high",
   "voice": {
     "enabled": true,
     "mode": "hold"

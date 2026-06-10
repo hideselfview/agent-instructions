@@ -1,0 +1,15 @@
+model = "gpt-5.5"
+model_reasoning_effort = "xhigh"
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
+default_permissions = ":workspace"
+
+[shell_environment_policy]
+inherit = "core"
+
+[notice]
+hide_full_access_warning = true
+hide_rate_limit_model_nudge = true
+
+[features]
+terminal_resize_reflow = true

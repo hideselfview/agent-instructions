@@ -40,6 +40,15 @@ echo "Linked ~/.codex/AGENTS.md -> $repo/instructions.md"
 ln -sfn "$repo" "$HOME/.codex/agent-instructions"
 echo "Linked ~/.codex/agent-instructions -> $repo"
 
+codex_config_target="$HOME/.codex/config.toml"
+if [[ -e "$codex_config_target" && ! -L "$codex_config_target" ]]; then
+  codex_config_backup="$HOME/.codex/config.toml.local.$(date +%Y%m%d%H%M%S)"
+  mv "$codex_config_target" "$codex_config_backup"
+  echo "Moved existing ~/.codex/config.toml -> $codex_config_backup"
+fi
+ln -sf "$repo/codex/config.toml" "$codex_config_target"
+echo "Linked ~/.codex/config.toml -> $repo/codex/config.toml"
+
 ln -sf "$repo/settings.json" "$HOME/.claude/settings.json"
 echo "Linked ~/.claude/settings.json -> $repo/settings.json"
 

@@ -17,10 +17,11 @@ silent control-flow skip — `continue`, `break`, early `return`, `return None`,
 or `let Some(x) = … else { continue; };` style guards — when the guarded
 condition is exceptional on the main path. Covers every language idiom that
 swallows or defaults around an error: Rust `unwrap_or` / `.ok()` / `let _ = …`,
-Swift `try?` / `??`, and equivalents. No carve-outs for "display defaults" or
-"semantically correct nil" — empty IS the value in question, and silencing it is
-the masking. If data should be present, its absence is a bug — surface it with
-`expect()`, `Result`, or make the types prevent it. Masking is bad on every
+Swift `try?` / `??`, and equivalents. No carve-outs for read-only display
+defaults or "semantically correct nil" — empty IS the value in question, and
+silencing it is the masking (seeding *editable* form inputs is the one
+exception, below). If data should be present, its absence is a bug — surface it
+with `expect()`, `Result`, or make the types prevent it. Masking is bad on every
 axis: it hides broken assumptions and creates silent failures downstream; it
 impedes structure discovery by erasing the failure cases that are part of the
 system's real shape (when *can* this fail? what does it mean when it does? what
@@ -37,6 +38,18 @@ with no UTF-8 stem: {:?}" is actionable, "skipping" alone is useless. This is
 the only exception. If you don't want to log, you don't have a legitimate skip —
 you have a masked error. (Pure functional Option-returning helpers don't count
 as bail-outs; this covers exceptional skips on the main path.)
+
+**Editable form-state seeding is exempt.** Converting an optional domain field
+into the string state of an *editable* text input — Swift
+`opt.map(String.init) ?? ""` / `opt ?? ""`, Rust `opt.unwrap_or_default()` /
+`opt.map(|v| v.to_string()).unwrap_or_default()` rendering a wire field back to
+raw editor text — when populating a form the user will edit is not masking. The
+empty string is the input's representation of "no value", and it round-trips:
+shaping/validating the form on save maps empty back to `None`/absent (the
+inverse of the trim-empty-to-`None` shaping). The absence isn't a swallowed
+error — it's a blank the user can fill. This is narrow to *writable* inputs:
+rendering `?? "Unknown"` into read-only display to hide a missing value is still
+masking.
 
 API design follows: when a function would take `Option<T>` just to `unwrap_or`
 internally, split into two — one that requires the value, a `_default()` wrapper
