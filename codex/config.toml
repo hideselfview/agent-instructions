@@ -11,5 +11,8 @@ inherit = "core"
 hide_full_access_warning = true
 hide_rate_limit_model_nudge = true
 
+[tui]
+vim_mode_default = true
+
 [features]
 terminal_resize_reflow = true
