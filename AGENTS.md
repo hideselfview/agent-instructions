@@ -1,1 +1,1 @@
-instructions.md
+codex/AGENTS.md

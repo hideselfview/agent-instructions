@@ -9,13 +9,6 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Generate instructions.md (gitignored): instructions-agent.md + a digest index
-# built from rules/*.md frontmatter. Serves as the symlink target for the global
-# CLAUDE.md / AGENTS.md. Rule bodies are delivered separately by Claude Code's
-# path-scoped loading of rules/ (symlinked below); the PR-review workflow reads
-# rules/ directly.
-python3 "$repo/generate.py"
-
 # Pre-commit hook: enforce mdformat on markdown files.
 if ! command -v mdformat >/dev/null 2>&1; then
   echo "Installing mdformat via pipx..."
@@ -29,13 +22,23 @@ fi
 git -C "$repo" config core.hooksPath .githooks
 echo "Configured $repo git hooks -> .githooks"
 
+# Generate gitignored tool-specific instruction files. Claude gets shared
+# always-on behavior; Codex gets that plus the rules index it needs because it
+# lacks Claude Code's path-scoped rule loading. Rule bodies are delivered
+# separately by Claude Code's rules/ symlinks and by Codex's matching_rules.py.
+python3 "$repo/generate.py"
+mdformat "$repo/claude/CLAUDE.md" "$repo/codex/AGENTS.md"
+
+ln -sf "claude/CLAUDE.md" "$repo/CLAUDE.md"
+ln -sf "codex/AGENTS.md" "$repo/AGENTS.md"
+
 mkdir -p "$HOME/.claude" "$HOME/.codex"
 
-ln -sf "$repo/instructions.md" "$HOME/.claude/CLAUDE.md"
-echo "Linked ~/.claude/CLAUDE.md -> $repo/instructions.md"
+ln -sf "$repo/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+echo "Linked ~/.claude/CLAUDE.md -> $repo/claude/CLAUDE.md"
 
-ln -sf "$repo/instructions.md" "$HOME/.codex/AGENTS.md"
-echo "Linked ~/.codex/AGENTS.md -> $repo/instructions.md"
+ln -sf "$repo/codex/AGENTS.md" "$HOME/.codex/AGENTS.md"
+echo "Linked ~/.codex/AGENTS.md -> $repo/codex/AGENTS.md"
 
 ln -sfn "$repo" "$HOME/.codex/agent-instructions"
 echo "Linked ~/.codex/agent-instructions -> $repo"

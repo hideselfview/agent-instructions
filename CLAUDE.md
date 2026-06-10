@@ -1,1 +1,1 @@
-instructions.md
+claude/CLAUDE.md

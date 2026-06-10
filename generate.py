@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Generate instructions.md = instructions-agent.md (always-on agent behavior)
-plus a digest index built from rules/*.md frontmatter.
+"""Generate tool-specific instruction files from shared agent behavior.
 
-Each rule's full body is delivered separately. Claude Code loads path-scoped
-rules natively (rules/ symlinked into ~/.claude/rules/). Codex reads this file
-as AGENTS.md, so the generated text tells Codex how to list and read matching
-rule files before editing. Run by install.sh.
+Claude Code gets only instructions-agent.md because it loads path-scoped rules
+natively from rules/ symlinked into ~/.claude/rules/. Codex gets
+instructions-agent.md plus a digest index built from rules/*.md frontmatter
+because it does not have native path-scoped rule loading. Run by install.sh.
 """
 
 import re
@@ -13,7 +12,8 @@ import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent
 RULES = ROOT / "rules"
-OUT = ROOT / "instructions.md"
+CLAUDE_OUT = ROOT / "claude" / "CLAUDE.md"
+CODEX_OUT = ROOT / "codex" / "AGENTS.md"
 
 
 def parse(path):
@@ -62,8 +62,12 @@ def main():
         lines.append(f"- **{name}** (`rules/{fname}`) - {digest}")
 
     agent = (ROOT / "instructions-agent.md").read_text().rstrip()
-    OUT.write_text(agent + "\n\n" + "\n".join(lines) + "\n")
-    print(f"Generated {OUT} ({len(entries)} rules indexed)")
+    CLAUDE_OUT.parent.mkdir(parents=True, exist_ok=True)
+    CODEX_OUT.parent.mkdir(parents=True, exist_ok=True)
+    CLAUDE_OUT.write_text(agent + "\n")
+    CODEX_OUT.write_text(agent + "\n\n" + "\n".join(lines) + "\n")
+    print(f"Generated {CLAUDE_OUT}")
+    print(f"Generated {CODEX_OUT} ({len(entries)} rules indexed)")
 
 
 if __name__ == "__main__":

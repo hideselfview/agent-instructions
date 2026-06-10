@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Re-run install.sh after commits that touch anything it consumes, so
-# instructions.md and the per-project / rules / principles / agents
-# symlinks stay current without a manual install.
+# generated instruction files and symlinks stay current without a manual
+# install.
 
 set -euo pipefail
 
 repo="$(git rev-parse --show-toplevel)"
 
 if git diff-tree --no-commit-id --name-only -r HEAD \
-  | grep -qE '^(instructions-(agent|code)\.md|settings\.json|install\.sh|(rules|principles|agents|projects)/.+\.md)$'; then
+  | grep -qE '^(instructions-agent\.md|generate\.py|install\.sh|claude/(settings\.json|agents/.+\.md)|codex/(config\.toml|skills/.+)|((rules|principles|projects)/.+\.md))$'; then
   exec "$repo/install.sh"
 fi
