@@ -2,10 +2,10 @@
 """Generate instructions.md = instructions-agent.md (always-on agent behavior)
 plus a digest index built from rules/*.md frontmatter.
 
-Each rule's full body is delivered separately by Claude Code's native path
-loading (rules/ symlinked into ~/.claude/rules/); the always-on file carries
-only the one-line digests so the agent knows every rule exists and can read the
-full one when it's relevant. Run by install.sh.
+Each rule's full body is delivered separately. Claude Code loads path-scoped
+rules natively (rules/ symlinked into ~/.claude/rules/). Codex reads this file
+as AGENTS.md, so the generated text tells Codex how to list and read matching
+rule files before editing. Run by install.sh.
 """
 
 import re
@@ -41,9 +41,21 @@ def main():
     lines = [
         "# Rules index",
         "",
-        "Each rule below lives in full at `rules/<file>`. Its full body loads",
-        "automatically when you edit a file its `paths` match; read the file",
-        "directly when a rule is relevant before then.",
+        "Each rule below lives in full at `rules/<file>`.",
+        "",
+        "Claude Code loads matching rule bodies automatically from",
+        "`~/.claude/rules/`.",
+        "",
+        "Codex does not have Claude's path-scoped rule autoload. Before editing",
+        "files, list the matching full rule bodies and read them completely:",
+        "",
+        "```sh",
+        "python3 ~/.codex/agent-instructions/scripts/rules_review/matching_rules.py \\",
+        "  --project <project-name> <repo-relative-path>...",
+        "```",
+        "",
+        "If no project-specific rules apply, omit `--project`. Use the project",
+        "name from the project doc, e.g. `bae` for `projects/bae.md`.",
         "",
     ]
     for name, fname, digest in entries:

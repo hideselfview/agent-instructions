@@ -64,8 +64,8 @@ git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instruc
 `install.sh` symlinks `instructions.md` to `~/.claude/CLAUDE.md` and
 `~/.codex/AGENTS.md`, links `settings.json` into `~/.claude/`, and links every
 file under `rules/`, `principles/`, and `agents/` into `~/.claude/`. It also
-links repo skills into `~/.codex/skills/`. It's idempotent — re-run after
-pulling new rules.
+links this repo into `~/.codex/agent-instructions` and repo skills into
+`~/.codex/skills/`. It's idempotent — re-run after pulling new rules.
 
 ## Per-project setup
 
@@ -83,6 +83,22 @@ target dir doesn't exist on this machine are skipped):
 Gitignore both `CLAUDE.md`/`AGENTS.md` and `.claude/rules/` in the target
 project so cloners don't inherit the machine-local symlinks.
 
+## Codex Rule Loading
+
+Codex reads `AGENTS.md`, but it does not have Claude Code's native path-scoped
+rule loading. The generated `AGENTS.md` carries the rule index and tells Codex
+to list matching full rule bodies before editing files:
+
+```bash
+python3 ~/.codex/agent-instructions/scripts/rules_review/matching_rules.py \
+  --project <project> <repo-relative-path>...
+```
+
+The script prints the full rule files whose frontmatter `paths` match the target
+paths, including project rules under `projects/<project>-rules/`. Codex must
+read those files before editing so rules-review remains a backstop instead of
+the first place full rule bodies are applied.
+
 ## CI consumption (PR review)
 
 Don't review a diff against all rules in one pass. That's bimodal — the model
@@ -95,8 +111,8 @@ diff, and posts violations as inline comments tagged with the rule. The
 isolation removes the cross-rule attention dilution that sinks the single-pass
 review.
 
-The reusable workflow `.github/workflows/claude-rules-review.yml` implements
-this for Claude-backed CI. Consumers don't opt into rules: a `discover` job runs
+The reusable workflow `.github/workflows/rules-review.yml` implements this for
+Claude-backed CI. Consumers don't opt into rules: a `discover` job runs
 `scripts/rules_review/discover_rules.py`, which enrolls every rule whose `paths`
 match a tracked file in the consumer's repo (the universe is `rules/` plus the
 consumer's `projects/<name>-rules/`), then feeds the matrix. A consumer caller

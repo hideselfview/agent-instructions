@@ -37,6 +37,9 @@ echo "Linked ~/.claude/CLAUDE.md -> $repo/instructions.md"
 ln -sf "$repo/instructions.md" "$HOME/.codex/AGENTS.md"
 echo "Linked ~/.codex/AGENTS.md -> $repo/instructions.md"
 
+ln -sfn "$repo" "$HOME/.codex/agent-instructions"
+echo "Linked ~/.codex/agent-instructions -> $repo"
+
 ln -sf "$repo/settings.json" "$HOME/.claude/settings.json"
 echo "Linked ~/.claude/settings.json -> $repo/settings.json"
 

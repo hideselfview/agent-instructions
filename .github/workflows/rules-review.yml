@@ -11,8 +11,8 @@ name: rules review (matrix, reusable)
 # projects/<project>-rules/<slug>.md — plus the PR diff, and posts violations as
 # inline comments.
 #
-# Claude-backed reviewer. Discovery, prompt, schema, and inline-comment posting
-# use the shared scripts under scripts/rules_review/.
+# Reviewer: claude-code-action @51ea8ea7 (Claude Code 2.1.142), sonnet-4-6,
+# violations schema. Rules read live from agent-instructions main.
 
 on:
   workflow_call:
@@ -86,26 +86,18 @@ jobs:
           repository: hideselfview/agent-instructions
           ref: main
           path: _ai
-      - name: Prepare rule review inputs
-        id: prepare
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Pick the one rule, delete the rest
         run: |
-          cp _ai/scripts/rules_review/common.py "$GITHUB_WORKSPACE/rules_review_common.py"
-          python3 rules_review_common.py prepare \
-            --rules-root _ai \
-            --project "${{ inputs.project }}" \
-            --slug "${{ matrix.slug }}" \
-            --repo "${{ github.repository }}" \
-            --pr-number "${{ inputs.pr_number }}"
+          slug="${{ matrix.slug }}"
+          if [ -f "_ai/rules/$slug.md" ]; then
+            cp "_ai/rules/$slug.md" "$GITHUB_WORKSPACE/THE_RULE.md"
+          elif [ -f "_ai/projects/${{ inputs.project }}-rules/$slug.md" ]; then
+            cp "_ai/projects/${{ inputs.project }}-rules/$slug.md" "$GITHUB_WORKSPACE/THE_RULE.md"
+          else
+            echo "no rule file for slug: $slug" >&2; exit 1
+          fi
           rm -rf "$GITHUB_WORKSPACE/_ai"
           echo "=== THE_RULE.md ==="; cat "$GITHUB_WORKSPACE/THE_RULE.md"
-          {
-            echo "prompt<<RULES_REVIEW_PROMPT"
-            cat "$GITHUB_WORKSPACE/RULES_REVIEW_PROMPT.md"
-            echo "RULES_REVIEW_PROMPT"
-            echo "schema=$(python3 rules_review_common.py schema --compact)"
-          } >> "$GITHUB_OUTPUT"
       - id: claude
         uses: anthropics/claude-code-action@51ea8ea73a139f2a74ff649e3092c25a904aed7e
         env:
@@ -113,9 +105,29 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: >-
-            --allowedTools "Read,Glob,Grep"
-            --json-schema '${{ steps.prepare.outputs.schema }}'
-          prompt: ${{ steps.prepare.outputs.prompt }}
+            --allowedTools "Read,Glob,Grep,Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --json-schema '{"type":"object","required":["violations"],"properties":{"violations":{"type":"array","items":{"type":"object","required":["blocking","path","line","body"],"properties":{"blocking":{"type":"boolean"},"path":{"type":"string"},"line":{"type":"integer"},"body":{"type":"string"}}}}}}'
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ inputs.pr_number }}
+
+            The ONLY rule you are enforcing is in the file ./THE_RULE.md.
+            Read it — that is the complete and only rule. There are no other
+            rules.
+
+            Then read the PR diff (`gh pr diff $PR_NUMBER`) and flag every
+            line-anchored violation of that one rule. Use Grep/Read across the
+            repo if the rule needs cross-file context. Be exhaustive.
+
+            Output structured findings as JSON matching the schema.
+
+            For each violation, populate:
+            - `blocking`: the value of the `blocking:` field in the rule's frontmatter.
+            - `path`: file path as it appears in the diff.
+            - `line`: line number in the new version of the file.
+            - `body`: explanation of the violation.
+
+            If no violations, output `{"violations": []}`.
 
       - name: Dump + post findings
         if: always()
@@ -131,10 +143,16 @@ jobs:
           if [ -z "${OUT:-}" ]; then
             echo "RESULT slug=$SLUG ERROR no structured_output"; exit 0
           fi
-          printf '%s' "$OUT" > RULES_REVIEW_OUTPUT.json
-          python3 rules_review_common.py post-findings \
-            --findings RULES_REVIEW_OUTPUT.json \
-            --repo "$REPO" \
-            --sha "$SHA" \
-            --pr-number "$PR" \
-            --slug "$SLUG"
+          echo "RESULT slug=$SLUG count=$(jq '.violations | length' <<<"$OUT")"
+          echo "OUTJSON slug=$SLUG :: $OUT"
+          # Post each finding as an inline PR comment, tagged with the rule
+          # slug so they're identifiable / bulk-closable. Non-fatal: a line
+          # outside the diff yields a 422; skip and continue.
+          jq -c '.violations[]' <<<"$OUT" | while read -r v; do
+            jq -n --argjson v "$v" --arg sha "$SHA" --arg slug "$SLUG" \
+              '{commit_id:$sha, path:$v.path, line:$v.line, side:"RIGHT",
+                body:("**[rules-review: `" + $slug + "`]**\n\n" + $v.body)}' \
+              | gh api -X POST "/repos/$REPO/pulls/$PR/comments" --input - >/dev/null \
+              && echo "posted $SLUG @ $(jq -r .path <<<"$v"):$(jq -r .line <<<"$v")" \
+              || echo "skip $SLUG @ $(jq -r .path <<<"$v"):$(jq -r .line <<<"$v") (line not in diff?)"
+          done

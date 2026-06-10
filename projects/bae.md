@@ -4,9 +4,12 @@ Personal music library + playback. Rust core (bae-core), platform UIs via uniffi
 (bae-bridge → bae-macos, bae-ios, bae-android, bae-web), and a cloud sync layer
 (bae-proxy) supporting S3 / Google Drive / Dropbox / OneDrive.
 
-Project rules are path-scoped atomic files in `projects/bae-rules/`, symlinked
-into this project's `.claude/rules/` by `install.sh`. This file holds the
-always-on project facts.
+Project rules are path-scoped atomic files in `projects/bae-rules/`. Claude Code
+receives them through `.claude/rules/` symlinks. Codex receives the rule index
+in `AGENTS.md`; before editing files in this project, list matching full rule
+bodies with
+`~/.codex/agent-instructions/scripts/rules_review/matching_rules.py --project bae <path>...`
+and read every listed file. This file holds the always-on project facts.
 
 ## Greenfield — break things and move on
 
