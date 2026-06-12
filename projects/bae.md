@@ -1,8 +1,9 @@
 # bae
 
 Personal music library + playback. Rust core (bae-core), platform UIs via uniffi
-(bae-bridge → bae-macos, bae-ios, bae-android, bae-web), and a cloud sync layer
-(bae-proxy) supporting S3 / Google Drive / Dropbox / OneDrive.
+(bae-bridge → bae-macos, bae-ios, bae-android) plus Windows (bae-windows +
+bae-windows-ffi), and cloud sync via coven supporting S3 / Google Drive /
+Dropbox / OneDrive / iCloud.
 
 Project rules are path-scoped atomic files in `projects/bae-rules/`. Claude Code
 receives them through `.claude/rules/` symlinks. Codex receives the rule index
