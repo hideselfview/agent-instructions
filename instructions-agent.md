@@ -219,6 +219,15 @@ with multiple tasks to execute serially, one small PR per task — preferably ea
 into main, chaining only when one task genuinely depends on another. (This
 serves "PRs are single-concern", above.)
 
+**Commit your changes; don't leave a dirty tree for later review.** A change you
+made — a fix, a script edit, a doc note — gets committed, not left uncommitted
+in the working tree for the user to look at "when they get to it." They may not,
+and stale dirty state then lingers, gets lost, or collides with the next change.
+Flag what you did in your reply so they can see it and revert if they disagree —
+but land it. Run the build/tests/review you'd normally run first; this is about
+the disposition of finished work, not skipping verification. (Commit on the
+active branch/worktree; together-edits land on `main`.)
+
 **Don't `git add -A`.** Stage files individually or by targeted path.
 Sweep-staging accidentally captures secrets, generated files, or unrelated work.
 
