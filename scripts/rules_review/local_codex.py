@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Run the per-rule Codex reviewer from a local checkout."""
+"""Run the per-rule rules reviewer from a local checkout.
+
+Two model backends (``--reviewer``): ``claude`` (default) runs ``claude -p``
+(Sonnet) off the Claude subscription; ``codex`` runs ``codex exec``. Both produce
+the same ``SUMMARY.json``. Claude is the default so reviews don't draw on codex's
+usage pool.
+"""
 
 from __future__ import annotations
 
@@ -187,6 +193,74 @@ def run_codex_for_rule(
     )
 
 
+def run_claude_for_rule(
+    *,
+    slug: str,
+    rule_dir: Path,
+    claude_bin: str,
+    model: str,
+    extra_args: list[str],
+) -> RuleResult:
+    output = rule_dir / "RULES_REVIEW_OUTPUT.json"
+    stderr = rule_dir / "claude.stderr.log"
+    stdout = rule_dir / "claude.stdout.log"
+
+    # Self-contained prompt: the one rule + the diff inline + the JSON contract,
+    # so `claude -p` reviews the diff text directly with no file-read tools or
+    # permission prompts. (`--json-schema` is unreliable headless, so we ask for
+    # the JSON in the prompt and unwrap `result` below — common.load_findings
+    # strips fences and validates the shape, same as the codex path.)
+    rule_text = (rule_dir / "THE_RULE.md").read_text(encoding="utf-8")
+    diff_text = (rule_dir / "PR_DIFF.patch").read_text(encoding="utf-8")
+    schema_text = (rule_dir / "RULES_REVIEW_SCHEMA.json").read_text(encoding="utf-8")
+    prompt = (
+        "You are reviewing a pull request diff against ONE rule. Enforce only "
+        "that rule; there are no others.\n\n"
+        "=== THE RULE ===\n" + rule_text + "\n\n"
+        "=== THE PR DIFF (unified) ===\n" + diff_text + "\n\n"
+        "=== TASK ===\n"
+        "Flag every line-anchored violation of the rule above in this diff. Be "
+        "exhaustive but precise; do not invent violations. For each violation, set "
+        "`blocking` to the rule frontmatter's `blocking:` value, `path` to the "
+        "file path as it appears in the diff, `line` to the new-version line "
+        "number, and `body` to the explanation.\n\n"
+        "Output ONLY a JSON object matching this schema — no prose, no code "
+        "fences:\n" + schema_text + "\n"
+        'If there are no violations, output {"violations": []}.\n'
+    )
+
+    result = run_command(
+        [claude_bin, "-p", "--model", model, "--output-format", "json", *extra_args],
+        input_text=prompt,
+    )
+    stdout.write_text(result.stdout, encoding="utf-8")
+    stderr.write_text(result.stderr, encoding="utf-8")
+
+    def failed(msg: str) -> RuleResult:
+        return RuleResult(slug=slug, returncode=1, output=output, stderr=stderr, violations=[], error=msg)
+
+    if result.returncode != 0:
+        tail = (result.stderr.strip() or result.stdout.strip())[-400:]
+        return failed(f"claude exited {result.returncode}: {tail}")
+
+    # Unwrap the `--output-format json` envelope; the model's answer is in
+    # `result`. Write it to the output file so the shared loader parses it.
+    try:
+        envelope = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        return failed(f"claude output not JSON: {e}")
+    if envelope.get("is_error") or envelope.get("subtype") != "success":
+        return failed(f"claude run failed: {str(envelope.get('result'))[:400]}")
+    answer = envelope.get("result")
+    if not isinstance(answer, str):
+        return failed("claude envelope had no string result")
+    output.write_text(answer, encoding="utf-8")
+
+    findings, parse_error = common.load_findings(output)
+    violations = findings["violations"] if findings else []
+    return RuleResult(slug=slug, returncode=0, output=output, stderr=stderr, violations=violations, error=parse_error)
+
+
 def summarize(result: RuleResult) -> str:
     if result.error:
         return f"ERROR {result.slug}: {result.error}"
@@ -235,10 +309,14 @@ def main() -> int:
     parser.add_argument("--jobs", type=positive_int, default=1)
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--codex-bin", default="codex")
-    # Default to the Codex Spark model: it draws from a separate usage pool, so
-    # rules-review runs don't eat into the shared agentic limit. Pass --model to
-    # override (e.g. --model gpt-5.5 for the config default).
-    parser.add_argument("--model", default="gpt-5.3-codex-spark")
+    # Which model backend reviews each rule. `claude` runs `claude -p` (Sonnet)
+    # off the Claude subscription; `codex` runs `codex exec`. Default to claude so
+    # reviews don't draw on codex's usage pool at all.
+    parser.add_argument("--reviewer", choices=["codex", "claude"], default="claude")
+    # Resolved per reviewer in main() when unset: claude -> sonnet, codex ->
+    # gpt-5.3-codex-spark (a separate codex pool). Pass --model to override.
+    parser.add_argument("--model")
+    parser.add_argument("--claude-bin", default="claude")
     parser.add_argument("--effort")
     parser.add_argument("--sandbox", choices=["read-only", "workspace-write"], default="read-only")
     parser.add_argument("--codex-arg", action="append", default=[], help="extra argument passed to codex exec; repeatable")
@@ -294,21 +372,32 @@ def main() -> int:
         )
         rule_dirs[slug] = rule_dir
 
-    results_by_slug: dict[str, RuleResult] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
-        futures = {
-            executor.submit(
-                run_codex_for_rule,
+    model = args.model or ("sonnet" if args.reviewer == "claude" else "gpt-5.3-codex-spark")
+
+    def submit_rule(executor, slug):
+        if args.reviewer == "claude":
+            return executor.submit(
+                run_claude_for_rule,
                 slug=slug,
                 rule_dir=rule_dirs[slug],
-                codex_bin=args.codex_bin,
-                model=args.model,
-                effort=args.effort,
-                sandbox=args.sandbox,
-                extra_codex_args=args.codex_arg,
-            ): slug
-            for slug in slugs
-        }
+                claude_bin=args.claude_bin,
+                model=model,
+                extra_args=args.codex_arg,
+            )
+        return executor.submit(
+            run_codex_for_rule,
+            slug=slug,
+            rule_dir=rule_dirs[slug],
+            codex_bin=args.codex_bin,
+            model=model,
+            effort=args.effort,
+            sandbox=args.sandbox,
+            extra_codex_args=args.codex_arg,
+        )
+
+    results_by_slug: dict[str, RuleResult] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
+        futures = {submit_rule(executor, slug): slug for slug in slugs}
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
             results_by_slug[result.slug] = result
