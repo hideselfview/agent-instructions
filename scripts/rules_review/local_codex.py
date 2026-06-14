@@ -235,7 +235,10 @@ def main() -> int:
     parser.add_argument("--jobs", type=positive_int, default=1)
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--codex-bin", default="codex")
-    parser.add_argument("--model")
+    # Default to the Codex Spark model: it draws from a separate usage pool, so
+    # rules-review runs don't eat into the shared agentic limit. Pass --model to
+    # override (e.g. --model gpt-5.5 for the config default).
+    parser.add_argument("--model", default="gpt-5.3-codex-spark")
     parser.add_argument("--effort")
     parser.add_argument("--sandbox", choices=["read-only", "workspace-write"], default="read-only")
     parser.add_argument("--codex-arg", action="append", default=[], help="extra argument passed to codex exec; repeatable")
