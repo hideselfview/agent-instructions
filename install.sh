@@ -69,6 +69,20 @@ if [[ -d "$repo/codex/skills" ]]; then
   done
 fi
 
+if [[ -d "$repo/claude/skills" ]]; then
+  mkdir -p "$HOME/.claude/skills"
+  for skill_dir in "$repo/claude/skills"/*; do
+    [[ -d "$skill_dir" ]] || continue
+    target="$HOME/.claude/skills/$(basename "$skill_dir")"
+    if [[ -e "$target" && ! -L "$target" ]]; then
+      echo "Skipped $target (exists and is not a symlink)"
+      continue
+    fi
+    ln -sfn "$skill_dir" "$target"
+    echo "Linked $target -> $skill_dir"
+  done
+fi
+
 for subdir in rules principles; do
   mkdir -p "$HOME/.claude/$subdir"
   for f in "$repo/$subdir"/*.md; do
