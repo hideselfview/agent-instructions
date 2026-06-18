@@ -234,13 +234,22 @@ Sweep-staging accidentally captures secrets, generated files, or unrelated work.
 **Never bypass git hooks with `--no-verify`.** If a hook fails, fix the
 underlying issue. Skipping the hook defeats its safety net.
 
-**The unit of a worktree is an agent, not a stream of work — that's the
-branch.** A worktree exists only to let a background agent edit, commit, and
-push in parallel without colliding with us or other agents. Edits we make
-together happen on `main`. Serial agents on one branch (product-engineer →
-code-review-auditor → fixes) share its one worktree; spin a second only when
-another agent runs concurrently on an unrelated branch. Keep the main checkout
-on `main`; worktrees branch from latest.
+**Worktrees are for agent parallelism, not for features — branches are for
+features.** A worktree exists for one reason: so an agent can edit, commit, and
+push without colliding with us or another agent on the same checkout. It is not
+a unit of work — the **branch** is. Every feature, fix, or tangent is a new
+branch, which is free; one agent uses **one worktree for all of its work**,
+across however many unrelated branches that spans. Picking up a separate concern
+means `git checkout -b` in the worktree you already have — never a second
+worktree for it. Creating a worktree is heavy — a fresh checkout plus whatever
+per-worktree setup the project runs (dependency install, build priming) — so a
+needless one burns minutes and disk for nothing. Spin a second worktree *only*
+when a genuinely concurrent agent must work an unrelated branch at the same time
+— that simultaneous collision is the only thing a separate worktree prevents.
+Serial agents on one branch (product-engineer → code-review-auditor → fixes)
+share its one worktree. Keep the main checkout on `main`; worktrees branch from
+latest; edits we make together land on `main` (or, when we're already in a
+worktree, that worktree's branch).
 
 **Fast-forward merges only.** No merge commits in `main`'s history. Rebase the
 branch onto current `main` first, then `git merge --ff-only`. If ff fails,
