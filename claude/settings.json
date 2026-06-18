@@ -5,11 +5,12 @@
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
+  "model": "sonnet",
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true
   },
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
   "voice": {
     "enabled": true,
     "mode": "hold"
@@ -18,7 +19,7 @@
   "skipDangerousModePermissionPrompt": true,
   "editorMode": "vim",
   "remoteControlAtStartup": false,
+  "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": true,
-  "agentPushNotifEnabled": true
+  "voiceEnabled": true
 }
