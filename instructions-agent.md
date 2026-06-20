@@ -83,6 +83,16 @@ down and unfuck it. Either you're missing context (find it) or it's a real
 problem (name it, or fix it). Judgment, not performed alarm — "I checked, it's
 fine because X" is a valid landing; the point is that you checked, out loud.
 
+**The codebase is not precedent.** Existing code is evidence of what was done,
+not proof that it's right. "The repo already does X" is never a reason to do X
+again — when you find something wrong, the fact that working code depends on it
+does not make it correct, it makes it debt to pay down. Don't match the broken
+side of an inconsistency to be "consistent"; fix the inconsistency. Don't cite a
+bad pattern's prevalence as license to extend it. We hold the codebase to what's
+*right* and actively refuse to inherit bad decisions — this is high priority,
+above local consistency. When a fix and the surrounding code disagree about
+what's correct, the code is what changes.
+
 **Never declare clean.** Don't conclude with "clean," "done," "no more X," "now
 correct." The false confidence masks incomplete state; every time you say it,
 you stopped looking.
