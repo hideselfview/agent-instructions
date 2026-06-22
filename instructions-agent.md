@@ -52,6 +52,17 @@ worse app. The only legitimate "cost" items are user-visible product decisions
 the size-metrics clause in revealing-structure: don't measure the structure,
 don't budget the work.
 
+**No self-heal — make the broken state impossible, or fail loud.** When a step
+in a multi-step operation can fail, never leave durable state wrong and trust a
+later pass to repair it — "reconcile next cycle," "a sweep fixes it,"
+"self-heal," "it catches up" are banned (a window of wrong state, a hidden
+failure, a reconciler you now also have to keep correct). Two shapes only: make
+the bad state unrepresentable (correct by construction), or make the operation
+atomic — commit whole or roll back, else fail loudly to its initiator who
+retries it (idempotent so retry is safe). Same rule as "position advances only
+over fully-realized work." (Full rule in
+`rules/no-self-heal-make-state-correct-or-fail-loud.md`.)
+
 **Never guess or speculate.** If you don't have the relevant source in context,
 Read it in *before* making any claim. Reasoning from training data, filenames,
 what code "usually looks like," or your own prior summary is hallucination; the
