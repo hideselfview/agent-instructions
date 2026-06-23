@@ -5,6 +5,18 @@ description: Run and adjudicate agent-instructions per-rule PR reviews, especial
 
 # Rules Review
 
+PR merge path:
+
+1. Rebase onto current `main`.
+2. Resolve merge conflicts.
+3. Check current PR blockers.
+4. Fix true positives that still apply to the current diff.
+5. Ignore stale or duplicate review comments.
+6. Rerun rules-review without `--post`.
+7. Do not use `--post` unless the user explicitly asks.
+8. Do not run local full app builds when CI owns that check.
+9. Merge only after the PR is conflict-free and required checks pass.
+
 Use the local Codex runner when Codex review should use the operator's local
 Codex auth/config instead of a GitHub Actions API key:
 
