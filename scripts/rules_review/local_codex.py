@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 """Run the per-rule rules reviewer from a local checkout.
 
-Two model backends (``--reviewer``): ``codex`` (default) runs ``codex exec``
-(gpt-5.3-codex-spark); ``claude`` runs ``claude -p`` (Sonnet). Both produce the
-same ``SUMMARY.json``. Codex is the default so a rules review runs on the codex
-model, matching this tool's name.
+Two model backends (``--reviewer``): ``codex`` (default) runs ``codex exec``;
+``claude`` runs ``claude -p``. Both produce the same ``SUMMARY.json``. Codex is
+the default so a rules review runs on the codex model, matching this tool's name.
+
+Model preference order (best reviewer first; fall to the next when the one above
+is unavailable or out of quota):
+
+    1. gpt-5.3-codex-spark   (codex backend, default; a separate codex pool)
+    2. gpt-5.5               (codex backend: --model gpt-5.5)
+    3. claude sonnet         (--reviewer claude, the claude default)
+    4. claude opus           (--reviewer claude --model opus; last resort)
+
+So when spark is exhausted, keep the codex backend and pass ``--model gpt-5.5``;
+only drop to claude if codex itself is unavailable.
 """
 
 from __future__ import annotations
@@ -306,15 +316,20 @@ def main() -> int:
     parser.add_argument("--sha")
     parser.add_argument("--exclude", default="[]")
     parser.add_argument("--slug", action="append", default=[], help="review only this discovered rule slug; repeatable")
-    parser.add_argument("--jobs", type=positive_int, default=1)
+    # Rules run in parallel; 8-10 is the sweet spot (the matrix is ~dozens of
+    # short reviews, and the codex pool handles that concurrency fine). Lower it
+    # only if you hit rate limits.
+    parser.add_argument("--jobs", type=positive_int, default=8)
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--codex-bin", default="codex")
-    # Which model backend reviews each rule. `codex` runs `codex exec`
-    # (gpt-5.3-codex-spark); `claude` runs `claude -p` (Sonnet). Default to codex
-    # so a rules review runs on the codex model, matching this tool's name.
+    # Which model backend reviews each rule. `codex` runs `codex exec`; `claude`
+    # runs `claude -p`. Default to codex so a rules review runs on the codex
+    # model, matching this tool's name. Preference order (see module docstring):
+    # gpt-5.3-codex-spark > gpt-5.5 (both codex) > sonnet > opus (both claude).
     parser.add_argument("--reviewer", choices=["codex", "claude"], default="codex")
     # Resolved per reviewer in main() when unset: claude -> sonnet, codex ->
-    # gpt-5.3-codex-spark (a separate codex pool). Pass --model to override.
+    # gpt-5.3-codex-spark (a separate codex pool). Pass --model to override — e.g.
+    # `--model gpt-5.5` when spark quota is gone (still the codex backend).
     parser.add_argument("--model")
     parser.add_argument("--claude-bin", default="claude")
     parser.add_argument("--effort")
