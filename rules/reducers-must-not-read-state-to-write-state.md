@@ -21,3 +21,9 @@ Events can carry foreign-key ids, but must not require the reducer to
 dereference them against other slices. On the producer side (emitter, bridge,
 backend), this may mean joining data before emitting so the event payload
 mirrors what every reducer consumer needs — not the raw DB row.
+
+Scope: this is about *reducers* — handlers that write to the store. A UI action
+that reads the value it's rendering to compute a command's argument
+(`set(!shuffled)`) is not a reducer and not a violation — that's the preferred
+absolute-`set` shape (`rules/set-state-don-t-toggle.md`), not a store write
+dereferencing another slice.

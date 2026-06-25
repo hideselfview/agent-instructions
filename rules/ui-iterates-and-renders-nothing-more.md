@@ -21,3 +21,7 @@ Exceptions:
 - Type coercion for rendering (e.g., `Int → String` for `Text()`, `String → URL`
   for image loading).
 - Localized string building and matching (platform-native localization APIs).
+- Computing a command's target from the value being rendered — `set(!shuffled)`,
+  `setRepeat(mode.next())` — and sending that absolute value to the data layer.
+  Naming the desired next state isn't deriving domain data, and it's preferred
+  over a `toggle()` (`rules/set-state-don-t-toggle.md`).

@@ -52,3 +52,10 @@ What is NOT a violation: the UI formatting raw numbers/dates/byte counts for
 display, or resolving a localized string by key. That is the required
 locale-rendering described above, not a thinness breach — bae-core has no locale
 and cannot do it.
+
+Also NOT a violation: computing a command's target from a rendered bridge value
+and sending that absolute value back — `setShuffle(!shuffled)` — even though
+core also holds the state. Naming the desired next state is not a domain
+decision; it's the preferred shape over a core-side `toggle()`
+(`rules/set-state-don-t-toggle.md`). A `!bool` or `mode.next()` is fine; real
+logic — URL-building, source switching — still crosses as a field.
