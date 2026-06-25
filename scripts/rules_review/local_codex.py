@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Run the per-rule rules reviewer from a local checkout.
 
-Two model backends (``--reviewer``): ``claude`` (default) runs ``claude -p``
-(Sonnet) off the Claude subscription; ``codex`` runs ``codex exec``. Both produce
-the same ``SUMMARY.json``. Claude is the default so reviews don't draw on codex's
-usage pool.
+Two model backends (``--reviewer``): ``codex`` (default) runs ``codex exec``
+(gpt-5.3-codex-spark); ``claude`` runs ``claude -p`` (Sonnet). Both produce the
+same ``SUMMARY.json``. Codex is the default so a rules review runs on the codex
+model, matching this tool's name.
 """
 
 from __future__ import annotations
@@ -309,10 +309,10 @@ def main() -> int:
     parser.add_argument("--jobs", type=positive_int, default=1)
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--codex-bin", default="codex")
-    # Which model backend reviews each rule. `claude` runs `claude -p` (Sonnet)
-    # off the Claude subscription; `codex` runs `codex exec`. Default to claude so
-    # reviews don't draw on codex's usage pool at all.
-    parser.add_argument("--reviewer", choices=["codex", "claude"], default="claude")
+    # Which model backend reviews each rule. `codex` runs `codex exec`
+    # (gpt-5.3-codex-spark); `claude` runs `claude -p` (Sonnet). Default to codex
+    # so a rules review runs on the codex model, matching this tool's name.
+    parser.add_argument("--reviewer", choices=["codex", "claude"], default="codex")
     # Resolved per reviewer in main() when unset: claude -> sonnet, codex ->
     # gpt-5.3-codex-spark (a separate codex pool). Pass --model to override.
     parser.add_argument("--model")
