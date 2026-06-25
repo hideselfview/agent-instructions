@@ -68,7 +68,30 @@ for r in json.load(sys.stdin)['results']:
 "
 ```
 
-## The loop
+## The loop — hard cap on passes
+
+**One review pass is the target. Two or three is the absolute ceiling. Never
+more.** The matrix is non-deterministic and the rules overlap, so an open "fix →
+rerun → fix" loop chases a moving target forever — each rerun surfaces new
+phrasings of findings you've already adjudicated, burning hours and tokens for
+diminishing signal. Budget the passes up front:
+
+- **Pass 1 (almost always enough):** run the full matrix once, read
+  `SUMMARY.json`, adjudicate every finding TP/FP in one sitting, fix all the TPs
+  together in one commit. Stop here unless a fix was large enough to plausibly
+  introduce a *new* class of violation.
+- **Pass 2 (optional):** only if pass-1 fixes meaningfully reshaped the diff.
+  Rerun **just the affected rules** with repeated `--slug` — not the whole
+  matrix. Adjudicate and fix.
+- **Pass 3 (rare, the ceiling):** only to confirm a specific TP you fixed is
+  resolved. Then stop regardless of what it says.
+
+Do not start a pass 4. If findings still surface after three passes, they are
+FPs or design disagreements you've already adjudicated — record the decision and
+merge. Re-running because the count is non-zero, when every remaining finding is
+a known FP, is the failure mode this cap exists to prevent.
+
+The steps within a pass:
 
 1. `--list` to see which rules match the changed files.
 2. Run **without** `--post`; read `SUMMARY.json`.
@@ -76,12 +99,11 @@ for r in json.load(sys.stdin)['results']:
    case the code is correct) before accepting a finding; keep it only if that
    fails. A finding that disagrees with a *deliberate design decision* is an FP
    — note why.
-4. Fix the TPs; commit.
-5. Rerun the affected rules with repeated `--slug` (or the full matrix if the
-   fix moved the review surface a lot).
-6. Use `--post` when you want the surviving findings as PR comments; reply to
-   each with the TP/FP decision, resolve FPs, fix TPs.
-7. Merge only when no TP remains (and required checks pass).
+4. Fix all the TPs in one commit.
+5. Merge once no *unaddressed* TP remains (and required checks pass) — a known,
+   recurring FP is not a reason to rerun. `--post` is optional and only for when
+   you explicitly want the surviving findings as PR comments; default is to
+   adjudicate from `SUMMARY.json` and never post.
 
 ## Gotcha: the GitHub head race
 
