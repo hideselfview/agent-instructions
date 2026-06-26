@@ -13,6 +13,16 @@ blocking: false
 
 ## Localization stays in sync with the UI
 
+**Localization is never "out of scope."** Catalog work is part of the change
+that adds, removes, or rewords user-facing text — never a follow-up PR, never a
+"translation TODO" punted to later, never triaged away as "not this change's
+concern," never deferred because the build is otherwise green. A reviewer or
+agent who finds a UI-text change without its matching catalog update must treat
+that as an **incomplete change**, not a deferrable nicety. There is no "merge
+now, localize later." When a localization rule finding is raised, the only
+acceptable dispositions are *fix it* or *it was already correct* — never *defer
+it*.
+
 bae ships in 14 locales; every user-facing string lives in a catalog, not inline
 in the code. A change that touches user-facing text must update the strings in
 the **same** change — otherwise the new text is English-only, the stale text
