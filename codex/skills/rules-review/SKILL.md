@@ -1,48 +1,44 @@
 ---
 name: rules-review
-description: Run and adjudicate agent-instructions per-rule PR reviews, especially local Codex rules-review matrices that post inline comments; use when a user asks to run the rules review, review AI rule comments, classify TP/FP, resolve false positives, fix true positives, rerun, or merge.
+description: Run and adjudicate agent-instructions per-rule reviews against local checkout diffs; use when a user asks to run rules review, classify findings, fix true positives, rerun targeted rules, or merge after review.
 ---
 
 # Rules Review
 
-PR merge path:
+Merge path:
 
 1. Rebase onto current `main`.
 2. Resolve merge conflicts.
-3. Check current PR blockers.
+3. Run rules-review against the local checkout diff.
 4. Fix true positives that still apply to the current diff.
-5. Ignore stale or duplicate review comments.
-6. Rerun rules-review without `--post`.
-7. Do not use `--post` unless the user explicitly asks.
-8. Do not run local full app builds when CI owns that check.
-9. Merge only after the PR is conflict-free and required checks pass.
+5. Rerun the relevant local rule(s), or the local full matrix when the fix
+   changed the review surface.
+6. Push only after local rules-review has no true positives.
+7. Merge only after the branch is conflict-free and required checks pass.
 
-Use the local Codex runner when Codex review should use the operator's local
-Codex auth/config instead of a GitHub Actions API key:
+Run the local Codex runner against the checkout diff. This builds review context
+from `git diff <base>..HEAD` and does not fetch PR diff/context from GitHub:
 
 ```bash
 python3 <agent-instructions>/scripts/rules_review/local_codex.py \
   --consumer <target-checkout> \
   --project <project> \
+  --local-diff \
+  --base origin/main \
   --repo <owner>/<repo> \
-  --pr-number <number> \
   --sha <head-sha> \
-  --exclude '["every-bug-fix-starts-with-a-failing-test"]' \
-  --jobs 4 \
-  --post
+  --jobs 4
 ```
 
 Default flow:
 
-1. Run the matrix and post inline comments.
-2. Read every posted rules-review comment.
+1. Run the local matrix without `--post`.
+2. Read `SUMMARY.json`.
 3. Classify each as TP or FP.
-4. Reply to each comment with the decision and the reason.
-5. Resolve FPs.
-6. Fix TPs in the PR branch.
-7. Rerun the relevant rule(s), or the full matrix when the fix changed the
-   review surface.
-8. Merge only after required checks pass and no TP remains.
+4. Fix TPs in the branch.
+5. Rerun the relevant local rule(s), or the full local matrix when the fix
+   changed the review surface.
+6. Merge only after required checks pass and no TP remains.
 
-Use `--slug <rule>` to rerun one discovered rule. Omit `--post` when testing the
-runner; findings stay in `SUMMARY.json`.
+Use `--slug <rule>` to rerun one discovered rule. Findings stay in
+`SUMMARY.json`.

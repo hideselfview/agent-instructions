@@ -92,6 +92,53 @@ def derive_sha(repo: str, pr_number: str) -> str:
     return checked_stdout(["gh", "pr", "view", pr_number, "--repo", repo, "--json", "headRefOid", "--jq", ".headRefOid"])
 
 
+def derive_local_repo_label(consumer: Path) -> str:
+    remote = run_command(["git", "config", "--get", "remote.origin.url"], cwd=consumer).stdout.strip()
+    if remote.startswith("git@github.com:"):
+        remote = remote.removeprefix("git@github.com:")
+    elif remote.startswith("https://github.com/"):
+        remote = remote.removeprefix("https://github.com/")
+    remote = remote.removesuffix(".git").strip("/")
+    return remote or consumer.name
+
+
+def prepare_local_context(consumer: Path, base: str, diff_out: Path, view_out: Path) -> str:
+    merge_base = checked_stdout(["git", "merge-base", base, "HEAD"], cwd=consumer)
+    with diff_out.open("w", encoding="utf-8") as f:
+        result = subprocess.run(
+            ["git", "diff", "--no-ext-diff", "--find-renames", "--unified=80", merge_base, "HEAD"],
+            cwd=consumer,
+            stdout=f,
+            text=True,
+            check=False,
+        )
+    if result.returncode != 0:
+        raise SystemExit(f"git diff exited {result.returncode} while preparing local context")
+
+    files = checked_stdout(["git", "diff", "--name-only", merge_base, "HEAD"], cwd=consumer).splitlines()
+    commits = checked_stdout(
+        ["git", "log", "--format=%H%x00%s", f"{merge_base}..HEAD"],
+        cwd=consumer,
+    ).splitlines()
+    view = {
+        "number": None,
+        "title": "local diff",
+        "author": None,
+        "baseRefName": base,
+        "headRefName": checked_stdout(["git", "branch", "--show-current"], cwd=consumer),
+        "files": [{"path": path} for path in files],
+        "commits": [
+            {"oid": raw.split("\x00", 1)[0], "messageHeadline": raw.split("\x00", 1)[1]}
+            for raw in commits
+            if "\x00" in raw
+        ],
+        "local": True,
+        "mergeBase": merge_base,
+    }
+    view_out.write_text(json.dumps(view, indent=2) + "\n", encoding="utf-8")
+    return merge_base
+
+
 def prepare_rule_workspace(
     *,
     rule_dir: Path,
@@ -312,8 +359,10 @@ def main() -> int:
     parser.add_argument("--consumer", type=Path, default=Path.cwd())
     parser.add_argument("--project", required=True)
     parser.add_argument("--repo")
-    parser.add_argument("--pr-number", required=True)
+    parser.add_argument("--pr-number")
     parser.add_argument("--sha")
+    parser.add_argument("--local-diff", action="store_true", help="review the local git diff instead of fetching PR context from GitHub")
+    parser.add_argument("--base", default="origin/main", help="base ref for --local-diff")
     parser.add_argument("--exclude", default="[]")
     parser.add_argument("--slug", action="append", default=[], help="review only this discovered rule slug; repeatable")
     # Rules run in parallel; 8-10 is the sweet spot (the matrix is ~dozens of
@@ -342,7 +391,9 @@ def main() -> int:
 
     rules_root = args.rules_root.resolve()
     consumer = args.consumer.resolve()
-    repo = args.repo or derive_repo(consumer)
+    if not args.local_diff and not args.pr_number:
+        raise SystemExit("--pr-number is required unless --local-diff is set")
+    repo = args.repo or (derive_local_repo_label(consumer) if args.local_diff else derive_repo(consumer))
     slugs = discover_slugs(rules_root, consumer, args.project, args.exclude)
 
     if args.slug:
@@ -359,17 +410,24 @@ def main() -> int:
     if not slugs:
         return 0
 
-    sha = args.sha or (derive_sha(repo, args.pr_number) if args.post else None)
+    sha = args.sha or (
+        checked_stdout(["git", "rev-parse", "HEAD"], cwd=consumer)
+        if args.local_diff
+        else (derive_sha(repo, args.pr_number) if args.post else None)
+    )
     work_dir = (args.work_dir or Path(tempfile.mkdtemp(prefix="local-codex-rules-review-"))).resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
     print(f"work_dir={work_dir}", flush=True)
 
     diff = work_dir / "PR_DIFF.patch"
     view = work_dir / "PR_VIEW.json"
-    try:
-        common.fetch_pr_context(repo, args.pr_number, diff, view)
-    except subprocess.CalledProcessError as e:
-        raise SystemExit(f"{e.cmd} exited {e.returncode} while fetching PR context") from e
+    if args.local_diff:
+        prepare_local_context(consumer, args.base, diff, view)
+    else:
+        try:
+            common.fetch_pr_context(repo, args.pr_number, diff, view)
+        except subprocess.CalledProcessError as e:
+            raise SystemExit(f"{e.cmd} exited {e.returncode} while fetching PR context") from e
 
     rule_dirs: dict[str, Path] = {}
     for slug in slugs:
@@ -381,7 +439,7 @@ def main() -> int:
             project=args.project,
             slug=slug,
             repo=repo,
-            pr_number=args.pr_number,
+            pr_number=args.pr_number or "LOCAL",
             diff=diff,
             view=view,
         )
@@ -419,9 +477,11 @@ def main() -> int:
             print(summarize(result), flush=True)
 
     results = [results_by_slug[slug] for slug in slugs]
-    write_summary(work_dir / "SUMMARY.json", repo, args.pr_number, sha, results)
+    write_summary(work_dir / "SUMMARY.json", repo, args.pr_number or "LOCAL", sha, results)
 
     if args.post:
+        if args.local_diff:
+            raise SystemExit("--post cannot be used with --local-diff")
         if not sha:
             raise SystemExit("--post needs --sha or a derivable PR head SHA")
         for result in results:
