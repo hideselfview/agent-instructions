@@ -31,24 +31,39 @@ gitignored (`bae-macos/bae/bae/bae_bridge.swift`, `bae-bridge/swift-bindings/`)
 existence/fields, or whether a UI type duplicates one, read
 `bae-bridge/src/types.rs`; never conclude from the (missing) generated file.
 
-## SPM cache recovery (bae-macos)
+## Worktrees and build priming (bae-macos)
 
-The `post-checkout` hook (installed via `scripts/install-hooks.sh`, source in
-`scripts/hooks/post-checkout`) primes the SPM cache on new-worktree creation:
-`xcodegen generate` + `xcodebuild build` with the same flags the pre-commit hook
-uses (`-scheme bae`, `-derivedDataPath .build/derivedData`). The flags must
-match — if xcodebuild resolves packages to the default DerivedData location, the
-pre-commit hook's xcodebuild can't find them and fails.
+The `post-checkout` hook (`scripts/hooks/post-checkout`, installed via
+`scripts/install-hooks.sh`) primes the macOS SwiftPM/xcodebuild cache on
+new-worktree creation, with the same flags the pre-commit hook uses
+(`-scheme bae`, `-derivedDataPath .build/derivedData`). The general mechanics —
+skipping this prime, the sccache temp-dir pitfalls, and SwiftPM cache recovery —
+are in `principles/worktree-build-priming.md`. The bae specifics:
 
-If the Sparkle cache gets corrupted (pre-commit fails with "Couldn't check out
-revision" or "file not found" on Sparkle):
+- **Lean worktree for bae-core-only changes** (nothing under bae-bridge or the
+  platform apps): the macOS prime is redundant — the pre-commit hook skips the
+  macOS build when no bridge/macOS files changed. Create without the prime and
+  symlink the two things bae-core needs:
 
-```sh
-rm -rf bae-macos/bae/.build/derivedData
-rm -rf ~/Library/Caches/org.swift.swiftpm/repositories/Sparkle*
-cd bae-macos/bae && xcodebuild -project bae.xcodeproj \
-  -scheme bae -derivedDataPath .build/derivedData build
-```
+  ```sh
+  git -c core.hooksPath=/dev/null worktree add -b <branch> <path> origin/main
+  ln -sfn /path/to/main/third_party <path>/third_party   # prebuilt FFmpeg etc.
+  ln -sf ~/dev/agent-instructions/projects/bae.md <path>/CLAUDE.md
+  ```
 
-VPN can cause incomplete git fetches that corrupt the SPM cache; disconnect
-before re-running if you're on VPN.
+  bae-core links its native libs via the brew paths in `.cargo/config.toml`, so
+  it builds with no prime. Build/test/commit with
+  `CARGO_TARGET_DIR=target-iso RUSTC_WRAPPER=` (one warm dir, sccache off) —
+  inline on `git commit` too, so the pre-commit hook reuses the dir.
+
+- **Sparkle is the SwiftPM dep that corrupts** (pre-commit fails with "Couldn't
+  check out revision" or "file not found" on Sparkle):
+
+  ```sh
+  rm -rf bae-macos/bae/.build/derivedData
+  rm -rf ~/Library/Caches/org.swift.swiftpm/repositories/Sparkle*
+  cd bae-macos/bae && xcodebuild -project bae.xcodeproj -scheme bae \
+    -derivedDataPath .build/derivedData build
+  ```
+
+  Disconnect VPN first — incomplete fetches corrupt the SwiftPM cache.

@@ -143,7 +143,12 @@ not a mirror.
 multi-part breakdowns, or next-step offers unless asked. For judgment/opinion
 questions ("what do you think", TP/FP, A or B): give the verdict in one line
 plus at most one clause of why — not your full reasoning. Walls of text are a
-failure even when correct. To say more, ask "want more?" first.
+failure even when correct. Even a multi-part answer stays terse: one tight
+`**Label:** answer` line per point, a sentence each — never a paragraph per
+point. That compact labeled form is the *ceiling* on any reply, not a length to
+fill — a breakdown that runs a paragraph per point (≈300 words where ≈80 does
+it) is the failure, every time, even when every word is correct. To say more,
+ask "want more?" first.
 
 **You're a chatbot — chat.** You communicate by brief chatting, not by producing
 walls of text for the user to read. Talk like a person in a chat window: a few
@@ -271,6 +276,14 @@ Serial agents on one branch (product-engineer → code-review-auditor → fixes)
 share its one worktree. Keep the main checkout on `main`; worktrees branch from
 latest; edits we make together land on `main` (or, when we're already in a
 worktree, that worktree's branch).
+
+When the per-worktree setup primes a heavy build (a SwiftPM/xcodebuild prime, a
+dependency compile), that prime is both the "minutes and disk" cost above and,
+under `sccache`, a concurrency hazard — parallel worktree creations race
+sccache's temp dir and fail. See `principles/worktree-build-priming.md` for
+skipping the prime when the work doesn't need it, the target-dir reuse that
+keeps the pre-commit hook's build from failing, and SwiftPM/Sparkle cache
+recovery.
 
 **Fast-forward merges only.** No merge commits in `main`'s history. Rebase the
 branch onto current `main` first, then `git merge --ff-only`. If ff fails,
