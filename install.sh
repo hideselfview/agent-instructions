@@ -103,6 +103,41 @@ if [[ -d "$repo/claude/agents" ]]; then
   done
 fi
 
+# Disk-reclaim launchd agent: sweep regenerable build artifacts/caches every 15
+# minutes, but only delete when free space is below the threshold (most runs are
+# no-ops). The script is tool-agnostic; this timer is what makes it automatic.
+reclaim_script="$repo/scripts/reclaim-disk/reclaim.sh"
+if [[ -f "$reclaim_script" ]]; then
+  chmod +x "$reclaim_script"
+  la_dir="$HOME/Library/LaunchAgents"
+  mkdir -p "$la_dir" "$HOME/Library/Logs"
+  plist="$la_dir/com.dima.reclaim-disk.plist"
+  cat >"$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.dima.reclaim-disk</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>$reclaim_script</string>
+  </array>
+  <key>StartInterval</key><integer>900</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>$HOME/Library/Logs/reclaim-disk.out.log</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Logs/reclaim-disk.err.log</string>
+</dict>
+</plist>
+PLIST
+  launchctl bootout "gui/$(id -u)/com.dima.reclaim-disk" 2>/dev/null || true
+  if launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null; then
+    echo "Loaded disk-reclaim launchd agent (every 15 min) -> $plist"
+  else
+    echo "Wrote $plist (run: launchctl bootstrap gui/\$(id -u) \"$plist\")"
+  fi
+fi
+
 # Per-project instruction symlinks. Convention: each projects/<name>.md
 # targets ~/dev/<name>/CLAUDE.md and ~/dev/<name>/AGENTS.md. Skip projects whose
 # target dir doesn't exist on this machine.
