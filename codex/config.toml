@@ -1,5 +1,5 @@
 model = "gpt-5.5"
-model_reasoning_effort = "high"
+model_reasoning_effort = "medium"
 plan_mode_reasoning_effort = "xhigh"
 model_reasoning_summary = "none"
 model_verbosity = "low"
@@ -7,6 +7,7 @@ hide_agent_reasoning = true
 approval_policy = "on-request"
 approvals_reviewer = "auto_review"
 default_permissions = ":workspace"
+service_tier = "default"
 
 [shell_environment_policy]
 inherit = "core"
@@ -23,3 +24,21 @@ vim_mode_default = true
 
 [features]
 terminal_resize_reflow = true
+
+[projects."/Users/dima/dev/bae"]
+trust_level = "trusted"
+
+[projects."/Users/dima/dev/airwaves"]
+trust_level = "trusted"
+
+[projects."/Users/dima/dev/visible"]
+trust_level = "trusted"
+
+[projects."/Users/dima"]
+trust_level = "trusted"
+
+[projects."/Users/dima/dev/coven"]
+trust_level = "trusted"
+
+[projects."/Users/dima/dev/coven-torrent"]
+trust_level = "trusted"

@@ -30,8 +30,33 @@ python3 ~/.codex/agent-instructions/scripts/rules_review/local_codex.py \
   --consumer <local checkout>        # repo on disk the line numbers map to
   --project bae \                     # rule set: bae | forage
   --repo <owner>/<repo> --pr-number <n> --sha <head-sha> \
-  --jobs 4                            # rules run in parallel
+  --reviewer codex \                  # backend (see Model preference below)
+  --jobs 8                            # rules run in parallel; 8-10 is the sweet spot
 ```
+
+## Model preference
+
+Best reviewer first; fall to the next only when the one above is unavailable or
+out of quota:
+
+1. **gpt-5.3-codex-spark** — codex backend, the default. A separate codex pool.
+2. **gpt-5.5** — codex backend: `--reviewer codex --model gpt-5.5`. Use this
+   when spark quota is exhausted — stay on codex, just switch the model.
+3. **claude sonnet** — `--reviewer claude` (its default). Only when codex itself
+   is unavailable.
+4. **claude opus** — `--reviewer claude --model opus`. Last resort, god forbid.
+
+Spark-out ≠ drop to claude. Spark-out → `--model gpt-5.5`. Only a dead codex CLI
+sends you to claude.
+
+**Always climb back to the top.** The fallback is per-invocation, not sticky.
+Spark quota refills on a clock — the out-of-quota error names the reset time
+(e.g. "try again at 4:39 PM"). So the *next* run — a rerun of errored rules, a
+second pass after fixes, the next PR — starts again at **spark** (no `--model`),
+not pinned to gpt-5.5. Drop to gpt-5.5 only for the rules that error *this* run,
+and re-attempt spark on the next. Never stay on a lower tier just because the
+previous pass fell back; the higher tier is the better reviewer and may have
+recovered.
 
 Useful flags:
 

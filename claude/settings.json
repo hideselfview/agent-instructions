@@ -1,6 +1,7 @@
 {
   "env": {
-    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"
+    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+    "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
   },
   "permissions": {
     "defaultMode": "bypassPermissions"
@@ -9,7 +10,7 @@
     "rust-analyzer-lsp@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true
   },
-  "effortLevel": "high",
+  "effortLevel": "medium",
   "tui": "fullscreen",
   "voice": {
     "enabled": true,
