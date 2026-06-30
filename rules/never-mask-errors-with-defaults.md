@@ -52,6 +52,15 @@ flags everywhere they appear: code, comments, commit messages, and conversation.
 Wanting two mechanisms for one guarantee is the smell; the right number is one
 that works.
 
+Do not confuse this with a *default*. A default **follows** the primary
+mechanism: it supplies a value for the legitimate, designed-for "caller didn't
+specify one" case (`create_library_default()` below), and the absence it fills
+is a valid input you planned for, not a failure. A masking fallback **shadows**
+the primary: it fires when the primary *unexpectedly breaks* and silently covers
+the surprise. The default handles a case you designed for; the fallback hides a
+case you didn't. The test is what activates the secondary path — an expected
+absence (a default, fine) or the primary failing (masking, banned).
+
 **Editable form-state seeding is exempt.** Converting an optional domain field
 into the string state of an *editable* text input — Swift
 `opt.map(String.init) ?? ""` / `opt ?? ""`, Rust `opt.unwrap_or_default()` /
