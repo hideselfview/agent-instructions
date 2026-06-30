@@ -1,5 +1,5 @@
 ---
-digest: Never swallow/default around an error (unwrap_or, .ok(), try?, ??, silent continue/return); surface it, log legit skips.
+digest: Never swallow/default around an error (unwrap_or, .ok(), try?, ??, silent continue/return); surface it, log legit skips. Redundant "belt-and-suspenders"/"just in case" backups mask the primary's failure — keep one mechanism, fail loud.
 paths:
   - '**/*.rs'
   - '**/*.swift'
@@ -38,6 +38,19 @@ with no UTF-8 stem: {:?}" is actionable, "skipping" alone is useless. This is
 the only exception. If you don't want to log, you don't have a legitimate skip —
 you have a masked error. (Pure functional Option-returning helpers don't count
 as bail-outs; this covers exceptional skips on the main path.)
+
+**Phrasing tells — "belt and suspenders" and friends.** When you catch yourself
+describing a mechanism as "belt and suspenders," "just in case," "as a backup,"
+"a safety net," "to be safe," "defensive default," or "fall back to," you are
+proposing a *redundant fallback* — a second path kept alongside the
+authoritative one to cover it if it fails. That is masking by another name: if
+the primary silently breaks, the backup quietly covers for it and you never
+learn the primary broke, so the bug lives forever behind a green build. Keep one
+correct mechanism and let it fail loud; delete the backup (or, if the "primary"
+genuinely can't be trusted, fix *that* — don't paper over it). These phrases are
+flags everywhere they appear: code, comments, commit messages, and conversation.
+Wanting two mechanisms for one guarantee is the smell; the right number is one
+that works.
 
 **Editable form-state seeding is exempt.** Converting an optional domain field
 into the string state of an *editable* text input — Swift
