@@ -57,6 +57,10 @@ echo "Linked ~/.claude/settings.json -> $repo/claude/settings.json"
 
 if [[ -d "$repo/codex/skills" ]]; then
   mkdir -p "$HOME/.codex/skills"
+  for stale_link in "$HOME/.codex/skills"/*; do
+    [[ -L "$stale_link" && ! -e "$stale_link" ]] || continue
+    rm "$stale_link"
+  done
   for skill_dir in "$repo/codex/skills"/*; do
     [[ -d "$skill_dir" ]] || continue
     target="$HOME/.codex/skills/$(basename "$skill_dir")"
@@ -71,6 +75,10 @@ fi
 
 if [[ -d "$repo/claude/skills" ]]; then
   mkdir -p "$HOME/.claude/skills"
+  for stale_link in "$HOME/.claude/skills"/*; do
+    [[ -L "$stale_link" && ! -e "$stale_link" ]] || continue
+    rm "$stale_link"
+  done
   for skill_dir in "$repo/claude/skills"/*; do
     [[ -d "$skill_dir" ]] || continue
     target="$HOME/.claude/skills/$(basename "$skill_dir")"

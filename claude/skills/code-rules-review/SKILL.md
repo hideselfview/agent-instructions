@@ -1,9 +1,9 @@
 ---
-name: codex-rules-review
-description: Run the local Codex per-rule rules-review matrix against a GitHub PR, then adjudicate findings (TP/FP), fix true positives, and rerun. Use when asked to run the rules review / rules matrix on a PR, check a branch against the agent-instructions rules, classify or resolve rule findings, or before merging a PR that should pass the rule set.
+name: code-rules-review
+description: Run the local per-rule rules-review matrix against a GitHub PR or local checkout diff, then adjudicate findings (TP/FP), fix true positives, and rerun. Use when asked to run the rules review / rules matrix on a PR, check a branch against the agent-instructions rules, classify or resolve rule findings, or before merging a PR that should pass the rule set.
 ---
 
-# Codex rules-review matrix
+# Code rules-review matrix
 
 Runs one Codex reviewer **per project rule** against a GitHub PR, using the
 operator's local Codex auth. Each rule gets its own codex invocation that reads
@@ -15,15 +15,17 @@ discovery: `matching_rules.py` / `discover_rules.py` in the same dir).
 
 ## Prerequisites
 
-- The change is pushed and a GitHub PR exists (the matrix reviews a PR diff, not
-  a local working tree).
+- The change is either pushed with a GitHub PR, or available as a local checkout
+  diff against a base ref.
 - `codex` CLI is installed and authed (`which codex`).
 - You know the `--project` rule set: `bae` or `forage`. Cross-repo (e.g. running
   against `bae-fm/coven`) still works, but project path-scoped rules won't match
   foreign paths — you effectively exercise the **global** rules (yagni,
   dead-code, never-mask, etc.), which is usually what you want.
 
-## Command
+## Commands
+
+Preferred PR mode:
 
 ```bash
 python3 ~/.codex/agent-instructions/scripts/rules_review/local_codex.py \
@@ -33,6 +35,24 @@ python3 ~/.codex/agent-instructions/scripts/rules_review/local_codex.py \
   --reviewer codex \                  # backend (see Model preference below)
   --jobs 8                            # rules run in parallel; 8-10 is the sweet spot
 ```
+
+Local checkout diff mode:
+
+```bash
+python3 ~/.codex/agent-instructions/scripts/rules_review/local_codex.py \
+  --consumer <target-checkout> \
+  --project <project> \
+  --local-diff \
+  --base origin/main \
+  --repo <owner>/<repo> \
+  --sha <head-sha> \
+  --jobs 4
+```
+
+Local-diff mode builds review context from `git diff <base>..HEAD` and does not
+fetch PR diff/context from GitHub. Use it when the branch should be reviewed
+before a PR exists, or when GitHub's PR head is not the source of truth for the
+checkout you are reviewing.
 
 ## Model preference
 
