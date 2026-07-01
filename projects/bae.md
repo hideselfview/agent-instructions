@@ -47,12 +47,15 @@ are in `principles/worktree-build-priming.md`. The bae specifics:
 
   ```sh
   git -c core.hooksPath=/dev/null worktree add -b <branch> <path> origin/main
-  ln -sfn /path/to/main/third_party <path>/third_party   # prebuilt FFmpeg etc.
+  ln -sfn /path/to/main/bae-ffmpeg <path>/bae-ffmpeg   # prebuilt FFmpeg dist
   ln -sf ~/dev/agent-instructions/projects/bae.md <path>/CLAUDE.md
   ```
 
-  bae-core links its native libs via the brew paths in `.cargo/config.toml`, so
-  it builds with no prime. Build/test/commit with
+  bae-core finds FFmpeg via `FFMPEG_DIR` (set to `bae-ffmpeg/dist` in
+  `.cargo/config.toml`) and libdiscid via the brew `LIBRARY_PATH` there, so it
+  builds with no prime. Running the tests needs the FFmpeg dylibs on the loader
+  path: `DYLD_LIBRARY_PATH=$PWD/bae-ffmpeg/dist/lib` (or the export
+  `scripts/setup-ffmpeg.sh` prints). Build/test/commit with
   `CARGO_TARGET_DIR=target-iso RUSTC_WRAPPER=` (one warm dir, sccache off) —
   inline on `git commit` too, so the pre-commit hook reuses the dir.
 
