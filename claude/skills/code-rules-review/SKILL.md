@@ -5,10 +5,10 @@ description: Run the local per-rule rules-review matrix against a GitHub PR or l
 
 # Code rules-review matrix
 
-Runs one Codex reviewer **per project rule** against a GitHub PR, using the
-operator's local Codex auth. Each rule gets its own codex invocation that reads
-the PR diff and judges it against that single rule, emitting structured
-violations.
+The current runner runs one Codex reviewer **per project rule** against a GitHub
+PR, using the operator's local Codex auth. Each rule gets its own codex
+invocation that reads the PR diff and judges it against that single rule,
+emitting structured violations.
 
 Runner: `~/.codex/agent-instructions/scripts/rules_review/local_codex.py` (rule
 discovery: `matching_rules.py` / `discover_rules.py` in the same dir).
@@ -82,7 +82,9 @@ Useful flags:
 
 - `--list` — print discovered rule slugs and exit (no review).
 - `--slug <rule>` — review only this rule; repeatable. Use to rerun the rules
-  you just fixed instead of the whole matrix.
+  you just fixed instead of the whole matrix. Repeating `--slug` batches the CLI
+  command and produces one summary, but **does not reduce model calls** in the
+  current runner; it still runs one reviewer per rule.
 - `--exclude '["rule-a","rule-b"]'` — skip rules (commonly
   `every-bug-fix-starts-with-a-failing-test` on non-bug changes).
 - `--post` — post findings as inline PR review comments. **Omit on the first
@@ -113,6 +115,60 @@ for r in json.load(sys.stdin)['results']:
 "
 ```
 
+## Grouping policy
+
+Today, first-pass review still uses the full per-rule matrix because that is the
+only runner mode that reliably forces one judgment per rule. Do not replace it
+with a single all-rules prompt: past runs skipped or under-enforced rules when
+too many unrelated rules shared one request.
+
+When grouped review mode exists, use it on the first pass and on reruns, but
+only with explicit per-rule engagement:
+
+- The prompt must list each rule in the group and require a separate verdict for
+  every rule, even when the verdict is "no finding".
+- The output schema must preserve rule slugs on each violation and include an
+  empty result for every rule that found nothing.
+- Keep groups to rules that inspect the same design question, so the reviewer
+  can hold the whole group in one coherent pass instead of switching domains.
+- Cap a group at roughly 3-5 rules unless the rules are near-aliases. If a group
+  starts producing generic findings, split it.
+- Keep singleton review for rules with broad blast radius or high false-positive
+  overlap until grouped runs prove they still produce rule-specific findings.
+
+Suggested first-pass groups:
+
+- Error handling: `never-mask-errors-with-defaults`,
+  `no-self-heal-make-state-correct-or-fail-loud`,
+  `fix-at-the-lowest-level-the-bug-allows`,
+  `every-bug-fix-starts-with-a-failing-test`.
+- Shape and necessity: `question-necessity-before-any-change`, `yagni`,
+  `write-today-s-shape-not-tomorrow-s`, `a-mechanism-must-be-load-bearing`.
+- Duplication and composition: `don-t-duplicate-existing-logic`,
+  `don-t-create-duplicate-types`,
+  `compose-existing-primitives-before-adding-new-ones`,
+  `parameterize-near-duplicates-when-cheap`.
+- State and UI dataflow: `set-state-don-t-toggle`,
+  `state-describes-what-is-not-what-should-happen`,
+  `pass-reactive-handles-not-snapshots`, `read-at-the-leaf-not-the-parent`,
+  `a-component-has-one-access-path-to-any-given-piece-of-state`.
+- Dispatch and gates: `dispatch-on-known-state-not-blind-search`,
+  `precondition-gates-belong-at-the-call-site`,
+  `reducers-must-not-read-state-to-write-state`.
+- Test integrity: `test-the-real-unit-not-a-reconstruction`,
+  `never-re-implement-production-logic-in-tests-mocks-or-previews`.
+- Hygiene and artifacts:
+  `dead-code-delete-or-cfg-restrict-never-allow-dead-code`,
+  `no-transient-references-in-code-tests-or-notes`,
+  `documentation-describes-current-state-transitions-go-in-plans`,
+  `ship-the-fix-not-the-investigation`,
+  `use-the-project-s-logger-for-real-logs`, naming/style artifact rules.
+
+Rerun grouping is useful even before grouped model calls exist because it keeps
+the rerun on one SHA, one command, and one `SUMMARY.json`, reducing stale-head
+and bookkeeping mistakes. It is not a quota or latency optimization until the
+runner can send multiple rules in one model request.
+
 ## The loop — hard cap on passes
 
 **One review pass is the target. Two or three is the absolute ceiling. Never
@@ -121,10 +177,11 @@ rerun → fix" loop chases a moving target forever — each rerun surfaces new
 phrasings of findings you've already adjudicated, burning hours and tokens for
 diminishing signal. Budget the passes up front:
 
-- **Pass 1 (almost always enough):** run the full matrix once, read
-  `SUMMARY.json`, adjudicate every finding TP/FP in one sitting, fix all the TPs
-  together in one commit. Stop here unless a fix was large enough to plausibly
-  introduce a *new* class of violation.
+- **Pass 1 (almost always enough):** with the current runner, run the full
+  per-rule matrix once. With grouped review mode, run the first-pass groups
+  above. Read `SUMMARY.json`, adjudicate every finding TP/FP in one sitting, fix
+  all the TPs together in one commit. Stop here unless a fix was large enough to
+  plausibly introduce a *new* class of violation.
 - **Pass 2 (optional):** only if pass-1 fixes meaningfully reshaped the diff.
   Rerun **just the affected rules** with repeated `--slug` — not the whole
   matrix. Adjudicate and fix.
