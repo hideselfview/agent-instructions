@@ -34,8 +34,14 @@ obligation:
   goes in `bae-bridge/loc/catalog.toml` (plus the `bridge_*_key` producer if it
   is enum-mapped — the `loc_key_coverage` test fails otherwise); UI chrome goes
   in that platform's catalog (`Localizable.xcstrings` / `strings.xml` /
-  `Resources.resw`). Translate it, or leave the non-source locales at state
-  `new` with translation queued — but the key must exist.
+  `Resources.resw`). Translate every supported locale in the same change. Every
+  non-source locale must contain a real translation in that locale. Do not copy
+  the English source into non-English locale slots, do not write placeholder
+  text, do not leave TODO/fuzzy/untranslated/new states, do not mark locales as
+  `new`, and do not rely on any catalog facility that queues translation for
+  later. The code author and reviewer are state-of-the-art language models that
+  can translate any language effortlessly; any placeholder or non-translation is
+  incomplete work.
 
 - **Removed text** — deleting a screen, button, or message deletes its key
   across the catalog and all 13 locale slots. A key no code references is dead
