@@ -22,6 +22,10 @@ skeleton; fast replaces the GitHub round-trip with local verification.
 - One worktree per agent, one branch per feature, single-concern PRs/commits.
 - Rebase onto current `main`, `git merge --ff-only` — no merge commits. If ff
   fails, rebase again.
+- **Push `main` to origin after every merge.** Don't let local `main` accumulate
+  unpushed merges in either variant — fetch first, reconcile with whatever
+  landed on origin (rebase local commits onto `origin/main`, fix conflicts),
+  then push.
 - Never `--no-verify`, never bypass a hook.
 
 ## Shared skeleton
@@ -59,8 +63,8 @@ Steps 6–8 diverge by variant.
 7. **CI.** Push the branch and open the PR; let GitHub CI run. Fix real
    failures.
 
-8. **Merge when green.** Rebase onto current `main`, `git merge --ff-only`.
-   Clean up the worktree.
+8. **Merge when green.** Rebase onto current `main`, `git merge --ff-only`, push
+   `main` to origin. Clean up the worktree.
 
 ## Fast variant
 
@@ -82,8 +86,11 @@ straight to `main`.
    build, tests, lints, format checks) — that's the enabling investment the fast
    variant depends on, and every later loop reuses it. Fix real failures.
 
-8. **Merge locally.** When the local checks pass, rebase onto current `main`,
-   `git merge --ff-only`, clean up the worktree.
+8. **Merge locally, push every time.** When the local checks pass, fetch and
+   rebase onto current `origin/main`, `git merge --ff-only`, and push `main` to
+   origin immediately — every merge, not in batches. If origin moved in the
+   meantime, reconcile (rebase onto it, fix conflicts, re-run the checks) and
+   push. Clean up the worktree.
 
 Each task is one single-concern PR (robust) or one single-concern merged branch
 (fast). When an agent has several tasks, it runs them serially — one small
