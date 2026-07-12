@@ -75,8 +75,13 @@ purge() {
 reached_target() { [[ "$(avail_gb)" -ge "$TARGET_GB" ]]; }
 
 # Tier 1: /private/tmp top-level entries older than IDLE_MIN, except the live
-# Claude Code session scratch (claude-*). This is where the redirected build
-# dirs accumulate, so it's both the biggest win and the safest.
+# Claude Code session scratch (claude-*) and macOS's own runtime dirs
+# (com.apple.*): launchd keeps per-session socket dirs there
+# (com.apple.launchd.* — testmanagerd, auth services), and deleting one
+# breaks simulator UI testing and anything else on those sockets until the
+# session restarts. They hold sockets, not disk weight. This is where the
+# redirected build dirs accumulate, so it's both the biggest win and the
+# safest.
 tier_tmp() {
   log "tier 1: /private/tmp (idle > ${IDLE_MIN}m)"
   local p
@@ -84,7 +89,8 @@ tier_tmp() {
     purge "$p"
     reached_target && return 0
   done < <(find /private/tmp -maxdepth 1 -mindepth 1 \
-             ! -name 'claude-*' -mmin "+${IDLE_MIN}" -print0 2>/dev/null)
+             ! -name 'claude-*' ! -name 'com.apple.*' \
+             -mmin "+${IDLE_MIN}" -print0 2>/dev/null)
 }
 
 # Tier 2: Rust/Swift/Xcode build output dirs under ~/dev, idle > IDLE_MIN.
