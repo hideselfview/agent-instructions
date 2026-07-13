@@ -79,18 +79,28 @@ straight to `main`.
    holds the plan and the code context, so it adjudicates TP/FP in place and
    sends fixes back to the implementer.
 
-7. **Local CI.** Run as much of the project's CI as exists locally instead of
-   pushing to GitHub — e.g. bae's `scripts/check.sh`, plus the pre-commit hooks.
-   If the project has no local check script and/or no pre-commit hooks, **add
-   them as part of the work** (a `scripts/check.sh` that runs what CI runs:
-   build, tests, lints, format checks) — that's the enabling investment the fast
-   variant depends on, and every later loop reuses it. Fix real failures.
+7. **Local checks: relevant and fast only.** Run only the checks most relevant
+   to the diff, and of those only the fast ones — the pre-commit hooks plus the
+   targeted builds/tests/lints for the crates and platforms the change touches
+   (e.g. `cargo test -p <touched>`, the one platform's lint). Do NOT run the
+   full local CI script and do NOT wait on slow suites (full-workspace test
+   runs, release-mode tests, every-platform builds) — those are CI's job. If the
+   project has no pre-commit hooks, add them as part of the work. Fix real
+   failures in what you did run.
 
-8. **Merge locally, push every time.** When the local checks pass, fetch and
-   rebase onto current `origin/main`, `git merge --ff-only`, and push `main` to
-   origin immediately — every merge, not in batches. If origin moved in the
-   meantime, reconcile (rebase onto it, fix conflicts, re-run the checks) and
-   push. Clean up the worktree.
+8. **Merge locally, push every time — don't wait on slow verification.** When
+   the fast local checks pass, fetch and rebase onto current `origin/main`,
+   `git merge --ff-only`, and push `main` to origin immediately — every merge,
+   not in batches. If origin moved in the meantime, reconcile (rebase onto it,
+   fix conflicts, re-run the fast checks) and push. Clean up the worktree, and
+   keep moving to the next task.
+
+9. **Batch CI fix-up.** Remote CI runs on pushed `main` and catches what the
+   fast local checks didn't. Don't block any loop iteration on it: let failures
+   accumulate across a few merges, then fix them together in one dedicated
+   CI-fix-up pass (its own single-concern branch/merge per distinct failure).
+   Check CI status at natural pauses — between tasks, end of session — not after
+   every push.
 
 Each task is one single-concern PR (robust) or one single-concern merged branch
 (fast). When an agent has several tasks, it runs them serially — one small
