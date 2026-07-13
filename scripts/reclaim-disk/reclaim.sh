@@ -107,6 +107,18 @@ tier_builds() {
              -mmin "+${IDLE_MIN}" -prune -print0 2>/dev/null)
 }
 
+# A tool's cache must not be swept out from under a live build: deleting
+# ~/.gradle/caches while a Gradle daemon runs corrupts its kotlin-dsl script
+# cache mid-build, and cargo's registry mid-compile fails the build. Skip a
+# cache whose owning tool is currently running.
+tool_cache_in_use() {
+  case "$1" in
+    "$HOME/.gradle/caches") pgrep -qf GradleDaemon ;;
+    "$HOME/.cargo/registry/"*) pgrep -qx cargo ;;
+    *) return 1 ;;
+  esac
+}
+
 # Tier 3: app + tool caches. Contents only; the parent dirs are recreated by
 # their owners on next use.
 tier_caches() {
@@ -116,6 +128,10 @@ tier_caches() {
            "$HOME/.npm/_cacache" "$HOME/.gradle/caches" \
            "$HOME/.cargo/registry/cache" "$HOME/.cargo/registry/src"; do
     [[ -e "$d" ]] || continue
+    if tool_cache_in_use "$d"; then
+      log "skip (owner running): $d"
+      continue
+    fi
     purge "$d"
     reached_target && return 0
   done
