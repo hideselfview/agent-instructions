@@ -15,10 +15,11 @@
 #   3. ~/Library/Caches    - app + tool caches (npm/gradle/cargo/generic)
 #
 # Nothing here is irreplaceable: every target is a build output or cache that
-# regenerates on next build. Two guards keep it from breaking live work:
+# regenerates on next build. Three guards keep it from breaking live work:
 #   - it only acts when free space is below THRESHOLD_GB, and
-#   - it never deletes anything modified in the last IDLE_MIN minutes (so an
-#     in-flight build's target dir is left alone).
+#   - it scans descendants for recent writes, and
+#   - it checks whether a build process owns the containing checkout before
+#     deleting build output.
 #
 # Usage:
 #   reclaim.sh                 # act only if free < THRESHOLD_GB
@@ -72,6 +73,51 @@ purge() {
   fi
 }
 
+has_recent_descendant() {
+  local p="$1"
+  find "$p" -xdev -mmin "-${IDLE_MIN}" -print -quit 2>/dev/null | grep -q .
+}
+
+build_output_owner_running() {
+  local p="$1" owner pid command executable process_name cwd
+  owner="$(cd "$(dirname "$p")" && pwd -P)"
+  while read -r pid command; do
+    executable="${command%% *}"
+    process_name="${executable##*/}"
+    case "$process_name" in
+      cargo|cargo-*|rustc|clippy-driver|swift|swift-*|swiftc|xcodebuild) ;;
+      *) continue ;;
+    esac
+    cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
+    if [[ "$cwd" == "$owner" || "$cwd" == "$owner/"* ]]; then
+      return 0
+    fi
+  done < <(ps -axo pid=,args=)
+  return 1
+}
+
+purge_if_idle() {
+  local p="$1"
+  if has_recent_descendant "$p"; then
+    log "skip (recent descendant): $p"
+    return 0
+  fi
+  purge "$p"
+}
+
+purge_build_output_if_idle() {
+  local p="$1"
+  if has_recent_descendant "$p"; then
+    log "skip (recent descendant): $p"
+    return 0
+  fi
+  if build_output_owner_running "$p"; then
+    log "skip (build owner running): $p"
+    return 0
+  fi
+  purge "$p"
+}
+
 reached_target() { [[ "$(avail_gb)" -ge "$TARGET_GB" ]]; }
 
 # Tier 1: /private/tmp top-level entries older than IDLE_MIN, except the live
@@ -86,7 +132,7 @@ tier_tmp() {
   log "tier 1: /private/tmp (idle > ${IDLE_MIN}m)"
   local p
   while IFS= read -r -d '' p; do
-    purge "$p"
+    purge_if_idle "$p"
     reached_target && return 0
   done < <(find /private/tmp -maxdepth 1 -mindepth 1 \
              ! -name 'claude-*' ! -name 'com.apple.*' \
@@ -100,7 +146,7 @@ tier_builds() {
   log "tier 2: ~/dev build caches (idle > ${IDLE_MIN}m)"
   local p
   while IFS= read -r -d '' p; do
-    purge "$p"
+    purge_build_output_if_idle "$p"
     reached_target && return 0
   done < <(find "$HOME/dev" -maxdepth 5 -type d \
              \( -name target -o -name 'target-*' -o -name .build -o -name DerivedData \) \

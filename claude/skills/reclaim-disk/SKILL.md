@@ -32,9 +32,11 @@ reason. (See also: the real free space lives on `/System/Volumes/Data`, not the
    needs a reinstall, not a rebuild).
 3. **`~/Library/Caches`** + tool caches (npm / gradle / cargo / `~/.cache`).
 
-Two guards keep it from breaking live work: it acts only when free space is
-below the threshold, and it never deletes anything modified in the last
-`IDLE_MIN` minutes (so an in-flight build's target dir is left alone).
+Three guards keep it from breaking live work: it acts only when free space is
+below the threshold, scans the complete candidate tree for writes within
+`IDLE_MIN`, and skips build output when a Cargo, Rust, Swift, or Xcode process
+owns the containing checkout. Checking descendants matters because compilers
+usually update files below `target/` without changing `target/` itself.
 
 ## Run it by hand
 
