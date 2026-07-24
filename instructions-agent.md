@@ -245,6 +245,13 @@ with multiple tasks to execute serially, one small PR per task — preferably ea
 into main, chaining only when one task genuinely depends on another. (This
 serves "PRs are single-concern", above.)
 
+**Background shells: notify, don't poll.** Run long commands (test suites,
+hook-running commits) as background tasks and rely on the completion
+notification — the harness re-invokes you when they exit. Never write
+pgrep/sleep polling loops to watch your own processes. When a genuine
+condition-wait has no notification, use one watcher, with a hard timeout;
+duplicate watchers are a defect.
+
 **Commit your changes; don't leave a dirty tree for later review.** A change you
 made — a fix, a script edit, a doc note — gets committed, not left uncommitted
 in the working tree for the user to look at "when they get to it." They may not,
