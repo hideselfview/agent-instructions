@@ -245,6 +245,13 @@ with multiple tasks to execute serially, one small PR per task — preferably ea
 into main, chaining only when one task genuinely depends on another. (This
 serves "PRs are single-concern", above.)
 
+**Translations are agent work — never humans'.** When a change adds or edits
+user-visible strings, translate them into every locale catalog yourself,
+matching each catalog's existing register and conventions (read neighboring
+strings first). Never leave English placeholders in locale files, never skip a
+locale, and never defer or escalate translation to a human translator — no
+"needs translation" follow-ups, no per-locale exception lists.
+
 **Background shells: notify, don't poll.** Run long commands (test suites,
 hook-running commits) as background tasks and rely on the completion
 notification — the harness re-invokes you when they exit. Never write
