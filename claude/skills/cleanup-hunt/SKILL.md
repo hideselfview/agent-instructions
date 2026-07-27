@@ -1,6 +1,6 @@
 ---
 name: cleanup-hunt
-description: Hunt a codebase for trash — dead code, copy-paste implementations, unneeded abstractions, missing abstractions whose absence causes duplication — and land verified deletions in small receipted batches. Use when asked to clean up a codebase, find dead code, hunt duplication, reduce line count, or run a cleanup sweep.
+description: Hunt a codebase for trash — dead code, copy-paste implementations, unneeded abstractions, missing abstractions whose absence causes duplication — and for structure to recompose, like side effects entangled with decisions, pass-through layers, and mode flags. Lands verified changes in small receipted batches. Use when asked to clean up a codebase, find dead code, hunt duplication, reduce line count, compose out side effects, or run a cleanup sweep.
 ---
 
 # Cleanup hunt
