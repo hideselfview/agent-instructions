@@ -94,6 +94,39 @@ Every claim gets the check that would catch it being wrong:
   each party is editing. Findings in someone's active area are reported, not
   cut, until their tree quiets; re-check what's freed each round.
 
+## Structure lenses beyond deletion
+
+Duplication and death are the easy targets; also hunt shapes where the fix is
+recomposition, not removal:
+
+- **Side effects entangled with decisions.** A function that computes what to do
+  and does it in the same body can't be tested, reused, or reasoned about
+  without the effect. Compose the effect out: a pure core returns the decision
+  (a plan, a value, an enum), the caller at the edge performs the write, the
+  send, the delete. The tell is a test that needs a fake filesystem or network
+  to check what is really just arithmetic or matching.
+- **Ambient dependencies buried in bodies.** A clock, RNG, env read, or
+  filesystem probe called mid-function — especially per-iteration, where each
+  row sees a different now — is a hidden input. Read it once at the top and pass
+  it down; inject a service only when a consumer (usually a test) needs the
+  seam.
+- **Effectful reads.** A getter that also writes (caches, repairs, advances a
+  cursor) hides a state change behind a read signature. Split it; the caller
+  should see both operations.
+- **Mode flags.** A boolean or enum parameter that switches a function between
+  two mostly-disjoint bodies is two functions sharing a name. Split at the call
+  sites, keep genuinely shared steps in helpers.
+- **Layer leaks.** A module reaching past its boundary — SQL in a facade, a
+  provider name in generic code, wire types in domain logic — marks either a
+  missing seam or an unneeded layer. Decide which; don't leave the leak.
+- **Pass-through layers.** A type or module whose every member forwards to
+  another with no added meaning is indirection with no consumer. Inline it —
+  unless a boundary (FFI, wire, API stability) mandates the mirror.
+
+The same discipline applies as for deletions: recomposition changes shape, not
+behavior, so the receipt is the untouched test suite — and where the entangled
+version was untestable, the first new test for the pure core is the point.
+
 ## What outranks the deletions
 
 The best finds are not line count:
