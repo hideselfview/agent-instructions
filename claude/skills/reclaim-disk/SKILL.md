@@ -1,6 +1,6 @@
 ---
 name: reclaim-disk
-description: Free disk space by deleting regenerable build artifacts and caches in priority order (/private/tmp, then ~/dev build dirs, then ~/Library/Caches). Use when the disk is full or low, a command fails with "no space left on device" (ENOSPC), or the user asks to clean up build artifacts / reclaim space. Also documents the launchd agent that runs the sweep automatically every 15 minutes.
+description: Free disk space by deleting regenerable build artifacts and caches in priority order (/private/tmp, then build dirs under ~/dev and the redirected CARGO_TARGET_DIR roots, then ~/Library/Caches). Use when the disk is full or low, a command fails with "no space left on device" (ENOSPC), or the user asks to clean up build artifacts / reclaim space. Also documents the launchd agent that runs the sweep automatically every 15 minutes.
 ---
 
 # Reclaim disk space
@@ -27,16 +27,31 @@ reason. (See also: the real free space lives on `/System/Volumes/Data`, not the
 
 1. **`/private/tmp`** — throwaway scratch + the redirected build dirs above.
    Biggest win, safest. Skips the live `claude-*` session scratch.
-2. **`~/dev` build caches** — Rust `target*/`, `.build`, `DerivedData`. Deleting
-   only costs a recompile. `node_modules` is intentionally **not** touched (it
-   needs a reinstall, not a rebuild).
+2. **Build caches** — `target*/`, `.build`, `DerivedData` under `~/dev`, plus
+   every per-project dir under the redirected `CARGO_TARGET_DIR` roots
+   (`~/.cargo-target`, `~/.codex-targets`). Deleting only costs a recompile.
+   `node_modules` is intentionally **not** touched (it needs a reinstall, not a
+   rebuild).
 3. **`~/Library/Caches`** + tool caches (npm / gradle / cargo / `~/.cache`).
+
+`~/.zshenv` points every project's `CARGO_TARGET_DIR` at
+`~/.cargo-target/<project>`, so `rm -rf target*` inside a checkout frees nothing
+and those dirs are where Rust build output actually accumulates — tens of GB per
+project, outside any tree a home-dir scan would flag.
 
 Three guards keep it from breaking live work: it acts only when free space is
 below the threshold, scans the complete candidate tree for writes within
-`IDLE_MIN`, and skips build output when a Cargo, Rust, Swift, or Xcode process
-owns the containing checkout. Checking descendants matters because compilers
-usually update files below `target/` without changing `target/` itself.
+`IDLE_MIN`, and skips build output a Cargo, Rust, Swift, or Xcode process is
+working on. Checking descendants matters because compilers usually update files
+below `target/` without changing `target/` itself.
+
+"Working on" is decided by open files, since a redirected target dir has no
+checkout anywhere on its path to attribute it to: a build holding anything open
+under the dir owns it (cargo keeps `<dir>/*/.cargo-lock` for the whole build). A
+dir that *does* live inside its checkout additionally counts anything open in
+that checkout. Widening a redirected dir to its parent would be wrong — the
+parent is a root shared by every project, so a live `coven` build would protect
+a stale `bae` dir sitting next to it.
 
 ## Run it by hand
 
