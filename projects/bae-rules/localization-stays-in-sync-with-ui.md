@@ -4,8 +4,8 @@ paths:
   - bae-macos/**/*.swift
   - bae-ios/**/*.swift
   - bae-android/**/*.kt
-  - bae-windows/**/*.cs
-  - bae-windows/**/*.xaml
+  - bae-avalonia/**/*.cs
+  - bae-avalonia/**/*.axaml
   - bae-bridge/src/**/*.rs
   - bae-bridge/loc/catalog.toml
 blocking: false
