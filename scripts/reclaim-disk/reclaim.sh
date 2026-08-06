@@ -165,14 +165,23 @@ purge_build_output_if_idle() {
 
 reached_target() { [[ "$(avail_gb)" -ge "$TARGET_GB" ]]; }
 
-# Tier 1: /private/tmp top-level entries older than IDLE_MIN, except the live
-# Claude Code session scratch (claude-*) and macOS's own runtime dirs
-# (com.apple.*): launchd keeps per-session socket dirs there
-# (com.apple.launchd.* — testmanagerd, auth services), and deleting one
-# breaks simulator UI testing and anything else on those sockets until the
-# session restarts. They hold sockets, not disk weight. This is where the
-# redirected build dirs accumulate, so it's both the biggest win and the
-# safest.
+# Tier 1: /private/tmp top-level entries older than IDLE_MIN, except three
+# kinds of listening-socket dir that hold no disk weight and break live
+# processes when removed:
+#   claude-*   the live Claude Code session scratch
+#   com.apple.*  macOS runtime dirs; launchd keeps per-session socket dirs
+#              there (com.apple.launchd.* — testmanagerd, auth services), and
+#              deleting one breaks simulator UI testing and anything else on
+#              those sockets until the session restarts
+#   tmux-*     the tmux server's socket dir. Its mtime is the server's start
+#              time, so a long-lived server always looks idle. Deleting it
+#              unlinks a socket the running server still holds open: the
+#              server and every pane keep running, but nothing can reach them
+#              by path again — `tmux attach` reports "no sessions" forever and
+#              the sessions are unrecoverable without patching the live
+#              process.
+# This is where the redirected build dirs accumulate, so it's both the biggest
+# win and the safest.
 tier_tmp() {
   log "tier 1: /private/tmp (idle > ${IDLE_MIN}m)"
   local p
@@ -180,7 +189,7 @@ tier_tmp() {
     purge_if_idle "$p"
     reached_target && return 0
   done < <(find /private/tmp -maxdepth 1 -mindepth 1 \
-             ! -name 'claude-*' ! -name 'com.apple.*' \
+             ! -name 'claude-*' ! -name 'com.apple.*' ! -name 'tmux-*' \
              -mmin "+${IDLE_MIN}" -print0 2>/dev/null)
 }
 

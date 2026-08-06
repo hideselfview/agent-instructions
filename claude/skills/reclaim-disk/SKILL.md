@@ -26,7 +26,13 @@ reason. (See also: the real free space lives on `/System/Volumes/Data`, not the
 ## Tiers (deleted in order, stopping once free ≥ target)
 
 1. **`/private/tmp`** — throwaway scratch + the redirected build dirs above.
-   Biggest win, safest. Skips the live `claude-*` session scratch.
+   Biggest win, safest. Skips three kinds of listening-socket dir that hold no
+   disk weight and break live processes when removed: `claude-*` (the live
+   Claude Code session scratch), `com.apple.*` (launchd's per-session socket
+   dirs), and `tmux-*` (the tmux server socket — its mtime is the server's start
+   time, so a long-lived server always looks idle, and unlinking the socket
+   strands the running server and every pane in it beyond reach of
+   `tmux attach`).
 2. **Build caches** — `target*/`, `.build`, `DerivedData` under `~/dev`, plus
    every per-project dir under the redirected `CARGO_TARGET_DIR` roots
    (`~/.cargo-target`, `~/.codex-targets`). Deleting only costs a recompile.
