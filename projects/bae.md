@@ -12,6 +12,17 @@ bodies with
 `~/.codex/agent-instructions/scripts/rules_review/matching_rules.py --project bae <path>...`
 and read every listed file. This file holds the always-on project facts.
 
+## Local verification
+
+Normal changes use the dependency-aware pre-commit hook plus tests for the
+components they affect. Commit and push after those checks pass; CI validates
+macOS, iOS, Android, Linux, and Windows concurrently. Reproduce an individual CI
+gate locally when it fails.
+
+`scripts/check.sh` serializes every non-Windows CI gate on one machine. Run it
+only when explicitly validating the complete non-Windows system locally, not as
+the routine local gate before a commit or push.
+
 ## Greenfield — break things and move on
 
 Pre-1.0. `rm -rf ~/.bae` is the migration strategy. When the canonical shape of
