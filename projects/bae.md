@@ -1,9 +1,9 @@
 # bae
 
 Personal music library + playback. Rust core (bae-core), platform UIs via uniffi
-(bae-bridge → bae-macos, bae-ios, bae-android) plus Windows (bae-windows,
-consuming uniffi-generated C# bindings), and cloud sync via coven supporting S3
-/ Google Drive / Dropbox / OneDrive / iCloud.
+(bae-bridge → bae-macos, bae-ios, bae-android) plus Windows and Linux
+(bae-avalonia, consuming uniffi-generated C# bindings), and cloud sync via coven
+supporting S3 / Google Drive / Dropbox / OneDrive / iCloud.
 
 Project rules are path-scoped atomic files in `projects/bae-rules/`. Claude Code
 receives them through `.claude/rules/` symlinks. Codex receives the rule index
@@ -23,6 +23,13 @@ gate locally when it fails.
 only when explicitly validating the complete non-Windows system locally, not as
 the routine local gate before a commit or push.
 
+## File layout
+
+Source files may not exceed 1,500 lines. A Rust file over 1,000 lines must keep
+its `#[cfg(test)]` module in a sibling `_tests.rs` file. Split production code
+along its existing domain and ownership boundaries; do not expose owner state or
+duplicate types to make a split compile.
+
 ## Greenfield — break things and move on
 
 Pre-1.0. `rm -rf ~/.bae` is the migration strategy. When the canonical shape of
@@ -35,12 +42,32 @@ stale, regenerate it.
 
 ## Bridge types are defined in Rust, generated per language
 
-The `Bridge*` records/enums live in `bae-bridge/src/types.rs` (`uniffi::Record`
-/ `uniffi::Enum`). The Swift/Kotlin equivalents are generated at build and
-gitignored (`bae-macos/bae/bae/bae_bridge.swift`, `bae-bridge/swift-bindings/`)
-— absent from the repo and from review. To check a bridge type's
-existence/fields, or whether a UI type duplicates one, read
-`bae-bridge/src/types.rs`; never conclude from the (missing) generated file.
+The `Bridge*` records/enums live in `bae-bridge/src/types/` and are re-exported
+by `bae-bridge/src/types.rs` (`uniffi::Record` / `uniffi::Enum`). The
+Swift/Kotlin equivalents are generated at build and gitignored
+(`bae-macos/bae/bae/bae_bridge.swift`, `bae-bridge/swift-bindings/`) — absent
+from the repo and from review. To check a bridge type's existence/fields, or
+whether a UI type duplicates one, read `bae-bridge/src/types.rs`; never conclude
+from the (missing) generated file.
+
+## Running the macOS app locally — signed builds only
+
+The pre-commit hook and CI build with `CODE_SIGNING_ALLOWED=NO`; that product is
+for validation, never for running. A library opened by an unsigned build keys
+its encryption key to the binary's throwaway ad-hoc identity, and the next
+rebuild orphans the key — the library locks permanently, with no recovery.
+Before launching the app, run the signed build (same derivedData, incremental
+after a hook build, seconds when cached):
+
+```sh
+cd bae-macos/bae && xcodebuild -project bae.xcodeproj -scheme bae \
+  -configuration Debug -derivedDataPath .build/derivedData \
+  -allowProvisioningUpdates build
+```
+
+`Signing.local.xcconfig` (gitignored) supplies `DEVELOPMENT_TEAM`;
+`bae/bae.entitlements` gives the stable keychain identity
+(keychain-access-groups + iCloud) that survives rebuilds.
 
 ## Worktrees and build priming (bae-macos)
 
@@ -63,12 +90,19 @@ are in `principles/worktree-build-priming.md`. The bae specifics:
   ```
 
   bae-core finds FFmpeg via `FFMPEG_DIR` (set to `bae-ffmpeg/dist` in
-  `.cargo/config.toml`) and libdiscid via the brew `LIBRARY_PATH` there, so it
-  builds with no prime. Running the tests needs the FFmpeg dylibs on the loader
-  path: `DYLD_LIBRARY_PATH=$PWD/bae-ffmpeg/dist/lib` (or the export
-  `scripts/setup-ffmpeg.sh` prints). Build/test/commit with
-  `CARGO_TARGET_DIR=target-iso RUSTC_WRAPPER=` (one warm dir, sccache off) —
-  inline on `git commit` too, so the pre-commit hook reuses the dir.
+  `.cargo/config.toml`), so it builds with no prime — the MusicBrainz disc ID is
+  pure Rust now, no native libdiscid to link. Running the tests needs the FFmpeg
+  dylibs on the loader path: `DYLD_LIBRARY_PATH=$PWD/bae-ffmpeg/dist/lib` (or
+  the export `scripts/setup-ffmpeg.sh` prints).
+
+  **Don't set `CARGO_TARGET_DIR` or `RUSTC_WRAPPER` per command.** The shell
+  environment points every checkout at one shared target dir with sccache on;
+  overriding either inline gives that worktree its own cold dir and no cache,
+  which is both slower and the thing that fills the disk when several agents
+  build at once. The pre-commit hook reads the shared value (it defaults its own
+  only when nothing is set), so a plain `git commit` is correct. Earlier
+  guidance here said the opposite — it was written when each worktree had its
+  own fresh target dir, which is exactly the condition that broke sccache.
 
 - **Sparkle is the SwiftPM dep that corrupts** (pre-commit fails with "Couldn't
   check out revision" or "file not found" on Sparkle):
