@@ -55,9 +55,11 @@ from the (missing) generated file.
 The pre-commit hook and CI build with `CODE_SIGNING_ALLOWED=NO`; that product is
 for validation, never for running. A library opened by an unsigned build keys
 its encryption key to the binary's throwaway ad-hoc identity, and the next
-rebuild orphans the key — the library locks permanently, with no recovery.
-Before launching the app, run the signed build (same derivedData, incremental
-after a hook build, seconds when cached):
+rebuild orphans the key — the app falls to the unlock screen and the library
+comes back only through restore-from-keychain plus a full cloud re-download.
+Signed builds keep a stable keychain identity and skip all of that. Before
+launching the app, run the signed build (same derivedData, incremental after a
+hook build, seconds when cached):
 
 ```sh
 cd bae-macos/bae && xcodebuild -project bae.xcodeproj -scheme bae \
