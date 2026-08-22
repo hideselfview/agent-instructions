@@ -50,27 +50,6 @@ from the repo and from review. To check a bridge type's existence/fields, or
 whether a UI type duplicates one, read `bae-bridge/src/types.rs`; never conclude
 from the (missing) generated file.
 
-## Running the macOS app locally — signed builds only
-
-The pre-commit hook and CI build with `CODE_SIGNING_ALLOWED=NO`; that product is
-for validation, never for running. A library opened by an unsigned build keys
-its encryption key to the binary's throwaway ad-hoc identity, and the next
-rebuild orphans the key — the app falls to the unlock screen, and
-restore-from-keychain re-supplies the key (local data stays intact). Signed
-builds keep a stable keychain identity and skip even that. Before launching the
-app, run the signed build (same derivedData, incremental after a hook build,
-seconds when cached):
-
-```sh
-cd bae-macos/bae && xcodebuild -project bae.xcodeproj -scheme bae \
-  -configuration Debug -derivedDataPath .build/derivedData \
-  -allowProvisioningUpdates build
-```
-
-`Signing.local.xcconfig` (gitignored) supplies `DEVELOPMENT_TEAM`;
-`bae/bae.entitlements` gives the stable keychain identity
-(keychain-access-groups + iCloud) that survives rebuilds.
-
 ## Worktrees and build priming (bae-macos)
 
 The `post-checkout` hook (`scripts/hooks/post-checkout`, installed via
