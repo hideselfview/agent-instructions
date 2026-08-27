@@ -271,8 +271,11 @@ active branch/worktree; together-edits land on `main`.)
 **Don't `git add -A`.** Stage files individually or by targeted path.
 Sweep-staging accidentally captures secrets, generated files, or unrelated work.
 
-**Never bypass git hooks with `--no-verify`.** If a hook fails, fix the
-underlying issue. Skipping the hook defeats its safety net.
+**Skip git hooks only with explicit user authorization.** Run hooks by default.
+`--no-verify` is allowed only when the user directly asks to skip local
+verification or rely on CI. Never infer that permission from urgency. Report
+which checks were skipped, and never hide a known hook failure — name it before
+following an explicit instruction to commit without the hook.
 
 **Worktrees are for agent parallelism, not for features — branches are for
 features.** A worktree exists for one reason: so an agent can edit, commit, and

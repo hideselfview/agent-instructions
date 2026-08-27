@@ -29,7 +29,9 @@ skeleton; fast replaces the GitHub round-trip with local verification.
   unpushed merges in either variant — fetch first, reconcile with whatever
   landed on origin (rebase local commits onto `origin/main`, fix conflicts),
   then push.
-- Never `--no-verify`, never bypass a hook.
+- Run hooks by default. Use `--no-verify` only when the user explicitly
+  authorizes skipping local verification; report what was skipped and any known
+  failure before committing.
 
 ## Shared skeleton
 
