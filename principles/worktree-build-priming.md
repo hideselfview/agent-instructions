@@ -36,12 +36,58 @@ ln -sf <project-CLAUDE.md-source> <path>/CLAUDE.md                  # project ru
 ```
 
 This skips only the **setup/prime** hook. The commit-time **pre-commit
-verification** hook still runs normally on every commit — skipping a build prime
-is not bypassing verification, and `--no-verify` remains forbidden.
+verification** hook still runs by default — skipping a build prime is not
+bypassing verification. Skipping the commit hook requires the user's explicit
+authorization under the main agent workflow policy.
 
 Native-library paths a core build links against usually come from the repo's
 `.cargo/config.toml` (`LIBRARY_PATH`, `PKG_CONFIG_PATH`), so a lean worktree
 builds the core with no prime at all.
+
+## A per-project target dir dissolves both sccache failures
+
+Both failures below have one cause: sccache writes its temp files inside the
+target dir's `deps/`, and a brand-new `CARGO_TARGET_DIR` has none. Per-worktree
+target dirs manufacture that condition on every worktree creation — which is why
+projects end up disabling sccache to work around it, losing the cache to avoid a
+problem the fresh dir created, and then paying for it on every build.
+
+Point every worktree of a project at one target dir instead. It is warm after
+the first build and never fresh again, so neither failure can occur, and the
+worktrees stop duplicating ~26 GB of linked artifacts each.
+
+Derive it in `~/.zshenv`, not `~/.zshrc` — git hooks and agent-run builds are
+non-interactive shells, which never source `.zshrc`, so guidance placed there
+silently does nothing for exactly the builds that matter:
+
+```sh
+() {
+  local common_dir project
+  common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || {
+    export CARGO_TARGET_DIR="$HOME/.cargo-target/_shared"; return
+  }
+  project=${${common_dir:A:h}:t}
+  export CARGO_TARGET_DIR="$HOME/.cargo-target/${project:-_shared}"
+}
+```
+
+`--git-common-dir` rather than `--show-toplevel`: in a worktree the toplevel is
+the worktree, while the common dir points at the main checkout, so every
+worktree of a project resolves to the same name whether worktrees sit inside the
+repo or beside it.
+
+Per *project*, not one global dir: cargo locks the target directory for the
+length of a build, so a single shared dir makes one project's build block
+another's. Keep `RUSTC_WRAPPER=sccache` and `CARGO_INCREMENTAL=0` alongside it —
+sccache cannot cache incremental compilations, and incremental is the weaker
+choice across worktrees anyway, since its state is keyed by crate and profile
+rather than by source, so two branches repeatedly invalidate each other.
+Measured on one repo: a one-file core rebuild went from 41.6s to 13.3s.
+
+Also drop any project instruction telling agents to pass `CARGO_TARGET_DIR=…` or
+`RUSTC_WRAPPER=` inline. An inline env var overrides the shared setting, so
+following that guidance re-creates the cold per-worktree dir the setup exists to
+avoid.
 
 ## sccache + a fresh target dir: build once, then reuse it
 
