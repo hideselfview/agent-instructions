@@ -30,15 +30,19 @@ its `#[cfg(test)]` module in a sibling `_tests.rs` file. Split production code
 along its existing domain and ownership boundaries; do not expose owner state or
 duplicate types to make a split compile.
 
-## Greenfield — break things and move on
+## Schema and compatibility
 
-Pre-1.0. `rm -rf ~/.bae` is the migration strategy. When the canonical shape of
-anything changes — DB schema, bae-bridge types, UiEventBus event payloads,
-on-disk file layouts, sync membership chain format, encryption schemes, cloud
-storage paths — edit the definition and update every caller in one PR. No
-migration shims, no dual-shape compatibility flags, no `#[serde(default)]` to
-silently absorb renames, no fallback decoders for old data. If a fixture is
-stale, regenerate it.
+Database schema changes add a new ordered migration. Never rewrite an existing
+migration: released libraries must advance from their recorded schema version
+without deleting state. A local `rm -rf ~/.bae` remains useful for resetting
+development data, but it is not a schema migration.
+
+When another canonical shape changes — bae-bridge types, UiEventBus event
+payloads, on-disk file layouts, sync membership chain format, encryption
+schemes, cloud storage paths — edit the definition and update every caller in
+one PR. Do not add dual-shape compatibility flags, `#[serde(default]` to
+silently absorb renames, or fallback decoders for old data. Regenerate stale
+fixtures.
 
 ## Bridge types are defined in Rust, generated per language
 
