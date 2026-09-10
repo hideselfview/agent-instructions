@@ -89,6 +89,15 @@ are in `principles/worktree-build-priming.md`. The bae specifics:
   guidance here said the opposite — it was written when each worktree had its
   own fresh target dir, which is exactly the condition that broke sccache.
 
+  One exception the shared dir does not cover: `bae-bridge/build-macos.sh`,
+  `build-ios.sh`, and `build-android.sh` each pin their own per-checkout target
+  dir (`target-macos/`, `target-ios/`, `target-android/`) on purpose, because
+  they read the built staticlib back out to generate bindings and a shared dir
+  could be rewritten by a concurrent build between the build and that read. So
+  any worktree whose pre-commit hook builds the bridge grows a ~16 GB
+  `target-macos/` of its own. Delete it when the worktree's work is done; the
+  disk sweep also removes it once idle.
+
 - **Sparkle is the SwiftPM dep that corrupts** (pre-commit fails with "Couldn't
   check out revision" or "file not found" on Sparkle):
 
