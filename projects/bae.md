@@ -93,10 +93,12 @@ are in `principles/worktree-build-priming.md`. The bae specifics:
   `build-ios.sh`, and `build-android.sh` each pin their own per-checkout target
   dir (`target-macos/`, `target-ios/`, `target-android/`) on purpose, because
   they read the built staticlib back out to generate bindings and a shared dir
-  could be rewritten by a concurrent build between the build and that read. So
-  any worktree whose pre-commit hook builds the bridge grows a ~16 GB
-  `target-macos/` of its own. Delete it when the worktree's work is done; the
-  disk sweep also removes it once idle.
+  could be rewritten by a concurrent build between the build and that read. The
+  pre-commit hook does not run them (it runs fmt, clippy on the changed crates,
+  linters, and the catalog checks); the worktree prime does (`post-checkout`, or
+  `build-macos.sh` by hand before a macOS test run), and each run leaves a ~16
+  GB `target-macos/` in that worktree. Delete it when the worktree's macOS work
+  is done; the disk sweep also removes it once idle.
 
 - **Sparkle is the SwiftPM dep that corrupts** (pre-commit fails with "Couldn't
   check out revision" or "file not found" on Sparkle):
