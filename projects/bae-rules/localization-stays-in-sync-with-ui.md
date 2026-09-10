@@ -23,11 +23,12 @@ now, localize later." When a localization rule finding is raised, the only
 acceptable dispositions are *fix it* or *it was already correct* — never *defer
 it*.
 
-bae ships in 14 locales; every user-facing string lives in a catalog, not inline
-in the code. A change that touches user-facing text must update the strings in
-the **same** change — otherwise the new text is English-only, the stale text
-misleads translators, and dead keys accumulate. Three cases, each with an
-obligation:
+bae ships the locale set declared in `bae-loc`'s `TARGET_LOCALES`
+(`loc-gen locales` prints it); every user-facing string lives in a catalog, not
+inline in the code. A change that touches user-facing text must update the
+strings in the **same** change — otherwise the new text is English-only, the
+stale text misleads translators, and dead keys accumulate. Three cases, each
+with an obligation:
 
 - **Added text** — a new `Text(...)` / label / menu item / alert, or a new
   `core.*` message produced in bae-bridge — adds its catalog key. A `core.*` key
@@ -44,9 +45,9 @@ obligation:
   incomplete work.
 
 - **Removed text** — deleting a screen, button, or message deletes its key
-  across the catalog and all 13 locale slots. A key no code references is dead
-  (see `yagni`); leave none behind — `no_orphan_core_keys` catches `core.*`
-  orphans, Android `UnusedResources` catches chrome orphans.
+  across the catalog and every locale slot in `TARGET_LOCALES`. A key no code
+  references is dead (see `yagni`); leave none behind — `no_orphan_core_keys`
+  catches `core.*` orphans, Android `UnusedResources` catches chrome orphans.
 
 - **Reworded text** — changing the English source updates the string **and**
   re-flags its locale slots for re-translation. A changed source with stale
