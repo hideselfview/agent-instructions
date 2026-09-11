@@ -97,8 +97,10 @@ are in `principles/worktree-build-priming.md`. The bae specifics:
   pre-commit hook does not run them (it runs fmt, clippy on the changed crates,
   linters, and the catalog checks); the worktree prime does (`post-checkout`, or
   `build-macos.sh` by hand before a macOS test run), and each run leaves a ~16
-  GB `target-macos/` in that worktree. Delete it when the worktree's macOS work
-  is done; the disk sweep also removes it once idle.
+  GB `target-macos/` in that worktree. Leave it there after the branch lands:
+  the person tests from that worktree and reuses the build. The disk sweep
+  removes it once idle; delete it by hand only when the disk is actually full
+  and it is the idle candidate.
 
 - **Sparkle is the SwiftPM dep that corrupts** (pre-commit fails with "Couldn't
   check out revision" or "file not found" on Sparkle):
