@@ -72,18 +72,12 @@ Tunables (env or flags): `RECLAIM_THRESHOLD_GB` (default 40),
 `RECLAIM_TARGET_GB` (60), `RECLAIM_IDLE_MIN` (30). Log:
 `~/Library/Logs/reclaim-disk.log`.
 
-## Automatic sweep (every 15 min)
+## No automatic sweep
 
-`install.sh` installs a launchd agent (`com.dima.reclaim-disk`) that runs the
-script every 900 s. It only deletes when free space is below the threshold, so
-most runs are no-ops. Manage it:
-
-```bash
-launchctl list | grep reclaim-disk                       # is it loaded?
-launchctl bootout  gui/$(id -u)/com.dima.reclaim-disk     # stop it
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.dima.reclaim-disk.plist
-tail -f ~/Library/Logs/reclaim-disk.log                  # watch it work
-```
+There is no launchd timer. The script runs only when a person or an agent
+invokes it. A timer once ran it every 15 minutes; while free space stayed under
+the threshold it deleted the build output of checkouts in active use and the
+compiler caches behind them, so every build was a cold one.
 
 ## When the sweep can't help
 
