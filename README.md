@@ -26,8 +26,6 @@ via `~/.claude/` symlinks and Codex via `~/.codex/` symlinks) and CI agents
 - `principles/*.md` — elaborated principles referenced from
   `instructions-agent.md`. Loaded on demand when an agent reaches for the
   longer-form treatment of a rule.
-- `claude/agents/*.md` — subagent definitions (code-review-auditor,
-  product-engineer, etc.) used by Claude Code's Agent tool.
 - `claude/settings.json` — portable Claude Code settings: env vars, permission
   default mode, enabled plugins, UI prefs. Linked into `~/.claude/`.
   Machine-specific overrides go in `~/.claude/settings.local.json` (not in this

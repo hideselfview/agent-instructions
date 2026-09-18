@@ -42,9 +42,8 @@ skeleton; fast replaces the GitHub round-trip with local verification.
 2. **Plan.** Write a detailed implementation plan to `plans/<name>.md` — the
    contract. It states the design, the exact components and signatures, what to
    reuse vs not rebuild, the correctness arguments case by case, the tests that
-   cover each case, and what's out of scope. Precise enough that
-   `product-engineer` implements to it and `code-review-auditor` audits against
-   it.
+   cover each case, and what's out of scope. Precise enough that an implementer
+   implements to it and a reviewer audits against it.
 
 3. **Checkout isolation.** Give the agent a writable checkout. If it will edit
    concurrently with the root agent or another agent, create or reuse one
@@ -52,13 +51,13 @@ skeleton; fast replaces the GitHub round-trip with local verification.
    writer, the current checkout is sufficient. A worktree isolates a concurrent
    writer; it is not a task, feature, branch, commit, or review boundary.
 
-4. **Implement (background).** Dispatch `product-engineer` with the plan, in the
+4. **Implement (background).** Dispatch an agent with the plan, in the
    background. The plan is the spec.
 
-5. **Audit against the plan.** When it returns, run `code-review-auditor` over
-   the diff vs the plan — requirement by requirement. Fix anything
-   Missing/Partial/Deviated (send findings back to the same implementer agent).
-   Verify the build and tests actually pass (read the output).
+5. **Audit against the plan.** When it returns, review the diff against the plan
+   yourself — requirement by requirement. Fix anything Missing/Partial/Deviated
+   (send findings back to the same implementer agent). Verify the build and
+   tests actually pass (read the output).
 
 Steps 6–8 diverge by variant.
 

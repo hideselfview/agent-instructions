@@ -231,19 +231,19 @@ understand at a glance. Never bundle unrelated fixes into a grab-bag PR — if a
 audit surfaces N findings, that's N PRs (or commits queued for separate PRs),
 not one.
 
-**Background agents: research → plan → product-engineer → auditor → fix → commit
-→ merge.** When the user requests work in the background: gather context with
+**Background agents: research → plan → implement → review → fix → commit →
+merge.** When the user requests work in the background: gather context with
 explore subagents; write a detailed implementation plan; create the worktree;
-dispatch `product-engineer` with the plan (background); dispatch
-`code-review-auditor` against the diff (background); fix findings; commit,
-push+PR (if we're doing a PR), merge; clean up the worktree. The plan is the
-contract — `product-engineer` implements to it, `code-review-auditor` audits
-against it. Don't skip steps.
+dispatch an agent with the plan (background); review the diff against the plan
+yourself, requirement by requirement; fix findings; commit, push+PR (if we're
+doing a PR), merge; clean up the worktree. The plan is the contract. When the
+plan implements a design file, `principles/design-to-implementation.md` says
+what the plan, the implementer, and the review must do. Don't skip steps.
 
-**One small PR per task when dispatching agents.** Tell product-engineer agents
-with multiple tasks to execute serially, one small PR per task — preferably each
-into main, chaining only when one task genuinely depends on another. (This
-serves "PRs are single-concern", above.)
+**One small PR per task when dispatching agents.** Tell agents with multiple
+tasks to execute serially, one small PR per task — preferably each into main,
+chaining only when one task genuinely depends on another. (This serves "PRs are
+single-concern", above.)
 
 **Translations are agent work — never humans'.** When a change adds or edits
 user-visible strings, translate them into every locale catalog yourself,
@@ -289,10 +289,10 @@ per-worktree setup the project runs (dependency install, build priming) — so a
 needless one burns minutes and disk for nothing. Spin a second worktree *only*
 when a genuinely concurrent agent must work an unrelated branch at the same time
 — that simultaneous collision is the only thing a separate worktree prevents.
-Serial agents on one branch (product-engineer → code-review-auditor → fixes)
-share its one worktree. Keep the main checkout on `main`; worktrees branch from
-latest; edits we make together land on `main` (or, when we're already in a
-worktree, that worktree's branch).
+Serial agents on one branch (implement → review → fixes) share its one worktree.
+Keep the main checkout on `main`; worktrees branch from latest; edits we make
+together land on `main` (or, when we're already in a worktree, that worktree's
+branch).
 
 When the per-worktree setup primes a heavy build (a SwiftPM/xcodebuild prime, a
 dependency compile), that prime is both the "minutes and disk" cost above and,
