@@ -1,6 +1,5 @@
 .DS_Store
 __pycache__/
-instructions.md
 claude/CLAUDE.md
 codex/AGENTS.md
 .worktrees/
