@@ -7,6 +7,10 @@ Two variants — **robust** and **fast**. Robust is the default; the user picks
 fast when they say so ("fast", "skip CI", "merge locally"). They share the same
 skeleton; fast replaces the GitHub round-trip with local verification.
 
+Review is one manual pass by the agent holding the code and plan context, in
+both variants. Per-rule reviewer matrices and the `code-rules-review` workflow
+are deprecated; neither variant requires or runs them.
+
 ## Invariants (both variants)
 
 - **Planning runs on Fable** — or whatever the leading state-of-the-art model is
@@ -54,18 +58,19 @@ skeleton; fast replaces the GitHub round-trip with local verification.
 4. **Implement (background).** Dispatch an agent with the plan, in the
    background. The plan is the spec.
 
-5. **Audit against the plan.** When it returns, review the diff against the plan
-   yourself — requirement by requirement. Fix anything Missing/Partial/Deviated
-   (send findings back to the same implementer agent). Verify the build and
-   tests actually pass (read the output).
+5. **One manual review.** Review the diff yourself against the plan and the
+   applicable coding rules in one pass. Read the relevant rule bodies and actual
+   source; do not dispatch reviewers per rule or run a matrix. Send confirmed
+   findings back to the same implementer. Verify the corrections and read the
+   relevant build/test output without restarting a review sweep.
 
 Steps 6–8 diverge by variant.
 
 ## Robust variant
 
-6. **Code rules-review.** Run the `code-rules-review` skill over the diff.
-   Adjudicate each finding TP/FP; fix the true positives. Cap at 2–3 iterations
-   — convergence, not perfection chasing.
+6. **Verify review corrections.** Confirm the findings from the manual review
+   are addressed and relevant local checks pass. Do not start another review
+   pass or invoke the deprecated per-rule matrix.
 
 7. **CI.** Push the branch and open the PR; let GitHub CI run. Fix real
    failures.
@@ -78,13 +83,8 @@ Steps 6–8 diverge by variant.
 No PR, no GitHub CI — verification happens locally, then the branch merges
 straight to `main`.
 
-6. **Rules review by the planner.** The planning agent reviews the diff against
-   the rules itself, locally — no `code-rules-review` fan-out. It has the
-   latitude to decide which rules are relevant to the diff (list candidates via
-   the project's rule index / `matching_rules.py` where one exists, then judge
-   relevance), then checks the diff against exactly those rules. It already
-   holds the plan and the code context, so it adjudicates TP/FP in place and
-   sends fixes back to the implementer.
+6. **Verify review corrections.** Use the same manual review from step 5.
+   Confirm its findings are addressed; do not run a separate rules review.
 
 7. **Local checks: relevant and fast only.** Run only the checks most relevant
    to the diff, and of those only the fast ones — the pre-commit hooks plus the

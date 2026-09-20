@@ -2,8 +2,9 @@
 
 Personal coding standards and guidelines for AI coding agents, written by
 [@dminkovsky](https://github.com/dminkovsky). Used by local agents (Claude Code
-via `~/.claude/` symlinks and Codex via `~/.codex/` symlinks) and CI agents
-(PR-review workflows that check out this repo).
+via `~/.claude/` symlinks and Codex via `~/.codex/` symlinks). Code review is
+one manual pass by the agent holding the implementation context. Per-rule review
+matrices are deprecated.
 
 ## Layout
 
@@ -19,10 +20,10 @@ via `~/.claude/` symlinks and Codex via `~/.codex/` symlinks) and CI agents
   `codex/AGENTS.md`, so the repo can be opened directly by Claude Code or Codex.
 - `rules/*.md` — one code rule per file. Frontmatter: `digest` (the one-liner
   stitched into `codex/AGENTS.md`), `paths` (globs scoping when the body loads
-  and which repos the CI matrix enrolls the rule for), `blocking` (whether a
-  violation blocks the PR), and optional `review: false` for authoring-only
-  rules the CI reviewer can't verify. The body loads into agent context only
-  when a matching file is read.
+  and which files the rule applies to), `blocking` (whether a violation blocks
+  the PR), and optional `review: false` for authoring-only rules excluded from
+  the deprecated review runner. The body loads into agent context only when a
+  matching file is read.
 - `principles/*.md` — elaborated principles referenced from
   `instructions-agent.md`. Loaded on demand when an agent reaches for the
   longer-form treatment of a rule.
@@ -83,8 +84,8 @@ target dir doesn't exist on this machine are skipped):
 - `projects/<name>-rules/*.md` → `~/dev/<name>/.claude/rules/` — path-scoped
   project rules. Same frontmatter as user-level `rules/` (`digest` / `paths` /
   `blocking` / optional `review`); Claude Code loads each body when a matching
-  file is read, exactly like the user-level rules. The CI matrix reviews them
-  alongside `rules/`.
+  file is read, exactly like the user-level rules. They apply alongside `rules/`
+  during authoring and manual review.
 
 Gitignore both `CLAUDE.md`/`AGENTS.md` and `.claude/rules/` in the target
 project so cloners don't inherit the machine-local symlinks.
@@ -102,55 +103,24 @@ python3 ~/.codex/agent-instructions/scripts/rules_review/matching_rules.py \
 
 The script prints the full rule files whose frontmatter `paths` match the target
 paths, including project rules under `projects/<project>-rules/`. Codex must
-read those files before editing so rules-review remains a backstop instead of
-the first place full rule bodies are applied.
+read those files before editing and apply them during its manual review. Listing
+and reading rules does not launch reviewers or require model calls.
 
-## CI consumption (PR review)
+## Code review
 
-Don't review a diff against all rules in one pass. That's bimodal — the model
-engages or skips each rule roughly coin-flip, so low-salience rules get missed.
-Review **one rule per pass**.
+The agent holding the implementation context reviews the diff itself in one pass
+against the requirements and applicable rules. Fix confirmed findings and verify
+the corrections with relevant checks. Do not dispatch one reviewer per rule or
+run repeated review passes.
 
-The reliable pattern is a GitHub Actions **matrix, one job per rule**. Each job
-checks out this repo, isolates a single rule's text (nothing else), reads the PR
-diff, and posts violations as inline comments tagged with the rule. The
-isolation removes the cross-rule attention dilution that sinks the single-pass
-review.
+## Deprecated per-rule review workflows
 
-The reusable workflow `.github/workflows/rules-review.yml` implements this for
-Claude-backed CI. Consumers don't opt into rules: a `discover` job runs
-`scripts/rules_review/discover_rules.py`, which enrolls every rule whose `paths`
-match a tracked file in the consumer's repo (the universe is `rules/` plus the
-consumer's `projects/<name>-rules/`), then feeds the matrix. A consumer caller
-passes only its `project` name and, optionally, an `exclude` list to drop an
-applicable rule it opts out of — excluding an unknown slug fails the job, so a
-rename surfaces. Rules flagged `review: false` are never enrolled. `blocking`
-comes from the rule's frontmatter.
+The per-rule CI matrix, local Codex review matrix, and `code-rules-review` skill
+are deprecated. They are not required before committing, opening a PR, or
+merging. The former instruction to avoid reviewing rules together is withdrawn.
 
-Reference caller: `forage`'s `.github/workflows/ai-rules-review.yml`.
-
-## Local Codex PR review
-
-Use `scripts/rules_review/local_codex.py` when Codex review should run from a
-local Codex login/config instead of a GitHub Actions API key. It reuses the same
-rule discovery, prompt/schema generation, finding parsing, and inline comment
-posting code as the reusable workflows.
-
-Example:
-
-```bash
-python3 ~/dev/agent-instructions/scripts/rules_review/local_codex.py \
-  --consumer ~/dev/<project> \
-  --project <project> \
-  --repo <owner>/<repo> \
-  --pr-number <number> \
-  --sha "$(gh pr view <number> --repo <owner>/<repo> --json headRefOid --jq .headRefOid)" \
-  --exclude '["every-bug-fix-starts-with-a-failing-test"]' \
-  --jobs 1 \
-  --post
-```
-
-The runner does not set a model or reasoning effort unless `--model` or
-`--effort` is passed, so Codex uses the local defaults. Add `--slug <rule>` to
-rerun one discovered rule, or omit `--post` to keep findings local in the
-printed summary and `SUMMARY.json`.
+`scripts/rules_review/local_codex.py` and its supporting review code remain as
+historical tooling, not part of the agent workflow. The skill carries a
+deprecation notice instead of instructions to run the matrix.
+`matching_rules.py` remains active for finding rule bodies to read; it does not
+run an AI review.

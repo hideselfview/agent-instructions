@@ -240,6 +240,14 @@ doing a PR), merge; clean up the worktree. The plan is the contract. When the
 plan implements a design file, `principles/design-to-implementation.md` says
 what the plan, the implementer, and the review must do. Don't skip steps.
 
+**Code review: one manual pass.** The agent holding the implementation context
+reviews the diff itself against the requirements and applicable coding rules.
+Fix confirmed findings and verify those corrections with relevant checks. Do not
+launch one reviewer per rule, run a rules matrix, or repeat automated review
+passes. The per-rule review workflow and `code-rules-review` skill are
+deprecated. Reading applicable rule bodies remains required; it does not require
+a separate reviewer or model call for each rule.
+
 **One small PR per task when dispatching agents.** Tell agents with multiple
 tasks to execute serially, one small PR per task — preferably each into main,
 chaining only when one task genuinely depends on another. (This serves "PRs are
