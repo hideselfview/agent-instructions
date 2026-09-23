@@ -32,10 +32,10 @@ duplicate types to make a split compile.
 
 ## Schema and compatibility
 
-Database schema changes add a new ordered migration. Never rewrite an existing
-migration: released libraries must advance from their recorded schema version
-without deleting state. A local `rm -rf ~/.bae` remains useful for resetting
-development data, but it is not a schema migration.
+The database schema is one flat migration,
+`bae-core/migrations/001_initial.sql`. A schema change edits that file; it never
+adds a second migration. No library has to advance from an older schema:
+development data is reset with `rm -rf ~/.bae`.
 
 When another canonical shape changes — bae-bridge types, UiEventBus event
 payloads, on-disk file layouts, sync membership chain format, encryption
