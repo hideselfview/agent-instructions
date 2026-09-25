@@ -27,8 +27,8 @@ numbers, typed enums, and stable message keys — never prose or locale-formatte
 text. The one computation the UI is *required* to do is locale-aware rendering
 of that data: formatting numbers, byte counts, durations, and dates with the
 platform's locale formatters, and resolving stable message keys through native
-string catalogs (String Catalogs / `strings.xml` / `.resw`). That rendering is
-inherently per-platform and OS-owned, so it lives in the UI by design.
+string catalogs (String Catalogs / `strings.xml`). That rendering is inherently
+per-platform and OS-owned, so it lives in the UI by design.
 
 Bridge / UI boundary violations to flag:
 

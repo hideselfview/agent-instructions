@@ -4,8 +4,6 @@ paths:
   - bae-macos/**/*.swift
   - bae-ios/**/*.swift
   - bae-android/**/*.kt
-  - bae-avalonia/**/*.cs
-  - bae-avalonia/**/*.axaml
   - bae-bridge/src/**/*.rs
   - bae-bridge/loc/catalog.toml
 blocking: false
@@ -34,15 +32,15 @@ with an obligation:
   `core.*` message produced in bae-bridge — adds its catalog key. A `core.*` key
   goes in `bae-bridge/loc/catalog.toml` (plus the `bridge_*_key` producer if it
   is enum-mapped — the `loc_key_coverage` test fails otherwise); UI chrome goes
-  in that platform's catalog (`Localizable.xcstrings` / `strings.xml` /
-  `Resources.resw`). Translate every supported locale in the same change. Every
-  non-source locale must contain a real translation in that locale. Do not copy
-  the English source into non-English locale slots, do not write placeholder
-  text, do not leave TODO/fuzzy/untranslated/new states, do not mark locales as
-  `new`, and do not rely on any catalog facility that queues translation for
-  later. The code author and reviewer are state-of-the-art language models that
-  can translate any language effortlessly; any placeholder or non-translation is
-  incomplete work.
+  in that platform's catalog (`Localizable.xcstrings` / `strings.xml`).
+  Translate every supported locale in the same change. Every non-source locale
+  must contain a real translation in that locale. Do not copy the English source
+  into non-English locale slots, do not write placeholder text, do not leave
+  TODO/fuzzy/untranslated/new states, do not mark locales as `new`, and do not
+  rely on any catalog facility that queues translation for later. The code
+  author and reviewer are state-of-the-art language models that can translate
+  any language effortlessly; any placeholder or non-translation is incomplete
+  work.
 
 - **Removed text** — deleting a screen, button, or message deletes its key
   across the catalog and every locale slot in `TARGET_LOCALES`. A key no code
@@ -54,6 +52,7 @@ with an obligation:
   translations is worse than an untranslated one: it ships a confident
   mistranslation.
 
-Applies to all four UIs and to bae-bridge message producers. The locale never
-crosses the bridge (see `ui-and-bridge-thinness-letter-of-the-law`); this rule
-keeps the catalogs the bridge keys into complete and current.
+Applies to the macOS, iOS, and Android UIs and to bae-bridge message producers.
+The locale never crosses the bridge (see
+`ui-and-bridge-thinness-letter-of-the-law`); this rule keeps the catalogs the
+bridge keys into complete and current.
