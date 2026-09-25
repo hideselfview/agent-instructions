@@ -1,9 +1,16 @@
 # bae
 
 Personal music library + playback. Rust core (bae-core), platform UIs via uniffi
-(bae-bridge → bae-macos, bae-ios, bae-android) plus Windows and Linux
-(bae-avalonia, consuming uniffi-generated C# bindings), and cloud sync via coven
+(bae-bridge → bae-macos, bae-ios, bae-android), and cloud sync via coven
 supporting S3 / Google Drive / Dropbox / OneDrive / iCloud.
+
+bae-avalonia is a Windows/Linux infrastructure skeleton, not a UI: startup,
+single-instancing, crash capture, telemetry, the Velopack updater and release
+packaging, and one window that calls the bridge through the uniffi-generated C#
+bindings. It has no views, stores, or strings to update when a bridge shape
+changes; it only has to keep compiling against the regenerated bindings and pass
+its smoke test (`bae-avalonia/smoke-test.sh` on macOS, and the Windows and Linux
+CI jobs). The desktop UI will be ported from the macOS app later.
 
 Project rules are path-scoped atomic files in `projects/bae-rules/`. Claude Code
 receives them through `.claude/rules/` symlinks. Codex receives the rule index
@@ -25,9 +32,10 @@ the routine local gate before a commit or push.
 
 ## File layout
 
-Source files may not exceed 1,500 lines. A Rust file over 1,000 lines must keep
-its `#[cfg(test)]` module in a sibling `_tests.rs` file. Split production code
-along its existing domain and ownership boundaries; do not expose owner state or
+Source files may not exceed 1,000 lines (`scripts/check-source-file-size.py`,
+with its frozen per-file exceptions). A Rust file over 1,000 lines must keep its
+`#[cfg(test)]` module in a sibling `_tests.rs` file. Split production code along
+its existing domain and ownership boundaries; do not expose owner state or
 duplicate types to make a split compile.
 
 ## Schema and compatibility
