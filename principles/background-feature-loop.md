@@ -12,10 +12,6 @@ the loop neither requires nor runs them.
 
 ## Invariants
 
-- **Planning runs on the strongest model available.** The plan is the contract
-  for everything downstream; never delegate writing it to a smaller model.
-  Implementation can go to a smaller model; the plan and the reviews of work
-  against it stay with the strongest one.
 - **Re-use context.** Whoever already holds the relevant context does the next
   step. Continue an existing agent with a follow-up message instead of spawning
   a fresh one that re-reads everything; send review findings back to the same
