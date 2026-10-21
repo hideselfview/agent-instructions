@@ -61,14 +61,15 @@ the loop neither requires nor runs them.
    findings back to the same implementer. Verify the corrections and read the
    relevant build/test output without restarting a review sweep.
 
-6. **Local checks: relevant and fast only.** Run only the checks most relevant
-   to the diff, and of those only the fast ones — the pre-commit hooks plus the
-   targeted builds/tests/lints for the crates and platforms the change touches
-   (e.g. `cargo test -p <touched>`, the one platform's lint). Do NOT run the
-   full local CI script and do NOT wait on slow suites (full-workspace test
-   runs, release-mode tests, every-platform builds) — those are CI's job. If the
-   project has no pre-commit hooks, add them as part of the work. Fix real
-   failures in what you did run.
+6. **Local checks: only what the change affects; CI catches the rest.** Run the
+   pre-commit hooks, the builds for the platforms the change touches, and the
+   tests that cover the code it changed (e.g.
+   `cargo test -p <touched> <filter>`, one test class, the one platform's lint).
+   Never run a whole app test suite locally (macOS, iOS, Android) — app-hosted
+   tests launch the app on the person's screen — and never the full local CI
+   script or other slow suites (full-workspace test runs, release-mode tests,
+   every-platform builds): those are CI's job. If the project has no pre-commit
+   hooks, add them as part of the work. Fix real failures in what you did run.
 
 7. **Merge locally, push every time — don't wait on slow verification.** When
    the fast local checks pass, fetch and rebase onto current `origin/main`,
