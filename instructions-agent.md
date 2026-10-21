@@ -236,10 +236,11 @@ merge.** When the user requests work in the background: gather context with
 explore subagents; write a detailed implementation plan; start a branch in the
 repo's side worktree (create the worktree only if the repo has none); dispatch
 an agent with the plan (background); review the diff against the plan yourself,
-requirement by requirement; fix findings; commit, push+PR (if we're doing a PR),
-merge; leave the side worktree for the next arc. The plan is the contract. When
-the plan implements a design file, `principles/design-to-implementation.md` says
-what the plan, the implementer, and the review must do. Don't skip steps.
+requirement by requirement; fix findings; commit, rebase onto `origin/main`,
+fast-forward and push `main`; leave the side worktree for the next arc. The plan
+is the contract. When the plan implements a design file,
+`principles/design-to-implementation.md` says what the plan, the implementer,
+and the review must do. Don't skip steps.
 
 **Code review: one manual pass.** The agent holding the implementation context
 reviews the diff itself against the requirements and applicable coding rules.
