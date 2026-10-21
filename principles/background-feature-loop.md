@@ -17,6 +17,9 @@ the loop neither requires nor runs them.
   a fresh one that re-reads everything; send review findings back to the same
   implementer that produced the diff; the planner who read the code paths does
   the reviews it can do itself rather than briefing a new agent from zero.
+  Re-use stops at 75% of the context window (750k tokens on a 1M model): an
+  agent that reaches it compacts, or hands off to a fresh agent with a written
+  brief of the state, decisions, and next step, before going further.
 - An agent advances one line of work at a time in one checkout. Branch
   boundaries are not an invariant of this loop. Background work runs in the
   repo's one long-lived side worktree; it is reused across every line of work
