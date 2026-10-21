@@ -231,16 +231,12 @@ understand at a glance. Never bundle unrelated fixes into a grab-bag PR — if a
 audit surfaces N findings, that's N PRs (or commits queued for separate PRs),
 not one.
 
-**Background agents: research → plan → implement → review → fix → commit →
-merge.** When the user requests work in the background: gather context with
-explore subagents; write a detailed implementation plan; start a branch in the
-repo's side worktree (create the worktree only if the repo has none); dispatch
-an agent with the plan (background); review the diff against the plan yourself,
-requirement by requirement; fix findings; commit, rebase onto `origin/main`,
-fast-forward and push `main`; leave the side worktree for the next arc. The plan
-is the contract. When the plan implements a design file,
-`principles/design-to-implementation.md` says what the plan, the implementer,
-and the review must do. Don't skip steps.
+**Background agents: research → plan → implement → review → fix → land.** Gather
+context with explore subagents; write the plan (the contract); branch in the
+side worktree; dispatch the agent; review its diff against the plan item by
+item; fix findings; rebase, fast-forward and push `main`. For a design file,
+`principles/design-to-implementation.md` says what plan, implementer, and review
+must do. Don't skip steps.
 
 **Code review: one manual pass.** The agent holding the implementation context
 reviews the diff itself against the requirements and applicable coding rules.
@@ -287,23 +283,19 @@ verification or rely on CI. Never infer that permission from urgency. Report
 which checks were skipped, and never hide a known hook failure — name it before
 following an explicit instruction to commit without the hook.
 
-**Each repo keeps two checkouts: main, and one long-lived side worktree.** The
-main checkout stays on `main` and holds iterated work: edits we make together,
-quick fixes, landing. The side worktree holds the longer development arcs that
-run in the background. Both are permanent and keep their build output warm — a
-worktree is not a unit of work, the **branch** is. Every feature, fix, or
-tangent is a new branch in the side worktree
-(`git checkout -b <name> origin/main`), and when that branch lands the worktree
-stays for the next one. Never delete a side worktree because its branch landed,
-and never delete and recreate one: creating a worktree is heavy — a fresh
-checkout plus whatever per-worktree setup the project runs (dependency install,
-build priming) — and deleting one throws away a warm build. Serial agents
-(implement → review → fixes, or one task after another) share the side worktree.
-Add a second side worktree *only* when two agents must work unrelated branches
-in the same repo at the same time — that simultaneous collision is the only
-thing an extra worktree prevents — and remove that extra one when its work
-lands. Edits we make together land on `main` (or, when we're already in a
-worktree, that worktree's branch).
+**Each repo keeps two checkouts: main and one long-lived side worktree.**
+
+- **main** stays on `main`: iterated work, edits we make together, landing.
+  (Together-edits made while in a worktree land on its branch.)
+- **The side worktree** holds background development arcs. Each feature or fix
+  is a new branch there (`git checkout -b <name> origin/main`); serial agents
+  share it.
+- The branch is the unit of work, not the worktree. Both checkouts are
+  permanent, with warm builds: never delete the side worktree because a branch
+  landed, or delete and recreate it — setup (fresh checkout, dependency install,
+  build priming) costs minutes and disk, and the warm build is lost.
+- A second side worktree only while two agents work unrelated branches in the
+  same repo at once; remove it when its work lands.
 
 When the per-worktree setup primes a heavy build (a SwiftPM/xcodebuild prime, a
 dependency compile), that prime is both the "minutes and disk" cost above and,
