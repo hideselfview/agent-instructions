@@ -24,9 +24,9 @@ are deprecated; neither variant requires or runs them.
   implementer that produced the diff; the planner who read the code paths does
   the reviews it can do itself rather than briefing a new agent from zero.
 - An agent advances one line of work at a time in one checkout. Branch
-  boundaries are not an invariant of this loop. Use a worktree only when the
-  agent must edit concurrently with another writer, and reuse that worktree for
-  the agent's whole line of work.
+  boundaries are not an invariant of this loop. Background work runs in the
+  repo's one long-lived side worktree; it is reused across every line of work
+  and kept after each branch lands.
 - Rebase onto current `main`, `git merge --ff-only` — no merge commits. If ff
   fails, rebase again.
 - **Push `main` to origin after every merge.** Don't let local `main` accumulate
@@ -49,11 +49,11 @@ are deprecated; neither variant requires or runs them.
    cover each case, and what's out of scope. Precise enough that an implementer
    implements to it and a reviewer audits against it.
 
-3. **Checkout isolation.** Give the agent a writable checkout. If it will edit
-   concurrently with the root agent or another agent, create or reuse one
-   worktree for it, branched from latest `main`. If there is no concurrent
-   writer, the current checkout is sufficient. A worktree isolates a concurrent
-   writer; it is not a task, feature, branch, commit, or review boundary.
+3. **Checkout.** Start a branch from latest `origin/main` in the repo's side
+   worktree (create it only if the repo has none). Add a second side worktree
+   only when another agent is already working an unrelated branch in the first
+   one, and remove that extra one when its work lands. A worktree is not a task,
+   feature, branch, commit, or review boundary.
 
 4. **Implement (background).** Dispatch an agent with the plan, in the
    background. The plan is the spec.
@@ -76,7 +76,7 @@ Steps 6–8 diverge by variant.
    failures.
 
 8. **Merge when green.** Rebase onto current `main`, `git merge --ff-only`, push
-   `main` to origin. Clean up the worktree.
+   `main` to origin. Keep the side worktree for the next branch.
 
 ## Fast variant
 
@@ -99,7 +99,7 @@ straight to `main`.
    the fast local checks pass, fetch and rebase onto current `origin/main`,
    `git merge --ff-only`, and push `main` to origin immediately — every merge,
    not in batches. If origin moved in the meantime, reconcile (rebase onto it,
-   fix conflicts, re-run the fast checks) and push. Clean up the worktree, and
+   fix conflicts, re-run the fast checks) and push. Keep the side worktree, and
    keep moving to the next task.
 
 9. **Batch CI fix-up.** Remote CI runs on pushed `main` and catches what the
@@ -109,7 +109,7 @@ straight to `main`.
    Check CI status at natural pauses — between tasks, end of session — not after
    every push.
 
-An agent runs its assigned line of work serially in the same checkout or
-worktree. The delivery shape determines branch, commit, and review boundaries;
-this loop does not impose a branch-per-task rule. Create another worktree only
-when another writer must edit concurrently.
+An agent runs its assigned line of work serially in the side worktree. The
+delivery shape determines branch, commit, and review boundaries; this loop does
+not impose a branch-per-task rule. Create another worktree only when another
+writer must edit concurrently.

@@ -233,11 +233,12 @@ not one.
 
 **Background agents: research → plan → implement → review → fix → commit →
 merge.** When the user requests work in the background: gather context with
-explore subagents; write a detailed implementation plan; create the worktree;
-dispatch an agent with the plan (background); review the diff against the plan
-yourself, requirement by requirement; fix findings; commit, push+PR (if we're
-doing a PR), merge; clean up the worktree. The plan is the contract. When the
-plan implements a design file, `principles/design-to-implementation.md` says
+explore subagents; write a detailed implementation plan; start a branch in the
+repo's side worktree (create the worktree only if the repo has none); dispatch
+an agent with the plan (background); review the diff against the plan yourself,
+requirement by requirement; fix findings; commit, push+PR (if we're doing a PR),
+merge; leave the side worktree for the next arc. The plan is the contract. When
+the plan implements a design file, `principles/design-to-implementation.md` says
 what the plan, the implementer, and the review must do. Don't skip steps.
 
 **Code review: one manual pass.** The agent holding the implementation context
@@ -285,22 +286,23 @@ verification or rely on CI. Never infer that permission from urgency. Report
 which checks were skipped, and never hide a known hook failure — name it before
 following an explicit instruction to commit without the hook.
 
-**Worktrees are for agent parallelism, not for features — branches are for
-features.** A worktree exists for one reason: so an agent can edit, commit, and
-push without colliding with us or another agent on the same checkout. It is not
-a unit of work — the **branch** is. Every feature, fix, or tangent is a new
-branch, which is free; one agent uses **one worktree for all of its work**,
-across however many unrelated branches that spans. Picking up a separate concern
-means `git checkout -b` in the worktree you already have — never a second
-worktree for it. Creating a worktree is heavy — a fresh checkout plus whatever
-per-worktree setup the project runs (dependency install, build priming) — so a
-needless one burns minutes and disk for nothing. Spin a second worktree *only*
-when a genuinely concurrent agent must work an unrelated branch at the same time
-— that simultaneous collision is the only thing a separate worktree prevents.
-Serial agents on one branch (implement → review → fixes) share its one worktree.
-Keep the main checkout on `main`; worktrees branch from latest; edits we make
-together land on `main` (or, when we're already in a worktree, that worktree's
-branch).
+**Each repo keeps two checkouts: main, and one long-lived side worktree.** The
+main checkout stays on `main` and holds iterated work: edits we make together,
+quick fixes, landing. The side worktree holds the longer development arcs that
+run in the background. Both are permanent and keep their build output warm — a
+worktree is not a unit of work, the **branch** is. Every feature, fix, or
+tangent is a new branch in the side worktree
+(`git checkout -b <name> origin/main`), and when that branch lands the worktree
+stays for the next one. Never delete a side worktree because its branch landed,
+and never delete and recreate one: creating a worktree is heavy — a fresh
+checkout plus whatever per-worktree setup the project runs (dependency install,
+build priming) — and deleting one throws away a warm build. Serial agents
+(implement → review → fixes, or one task after another) share the side worktree.
+Add a second side worktree *only* when two agents must work unrelated branches
+in the same repo at the same time — that simultaneous collision is the only
+thing an extra worktree prevents — and remove that extra one when its work
+lands. Edits we make together land on `main` (or, when we're already in a
+worktree, that worktree's branch).
 
 When the per-worktree setup primes a heavy build (a SwiftPM/xcodebuild prime, a
 dependency compile), that prime is both the "minutes and disk" cost above and,
