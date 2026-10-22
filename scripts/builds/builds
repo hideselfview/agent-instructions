@@ -224,25 +224,6 @@ cmd_setup() {
 
 # ── Pruning ─────────────────────────────────────────────────────────────────
 
-# Every file and working directory any process of this user holds open, read
-# once per run.
-OPEN_FILES=""
-load_open_files() {
-    [ -z "$OPEN_FILES" ] || return 0
-    OPEN_FILES="$(mktemp "${TMPDIR:-/tmp}/builds-open.XXXXXX")"
-    trap 'rm -f "$OPEN_FILES"' EXIT
-    lsof -n -Fn 2>/dev/null | sed -n 's/^n//p' > "$OPEN_FILES" || true
-}
-
-# Does any process hold a file (or its working directory) inside <dir>?
-in_use() {
-    local physical
-    physical="$(cd "$1" && pwd -P)" || return 1
-    load_open_files
-    awk -v p="$physical" '$0 == p || index($0, p "/") == 1 { found = 1; exit }
-        END { exit !found }' "$OPEN_FILES"
-}
-
 kib_of() { du -sk "$1" 2>/dev/null | cut -f1; }
 
 human() {
@@ -254,17 +235,55 @@ human() {
     fi
 }
 
-# Deletes <dir> whole: renamed into the trash (instant, same volume) and
-# removed in the background. <recreate>=1 puts an empty folder back, so a
-# link to it stays valid.
+# Deletes <dir> whole unless a build is using it: renamed into the trash
+# (instant, same volume) and removed in the background. <recreate>=1 puts an
+# empty folder back, so a link to it stays valid. Returns 1, deleting nothing,
+# when the folder is in use.
+#
+# A build in another process can start at any moment, so "in use" is decided
+# while holding what a build holds. Cargo keeps an exclusive flock on
+# <target>/<profile>/.cargo-lock (and <target>/<triple>/<profile>/.cargo-lock)
+# for a whole build: those locks are taken without waiting, and a cargo
+# already holding one makes the folder in use. While they are held, no cargo
+# can start writing; a cargo that queues on one gets it after the rename and
+# writes through the link into the new, empty folder. Folders without cargo
+# locks (Xcode's DerivedData, Gradle, dotnet, lake) count as in use while any
+# process holds a file or working directory inside them; that is checked last,
+# immediately before the rename.
 evict() {
     local dir="$1" recreate="$2" slot
     mkdir -p "$TRASH"
-    slot="$(mktemp -d "$TRASH/evict.XXXXXX")"
-    mv "$dir" "$slot/"
-    if [ "$recreate" = 1 ]; then
-        mkdir -p "$dir"
-    fi
+    slot="$(python3 - "$dir" "$TRASH" "$recreate" <<'PY'
+import fcntl, os, subprocess, sys, tempfile
+
+folder, trash, recreate = os.path.realpath(sys.argv[1]), sys.argv[2], sys.argv[3] == "1"
+held = []
+for root, dirs, files in os.walk(folder):
+    if root[len(folder):].count(os.sep) >= 2:
+        dirs[:] = []
+    if ".cargo-lock" in files:
+        fd = os.open(os.path.join(root, ".cargo-lock"), os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            sys.exit(1)
+        held.append(fd)
+me = str(os.getpid())
+pid = None
+for line in subprocess.run(["lsof", "-n", "-Fpn"], capture_output=True, text=True).stdout.splitlines():
+    if line.startswith("p"):
+        pid = line[1:]
+    elif line.startswith("n") and pid != me:
+        name = line[1:]
+        if name == folder or name.startswith(folder + "/"):
+            sys.exit(1)
+slot = tempfile.mkdtemp(prefix="evict.", dir=trash)
+os.rename(folder, os.path.join(slot, os.path.basename(folder)))
+if recreate:
+    os.mkdir(folder)
+print(slot)
+PY
+)" || return 1
     nohup rm -rf "$slot" >/dev/null 2>&1 &
 }
 
@@ -288,13 +307,12 @@ prune_root() {
         else
             continue
         fi
-        if in_use "$root/$path"; then
-            note "in use, kept: $root/$path ($reason)"
-        elif [ "$dry" = 1 ]; then
+        if [ "$dry" = 1 ]; then
             note "would delete $root/$path ($reason)"
-        else
-            evict "$root/$path" 1
+        elif evict "$root/$path" 1; then
             note "deleted $root/$path ($reason); the next build refills it"
+        else
+            note "in use, kept: $root/$path ($reason)"
         fi
     done < <(manifest_entries "$top")
 }
@@ -333,13 +351,12 @@ cmd_prune() {
     while IFS= read -r root; do
         top="$(cat "$root/.checkout")"
         if ! checkout_is_live "$root"; then
-            if in_use "$root"; then
-                note "checkout $top is gone but $root is in use, kept"
-            elif [ "$dry" = 1 ]; then
+            if [ "$dry" = 1 ]; then
                 note "would delete $root (checkout $top is gone)"
-            else
-                evict "$root" 0
+            elif evict "$root" 0; then
                 note "deleted $root (checkout $top is gone)"
+            else
+                note "checkout $top is gone but $root is in use, kept"
             fi
             continue
         fi
@@ -457,10 +474,8 @@ cmd_retire() {
     fi
     git -C "$main" worktree remove "$top"
     if [ -d "$root" ]; then
-        if in_use "$root"; then
-            die "worktree removed, but a process holds files in $root; run builds prune once it exits"
-        fi
-        evict "$root" 0
+        evict "$root" 0 \
+            || die "worktree removed, but a process holds files in $root; run builds prune once it exits"
     fi
     note "retired $top and deleted $root"
 }
