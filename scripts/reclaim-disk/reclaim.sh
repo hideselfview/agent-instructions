@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Reclaim disk space by deleting regenerable build artifacts and caches, in
-# priority order, until free space climbs back above a target. Built to run
-# unattended from a launchd agent every 15 minutes, and to be safe to run by
-# hand any time.
+# priority order, until free space climbs back above a target. Run by hand or
+# by an agent when the disk is low; nothing runs it on a timer.
 #
 # Why this exists: agent/automation flows (rules-review, verify, composer-mode,
 # MCP builds) point CARGO_TARGET_DIR / Xcode DerivedData into /private/tmp and
@@ -11,9 +10,10 @@
 #
 # Tiers, deleted in order, stopping as soon as free >= TARGET_GB:
 #   1. /private/tmp        - throwaway scratch + redirected build dirs (the big one)
-#   2. build caches        - Rust target*/.build/DerivedData under ~/dev, plus
-#                            the per-project dirs under the redirected
-#                            CARGO_TARGET_DIR roots (forces a recompile)
+#   2. build caches        - every build-volume folder (/Volumes/Builds/<repo>/
+#                            <checkout>/<path>) idle > IDLE_MIN, through
+#                            `builds prune --idle`, plus real target*/.build/
+#                            DerivedData dirs under ~/dev (forces a rebuild)
 #   3. ~/Library/Caches    - app + tool caches (npm/gradle/cargo/generic)
 #
 # Nothing here is irreplaceable: every target is a build output or cache that
@@ -37,17 +37,6 @@ THRESHOLD_GB="${RECLAIM_THRESHOLD_GB:-40}"   # act when free drops below this
 TARGET_GB="${RECLAIM_TARGET_GB:-60}"         # delete until free reaches this
 IDLE_MIN="${RECLAIM_IDLE_MIN:-30}"           # never touch anything newer than this
 LOG="${RECLAIM_LOG:-$HOME/Library/Logs/reclaim-disk.log}"
-
-# Roots that hold redirected cargo build output. ~/.zshenv points every project
-# at "$HOME/.cargo-target/<project>" (project = the git common dir's parent
-# name, so all worktrees of a project share one dir); Codex uses its own root.
-# Each direct child is one project's target dir. These are listed as roots and
-# swept a level down rather than matched by name like ~/dev's target/ dirs,
-# because the children are named for the project, not "target".
-REDIRECTED_TARGET_ROOTS=(
-  "$HOME/.cargo-target"
-  "$HOME/.codex-targets"
-)
 
 DRY_RUN=0
 FORCE=0
@@ -91,34 +80,15 @@ has_recent_descendant() {
   find "$p" -xdev -mmin "-${IDLE_MIN}" -print -quit 2>/dev/null | grep -q .
 }
 
-is_redirected_target_root() {
-  local root
-  for root in "${REDIRECTED_TARGET_ROOTS[@]}"; do
-    [[ -d "$root" ]] || continue
-    [[ "$1" == "$(cd "$root" && pwd -P)" ]] && return 0
-  done
-  return 1
-}
-
-# Is a build process working on this output dir? Files it holds open under the
-# dir always count: cargo keeps <dir>/*/.cargo-lock for the whole build, so this
-# sees an active build even in the gaps between rustc spawns.
-#
-# A dir that lives inside the checkout being built (~/dev/coven/target) gets a
-# second signal — anything open inside that checkout, which catches a build
-# reading sources before it writes output. A redirected CARGO_TARGET_DIR gets
-# only the first: its parent is a shared root, not a checkout, so widening to
-# the parent there would let a live coven build protect bae's stale dir next to
-# it. There is nothing on a redirected dir's path to widen to.
-#
-# All matching is on physical paths, because that is what lsof reports: a
-# candidate reached through a symlinked ancestor would otherwise never match the
-# open files under it.
+# Is a build process working on this output dir? Anything it holds open inside
+# the dir or inside the checkout the dir lives in counts: cargo keeps
+# <dir>/*/.cargo-lock open for the whole build, and a build reads sources
+# before it writes output. All matching is on physical paths, because that is
+# what lsof reports.
 build_owner_running() {
-  local p="$1" dir parent checkout="" pid command executable process_name open_path
+  local p="$1" dir checkout pid command executable process_name open_path
   dir="$(cd "$p" && pwd -P)" || return 1
-  parent="$(dirname "$dir")"
-  is_redirected_target_root "$parent" || checkout="$parent"
+  checkout="$(dirname "$dir")"
 
   while read -r pid command; do
     executable="${command%% *}"
@@ -129,13 +99,8 @@ build_owner_running() {
     esac
     while IFS= read -r open_path; do
       case "$open_path" in
-        "$dir"|"$dir"/*) return 0 ;;
+        "$dir"|"$dir"/*|"$checkout"|"$checkout"/*) return 0 ;;
       esac
-      if [[ -n "$checkout" ]]; then
-        case "$open_path" in
-          "$checkout"|"$checkout"/*) return 0 ;;
-        esac
-      fi
     done < <(lsof -a -p "$pid" -Fn 2>/dev/null | sed -n 's/^n//p')
   done < <(ps -axo pid=,args=)
   return 1
@@ -193,20 +158,16 @@ tier_tmp() {
              -mmin "+${IDLE_MIN}" -print0 2>/dev/null)
 }
 
-# Every build output dir worth deleting: the ones that live inside a checkout
-# under ~/dev, and the per-project dirs under the redirected roots. The -mmin
-# filter is only a cheap pre-pass on each dir's own mtime; a dir whose writes
-# all land deeper still gets caught by has_recent_descendant at purge time.
+# Real build output dirs inside checkouts under ~/dev: repos without a
+# .build-dirs manifest, or tools that ran before a checkout's links existed.
+# `find -type d` skips the links to the build volume; tier 2 frees those
+# through `builds`. The -mmin filter is only a cheap pre-pass on each dir's own
+# mtime; a dir whose writes all land deeper still gets caught by
+# has_recent_descendant at purge time.
 build_output_dirs() {
   find "$HOME/dev" -maxdepth 5 -type d \
     \( -name target -o -name 'target-*' -o -name .build -o -name DerivedData \) \
     -mmin "+${IDLE_MIN}" -prune -print0 2>/dev/null
-  local root
-  for root in "${REDIRECTED_TARGET_ROOTS[@]}"; do
-    [[ -d "$root" ]] || continue
-    find "$root" -maxdepth 1 -mindepth 1 -type d \
-      -mmin "+${IDLE_MIN}" -print0 2>/dev/null
-  done
 }
 
 # Tier 2: Rust/Swift/Xcode build output, idle > IDLE_MIN. Deleting these only
@@ -214,7 +175,16 @@ build_output_dirs() {
 # reinstall, not a rebuild, and isn't "build output").
 tier_builds() {
   log "tier 2: build caches (idle > ${IDLE_MIN}m)"
-  local p
+  local p builds="$HOME/.local/bin/builds" prune_args
+  # The build volume: every checkout's folder nothing wrote to within IDLE_MIN
+  # and nothing holds open, deleted whole and recreated empty so its link
+  # stays valid.
+  if [[ -x "$builds" ]]; then
+    prune_args=(prune --idle "$IDLE_MIN")
+    [[ "$DRY_RUN" == 1 ]] && prune_args+=(--dry-run)
+    "$builds" "${prune_args[@]}" >>"$LOG" 2>&1 || log "WARN builds prune failed"
+    reached_target && return 0
+  fi
   while IFS= read -r -d '' p; do
     purge_build_output_if_idle "$p"
     reached_target && return 0
@@ -246,7 +216,21 @@ tier_caches() {
       log "skip (owner running): $d"
       continue
     fi
-    purge "$d"
+    # A cache linked onto the build volume (~/.gradle, the SwiftPM and sccache
+    # caches) keeps its link: deleting the link would make the tool start a new
+    # cache on the main disk. Its contents go instead. sccache's cache is left
+    # whole: its own size cap bounds it, and the running server writes into it.
+    if [[ -L "$d" ]]; then
+      case "$d" in
+        */Mozilla.sccache) log "skip (sccache caps its own size): $d"; continue ;;
+      esac
+      local child
+      for child in "$d"/*; do
+        purge "$child"
+      done
+    else
+      purge "$d"
+    fi
     reached_target && return 0
   done
 }

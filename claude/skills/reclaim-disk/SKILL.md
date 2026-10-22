@@ -1,6 +1,6 @@
 ---
 name: reclaim-disk
-description: Free disk space by deleting regenerable build artifacts and caches in priority order (/private/tmp, then build dirs under ~/dev and the redirected CARGO_TARGET_DIR roots, then ~/Library/Caches). Use when the disk is full or low, a command fails with "no space left on device" (ENOSPC), or the user asks to clean up build artifacts / reclaim space. Also documents the launchd agent that runs the sweep automatically every 15 minutes.
+description: Free disk space by deleting regenerable build artifacts and caches in priority order (/private/tmp, then idle build folders on the build volume via `builds prune --idle` and real build dirs under ~/dev, then ~/Library/Caches). Use when the disk is full or low, a command fails with "no space left on device" (ENOSPC), or the user asks to clean up build artifacts / reclaim space. Nothing runs it on a timer.
 ---
 
 # Reclaim disk space
@@ -10,8 +10,8 @@ above a target. Nothing it removes is irreplaceable — every target is a build
 artifact or cache that rebuilds on next use.
 
 Runner: `~/dev/agent-instructions/scripts/reclaim-disk/reclaim.sh`
-(tool-agnostic shell script — works the same whether invoked by Claude, Codex,
-or the launchd timer).
+(tool-agnostic shell script — works the same whether invoked by Claude or
+Codex).
 
 ## Why disks fill here
 
@@ -33,17 +33,25 @@ reason. (See also: the real free space lives on `/System/Volumes/Data`, not the
    time, so a long-lived server always looks idle, and unlinking the socket
    strands the running server and every pane in it beyond reach of
    `tmux attach`).
-2. **Build caches** — `target*/`, `.build`, `DerivedData` under `~/dev`, plus
-   every per-project dir under the redirected `CARGO_TARGET_DIR` roots
-   (`~/.cargo-target`, `~/.codex-targets`). Deleting only costs a recompile.
-   `node_modules` is intentionally **not** touched (it needs a reinstall, not a
-   rebuild).
-3. **`~/Library/Caches`** + tool caches (npm / gradle / cargo / `~/.cache`).
+2. **Build caches** — first the build volume: `builds prune --idle <IDLE_MIN>`
+   deletes every checkout's build folder
+   (`/Volumes/Builds/<repo>/<checkout>/ <path>`) that is over its cap or that
+   nothing wrote to within `IDLE_MIN`, and recreates it empty so the checkout's
+   link stays valid (see `principles/worktree-build-priming.md`). Then real
+   `target*/`, `.build`, `DerivedData` dirs under `~/dev` (repos without a
+   `.build-dirs`; links are not matched). Deleting only costs a rebuild, mostly
+   from sccache. `node_modules` is intentionally **not** touched (it needs a
+   reinstall, not a rebuild).
+3. **`~/Library/Caches`** + tool caches (npm / gradle / cargo / `~/.cache`). A
+   cache linked onto the build volume keeps its link and loses its contents; the
+   sccache cache is left alone, since its 40 GiB cap bounds it.
 
-`~/.zshenv` points every project's `CARGO_TARGET_DIR` at
-`~/.cargo-target/<project>`, so `rm -rf target*` inside a checkout frees nothing
-and those dirs are where Rust build output actually accumulates — tens of GB per
-project, outside any tree a home-dir scan would flag.
+A checkout's build output lives on the build volume behind links
+(`~/dev/bae/target -> /Volumes/Builds/bae/main/target`), so a home-dir scan
+never sees it; `builds status` lists it per checkout and folder. The build
+volume shares free space with the main disk (same APFS container), so freeing
+either helps both. Day to day the caps in each repo's `.build-dirs` keep it
+bounded without this skill.
 
 Three guards keep it from breaking live work: it acts only when free space is
 below the threshold, scans the complete candidate tree for writes within
@@ -51,13 +59,10 @@ below the threshold, scans the complete candidate tree for writes within
 working on. Checking descendants matters because compilers usually update files
 below `target/` without changing `target/` itself.
 
-"Working on" is decided by open files, since a redirected target dir has no
-checkout anywhere on its path to attribute it to: a build holding anything open
-under the dir owns it (cargo keeps `<dir>/*/.cargo-lock` for the whole build). A
-dir that *does* live inside its checkout additionally counts anything open in
-that checkout. Widening a redirected dir to its parent would be wrong — the
-parent is a root shared by every project, so a live `coven` build would protect
-a stale `bae` dir sitting next to it.
+"Working on" is decided by open files: a build holding anything open under the
+dir or its checkout owns it (cargo keeps `<dir>/*/.cargo-lock` for the whole
+build). On the build volume, `builds` keeps any folder any process holds a file
+open in.
 
 ## Run it by hand
 
@@ -77,7 +82,9 @@ Tunables (env or flags): `RECLAIM_THRESHOLD_GB` (default 40),
 There is no launchd timer. The script runs only when a person or an agent
 invokes it. A timer once ran it every 15 minutes; while free space stayed under
 the threshold it deleted the build output of checkouts in active use and the
-compiler caches behind them, so every build was a cold one.
+compiler caches behind them, so every build was a cold one. The size caps the
+`builds` tool applies at the start of every build are what bound the build
+volume now.
 
 ## When the sweep can't help
 
