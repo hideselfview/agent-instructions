@@ -25,9 +25,10 @@ as `~/.local/bin/builds`):
 
 - `builds setup [<checkout>]` creates the links, recreates any folder behind a
   link that was deleted, moves a folder an older layout left behind into place,
-  and applies the caps to that checkout. The repo's `scripts/build-layout.sh`
-  calls it, and the hooks and every build script call that first. Without the
-  tool (CI) the script does nothing and the tools write into real directories.
+  applies the caps to that checkout, and keeps the volume's free-space floor
+  (below). The repo's `scripts/build-layout.sh` calls it, and the hooks and
+  every build script call that first. Without the tool (CI) the script does
+  nothing and the tools write into real directories.
 - `builds new [<repo>] [-b <branch>] [--no-prime]` adds the next free `side-N`
   from `origin/main`, links it, and runs its own `post-checkout` (which, in bae,
   primes the macOS build unless `--no-prime`).
@@ -78,6 +79,21 @@ rename, then the locks are released. A cargo build that starts meanwhile queues
 on the lock and writes into the new folder. Caps are about twice a fresh build
 of the folder; the next build refills it, mostly from sccache (a wipe and
 rebuild took 137 s and 8.9 GB).
+
+Caps bound folders, not the volume: a bae checkout with every platform built is
+45-52 GB, the build volume shares its APFS pool with the main disk, and with six
+bae and three coven checkouts building free space fell to 13-29 GB. So
+`builds setup` also keeps a free-space floor of 30 GiB — bae's iOS build, the
+largest single platform build (target-ios 12.2 GB + bae-ios/.build 4.9 GB
+fresh), plus a macOS build in another checkout at the same time (7.4 + 5.2 GB).
+Under the floor it first finishes removing the trash, then deletes the build
+roots of checkouts that are gone, then whole folders across every checkout,
+least recently written first, each one only if nothing wrote to it in the last
+30 minutes (a build between two of its steps holds no lock) and it passes the
+same in-use check as a cap eviction, waiting for each deletion so the next
+reading counts it. If the floor is still out of reach it fails, naming the free
+space and the biggest folders, so the build stops before it starts instead of
+running out of space halfway. `BUILDS_FREE_FLOOR_GIB` overrides the floor.
 
 Don't trim target dirs with `cargo sweep --time` or `--maxsize`: APFS refreshes
 a file's access time only when it is not newer than its modification time (8 of

@@ -18,7 +18,8 @@
 #
 # Commands:
 #   builds setup [<checkout>]   link the checkout's build paths, recreate any
-#                               missing folder, then apply the caps to it.
+#                               missing folder, apply the caps to it, then make
+#                               sure the volume has the free-space floor.
 #                               The repo's hooks and build scripts run this.
 #   builds new [<repo>] [-b <branch>] [--no-prime]
 #                               add the next free side-N worktree from
@@ -36,12 +37,27 @@
 # A folder over its cap is deleted whole and recreated empty; the next build
 # repopulates it, mostly from sccache. A folder that any process holds a file
 # open in is never deleted.
+#
+# Caps bound each folder, not the volume: a checkout with every platform built
+# is 45-52 GB, and the build volume shares its APFS pool with the main disk.
+# So `setup` also keeps a free-space floor: under it, it deletes whole idle
+# folders across every checkout, least recently written first, and fails,
+# naming the biggest folders, if it still can't reach the floor, rather than
+# let the build run out of space halfway.
 
 set -euo pipefail
 
 ROOT="${BUILDS_ROOT:-/Volumes/Builds}"
 TRASH="$ROOT/.trash"
 MANIFEST=.build-dirs
+# The free space a build may need. bae's iOS build is the largest single
+# platform build (target-ios 12.2G + bae-ios/.build 4.9G fresh); another
+# checkout building macOS at the same time (bridge 7.4G + DerivedData 5.2G) is
+# the headroom.
+FLOOR_KIB=$(( ${BUILDS_FREE_FLOOR_GIB:-30} * 1024 * 1024 ))
+# A folder written this recently may belong to a build between two of its
+# steps, when it holds no lock or open file; the floor never deletes it.
+FLOOR_IDLE_MINUTES=30
 # This script's own path, through the ~/.local/bin link `install` makes.
 self="${BASH_SOURCE[0]}"
 while [ -L "$self" ]; do
@@ -220,6 +236,7 @@ cmd_setup() {
         fi
     done < <(manifest_entries "$top")
     prune_root "$root" "$top" 0
+    keep_floor
 }
 
 # ── Pruning ─────────────────────────────────────────────────────────────────
@@ -236,9 +253,9 @@ human() {
 }
 
 # Deletes <dir> whole unless a build is using it: renamed into the trash
-# (instant, same volume) and removed in the background. <recreate>=1 puts an
-# empty folder back, so a link to it stays valid. Returns 1, deleting nothing,
-# when the folder is in use.
+# (instant, same volume) and removed in the background, or before returning
+# when <now>=1. <recreate>=1 puts an empty folder back, so a link to it stays
+# valid. Returns 1, deleting nothing, when the folder is in use.
 #
 # A build in another process can start at any moment, so "in use" is decided
 # while holding what a build holds. Cargo keeps an exclusive flock on
@@ -251,7 +268,7 @@ human() {
 # process holds a file or working directory inside them; that is checked last,
 # immediately before the rename.
 evict() {
-    local dir="$1" recreate="$2" slot
+    local dir="$1" recreate="$2" now="${3:-0}" slot
     mkdir -p "$TRASH"
     slot="$(python3 - "$dir" "$TRASH" "$recreate" <<'PY'
 import fcntl, os, subprocess, sys, tempfile
@@ -284,7 +301,11 @@ if recreate:
 print(slot)
 PY
 )" || return 1
-    nohup rm -rf "$slot" >/dev/null 2>&1 &
+    if [ "$now" = 1 ]; then
+        rm -rf "$slot"
+    else
+        nohup rm -rf "$slot" >/dev/null 2>&1 &
+    fi
 }
 
 empty_trash() {
@@ -334,6 +355,72 @@ all_roots() {
         [ -f "$marker" ] && dirname "$marker"
     done
     return 0
+}
+
+free_kib() { df -k "$ROOT" | awk 'NR==2 { print $4 }'; }
+
+# Every live checkout's build folders as "<newest write> <folder>", least
+# recently written first.
+floor_candidates() {
+    local root top path _cap
+    while IFS= read -r root; do
+        checkout_is_live "$root" || continue
+        top="$(cat "$root/.checkout")"
+        while read -r path _cap; do
+            [ -d "$root/$path" ] && echo "$(newest_write "$root/$path") $root/$path"
+        done < <(manifest_entries "$top")
+    done < <(all_roots) | sort -n
+}
+
+# Brings the volume's free space up to the floor by deleting whole folders
+# nothing is building in, least recently written first, waiting for each
+# deletion so the next free-space reading counts it. Fails, naming the
+# biggest folders, when every remaining folder is in use or freshly written.
+keep_floor() {
+    local free when dir kib root
+    free="$(free_kib)"
+    [ "$free" -ge "$FLOOR_KIB" ] && return 0
+    note "the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") floor; deleting idle build folders, least recently written first"
+    # Folders already renamed into the trash still hold their space until the
+    # background removal finishes.
+    if [ -d "$TRASH" ]; then
+        rm -rf "$TRASH" 2>/dev/null || true
+        free="$(free_kib)"
+    fi
+    while IFS= read -r root; do
+        [ "$free" -ge "$FLOOR_KIB" ] && break
+        checkout_is_live "$root" && continue
+        kib="$(kib_of "$root")"
+        if evict "$root" 0 1; then
+            note "deleted $root ($(human "${kib:-0}"); its checkout is gone)"
+            free="$(free_kib)"
+        fi
+    done < <(all_roots)
+    while read -r when dir; do
+        [ "$free" -ge "$FLOOR_KIB" ] && break
+        kib="$(kib_of "$dir")"
+        [ "${kib:-0}" -gt 1024 ] || continue
+        if find "$dir" -xdev -mmin "-$FLOOR_IDLE_MINUTES" -print -quit 2>/dev/null | grep -q .; then
+            continue
+        fi
+        if evict "$dir" 1 1; then
+            note "deleted $dir ($(human "$kib"), last write $(date -r "${when:-0}" '+%Y-%m-%d %H:%M')); its next build refills it"
+            free="$(free_kib)"
+        else
+            note "in use, kept: $dir"
+        fi
+    done < <(floor_candidates)
+    [ "$free" -ge "$FLOOR_KIB" ] && return 0
+    {
+        echo "builds: the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") a build may need, and every build folder left is in use or was written in the last ${FLOOR_IDLE_MINUTES}m. The biggest:"
+        floor_candidates | while read -r _when dir; do
+            echo "$(kib_of "$dir") $dir"
+        done | sort -rn | head -8 | while read -r kib dir; do
+            echo "    $(human "$kib")  $dir"
+        done
+        echo "Retire finished side worktrees (builds retire), or free space outside the build folders (the reclaim-disk skill)."
+    } >&2
+    exit 1
 }
 
 cmd_prune() {
