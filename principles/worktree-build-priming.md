@@ -69,10 +69,15 @@ as `~/.local/bin/builds`):
 ## Disk stays bounded by caps, not by sweeps
 
 Each folder is deleted whole (renamed into `/Volumes/Builds/.trash`, removed in
-the background, recreated empty) when it grows past its cap, unless a process
-holds a file open inside it. Caps are about twice a fresh build of the folder;
-the next build refills it, mostly from sccache (a wipe and rebuild took 137 s
-and 8.9 GB).
+the background, recreated empty) when it grows past its cap, unless a build is
+using it. Hooks and build scripts in one checkout overlap, so "in use" is
+decided while holding what a build holds: every `.cargo-lock` flock in the
+folder, taken without waiting (cargo holds one for a whole build), then a fresh
+check that no process has a file or working directory inside it, then the
+rename, then the locks are released. A cargo build that starts meanwhile queues
+on the lock and writes into the new folder. Caps are about twice a fresh build
+of the folder; the next build refills it, mostly from sccache (a wipe and
+rebuild took 137 s and 8.9 GB).
 
 Don't trim target dirs with `cargo sweep --time` or `--maxsize`: APFS refreshes
 a file's access time only when it is not newer than its modification time (8 of
