@@ -1,0 +1,553 @@
+#!/bin/bash
+# builds: this machine's build-output layout for git checkouts.
+#
+# Every checkout of a repo (the main checkout and its side worktrees side-1,
+# side-2, ...) owns one build root at a fixed path on the build volume:
+#
+#   /Volumes/Builds/<repo>/<checkout>/        checkout = main | side-N
+#
+# The repo lists its build-output paths and their size caps in `.build-dirs`
+# at its root. Each listed path is a symlink in the checkout to the same path
+# under the checkout's build root (target -> /Volumes/Builds/bae/main/target).
+#
+# The path a tool sees never changes: cargo, xcodebuild, Gradle, dotnet and
+# lake always write through `<checkout>/<path>`, so sccache keys and cargo
+# fingerprints stay valid however often the folder behind the link is deleted
+# and recreated. Two checkouts never share a folder, so their builds never
+# wait on each other's locks.
+#
+# Commands:
+#   builds setup [<checkout>]   link the checkout's build paths, recreate any
+#                               missing folder, then apply the caps to it.
+#                               The repo's hooks and build scripts run this.
+#   builds new [<repo>] [-b <branch>] [--no-prime]
+#                               add the next free side-N worktree from
+#                               origin/main, link it, run its post-checkout
+#   builds retire <checkout>    remove a side worktree and its build root
+#   builds status               every build root: size per folder vs cap
+#   builds prune [--dry-run] [--idle <minutes>]
+#                               apply the caps everywhere; delete roots whose
+#                               checkout is gone. --idle also deletes every
+#                               folder nothing wrote to for that long (how
+#                               reclaim-disk frees the build volume)
+#   builds install              put `builds` on PATH, write the sccache config,
+#                               run the sccache server under launchd
+#
+# A folder over its cap is deleted whole and recreated empty; the next build
+# repopulates it, mostly from sccache. A folder that any process holds a file
+# open in is never deleted.
+
+set -euo pipefail
+
+ROOT="${BUILDS_ROOT:-/Volumes/Builds}"
+TRASH="$ROOT/.trash"
+MANIFEST=.build-dirs
+# This script's own path, through the ~/.local/bin link `install` makes.
+self="${BASH_SOURCE[0]}"
+while [ -L "$self" ]; do
+    link_target="$(readlink "$self")"
+    case "$link_target" in
+        /*) self="$link_target" ;;
+        *) self="$(dirname "$self")/$link_target" ;;
+    esac
+done
+SELF="$(cd "$(dirname "$self")" && pwd -P)/$(basename "$self")"
+
+die() { echo "builds: $*" >&2; exit 1; }
+note() { echo "builds: $*" >&2; }
+
+# ── Checkout identity ───────────────────────────────────────────────────────
+
+checkout_top() {
+    git -C "$1" rev-parse --show-toplevel 2>/dev/null \
+        || die "$1 is not inside a git checkout"
+}
+
+# The main checkout: the directory holding the common .git.
+main_checkout() {
+    local common
+    common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir)"
+    dirname "$common"
+}
+
+repo_name() { basename "$(main_checkout "$1")"; }
+
+checkout_name() {
+    local top="$1"
+    if [ "$top" = "$(main_checkout "$top")" ]; then
+        echo main
+    else
+        basename "$top"
+    fi
+}
+
+build_root() { echo "$ROOT/$(repo_name "$1")/$(checkout_name "$1")"; }
+
+# ── Manifest ────────────────────────────────────────────────────────────────
+
+# Prints "<path> <cap-in-KiB>" per listed path; fails on a malformed line.
+manifest_entries() {
+    local file="$1/$MANIFEST" path cap rest kib
+    [ -f "$file" ] || return 0
+    while read -r path cap rest; do
+        case "$path" in ''|'#'*) continue ;; esac
+        [ -z "$rest" ] || die "$file: extra field after '$path $cap'"
+        case "$path" in
+            /*|..|../*|*/..|*/../*) die "$file: '$path' must be inside the checkout" ;;
+        esac
+        case "$cap" in
+            *[0-9]G) kib=$(( ${cap%G} * 1024 * 1024 )) ;;
+            *[0-9]M) kib=$(( ${cap%M} * 1024 )) ;;
+            *) die "$file: '$path' needs a cap like 20G or 500M, got '$cap'" ;;
+        esac
+        echo "$path $kib"
+    done < "$file"
+}
+
+has_manifest() { [ -f "$1/$MANIFEST" ]; }
+
+require_volume() {
+    [ -d "$ROOT" ] || die "build volume $ROOT is not mounted"
+}
+
+# ── Ownership of old folders during migration ──────────────────────────────
+
+worktrees_of() {
+    git -C "$1" worktree list --porcelain | sed -n 's/^worktree //p'
+}
+
+absolute_link_target() {
+    local link="$1" target
+    target="$(readlink "$link")"
+    case "$target" in
+        /*) echo "$target" ;;
+        *) echo "$(cd "$(dirname "$link")" && pwd -P)/$target" ;;
+    esac
+}
+
+# May checkout <top> take over <folder>, the folder its link points at today?
+# Never a folder inside another live checkout's build root. A folder from an
+# older layout that another checkout's link also points at goes to the main
+# checkout; a side checkout leaves it and starts its own.
+may_adopt() {
+    local folder="$1" top="$2" repo wt path _kib owner
+    repo="$(repo_name "$top")"
+    case "$folder" in
+        "$ROOT/$repo"/*/*)
+            owner="${folder#"$ROOT/$repo"/}"
+            owner="${owner%%/*}"
+            if [ -f "$ROOT/$repo/$owner/.checkout" ]; then
+                wt="$(cat "$ROOT/$repo/$owner/.checkout")"
+                if [ "$wt" != "$top" ] && checkout_is_live "$ROOT/$repo/$owner"; then
+                    return 1
+                fi
+            fi
+            ;;
+    esac
+    [ "$(checkout_name "$top")" = main ] && return 0
+    while IFS= read -r wt; do
+        [ "$wt" = "$top" ] && continue
+        while read -r path _kib; do
+            if [ -L "$wt/$path" ] && [ "$(absolute_link_target "$wt/$path")" = "$folder" ]; then
+                return 1
+            fi
+        done < <(manifest_entries "$top")
+    done < <(worktrees_of "$top")
+    return 0
+}
+
+# ── Linking ─────────────────────────────────────────────────────────────────
+
+same_volume() { [ "$(stat -f %d "$1")" = "$(stat -f %d "$2")" ]; }
+
+# Makes <link> a symlink to <dest> and makes sure <dest> exists. A link to an
+# older location hands its folder over (a rename on the build volume, so the
+# build stays warm) when may_adopt allows. A real directory left by a tool
+# that ran before the link existed moves under <dest> when it is on the build
+# volume, and is deleted otherwise.
+place() {
+    local link="$1" dest="$2" top="$3" current aside
+    if [ -L "$link" ]; then
+        current="$(absolute_link_target "$link")"
+        if [ "$current" != "$dest" ]; then
+            if [ -d "$current" ] && [ ! -e "$dest" ] && may_adopt "$current" "$top"; then
+                mkdir -p "$(dirname "$dest")"
+                mv "$current" "$dest"
+                note "moved $current -> $dest"
+            fi
+            ln -sfn "$dest" "$link"
+            note "linked ${link#"$top"/} -> $dest"
+        fi
+    elif [ -e "$link" ]; then
+        if [ ! -e "$dest" ] && same_volume "$(dirname "$link")" "$ROOT"; then
+            mkdir -p "$(dirname "$dest")"
+            mv "$link" "$dest"
+            note "moved ${link#"$top"/} into $dest"
+        else
+            # Off the build volume a move is a copy, which a build writing into
+            # the directory meanwhile breaks. The tools write through the same
+            # path either way, so sccache refills the new folder.
+            aside="$(mktemp -d "$(dirname "$link")/.builds-deleting.XXXXXX")"
+            mv "$link" "$aside/"
+            nohup rm -rf "$aside" >/dev/null 2>&1 &
+            note "deleted ${link#"$top"/}, a real directory; it builds into $dest now"
+        fi
+        ln -s "$dest" "$link"
+        note "linked ${link#"$top"/} -> $dest"
+    else
+        mkdir -p "$(dirname "$link")"
+        ln -s "$dest" "$link"
+        note "linked ${link#"$top"/} -> $dest"
+    fi
+    # A link whose folder was deleted breaks every tool that writes through it
+    # (cargo os error 20, xcodebuild rc 74, Gradle's file hash cache, dotnet
+    # MSB3021, lake error 17); recreating the folder is all any of them need.
+    mkdir -p "$dest"
+}
+
+cmd_setup() {
+    local top root path kib
+    top="$(checkout_top "${1:-.}")"
+    has_manifest "$top" || { note "$top has no $MANIFEST; nothing to link"; return 0; }
+    require_volume
+    root="$(build_root "$top")"
+    mkdir -p "$root"
+    printf '%s\n' "$top" > "$root/.checkout"
+    while read -r path kib; do
+        place "$top/$path" "$root/$path" "$top"
+        if [ "$path" = target ] && [ -n "${CARGO_TARGET_DIR:-}" ]; then
+            note "CARGO_TARGET_DIR=$CARGO_TARGET_DIR overrides $top/target for cargo run here"
+        fi
+    done < <(manifest_entries "$top")
+    prune_root "$root" "$top" 0
+}
+
+# ── Pruning ─────────────────────────────────────────────────────────────────
+
+# Every file and working directory any process of this user holds open, read
+# once per run.
+OPEN_FILES=""
+load_open_files() {
+    [ -z "$OPEN_FILES" ] || return 0
+    OPEN_FILES="$(mktemp "${TMPDIR:-/tmp}/builds-open.XXXXXX")"
+    trap 'rm -f "$OPEN_FILES"' EXIT
+    lsof -n -Fn 2>/dev/null | sed -n 's/^n//p' > "$OPEN_FILES" || true
+}
+
+# Does any process hold a file (or its working directory) inside <dir>?
+in_use() {
+    local physical
+    physical="$(cd "$1" && pwd -P)" || return 1
+    load_open_files
+    awk -v p="$physical" '$0 == p || index($0, p "/") == 1 { found = 1; exit }
+        END { exit !found }' "$OPEN_FILES"
+}
+
+kib_of() { du -sk "$1" 2>/dev/null | cut -f1; }
+
+human() {
+    local kib="$1"
+    if [ "$kib" -ge 1048576 ]; then
+        awk -v k="$kib" 'BEGIN { printf "%.1fG", k / 1048576 }'
+    else
+        awk -v k="$kib" 'BEGIN { printf "%dM", k / 1024 }'
+    fi
+}
+
+# Deletes <dir> whole: renamed into the trash (instant, same volume) and
+# removed in the background. <recreate>=1 puts an empty folder back, so a
+# link to it stays valid.
+evict() {
+    local dir="$1" recreate="$2" slot
+    mkdir -p "$TRASH"
+    slot="$(mktemp -d "$TRASH/evict.XXXXXX")"
+    mv "$dir" "$slot/"
+    if [ "$recreate" = 1 ]; then
+        mkdir -p "$dir"
+    fi
+    nohup rm -rf "$slot" >/dev/null 2>&1 &
+}
+
+empty_trash() {
+    [ -d "$TRASH" ] || return 0
+    nohup rm -rf "$TRASH" >/dev/null 2>&1 &
+}
+
+# Applies the caps of <top>'s manifest to the folders in <root>; with
+# <idle> minutes > 0, also deletes folders nothing wrote to for that long.
+prune_root() {
+    local root="$1" top="$2" dry="$3" idle="${4:-0}" path cap kib reason
+    while read -r path cap; do
+        [ -d "$root/$path" ] || continue
+        kib="$(kib_of "$root/$path")"
+        if [ "${kib:-0}" -gt "$cap" ]; then
+            reason="$(human "$kib") > $(human "$cap")"
+        elif [ "$idle" -gt 0 ] && [ "${kib:-0}" -gt 1024 ] \
+            && ! find "$root/$path" -xdev -mmin "-$idle" -print -quit 2>/dev/null | grep -q .; then
+            reason="$(human "$kib"), no write in ${idle}m"
+        else
+            continue
+        fi
+        if in_use "$root/$path"; then
+            note "in use, kept: $root/$path ($reason)"
+        elif [ "$dry" = 1 ]; then
+            note "would delete $root/$path ($reason)"
+        else
+            evict "$root/$path" 1
+            note "deleted $root/$path ($reason); the next build refills it"
+        fi
+    done < <(manifest_entries "$top")
+}
+
+# Is <root>'s checkout still a worktree whose build root is <root>?
+checkout_is_live() {
+    local root="$1" top
+    [ -f "$root/.checkout" ] || return 1
+    top="$(cat "$root/.checkout")"
+    [ -d "$top" ] || return 1
+    git -C "$top" rev-parse --show-toplevel >/dev/null 2>&1 || return 1
+    [ "$(git -C "$top" rev-parse --show-toplevel)" = "$top" ] || return 1
+    [ "$(build_root "$top")" = "$root" ]
+}
+
+all_roots() {
+    local marker
+    for marker in "$ROOT"/*/*/.checkout; do
+        [ -f "$marker" ] && dirname "$marker"
+    done
+    return 0
+}
+
+cmd_prune() {
+    local dry=0 idle=0 root top
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --dry-run) dry=1; shift ;;
+            --idle)
+                case "${2:-}" in ''|*[!0-9]*) die "prune: --idle takes minutes" ;; esac
+                idle="$2"; shift 2 ;;
+            *) die "prune: unknown option $1" ;;
+        esac
+    done
+    require_volume
+    while IFS= read -r root; do
+        top="$(cat "$root/.checkout")"
+        if ! checkout_is_live "$root"; then
+            if in_use "$root"; then
+                note "checkout $top is gone but $root is in use, kept"
+            elif [ "$dry" = 1 ]; then
+                note "would delete $root (checkout $top is gone)"
+            else
+                evict "$root" 0
+                note "deleted $root (checkout $top is gone)"
+            fi
+            continue
+        fi
+        prune_root "$root" "$top" "$dry" "$idle"
+    done < <(all_roots)
+    if [ "$dry" = 0 ]; then
+        empty_trash
+    fi
+}
+
+# ── Status ──────────────────────────────────────────────────────────────────
+
+newest_write() {
+    find "$1" -maxdepth 2 -print0 2>/dev/null \
+        | xargs -0 stat -f '%m' 2>/dev/null | sort -n | tail -1
+}
+
+cmd_status() {
+    local root top path cap kib when state total
+    require_volume
+    while IFS= read -r root; do
+        top="$(cat "$root/.checkout")"
+        if checkout_is_live "$root"; then
+            state="$(git -C "$top" branch --show-current 2>/dev/null)"
+            echo "${root#"$ROOT"/}  $top  [${state:-detached}]"
+        else
+            echo "${root#"$ROOT"/}  $top  [checkout gone: prune deletes this root]"
+            echo "    $(human "$(kib_of "$root")") total"
+            continue
+        fi
+        total=0
+        while read -r path cap; do
+            if [ ! -d "$root/$path" ]; then
+                printf '    %-34s %8s / %-6s  (no folder)\n' "$path" - "$(human "$cap")"
+                continue
+            fi
+            kib="$(kib_of "$root/$path")"
+            total=$(( total + kib ))
+            when="$(newest_write "$root/$path")"
+            if [ "$kib" -gt "$cap" ]; then state="OVER CAP"; else state=""; fi
+            printf '    %-34s %8s / %-6s  last write %s  %s\n' "$path" "$(human "$kib")" \
+                "$(human "$cap")" "$(date -r "${when:-0}" '+%Y-%m-%d %H:%M')" "$state"
+            if [ -L "$top/$path" ]; then
+                [ "$(absolute_link_target "$top/$path")" = "$root/$path" ] \
+                    || echo "      link points elsewhere: $(readlink "$top/$path")"
+            else
+                echo "      not linked: run builds setup $top"
+            fi
+        done < <(manifest_entries "$top")
+        echo "    $(human "$total") total"
+    done < <(all_roots)
+    # --show-stats would start a server if none is listening; only ask a
+    # running one.
+    if lsof -nP -iTCP:4226 -sTCP:LISTEN >/dev/null 2>&1; then
+        sccache --show-stats 2>/dev/null \
+            | grep -E '^(Cache location|Cache size|Max cache size)' | sed 's/^/sccache: /' || true
+    fi
+    df -h "$ROOT" | awk 'NR==2 { print "volume: " $4 " free of " $2 }'
+}
+
+# ── New / retire ────────────────────────────────────────────────────────────
+
+cmd_new() {
+    local repo_path="." branch="" prime=1 main repo parent n dir hook
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -b|--branch) branch="$2"; shift 2 ;;
+            --no-prime) prime=0; shift ;;
+            -*) die "new: unknown option $1" ;;
+            *) repo_path="$1"; shift ;;
+        esac
+    done
+    require_volume
+    main="$(main_checkout "$(checkout_top "$repo_path")")"
+    repo="$(basename "$main")"
+    parent="$(dirname "$main")/$repo-worktrees"
+    n=1
+    while [ -e "$parent/side-$n" ] || [ -e "$ROOT/$repo/side-$n" ]; do
+        n=$(( n + 1 ))
+    done
+    dir="$parent/side-$n"
+    mkdir -p "$parent"
+    git -C "$main" fetch -q origin
+    # The hooks the common .git points at may belong to another checkout; this
+    # one's own post-checkout runs below, after its build paths are linked.
+    if [ -n "$branch" ]; then
+        git -C "$main" -c core.hooksPath=/dev/null worktree add -q -b "$branch" "$dir" origin/main
+    else
+        git -C "$main" -c core.hooksPath=/dev/null worktree add -q --detach "$dir" origin/main
+    fi
+    cmd_setup "$dir"
+    if [ -x "$dir/scripts/install-hooks.sh" ]; then
+        (cd "$dir" && ./scripts/install-hooks.sh >/dev/null)
+    fi
+    hook="$dir/scripts/hooks/post-checkout"
+    if [ -x "$hook" ]; then
+        if [ "$prime" = 1 ]; then
+            (cd "$dir" && "$hook" 0000000000000000000000000000000000000000 "$(git rev-parse HEAD)" 1)
+        else
+            (cd "$dir" && BUILDS_SKIP_PRIME=1 "$hook" 0000000000000000000000000000000000000000 "$(git rev-parse HEAD)" 1)
+        fi
+    fi
+    echo "$dir"
+}
+
+cmd_retire() {
+    local top main root
+    [ $# -eq 1 ] || die "usage: builds retire <checkout>"
+    top="$(checkout_top "$1")"
+    main="$(main_checkout "$top")"
+    [ "$top" != "$main" ] || die "$top is the main checkout; only side worktrees retire"
+    root="$(build_root "$top")"
+    if [ -n "$(git -C "$top" status --porcelain)" ]; then
+        die "$top has uncommitted or untracked files; commit or remove them first"
+    fi
+    git -C "$main" worktree remove "$top"
+    if [ -d "$root" ]; then
+        if in_use "$root"; then
+            die "worktree removed, but a process holds files in $root; run builds prune once it exits"
+        fi
+        evict "$root" 0
+    fi
+    note "retired $top and deleted $root"
+}
+
+# ── Install ─────────────────────────────────────────────────────────────────
+
+SCCACHE_LABEL=local.sccache-server
+SCCACHE_CACHE_SIZE_BYTES=$(( 40 * 1024 * 1024 * 1024 ))
+
+cmd_install() {
+    local sccache_bin config_dir plist
+    mkdir -p "$HOME/.local/bin"
+    ln -sfn "$SELF" "$HOME/.local/bin/builds"
+    note "linked ~/.local/bin/builds -> $SELF"
+
+    sccache_bin="$(command -v sccache)" || die "sccache is not installed"
+    # sccache reads this file on every client and server start, whatever the
+    # caller's environment, so the cap holds for builds that never source a
+    # shell profile.
+    config_dir="$HOME/Library/Application Support/Mozilla.sccache"
+    mkdir -p "$config_dir"
+    cat > "$config_dir/config" <<EOF
+# Written by builds install ($SELF).
+[cache.disk]
+size = $SCCACHE_CACHE_SIZE_BYTES
+EOF
+    note "wrote $config_dir/config (40 GiB cache)"
+
+    # One server on sccache's default TCP port, started with the system
+    # TMPDIR: a server inherits the TMPDIR of whichever client starts it, and a
+    # session-scoped TMPDIR deleted later fails every compile. launchd starts
+    # it at login, restarts it if it exits, and it never idles out, so no
+    # client has a reason to start one of its own. SCCACHE_START_SERVER=1 makes
+    # this process the server and SCCACHE_NO_DAEMON=1 keeps it from forking, so
+    # it is the process launchd watches (`--start-server` forks the server off,
+    # and the server daemonizes itself without NO_DAEMON).
+    plist="$HOME/Library/LaunchAgents/$SCCACHE_LABEL.plist"
+    cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Written by builds install ($SELF). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$SCCACHE_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>TMPDIR="\$(getconf DARWIN_USER_TEMP_DIR)" exec "$sccache_bin"</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SCCACHE_START_SERVER</key>
+    <string>1</string>
+    <key>SCCACHE_NO_DAEMON</key>
+    <string>1</string>
+    <key>SCCACHE_IDLE_TIMEOUT</key>
+    <string>0</string>
+    <key>SCCACHE_ERROR_LOG</key>
+    <string>$HOME/Library/Logs/sccache-server.log</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+</dict>
+</plist>
+EOF
+    launchctl bootout "gui/$(id -u)/$SCCACHE_LABEL" 2>/dev/null || true
+    "$sccache_bin" --stop-server >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$(id -u)" "$plist"
+    note "started the sccache server under launchd ($plist)"
+}
+
+# ── Dispatch ────────────────────────────────────────────────────────────────
+
+[ $# -ge 1 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$SELF"; exit 2; }
+command="$1"
+shift
+case "$command" in
+    setup) cmd_setup "$@" ;;
+    new) cmd_new "$@" ;;
+    retire) cmd_retire "$@" ;;
+    status) cmd_status "$@" ;;
+    prune) cmd_prune "$@" ;;
+    install) cmd_install "$@" ;;
+    -h|--help|help) sed -n '2,/^$/s/^# \{0,1\}//p' "$SELF" ;;
+    *) die "unknown command $command (setup | new | retire | status | prune | install)" ;;
+esac
