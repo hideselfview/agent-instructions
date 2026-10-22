@@ -30,6 +30,13 @@ gate locally when it fails.
 only when explicitly validating the complete non-Windows system locally, not as
 the routine local gate before a commit or push.
 
+## The spec moves with every commit
+
+`spec/bae.md` states what bae does. Every commit checks whether it changes, or
+adds, anything the spec states or should state — behavior, a schema or sync
+shape, a user-visible rule — and edits the spec in that same commit. A commit
+without its spec edit is unfinished: never leave the spec for a follow-up.
+
 ## File layout
 
 Source files may not exceed 1,000 lines (`scripts/check-source-file-size.py`,
