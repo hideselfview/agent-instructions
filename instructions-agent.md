@@ -295,15 +295,17 @@ following an explicit instruction to commit without the hook.
   landed, or delete and recreate it — setup (fresh checkout, dependency install,
   build priming) costs minutes and disk, and the warm build is lost.
 - A second side worktree only while two agents work unrelated branches in the
-  same repo at once; remove it when its work lands.
+  same repo at once; create it with `builds new` (`side-2`, …) and remove it
+  with `builds retire` when its work lands.
 
-When the per-worktree setup primes a heavy build (a SwiftPM/xcodebuild prime, a
-dependency compile), that prime is both the "minutes and disk" cost above and,
-under `sccache`, a concurrency hazard — parallel worktree creations race
-sccache's temp dir and fail. See `principles/worktree-build-priming.md` for
-skipping the prime when the work doesn't need it, the target-dir reuse that
-keeps the pre-commit hook's build from failing, and SwiftPM/Sparkle cache
-recovery.
+Each checkout builds into its own folders on the build volume
+(`/Volumes/Builds/<repo>/<checkout>/`), linked from the paths the repo's
+`.build-dirs` lists and kept under their size caps by the `builds` tool (`new`,
+`retire`, `status`, `prune`). Never point a build at another dir with
+`CARGO_TARGET_DIR` or other inline `CARGO_*` variables: the path is part of
+sccache's key. See `principles/worktree-build-priming.md` for the layout, the
+sccache server, skipping a heavy prime (`builds new --no-prime`), and
+SwiftPM/Sparkle cache recovery.
 
 **Fast-forward merges only.** No merge commits in `main`'s history. Rebase the
 branch onto current `main` first, then `git merge --ff-only`. If ff fails,

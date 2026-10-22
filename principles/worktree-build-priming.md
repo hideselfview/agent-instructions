@@ -1,117 +1,109 @@
-# Agent worktrees with build-priming hooks (Rust + Swift/Xcode)
+# Build output per checkout, and the `builds` tool
 
-Worktree mechanics for projects whose `post-checkout` hook primes a heavy build
-on `git worktree add` — a SwiftPM/xcodebuild prime, a dependency compile,
-codegen. Pairs with the worktree rules in `instructions-agent.md` ("Worktrees
-are for agent parallelism"); this file is the build-infra layer those rules
-gesture at with "whatever per-worktree setup the project runs."
+How build output is laid out on this machine for repos with several checkouts
+(the main checkout plus side worktrees `side-1`, `side-2`, …): Rust, Xcode,
+Gradle, dotnet and Lean output alike. Pairs with the worktree rules in
+`instructions-agent.md`; this file is the build-infra layer those rules gesture
+at with "whatever per-worktree setup the project runs."
 
-## The prime hook is slow and, under sccache, concurrency-hostile
+## The layout
 
-A `post-checkout` hook that compiles on worktree creation has two costs:
+Every checkout owns one build root at a fixed path on the build volume:
 
-- **Slow.** Every `git worktree add` pays a full prime.
-- **Races sccache.** When the prime compiles through `sccache`
-  (`RUSTC_WRAPPER=sccache`, common in the repo's `.cargo/config.toml` or the
-  shell env), two worktree creations running at once race sccache's shared temp
-  dir and fail: `error: couldn't create a temp dir: No such file or directory`.
-  Spawning N agents that each create an isolated worktree triggers exactly this.
-
-So never create sccache-backed worktrees concurrently. Serialize creation, or
-skip the prime (below) so there is no concurrent compile to race.
-
-## Skip the prime when the work doesn't need it
-
-A prime that warms a *platform* build (macOS/iOS/Android) is dead work for a
-change confined to a lower layer (the Rust core) — provided the pre-commit hook
-already skips that platform build when no platform files changed (a good
-pre-commit hook does; confirm it for the project). Create the worktree without
-the setup hook, then do by hand only what the core build actually needs:
-
-```sh
-git -c core.hooksPath=/dev/null worktree add -b <branch> <path> <base-ref>
-# minimal setup the core build needs, e.g.:
-ln -sfn <main-checkout>/<native-libs-dir> <path>/<native-libs-dir>  # prebuilt native deps
-ln -sf <project-CLAUDE.md-source> <path>/CLAUDE.md                  # project rules
+```
+/Volumes/Builds/<repo>/<checkout>/        checkout = main | side-N
 ```
 
-This skips only the **setup/prime** hook. The commit-time **pre-commit
-verification** hook still runs by default — skipping a build prime is not
-bypassing verification. Skipping the commit hook requires the user's explicit
-authorization under the main agent workflow policy.
+The repo lists its build output paths, each with a size cap, in `.build-dirs` at
+its root (`target`, `target-macos`, Xcode `.build` dirs, Gradle `build` and
+`.gradle`, dotnet `obj`/`bin`, Lean `.lake`). Each listed path is a symlink in
+the checkout to the same path under the checkout's root:
+`~/dev/bae/target -> /Volumes/Builds/bae/main/target`.
 
-Native-library paths a core build links against usually come from the repo's
-`.cargo/config.toml` (`LIBRARY_PATH`, `PKG_CONFIG_PATH`), so a lean worktree
-builds the core with no prime at all.
+The tool is `builds` (`~/dev/agent-instructions/scripts/builds/builds`, on PATH
+as `~/.local/bin/builds`):
 
-## A per-project target dir dissolves both sccache failures
+- `builds setup [<checkout>]` creates the links, recreates any folder behind a
+  link that was deleted, moves a folder an older layout left behind into place,
+  and applies the caps to that checkout. The repo's `scripts/build-layout.sh`
+  calls it, and the hooks and every build script call that first. Without the
+  tool (CI) the script does nothing and the tools write into real directories.
+- `builds new [<repo>] [-b <branch>] [--no-prime]` adds the next free `side-N`
+  from `origin/main`, links it, and runs its own `post-checkout` (which, in bae,
+  primes the macOS build unless `--no-prime`).
+- `builds retire <checkout>` removes a clean side worktree and its build root.
+- `builds status` lists every root: size per folder against its cap, last write,
+  whether the link is in place.
+- `builds prune [--dry-run] [--idle <minutes>]` applies the caps everywhere and
+  deletes roots whose checkout is gone; `--idle` also deletes every folder
+  nothing wrote to for that long (the reclaim-disk skill uses it).
+- `builds install` puts the tool on PATH, writes the sccache config and runs the
+  sccache server under launchd.
 
-Both failures below have one cause: sccache writes its temp files inside the
-target dir's `deps/`, and a brand-new `CARGO_TARGET_DIR` has none. Per-worktree
-target dirs manufacture that condition on every worktree creation — which is why
-projects end up disabling sccache to work around it, losing the cache to avoid a
-problem the fresh dir created, and then paying for it on every build.
+## Why one root per checkout, at a path that never changes
 
-Point every worktree of a project at one target dir instead. It is warm after
-the first build and never fresh again, so neither failure can occur, and the
-worktrees stop duplicating ~26 GB of linked artifacts each.
+- **No shared target dir.** Two checkouts building into one dir serialize on
+  cargo's build-dir lock (the second waited 84 s) and then recompile what the
+  other changed (13 units). Separate dirs build concurrently. Don't set
+  `CARGO_TARGET_DIR` in the shell profile or inline; the checkout's `target`
+  link is the target dir.
+- **The path is part of the sccache key.** sccache hashes every `CARGO_*`
+  variable (including `CARGO_TARGET_DIR`), the working directory, `OUT_DIR` and
+  the `--extern` paths. A build into a different path gets 0% hits; the same
+  path deleted and rebuilt gets 100% (137 s against 332 s cold). Tools always
+  write through `<checkout>/<path>`, so deleting the folder behind a link never
+  costs the cache.
+- **No extra `CARGO_*` variables in scripts.** `CARGO_NET_OFFLINE`,
+  `CARGO_PROFILE_*` and the like split the cache the same way (0 of 15 hits).
+  `RUSTC_WRAPPER=""` turns the cache off; nothing needs it on macOS (Windows CI
+  sets it for the 32K command-line limit).
+- **A dangling link breaks every tool** — cargo (os error 20), xcodebuild (rc
+  74), Gradle ("Could not open file hash cache"), dotnet (NuGet/MSB3021), lake
+  (error 17). Recreating the folder fixes all of them, which is why every entry
+  point runs `builds setup` before building.
+- **A build in a linked worktree must not depend on the worktree's git dir
+  holding shared refs.** `.git/worktrees/<name>/` has no `refs/tags`; a build
+  script that watches a missing path reruns on every build. Watch shared refs
+  through `git rev-parse --git-common-dir`.
 
-Derive it in `~/.zshenv`, not `~/.zshrc` — git hooks and agent-run builds are
-non-interactive shells, which never source `.zshrc`, so guidance placed there
-silently does nothing for exactly the builds that matter:
+## Disk stays bounded by caps, not by sweeps
 
-```sh
-() {
-  local common_dir project
-  common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || {
-    export CARGO_TARGET_DIR="$HOME/.cargo-target/_shared"; return
-  }
-  project=${${common_dir:A:h}:t}
-  export CARGO_TARGET_DIR="$HOME/.cargo-target/${project:-_shared}"
-}
-```
+Each folder is deleted whole (renamed into `/Volumes/Builds/.trash`, removed in
+the background, recreated empty) when it grows past its cap, unless a process
+holds a file open inside it. Caps are about twice a fresh build of the folder;
+the next build refills it, mostly from sccache (a wipe and rebuild took 137 s
+and 8.9 GB).
 
-`--git-common-dir` rather than `--show-toplevel`: in a worktree the toplevel is
-the worktree, while the common dir points at the main checkout, so every
-worktree of a project resolves to the same name whether worktrees sit inside the
-repo or beside it.
+Don't trim target dirs with `cargo sweep --time` or `--maxsize`: APFS refreshes
+a file's access time only when it is not newer than its modification time (8 of
+1,325 fingerprint dirs refreshed after a build), so the sweep deletes the build
+needed next and leaves 14–17 GB anyway. `cargo sweep --installed` is fine after
+a toolchain upgrade.
 
-Per *project*, not one global dir: cargo locks the target directory for the
-length of a build, so a single shared dir makes one project's build block
-another's. Keep `RUSTC_WRAPPER=sccache` and `CARGO_INCREMENTAL=0` alongside it —
-sccache cannot cache incremental compilations, and incremental is the weaker
-choice across worktrees anyway, since its state is keyed by crate and profile
-rather than by source, so two branches repeatedly invalidate each other.
-Measured on one repo: a one-file core rebuild went from 41.6s to 13.3s.
+## One sccache server
 
-Also drop any project instruction telling agents to pass `CARGO_TARGET_DIR=…` or
-`RUSTC_WRAPPER=` inline. An inline env var overrides the shared setting, so
-following that guidance re-creates the cold per-worktree dir the setup exists to
-avoid.
+- One server on sccache's default TCP port (4226), cache capped at 40 GiB in
+  `~/Library/Application Support/Mozilla.sccache/config` (the working set of the
+  checkouts is about 30 GiB; each checkout state writes about 3.3 GiB).
+- Started by launchd (`local.sccache-server`) with the system `TMPDIR` and no
+  idle timeout. A server inherits the `TMPDIR` of whichever client starts it;
+  once that directory is deleted every compile fails. Don't use the Unix-socket
+  mode (`SCCACHE_SERVER_UDS`): concurrent client starts raced (3 of 20 failed)
+  and left orphaned servers.
+- Fresh target dirs are fine: sccache does not need an existing `deps/`, and
+  concurrent worktree creation does not race it. Failures blamed on that were
+  one of the two causes above.
+- Sharing across checkouts is partial and no setting fixes it: registry crates
+  about 72% hits, git dependencies 0%, workspace crates about 29%.
 
-## sccache + a fresh target dir: build once, then reuse it
-
-sccache also fails to write into a brand-new `CARGO_TARGET_DIR` — the `deps/`
-subdir doesn't exist yet — the same `couldn't create a temp dir` error, with no
-concurrency involved. Build once into a target dir to establish it, then reuse
-that one dir for every later build, test, and commit in the worktree.
-
-The pre-commit hook compiles too, so pass the same env inline on the commit or
-its build hits a fresh dir and fails:
-
-```sh
-CARGO_TARGET_DIR=<dir> RUSTC_WRAPPER= git commit -m "..."
-```
-
-`RUSTC_WRAPPER=` (empty) disables sccache for that build, sidestepping the
-temp-dir race entirely; reuse one warm target dir so rebuilds stay incremental
-despite the lost cache.
+Keep `split-debuginfo` unpacked (the macOS default): packed was 33% slower and
+53% bigger, and off drops file:line from the top crate's frames.
 
 ## SPM / Sparkle cache recovery (Swift/Xcode + SwiftPM)
 
-If xcodebuild (in the prime or the pre-commit hook) fails with "Couldn't check
-out revision" or "file not found" on a SwiftPM dependency (Sparkle is a frequent
-offender), its checkout cache is corrupt. Clear it and rebuild:
+If xcodebuild fails with "Couldn't check out revision" or "file not found" on a
+SwiftPM dependency (Sparkle is a frequent offender), its checkout cache is
+corrupt. Clear it and rebuild:
 
 ```sh
 rm -rf <app>/.build/derivedData
@@ -121,6 +113,6 @@ cd <app> && xcodebuild -project <proj>.xcodeproj -scheme <scheme> \
 ```
 
 VPN can cause incomplete git fetches that corrupt the SwiftPM cache; disconnect
-and retry. The prime hook must use the **same** xcodebuild flags as the
-pre-commit hook (notably `-derivedDataPath`) — otherwise the primed packages
-land where the pre-commit xcodebuild can't find them and it fails.
+and retry. A prime and the scripts that build after it must use the same
+xcodebuild flags (notably `-derivedDataPath`), or the primed packages land where
+the later build can't find them.

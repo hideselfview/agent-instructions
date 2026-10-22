@@ -62,55 +62,43 @@ from the repo and from review. To check a bridge type's existence/fields, or
 whether a UI type duplicates one, read `bae-bridge/src/types.rs`; never conclude
 from the (missing) generated file.
 
-## Worktrees and build priming (bae-macos)
+## Worktrees and build output
 
-The `post-checkout` hook (`scripts/hooks/post-checkout`, installed via
-`scripts/install-hooks.sh`) primes the macOS SwiftPM/xcodebuild cache on
-new-worktree creation, with the same flags the pre-commit hook uses
-(`-scheme bae`, `-derivedDataPath .build/derivedData`). The general mechanics —
-skipping this prime, the sccache temp-dir pitfalls, and SwiftPM cache recovery —
-are in `principles/worktree-build-priming.md`. The bae specifics:
+Each checkout builds into its own folders on the build volume:
+`/Volumes/Builds/bae/<checkout>/` (`main`, `side-1`, …), linked from the paths
+`.build-dirs` lists (`target`, `target-macos`, `target-ios`, `target-android`,
+the Xcode `.build` dirs, Gradle's, Avalonia's `obj`/`bin`). The `builds` tool
+manages them; the layout, the measurements behind it, sccache and SwiftPM
+recovery are in `principles/worktree-build-priming.md`. The bae specifics:
 
-- **Lean worktree for bae-core-only changes** (nothing under bae-bridge or the
-  platform apps): the macOS prime is redundant — the pre-commit hook skips the
-  macOS build when no bridge/macOS files changed. Create without the prime and
-  symlink the two things bae-core needs:
-
-  ```sh
-  git -c core.hooksPath=/dev/null worktree add -b <branch> <path> origin/main
-  ln -sfn /path/to/main/bae-ffmpeg <path>/bae-ffmpeg   # prebuilt FFmpeg dist
-  ln -sf ~/dev/agent-instructions/projects/bae.md <path>/CLAUDE.md
-  ```
+- **New side worktree:** `builds new ~/dev/bae` creates the next free
+  `~/dev/bae-worktrees/side-N` from `origin/main` and runs its `post-checkout`,
+  which links the build folders, `CLAUDE.md`, the main checkout's `bae-ffmpeg`
+  and the signing/feature xcconfigs, then primes: builds the bridge and the
+  macOS app once so the first app build is incremental. For work that never
+  builds an app (bae-core, docs), skip the prime with
+  `builds new --no-prime ~/dev/bae`. `builds retire <worktree>` removes a side
+  worktree and its folders once its branch has landed.
 
   bae-core finds FFmpeg via `FFMPEG_DIR` (set to `bae-ffmpeg/dist` in
-  `.cargo/config.toml`), so it builds with no prime — the MusicBrainz disc ID is
-  pure Rust now, no native libdiscid to link. Running the tests needs the FFmpeg
-  dylibs on the loader path: `DYLD_LIBRARY_PATH=$PWD/bae-ffmpeg/dist/lib` (or
-  the export `scripts/setup-ffmpeg.sh` prints).
+  `.cargo/config.toml`), so it builds with no prime. Running the tests needs the
+  FFmpeg dylibs on the loader path: `DYLD_LIBRARY_PATH=$PWD/bae-ffmpeg/dist/lib`
+  (or the export `scripts/setup-ffmpeg.sh` prints).
 
-  **Don't set `CARGO_TARGET_DIR` or `RUSTC_WRAPPER` per command.** The shell
-  environment points every checkout at one shared target dir with sccache on;
-  overriding either inline gives that worktree its own cold dir and no cache,
-  which is both slower and the thing that fills the disk when several agents
-  build at once. The pre-commit hook reads the shared value (it defaults its own
-  only when nothing is set), so a plain `git commit` is correct. Earlier
-  guidance here said the opposite — it was written when each worktree had its
-  own fresh target dir, which is exactly the condition that broke sccache.
+- **Don't set `CARGO_TARGET_DIR`, `RUSTC_WRAPPER` or other `CARGO_*` variables
+  per command.** Host cargo (tests, clippy, the pre-commit hook) builds into the
+  checkout's `target`; `bae-bridge/build-macos.sh`, `build-ios.sh` and
+  `build-android.sh` build into `target-macos`, `target-ios` and
+  `target-android`, each its own folder because they read the built staticlib
+  back to generate bindings. Each of those paths is part of sccache's key, so an
+  inline override gets no cache hits.
 
-  One exception the shared dir does not cover: `bae-bridge/build-macos.sh`,
-  `build-ios.sh`, and `build-android.sh` each pin their own per-checkout target
-  dir (`target-macos/`, `target-ios/`, `target-android/`) on purpose, because
-  they read the built staticlib back out to generate bindings and a shared dir
-  could be rewritten by a concurrent build between the build and that read. The
-  pre-commit hook does not run them (it runs fmt, clippy on the changed crates,
-  linters, and the catalog checks); the worktree prime does (`post-checkout`, or
-  `build-macos.sh` by hand before a macOS test run), and each run leaves a ~16
-  GB `target-macos/` in that worktree. Leave it there after the branch lands:
-  the person tests from that worktree and reuses the build. The disk sweep
-  removes it once idle; delete it by hand only when the disk is actually full
-  and it is the idle candidate.
+- **Folders are deleted whole when they pass their cap** in `.build-dirs`, at
+  the start of the next hook or build script in that checkout, and refilled by
+  that build. Leave them otherwise: the person tests from a side worktree and
+  reuses its build. `builds status` shows each checkout's sizes.
 
-- **Sparkle is the SwiftPM dep that corrupts** (pre-commit fails with "Couldn't
+- **Sparkle is the SwiftPM dep that corrupts** (xcodebuild fails with "Couldn't
   check out revision" or "file not found" on Sparkle):
 
   ```sh
