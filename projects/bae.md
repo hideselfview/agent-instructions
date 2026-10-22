@@ -80,12 +80,12 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
 
 - **New side worktree:** `builds new ~/dev/bae` creates the next free
   `~/dev/bae-worktrees/side-N` from `origin/main` and runs its `post-checkout`,
-  which links the build folders, `CLAUDE.md`, the main checkout's `bae-ffmpeg`
-  and the signing/feature xcconfigs, then primes: builds the bridge and the
-  macOS app once so the first app build is incremental. For work that never
-  builds an app (bae-core, docs), skip the prime with
-  `builds new --no-prime ~/dev/bae`. `builds retire <worktree>` removes a side
-  worktree and its folders once its branch has landed.
+  which links the build folders, `CLAUDE.md`, the main checkout's `bae-ffmpeg`,
+  the signing/feature xcconfigs and `bae-android/local.properties`, then primes:
+  builds the bridge and the macOS app once so the first app build is
+  incremental. For work that never builds an app (bae-core, docs), skip the
+  prime with `builds new --no-prime ~/dev/bae`. `builds retire <worktree>`
+  removes a side worktree and its folders once its branch has landed.
 
   bae-core finds FFmpeg via `FFMPEG_DIR` (set to `bae-ffmpeg/dist` in
   `.cargo/config.toml`), so it builds with no prime. Running the tests needs the
