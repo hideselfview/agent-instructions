@@ -24,11 +24,12 @@ The tool is `builds` (`~/dev/agent-instructions/scripts/builds/builds`, on PATH
 as `~/.local/bin/builds`):
 
 - `builds setup [<checkout>]` creates the links, recreates any folder behind a
-  link that was deleted, moves a folder an older layout left behind into place,
-  applies the caps to that checkout, and keeps the volume's free-space floor
-  (below). The repo's `scripts/build-layout.sh` calls it, and the hooks and
-  every build script call that first. Without the tool (CI) the script does
-  nothing and the tools write into real directories.
+  link that was deleted, deletes a folder an older layout left behind (never
+  moves it: Xcode's DerivedData records its own absolute path, so a moved one
+  can't find its packages), applies the caps to that checkout, and keeps the
+  volume's free-space floor (below). The repo's `scripts/build-layout.sh` calls
+  it, and the hooks and every build script call that first. Without the tool
+  (CI) the script does nothing and the tools write into real directories.
 - `builds new [<repo>] [-b <branch>] [--no-prime]` adds the next free `side-N`
   from `origin/main`, links it, and runs its own `post-checkout` (which, in bae,
   primes the macOS build unless `--no-prime`).

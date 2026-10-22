@@ -141,11 +141,11 @@ absolute_link_target() {
     esac
 }
 
-# May checkout <top> take over <folder>, the folder its link points at today?
+# May checkout <top> delete <folder>, the folder its link points at today?
 # Never a folder inside another live checkout's build root. A folder from an
-# older layout that another checkout's link also points at goes to the main
-# checkout; a side checkout leaves it and starts its own.
-may_adopt() {
+# older layout that another checkout's link also points at is the main
+# checkout's to delete; a side checkout leaves it and starts its own.
+may_delete() {
     local folder="$1" top="$2" repo wt path _kib owner
     repo="$(repo_name "$top")"
     case "$folder" in
@@ -176,38 +176,43 @@ may_adopt() {
 
 same_volume() { [ "$(stat -f %d "$1")" = "$(stat -f %d "$2")" ]; }
 
-# Makes <link> a symlink to <dest> and makes sure <dest> exists. A link to an
-# older location hands its folder over (a rename on the build volume, so the
-# build stays warm) when may_adopt allows. A real directory left by a tool
-# that ran before the link existed moves under <dest> when it is on the build
-# volume, and is deleted otherwise.
+# Deletes <dir>, a build folder from an older layout: through evict on the
+# build volume, which refuses while a build uses it; elsewhere renamed aside
+# and removed in the background. Returns 1, deleting nothing, when in use.
+discard() {
+    local dir="$1" aside
+    if same_volume "$dir" "$ROOT"; then
+        evict "$dir" 0 || return 1
+    else
+        aside="$(mktemp -d "$(dirname "$dir")/.builds-deleting.XXXXXX")"
+        mv "$dir" "$aside/"
+        nohup rm -rf "$aside" >/dev/null 2>&1 &
+    fi
+}
+
+# Makes <link> a symlink to <dest> and makes sure <dest> exists. A folder at
+# any other place — behind a link to an older location (when may_delete says
+# it is this checkout's), or a real directory a tool left before the link
+# existed — is deleted, never moved: Xcode's DerivedData records its own
+# absolute path, so a moved one fails to find its packages. The next build
+# refills <dest>, cargo mostly from sccache.
 place() {
-    local link="$1" dest="$2" top="$3" current aside
+    local link="$1" dest="$2" top="$3" current
     if [ -L "$link" ]; then
         current="$(absolute_link_target "$link")"
         if [ "$current" != "$dest" ]; then
-            if [ -d "$current" ] && [ ! -e "$dest" ] && may_adopt "$current" "$top"; then
-                mkdir -p "$(dirname "$dest")"
-                mv "$current" "$dest"
-                note "moved $current -> $dest"
+            if [ -d "$current" ] && may_delete "$current" "$top"; then
+                discard "$current" \
+                    || die "a build is using $current; run builds setup again once it ends"
+                note "deleted $current, a folder from an older layout"
             fi
             ln -sfn "$dest" "$link"
             note "linked ${link#"$top"/} -> $dest"
         fi
     elif [ -e "$link" ]; then
-        if [ ! -e "$dest" ] && same_volume "$(dirname "$link")" "$ROOT"; then
-            mkdir -p "$(dirname "$dest")"
-            mv "$link" "$dest"
-            note "moved ${link#"$top"/} into $dest"
-        else
-            # Off the build volume a move is a copy, which a build writing into
-            # the directory meanwhile breaks. The tools write through the same
-            # path either way, so sccache refills the new folder.
-            aside="$(mktemp -d "$(dirname "$link")/.builds-deleting.XXXXXX")"
-            mv "$link" "$aside/"
-            nohup rm -rf "$aside" >/dev/null 2>&1 &
-            note "deleted ${link#"$top"/}, a real directory; it builds into $dest now"
-        fi
+        discard "$link" \
+            || die "a build is using ${link#"$top"/}; run builds setup again once it ends"
+        note "deleted ${link#"$top"/}, a real directory; it builds into $dest now"
         ln -s "$dest" "$link"
         note "linked ${link#"$top"/} -> $dest"
     else
