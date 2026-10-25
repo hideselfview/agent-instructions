@@ -8,9 +8,8 @@ matrices are deprecated.
 
 ## Layout
 
-- `instructions-agent.md` — always-on agent behavior: identity (`# You`),
-  working style (anti-bias rules), communication style, writing style, agent
-  workflow.
+- `instructions-agent.md` — always-on agent behavior: working style,
+  communication style, writing style, agent workflow.
 - `claude/CLAUDE.md` — generated, gitignored: `instructions-agent.md` only.
   Linked into `~/.claude/CLAUDE.md`.
 - `codex/AGENTS.md` — generated, gitignored: `instructions-agent.md` plus a

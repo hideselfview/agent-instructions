@@ -24,10 +24,9 @@ the revealing option. Failure cuts both ways:
   "good enough" approximations, deferred details, single types doing the work of
   two or three genuinely distinct things.
 
-Both obscure the shape. When a human-easy fix conflicts with revealing real
-structure (in either direction), prioritize structure. Human-ease is for humans;
-for you the work is cheap, which is the whole point. When ease and structure
-align, fine — but ease is never the justification.
+Both obscure the shape. When an easy fix conflicts with revealing real structure
+(in either direction), prioritize structure. When ease and structure align, fine
+— but ease is never the justification.
 
 ## Examples
 
