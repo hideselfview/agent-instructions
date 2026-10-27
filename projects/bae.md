@@ -87,10 +87,11 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   prime with `builds new --no-prime ~/dev/bae`. `builds retire <worktree>`
   removes a side worktree and its folders once its branch has landed.
 
-  bae-core finds FFmpeg via `FFMPEG_DIR` (set to `bae-ffmpeg/dist` in
-  `.cargo/config.toml`), so it builds with no prime. Running the tests needs the
-  FFmpeg dylibs on the loader path: `DYLD_LIBRARY_PATH=$PWD/bae-ffmpeg/dist/lib`
-  (or the export `scripts/setup-ffmpeg.sh` prints).
+  bae-audio links FFmpeg and finds it via `FFMPEG_DIR` (set to `bae-ffmpeg/dist`
+  in `.cargo/config.toml`), so bae-audio and bae-core build with no prime.
+  Running their tests needs the FFmpeg dylibs on the loader path:
+  `DYLD_LIBRARY_PATH=$PWD/bae-ffmpeg/dist/lib` (or the export
+  `scripts/setup-ffmpeg.sh` prints).
 
 - **Don't set `CARGO_TARGET_DIR`, `RUSTC_WRAPPER` or other `CARGO_*` variables
   per command.** Host cargo (tests, clippy, the pre-commit hook) builds into the
