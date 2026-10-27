@@ -38,6 +38,8 @@ How a background agent ships a non-trivial feature or fix (elaborates
 6. **Local checks: only what the change affects.**
    - Run: hooks, builds for touched platforms, tests covering the changed code
      (`cargo test -p <touched> <filter>`, one test class, one platform's lint).
+     App builds run in the repo's app checkout under its lock, not in your side
+     worktree (`principles/worktree-build-priming.md`).
    - Never: a whole app test suite (it launches the app on the person's screen),
      the full CI script, or other slow suites — CI runs those.
    - No pre-commit hooks in the project? Add them. Fix real failures in what you

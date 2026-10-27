@@ -30,9 +30,9 @@ as `~/.local/bin/builds`):
   volume's free-space floor (below). The repo's `scripts/build-layout.sh` calls
   it, and the hooks and every build script call that first. Without the tool
   (CI) the script does nothing and the tools write into real directories.
-- `builds new [<repo>] [-b <branch>] [--no-prime]` adds the next free `side-N`
-  from `origin/main`, links it, and runs its own `post-checkout` (which, in bae,
-  primes the macOS build unless `--no-prime`).
+- `builds new [<repo>] [-b <branch>]` adds the next free `side-N` from
+  `origin/main`, links it, and runs its own `post-checkout`, which sets the
+  checkout up and builds nothing.
 - `builds retire <checkout>` removes a clean side worktree and its build root.
 - `builds status` lists every root: size per folder against its cap, last write,
   whether the link is in place.
@@ -41,6 +41,55 @@ as `~/.local/bin/builds`):
   nothing wrote to for that long (the reclaim-disk skill uses it).
 - `builds install` puts the tool on PATH, writes the sccache config and runs the
   sccache server under launchd.
+
+## App builds live in main and one app checkout
+
+By default a side worktree builds host output only: for Rust, `target`, which
+tests, clippy and the pre-commit hook use. App builds (an Xcode app, a Gradle
+app, a bridge cross-compiled for a platform) are 10–20 GB per platform per
+checkout; with every side worktree holding them, the free-space floor kept
+deleting them and no app build stayed warm. A repo with app builds keeps them
+warm in two checkouts:
+
+- **main**, for the person's installs and releases.
+- **The app checkout**, one long-lived side worktree, named in the project's
+  instructions file (bae: `side-1`). Agents take turns in it, one command at a
+  time, under its lock.
+
+Another checkout may hold a warm app build while a wave of work needs it — the
+person asks for an app build in a particular worktree, or parallel agents each
+need one. Same judgment as extra worktrees: keep it while that work lasts, and
+clear it once the work has clearly moved on (retire the worktree, or delete the
+folders behind its app links while nothing builds there; the next `builds setup`
+recreates them empty). The caps and the floor bound whatever a checkout builds;
+they are the safety net, not the rule.
+
+The app checkout's working tree belongs to whoever holds
+`/Volumes/Builds/<repo>/app.lock`, and only for the command they run holding it:
+nobody edits there or leaves changes behind. Commit your work on your branch in
+your own side worktree, then run one command that holds the lock, moves the app
+checkout to your commit and builds. In bae:
+
+```sh
+lockf -k /Volumes/Builds/bae/app.lock sh -c '
+  cd ~/dev/bae-worktrees/side-1 &&
+  { test -z "$(git status --porcelain)" || { git status --short; exit 1; }; } &&
+  git checkout -q --detach <branch> &&
+  ./bae-macos/run.sh --no-open'
+```
+
+- `lockf` waits until the lock is free (`-t <seconds>` gives up after that
+  long), so run it as a background task. It releases the lock when the command
+  exits, crashed or not, so a lock is never left stale. `-k` keeps the lock
+  file, which keeps waiters in order.
+- `--detach` checks out your branch's commit: the branch itself stays checked
+  out in your worktree, and git checks out a branch in one worktree only.
+- To change something, edit and commit (or amend) in your worktree, then run the
+  command again. Put everything that needs the build — the build, its tests,
+  launching the app — in the same locked command; the next holder moves the
+  checkout.
+- A dirty app checkout fails the command instead of carrying someone's changes
+  into your build. Find out whose they are before deleting them.
 
 ## Why one root per checkout, at a path that never changes
 

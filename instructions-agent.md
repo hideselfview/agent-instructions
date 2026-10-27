@@ -271,13 +271,19 @@ the cause and fix it then.
 - The branch is the unit of work, not the worktree. Both checkouts are
   permanent, with warm builds: never delete the side worktree because a branch
   landed, or delete and recreate it — setup (fresh checkout, dependency install,
-  build priming) costs minutes and disk, and the warm build is lost.
+  first build) costs minutes and disk, and the warm build is lost.
 - More side worktrees when several agents work unrelated branches in the same
   repo at once; create them with `builds new` (`side-2`, …). Keep them warm
   while that wave of parallel work lasts, reusing them for each next branch;
   don't retire one because its branch landed. Retire extras with `builds retire`
   once the work has clearly moved on from the wave that needed them — a judgment
   call, not a timer.
+- **App builds** (Xcode, Gradle, a bridge cross-compiled for a platform) stay
+  warm in main and in one long-lived side worktree, the repo's app checkout;
+  other side worktrees build host output only (Rust's `target`). Agents take
+  turns in the app checkout under its lock file. Another warm app build is fine
+  while a wave of work needs it, and is cleared once that work has moved on, by
+  the same judgment as extra worktrees.
 
 Each checkout builds into its own folders on the build volume
 (`/Volumes/Builds/<repo>/<checkout>/`), linked from the paths the repo's
@@ -285,8 +291,8 @@ Each checkout builds into its own folders on the build volume
 `retire`, `status`, `prune`). Never point a build at another dir with
 `CARGO_TARGET_DIR` or other inline `CARGO_*` variables: the path is part of
 sccache's key. See `principles/worktree-build-priming.md` for the layout, the
-sccache server, skipping a heavy prime (`builds new --no-prime`), and
-SwiftPM/Sparkle cache recovery.
+app checkout and how to take its lock, the sccache server, and SwiftPM/Sparkle
+cache recovery.
 
 **Fast-forward merges only.** No merge commits in `main`'s history. Rebase the
 branch onto current `main` first, then `git merge --ff-only`. If ff fails,

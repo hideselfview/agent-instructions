@@ -21,7 +21,7 @@
 #                               missing folder, apply the caps to it, then make
 #                               sure the volume has the free-space floor.
 #                               The repo's hooks and build scripts run this.
-#   builds new [<repo>] [-b <branch>] [--no-prime]
+#   builds new [<repo>] [-b <branch>]
 #                               add the next free side-N worktree from
 #                               origin/main, link it, run its post-checkout
 #   builds retire <checkout>    remove a side worktree and its build root
@@ -33,6 +33,12 @@
 #                               reclaim-disk frees the build volume)
 #   builds install              put `builds` on PATH, write the sccache config,
 #                               run the sccache server under launchd
+#
+# By default a side worktree builds host Rust only, and a repo with app builds
+# keeps them warm in main and in one side worktree, its app checkout, which
+# agents take turns in by holding /Volumes/Builds/<repo>/app.lock; see
+# principles/worktree-build-priming.md. Nothing here enforces that: the caps
+# and the floor below bound whatever a checkout builds.
 #
 # A folder over its cap is deleted whole and recreated empty; the next build
 # repopulates it, mostly from sccache. A folder that any process holds a file
@@ -519,11 +525,10 @@ cmd_status() {
 # ── New / retire ────────────────────────────────────────────────────────────
 
 cmd_new() {
-    local repo_path="." branch="" prime=1 main repo parent n dir hook
+    local repo_path="." branch="" main repo parent n dir hook
     while [ $# -gt 0 ]; do
         case "$1" in
             -b|--branch) branch="$2"; shift 2 ;;
-            --no-prime) prime=0; shift ;;
             -*) die "new: unknown option $1" ;;
             *) repo_path="$1"; shift ;;
         esac
@@ -552,11 +557,7 @@ cmd_new() {
     fi
     hook="$dir/scripts/hooks/post-checkout"
     if [ -x "$hook" ]; then
-        if [ "$prime" = 1 ]; then
-            (cd "$dir" && "$hook" 0000000000000000000000000000000000000000 "$(git rev-parse HEAD)" 1)
-        else
-            (cd "$dir" && BUILDS_SKIP_PRIME=1 "$hook" 0000000000000000000000000000000000000000 "$(git rev-parse HEAD)" 1)
-        fi
+        (cd "$dir" && "$hook" 0000000000000000000000000000000000000000 "$(git rev-parse HEAD)" 1)
     fi
     echo "$dir"
 }

@@ -75,20 +75,50 @@ Each checkout builds into its own folders on the build volume:
 `/Volumes/Builds/bae/<checkout>/` (`main`, `side-1`, …), linked from the paths
 `.build-dirs` lists (`target`, `target-macos`, `target-ios`, `target-android`,
 the Xcode `.build` dirs, Gradle's, Avalonia's `obj`/`bin`). The `builds` tool
-manages them; the layout, the measurements behind it, sccache and SwiftPM
-recovery are in `principles/worktree-build-priming.md`. The bae specifics:
+manages them; the layout, the app checkout's lock, the measurements behind it,
+sccache and SwiftPM recovery are in `principles/worktree-build-priming.md`. The
+bae specifics:
+
+- **Side worktrees build host Rust only** (`target`: tests, clippy, the
+  pre-commit hook). App builds — the bridge for macOS, iOS or Android, the Xcode
+  apps, BaeKit, Gradle, Avalonia — stay warm in two checkouts:
+
+  - **main**, for the person's installs. Notarized macOS releases come only from
+    main (`scripts/release-macos.sh` runs the `release-macos.yml` workflow on
+    it).
+
+  - **`~/dev/bae-worktrees/side-1`, the app checkout**, for every agent whose
+    change needs an app build (Swift, Kotlin, C#, or a bridge shape the apps
+    compile against). Take it under `/Volumes/Builds/bae/app.lock`: commit on
+    your branch in your own worktree, then, as a background task:
+
+    ```sh
+    lockf -k /Volumes/Builds/bae/app.lock sh -c '
+      cd ~/dev/bae-worktrees/side-1 &&
+      { test -z "$(git status --porcelain)" || { git status --short; exit 1; }; } &&
+      git checkout -q --detach <branch> &&
+      ./bae-macos/run.sh --no-open'
+    ```
+
+    with the build you need in place of `bae-macos/run.sh` (`bae-ios/run.sh`,
+    `bae-android/run.sh`, `bae-avalonia/smoke-test.sh`, a screenshot script,
+    tests), chained in the same command. The person tests an agent's app build
+    there.
+
+  Another warm app build is fine while a wave of work needs it, such as when the
+  person asks for one in a particular worktree; clear it once that work has
+  moved on.
 
 - **New side worktree:** `builds new ~/dev/bae` creates the next free
   `~/dev/bae-worktrees/side-N` from `origin/main` and runs its `post-checkout`,
   which links the build folders, `CLAUDE.md`, the main checkout's `bae-ffmpeg`,
-  the signing/feature xcconfigs and `bae-android/local.properties`, then primes:
-  builds the bridge and the macOS app once so the first app build is
-  incremental. For work that never builds an app (bae-core, docs), skip the
-  prime with `builds new --no-prime ~/dev/bae`. `builds retire <worktree>`
-  removes a side worktree and its folders once its branch has landed.
+  the signing/feature xcconfigs and `bae-android/local.properties`, and seeds
+  the macOS app's `Package.resolved` from main. It builds nothing.
+  `builds retire <worktree>` removes a side worktree and its folders once its
+  work has moved on.
 
   bae-audio links FFmpeg and finds it via `FFMPEG_DIR` (set to `bae-ffmpeg/dist`
-  in `.cargo/config.toml`), so bae-audio and bae-core build with no prime.
+  in `.cargo/config.toml`), so bae-audio and bae-core build in any checkout.
   Running their tests needs the FFmpeg dylibs on the loader path:
   `DYLD_LIBRARY_PATH=$PWD/bae-ffmpeg/dist/lib` (or the export
   `scripts/setup-ffmpeg.sh` prints).
@@ -103,8 +133,9 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
 
 - **Folders are deleted whole when they pass their cap** in `.build-dirs`, at
   the start of the next hook or build script in that checkout, and refilled by
-  that build. Leave them otherwise: the person tests from a side worktree and
-  reuses its build. `builds status` shows each checkout's sizes.
+  that build. Leave main's and the app checkout's otherwise: the person installs
+  from main and tests from the app checkout. `builds status` shows each
+  checkout's sizes.
 
 - **Sparkle is the SwiftPM dep that corrupts** (xcodebuild fails with "Couldn't
   check out revision" or "file not found" on Sparkle):
