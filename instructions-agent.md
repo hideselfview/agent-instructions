@@ -252,6 +252,15 @@ verification or rely on CI. Never infer that permission from urgency. Report
 which checks were skipped, and never hide a known hook failure — name it before
 following an explicit instruction to commit without the hook.
 
+**CI checks the default branch as a whole, not each commit.** Locally, run the
+hook plus the tests of what the change touched, then commit. CI runs on main
+always finish, and the newest waiting run replaces older waiting ones, so most
+commits never get a run of their own. That is the design: testing every commit
+would burn CPU on code with no reason to break. Don't treat skipped runs as a
+gap, don't run extra local tests to make up for them, and don't report a skipped
+run as "cancelled" as if something failed. When a CI run on main goes red, find
+the cause and fix it then.
+
 **Each repo keeps two checkouts: main and one long-lived side worktree.**
 
 - **main** stays on `main`: iterated work, edits we make together, landing.
