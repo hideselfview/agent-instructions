@@ -47,6 +47,13 @@
 
 set -euo pipefail
 
+# A git hook runs this with its own repository's GIT_DIR, GIT_INDEX_FILE and
+# the rest exported. Every git call here names the checkout it asks about with
+# -C, so drop them: kept, git answers for the hook's repository about every
+# other checkout, and each of another repo's build roots reads as orphaned.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars)
+
 ROOT="${BUILDS_ROOT:-/Volumes/Builds}"
 TRASH="$ROOT/.trash"
 MANIFEST=.build-dirs
