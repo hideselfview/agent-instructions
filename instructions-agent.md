@@ -263,9 +263,12 @@ following an explicit instruction to commit without the hook.
   permanent, with warm builds: never delete the side worktree because a branch
   landed, or delete and recreate it — setup (fresh checkout, dependency install,
   build priming) costs minutes and disk, and the warm build is lost.
-- A second side worktree only while two agents work unrelated branches in the
-  same repo at once; create it with `builds new` (`side-2`, …) and remove it
-  with `builds retire` when its work lands.
+- More side worktrees when several agents work unrelated branches in the same
+  repo at once; create them with `builds new` (`side-2`, …). Keep them warm
+  while that wave of parallel work lasts, reusing them for each next branch;
+  don't retire one because its branch landed. Retire extras with `builds retire`
+  once the work has clearly moved on from the wave that needed them — a judgment
+  call, not a timer.
 
 Each checkout builds into its own folders on the build volume
 (`/Volumes/Builds/<repo>/<checkout>/`), linked from the paths the repo's
