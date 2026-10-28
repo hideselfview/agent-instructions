@@ -39,9 +39,10 @@ as `~/.local/bin/builds`):
   checkout (below), in `/Volumes/Builds/<repo>/app-checkout`.
 - `builds status` lists every root: size per folder against its cap, last write,
   whether the link is in place.
-- `builds prune [--dry-run] [--idle <minutes>]` applies the caps everywhere and
-  deletes roots whose checkout is gone; `--idle` also deletes every folder
-  nothing wrote to for that long (the reclaim-disk skill uses it).
+- `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` applies the
+  caps everywhere and deletes roots whose checkout is gone; `--idle` also
+  deletes every folder nothing wrote to for that long (the reclaim-disk skill
+  uses it), except main's and the app checkout's, which `--include-warm` adds.
 - `builds install` puts the tool on PATH, writes the sccache config and runs the
   sccache server under launchd.
 

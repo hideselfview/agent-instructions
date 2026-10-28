@@ -37,11 +37,12 @@ reason. (See also: the real free space lives on `/System/Volumes/Data`, not the
    deletes every checkout's build folder
    (`/Volumes/Builds/<repo>/<checkout>/ <path>`) that is over its cap or that
    nothing wrote to within `IDLE_MIN`, and recreates it empty so the checkout's
-   link stays valid (see `principles/worktree-build-priming.md`). Then real
-   `target*/`, `.build`, `DerivedData` dirs under `~/dev` (repos without a
-   `.build-dirs`; links are not matched). Deleting only costs a rebuild, mostly
-   from sccache. `node_modules` is intentionally **not** touched (it needs a
-   reinstall, not a rebuild).
+   link stays valid (see `principles/worktree-build-priming.md`). Main's and the
+   app checkout's folders stay warm unless the person asks to clear them too
+   (`--include-warm`). Then real `target*/`, `.build`, `DerivedData` dirs under
+   `~/dev` (repos without a `.build-dirs`; links are not matched). Deleting only
+   costs a rebuild, mostly from sccache. `node_modules` is intentionally **not**
+   touched (it needs a reinstall, not a rebuild).
 3. **`~/Library/Caches`** + tool caches (npm / gradle / cargo / `~/.cache`). A
    cache linked onto the build volume keeps its link and loses its contents; the
    sccache cache is left alone, since its 40 GiB cap bounds it.

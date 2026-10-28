@@ -29,11 +29,13 @@
 #                               record the side worktree as its repo's app
 #                               checkout, in /Volumes/Builds/<repo>/app-checkout
 #   builds status               every build root: size per folder vs cap
-#   builds prune [--dry-run] [--idle <minutes>]
+#   builds prune [--dry-run] [--idle <minutes> [--include-warm]]
 #                               apply the caps everywhere; delete roots whose
 #                               checkout is gone. --idle also deletes every
 #                               folder nothing wrote to for that long (how
-#                               reclaim-disk frees the build volume)
+#                               reclaim-disk frees the build volume), outside
+#                               main and the app checkout unless
+#                               --include-warm
 #   builds install              put `builds` on PATH, write the sccache config,
 #                               run the sccache server under launchd
 #
@@ -480,16 +482,18 @@ keep_floor() {
 }
 
 cmd_prune() {
-    local dry=0 idle=0 root top
+    local dry=0 idle=0 warm=0 root top
     while [ $# -gt 0 ]; do
         case "$1" in
             --dry-run) dry=1; shift ;;
+            --include-warm) warm=1; shift ;;
             --idle)
                 case "${2:-}" in ''|*[!0-9]*) die "prune: --idle takes minutes" ;; esac
                 idle="$2"; shift 2 ;;
             *) die "prune: unknown option $1" ;;
         esac
     done
+    [ "$warm" = 0 ] || [ "$idle" -gt 0 ] || die "prune: --include-warm needs --idle"
     require_volume
     while IFS= read -r root; do
         top="$(cat "$root/.checkout")"
@@ -503,7 +507,11 @@ cmd_prune() {
             fi
             continue
         fi
-        prune_root "$root" "$top" "$dry" "$idle"
+        if [ "$warm" = 0 ] && keeps_warm "$root"; then
+            prune_root "$root" "$top" "$dry" 0
+        else
+            prune_root "$root" "$top" "$dry" "$idle"
+        fi
     done < <(all_roots)
     if [ "$dry" = 0 ]; then
         empty_trash
