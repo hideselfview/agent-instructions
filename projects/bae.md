@@ -87,10 +87,11 @@ bae specifics:
     main (`scripts/release-macos.sh` runs the `release-macos.yml` workflow on
     it).
 
-  - **`~/dev/bae-worktrees/side-1`, the app checkout**, for every agent whose
-    change needs an app build (Swift, Kotlin, C#, or a bridge shape the apps
-    compile against). Take it under `/Volumes/Builds/bae/app.lock`: commit on
-    your branch in your own worktree, then, as a background task:
+  - **`~/dev/bae-worktrees/side-1`, the app checkout** (recorded for the tool
+    with `builds app-checkout ~/dev/bae-worktrees/side-1`), for every agent
+    whose change needs an app build (Swift, Kotlin, C#, or a bridge shape the
+    apps compile against). Take it under `/Volumes/Builds/bae/app.lock`: commit
+    on your branch in your own worktree, then, as a background task:
 
     ```sh
     lockf -k /Volumes/Builds/bae/app.lock sh -c '
@@ -134,8 +135,8 @@ bae specifics:
 - **Folders are deleted whole when they pass their cap** in `.build-dirs`, at
   the start of the next hook or build script in that checkout, and refilled by
   that build. Leave main's and the app checkout's otherwise: the person installs
-  from main and tests from the app checkout. `builds status` shows each
-  checkout's sizes.
+  from main and tests from the app checkout. The free-space floor never deletes
+  theirs. `builds status` shows each checkout's sizes.
 
 - **Sparkle is the SwiftPM dep that corrupts** (xcodebuild fails with "Couldn't
   check out revision" or "file not found" on Sparkle):

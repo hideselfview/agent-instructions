@@ -25,6 +25,9 @@
 #                               add the next free side-N worktree from
 #                               origin/main, link it, run its post-checkout
 #   builds retire <checkout>    remove a side worktree and its build root
+#   builds app-checkout <checkout>
+#                               record the side worktree as its repo's app
+#                               checkout, in /Volumes/Builds/<repo>/app-checkout
 #   builds status               every build root: size per folder vs cap
 #   builds prune [--dry-run] [--idle <minutes>]
 #                               apply the caps everywhere; delete roots whose
@@ -37,8 +40,9 @@
 # By default a side worktree builds host Rust only, and a repo with app builds
 # keeps them warm in main and in one side worktree, its app checkout, which
 # agents take turns in by holding /Volumes/Builds/<repo>/app.lock; see
-# principles/worktree-build-priming.md. Nothing here enforces that: the caps
-# and the floor below bound whatever a checkout builds.
+# principles/worktree-build-priming.md. Nothing here enforces who builds what:
+# the caps bound whatever a checkout builds, and the floor below bounds every
+# checkout but main and the app checkout.
 #
 # A folder over its cap is deleted whole and recreated empty; the next build
 # repopulates it, mostly from sccache. A folder that any process holds a file
@@ -47,9 +51,10 @@
 # Caps bound each folder, not the volume: a checkout with every platform built
 # is 45-52 GB, and the build volume shares its APFS pool with the main disk.
 # So `setup` also keeps a free-space floor: under it, it deletes whole idle
-# folders across every checkout, least recently written first, and fails,
-# naming the biggest folders, if it still can't reach the floor, rather than
-# let the build run out of space halfway.
+# folders across every checkout but main and the app checkout, whose builds
+# stay warm on purpose, least recently written first, and fails, naming the
+# biggest folders, if it still can't reach the floor, rather than let the
+# build run out of space halfway.
 
 set -euo pipefail
 
@@ -111,6 +116,30 @@ checkout_name() {
 }
 
 build_root() { echo "$ROOT/$(repo_name "$1")/$(checkout_name "$1")"; }
+
+# The file naming <repo>'s app checkout, the one side worktree that keeps app
+# builds warm beside main; `builds app-checkout` writes it. It sits beside the
+# app checkout's lock, /Volumes/Builds/<repo>/app.lock.
+app_checkout_file() { echo "$ROOT/$1/app-checkout"; }
+
+# Prints <repo>'s app checkout name (side-N), or nothing when none is recorded.
+app_checkout_of() {
+    local file
+    file="$(app_checkout_file "$1")"
+    [ -f "$file" ] && cat "$file"
+    return 0
+}
+
+# Is <root> (/Volumes/Builds/<repo>/<checkout>) main's or the app checkout's?
+# Their builds stay warm on purpose: the person installs from main and tests
+# agents' app builds in the app checkout. The free-space floor never deletes
+# their folders; the caps still apply to them.
+keeps_warm() {
+    local checkout repo
+    checkout="$(basename "$1")"
+    repo="$(basename "$(dirname "$1")")"
+    [ "$checkout" = main ] || [ "$checkout" = "$(app_checkout_of "$repo")" ]
+}
 
 # ── Manifest ────────────────────────────────────────────────────────────────
 
@@ -377,12 +406,14 @@ all_roots() {
 
 free_kib() { df -k "$ROOT" | awk 'NR==2 { print $4 }'; }
 
-# Every live checkout's build folders as "<newest write> <folder>", least
-# recently written first.
+# The build folders the floor may delete, as "<newest write> <folder>", least
+# recently written first: every live checkout's but main's and the app
+# checkout's.
 floor_candidates() {
     local root top path _cap
     while IFS= read -r root; do
         checkout_is_live "$root" || continue
+        keeps_warm "$root" && continue
         top="$(cat "$root/.checkout")"
         while read -r path _cap; do
             [ -d "$root/$path" ] && echo "$(newest_write "$root/$path") $root/$path"
@@ -392,13 +423,14 @@ floor_candidates() {
 
 # Brings the volume's free space up to the floor by deleting whole folders
 # nothing is building in, least recently written first, waiting for each
-# deletion so the next free-space reading counts it. Fails, naming the
-# biggest folders, when every remaining folder is in use or freshly written.
+# deletion so the next free-space reading counts it. Main's and the app
+# checkout's folders are never deleted here. Fails, naming the biggest
+# folders, when every remaining folder is in use or freshly written.
 keep_floor() {
     local free when dir kib root
     free="$(free_kib)"
     [ "$free" -ge "$FLOOR_KIB" ] && return 0
-    note "the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") floor; deleting idle build folders, least recently written first"
+    note "the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") floor; deleting idle build folders outside main and the app checkouts, least recently written first"
     # Folders already renamed into the trash still hold their space until the
     # background removal finishes.
     if [ -d "$TRASH" ]; then
@@ -430,11 +462,17 @@ keep_floor() {
     done < <(floor_candidates)
     [ "$free" -ge "$FLOOR_KIB" ] && return 0
     {
-        echo "builds: the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") a build may need, and every build folder left is in use or was written in the last ${FLOOR_IDLE_MINUTES}m. The biggest:"
+        echo "builds: the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") a build may need, and every build folder left is in use, was written in the last ${FLOOR_IDLE_MINUTES}m, or is main's or an app checkout's, which stay warm. The biggest the floor may delete:"
         floor_candidates | while read -r _when dir; do
             echo "$(kib_of "$dir") $dir"
         done | sort -rn | head -8 | while read -r kib dir; do
             echo "    $(human "$kib")  $dir"
+        done
+        echo "Kept warm:"
+        all_roots | while IFS= read -r root; do
+            if checkout_is_live "$root" && keeps_warm "$root"; then
+                echo "    $(human "$(kib_of "$root")")  $root"
+            fi
         done
         echo "Retire finished side worktrees (builds retire), or free space outside the build folders (the reclaim-disk skill)."
     } >&2
@@ -486,7 +524,11 @@ cmd_status() {
         top="$(cat "$root/.checkout")"
         if checkout_is_live "$root"; then
             state="$(git -C "$top" branch --show-current 2>/dev/null)"
-            echo "${root#"$ROOT"/}  $top  [${state:-detached}]"
+            state="${state:-detached}"
+            if [ "$(basename "$root")" != main ] && keeps_warm "$root"; then
+                state="$state, app checkout"
+            fi
+            echo "${root#"$ROOT"/}  $top  [$state]"
         else
             echo "${root#"$ROOT"/}  $top  [checkout gone: prune deletes this root]"
             echo "    $(human "$(kib_of "$root")") total"
@@ -563,11 +605,15 @@ cmd_new() {
 }
 
 cmd_retire() {
-    local top main root
+    local top main root repo
     [ $# -eq 1 ] || die "usage: builds retire <checkout>"
     top="$(checkout_top "$1")"
     main="$(main_checkout "$top")"
     [ "$top" != "$main" ] || die "$top is the main checkout; only side worktrees retire"
+    repo="$(repo_name "$top")"
+    if [ "$(checkout_name "$top")" = "$(app_checkout_of "$repo")" ]; then
+        die "$top is $repo's app checkout; record another with builds app-checkout, or delete $(app_checkout_file "$repo"), first"
+    fi
     root="$(build_root "$top")"
     if [ -n "$(git -C "$top" status --porcelain)" ]; then
         die "$top has uncommitted or untracked files; commit or remove them first"
@@ -578,6 +624,23 @@ cmd_retire() {
             || die "worktree removed, but a process holds files in $root; run builds prune once it exits"
     fi
     note "retired $top and deleted $root"
+}
+
+# Records side worktree <checkout> as its repo's app checkout, replacing the
+# one recorded before.
+cmd_app_checkout() {
+    local top repo name file
+    [ $# -eq 1 ] || die "usage: builds app-checkout <checkout>"
+    top="$(checkout_top "$1")"
+    [ "$top" != "$(main_checkout "$top")" ] \
+        || die "$top is the main checkout, which keeps its builds warm already; the app checkout is a side worktree"
+    require_volume
+    repo="$(repo_name "$top")"
+    name="$(checkout_name "$top")"
+    file="$(app_checkout_file "$repo")"
+    mkdir -p "$ROOT/$repo"
+    printf '%s\n' "$name" > "$file"
+    note "recorded $top as $repo's app checkout in $file; the free-space floor keeps its folders"
 }
 
 # ── Install ─────────────────────────────────────────────────────────────────
@@ -660,9 +723,10 @@ case "$command" in
     setup) cmd_setup "$@" ;;
     new) cmd_new "$@" ;;
     retire) cmd_retire "$@" ;;
+    app-checkout) cmd_app_checkout "$@" ;;
     status) cmd_status "$@" ;;
     prune) cmd_prune "$@" ;;
     install) cmd_install "$@" ;;
     -h|--help|help) sed -n '2,/^$/s/^# \{0,1\}//p' "$SELF" ;;
-    *) die "unknown command $command (setup | new | retire | status | prune | install)" ;;
+    *) die "unknown command $command (setup | new | retire | app-checkout | status | prune | install)" ;;
 esac

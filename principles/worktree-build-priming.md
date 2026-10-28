@@ -33,7 +33,10 @@ as `~/.local/bin/builds`):
 - `builds new [<repo>] [-b <branch>]` adds the next free `side-N` from
   `origin/main`, links it, and runs its own `post-checkout`, which sets the
   checkout up and builds nothing.
-- `builds retire <checkout>` removes a clean side worktree and its build root.
+- `builds retire <checkout>` removes a clean side worktree and its build root;
+  it refuses the app checkout.
+- `builds app-checkout <checkout>` records a side worktree as its repo's app
+  checkout (below), in `/Volumes/Builds/<repo>/app-checkout`.
 - `builds status` lists every root: size per folder against its cap, last write,
   whether the link is in place.
 - `builds prune [--dry-run] [--idle <minutes>]` applies the caps everywhere and
@@ -53,16 +56,22 @@ warm in two checkouts:
 
 - **main**, for the person's installs and releases.
 - **The app checkout**, one long-lived side worktree, named in the project's
-  instructions file (bae: `side-1`). Agents take turns in it, one command at a
-  time, under its lock.
+  instructions file (bae: `side-1`) and recorded for the tool with
+  `builds app-checkout` (the name goes in `/Volumes/Builds/<repo>/app-checkout`,
+  beside its lock). Agents take turns in it, one command at a time, under its
+  lock.
+
+The free-space floor (below) never deletes main's or the app checkout's folders:
+deleting them is what kept every app build cold. Their caps still apply.
 
 Another checkout may hold a warm app build while a wave of work needs it — the
 person asks for an app build in a particular worktree, or parallel agents each
 need one. Same judgment as extra worktrees: keep it while that work lasts, and
 clear it once the work has clearly moved on (retire the worktree, or delete the
 folders behind its app links while nothing builds there; the next `builds setup`
-recreates them empty). The caps and the floor bound whatever a checkout builds;
-they are the safety net, not the rule.
+recreates them empty). The caps bound whatever a checkout builds, and the floor
+bounds every checkout but main and the app checkout; they are the safety net,
+not the rule.
 
 The app checkout's working tree belongs to whoever holds
 `/Volumes/Builds/<repo>/app.lock`, and only for the command they run holding it:
@@ -137,13 +146,16 @@ bae and three coven checkouts building free space fell to 13-29 GB. So
 largest single platform build (target-ios 12.2 GB + bae-ios/.build 4.9 GB
 fresh), plus a macOS build in another checkout at the same time (7.4 + 5.2 GB).
 Under the floor it first finishes removing the trash, then deletes the build
-roots of checkouts that are gone, then whole folders across every checkout,
-least recently written first, each one only if nothing wrote to it in the last
-30 minutes (a build between two of its steps holds no lock) and it passes the
-same in-use check as a cap eviction, waiting for each deletion so the next
-reading counts it. If the floor is still out of reach it fails, naming the free
-space and the biggest folders, so the build stops before it starts instead of
-running out of space halfway. `BUILDS_FREE_FLOOR_GIB` overrides the floor.
+roots of checkouts that are gone, then whole folders across every checkout but
+main and the app checkout, least recently written first, each one only if
+nothing wrote to it in the last 30 minutes (a build between two of its steps
+holds no lock) and it passes the same in-use check as a cap eviction, waiting
+for each deletion so the next reading counts it. If the floor is still out of
+reach it fails, naming the free space, the biggest folders it may delete and the
+size of main's and the app checkout's, so the build stops before it starts
+instead of running out of space halfway. It never falls back to main's or the
+app checkout's folders: the person decides what to free there.
+`BUILDS_FREE_FLOOR_GIB` overrides the floor.
 
 Don't trim target dirs with `cargo sweep --time` or `--maxsize`: APFS refreshes
 a file's access time only when it is not newer than its modification time (8 of

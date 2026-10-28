@@ -54,8 +54,9 @@ either helps both. Day to day the caps in each repo's `.build-dirs` bound each
 folder, and `builds setup`, which every build runs first, keeps a free-space
 floor (30 GiB): under it, it deletes whole build folders across checkouts that
 no build is using and nothing wrote to in 30 minutes, least recently written
-first, and fails the build, naming the biggest folders, if that is not enough.
-That failure is when this skill's other tiers are needed.
+first, never main's or the repo's app checkout's, and fails the build, naming
+the biggest folders, if that is not enough. That failure is when this skill's
+other tiers are needed.
 
 Three guards keep it from breaking live work: it acts only when free space is
 below the threshold, scans the complete candidate tree for writes within
@@ -89,7 +90,7 @@ the threshold it deleted the build output of checkouts in active use and the
 compiler caches behind them, so every build was a cold one. The size caps and
 the free-space floor the `builds` tool applies at the start of every build are
 what bound the build volume now; the floor never deletes a folder written in the
-last 30 minutes or one a build holds.
+last 30 minutes, one a build holds, or main's or the app checkout's.
 
 ## When the sweep can't help
 
