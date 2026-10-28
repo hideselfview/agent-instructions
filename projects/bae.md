@@ -12,6 +12,12 @@ changes; it only has to keep compiling against the regenerated bindings and pass
 its smoke test (`bae-avalonia/smoke-test.sh` on macOS, and the Windows and Linux
 CI jobs). The desktop UI will be ported from the macOS app later.
 
+bae-ios is paused until macOS and Android are done: it is a launch shell with no
+screens. Don't build the iOS app or the iOS bridge locally, don't compile BaeKit
+for iOS to check a change, don't add iOS UI or iOS variants of macOS views, and
+don't keep iOS build output warm. CI's iOS jobs still run; when one goes red,
+fix it then. Work that would touch iOS stops at macOS and Android.
+
 Project rules are path-scoped atomic files in `projects/bae-rules/`. Claude Code
 receives them through `.claude/rules/` symlinks. Codex receives the rule index
 in `AGENTS.md`; before editing files in this project, list matching full rule
