@@ -1,14 +1,23 @@
 #!/bin/bash
-# builds: this machine's build-output layout for git checkouts.
+# builds: owns this machine's build volume, /Volumes/Builds, and everything
+# on it:
 #
-# Every checkout of a repo (the main checkout and its side worktrees side-1,
-# side-2, ...) owns one build root at a fixed path on the build volume:
+#   <repo>/<checkout>/    one build root per checkout; checkout = main | side-N
+#   <repo>/app-checkout   the name of the repo's app checkout (side-N)
+#   <repo>/app.lock       the lock agents hold to build in the app checkout
+#   DerivedData/          Xcode's default DerivedData location
+#   caches/<name>/        download caches every checkout shares, each linked
+#                         from where its tool looks (~/.gradle -> caches/gradle)
+#   .trash/               folders being deleted in the background
 #
-#   /Volumes/Builds/<repo>/<checkout>/        checkout = main | side-N
+# `builds status` lists each of these and flags anything else on the volume as
+# UNKNOWN; it leaves out macOS's own volume metadata (.Spotlight-V100,
+# .fseventsd, .Trashes, ...).
 #
-# The repo lists its build-output paths and their size caps in `.build-dirs`
-# at its root. Each listed path is a symlink in the checkout to the same path
-# under the checkout's build root (target -> /Volumes/Builds/bae/main/target).
+# Build roots. The repo lists its build-output paths and their size caps in
+# `.build-dirs` at its root. Each listed path is a symlink in the checkout to
+# the same path under the checkout's build root
+# (target -> /Volumes/Builds/bae/main/target).
 #
 # The path a tool sees never changes: cargo, xcodebuild, Gradle, dotnet and
 # lake always write through `<checkout>/<path>`, so sccache keys and cargo
@@ -16,9 +25,26 @@
 # and recreated. Two checkouts never share a folder, so their builds never
 # wait on each other's locks.
 #
+# DerivedData. bae's build scripts pass -derivedDataPath into a `.build` folder
+# in the checkout, so no checkout's build lives here: only what one-off
+# xcodebuild runs (-showBuildSettings, package resolves) and the Xcode app
+# write, one <project>-<hash> entry per project path, mostly SwiftPM checkouts
+# of about 3 GB. It is one disposable cache with a cap: entries are deleted,
+# least recently written first, while the folder is over its cap, when nothing
+# wrote to them for a day (`prune`), and first of anything under the floor.
+#
+# Shared caches. Gradle, npm, NuGet, SwiftPM and sccache keep their downloads
+# and compiler outputs here for every checkout. Each has a cap; a cache over
+# its cap is deleted whole by `setup` and `prune` once nothing has written to
+# it for 30 minutes, and nothing else deletes one: deleting it makes every
+# checkout, warm ones included, download it all again, and a SwiftPM fetch cut
+# off halfway corrupts its cache. sccache keeps its own cache under the cap
+# `install` writes into its config; this tool only shows it.
+#
 # Commands:
 #   builds setup [<checkout>]   link the checkout's build paths, recreate any
-#                               missing folder, apply the caps to it, then make
+#                               missing folder, apply the caps to it, to
+#                               DerivedData and to the shared caches, then make
 #                               sure the volume has the free-space floor.
 #                               The repo's hooks and build scripts run this.
 #   builds new [<repo>] [-b <branch>]
@@ -28,16 +54,20 @@
 #   builds app-checkout <checkout>
 #                               record the side worktree as its repo's app
 #                               checkout, in /Volumes/Builds/<repo>/app-checkout
-#   builds status               every build root: size per folder vs cap
+#   builds status               every entry on the volume: size per folder vs
+#                               cap, last write, links
 #   builds prune [--dry-run] [--idle <minutes> [--include-warm]]
-#                               apply the caps everywhere; delete roots whose
-#                               checkout is gone. --idle also deletes every
-#                               folder nothing wrote to for that long (how
-#                               reclaim-disk frees the build volume), outside
-#                               main and the app checkout unless
+#                               apply every cap; delete roots whose checkout is
+#                               gone and DerivedData entries nothing wrote to
+#                               for a day. --idle also deletes every folder and
+#                               DerivedData entry nothing wrote to for that
+#                               long (how reclaim-disk frees the build volume),
+#                               outside main and the app checkout unless
 #                               --include-warm
-#   builds install              put `builds` on PATH, write the sccache config,
-#                               run the sccache server under launchd
+#   builds install              put `builds` on PATH, create the shared caches
+#                               and their links, write the sccache config, run
+#                               the sccache server under launchd, point Xcode's
+#                               default DerivedData at the volume
 #
 # By default a side worktree builds host Rust only, and a repo with app builds
 # keeps them warm in main and in one side worktree, its app checkout, which
@@ -52,11 +82,12 @@
 #
 # Caps bound each folder, not the volume: a checkout with every platform built
 # is 45-52 GB, and the build volume shares its APFS pool with the main disk.
-# So `setup` also keeps a free-space floor: under it, it deletes whole idle
-# folders across every checkout but main and the app checkout, whose builds
-# stay warm on purpose, least recently written first, and fails, naming the
-# biggest folders, if it still can't reach the floor, rather than let the
-# build run out of space halfway.
+# So `setup` also keeps a free-space floor: under it, it deletes DerivedData's
+# idle entries, then whole idle folders across every checkout but main and the
+# app checkout, whose builds stay warm on purpose, least recently written
+# first, and fails, naming the biggest folders, if it still can't reach the
+# floor, rather than let the build run out of space halfway. It never deletes a
+# shared cache.
 
 set -euo pipefail
 
@@ -78,6 +109,45 @@ FLOOR_KIB=$(( ${BUILDS_FREE_FLOOR_GIB:-30} * 1024 * 1024 ))
 # A folder written this recently may belong to a build between two of its
 # steps, when it holds no lock or open file; the floor never deletes it.
 FLOOR_IDLE_MINUTES=30
+
+# Xcode's default DerivedData location (`install` sets it). 15G holds five
+# one-off entries of about 3 GB, more than the checkouts that run one-offs at
+# once (main, the app checkout, a side worktree or two); before it had a cap,
+# nine entries had piled up to 27 GB, four from worktrees already removed.
+DERIVED_DATA="$ROOT/DerivedData"
+DERIVED_DATA_CAP=15G
+# `prune` deletes an entry nothing wrote to for this long: a day of work keeps
+# what that day's one-off runs resolved.
+DERIVED_DATA_IDLE_MINUTES=1440
+
+CACHES="$ROOT/caches"
+# The shared caches, each a folder in $CACHES with a link to it from where its
+# tool looks, relative to $HOME. Caps are about twice each cache's size when
+# they got them (Oct 2026: gradle 3.4G, npm 0.3G, nuget 2.6G, swiftpm 1.0G).
+# Old Gradle, AGP and NuGet package versions pile up as dependencies move, and
+# deleting a cache costs every checkout a download, so the cap leaves room
+# rather than fitting tightly. sccache's cap is the size `install` writes into
+# its config, and sccache evicts within it itself; its own accounting reads
+# about 0.2 GiB under du's, so du may show it a little over.
+#
+# The links for Gradle and NuGet point at their tools' whole home folders,
+# which also hold settings the person writes (gradle.properties, init
+# scripts, NuGet.Config). The last column lists them, comma-separated; a
+# deletion copies them out first and puts them back in the emptied folder.
+shared_caches() {
+    cat <<'EOF'
+# name    cap   link from $HOME                    settings kept
+gradle    8G    .gradle                            gradle.properties,init.d,init.gradle,init.gradle.kts
+npm       1G    .npm                               -
+nuget     6G    .nuget                             NuGet/NuGet.Config
+swiftpm   3G    Library/Caches/org.swift.swiftpm   -
+sccache   40G   Library/Caches/Mozilla.sccache     -
+EOF
+}
+
+# macOS's own entries at the root of a volume; status leaves them out.
+SYSTEM_ENTRIES=" .DS_Store .Spotlight-V100 .fseventsd .TemporaryItems .Trashes .DocumentRevisions-V100 .VolumeIcon.icns .com.apple.timemachine.donotpresent "
+
 # This script's own path, through the ~/.local/bin link `install` makes.
 self="${BASH_SOURCE[0]}"
 while [ -L "$self" ]; do
@@ -145,6 +215,17 @@ keeps_warm() {
 
 # ── Manifest ────────────────────────────────────────────────────────────────
 
+# Prints <cap> (20G, 500M) in KiB; fails naming <what> when it is neither.
+cap_kib() {
+    local cap="$1" what="$2"
+    case "$cap" in
+        *[!0-9GM]*|[GM]*) ;;
+        *[0-9]G) echo $(( ${cap%G} * 1024 * 1024 )); return 0 ;;
+        *[0-9]M) echo $(( ${cap%M} * 1024 )); return 0 ;;
+    esac
+    die "$what needs a cap like 20G or 500M, got '$cap'"
+}
+
 # Prints "<path> <cap-in-KiB>" per listed path; fails on a malformed line.
 manifest_entries() {
     local file="$1/$MANIFEST" path cap rest kib
@@ -155,19 +236,39 @@ manifest_entries() {
         case "$path" in
             /*|..|../*|*/..|*/../*) die "$file: '$path' must be inside the checkout" ;;
         esac
-        case "$cap" in
-            *[0-9]G) kib=$(( ${cap%G} * 1024 * 1024 )) ;;
-            *[0-9]M) kib=$(( ${cap%M} * 1024 )) ;;
-            *) die "$file: '$path' needs a cap like 20G or 500M, got '$cap'" ;;
-        esac
+        kib="$(cap_kib "$cap" "$file: '$path'")" || exit 1
         echo "$path $kib"
     done < "$file"
+}
+
+# Prints "<name> <cap-in-KiB> <link> <settings>" per shared cache, <link>
+# absolute.
+shared_cache_entries() {
+    local name cap link settings rest kib
+    while read -r name cap link settings rest; do
+        case "$name" in ''|'#'*) continue ;; esac
+        [ -n "$settings" ] && [ -z "$rest" ] \
+            || die "shared cache $name needs a cap, a link and its settings ('-' for none)"
+        kib="$(cap_kib "$cap" "shared cache $name")" || exit 1
+        echo "$name $kib $HOME/$link $settings"
+    done < <(shared_caches)
 }
 
 has_manifest() { [ -f "$1/$MANIFEST" ]; }
 
 require_volume() {
     [ -d "$ROOT" ] || die "build volume $ROOT is not mounted"
+}
+
+# A repo's folder sits beside DerivedData, caches and .trash at the volume's
+# root, so a repo can't take one of their names.
+require_repo_name() {
+    local repo
+    repo="$(repo_name "$1")"
+    case "$repo" in
+        "$(basename "$DERIVED_DATA")"|"$(basename "$CACHES")"|.*)
+            die "repo $repo would build into $ROOT/$repo, which builds keeps for something else" ;;
+    esac
 }
 
 # ── Ownership of old folders during migration ──────────────────────────────
@@ -275,6 +376,7 @@ cmd_setup() {
     top="$(checkout_top "${1:-.}")"
     has_manifest "$top" || { note "$top has no $MANIFEST; nothing to link"; return 0; }
     require_volume
+    require_repo_name "$top"
     root="$(build_root "$top")"
     mkdir -p "$root"
     printf '%s\n' "$top" > "$root/.checkout"
@@ -285,6 +387,8 @@ cmd_setup() {
         fi
     done < <(manifest_entries "$top")
     prune_root "$root" "$top" 0
+    prune_derived_data 0 0
+    prune_caches 0
     keep_floor
 }
 
@@ -372,7 +476,7 @@ prune_root() {
         if [ "${kib:-0}" -gt "$cap" ]; then
             reason="$(human "$kib") > $(human "$cap")"
         elif [ "$idle" -gt 0 ] && [ "${kib:-0}" -gt 1024 ] \
-            && ! find "$root/$path" -xdev -mmin "-$idle" -print -quit 2>/dev/null | grep -q .; then
+            && ! has_write_within "$root/$path" "$idle"; then
             reason="$(human "$kib"), no write in ${idle}m"
         else
             continue
@@ -385,6 +489,104 @@ prune_root() {
             note "in use, kept: $root/$path ($reason)"
         fi
     done < <(manifest_entries "$top")
+}
+
+# Did anything write inside <dir> in the last <minutes>?
+has_write_within() {
+    find "$1" -xdev -mmin "-$2" -print -quit 2>/dev/null | grep -q .
+}
+
+# DerivedData's entries as "<newest write> <entry>", least recently written
+# first.
+derived_data_entries() {
+    local entry
+    [ -d "$DERIVED_DATA" ] || return 0
+    for entry in "$DERIVED_DATA"/* "$DERIVED_DATA"/.[!.]*; do
+        [ -e "$entry" ] || continue
+        echo "$(newest_write "$entry") $entry"
+    done | sort -n
+}
+
+# Deletes DerivedData entries, least recently written first: with <idle>
+# minutes > 0, each one nothing wrote to for that long, and while the folder
+# is over its cap, each one nothing wrote to in the last FLOOR_IDLE_MINUTES (a
+# one-off run between two steps holds no file open). An entry in use is kept.
+prune_derived_data() {
+    local dry="$1" idle="$2" cap total _when entry kib reason
+    [ -d "$DERIVED_DATA" ] || return 0
+    cap="$(cap_kib "$DERIVED_DATA_CAP" DerivedData)"
+    total="$(kib_of "$DERIVED_DATA")"
+    [ "$idle" -gt 0 ] || [ "${total:-0}" -gt "$cap" ] || return 0
+    while read -r _when entry; do
+        kib="$(kib_of "$entry")"
+        if [ "$idle" -gt 0 ] && ! has_write_within "$entry" "$idle"; then
+            reason="$(human "${kib:-0}"), no write in ${idle}m"
+        elif [ "$total" -gt "$cap" ] && ! has_write_within "$entry" "$FLOOR_IDLE_MINUTES"; then
+            reason="$(human "${kib:-0}"); DerivedData is $(human "$total") > $(human "$cap")"
+        else
+            continue
+        fi
+        if [ "$dry" = 1 ]; then
+            note "would delete $entry ($reason)"
+        elif evict "$entry" 0; then
+            note "deleted $entry ($reason)"
+        else
+            note "in use, kept: $entry ($reason)"
+            continue
+        fi
+        total=$(( total - ${kib:-0} ))
+    done < <(derived_data_entries)
+}
+
+# Copies the settings files <settings> (comma-separated paths, "-" for none)
+# that <dir> holds into a new folder beside it, and prints that folder;
+# prints nothing when <dir> holds none of them.
+stage_settings() {
+    local dir="$1" settings="$2" keep="" path
+    [ "$settings" = - ] && return 0
+    for path in ${settings//,/ }; do
+        [ -e "$dir/$path" ] || continue
+        [ -n "$keep" ] || keep="$(mktemp -d "$CACHES/.settings-$(basename "$dir").XXXXXX")"
+        mkdir -p "$keep/$(dirname "$path")"
+        cp -Rp "$dir/$path" "$keep/$path"
+    done
+    echo "$keep"
+}
+
+# Deletes each shared cache that is over its cap, whole, and recreates it
+# empty, with its settings files put back, so its link stays valid; only once
+# nothing has written to it in the last FLOOR_IDLE_MINUTES (a package resolve
+# between two fetches holds no file open) and no process holds a file in it.
+# sccache bounds its own cache.
+prune_caches() {
+    local dry="$1" name cap _link settings dir kib reason keep
+    [ -d "$CACHES" ] || return 0
+    while read -r name cap _link settings; do
+        [ "$name" = sccache ] && continue
+        dir="$CACHES/$name"
+        [ -d "$dir" ] || continue
+        kib="$(kib_of "$dir")"
+        [ "${kib:-0}" -gt "$cap" ] || continue
+        reason="$(human "$kib") > $(human "$cap")"
+        if has_write_within "$dir" "$FLOOR_IDLE_MINUTES"; then
+            note "over its cap but written in the last ${FLOOR_IDLE_MINUTES}m, kept: $dir ($reason)"
+        elif [ "$dry" = 1 ]; then
+            note "would delete $dir ($reason)"
+        else
+            keep="$(stage_settings "$dir" "$settings")"
+            if evict "$dir" 1; then
+                if [ -n "$keep" ]; then
+                    cp -Rp "$keep"/. "$dir"/
+                    rm -rf "$keep"
+                    reason="$reason; its settings put back"
+                fi
+                note "deleted $dir ($reason); every checkout downloads into it again"
+            else
+                [ -z "$keep" ] || rm -rf "$keep"
+                note "in use, kept: $dir ($reason)"
+            fi
+        fi
+    done < <(shared_cache_entries)
 }
 
 # Is <root>'s checkout still a worktree whose build root is <root>?
@@ -423,16 +625,18 @@ floor_candidates() {
     done < <(all_roots) | sort -n
 }
 
-# Brings the volume's free space up to the floor by deleting whole folders
-# nothing is building in, least recently written first, waiting for each
-# deletion so the next free-space reading counts it. Main's and the app
-# checkout's folders are never deleted here. Fails, naming the biggest
-# folders, when every remaining folder is in use or freshly written.
+# Brings the volume's free space up to the floor, waiting for each deletion
+# so the next free-space reading counts it: the trash, the roots of checkouts
+# that are gone, DerivedData's entries, then whole folders of the other
+# checkouts, each least recently written first and only when nothing is using
+# it or wrote to it lately. Main's and the app checkout's folders and the
+# shared caches are never deleted here. Fails, naming the biggest folders,
+# when everything left is in use, freshly written or kept.
 keep_floor() {
     local free when dir kib root
     free="$(free_kib)"
     [ "$free" -ge "$FLOOR_KIB" ] && return 0
-    note "the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") floor; deleting idle build folders outside main and the app checkouts, least recently written first"
+    note "the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") floor; deleting idle DerivedData entries, then idle build folders outside main and the app checkouts, least recently written first"
     # Folders already renamed into the trash still hold their space until the
     # background removal finishes.
     if [ -d "$TRASH" ]; then
@@ -450,11 +654,20 @@ keep_floor() {
     done < <(all_roots)
     while read -r when dir; do
         [ "$free" -ge "$FLOOR_KIB" ] && break
+        has_write_within "$dir" "$FLOOR_IDLE_MINUTES" && continue
+        kib="$(kib_of "$dir")"
+        if evict "$dir" 0 1; then
+            note "deleted $dir ($(human "${kib:-0}"), last write $(date -r "${when:-0}" '+%Y-%m-%d %H:%M')), a DerivedData entry"
+            free="$(free_kib)"
+        else
+            note "in use, kept: $dir"
+        fi
+    done < <(derived_data_entries)
+    while read -r when dir; do
+        [ "$free" -ge "$FLOOR_KIB" ] && break
         kib="$(kib_of "$dir")"
         [ "${kib:-0}" -gt 1024 ] || continue
-        if find "$dir" -xdev -mmin "-$FLOOR_IDLE_MINUTES" -print -quit 2>/dev/null | grep -q .; then
-            continue
-        fi
+        has_write_within "$dir" "$FLOOR_IDLE_MINUTES" && continue
         if evict "$dir" 1 1; then
             note "deleted $dir ($(human "$kib"), last write $(date -r "${when:-0}" '+%Y-%m-%d %H:%M')); its next build refills it"
             free="$(free_kib)"
@@ -464,16 +677,25 @@ keep_floor() {
     done < <(floor_candidates)
     [ "$free" -ge "$FLOOR_KIB" ] && return 0
     {
-        echo "builds: the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") a build may need, and every build folder left is in use, was written in the last ${FLOOR_IDLE_MINUTES}m, or is main's or an app checkout's, which stay warm. The biggest the floor may delete:"
+        echo "builds: the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") a build may need, and every build folder and DerivedData entry left is in use, was written in the last ${FLOOR_IDLE_MINUTES}m, or is main's or an app checkout's, which stay warm. The biggest the floor may delete:"
         floor_candidates | while read -r _when dir; do
             echo "$(kib_of "$dir") $dir"
         done | sort -rn | head -8 | while read -r kib dir; do
             echo "    $(human "$kib")  $dir"
         done
+        if [ -d "$DERIVED_DATA" ]; then
+            echo "    $(human "$(kib_of "$DERIVED_DATA")")  $DERIVED_DATA (entries in use or written lately)"
+        fi
         echo "Kept warm:"
         all_roots | while IFS= read -r root; do
             if checkout_is_live "$root" && keeps_warm "$root"; then
                 echo "    $(human "$(kib_of "$root")")  $root"
+            fi
+        done
+        echo "Shared caches, which only their caps delete:"
+        shared_cache_entries | while read -r name _cap _link _settings; do
+            if [ -d "$CACHES/$name" ]; then
+                echo "    $(human "$(kib_of "$CACHES/$name")")  $CACHES/$name"
             fi
         done
         echo "Retire finished side worktrees (builds retire), or free space outside the build folders (the reclaim-disk skill)."
@@ -513,6 +735,12 @@ cmd_prune() {
             prune_root "$root" "$top" "$dry" "$idle"
         fi
     done < <(all_roots)
+    if [ "$idle" -gt 0 ] && [ "$idle" -lt "$DERIVED_DATA_IDLE_MINUTES" ]; then
+        prune_derived_data "$dry" "$idle"
+    else
+        prune_derived_data "$dry" "$DERIVED_DATA_IDLE_MINUTES"
+    fi
+    prune_caches "$dry"
     if [ "$dry" = 0 ]; then
         empty_trash
     fi
@@ -525,44 +753,159 @@ newest_write() {
         | xargs -0 stat -f '%m' 2>/dev/null | sort -n | tail -1
 }
 
-cmd_status() {
-    local root top path cap kib when state total
-    require_volume
-    while IFS= read -r root; do
-        top="$(cat "$root/.checkout")"
-        if checkout_is_live "$root"; then
-            state="$(git -C "$top" branch --show-current 2>/dev/null)"
-            state="${state:-detached}"
-            if [ "$(basename "$root")" != main ] && keeps_warm "$root"; then
-                state="$state, app checkout"
-            fi
-            echo "${root#"$ROOT"/}  $top  [$state]"
-        else
-            echo "${root#"$ROOT"/}  $top  [checkout gone: prune deletes this root]"
-            echo "    $(human "$(kib_of "$root")") total"
+# Prints epoch time <when> for status; "-" for none (an empty folder).
+last_write() {
+    if [ "${1:-0}" = 0 ]; then echo -; else date -r "$1" '+%Y-%m-%d %H:%M'; fi
+}
+
+# Prints <entry> (a path on the volume) as UNKNOWN, with its size.
+status_unknown() {
+    printf '%s  %s  UNKNOWN: builds made nothing here\n' "${1#"$ROOT"/}" "$(human "$(kib_of "$1")")"
+}
+
+status_root() {
+    local root="$1" top path cap kib when state total
+    top="$(cat "$root/.checkout")"
+    if checkout_is_live "$root"; then
+        state="$(git -C "$top" branch --show-current 2>/dev/null)"
+        state="${state:-detached}"
+        if [ "$(basename "$root")" != main ] && keeps_warm "$root"; then
+            state="$state, app checkout"
+        fi
+        echo "${root#"$ROOT"/}  $top  [$state]"
+    else
+        echo "${root#"$ROOT"/}  $top  [checkout gone: prune deletes this root]"
+        echo "    $(human "$(kib_of "$root")") total"
+        return 0
+    fi
+    total=0
+    while read -r path cap; do
+        if [ ! -d "$root/$path" ]; then
+            printf '    %-34s %8s / %-6s  (no folder)\n' "$path" - "$(human "$cap")"
             continue
         fi
-        total=0
-        while read -r path cap; do
-            if [ ! -d "$root/$path" ]; then
-                printf '    %-34s %8s / %-6s  (no folder)\n' "$path" - "$(human "$cap")"
-                continue
-            fi
-            kib="$(kib_of "$root/$path")"
-            total=$(( total + kib ))
-            when="$(newest_write "$root/$path")"
-            if [ "$kib" -gt "$cap" ]; then state="OVER CAP"; else state=""; fi
-            printf '    %-34s %8s / %-6s  last write %s  %s\n' "$path" "$(human "$kib")" \
-                "$(human "$cap")" "$(date -r "${when:-0}" '+%Y-%m-%d %H:%M')" "$state"
-            if [ -L "$top/$path" ]; then
-                [ "$(absolute_link_target "$top/$path")" = "$root/$path" ] \
-                    || echo "      link points elsewhere: $(readlink "$top/$path")"
+        kib="$(kib_of "$root/$path")"
+        total=$(( total + kib ))
+        when="$(newest_write "$root/$path")"
+        if [ "$kib" -gt "$cap" ]; then state="OVER CAP"; else state=""; fi
+        printf '    %-34s %8s / %-6s  last write %s  %s\n' "$path" "$(human "$kib")" \
+            "$(human "$cap")" "$(last_write "$when")" "$state"
+        if [ -L "$top/$path" ]; then
+            [ "$(absolute_link_target "$top/$path")" = "$root/$path" ] \
+                || echo "      link points elsewhere: $(readlink "$top/$path")"
+        else
+            echo "      not linked: run builds setup $top"
+        fi
+    done < <(manifest_entries "$top")
+    echo "    $(human "$total") total"
+}
+
+# Is <dir> a repo's folder: checkout roots, its app checkout's name or lock?
+is_repo_dir() {
+    local marker
+    [ -d "$1" ] && [ ! -L "$1" ] || return 1
+    [ -f "$1/app-checkout" ] || [ -f "$1/app.lock" ] && return 0
+    for marker in "$1"/*/.checkout; do
+        [ -f "$marker" ] && return 0
+    done
+    return 1
+}
+
+status_repo() {
+    local dir="$1" entry
+    for entry in "$dir"/* "$dir"/.[!.]*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        case "$(basename "$entry")" in
+            app-checkout|app.lock) [ -f "$entry" ] && continue ;;
+        esac
+        if [ -d "$entry" ] && [ ! -L "$entry" ] && [ -f "$entry/.checkout" ]; then
+            status_root "$entry"
+        else
+            status_unknown "$entry"
+        fi
+    done
+}
+
+status_derived_data() {
+    local cap kib when entry newest=0 state="" xcode
+    cap="$(cap_kib "$DERIVED_DATA_CAP" DerivedData)"
+    kib="$(kib_of "$DERIVED_DATA")"
+    while read -r when _entry; do
+        newest="$when"
+    done < <(derived_data_entries)
+    [ "$kib" -gt "$cap" ] && state="OVER CAP"
+    printf '%-38s %8s / %-6s  last write %s  %s\n' "DerivedData (Xcode's default)" \
+        "$(human "$kib")" "$(human "$cap")" "$(last_write "$newest")" "$state"
+    while read -r when entry; do
+        printf '    %-34s %8s           last write %s\n' "$(basename "$entry")" \
+            "$(human "$(kib_of "$entry")")" "$(last_write "$when")"
+    done < <(derived_data_entries)
+    xcode="$(defaults read com.apple.dt.Xcode IDECustomDerivedDataLocation 2>/dev/null || true)"
+    if [ "$xcode" != "$DERIVED_DATA" ]; then
+        echo "    Xcode's default DerivedData is ${xcode:-~/Library/Developer/Xcode/DerivedData}, not this: run builds install"
+    fi
+}
+
+status_caches() {
+    local name cap link dir kib when state entry known=" "
+    echo "caches  (shared by every checkout)"
+    while read -r name cap link _settings; do
+        known="$known$name "
+        dir="$CACHES/$name"
+        if [ ! -d "$dir" ]; then
+            printf '    %-34s %8s / %-6s  (no folder: run builds install)\n' "$name" - "$(human "$cap")"
+        else
+            kib="$(kib_of "$dir")"
+            when="$(newest_write "$dir")"
+            if [ "$name" = sccache ]; then
+                state="(sccache keeps it under its own cap)"
+            elif [ "$kib" -gt "$cap" ]; then
+                state="OVER CAP"
             else
-                echo "      not linked: run builds setup $top"
+                state=""
             fi
-        done < <(manifest_entries "$top")
-        echo "    $(human "$total") total"
-    done < <(all_roots)
+            printf '    %-34s %8s / %-6s  last write %s  %s\n' "$name" "$(human "$kib")" \
+                "$(human "$cap")" "$(last_write "$when")" "$state"
+        fi
+        if [ -L "$link" ]; then
+            [ "$(absolute_link_target "$link")" = "$dir" ] \
+                || echo "      ${link/#"$HOME"/~} points elsewhere: $(readlink "$link")"
+        elif [ -e "$link" ]; then
+            echo "      ${link/#"$HOME"/~} is a real directory, not a link here: run builds install"
+        else
+            echo "      ${link/#"$HOME"/~} is missing: run builds install"
+        fi
+    done < <(shared_cache_entries)
+    for entry in "$CACHES"/* "$CACHES"/.[!.]*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        case "$known" in *" $(basename "$entry") "*) continue ;; esac
+        status_unknown "$entry"
+    done
+}
+
+# Every entry at the volume's root but macOS's own.
+cmd_status() {
+    local entry
+    require_volume
+    for entry in "$ROOT"/* "$ROOT"/.[!.]*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        case "$SYSTEM_ENTRIES" in *" $(basename "$entry") "*) continue ;; esac
+        if [ "$entry" = "$TRASH" ] && [ -d "$entry" ]; then
+            if [ -n "$(ls -A "$TRASH")" ]; then
+                echo ".trash  $(human "$(kib_of "$TRASH")")  (deletions finishing in the background)"
+            fi
+        elif [ "$entry" = "$DERIVED_DATA" ] && [ -d "$entry" ]; then
+            status_derived_data
+        elif [ "$entry" = "$CACHES" ] && [ -d "$entry" ]; then
+            status_caches
+        elif is_repo_dir "$entry"; then
+            status_repo "$entry"
+        else
+            status_unknown "$entry"
+        fi
+    done
+    [ -d "$DERIVED_DATA" ] || echo "DerivedData  (no folder: run builds install)"
+    [ -d "$CACHES" ] || echo "caches  (no folder: run builds install)"
     # --show-stats would start a server if none is listening; only ask a
     # running one.
     if lsof -nP -iTCP:4226 -sTCP:LISTEN >/dev/null 2>&1; then
@@ -643,6 +986,7 @@ cmd_app_checkout() {
     [ "$top" != "$(main_checkout "$top")" ] \
         || die "$top is the main checkout, which keeps its builds warm already; the app checkout is a side worktree"
     require_volume
+    require_repo_name "$top"
     repo="$(repo_name "$top")"
     name="$(checkout_name "$top")"
     file="$(app_checkout_file "$repo")"
@@ -654,13 +998,55 @@ cmd_app_checkout() {
 # ── Install ─────────────────────────────────────────────────────────────────
 
 SCCACHE_LABEL=local.sccache-server
-SCCACHE_CACHE_SIZE_BYTES=$(( 40 * 1024 * 1024 * 1024 ))
+
+# Writes stdin to <file> unless <file> already holds exactly that; returns 1,
+# writing nothing, when it does.
+write_if_changed() {
+    local file="$1" content
+    content="$(cat)"
+    if [ -f "$file" ] && [ "$(cat "$file")" = "$content" ]; then
+        return 1
+    fi
+    printf '%s\n' "$content" > "$file"
+}
+
+# Makes <link> (~/.gradle) a symlink to the shared cache <dir> on the volume.
+# A real directory there, from a tool that ran before the link existed, is
+# moved onto the volume whole, since it may hold the tool's own settings
+# (~/.gradle/gradle.properties, ~/.nuget/NuGet/NuGet.Config) beside the cache.
+link_cache() {
+    local dir="$1" link="$2" shown="${2/#"$HOME"/~}"
+    if [ -L "$link" ]; then
+        [ "$(absolute_link_target "$link")" = "$dir" ] \
+            || die "$shown points at $(readlink "$link"), not $dir; move what it holds into $dir, remove the link, and run builds install again"
+        mkdir -p "$dir"
+        return 0
+    fi
+    if [ -e "$link" ]; then
+        [ ! -e "$dir" ] \
+            || die "both $shown and $dir exist; move what you need from $shown into $dir, remove $shown, and run builds install again"
+        note "moving $shown to $dir"
+        mv "$link" "$dir"
+    else
+        mkdir -p "$dir" "$(dirname "$link")"
+    fi
+    ln -s "$dir" "$link"
+    note "linked $shown -> $dir"
+}
 
 cmd_install() {
-    local sccache_bin config_dir plist
+    local sccache_bin config_dir plist name cap link sccache_kib="" restart=0 xcode
     mkdir -p "$HOME/.local/bin"
     ln -sfn "$SELF" "$HOME/.local/bin/builds"
     note "linked ~/.local/bin/builds -> $SELF"
+
+    require_volume
+    mkdir -p "$CACHES" "$DERIVED_DATA"
+    while read -r name cap link _settings; do
+        link_cache "$CACHES/$name" "$link"
+        [ "$name" = sccache ] && sccache_kib="$cap"
+    done < <(shared_cache_entries)
+    [ -n "$sccache_kib" ] || die "the shared caches list no sccache cache"
 
     sccache_bin="$(command -v sccache)" || die "sccache is not installed"
     # sccache reads this file on every client and server start, whatever the
@@ -668,12 +1054,15 @@ cmd_install() {
     # shell profile.
     config_dir="$HOME/Library/Application Support/Mozilla.sccache"
     mkdir -p "$config_dir"
-    cat > "$config_dir/config" <<EOF
+    if write_if_changed "$config_dir/config" <<EOF
 # Written by builds install ($SELF).
 [cache.disk]
-size = $SCCACHE_CACHE_SIZE_BYTES
+size = $(( sccache_kib * 1024 ))
 EOF
-    note "wrote $config_dir/config (40 GiB cache)"
+    then
+        note "wrote $config_dir/config ($(human "$sccache_kib") cache)"
+        restart=1
+    fi
 
     # One server on sccache's default TCP port, started with the system
     # TMPDIR: a server inherits the TMPDIR of whichever client starts it, and a
@@ -684,7 +1073,7 @@ EOF
     # it is the process launchd watches (`--start-server` forks the server off,
     # and the server daemonizes itself without NO_DAEMON).
     plist="$HOME/Library/LaunchAgents/$SCCACHE_LABEL.plist"
-    cat > "$plist" <<EOF
+    if write_if_changed "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Written by builds install ($SELF). -->
@@ -716,10 +1105,27 @@ EOF
 </dict>
 </plist>
 EOF
-    launchctl bootout "gui/$(id -u)/$SCCACHE_LABEL" 2>/dev/null || true
-    "$sccache_bin" --stop-server >/dev/null 2>&1 || true
-    launchctl bootstrap "gui/$(id -u)" "$plist"
-    note "started the sccache server under launchd ($plist)"
+    then
+        note "wrote $plist"
+        restart=1
+    fi
+    # Restarting the server fails the compiles of every build running now, so
+    # it restarts only when its settings changed or launchd isn't running it.
+    if [ "$restart" = 1 ] || ! launchctl print "gui/$(id -u)/$SCCACHE_LABEL" >/dev/null 2>&1; then
+        launchctl bootout "gui/$(id -u)/$SCCACHE_LABEL" 2>/dev/null || true
+        "$sccache_bin" --stop-server >/dev/null 2>&1 || true
+        launchctl bootstrap "gui/$(id -u)" "$plist"
+        note "started the sccache server under launchd ($plist)"
+    else
+        note "the sccache server already runs under launchd with these settings"
+    fi
+
+    # xcodebuild runs without -derivedDataPath, and the Xcode app, write here.
+    xcode="$(defaults read com.apple.dt.Xcode IDECustomDerivedDataLocation 2>/dev/null || true)"
+    if [ "$xcode" != "$DERIVED_DATA" ]; then
+        defaults write com.apple.dt.Xcode IDECustomDerivedDataLocation -string "$DERIVED_DATA"
+        note "pointed Xcode's default DerivedData at $DERIVED_DATA (was ${xcode:-~/Library/Developer/Xcode/DerivedData}); a running Xcode uses it once relaunched"
+    fi
 }
 
 # ── Dispatch ────────────────────────────────────────────────────────────────

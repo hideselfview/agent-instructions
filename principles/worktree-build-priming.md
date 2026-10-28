@@ -8,11 +8,23 @@ at with "whatever per-worktree setup the project runs."
 
 ## The layout
 
-Every checkout owns one build root at a fixed path on the build volume:
+The `builds` tool owns everything on the build volume:
 
 ```
-/Volumes/Builds/<repo>/<checkout>/        checkout = main | side-N
+/Volumes/Builds/<repo>/<checkout>/   one build root per checkout: main | side-N
+/Volumes/Builds/<repo>/app-checkout  the name of the repo's app checkout
+/Volumes/Builds/<repo>/app.lock      the lock agents hold to build there
+/Volumes/Builds/DerivedData/         Xcode's default DerivedData location
+/Volumes/Builds/caches/<name>/       download caches every checkout shares
+/Volumes/Builds/.trash/              folders being deleted in the background
 ```
+
+`builds status` lists each of these and flags anything else on the volume as
+UNKNOWN (it leaves out macOS's own `.Spotlight-V100`, `.fseventsd` and the
+like). Something UNKNOWN is either a new kind of build output the tool should
+own or a leftover to delete; find out which.
+
+Every checkout owns one build root at a fixed path on the build volume.
 
 The repo lists its build output paths, each with a size cap, in `.build-dirs` at
 its root (`target`, `target-macos`, Xcode `.build` dirs, Gradle `build` and
@@ -26,10 +38,11 @@ as `~/.local/bin/builds`):
 - `builds setup [<checkout>]` creates the links, recreates any folder behind a
   link that was deleted, deletes a folder an older layout left behind (never
   moves it: Xcode's DerivedData records its own absolute path, so a moved one
-  can't find its packages), applies the caps to that checkout, and keeps the
-  volume's free-space floor (below). The repo's `scripts/build-layout.sh` calls
-  it, and the hooks and every build script call that first. Without the tool
-  (CI) the script does nothing and the tools write into real directories.
+  can't find its packages), applies the caps to that checkout, to DerivedData
+  and to the shared caches, and keeps the volume's free-space floor (below). The
+  repo's `scripts/build-layout.sh` calls it, and the hooks and every build
+  script call that first. Without the tool (CI) the script does nothing and the
+  tools write into real directories.
 - `builds new [<repo>] [-b <branch>]` adds the next free `side-N` from
   `origin/main`, links it, and runs its own `post-checkout`, which sets the
   checkout up and builds nothing.
@@ -37,14 +50,52 @@ as `~/.local/bin/builds`):
   it refuses the app checkout.
 - `builds app-checkout <checkout>` records a side worktree as its repo's app
   checkout (below), in `/Volumes/Builds/<repo>/app-checkout`.
-- `builds status` lists every root: size per folder against its cap, last write,
-  whether the link is in place.
-- `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` applies the
-  caps everywhere and deletes roots whose checkout is gone; `--idle` also
-  deletes every folder nothing wrote to for that long (the reclaim-disk skill
-  uses it), except main's and the app checkout's, which `--include-warm` adds.
-- `builds install` puts the tool on PATH, writes the sccache config and runs the
-  sccache server under launchd.
+- `builds status` lists every entry on the volume: each root's folders, each
+  DerivedData entry and each shared cache, with size against cap, last write,
+  and whether the links are in place; anything else as UNKNOWN.
+- `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` applies every
+  cap, deletes roots whose checkout is gone and DerivedData entries nothing
+  wrote to for a day; `--idle` also deletes every folder and DerivedData entry
+  nothing wrote to for that long (the reclaim-disk skill uses it), except main's
+  and the app checkout's folders, which `--include-warm` adds.
+- `builds install` puts the tool on PATH, creates the shared caches and the
+  links to them, writes the sccache config, runs the sccache server under
+  launchd (restarting it only when its settings changed, since a restart fails
+  every compile in flight), and points Xcode's default DerivedData
+  (`IDECustomDerivedDataLocation`) at `/Volumes/Builds/DerivedData`. Run it
+  again any time: it changes only what differs.
+
+## DerivedData and the shared caches
+
+**DerivedData.** bae's build scripts pass `-derivedDataPath` into a `.build`
+folder in the checkout, so no checkout's build lives in Xcode's default
+location; it holds what one-off `xcodebuild` runs (`-showBuildSettings`, package
+resolves) and the Xcode app write: one `<project>-<hash>` entry per project
+path, mostly SwiftPM checkouts of about 3 GB. Nothing deleted them, and nine had
+piled up to 27 GB, four from worktrees already removed. It is one disposable
+cache with a 15 GB cap, about five entries: `setup` and `prune` delete entries,
+least recently written first, while it is over the cap; `prune` also deletes
+entries nothing wrote to for a day; the free-space floor deletes its idle
+entries before any checkout's folders. Deletions for the cap and the floor skip
+an entry written in the last 30 minutes (a one-off run between two steps holds
+no file open), and every deletion skips one a process holds a file in. A one-off
+run that needs its packages again resolves them again.
+
+**Shared caches.** Gradle, npm, NuGet, SwiftPM and sccache keep their downloads
+and compiler outputs in `/Volumes/Builds/caches/<name>`, linked from where each
+tool looks: `~/.gradle`, `~/.npm`, `~/.nuget`,
+`~/Library/Caches/org.swift.swiftpm`, `~/Library/Caches/Mozilla.sccache`.
+`builds install` creates them; a real directory already at one of those paths is
+moved onto the volume whole, since it may hold the tool's settings. Each cache
+has a cap, about twice its size when the caps were set (gradle 8G, npm 1G, nuget
+6G, swiftpm 3G). Only the cap deletes one: `setup` or `prune` deletes a cache
+over its cap, whole, once nothing has written to it for 30 minutes and no
+process holds a file in it, and puts back the settings files it holds
+(`gradle.properties`, Gradle init scripts, `NuGet/NuGet.Config`). The floor and
+the reclaim-disk skill never touch them: deleting one makes every checkout, warm
+ones included, download it all again, and a SwiftPM fetch cut off halfway
+corrupts its cache. sccache keeps its own cache under the 40 GiB cap `install`
+writes into its config; `builds` only shows it.
 
 ## App builds live in main and one app checkout
 
@@ -147,16 +198,16 @@ bae and three coven checkouts building free space fell to 13-29 GB. So
 largest single platform build (target-ios 12.2 GB + bae-ios/.build 4.9 GB
 fresh), plus a macOS build in another checkout at the same time (7.4 + 5.2 GB).
 Under the floor it first finishes removing the trash, then deletes the build
-roots of checkouts that are gone, then whole folders across every checkout but
-main and the app checkout, least recently written first, each one only if
-nothing wrote to it in the last 30 minutes (a build between two of its steps
-holds no lock) and it passes the same in-use check as a cap eviction, waiting
-for each deletion so the next reading counts it. If the floor is still out of
-reach it fails, naming the free space, the biggest folders it may delete and the
-size of main's and the app checkout's, so the build stops before it starts
-instead of running out of space halfway. It never falls back to main's or the
-app checkout's folders: the person decides what to free there.
-`BUILDS_FREE_FLOOR_GIB` overrides the floor.
+roots of checkouts that are gone, then DerivedData's entries, then whole folders
+across every checkout but main and the app checkout, least recently written
+first, each one only if nothing wrote to it in the last 30 minutes (a build
+between two of its steps holds no lock) and it passes the same in-use check as a
+cap eviction, waiting for each deletion so the next reading counts it. It never
+deletes a shared cache. If the floor is still out of reach it fails, naming the
+free space, the biggest folders it may delete and the size of main's and the app
+checkout's, so the build stops before it starts instead of running out of space
+halfway. It never falls back to main's or the app checkout's folders: the person
+decides what to free there. `BUILDS_FREE_FLOOR_GIB` overrides the floor.
 
 Don't trim target dirs with `cargo sweep --time` or `--maxsize`: APFS refreshes
 a file's access time only when it is not newer than its modification time (8 of
@@ -166,9 +217,11 @@ a toolchain upgrade.
 
 ## One sccache server
 
-- One server on sccache's default TCP port (4226), cache capped at 40 GiB in
-  `~/Library/Application Support/Mozilla.sccache/config` (the working set of the
-  checkouts is about 30 GiB; each checkout state writes about 3.3 GiB).
+- One server on sccache's default TCP port (4226), cache in
+  `/Volumes/Builds/caches/sccache` and capped at 40 GiB in
+  `~/Library/Application Support/Mozilla.sccache/config`, both written by
+  `builds install` (the working set of the checkouts is about 30 GiB; each
+  checkout state writes about 3.3 GiB).
 - Started by launchd (`local.sccache-server`) with the system `TMPDIR` and no
   idle timeout. A server inherits the `TMPDIR` of whichever client starts it;
   once that directory is deleted every compile fails. Don't use the Unix-socket

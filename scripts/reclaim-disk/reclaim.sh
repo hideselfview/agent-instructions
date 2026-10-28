@@ -14,7 +14,9 @@
 #                            <checkout>/<path>) idle > IDLE_MIN, through
 #                            `builds prune --idle`, plus real target*/.build/
 #                            DerivedData dirs under ~/dev (forces a rebuild)
-#   3. ~/Library/Caches    - app + tool caches (npm/gradle/cargo/generic)
+#   3. ~/Library/Caches    - app + tool caches (npm/gradle/cargo/generic),
+#                            except the shared caches on the build volume,
+#                            which only their `builds` caps delete
 #
 # Nothing here is irreplaceable: every target is a build output or cache that
 # regenerates on next build. Three guards keep it from breaking live work:
@@ -203,27 +205,37 @@ tool_cache_in_use() {
   esac
 }
 
+# The build volume's shared caches (Gradle, npm, NuGet, SwiftPM, sccache),
+# which ~/.gradle, ~/.npm and the SwiftPM and sccache entries in
+# ~/Library/Caches link to.
+BUILDS_CACHES="${BUILDS_ROOT:-/Volumes/Builds}/caches"
+
 # Tier 3: app + tool caches. Contents only; the parent dirs are recreated by
 # their owners on next use.
 tier_caches() {
   log "tier 3: ~/Library/Caches and tool caches"
-  local d
+  local d real
   for d in "$HOME/Library/Caches"/* "$HOME/.cache"/* \
            "$HOME/.npm/_cacache" "$HOME/.gradle/caches" \
            "$HOME/.cargo/registry/cache" "$HOME/.cargo/registry/src"; do
     [[ -e "$d" ]] || continue
+    # A cache on the build volume is bounded by its cap: `builds` deletes one
+    # over it once nothing is fetching into it, and sccache evicts within its
+    # own. Deleting one here would make every checkout, warm ones included,
+    # download it all again, and could cut a SwiftPM fetch off halfway, which
+    # corrupts its cache.
+    real="$(cd "$d" 2>/dev/null && pwd -P)" || real="$d"
+    case "$real/" in
+      "$BUILDS_CACHES"/*) log "skip (shared cache on the build volume; its cap bounds it): $d"; continue ;;
+    esac
     if tool_cache_in_use "$d"; then
       log "skip (owner running): $d"
       continue
     fi
-    # A cache linked onto the build volume (~/.gradle, the SwiftPM and sccache
-    # caches) keeps its link: deleting the link would make the tool start a new
-    # cache on the main disk. Its contents go instead. sccache's cache is left
-    # whole: its own size cap bounds it, and the running server writes into it.
+    # A cache linked somewhere else keeps its link: deleting the link would
+    # make the tool start a new cache on the main disk. Its contents go
+    # instead.
     if [[ -L "$d" ]]; then
-      case "$d" in
-        */Mozilla.sccache) log "skip (sccache caps its own size): $d"; continue ;;
-      esac
       local child
       for child in "$d"/*; do
         purge "$child"

@@ -37,27 +37,34 @@ reason. (See also: the real free space lives on `/System/Volumes/Data`, not the
    deletes every checkout's build folder
    (`/Volumes/Builds/<repo>/<checkout>/ <path>`) that is over its cap or that
    nothing wrote to within `IDLE_MIN`, and recreates it empty so the checkout's
-   link stays valid (see `principles/worktree-build-priming.md`). Main's and the
-   app checkout's folders stay warm unless the person asks to clear them too
+   link stays valid, and every entry in Xcode's default DerivedData
+   (`/Volumes/Builds/DerivedData`) nothing wrote to within `IDLE_MIN` (see
+   `principles/worktree-build-priming.md`). Main's and the app checkout's
+   folders stay warm unless the person asks to clear them too
    (`--include-warm`). Then real `target*/`, `.build`, `DerivedData` dirs under
    `~/dev` (repos without a `.build-dirs`; links are not matched). Deleting only
    costs a rebuild, mostly from sccache. `node_modules` is intentionally **not**
    touched (it needs a reinstall, not a rebuild).
-3. **`~/Library/Caches`** + tool caches (npm / gradle / cargo / `~/.cache`). A
-   cache linked onto the build volume keeps its link and loses its contents; the
-   sccache cache is left alone, since its 40 GiB cap bounds it.
+3. **`~/Library/Caches`** + tool caches (npm / gradle / cargo / `~/.cache`),
+   except the shared caches on the build volume (`/Volumes/Builds/caches`:
+   Gradle, npm, NuGet, SwiftPM, sccache, linked from `~/.gradle`, `~/.npm`,
+   `~/.nuget` and `~/Library/Caches`). Their caps bound them: `builds` deletes
+   one over its cap, and sccache evicts within its own. Deleting one makes every
+   checkout, warm ones included, download it all again, and a SwiftPM fetch cut
+   off halfway corrupts its cache.
 
 A checkout's build output lives on the build volume behind links
 (`~/dev/bae/target -> /Volumes/Builds/bae/main/target`), so a home-dir scan
 never sees it; `builds status` lists it per checkout and folder. The build
 volume shares free space with the main disk (same APFS container), so freeing
 either helps both. Day to day the caps in each repo's `.build-dirs` bound each
-folder, and `builds setup`, which every build runs first, keeps a free-space
-floor (30 GiB): under it, it deletes whole build folders across checkouts that
-no build is using and nothing wrote to in 30 minutes, least recently written
-first, never main's or the repo's app checkout's, and fails the build, naming
-the biggest folders, if that is not enough. That failure is when this skill's
-other tiers are needed.
+folder, the caps of DerivedData and the shared caches bound those, and
+`builds setup`, which every build runs first, keeps a free-space floor (30 GiB):
+under it, it deletes DerivedData's entries and then whole build folders across
+checkouts that no build is using and nothing wrote to in 30 minutes, least
+recently written first, never main's or the repo's app checkout's and never a
+shared cache, and fails the build, naming the biggest folders, if that is not
+enough. That failure is when this skill's other tiers are needed.
 
 Three guards keep it from breaking live work: it acts only when free space is
 below the threshold, scans the complete candidate tree for writes within
