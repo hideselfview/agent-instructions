@@ -18,6 +18,13 @@ for iOS to check a change, don't add iOS UI or iOS variants of macOS views, and
 don't keep iOS build output warm. CI's iOS jobs still run; when one goes red,
 fix it then. Work that would touch iOS stops at macOS and Android.
 
+Tests, benches and probes never write to the person's keychain. Use an in-memory
+keychain (`coven::TestCoven`) or a temporary one. That goes double for the
+synced iCloud Keychain: an entry there reaches every device on the person's
+Apple account, and a probe library's restore code once showed up on their
+welcome screen. Read the person's keychain only when they ask for it, for that
+task.
+
 Project rules are path-scoped atomic files in `projects/bae-rules/`. Claude Code
 receives them through `.claude/rules/` symlinks. Codex receives the rule index
 in `AGENTS.md`; before editing files in this project, list matching full rule
