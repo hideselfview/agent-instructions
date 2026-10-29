@@ -25,6 +25,10 @@ Apple account, and a probe library's restore code once showed up on their
 welcome screen. Read the person's keychain only when they ask for it, for that
 task.
 
+Never read, print or edit `~/.config/bae-dev/profile.toml`: it holds the
+person's storage and service credentials. Never launch the app with
+`--dev-reset`; the person runs `scripts/reset-bae.py` themselves.
+
 Project rules are path-scoped atomic files in `projects/bae-rules/`. Claude Code
 receives them through `.claude/rules/` symlinks. Codex receives the rule index
 in `AGENTS.md`; before editing files in this project, list matching full rule
