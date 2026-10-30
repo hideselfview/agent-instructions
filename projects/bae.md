@@ -141,9 +141,10 @@ bae specifics:
 
   bae-audio links FFmpeg and finds it via `FFMPEG_DIR` (set to `bae-ffmpeg/dist`
   in `.cargo/config.toml`), so bae-audio and bae-core build in any checkout.
-  Running their tests needs the FFmpeg dylibs on the loader path:
-  `DYLD_LIBRARY_PATH=$PWD/bae-ffmpeg/dist/lib` (or the export
-  `scripts/setup-ffmpeg.sh` prints).
+  Their tests find FFmpeg's dylibs through `DYLD_LIBRARY_PATH` in the same
+  config, which cargo passes to every process it runs, so no export is needed.
+  macOS drops `DYLD_*` whenever a shell script starts, so an export before
+  `scripts/cargo.sh` would never reach the tests anyway.
 
 - **Don't set `CARGO_TARGET_DIR`, `RUSTC_WRAPPER` or other `CARGO_*` variables
   per command.** Host cargo (tests, clippy, the pre-commit hook) builds into the
