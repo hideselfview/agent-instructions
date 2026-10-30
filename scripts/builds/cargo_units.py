@@ -242,7 +242,9 @@ def same_features(fingerprint, features):
 def units_by_name(message, path, fingerprints, used):
     """The fingerprint folders of the units a report of <path> can be, for an
     output whose name carries no hash: documentation (<target>/doc/<crate>/...)
-    and a cdylib or staticlib (target-macos/debug/libbae_bridge.a). Those are
+    and a library that is also a cdylib or staticlib
+    (target-macos/debug/libbae_bridge.a, or deps/libbae_bridge.rlib when
+    another unit of the build depends on it). Those are
     the units of the package with this target, mode and features whose
     dependencies' fingerprints are all among <used>, the fingerprints of the
     units this build reported before it (cargo reports a unit after its
@@ -251,7 +253,13 @@ def units_by_name(message, path, fingerprints, used):
     keeping each one's fingerprint keeps nothing but those small folders."""
     package = package_name(message["package_id"])
     parent = os.path.dirname(path)
-    profiles = [parent] if is_profile_dir(parent) else []
+    if is_profile_dir(parent):
+        profiles = [parent]
+    elif os.path.basename(parent) in OUTPUT_DIRS and is_profile_dir(os.path.dirname(parent)):
+        # A library another unit of the build depends on stays in deps.
+        profiles = [os.path.dirname(parent)]
+    else:
+        profiles = []
     doc = False
     if not profiles:
         # <target>[/<triple>]/doc/<crate>/index.html, documented from a profile

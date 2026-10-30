@@ -16,8 +16,8 @@ profile="$ws/target/debug"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # A library with a build script, and a crate above it with a library that is
-# also a staticlib (its outputs carry no hash), a binary, an example, an
-# integration test and a doctest.
+# also a staticlib and a cdylib, as bae-bridge is (its outputs carry no hash),
+# a binary, an example, an integration test and a doctest.
 mkdir -p "$ws/dep/src" "$ws/app/src/bin" "$ws/app/tests" "$ws/app/examples"
 cat > "$ws/Cargo.toml" <<'EOF'
 [workspace]
@@ -42,7 +42,7 @@ edition = "2021"
 dep = { path = "../dep" }
 
 [lib]
-crate-type = ["lib", "staticlib"]
+crate-type = ["lib", "staticlib", "cdylib"]
 EOF
 cat > "$ws/app/src/lib.rs" <<'EOF'
 /// The answer.
