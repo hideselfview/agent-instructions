@@ -428,7 +428,24 @@ cmd_setup() {
     prune_root "$root" "$top" 0
     prune_derived_data 0 0
     prune_caches 0
+    prune_test_temps 0
     keep_floor
+}
+
+# Tests' temporary folders (tempfile's `.tmp*` under $TMPDIR) that a test left
+# behind: nothing reads one a day after it was last written. Newer ones may
+# belong to a test still running.
+prune_test_temps() {
+    local dry="$1" count
+    [ -n "${TMPDIR:-}" ] && [ -d "$TMPDIR" ] || return 0
+    count="$(find "$TMPDIR" -maxdepth 1 -name '.tmp*' -type d -mtime +1 -user "$(id -un)" 2>/dev/null | wc -l | tr -d ' ')"
+    [ "$count" -gt 0 ] || return 0
+    if [ "$dry" = 1 ]; then
+        note "would delete $count test temp folders older than a day in $TMPDIR"
+    else
+        find "$TMPDIR" -maxdepth 1 -name '.tmp*' -type d -mtime +1 -user "$(id -un)" -prune -exec rm -rf {} + 2>/dev/null
+        note "deleted $count test temp folders older than a day in $TMPDIR"
+    fi
 }
 
 # ── Pruning ─────────────────────────────────────────────────────────────────
@@ -801,6 +818,7 @@ cmd_prune() {
         prune_derived_data "$dry" "$DERIVED_DATA_IDLE_MINUTES"
     fi
     prune_caches "$dry"
+    prune_test_temps "$dry"
     if [ "$dry" = 0 ]; then
         empty_trash
     fi
