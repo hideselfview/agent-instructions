@@ -70,8 +70,9 @@ git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instruc
 into `~/.claude/`, and links every file under `rules/`, `principles/`, and
 `claude/agents/` into `~/.claude/`. It also links `codex/config.toml` into
 `~/.codex/config.toml`, this repo into `~/.codex/agent-instructions`, and
-`codex/skills/` into `~/.codex/skills/`. It's idempotent — re-run after pulling
-new rules.
+`codex/skills/` into `~/.codex/skills/`. It always links the main checkout,
+whichever worktree runs it, and the repo's post-commit and post-merge hooks
+re-run it in main when a commit, pull or landed branch changes what it consumes.
 
 ## Per-project setup
 
