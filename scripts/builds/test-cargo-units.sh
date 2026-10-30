@@ -160,7 +160,7 @@ all="$(fingerprints)"
 old="$(comm -23 <(echo "$all") <(echo "$used"))"
 
 # A dry run deletes nothing.
-python3 "$units" prune 3 1 "$ws/target" > /dev/null 2>&1
+python3 "$units" prune 3 12 1 "$ws/target" > /dev/null 2>&1
 [ "$(fingerprints)" = "$all" ] || fail "a dry run deleted something"
 
 # A build holding the profile folder's lock keeps everything.
@@ -168,7 +168,7 @@ python3 - "$profile/.cargo-lock" "$units" "$ws/target" <<'PY'
 import fcntl, os, subprocess, sys
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
 fcntl.flock(fd, fcntl.LOCK_EX)
-result = subprocess.run(["python3", sys.argv[2], "prune", "3", "0", sys.argv[3]], capture_output=True, text=True)
+result = subprocess.run(["python3", sys.argv[2], "prune", "3", "12", "0", sys.argv[3]], capture_output=True, text=True)
 assert "a build holds its lock" in result.stderr, result.stderr
 PY
 [ "$(fingerprints)" = "$all" ] || fail "pruning deleted while a build held the lock"
@@ -181,7 +181,7 @@ if [ -n "$held_file" ]; then
     exec 3< "$held_file"
 fi
 
-python3 "$units" prune 3 0 "$ws/target" > /dev/null
+python3 "$units" prune 3 12 0 "$ws/target" > /dev/null
 remaining="$(fingerprints)"
 if [ -n "$held_file" ]; then
     exec 3<&-
@@ -223,6 +223,26 @@ echo "$trace" | grep -A1 ' app::tests::panics_in_dep$' | grep -q 'at .*src/lib.r
 for command in "build --all-targets" "doc --no-deps" "test --no-run"; do
     # shellcheck disable=SC2086
     [ -z "$(rebuilt $command)" ] || fail "cargo $command rebuilt after pruning: $(rebuilt $command)"
+done
+
+# A copy a newer one with the same identity replaced goes once nothing used
+# it for the hours given, without waiting the days: a dependency bump leaves
+# a copy of every unit above it, all of which the bump replaces.
+age 0.6
+# The copy a process held above is days old and goes with the first prune.
+before="$(fingerprints | grep -vxF "$held_unit")"
+sed -i '' 's/^version = "0.1.1"/version = "0.1.2"/' dep/Cargo.toml
+build_all "$builds" cargo
+bumped="$(recent)"
+python3 "$units" prune 3 24 0 "$ws/target" > /dev/null 2>&1
+[ "$(fingerprints)" = "$(sort <(echo "$before") <(echo "$bumped") | uniq)" ] \
+    || fail "pruning deleted copies used within the last 24 hours: $(comm -23 <(sort <(echo "$before") <(echo "$bumped") | uniq) <(fingerprints))"
+python3 "$units" prune 3 12 0 "$ws/target" > /dev/null 2>&1
+[ "$(fingerprints)" = "$bumped" ] \
+    || fail "pruning kept $(comm -13 <(echo "$bumped") <(fingerprints)) and deleted $(comm -23 <(echo "$bumped") <(fingerprints))"
+for command in "build --all-targets" "doc --no-deps" "test --no-run"; do
+    # shellcheck disable=SC2086
+    [ -z "$(rebuilt $command)" ] || fail "cargo $command rebuilt after deleting replaced copies: $(rebuilt $command)"
 done
 
 echo "ok"

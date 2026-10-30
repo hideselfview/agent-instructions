@@ -196,7 +196,8 @@ bae-core, 13 GB, going back a week, each a ~450 MB rlib plus ~1.4 GB of test
 binaries, and the first dry run there found 17.8 of its 33 GB unused for three
 days. So `builds setup` and `builds prune` first delete, in each cargo folder,
 every build copy no build used for three days (`BUILDS_UNUSED_DAYS` overrides
-it): its `.fingerprint/<package>-<hash>`, its `deps/` and `examples/` files, its
+it), and every copy a newer one replaced (below): its
+`.fingerprint/<package>-<hash>`, its `deps/` and `examples/` files, its
 `build/<package>-<hash>`, and the `incremental/` folders only it used, in every
 profile folder cargo makes (`debug`, `release`, `<triple>/debug`, the `release`
 of a `cargo install --target-dir`).
@@ -231,6 +232,26 @@ counts as used when cargo last built it.
   rust-analyzer's checks) records nothing: what only it uses goes three days
   after cargo last rebuilt it, and its next build rebuilds that, mostly from
   sccache.
+
+**Replaced build copies.** Three days is what keeps the copies a branch from the
+last few days builds against, and lowering it would delete what builds use
+cargo's report doesn't record (rust-analyzer, cargo typed by hand): at one day
+it would have deleted 7.6 GB of main's `target`. A copy a newer copy of the same
+thing replaced goes sooner: once nothing used it for 12 hours
+(`BUILDS_SUPERSEDED_HOURS`) and a copy with the same identity was used after it.
+The identity is the package and target, mode, features, profile settings,
+rustflags and target triple, in the same profile folder, over dependencies that
+are themselves the same thing, read from each unit's fingerprint JSON and its
+dependencies' fingerprints; copies with one identity differ only in their
+sources (a dependency's version or git revision, the compiler). Feature variants
+of a crate, which different package selections build and use side by side, have
+different identities and stay. A unit a remaining unit was built against stays
+too, so two versions of one crate in a single build (thiserror 1 and 2) both
+stay. A workspace crate is rebuilt in place, so a dependent built before the
+last rebuild names a fingerprint no unit has; such a dependency counts by its
+package and crate name in every dependent. A dry run in bae main, where the
+coven pin moves several times a day, found 2.7 GB of replaced copies in `target`
+and 1.2 GB in `target-macos`.
 
 **Dead object files.** With `split-debuginfo` unpacked (macOS's default), rustc
 leaves each unit's object files in `deps/`, and a linked binary's debug map

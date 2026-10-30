@@ -96,9 +96,11 @@
 # no recorded build has used counts as used when cargo last built it. `setup`
 # and `prune` delete, in each cargo folder (target, target-macos, ...), every
 # file of each unit nothing used for BUILDS_UNUSED_DAYS days (default 3), and
-# the incremental folders only those units used, while holding cargo's locks
-# on that folder and keeping any unit a process holds a file of. The repo's
-# hooks and build scripts run cargo through `builds cargo`.
+# of each unit a newer copy of the same thing replaced that nothing used for
+# BUILDS_SUPERSEDED_HOURS hours (default 12), and the incremental folders only
+# those units used, while holding cargo's locks on that folder and keeping any
+# unit a process holds a file of. The repo's hooks and build scripts run cargo
+# through `builds cargo`.
 #
 # Under the same locks they delete, in units still in use and in every
 # checkout, the object files no build or debugger reads. rustc leaves each
@@ -158,6 +160,14 @@ FLOOR_IDLE_MINUTES=30
 UNUSED_DAYS="${BUILDS_UNUSED_DAYS:-3}"
 case "$UNUSED_DAYS" in
     ''|*[!0-9]*|0) echo "builds: BUILDS_UNUSED_DAYS must be a whole number of days, at least 1, got '$UNUSED_DAYS'" >&2; exit 1 ;;
+esac
+# A build copy a newer copy of the same thing replaced (a coven pin bump in
+# bae replaces every copy above coven) is deleted once no build used it for
+# this many hours. Half a day keeps what a branch checked out earlier the
+# same day builds against; main never goes back to an older pin.
+SUPERSEDED_HOURS="${BUILDS_SUPERSEDED_HOURS:-12}"
+case "$SUPERSEDED_HOURS" in
+    ''|*[!0-9]*|0) echo "builds: BUILDS_SUPERSEDED_HOURS must be a whole number of hours, at least 1, got '$SUPERSEDED_HOURS'" >&2; exit 1 ;;
 esac
 
 # Xcode's default DerivedData location (`install` sets it). 15G holds five
@@ -564,7 +574,7 @@ empty_trash() {
 prune_units() {
     local dry="$1"
     shift
-    python3 "$UNITS" prune "$UNUSED_DAYS" "$dry" "$@" \
+    python3 "$UNITS" prune "$UNUSED_DAYS" "$SUPERSEDED_HOURS" "$dry" "$@" \
         || die "pruning unused build copies in $* failed"
 }
 

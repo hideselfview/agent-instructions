@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Cargo's build copies in a build folder: recording which ones a build used,
-and deleting the ones no build used for a while. `builds` runs this for its
-`cargo`, `record-use`, `setup` and `prune` commands.
+and deleting the ones no build used for a while, the ones a newer copy of the
+same thing replaced, and the object files no build or debugger reads.
+`builds` runs this for its `cargo`, `record-use`, `setup` and `prune`
+commands.
 
 Cargo builds each crate target as a unit and names the unit's files after a
 hash of everything that build depends on, dependency versions included, so a
@@ -659,6 +661,112 @@ def lock_profile(profile):
     return fd
 
 
+class Identities:
+    """Which units are builds of the same thing: the same package and target,
+    mode, features, profile settings, rustflags and target triple, in the same
+    profile folder, over dependencies that are themselves the same thing.
+    Copies with one identity differ only in their sources: a dependency's
+    version or git revision, or the compiler's version. Each identity is a
+    small number, shared by equal ones.
+
+    A dependent's fingerprint names each dependency by the dependency's
+    fingerprint when it was built. A workspace crate rebuilt in place since
+    (one some dependent names by a fingerprint no unit has now) counts by its
+    package and crate name alone, wherever it is named: its dependents rebuild
+    in place too on their next build. Units cargo puts in one fingerprint
+    folder (a library's check and its documentation) count as one."""
+
+    def __init__(self, every):
+        self.unit_of = {}
+        self.own = {}
+        self.deps = {}
+        for profile, units in every.items():
+            for unit_hash, found in units.items():
+                if not found.fingerprint:
+                    continue
+                key = (profile, unit_hash)
+                try:
+                    names = sorted(n for n in os.listdir(found.fingerprint) if n.endswith(".json"))
+                except FileNotFoundError:
+                    continue
+                records = [(name, recorded(found.fingerprint, name[:-len(".json")])) for name in names]
+                if not records or not all(record for _, record in records):
+                    continue
+                self.own[key] = (profile, found.name, tuple(
+                    (name, record.get("features"), record.get("profile"), record.get("compile_kind"),
+                     json.dumps(record.get("rustflags")), record.get("config"))
+                    for name, record in records))
+                # [package id hash, crate name, public, fingerprint]
+                self.deps[key] = [
+                    tuple(dep[:2]) + (dep[-1],) for _, record in records
+                    for dep in record.get("deps", []) if isinstance(dep, list) and len(dep) >= 3
+                ]
+                for value in fingerprint_values(found.fingerprint):
+                    self.unit_of[value] = key
+        self.in_place = {
+            (package, crate) for deps in self.deps.values()
+            for package, crate, value in deps if value not in self.unit_of
+        }
+        self.interned = {}
+        self.memo = {}
+
+    def dependencies(self, key):
+        """The units <key> was built against that are still here."""
+        return [self.unit_of[value] for _, _, value in self.deps.get(key, ()) if value in self.unit_of]
+
+    def of(self, key):
+        """<key>'s identity, or None for a unit whose fingerprint, or a
+        dependency's, can't be read."""
+        if key in self.memo:
+            return self.memo[key]
+        self.memo[key] = None
+        if key in self.own:
+            parts = []
+            for package, crate, value in self.deps[key]:
+                if (package, crate) in self.in_place:
+                    parts.append((package, crate))
+                elif self.unit_of[value] != key:
+                    parts.append(self.of(self.unit_of[value]))
+            if None not in parts:
+                shape = (self.own[key], tuple(sorted(parts, key=repr)))
+                self.memo[key] = self.interned.setdefault(shape, len(self.interned))
+        return self.memo[key]
+
+
+def superseded(every, free, since, cutoff):
+    """The units in the profile folders <free> of <every> ({profile: {hash:
+    Unit}}) that another copy with the same identity replaced: one used after
+    them, when nothing used them since <since> and no unit that stays was
+    built against them. A unit there unused since <cutoff> goes anyway and
+    keeps nothing."""
+    identities = Identities(every)
+    groups = {}
+    for profile, units in every.items():
+        for unit_hash, found in units.items():
+            identity = identities.of((profile, unit_hash))
+            if identity is not None:
+                groups.setdefault(identity, []).append(((profile, unit_hash), found.last_use()))
+    replaced = set()
+    for members in groups.values():
+        newest = max(used for _, used in members)
+        replaced.update(
+            key for key, used in members if key[0] in free and used < newest and used < since)
+    # Two versions of one crate in a single build look alike; a unit that
+    # stays keeps what it was built against.
+    pending = [
+        (profile, unit_hash) for profile, units in every.items() for unit_hash, found in units.items()
+        if (profile, unit_hash) not in replaced and (profile not in free or found.last_use() >= cutoff)
+    ]
+    seen = set(pending)
+    while pending:
+        for dependency in identities.dependencies(pending.pop()):
+            replaced.discard(dependency)
+            if dependency not in seen:
+                seen.add(dependency)
+                pending.append(dependency)
+    return replaced
+
+
 def single_link(path):
     try:
         return os.lstat(path).st_nlink == 1
@@ -666,52 +774,59 @@ def single_link(path):
         return False
 
 
-def prune_profile(profile, cutoff, days, dry, open_files):
-    """Deletes <profile>'s units no build used since <cutoff>, the
-    incremental folders only they used, and the other units' dead object
-    files, but none a process holds a file of. Returns the bytes freed (or
-    that would be)."""
-    units = units_in(profile)
+def prune_profile(profile, units, replaced, cutoff, days, hours, dry, open_files):
+    """Deletes <profile>'s <units> no build used since <cutoff>, those in
+    <replaced> (superseded), the incremental folders only they used, and the
+    other units' dead object files, but none a process holds a file of.
+    Returns the bytes freed (or that would be)."""
     stale = {h: u for h, u in units.items() if u.last_use() < cutoff}
+    older = {h: u for h, u in units.items() if h in replaced and h not in stale}
     increments = [
         (crate_dir, owners) for crate_dir, owners in incremental_dirs(profile, units)
-        if (owners and owners <= stale.keys())
+        if (owners and owners <= stale.keys() | older.keys())
         or (not owners and newest_mtime(crate_dir, 2) < cutoff)
     ]
-    objects = dead_objects(profile, {h: u for h, u in units.items() if h not in stale})
-    if not stale and not increments and not objects:
+    objects = dead_objects(profile, {h: u for h, u in units.items() if h not in stale and h not in older})
+    if not stale and not older and not increments and not objects:
         return 0
     held = open_files.get()
-    kept = [h for h, found in stale.items() if holds_any(found.paths(), held)]
+    kept = [h for group in (stale, older) for h, found in group.items() if holds_any(found.paths(), held)]
     for unit_hash in kept:
-        del stale[unit_hash]
+        stale.pop(unit_hash, None)
+        older.pop(unit_hash, None)
     increments = [
         crate_dir for crate_dir, owners in increments
-        if owners <= stale.keys() and not holds_any([crate_dir], held)
+        if owners <= stale.keys() | older.keys() and not holds_any([crate_dir], held)
     ]
     objects = [path for path in objects if not holds_any([path], held)]
-    usage, freed, by_name = Usage(), 0, {}
-    for found in stale.values():
-        size = sum(usage.of(path) for path in found.paths())
+    usage, freed = Usage(), 0
+    for group, why in ((stale, f"no build used in {days} days"),
+                       (older, f"a newer copy replaced, unused for {hours} hours")):
+        if not group:
+            continue
+        size, by_name = 0, {}
+        for found in group.values():
+            unit_size = sum(usage.of(path) for path in found.paths())
+            size += unit_size
+            count, total = by_name.get(found.name, (0, 0))
+            by_name[found.name] = (count + 1, total + unit_size)
+            if not dry:
+                for path in found.paths():
+                    remove(path)
         freed += size
-        count, total = by_name.get(found.name, (0, 0))
-        by_name[found.name] = (count + 1, total + size)
-        if not dry:
-            for path in found.paths():
-                remove(path)
-    for crate_dir in increments:
-        freed += usage.of(crate_dir)
-        if not dry:
-            remove(crate_dir)
-    if stale or increments:
-        what = [counted(len(stale), "build copy", "build copies")] if stale else []
-        if increments:
-            what.append(counted(len(increments), "incremental folder", "incremental folders"))
         most = sorted(by_name.items(), key=lambda item: -item[1][1])[:3]
-        detail = "; most: " + ", ".join(
-            f"{name} x{count} {human(size)}" for name, (count, size) in most) if most else ""
-        note(f"{'would delete' if dry else 'deleted'} {' and '.join(what)} no build used in "
-             f"{days} days from {profile} ({human(freed)}{detail})")
+        note(f"{'would delete' if dry else 'deleted'} {counted(len(group), 'build copy', 'build copies')} "
+             f"{why} from {profile} ({human(size)}; most: "
+             + ", ".join(f"{name} x{count} {human(total)}" for name, (count, total) in most) + ")")
+    if increments:
+        size = sum(usage.of(crate_dir) for crate_dir in increments)
+        freed += size
+        if not dry:
+            for crate_dir in increments:
+                remove(crate_dir)
+        note(f"{'would delete' if dry else 'deleted'} "
+             f"{counted(len(increments), 'incremental folder', 'incremental folders')} "
+             f"no build copy left uses from {profile} ({human(size)})")
     if objects:
         # A file the incremental folder also links stays on disk.
         size = sum(usage.of(path) for path in objects if single_link(path))
@@ -722,35 +837,42 @@ def prune_profile(profile, cutoff, days, dry, open_files):
         note(f"{'would delete' if dry else 'deleted'} {counted(len(objects), 'object file', 'object files')} "
              f"no build or debugger reads from {profile} ({human(size)})")
     if kept:
-        note(f"kept {counted(len(kept), 'unused build copy', 'unused build copies')} in {profile}: a process holds their files")
+        note(f"kept {counted(len(kept), 'build copy', 'build copies')} in {profile}: a process holds their files")
     return freed
 
 
-def prune(days, dry, folders):
+def prune(days, hours, dry, folders):
     """Prunes each build folder's profile folders, each while holding its
     cargo lock (a dry run takes none and deletes nothing). Prints
     "<KiB freed>\\t<folder>" per folder on stdout, notes on stderr."""
-    cutoff = time.time() - days * 86400
+    now = time.time()
+    cutoff, since = now - days * 86400, now - hours * 3600
     for folder in folders:
         root = os.path.realpath(folder)
         profiles, locks = profile_dirs(root), []
         try:
-            if not dry:
-                free = []
-                for profile in profiles:
-                    fd = lock_profile(profile)
-                    if fd is None:
-                        # Counted without the lock, only to say what waits.
-                        waiting = sum(1 for u in units_in(profile).values() if u.last_use() < cutoff)
-                        if waiting:
-                            note(f"kept {counted(waiting, 'unused build copy', 'unused build copies')} in {profile}: "
-                                 "a build holds its lock")
-                    else:
+            free = []
+            for profile in profiles:
+                fd = None if dry else lock_profile(profile)
+                if dry or fd is not None:
+                    free.append(profile)
+                    if fd is not None:
                         locks.append(fd)
-                        free.append(profile)
-                profiles = free
+            # Read without the locks of folders a build holds, only to keep
+            # what they were built against and to say what waits.
+            every = {profile: units_in(profile) for profile in profiles}
+            replaced = superseded(every, set(free), since, cutoff)
+            for profile in profiles:
+                if profile not in free:
+                    waiting = sum(1 for u in every[profile].values() if u.last_use() < cutoff)
+                    if waiting:
+                        note(f"kept {counted(waiting, 'unused build copy', 'unused build copies')} in {profile}: "
+                             "a build holds its lock")
             open_files = OpenFiles([root])
-            freed = sum(prune_profile(profile, cutoff, days, dry, open_files) for profile in profiles)
+            freed = sum(
+                prune_profile(profile, every[profile], {h for p, h in replaced if p == profile},
+                              cutoff, days, hours, dry, open_files)
+                for profile in free)
         finally:
             for fd in locks:
                 os.close(fd)
@@ -761,9 +883,9 @@ def prune(days, dry, folders):
 def main(argv):
     if argv[:1] == ["record"] and len(argv) == 1:
         return record()
-    if argv[:1] == ["prune"] and len(argv) >= 3:
-        return prune(int(argv[1]), argv[2] == "1", argv[3:])
-    print("usage: cargo_units.py record | prune <days> <dry 0|1> <folder>...", file=sys.stderr)
+    if argv[:1] == ["prune"] and len(argv) >= 4:
+        return prune(int(argv[1]), int(argv[2]), argv[3] == "1", argv[4:])
+    print("usage: cargo_units.py record | prune <days> <hours> <dry 0|1> <folder>...", file=sys.stderr)
     return 2
 
 
