@@ -60,12 +60,13 @@
 #   builds prune [--dry-run] [--idle <minutes> [--include-warm]]
 #                               delete every checkout's unused build copies
 #                               (below) and apply every cap; delete roots whose
-#                               checkout is gone and DerivedData entries
-#                               nothing wrote to for a day. --idle also deletes
-#                               every folder and DerivedData entry nothing
-#                               wrote to for that long (how reclaim-disk frees
-#                               the build volume), outside main and the app
-#                               checkout unless --include-warm
+#                               checkout is gone, DerivedData entries nothing
+#                               wrote to for a day, and cargo's git checkouts
+#                               no checkout's Cargo.lock pins. --idle also
+#                               deletes every folder and DerivedData entry
+#                               nothing wrote to for that long (how
+#                               reclaim-disk frees the build volume), outside
+#                               main and the app checkout unless --include-warm
 #   builds cargo <subcommand> [<args>...]
 #                               run cargo (build, check, clippy, doc, rustc,
 #                               rustdoc, test, bench, run, install, nextest
@@ -458,7 +459,27 @@ cmd_setup() {
     prune_caches 0
     prune_test_temps 0
     prune_scratchpads 0
+    prune_cargo_git 0
     keep_floor
+}
+
+# Cargo's git checkouts (~/.cargo/git/checkouts/<repo>-<hash>/<commit>), one
+# per commit any build fetched: each one no Cargo.lock of a live checkout this
+# tool knows pins goes. The git databases (~/.cargo/git/db) stay, and cargo
+# checks a commit out of them again in seconds when a branch needs it.
+prune_cargo_git() {
+    local dry="$1" root top path lockfiles=()
+    while IFS= read -r root; do
+        checkout_is_live "$root" || continue
+        top="$(cat "$root/.checkout")"
+        while IFS= read -r path; do
+            lockfiles+=("$top/$path")
+        done < <(git -C "$top" ls-files -- Cargo.lock '*/Cargo.lock')
+    done < <(all_roots)
+    # With no lockfile to read, every checkout would read as unpinned.
+    [ "${#lockfiles[@]}" -gt 0 ] || return 0
+    python3 "$UNITS" git-checkouts "${CARGO_HOME:-$HOME/.cargo}" "$dry" "${lockfiles[@]}" >/dev/null \
+        || die "pruning cargo's git checkouts failed"
 }
 
 # Claude Code sessions' scratch folders (/private/tmp/claude-<uid>/<project>/
@@ -866,6 +887,7 @@ cmd_prune() {
     prune_caches "$dry"
     prune_test_temps "$dry"
     prune_scratchpads "$dry"
+    prune_cargo_git "$dry"
     if [ "$dry" = 0 ]; then
         empty_trash
     fi

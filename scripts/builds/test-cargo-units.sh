@@ -245,4 +245,24 @@ for command in "build --all-targets" "doc --no-deps" "test --no-run"; do
     [ -z "$(rebuilt $command)" ] || fail "cargo $command rebuilt after deleting replaced copies: $(rebuilt $command)"
 done
 
+# Cargo's git checkouts no Cargo.lock pins go; pinned ones, and the git
+# databases, stay. A cargo holding the package cache keeps them all.
+home="$scratch/cargo-home"
+pinned=04561fe49ad0d5646b41dd3d213d029f566035c7
+mkdir -p "$home/git/checkouts/coven-f7c984c541c70e3c/04561fe" "$home/git/checkouts/coven-f7c984c541c70e3c/c24cf1d" \
+    "$home/git/checkouts/other-2dad6eb5752945c7/c0649fc" "$home/git/db/coven-f7c984c541c70e3c"
+printf '[[package]]\nname = "coven"\nsource = "git+https://github.com/bae-fm/coven?rev=%s#%s"\n' "$pinned" "$pinned" > "$scratch/Cargo.lock"
+checkouts() { (cd "$home/git" && { find checkouts -mindepth 2 -maxdepth 2; find db -mindepth 1 -maxdepth 1; } | sort); }
+python3 - "$home/.package-cache" "$units" "$home" "$scratch/Cargo.lock" <<'PY'
+import fcntl, os, subprocess, sys
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
+fcntl.flock(fd, fcntl.LOCK_EX)
+result = subprocess.run(["python3", sys.argv[2], "git-checkouts", sys.argv[3], "0", sys.argv[4]], capture_output=True, text=True)
+assert "a cargo holds its package cache" in result.stderr, result.stderr
+PY
+[ "$(checkouts | wc -l)" -eq 4 ] || fail "pruning git checkouts deleted while a cargo held the package cache: $(checkouts)"
+python3 "$units" git-checkouts "$home" 0 "$scratch/Cargo.lock" > /dev/null 2>&1
+[ "$(checkouts)" = "$(printf '%s\n' checkouts/coven-f7c984c541c70e3c/04561fe db/coven-f7c984c541c70e3c)" ] \
+    || fail "pruning git checkouts left $(checkouts)"
+
 echo "ok"

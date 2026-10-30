@@ -104,6 +104,14 @@ ones included, download it all again, and a SwiftPM fetch cut off halfway
 corrupts its cache. sccache keeps its own cache under the 30 GiB cap `install`
 writes into its config; `builds` only shows it.
 
+**Cargo's git checkouts.** Cargo checks out each git dependency commit it builds
+into `~/.cargo/git/checkouts/<repo>-<hash>/<commit>` and never deletes one;
+every coven pin bump in bae adds one, and 64 had piled up, two of them pinned.
+`setup` and `prune` delete each checkout no `Cargo.lock` of a live checkout the
+tool knows pins, while holding cargo's package cache locks (a cargo checking a
+commit out holds them). The git databases in `~/.cargo/git/db` stay: cargo
+checks an older commit out of them again in seconds when a branch needs it.
+
 ## App builds live in main and one app checkout
 
 By default a side worktree builds host output only: for Rust, `target`, which

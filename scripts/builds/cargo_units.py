@@ -880,12 +880,82 @@ def prune(days, hours, dry, folders):
     return 0
 
 
+# ── Git checkouts ──────────────────────────────────────────────────────────
+
+# source = "git+https://github.com/bae-fm/coven?rev=04561fe...#04561fe49ad0..."
+GIT_SOURCE = re.compile(r'^source = "git\+[^"#]*#(?P<sha>[0-9a-f]{40})"$', re.MULTILINE)
+
+
+def pinned_revisions(lockfiles):
+    """The git commits <lockfiles> (Cargo.lock files) pin."""
+    pinned = set()
+    for lockfile in lockfiles:
+        try:
+            with open(lockfile) as f:
+                pinned.update(match["sha"] for match in GIT_SOURCE.finditer(f.read()))
+        except FileNotFoundError:
+            pass
+    return pinned
+
+
+def prune_git_checkouts(cargo_home, dry, lockfiles):
+    """Deletes each of cargo's git checkouts (<cargo_home>/git/checkouts/
+    <repo>-<hash>/<short commit>) that no Cargo.lock in <lockfiles> pins,
+    while holding cargo's package cache locks, which a cargo checking one out
+    holds. The git databases (git/db) stay: cargo checks a commit out of them
+    again in seconds. Prints the KiB freed."""
+    checkouts = os.path.join(cargo_home, "git", "checkouts")
+    if not os.path.isdir(checkouts):
+        print(0)
+        return 0
+    pinned = pinned_revisions(lockfiles)
+    locks = []
+    try:
+        if not dry:
+            for name in (".package-cache", ".package-cache-mutate"):
+                fd = os.open(os.path.join(cargo_home, name), os.O_RDWR | os.O_CREAT, 0o644)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    os.close(fd)
+                    note(f"kept cargo's git checkouts in {checkouts}: a cargo holds its package cache")
+                    print(0)
+                    return 0
+                locks.append(fd)
+        unpinned = []
+        for repo in sorted(os.listdir(checkouts)):
+            repo_dir = os.path.join(checkouts, repo)
+            if not os.path.isdir(repo_dir):
+                continue
+            for short in sorted(os.listdir(repo_dir)):
+                path = os.path.join(repo_dir, short)
+                if os.path.isdir(path) and not any(sha.startswith(short) for sha in pinned):
+                    unpinned.append(path)
+        usage = Usage()
+        size = sum(usage.of(path) for path in unpinned)
+        if unpinned:
+            if not dry:
+                for path in unpinned:
+                    remove(path)
+            note(f"{'would delete' if dry else 'deleted'} "
+                 f"{counted(len(unpinned), 'git checkout', 'git checkouts')} no Cargo.lock pins from "
+                 f"{checkouts} ({human(size)})")
+        print(size // 1024)
+    finally:
+        for fd in locks:
+            os.close(fd)
+    return 0
+
+
 def main(argv):
     if argv[:1] == ["record"] and len(argv) == 1:
         return record()
     if argv[:1] == ["prune"] and len(argv) >= 4:
         return prune(int(argv[1]), int(argv[2]), argv[3] == "1", argv[4:])
-    print("usage: cargo_units.py record | prune <days> <hours> <dry 0|1> <folder>...", file=sys.stderr)
+    if argv[:1] == ["git-checkouts"] and len(argv) >= 3:
+        return prune_git_checkouts(argv[1], argv[2] == "1", argv[3:])
+    print("usage: cargo_units.py record | prune <days> <hours> <dry 0|1> <folder>... | "
+          "git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...", file=sys.stderr)
     return 2
 
 
