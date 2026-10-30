@@ -17,7 +17,9 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # A library with a build script, and a crate above it with a library that is
 # also a staticlib and a cdylib, as bae-bridge is (its outputs carry no hash),
-# a binary, an example, an integration test and a doctest.
+# a binary, an example, an integration test and a doctest. Both compile
+# incrementally, as path packages do by default, and keep their object files
+# beside their outputs (split-debuginfo "unpacked", macOS's default).
 mkdir -p "$ws/dep/src" "$ws/app/src/bin" "$ws/app/tests" "$ws/app/examples"
 cat > "$ws/Cargo.toml" <<'EOF'
 [workspace]
@@ -31,7 +33,18 @@ version = "0.1.0"
 edition = "2021"
 EOF
 echo 'fn main() { println!("cargo:rerun-if-changed=build.rs"); }' > "$ws/dep/build.rs"
-echo 'pub fn answer() -> u32 { 42 }' > "$ws/dep/src/lib.rs"
+cat > "$ws/dep/src/lib.rs" <<'EOF'
+pub fn answer() -> u32 { 42 }
+
+/// Panics on zero, from a frame in this rlib.
+#[inline(never)]
+pub fn nonzero(n: u32) -> u32 {
+    if n == 0 {
+        panic!("zero");
+    }
+    n
+}
+EOF
 cat > "$ws/app/Cargo.toml" <<'EOF'
 [package]
 name = "app"
@@ -56,6 +69,9 @@ pub fn answer() -> u32 { dep::answer() }
 mod tests {
     #[test]
     fn answer_is_42() { assert_eq!(super::answer(), 42); }
+
+    #[test]
+    fn panics_in_dep() { dep::nonzero(0); }
 }
 EOF
 echo 'fn main() { println!("hello {}", app::answer()); }' > "$ws/app/src/bin/hello.rs"
@@ -131,6 +147,18 @@ old="$(comm -23 <(echo "$all") <(echo "$used"))"
 [ -z "$(rebuilt build --all-targets)" ] || fail "recording use made cargo rebuild"
 incremental_before="$(ls "$profile/incremental" | wc -l)"
 
+# A code change rebuilds the same units, each writing a new set of object
+# files beside the ones it wrote before.
+sed -i '' 's/dep::answer() }/dep::answer() + 0 }/' app/src/lib.rs
+sed -i '' 's/n == 0 {/n == 0 \&\& n < 1 {/' dep/src/lib.rs
+build_all "$builds" cargo
+sets() { ls "$profile/deps" | grep "^$1[.-].*\.rcgu\.o$" | cut -d. -f1,3 | sort -u; }
+[ "$(sets app | grep -c '^app\.')" -gt 1 ] || fail "rebuilding the cdylib left one set of its object files: $(sets app)"
+[ -n "$(ls "$profile/deps" | grep '^dep-.*\.rcgu\.o$')" ] || fail "the dep rlib left no object files beside it"
+used="$(recent)"
+all="$(fingerprints)"
+old="$(comm -23 <(echo "$all") <(echo "$used"))"
+
 # A dry run deletes nothing.
 python3 "$units" prune 3 1 "$ws/target" > /dev/null 2>&1
 [ "$(fingerprints)" = "$all" ] || fail "a dry run deleted something"
@@ -168,6 +196,28 @@ for unit in $old; do
     [ -z "$leftover" ] || fail "pruning left files of $unit: $leftover"
 done
 [ "$(ls "$profile/incremental" | wc -l)" -lt "$incremental_before" ] || fail "pruning deleted no incremental folder"
+
+# Object files nothing reads are gone: an rlib's, which binaries read from
+# its members, and every set but the newest, which the cdylib, the tests and
+# the binaries were linked from.
+dep_rlib_objects="$(for rlib in "$profile"/deps/libdep-*.rlib; do
+    unit="$(basename "$rlib" .rlib)"; ls "$profile/deps" | grep "^${unit#lib}\..*\.rcgu\.o$" || true; done)"
+[ -z "$dep_rlib_objects" ] || fail "pruning left object files beside the dep rlib: $dep_rlib_objects"
+for owner in $(ls "$profile/deps" | grep '\.rcgu\.o$' | cut -d. -f1 | sort -u); do
+    [ "$(sets "$owner" | grep -c "^$owner\.")" = 1 ] || fail "pruning left $owner more than one set of object files: $(sets "$owner")"
+done
+# Every object file a debug map names is still there.
+for binary in $(find "$profile/deps" "$profile/examples" -maxdepth 1 -type f -perm -0100); do
+    for object in $(nm -ap "$binary" 2>/dev/null | awk '$5 == "OSO" { print $6 }' | sed 's/(.*//'); do
+        [ -e "$object" ] || fail "$(basename "$binary")'s debug map names $object, which pruning deleted"
+    done
+done
+# A panic's backtrace still names file and line in the test and in the rlib.
+trace="$(RUST_BACKTRACE=1 cargo test -q -p app --lib -- panics_in_dep 2>&1 || true)"
+echo "$trace" | grep -A1 ' dep::nonzero$' | grep -q 'at .*dep/src/lib.rs:[0-9]' \
+    || fail "the backtrace lost the dep rlib's file:line: $trace"
+echo "$trace" | grep -A1 ' app::tests::panics_in_dep$' | grep -q 'at .*src/lib.rs:[0-9]' \
+    || fail "the backtrace lost the test's file:line: $trace"
 
 # What the builds use is still up to date.
 for command in "build --all-targets" "doc --no-deps" "test --no-run"; do

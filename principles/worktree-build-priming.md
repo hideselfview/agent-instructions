@@ -232,6 +232,23 @@ counts as used when cargo last built it.
   after cargo last rebuilt it, and its next build rebuilds that, mostly from
   sccache.
 
+**Dead object files.** With `split-debuginfo` unpacked (macOS's default), rustc
+leaves each unit's object files in `deps/`, and a linked binary's debug map
+names the ones it was linked from: a test's or binary's own, and the members of
+each rlib it links (`libtokio-<hash>.rlib(...)`), never the rlib's loose
+objects. Each build of an incremental unit, and each build of a library whose
+files carry no hash (`bae_bridge.bae_bridge.<id>-cgu.NN.rcgu.o`), writes a new
+set under new names and leaves the old ones; nothing deletes them while the unit
+stays in use, and coven's `coven_database` lib test, rebuilt 91 times in three
+hours, piled up 22 GB of them until its folder's cap deleted the whole folder.
+So `setup` and `prune` also delete, in every checkout including main and the app
+checkout, an rlib unit's loose objects, and any other unit's objects that its
+binary or dylib doesn't name (read from the Mach-O's `N_OSO` entries when more
+than one set is left). rustc reuses incremental objects from `incremental/`,
+never from `deps/`, and cargo's freshness never looks at them: after deleting
+them every unit stays fresh and a panic's backtrace keeps file and line, in the
+test and in an rlib it calls (`test-cargo-units.sh` checks both).
+
 Deleting holds every `.cargo-lock` of the folder's profile folders, taken
 without waiting (a profile folder whose lock a build holds waits for the next
 run), then lists open files once and keeps every unit a process holds a file of;

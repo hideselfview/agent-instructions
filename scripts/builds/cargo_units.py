@@ -19,6 +19,16 @@ crate overwrites them, so they never pile up and nothing here deletes them.
 The incremental folder's id is rustc's, not cargo's hash; it belongs to the
 unit whose deps files are hard links to its codegen and metadata files.
 
+With split-debuginfo "unpacked", macOS's default, rustc also leaves each
+unit's object files in deps (<crate>-<hash>.<cgu>.<set>.rcgu.o, or
+<crate>.<crate>.<set>-cgu.NN.rcgu.o for a library whose files carry no hash),
+and a linked binary's debug map names the files it was linked from: a test's
+or binary's own, the members of each rlib it links (libtokio-<hash>.rlib(...))
+rather than the rlib's loose objects, and for a dylib or cdylib its own. Each
+build of an incremental unit, and each build of an unhashed library, writes a
+new set under new names and leaves the old ones, which no build and no
+debugger reads.
+
 A build that finds a unit up to date writes nothing in any of these, so its
 use is recorded from cargo's own report (`--message-format=json-...`): `record`
 sets the modification time of the unit's fingerprint folder to now. A unit's
@@ -29,9 +39,11 @@ which for a unit no recorded build has used is when cargo last built it.
 import errno
 import fcntl
 import json
+import mmap
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -482,6 +494,98 @@ def incremental_dirs(profile, units):
     return result
 
 
+MH_MAGIC_64 = 0xFEEDFACF
+LC_SYMTAB = 0x2
+N_OSO = 0x66
+NLIST_64 = struct.Struct("<IBBHQ")
+
+
+def debug_map(path):
+    """The names of the loose object files the Mach-O binary <path> was
+    linked from, which its debug map names (N_OSO entries; an rlib's members,
+    libtokio-<hash>.rlib(...), aren't loose); None when <path> is no 64-bit
+    Mach-O."""
+    try:
+        with open(path, "rb") as f:
+            image = mmap.mmap(f.fileno(), 0, prot=mmap.PROT_READ)
+    except (OSError, ValueError):
+        return None
+    with image:
+        if len(image) < 32 or struct.unpack_from("<I", image, 0)[0] != MH_MAGIC_64:
+            return None
+        offset = 32
+        for _ in range(struct.unpack_from("<I", image, 16)[0]):
+            command, size = struct.unpack_from("<II", image, offset)
+            if command == LC_SYMTAB:
+                symbols, count, strings, _ = struct.unpack_from("<IIII", image, offset + 8)
+                names = set()
+                for index, kind, _, _, _ in NLIST_64.iter_unpack(image[symbols:symbols + NLIST_64.size * count]):
+                    if kind == N_OSO:
+                        start = strings + index
+                        name = image[start:image.find(b"\0", start)].decode(errors="replace")
+                        if not name.endswith(")"):
+                            names.add(os.path.basename(name))
+                return names
+            offset += size
+    return set()
+
+
+def object_set(path):
+    """The token one build gives every object file of a unit it writes, the
+    third part of the name: <crate>-<hash>.<cgu>.<set>.rcgu.o (incremental),
+    <crate>-<hash>.<crate>.<set>-cgu.NN.rcgu.o, <crate>.<crate>.<set>-cgu.NN.rcgu.o."""
+    return os.path.basename(path).split(".")[2]
+
+
+def unread_objects(objects, binaries):
+    """Those of <objects> that none of <binaries>, the files linked from them,
+    names. One set is what the build that wrote it linked from, so only more
+    than one set is looked up; every set is unread without a binary. A
+    binary this cannot read keeps them all."""
+    if not binaries:
+        return objects
+    if len({object_set(path) for path in objects}) == 1:
+        return []
+    named = set()
+    for binary in binaries:
+        names = debug_map(binary)
+        if names is None:
+            return []
+        named |= names
+    return [path for path in objects if os.path.basename(path) not in named]
+
+
+def dead_objects(profile, units):
+    """The object files in <profile> that no build or debugger reads, among
+    <units>' and those of libraries whose files carry no hash: an rlib's
+    (binaries name the rlib's members), and any other unit's that its binary
+    or dylib doesn't name. rustc reuses an incremental unit's objects from its
+    incremental folder, never from deps."""
+    dead = []
+    for found in units.values():
+        objects = [path for path in found.outputs if path.endswith(".rcgu.o")]
+        if not objects:
+            continue
+        binaries = [
+            path for path in found.outputs
+            if path.endswith(".dylib") or "." not in os.path.basename(path)
+        ]
+        if not binaries and any(path.endswith(".rlib") for path in found.outputs):
+            dead += objects
+        else:
+            dead += unread_objects(objects, binaries)
+    deps = os.path.join(profile, "deps")
+    unhashed = {}
+    if os.path.isdir(deps):
+        for name in os.listdir(deps):
+            if name.endswith(".rcgu.o") and not HASHED_FILE.match(name):
+                unhashed.setdefault(name.split(".")[0], []).append(os.path.join(deps, name))
+    for crate, objects in unhashed.items():
+        dylib = os.path.join(deps, f"lib{crate}.dylib")
+        dead += unread_objects(objects, [dylib] if os.path.exists(dylib) else [])
+    return dead
+
+
 class OpenFiles:
     """The files and folders under <roots> that a process other than this one
     holds open (a file, a working directory, a running executable), by inode:
@@ -555,10 +659,18 @@ def lock_profile(profile):
     return fd
 
 
+def single_link(path):
+    try:
+        return os.lstat(path).st_nlink == 1
+    except FileNotFoundError:
+        return False
+
+
 def prune_profile(profile, cutoff, days, dry, open_files):
-    """Deletes <profile>'s units no build used since <cutoff>, and the
-    incremental folders only they used, but none a process holds a file of.
-    Returns the bytes freed (or that would be)."""
+    """Deletes <profile>'s units no build used since <cutoff>, the
+    incremental folders only they used, and the other units' dead object
+    files, but none a process holds a file of. Returns the bytes freed (or
+    that would be)."""
     units = units_in(profile)
     stale = {h: u for h, u in units.items() if u.last_use() < cutoff}
     increments = [
@@ -566,7 +678,8 @@ def prune_profile(profile, cutoff, days, dry, open_files):
         if (owners and owners <= stale.keys())
         or (not owners and newest_mtime(crate_dir, 2) < cutoff)
     ]
-    if not stale and not increments:
+    objects = dead_objects(profile, {h: u for h, u in units.items() if h not in stale})
+    if not stale and not increments and not objects:
         return 0
     held = open_files.get()
     kept = [h for h, found in stale.items() if holds_any(found.paths(), held)]
@@ -576,6 +689,7 @@ def prune_profile(profile, cutoff, days, dry, open_files):
         crate_dir for crate_dir, owners in increments
         if owners <= stale.keys() and not holds_any([crate_dir], held)
     ]
+    objects = [path for path in objects if not holds_any([path], held)]
     usage, freed, by_name = Usage(), 0, {}
     for found in stale.values():
         size = sum(usage.of(path) for path in found.paths())
@@ -598,6 +712,15 @@ def prune_profile(profile, cutoff, days, dry, open_files):
             f"{name} x{count} {human(size)}" for name, (count, size) in most) if most else ""
         note(f"{'would delete' if dry else 'deleted'} {' and '.join(what)} no build used in "
              f"{days} days from {profile} ({human(freed)}{detail})")
+    if objects:
+        # A file the incremental folder also links stays on disk.
+        size = sum(usage.of(path) for path in objects if single_link(path))
+        freed += size
+        if not dry:
+            for path in objects:
+                remove(path)
+        note(f"{'would delete' if dry else 'deleted'} {counted(len(objects), 'object file', 'object files')} "
+             f"no build or debugger reads from {profile} ({human(size)})")
     if kept:
         note(f"kept {counted(len(kept), 'unused build copy', 'unused build copies')} in {profile}: a process holds their files")
     return freed

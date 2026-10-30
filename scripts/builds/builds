@@ -100,6 +100,15 @@
 # on that folder and keeping any unit a process holds a file of. The repo's
 # hooks and build scripts run cargo through `builds cargo`.
 #
+# Under the same locks they delete, in units still in use and in every
+# checkout, the object files no build or debugger reads. rustc leaves each
+# unit's object files beside its outputs (split-debuginfo "unpacked", macOS's
+# default) and a binary's debug map names the ones it was linked from: an
+# rlib's members, never its loose objects, and only the newest of the sets
+# each incremental rebuild or each build of a library with no hash in its name
+# leaves under new names. One busy coven checkout piled up 22 GB of them in
+# three hours.
+#
 # A folder still over its cap is deleted whole and recreated empty; the next
 # build repopulates it, mostly from sccache. A folder that any process holds a
 # file open in is never deleted.
