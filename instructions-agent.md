@@ -30,7 +30,9 @@ failure, a reconciler you now also have to keep correct). Two shapes only: make
 the bad state unrepresentable (correct by construction), or make the operation
 atomic — commit whole or roll back, else fail loudly to its initiator who
 retries it (idempotent so retry is safe). Same rule as "position advances only
-over fully-realized work." (Full rule in
+over fully-realized work." Periodic cleanup of what nothing references
+(unreferenced bytes, a superseded copy) is not self-heal: no state is wrong,
+only space is unreclaimed. (Full rule in
 `rules/no-self-heal-make-state-correct-or-fail-loud.md`.)
 
 **Never guess or speculate.** If you don't have the relevant source in context,

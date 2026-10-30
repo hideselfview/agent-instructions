@@ -59,6 +59,14 @@ pub async fn remove_member(...) -> Result<Key> {
 }
 ```
 
+**Periodic cleanup is not self-heal.** Deleting what nothing references — bytes
+no row names, a copy a merge superseded, a build no checkout uses — on a
+schedule repairs nothing, because no state is wrong: every reference still
+points at something real, and only space waits to be reclaimed. The test is what
+a reader sees before the cleanup runs. If a reader can see wrong state (a row
+whose file is missing, access that should be gone), it's self-heal and banned.
+If the only thing waiting is unreclaimed space, it's cleanup and fine.
+
 Pairs with `never-mask-errors-with-defaults.md`: that rule bans swallowing the
 error at the point it occurs; this one bans tolerating the wrong *state* the
 swallowed error leaves behind, and bans the background "reconciler" proposed to
