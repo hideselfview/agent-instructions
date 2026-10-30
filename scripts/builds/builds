@@ -43,9 +43,10 @@
 #
 # Commands:
 #   builds setup [<checkout>]   link the checkout's build paths, recreate any
-#                               missing folder, apply the caps to it, to
-#                               DerivedData and to the shared caches, then make
-#                               sure the volume has the free-space floor.
+#                               missing folder, delete its unused build copies
+#                               (below), apply the caps to it, to DerivedData
+#                               and to the shared caches, then make sure the
+#                               volume has the free-space floor.
 #                               The repo's hooks and build scripts run this.
 #   builds new [<repo>] [-b <branch>]
 #                               add the next free side-N worktree from
@@ -57,13 +58,23 @@
 #   builds status               every entry on the volume: size per folder vs
 #                               cap, last write, links
 #   builds prune [--dry-run] [--idle <minutes> [--include-warm]]
-#                               apply every cap; delete roots whose checkout is
-#                               gone and DerivedData entries nothing wrote to
-#                               for a day. --idle also deletes every folder and
-#                               DerivedData entry nothing wrote to for that
-#                               long (how reclaim-disk frees the build volume),
-#                               outside main and the app checkout unless
-#                               --include-warm
+#                               delete every checkout's unused build copies
+#                               (below) and apply every cap; delete roots whose
+#                               checkout is gone and DerivedData entries
+#                               nothing wrote to for a day. --idle also deletes
+#                               every folder and DerivedData entry nothing
+#                               wrote to for that long (how reclaim-disk frees
+#                               the build volume), outside main and the app
+#                               checkout unless --include-warm
+#   builds cargo <subcommand> [<args>...]
+#                               run cargo (build, check, clippy, doc, rustc,
+#                               rustdoc, test, bench, run, install, nextest
+#                               run|list|archive) and record the build copies
+#                               it used; the rest of its output, a program's or
+#                               the tests', passes through
+#   builds record-use           record the build copies a cargo report on stdin
+#                               (--message-format=json-render-diagnostics)
+#                               names, passing every other line through
 #   builds install              put `builds` on PATH, create the shared caches
 #                               and their links, write the sccache config, run
 #                               the sccache server under launchd, point Xcode's
@@ -76,9 +87,22 @@
 # the caps bound whatever a checkout builds, and the floor below bounds every
 # checkout but main and the app checkout.
 #
-# A folder over its cap is deleted whole and recreated empty; the next build
-# repopulates it, mostly from sccache. A folder that any process holds a file
-# open in is never deleted.
+# Unused build copies. Cargo names each unit it builds (one crate target, for
+# one profile, target and feature set) by a hash of everything that build
+# depends on, dependency versions included: every dependency bump builds a new
+# copy of each unit above it, and the old copies stay. `cargo` and
+# `record-use` record each unit a build reports, whether it rebuilt it or found
+# it up to date, by setting its fingerprint folder's modification time; a unit
+# no recorded build has used counts as used when cargo last built it. `setup`
+# and `prune` delete, in each cargo folder (target, target-macos, ...), every
+# file of each unit nothing used for BUILDS_UNUSED_DAYS days (default 3), and
+# the incremental folders only those units used, while holding cargo's locks
+# on that folder and keeping any unit a process holds a file of. The repo's
+# hooks and build scripts run cargo through `builds cargo`.
+#
+# A folder still over its cap is deleted whole and recreated empty; the next
+# build repopulates it, mostly from sccache. A folder that any process holds a
+# file open in is never deleted.
 #
 # Caps bound each folder, not the volume: a checkout with every platform built
 # is 45-52 GB, and the build volume shares its APFS pool with the main disk.
@@ -95,8 +119,13 @@ set -euo pipefail
 # the rest exported. Every git call here names the checkout it asks about with
 # -C, so drop them: kept, git answers for the hook's repository about every
 # other checkout, and each of another repo's build roots reads as orphaned.
+# `cargo` and `record-use` call no git, and cargo runs in the caller's
+# environment as it is.
 # shellcheck disable=SC2046
-unset $(git rev-parse --local-env-vars)
+case "${1:-}" in
+    cargo|record-use) ;;
+    *) unset $(git rev-parse --local-env-vars) ;;
+esac
 
 ROOT="${BUILDS_ROOT:-/Volumes/Builds}"
 TRASH="$ROOT/.trash"
@@ -109,6 +138,14 @@ FLOOR_KIB=$(( ${BUILDS_FREE_FLOOR_GIB:-30} * 1024 * 1024 ))
 # A folder written this recently may belong to a build between two of its
 # steps, when it holds no lock or open file; the floor never deletes it.
 FLOOR_IDLE_MINUTES=30
+# A build copy no build used for this many days is deleted. A coven pin bump
+# in bae makes a new copy of everything above coven; three days keeps the
+# copies a branch from the last few days still builds against. Before it,
+# main's target held 93 copies of bae-core, 13 GB, going back a week.
+UNUSED_DAYS="${BUILDS_UNUSED_DAYS:-3}"
+case "$UNUSED_DAYS" in
+    ''|*[!0-9]*|0) echo "builds: BUILDS_UNUSED_DAYS must be a whole number of days, at least 1, got '$UNUSED_DAYS'" >&2; exit 1 ;;
+esac
 
 # Xcode's default DerivedData location (`install` sets it). 15G holds five
 # one-off entries of about 3 GB, more than the checkouts that run one-offs at
@@ -158,6 +195,8 @@ while [ -L "$self" ]; do
     esac
 done
 SELF="$(cd "$(dirname "$self")" && pwd -P)/$(basename "$self")"
+# Cargo's build copies in a build folder: recording their use, and pruning.
+UNITS="$(dirname "$SELF")/cargo_units.py"
 
 die() { echo "builds: $*" >&2; exit 1; }
 note() { echo "builds: $*" >&2; }
@@ -466,13 +505,34 @@ empty_trash() {
     nohup rm -rf "$TRASH" >/dev/null 2>&1 &
 }
 
-# Applies the caps of <top>'s manifest to the folders in <root>; with
-# <idle> minutes > 0, also deletes folders nothing wrote to for that long.
+# Deletes the unused build copies in the folders of <root> (cargo_units.py
+# prune); prints "<KiB freed>\t<folder>" per folder, which a dry run only
+# counts.
+prune_units() {
+    local dry="$1"
+    shift
+    python3 "$UNITS" prune "$UNUSED_DAYS" "$dry" "$@" \
+        || die "pruning unused build copies in $* failed"
+}
+
+# Deletes the unused build copies in the folders of <top>'s manifest in
+# <root>, then applies the manifest's caps to them; with <idle> minutes > 0,
+# also deletes folders nothing wrote to for that long.
 prune_root() {
-    local root="$1" top="$2" dry="$3" idle="${4:-0}" path cap kib reason
+    local root="$1" top="$2" dry="$3" idle="${4:-0}" path cap kib reason freed folders=()
+    while read -r path cap; do
+        [ -d "$root/$path" ] && folders+=("$root/$path")
+    done < <(manifest_entries "$top")
+    [ "${#folders[@]}" -gt 0 ] || return 0
+    freed="$(prune_units "$dry" "${folders[@]}")"
     while read -r path cap; do
         [ -d "$root/$path" ] || continue
         kib="$(kib_of "$root/$path")"
+        if [ "$dry" = 1 ]; then
+            # Nothing was deleted; measure the folder as pruning would leave it.
+            kib=$(( ${kib:-0} - $(printf '%s\n' "$freed" \
+                | awk -F '\t' -v folder="$root/$path" '$2 == folder { print $1; found = 1 } END { if (!found) print 0 }') ))
+        fi
         if [ "${kib:-0}" -gt "$cap" ]; then
             reason="$(human "$kib") > $(human "$cap")"
         elif [ "$idle" -gt 0 ] && [ "${kib:-0}" -gt 1024 ] \
@@ -744,6 +804,42 @@ cmd_prune() {
     if [ "$dry" = 0 ]; then
         empty_trash
     fi
+}
+
+# ── Recording use ───────────────────────────────────────────────────────────
+
+# Runs cargo with these arguments plus the flag that has it report every unit
+# it uses on stdout, which record-use reads. Exits with cargo's status, or
+# record-use's when cargo succeeded and a reported unit could not be recorded.
+cmd_cargo() {
+    local subcommand=() format statuses
+    case "${1:-}" in
+        build|check|clippy|doc|rustc|rustdoc|test|bench|run|install)
+            subcommand=("$1")
+            format=--message-format=json-render-diagnostics
+            ;;
+        nextest)
+            case "${2:-}" in
+                run|list|archive) subcommand=("$1" "$2") ;;
+                *) die "cargo: cargo nextest ${2:-} builds nothing; run it without builds" ;;
+            esac
+            format=--cargo-message-format=json-render-diagnostics
+            ;;
+        '') die "usage: builds cargo <subcommand> [<args>...]" ;;
+        *) die "cargo: cargo $1 builds nothing; run it without builds" ;;
+    esac
+    shift "${#subcommand[@]}"
+    set +e
+    cargo "${subcommand[@]}" "$format" "$@" | python3 "$UNITS" record
+    statuses=("${PIPESTATUS[@]}")
+    set -e
+    [ "${statuses[0]}" = 0 ] || exit "${statuses[0]}"
+    exit "${statuses[1]}"
+}
+
+cmd_record_use() {
+    [ $# -eq 0 ] || die "usage: cargo ... --message-format=json-render-diagnostics | builds record-use"
+    exec python3 "$UNITS" record
 }
 
 # ── Status ──────────────────────────────────────────────────────────────────
@@ -1141,6 +1237,8 @@ case "$command" in
     status) cmd_status "$@" ;;
     prune) cmd_prune "$@" ;;
     install) cmd_install "$@" ;;
+    cargo) cmd_cargo "$@" ;;
+    record-use) cmd_record_use "$@" ;;
     -h|--help|help) sed -n '2,/^$/s/^# \{0,1\}//p' "$SELF" ;;
-    *) die "unknown command $command (setup | new | retire | app-checkout | status | prune | install)" ;;
+    *) die "unknown command $command (setup | new | retire | app-checkout | status | prune | cargo | record-use | install)" ;;
 esac

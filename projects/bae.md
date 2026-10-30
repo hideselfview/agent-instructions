@@ -149,11 +149,14 @@ bae specifics:
   back to generate bindings. Each of those paths is part of sccache's key, so an
   inline override gets no cache hits.
 
-- **Folders are deleted whole when they pass their cap** in `.build-dirs`, at
-  the start of the next hook or build script in that checkout, and refilled by
-  that build. Leave main's and the app checkout's otherwise: the person installs
-  from main and tests from the app checkout. The free-space floor never deletes
-  theirs. `builds status` shows each checkout's sizes.
+- **Build copies no build used for three days are deleted**, at the start of the
+  next hook or build script in that checkout; the hooks and build scripts run
+  cargo through `scripts/cargo.sh`, which records each copy cargo uses. Run
+  cargo through it in a new script too. **Folders are deleted whole when they
+  still pass their cap** in `.build-dirs`, and refilled by that build. Leave
+  main's and the app checkout's otherwise: the person installs from main and
+  tests from the app checkout. The free-space floor never deletes theirs.
+  `builds status` shows each checkout's sizes.
 
 - **Sparkle is the SwiftPM dep that corrupts** (xcodebuild fails with "Couldn't
   check out revision" or "file not found" on Sparkle):

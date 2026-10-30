@@ -289,12 +289,12 @@ the cause and fix it then.
 
 Each checkout builds into its own folders on the build volume
 (`/Volumes/Builds/<repo>/<checkout>/`), linked from the paths the repo's
-`.build-dirs` lists and kept under their size caps by the `builds` tool (`new`,
-`retire`, `status`, `prune`). Never point a build at another dir with
-`CARGO_TARGET_DIR` or other inline `CARGO_*` variables: the path is part of
-sccache's key. See `principles/worktree-build-priming.md` for the layout, the
-app checkout and how to take its lock, the sccache server, and SwiftPM/Sparkle
-cache recovery.
+`.build-dirs` lists, rid of build copies no build used for days and kept under
+their size caps by the `builds` tool (`new`, `retire`, `status`, `prune`). Never
+point a build at another dir with `CARGO_TARGET_DIR` or other inline `CARGO_*`
+variables: the path is part of sccache's key. See
+`principles/worktree-build-priming.md` for the layout, the app checkout and how
+to take its lock, the sccache server, and SwiftPM/Sparkle cache recovery.
 
 **Fast-forward merges only.** No merge commits in `main`'s history. Rebase the
 branch onto current `main` first, then `git merge --ff-only`. If ff fails,

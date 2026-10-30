@@ -57,14 +57,15 @@ A checkout's build output lives on the build volume behind links
 (`~/dev/bae/target -> /Volumes/Builds/bae/main/target`), so a home-dir scan
 never sees it; `builds status` lists it per checkout and folder. The build
 volume shares free space with the main disk (same APFS container), so freeing
-either helps both. Day to day the caps in each repo's `.build-dirs` bound each
-folder, the caps of DerivedData and the shared caches bound those, and
-`builds setup`, which every build runs first, keeps a free-space floor (30 GiB):
-under it, it deletes DerivedData's entries and then whole build folders across
-checkouts that no build is using and nothing wrote to in 30 minutes, least
-recently written first, never main's or the repo's app checkout's and never a
-shared cache, and fails the build, naming the biggest folders, if that is not
-enough. That failure is when this skill's other tiers are needed.
+either helps both. Day to day `builds setup`, which every build runs first,
+deletes the build copies no build used for three days from each cargo folder.
+The caps in each repo's `.build-dirs` bound each folder, the caps of DerivedData
+and the shared caches bound those, and `builds setup` keeps a free-space floor
+(30 GiB): under it, it deletes DerivedData's entries and then whole build
+folders across checkouts that no build is using and nothing wrote to in 30
+minutes, least recently written first, never main's or the repo's app checkout's
+and never a shared cache, and fails the build, naming the biggest folders, if
+that is not enough. That failure is when this skill's other tiers are needed.
 
 Three guards keep it from breaking live work: it acts only when free space is
 below the threshold, scans the complete candidate tree for writes within

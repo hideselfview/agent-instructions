@@ -38,11 +38,11 @@ as `~/.local/bin/builds`):
 - `builds setup [<checkout>]` creates the links, recreates any folder behind a
   link that was deleted, deletes a folder an older layout left behind (never
   moves it: Xcode's DerivedData records its own absolute path, so a moved one
-  can't find its packages), applies the caps to that checkout, to DerivedData
-  and to the shared caches, and keeps the volume's free-space floor (below). The
-  repo's `scripts/build-layout.sh` calls it, and the hooks and every build
-  script call that first. Without the tool (CI) the script does nothing and the
-  tools write into real directories.
+  can't find its packages), deletes that checkout's unused build copies, applies
+  the caps to it, to DerivedData and to the shared caches, and keeps the
+  volume's free-space floor (below). The repo's `scripts/build-layout.sh` calls
+  it, and the hooks and every build script call that first. Without the tool
+  (CI) the script does nothing and the tools write into real directories.
 - `builds new [<repo>] [-b <branch>]` adds the next free `side-N` from
   `origin/main`, links it, and runs its own `post-checkout`, which sets the
   checkout up and builds nothing.
@@ -53,11 +53,18 @@ as `~/.local/bin/builds`):
 - `builds status` lists every entry on the volume: each root's folders, each
   DerivedData entry and each shared cache, with size against cap, last write,
   and whether the links are in place; anything else as UNKNOWN.
-- `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` applies every
-  cap, deletes roots whose checkout is gone and DerivedData entries nothing
-  wrote to for a day; `--idle` also deletes every folder and DerivedData entry
-  nothing wrote to for that long (the reclaim-disk skill uses it), except main's
-  and the app checkout's folders, which `--include-warm` adds.
+- `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` deletes every
+  checkout's unused build copies, applies every cap, deletes roots whose
+  checkout is gone and DerivedData entries nothing wrote to for a day; `--idle`
+  also deletes every folder and DerivedData entry nothing wrote to for that long
+  (the reclaim-disk skill uses it), except main's and the app checkout's
+  folders, which `--include-warm` adds. `--dry-run` deletes nothing and prints
+  what it would.
+- `builds cargo <subcommand> [<args>...]` runs cargo and records the build
+  copies it used (below); the repo's `scripts/cargo.sh` calls it, and the hooks
+  and build scripts run cargo through that. `builds record-use` records the
+  copies a cargo report on stdin names, for a script that keeps cargo's JSON for
+  itself.
 - `builds install` puts the tool on PATH, creates the shared caches and the
   links to them, writes the sccache config, runs the sccache server under
   launchd (restarting it only when its settings changed, since a restart fails
@@ -178,12 +185,66 @@ lockf -k /Volumes/Builds/bae/app.lock sh -c '
   script that watches a missing path reruns on every build. Watch shared refs
   through `git rev-parse --git-common-dir`.
 
-## Disk stays bounded by caps, not by sweeps
+## Disk stays bounded by deleting unused build copies, then caps
 
-Each folder is deleted whole (renamed into `/Volumes/Builds/.trash`, removed in
-the background, recreated empty) when it grows past its cap, unless a build is
-using it. Hooks and build scripts in one checkout overlap, so "in use" is
-decided while holding what a build holds: every `.cargo-lock` flock in the
+**Unused build copies.** Cargo builds each unit (one crate target, for one
+profile, target and feature set) into files named after a hash of everything
+that build depends on, dependency versions included. Every coven pin bump in
+bae, and every dependency bump in coven, builds a new copy of each unit above
+it, and cargo never deletes the old one: bae main's `target` held 93 copies of
+bae-core, 13 GB, going back a week, each a ~450 MB rlib plus ~1.4 GB of test
+binaries, and the first dry run there found 17.8 of its 33 GB unused for three
+days. So `builds setup` and `builds prune` first delete, in each cargo folder,
+every build copy no build used for three days (`BUILDS_UNUSED_DAYS` overrides
+it): its `.fingerprint/<package>-<hash>`, its `deps/` and `examples/` files, its
+`build/<package>-<hash>`, and the `incremental/` folders only it used, in every
+profile folder cargo makes (`debug`, `release`, `<triple>/debug`, the `release`
+of a `cargo install --target-dir`).
+
+Use is recorded from cargo's own report, since a build that finds a unit up to
+date writes nothing in `deps/` or `.fingerprint/` and access times can't tell
+(below). The repos run cargo in their hooks and build scripts through
+`scripts/cargo.sh`, which runs `builds cargo`: cargo with
+`--message-format=json-render-diagnostics` (`--cargo-message-format` for
+nextest), its stdout through `cargo_units.py record`; without the tool (CI), or
+with a `builds` that has no `cargo` command, `scripts/cargo.sh` is cargo itself.
+Each `compiler-artifact` message, for an up-to-date unit too, and each
+`build-script-executed` names its unit's files; the recorder sets that unit's
+fingerprint folder's modification time to now and passes every other line
+through, so a `cargo run` program's output and test output still reach the
+caller. Doctests have no `--no-run`, and a `--profile test` build of the library
+makes a different unit than the doctests use, so reading cargo's stdout in place
+is what records a doctest run. A unit's last use is the newest modification time
+of its fingerprint folder and the files in it: a unit no recorded build used
+counts as used when cargo last built it.
+
+- A file cargo copies beside `deps/` (`target/debug/loc-gen`) keeps its
+  original's size and modification time, which name the unit.
+- Outputs whose names carry no hash, documentation and a cdylib or staticlib
+  (`libbae_bridge.a`), name the units with that target, mode and features whose
+  dependencies' fingerprints are among the ones the same build reported.
+- An `incremental/` folder is named by rustc's crate id, not cargo's hash. It
+  belongs to the unit whose `deps/` files are hard links to its files; one with
+  no such link (a check of a test or a binary) goes once nothing wrote to it for
+  the same days, which costs that crate a non-incremental compile.
+- A build that doesn't go through `builds cargo` (cargo typed by hand,
+  rust-analyzer's checks) records nothing: what only it uses goes three days
+  after cargo last rebuilt it, and its next build rebuilds that, mostly from
+  sccache.
+
+Deleting holds every `.cargo-lock` of the folder's profile folders, taken
+without waiting (a profile folder whose lock a build holds waits for the next
+run), then lists open files once and keeps every unit a process holds a file of;
+rust-analyzer's proc-macro server holds its macro dylibs. Open files are matched
+by inode: lsof names a hard-linked file by whichever of its names it finds, and
+rustc hard-links `deps/` files into `incremental/`. A unit's fingerprint goes
+first: without it cargo rebuilds the unit before reading its outputs, so a
+deletion cut off halfway leaves only files the unit's next build overwrites.
+
+**Caps.** A folder still over its cap is deleted whole (renamed into
+`/Volumes/Builds/.trash`, removed in the background, recreated empty), unless a
+build is using it. Hooks and build scripts in one checkout overlap, so "in use"
+is decided while holding what a build holds: every `.cargo-lock` flock in the
 folder, taken without waiting (cargo holds one for a whole build), then a fresh
 check that no process has a file or working directory inside it, then the
 rename, then the locks are released. A cargo build that starts meanwhile queues
@@ -209,11 +270,11 @@ checkout's, so the build stops before it starts instead of running out of space
 halfway. It never falls back to main's or the app checkout's folders: the person
 decides what to free there. `BUILDS_FREE_FLOOR_GIB` overrides the floor.
 
-Don't trim target dirs with `cargo sweep --time` or `--maxsize`: APFS refreshes
-a file's access time only when it is not newer than its modification time (8 of
-1,325 fingerprint dirs refreshed after a build), so the sweep deletes the build
-needed next and leaves 14–17 GB anyway. `cargo sweep --installed` is fine after
-a toolchain upgrade.
+Access times can't say what a build used: APFS refreshes a file's access time
+only when it is not newer than its modification time (8 of 1,325 fingerprint
+dirs refreshed after a build), so `cargo sweep --time` or `--maxsize` deletes
+the build needed next and leaves 14–17 GB anyway. `cargo sweep --installed` is
+fine after a toolchain upgrade.
 
 ## One sccache server
 
