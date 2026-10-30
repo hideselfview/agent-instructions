@@ -104,6 +104,10 @@
 # build repopulates it, mostly from sccache. A folder that any process holds a
 # file open in is never deleted.
 #
+# Sizes, against caps and in status, count each block once (disk_usage.py):
+# du counts the blocks of an APFS clone once per file, and cargo uplifts its
+# libraries out of deps/ as clones.
+#
 # Caps bound each folder, not the volume: a checkout with every platform built
 # is 45-52 GB, and the build volume shares its APFS pool with the main disk.
 # So `setup` also keeps a free-space floor: under it, it deletes DerivedData's
@@ -165,7 +169,8 @@ CACHES="$ROOT/caches"
 # deleting a cache costs every checkout a download, so the cap leaves room
 # rather than fitting tightly. sccache's cap is the size `install` writes into
 # its config, and sccache evicts within it itself; its own accounting reads
-# about 0.2 GiB under du's, so du may show it a little over. 30G holds about two
+# about 0.2 GiB under the folder's size on disk, so status may show it a
+# little over. 30G holds about two
 # days of builds: on a day of agents building in seven bae and five coven
 # checkouts sccache wrote 12.6G, and nothing in it was older than three days.
 #
@@ -199,6 +204,8 @@ done
 SELF="$(cd "$(dirname "$self")" && pwd -P)/$(basename "$self")"
 # Cargo's build copies in a build folder: recording their use, and pruning.
 UNITS="$(dirname "$SELF")/cargo_units.py"
+# The space a folder takes, counting blocks APFS clones share once.
+USAGE="$(dirname "$SELF")/disk_usage.py"
 
 die() { echo "builds: $*" >&2; exit 1; }
 note() { echo "builds: $*" >&2; }
@@ -470,7 +477,7 @@ prune_test_temps() {
 
 # ── Pruning ─────────────────────────────────────────────────────────────────
 
-kib_of() { du -sk "$1" 2>/dev/null | cut -f1; }
+kib_of() { python3 "$USAGE" "$1"; }
 
 human() {
     local kib="$1"

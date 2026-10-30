@@ -36,6 +36,8 @@ import subprocess
 import sys
 import time
 
+from disk_usage import Usage
+
 # deps/libbae_core-8fffeaeaf85dc425.rlib, deps/bae_core-8fffeaeaf85dc425 (a
 # test), deps/bae_core-8fffeaeaf85dc425.bae_core.1c1aebe005fd4a7f-cgu.00.rcgu.o
 HASHED_FILE = re.compile(r"^(?:lib)?(?P<crate>[A-Za-z0-9_]+?)-(?P<hash>[0-9a-f]{16})(?:\..+)?$")
@@ -364,31 +366,6 @@ def record():
 # ── Pruning ─────────────────────────────────────────────────────────────────
 
 
-def disk_size(path, seen):
-    """Bytes <path> takes on disk, a file or a whole folder, counting each
-    hard-linked file once across calls sharing <seen>."""
-    total = 0
-    try:
-        stats = [os.lstat(path)]
-    except FileNotFoundError:
-        return 0
-    if os.path.isdir(path) and not os.path.islink(path):
-        for root, dirs, files in os.walk(path):
-            for name in dirs + files:
-                try:
-                    stats.append(os.lstat(os.path.join(root, name)))
-                except FileNotFoundError:
-                    pass
-    for st in stats:
-        if st.st_nlink > 1:
-            key = (st.st_dev, st.st_ino)
-            if key in seen:
-                continue
-            seen.add(key)
-        total += st.st_blocks * 512
-    return total
-
-
 def newest_mtime(path, depth=1):
     """The newest modification time of <path> and what it holds, <depth>
     levels down."""
@@ -591,9 +568,9 @@ def prune_profile(profile, cutoff, days, dry, open_files):
         crate_dir for crate_dir, owners in increments
         if owners <= stale.keys() and not holds_any([crate_dir], held)
     ]
-    seen, freed, by_name = set(), 0, {}
+    usage, freed, by_name = Usage(), 0, {}
     for found in stale.values():
-        size = sum(disk_size(path, seen) for path in found.paths())
+        size = sum(usage.of(path) for path in found.paths())
         freed += size
         count, total = by_name.get(found.name, (0, 0))
         by_name[found.name] = (count + 1, total + size)
@@ -601,7 +578,7 @@ def prune_profile(profile, cutoff, days, dry, open_files):
             for path in found.paths():
                 remove(path)
     for crate_dir in increments:
-        freed += disk_size(crate_dir, seen)
+        freed += usage.of(crate_dir)
         if not dry:
             remove(crate_dir)
     if stale or increments:

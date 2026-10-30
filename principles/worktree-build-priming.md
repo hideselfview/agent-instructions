@@ -250,7 +250,10 @@ check that no process has a file or working directory inside it, then the
 rename, then the locks are released. A cargo build that starts meanwhile queues
 on the lock and writes into the new folder. Caps are about twice a fresh build
 of the folder; the next build refills it, mostly from sccache (a wipe and
-rebuild took 137 s and 8.9 GB).
+rebuild took 137 s and 8.9 GB). Sizes, for the caps and `builds status`, count
+each block once (`disk_usage.py`): cargo uplifts a library out of `deps/` as an
+APFS clone, which shares its blocks, and `du` counts those blocks once per file,
+so it read bae's `target-macos` as 9.3 GB where it took 7.3 GB.
 
 Caps bound folders, not the volume: a bae checkout with every platform built is
 45-52 GB, the build volume shares its APFS pool with the main disk, and with six
