@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Re-runs the main checkout's install.sh when the commits in <range> touch
+# anything it consumes, so generated instruction files and symlinks stay
+# current without a manual install. Only in the main checkout: install.sh
+# links the live config there, so a side worktree's commit changes nothing it
+# installs.
+
+set -euo pipefail
+
+main="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
+[ "$(git rev-parse --show-toplevel)" = "$main" ] || exit 0
+
+if git diff --name-only "$@" \
+  | grep -qE '^(instructions-agent\.md|generate\.py|install\.sh|claude/(settings\.json|agents/.+\.md)|codex/(config\.toml|skills/.+)|((rules|principles|projects)/.+\.md))$'; then
+  exec "$main/install.sh"
+fi

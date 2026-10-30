@@ -7,7 +7,9 @@
 
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The main checkout, whichever worktree this runs from: the live config always
+# points there, so nothing in a side worktree goes live before it lands.
+repo="$(git -C "$(dirname "${BASH_SOURCE[0]}")" worktree list --porcelain | sed -n '1s/^worktree //p')"
 
 # Pre-commit hook: enforce mdformat on markdown files.
 if ! command -v mdformat >/dev/null 2>&1; then

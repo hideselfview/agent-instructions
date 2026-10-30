@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# A merge or pull into main, such as a side worktree's branch landing by
+# fast-forward: reinstall when it touched what install.sh consumes.
+
+exec "$(git rev-parse --show-toplevel)/.githooks/reinstall" ORIG_HEAD HEAD
