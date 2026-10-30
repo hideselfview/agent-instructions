@@ -165,7 +165,9 @@ CACHES="$ROOT/caches"
 # deleting a cache costs every checkout a download, so the cap leaves room
 # rather than fitting tightly. sccache's cap is the size `install` writes into
 # its config, and sccache evicts within it itself; its own accounting reads
-# about 0.2 GiB under du's, so du may show it a little over.
+# about 0.2 GiB under du's, so du may show it a little over. 30G holds about two
+# days of builds: on a day of agents building in seven bae and five coven
+# checkouts sccache wrote 12.6G, and nothing in it was older than three days.
 #
 # The links for Gradle and NuGet point at their tools' whole home folders,
 # which also hold settings the person writes (gradle.properties, init
@@ -178,7 +180,7 @@ gradle    8G    .gradle                            gradle.properties,init.d,init
 npm       1G    .npm                               -
 nuget     6G    .nuget                             NuGet/NuGet.Config
 swiftpm   3G    Library/Caches/org.swift.swiftpm   -
-sccache   40G   Library/Caches/Mozilla.sccache     -
+sccache   30G   Library/Caches/Mozilla.sccache     -
 EOF
 }
 

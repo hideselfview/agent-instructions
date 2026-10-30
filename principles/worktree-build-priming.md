@@ -101,7 +101,7 @@ process holds a file in it, and puts back the settings files it holds
 (`gradle.properties`, Gradle init scripts, `NuGet/NuGet.Config`). The floor and
 the reclaim-disk skill never touch them: deleting one makes every checkout, warm
 ones included, download it all again, and a SwiftPM fetch cut off halfway
-corrupts its cache. sccache keeps its own cache under the 40 GiB cap `install`
+corrupts its cache. sccache keeps its own cache under the 30 GiB cap `install`
 writes into its config; `builds` only shows it.
 
 ## App builds live in main and one app checkout
@@ -279,10 +279,11 @@ fine after a toolchain upgrade.
 ## One sccache server
 
 - One server on sccache's default TCP port (4226), cache in
-  `/Volumes/Builds/caches/sccache` and capped at 40 GiB in
+  `/Volumes/Builds/caches/sccache` and capped at 30 GiB in
   `~/Library/Application Support/Mozilla.sccache/config`, both written by
-  `builds install` (the working set of the checkouts is about 30 GiB; each
-  checkout state writes about 3.3 GiB).
+  `builds install`. Each checkout state writes about 3.3 GiB; a day of agents
+  building in seven bae and five coven checkouts wrote 12.6 GiB, so 30 GiB keeps
+  about two days of branch states.
 - Started by launchd (`local.sccache-server`) with the system `TMPDIR` and no
   idle timeout. A server inherits the `TMPDIR` of whichever client starts it;
   once that directory is deleted every compile fails. Don't use the Unix-socket
