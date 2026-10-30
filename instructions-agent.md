@@ -209,6 +209,13 @@ item; fix findings; rebase, fast-forward and push `main`. For a design file,
 `principles/design-to-implementation.md` says what plan, implementer, and review
 must do. Don't skip steps.
 
+**Hand off a background agent before its context grows large.** Give each agent
+one task (a commit or a short chain), not a stream of follow-ups. Once an
+agent's context passes about 400k tokens, don't send it new work: at its next
+clean point it writes a handoff file (what's committed, what's uncommitted and
+its state, what's left in order, decisions, traps, commands), and a fresh agent
+continues from that file and the branch.
+
 **Code review: one manual pass.** The agent holding the implementation context
 reviews the diff itself against the requirements and applicable coding rules.
 Fix confirmed findings and verify those corrections with relevant checks. Do not
