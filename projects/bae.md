@@ -18,6 +18,11 @@ for iOS to check a change, don't add iOS UI or iOS variants of macOS views, and
 don't keep iOS build output warm. CI's iOS jobs still run; when one goes red,
 fix it then. Work that would touch iOS stops at macOS and Android.
 
+Keep at most one iOS simulator runtime and one simulator device installed: when
+a new runtime is installed, delete the old runtime and its devices
+(`xcrun simctl runtime list`, `xcrun simctl runtime delete`,
+`xcrun simctl delete`). Each runtime takes 8–20 GB of the disk the builds share.
+
 Tests, benches and probes never write to the person's keychain. Use an in-memory
 keychain (`coven::TestCoven`) or a temporary one. That goes double for the
 synced iCloud Keychain: an entry there reaches every device on the person's
