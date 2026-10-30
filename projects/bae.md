@@ -115,10 +115,10 @@ from the (missing) generated file.
 Each checkout builds into its own folders on the build volume:
 `/Volumes/Builds/bae/<checkout>/` (`main`, `side-1`, …), linked from the paths
 `.build-dirs` lists (`target`, `target-macos`, `target-ios`, `target-android`,
-the Xcode `.build` dirs, Gradle's, Avalonia's `obj`/`bin`). The `builds` tool
-manages them; the layout, the app checkout's lock, the measurements behind it,
-sccache and SwiftPM recovery are in `principles/worktree-build-priming.md`. The
-bae specifics:
+the Xcode `.build` dirs, `BaeKit/Frameworks`, `bae-android/debug-symbols`,
+Gradle's, Avalonia's `obj`/`bin`). The `builds` tool manages them; the layout,
+the app checkout's lock, the measurements behind it, sccache and SwiftPM
+recovery are in `principles/worktree-build-priming.md`. The bae specifics:
 
 - **Side worktrees build host Rust only** (`target`: tests, clippy, the
   pre-commit hook). App builds — the bridge for macOS, iOS or Android, the Xcode
