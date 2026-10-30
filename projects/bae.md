@@ -33,13 +33,15 @@ Move bae's coven pin as soon as coven has landed what bae needs, even when the
 new coven needs the library recreated: land the bump and tell the person to run
 `scripts/reset-bae.py`. Never hold a bump back to save them a reset.
 
-Questions that need the person's call are recorded in `~/dev/bae-roadmap.md`:
-open ones under "Waiting on you", answered ones under "Other decisions" with
-their answer. Bring them to the person one at a time. An answer about a design
-plan also goes, numbered, in that plan's Decisions section
-(`~/dev/bae/plans/<plan>.md`, gitignored; the files design is
-`coven-file-binding-and-scope.md` §13). A question settled from existing rules
-or code is not their decision and is not recorded as one.
+Everything outstanding for bae and coven is one list, `~/dev/bae/plans/todo.md`
+(gitignored): decisions waiting on the person (§1), bugs and cleanups, and what
+they decided ("Decided"). Bring decisions to them one at a time. An answer about
+a design plan also goes, numbered, in that plan's Decisions section (the files
+design is `plans/coven-file-binding-and-scope.md` §13). A question settled from
+existing rules or code is not their decision and is not recorded as one.
+`~/dev/bae/plans/queue.md` "NOW" holds only what agents are running, for picking
+up after a compact. `~/dev/bae-roadmap.md` is an older copy already merged into
+`todo.md`.
 
 Project rules are path-scoped atomic files in `projects/bae-rules/`. Claude Code
 receives them through `.claude/rules/` symlinks. Codex receives the rule index
