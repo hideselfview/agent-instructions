@@ -184,13 +184,15 @@ bae specifics:
   `builds status` shows each checkout's sizes.
 
 - **Sparkle is the SwiftPM dep that corrupts** (xcodebuild fails with "Couldn't
-  check out revision" or "file not found" on Sparkle):
+  check out revision" or "file not found" on Sparkle). Every xcodebuild of the
+  macOS app resolves its packages into `bae-macos/bae/.build/SourcePackages`:
 
   ```sh
-  rm -rf bae-macos/bae/.build/derivedData
+  rm -rf bae-macos/bae/.build/derivedData bae-macos/bae/.build/SourcePackages
   rm -rf ~/Library/Caches/org.swift.swiftpm/repositories/Sparkle*
   cd bae-macos/bae && xcodebuild -project bae.xcodeproj -scheme bae \
-    -derivedDataPath .build/derivedData build
+    -derivedDataPath .build/derivedData \
+    -clonedSourcePackagesDirPath .build/SourcePackages build
   ```
 
   Disconnect VPN first — incomplete fetches corrupt the SwiftPM cache.
