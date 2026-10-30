@@ -29,6 +29,10 @@ Never read, print or edit `~/.config/bae-dev/profile.toml`: it holds the
 person's storage and service credentials. Never launch the app with
 `--dev-reset`; the person runs `scripts/reset-bae.py` themselves.
 
+Move bae's coven pin as soon as coven has landed what bae needs, even when the
+new coven needs the library recreated: land the bump and tell the person to run
+`scripts/reset-bae.py`. Never hold a bump back to save them a reset.
+
 Project rules are path-scoped atomic files in `projects/bae-rules/`. Claude Code
 receives them through `.claude/rules/` symlinks. Codex receives the rule index
 in `AGENTS.md`; before editing files in this project, list matching full rule
