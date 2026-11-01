@@ -40,6 +40,10 @@ new coven needs the library recreated: land the bump and tell the person to run
 is landing a planned series of commits, move the pin once, after the series
 finishes, not after each commit.
 
+The macOS app logs to the unified log under subsystem `fm.bae.desktop`, every
+level kept in Debug builds:
+`/usr/bin/log show --last 10m --info --debug --predicate 'subsystem == "fm.bae.desktop"'`.
+
 Everything outstanding for bae and coven is one list, `~/dev/bae/plans/todo.md`
 (gitignored): decisions waiting on the person (§1), bugs and cleanups, and what
 they decided ("Decided"). §1 is a stack, newest on top: a new question goes on

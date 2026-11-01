@@ -243,6 +243,11 @@ pgrep/sleep polling loops to watch your own processes. When a genuine
 condition-wait has no notification, use one watcher, with a hard timeout;
 duplicate watchers are a defect.
 
+**Read macOS's unified log with `/usr/bin/log`, never bare `log`.** In zsh,
+`log` is a shell builtin, so `log show …` silently prints nothing (or "too many
+arguments") and reads as "the app writes no log". Always spell
+`/usr/bin/log show --info --debug --predicate 'subsystem == "…"'`.
+
 **Commit your changes; don't leave a dirty tree for later review.** A change you
 made — a fix, a script edit, a doc note — gets committed, not left uncommitted
 in the working tree for the user to look at "when they get to it." They may not,
