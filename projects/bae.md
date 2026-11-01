@@ -36,7 +36,9 @@ person's storage and service credentials. Never launch the app with
 
 Move bae's coven pin as soon as coven has landed what bae needs, even when the
 new coven needs the library recreated: land the bump and tell the person to run
-`scripts/reset-bae.py`. Never hold a bump back to save them a reset.
+`scripts/reset-bae.py`. Never hold a bump back to save them a reset. While coven
+is landing a planned series of commits, move the pin once, after the series
+finishes, not after each commit.
 
 Everything outstanding for bae and coven is one list, `~/dev/bae/plans/todo.md`
 (gitignored): decisions waiting on the person (§1), bugs and cleanups, and what
