@@ -45,20 +45,28 @@ The macOS app logs to the unified log under subsystem `fm.bae.desktop`, every
 level kept in Debug builds:
 `/usr/bin/log show --last 10m --info --debug --predicate 'subsystem == "fm.bae.desktop"'`.
 
-Everything outstanding for bae and coven is one list, `~/dev/bae/plans/todo.md`
-(gitignored): decisions waiting on the person (§1), bugs and cleanups, and what
-they decided ("Decided"). §1 is a stack, newest on top: a new question goes on
-top as #1. Work it from the top, one question at a time: ask #1 and say what it
-blocks; once they answer, move it to "Decided" with the answer, renumber, and
-ask the new #1. While a question is open, talk about that question only. A
-finding that needs no decision goes straight into `todo.md` §2 without being
-raised; one that needs a decision goes on the stack, and is mentioned in one
-line at most. An answer about a design plan also goes, numbered, in that plan's
-Decisions section (the files design is `plans/coven-file-binding-and-scope.md`
-§13). A question settled from existing rules or code is not their decision and
-is not recorded as one. `~/dev/bae/plans/queue.md` "NOW" holds only what agents
-are running, for picking up after a compact. `~/dev/bae-roadmap.md` is an older
-copy already merged into `todo.md`.
+bae and coven keep two lists, both in `~/dev/bae/plans/todo.md` (gitignored):
+the **decision stack** (§1), questions waiting on the person, and the **work
+queue** (§2), everything there is to do. Nothing to do lives anywhere else: not
+in an agent's brief, a handoff, a plan or a chat message, unless §2 has an item
+pointing at it.
+
+§1 is a stack, newest on top: a new question goes on top as #1. Work it from the
+top, one question at a time: ask #1 and say what it blocks. Once they answer,
+record the answer under "Decided" (the record of what they chose and why, not a
+list of work), put every piece of work the answer implies into §2 in the same
+edit, renumber, and ask the new #1. While a question is open, talk about that
+question only. A finding that needs no decision goes straight into §2 without
+being raised; one that needs a decision goes on the stack, and is mentioned in
+one line at most. An answer about a design plan also goes, numbered, in that
+plan's Decisions section (the files design is
+`plans/coven-file-binding-and-scope.md` §13). A question settled from existing
+rules or code is not their decision and is not recorded as one.
+
+A §2 item that an agent is working on says so at its start ("Running: <agent>,
+<repo> <worktree> <branch>, brief/handoff <path>"); that marker is what to read
+after a compact. An agent's brief names the §2 items it takes. When an item
+lands, it leaves §2.
 
 Project rules are path-scoped atomic files in `projects/bae-rules/`. Claude Code
 receives them through `.claude/rules/` symlinks. Codex receives the rule index
