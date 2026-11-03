@@ -94,10 +94,10 @@ duplicate types to make a split compile.
 
 ## Schema and compatibility
 
-The database schema is one flat migration,
-`bae-core/migrations/001_initial.sql`. A schema change edits that file; it never
-adds a second migration. No library has to advance from an older schema:
-development data is reset with `rm -rf ~/.bae`.
+The database schema is one flat migration, `bae-db/migrations/001_initial.sql`.
+A schema change edits that file; it never adds a second migration. No library
+has to advance from an older schema: development data is reset with
+`rm -rf ~/.bae`.
 
 When another canonical shape changes — bae-bridge types, UiEventBus event
 payloads, on-disk file layouts, sync membership chain format, encryption
