@@ -170,6 +170,11 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   person asks for one in a particular worktree; clear it once that work has
   moved on.
 
+- **The main checkouts (`~/dev/bae`, `~/dev/coven`) are the person's.** No agent
+  edits, builds, commits or cherry-picks there, the coordinator included. The
+  coordinator lands commits from a side worktree claimed for landing: rebase or
+  cherry-pick onto `origin/main` there and push to `main`.
+
 - **Claims:** work in the worktree your brief names, or get a new one with
   `builds new ~/dev/bae --for <who>`; never pick a side-N by hand. Whoever hands
   a worktree out claims it (`builds claim <worktree> <who>`) and releases it
