@@ -45,15 +45,15 @@ The macOS app logs to the unified log under subsystem `fm.bae.desktop`, every
 level kept in Debug builds:
 `/usr/bin/log show --last 10m --info --debug --predicate 'subsystem == "fm.bae.desktop"'`.
 
-bae and coven keep two lists, both in `~/dev/bae/plans/todo.md` (gitignored):
-the **decision stack** (§1), questions waiting on the person, and the **work
-queue** (§2), everything there is to do. Nothing to do lives anywhere else: not
-in an agent's brief, a handoff, a plan or a chat message, unless §2 has an item
-pointing at it.
+bae and coven keep two lists, both in `~/dev/bae/plans/todo.md` (gitignored),
+and that file holds nothing else: the **decision stack** (§1), questions waiting
+on the person, and the **work queue** (§2), everything there is to do. Nothing
+to do lives anywhere else: not in an agent's brief, a handoff, a plan, the
+decision log or a chat message, unless §2 has an item pointing at it.
 
 §1 is a stack, newest on top: a new question goes on top as #1. Work it from the
 top, one question at a time: ask #1 and say what it blocks. Once they answer,
-record the answer under "Decided" (the record of what they chose and why, not a
+log the answer in `~/dev/bae/plans/decisions.md` (what they chose and why; not a
 list of work), put every piece of work the answer implies into §2 in the same
 edit, renumber, and ask the new #1. While a question is open, talk about that
 question only. A finding that needs no decision goes straight into §2 without
