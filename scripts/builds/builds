@@ -241,7 +241,14 @@ UNITS="$(dirname "$SELF")/cargo_units.py"
 # The space a folder takes, counting blocks APFS clones share once.
 USAGE="$(dirname "$SELF")/disk_usage.py"
 
-die() { echo "builds: $*" >&2; exit 1; }
+# A failure that says why: what `die` reports, the exit trap below stays
+# quiet about.
+REPORTED=0
+die() { echo "builds: $*" >&2; REPORTED=1; exit 1; }
+# Under `set -e` and pipefail, a command that fails without printing (a find
+# whose errors go to /dev/null, a grep that matched nothing) ends the tool,
+# and the hook or build script that ran it, with no word of why. Name it.
+trap 'status=$?; if [ "$status" -ne 0 ] && [ "$REPORTED" -eq 0 ]; then echo "builds: stopped where \`$BASH_COMMAND\` exited $status" >&2; fi' EXIT
 note() { echo "builds: $*" >&2; }
 
 # ── Checkout identity ───────────────────────────────────────────────────────
@@ -318,7 +325,7 @@ manifest_entries() {
         case "$path" in
             /*|..|../*|*/..|*/../*) die "$file: '$path' must be inside the checkout" ;;
         esac
-        kib="$(cap_kib "$cap" "$file: '$path'")" || exit 1
+        kib="$(cap_kib "$cap" "$file: '$path'")" || { REPORTED=1; exit 1; }
         echo "$path $kib"
     done < "$file"
 }
@@ -331,7 +338,7 @@ shared_cache_entries() {
         case "$name" in ''|'#'*) continue ;; esac
         [ -n "$settings" ] && [ -z "$rest" ] \
             || die "shared cache $name needs a cap, a link and its settings ('-' for none)"
-        kib="$(cap_kib "$cap" "shared cache $name")" || exit 1
+        kib="$(cap_kib "$cap" "shared cache $name")" || { REPORTED=1; exit 1; }
         echo "$name $kib $HOME/$link $settings"
     done < <(shared_caches)
 }
@@ -496,37 +503,54 @@ prune_cargo_git() {
         || die "pruning cargo's git checkouts failed"
 }
 
+# Delete each entry `find <args>` lists, called `what`, or with `dry` only
+# say how many it would. These prunes free space and change nothing a build
+# reads, so a failure, such as another session's scratch folder vanishing
+# while it is listed, is noted and the build goes on.
+prune_listed() {
+    local dry="$1" what="$2" errors listing count
+    shift 2
+    errors="$(mktemp)"
+    if ! listing="$(find "$@" 2>"$errors")"; then
+        note "listing $what failed, so none were deleted: $(tr '\n' ' ' < "$errors")"
+        rm -f "$errors"
+        return 0
+    fi
+    count="$(printf '%s' "$listing" | grep -c . || true)"
+    if [ "$count" -eq 0 ]; then
+        :
+    elif [ "$dry" = 1 ]; then
+        note "would delete $count $what"
+    elif find "$@" -prune -exec rm -rf {} + 2>"$errors"; then
+        note "deleted $count $what"
+    else
+        note "deleting $count $what failed partway: $(tr '\n' ' ' < "$errors")"
+    fi
+    rm -f "$errors"
+}
+
 # Claude Code sessions' scratch folders (/private/tmp/claude-<uid>/<project>/
 # <session>/scratchpad): an entry nothing has written for three days is a
 # finished probe, build or log. Anything worth keeping belongs in the repo or
 # its plans/.
 prune_scratchpads() {
-    local dry="$1" base="/private/tmp/claude-$(id -u)" count
-    [ -d "$base" ] || return 0
-    count="$(find "$base"/*/*/scratchpad -maxdepth 1 -mindepth 1 -mtime +3 -user "$(id -un)" 2>/dev/null | wc -l | tr -d ' ')"
-    [ "$count" -gt 0 ] || return 0
-    if [ "$dry" = 1 ]; then
-        note "would delete $count scratch entries older than three days under $base"
-    else
-        find "$base"/*/*/scratchpad -maxdepth 1 -mindepth 1 -mtime +3 -user "$(id -un)" -prune -exec rm -rf {} + 2>/dev/null
-        note "deleted $count scratch entries older than three days under $base"
-    fi
+    local dry="$1" base="/private/tmp/claude-$(id -u)" folder folders=()
+    for folder in "$base"/*/*/scratchpad; do
+        [ -d "$folder" ] && folders+=("$folder")
+    done
+    [ "${#folders[@]}" -gt 0 ] || return 0
+    prune_listed "$dry" "scratch entries older than three days under $base" \
+        "${folders[@]}" -maxdepth 1 -mindepth 1 -mtime +3 -user "$(id -un)"
 }
 
 # Tests' temporary folders (tempfile's `.tmp*` under $TMPDIR) that a test left
 # behind: nothing reads one a day after it was last written. Newer ones may
 # belong to a test still running.
 prune_test_temps() {
-    local dry="$1" count
+    local dry="$1"
     [ -n "${TMPDIR:-}" ] && [ -d "$TMPDIR" ] || return 0
-    count="$(find "$TMPDIR" -maxdepth 1 -name '.tmp*' -type d -mtime +1 -user "$(id -un)" 2>/dev/null | wc -l | tr -d ' ')"
-    [ "$count" -gt 0 ] || return 0
-    if [ "$dry" = 1 ]; then
-        note "would delete $count test temp folders older than a day in $TMPDIR"
-    else
-        find "$TMPDIR" -maxdepth 1 -name '.tmp*' -type d -mtime +1 -user "$(id -un)" -prune -exec rm -rf {} + 2>/dev/null
-        note "deleted $count test temp folders older than a day in $TMPDIR"
-    fi
+    prune_listed "$dry" "test temp folders older than a day in $TMPDIR" \
+        "$TMPDIR" -maxdepth 1 -name '.tmp*' -type d -mtime +1 -user "$(id -un)"
 }
 
 # ── Pruning ─────────────────────────────────────────────────────────────────
@@ -858,6 +882,7 @@ keep_floor() {
         done
         echo "Retire finished side worktrees (builds retire), or free space outside the build folders (the reclaim-disk skill)."
     } >&2
+    REPORTED=1
     exit 1
 }
 
@@ -934,6 +959,8 @@ cmd_cargo() {
     cargo "${subcommand[@]}" "$format" "$@" | python3 "$UNITS" record
     statuses=("${PIPESTATUS[@]}")
     set -e
+    # cargo and the recorder print their own failures.
+    REPORTED=1
     [ "${statuses[0]}" = 0 ] || exit "${statuses[0]}"
     exit "${statuses[1]}"
 }
@@ -1383,7 +1410,7 @@ EOF
 
 # ── Dispatch ────────────────────────────────────────────────────────────────
 
-[ $# -ge 1 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$SELF"; exit 2; }
+[ $# -ge 1 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$SELF"; REPORTED=1; exit 2; }
 command="$1"
 shift
 case "$command" in
