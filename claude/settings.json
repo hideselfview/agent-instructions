@@ -7,6 +7,20 @@
     "defaultMode": "auto"
   },
   "model": "opus[1m]",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"$HOME/dev/agent-instructions/scripts/hooks/no-full-suites.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true
@@ -20,7 +34,8 @@
       "effortLevel": "high"
     },
     "claude-opus-5-5": {
-      "effortLevel": "high"
+      "effortLevel": "high",
+      "autoCompactWindow": 700000
     }
   },
   "tui": "fullscreen",
@@ -41,19 +56,5 @@
       "push to github, even to main"
     ]
   },
-  "voiceEnabled": true,
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 -I \"$HOME/dev/agent-instructions/scripts/hooks/no-full-suites.py\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
+  "voiceEnabled": true
 }
