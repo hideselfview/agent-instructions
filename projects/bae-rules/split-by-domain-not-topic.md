@@ -17,10 +17,10 @@ reader can no longer tell who keeps which data right.
 When a file is split, or tests are placed, or schema moves, cut along a domain.
 
 **A domain in bae:** the import list. It owns `import_list_placement` and the
-triggers that keep each row's place, the placement contract in
-`bae-import/src/tables/import_list.rs`, the list's reads, and the tests of all
-of it. Its schema and trigger tests sit beside it, not in a shared schema file
-(checker-policy Decision 12).
+triggers that keep each row's place, the list's reads and writes in
+`bae-import/src/tables/import_list.rs` and its `order`, `window` and `writes`
+modules, and the tests of all of it. Its schema and trigger tests sit beside it,
+not in a shared schema file (checker-policy Decision 12).
 
 **A topic, not a domain:** "covers". A release's stored cover, the covers an
 import candidate offers, and the images a catalog answer lists belong to
