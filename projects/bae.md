@@ -191,6 +191,15 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   needed. macOS drops `DYLD_*` whenever a shell script starts, so an export
   before `scripts/cargo.sh` would never reach the tests anyway.
 
+- **rust-analyzer builds into `target-ra`.** The Claude Code session runs it
+  through agent-instructions' `rust-analyzer` plugin
+  (`claude/plugins/rust-analyzer`), which starts it with
+  `cargo.targetDir = "target-ra"` and `checkOnSave = false`. It still runs the
+  build scripts and proc macros navigation needs, a `cargo check --workspace`
+  into `target-ra`; it no longer checks the workspace into main's `target` on
+  every landing. Its check-on-save is off: the pre-commit hook and clippy catch
+  compile errors.
+
 - **Don't set `CARGO_TARGET_DIR`, `RUSTC_WRAPPER` or other `CARGO_*` variables
   per command.** Host cargo (tests, clippy, the pre-commit hook) builds into the
   checkout's `target`; `bae-bridge/build-macos.sh`, `build-ios.sh` and

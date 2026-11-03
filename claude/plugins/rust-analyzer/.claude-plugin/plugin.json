@@ -1,0 +1,22 @@
+{
+  "name": "rust-analyzer",
+  "version": "0.1.0",
+  "description": "rust-analyzer for navigation, building into each repo's target-ra with check-on-save off",
+  "author": {
+    "name": "Dmitry Minkovsky"
+  },
+  "lspServers": {
+    "rust-analyzer": {
+      "command": "rust-analyzer",
+      "extensionToLanguage": {
+        ".rs": "rust"
+      },
+      "initializationOptions": {
+        "cargo": {
+          "targetDir": "target-ra"
+        },
+        "checkOnSave": false
+      }
+    }
+  }
+}

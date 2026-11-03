@@ -121,6 +121,31 @@ tool knows pins, while holding cargo's package cache locks (a cargo checking a
 commit out holds them). The git databases in `~/.cargo/git/db` stay: cargo
 checks an older commit out of them again in seconds when a branch needs it.
 
+## rust-analyzer builds into a folder of its own
+
+The Claude Code session's rust-analyzer comes from agent-instructions' own
+plugin, `claude/plugins/rust-analyzer` (a folder marketplace, in place of
+`rust-analyzer-lsp@claude-plugins-official`), which starts it with
+`initializationOptions` `cargo.targetDir = "target-ra"` and
+`checkOnSave = false`:
+
+- **Its own folder.** rust-analyzer's build-script and proc-macro step is a
+  `cargo check --workspace` of everything, and with check-on-save it checked the
+  workspace again on each change of the files it watches: in bae main, every
+  landing, which held main's `target` over its cap (39G of 30G) and kept the
+  volume under the free-space floor. `target-ra` is a `.build-dirs` entry with
+  its own cap in bae and coven; a Rust repo without that entry gets a real
+  `target-ra` folder in its checkout.
+- **No check-on-save.** The session uses rust-analyzer to navigate; the
+  pre-commit hook and clippy catch compile errors. Build scripts and proc macros
+  still build, since navigation needs them.
+- **Options at initialization, not in a `rust-analyzer.toml`.** In rust-analyzer
+  1.95.0 the build-script step, flycheck and the first check read their settings
+  with no source root (`cargo(None)`, `flycheck(None)`), which skips a repo's
+  `rust-analyzer.toml`, and the user's own `rust-analyzer.toml` is read only
+  after the first build-script step has started into `target`. Options passed at
+  initialization apply before anything builds.
+
 ## App builds live in main and one app checkout
 
 By default a side worktree builds host output only: for Rust, `target`, which

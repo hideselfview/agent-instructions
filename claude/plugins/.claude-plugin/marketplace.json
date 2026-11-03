@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "agent-instructions",
+  "description": "This machine's own Claude Code plugins, read from this folder",
+  "owner": {
+    "name": "Dmitry Minkovsky"
+  },
+  "plugins": [
+    {
+      "name": "rust-analyzer",
+      "source": "./rust-analyzer",
+      "description": "rust-analyzer for navigation, building into each repo's target-ra with check-on-save off"
+    }
+  ]
+}
