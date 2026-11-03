@@ -60,9 +60,8 @@ edit, renumber, and ask the new #1. While a question is open, talk about that
 question only. A finding that needs no decision goes straight into §2 without
 being raised; one that needs a decision goes on the stack, and is mentioned in
 one line at most. An answer about a design plan also goes, numbered, in that
-plan's Decisions section (the files design is
-`plans/coven-file-binding-and-scope.md` §13). A question settled from existing
-rules or code is not their decision and is not recorded as one.
+plan's Decisions section. A question settled from existing rules or code is not
+their decision and is not recorded as one.
 
 A §2 item that an agent is working on says so at its start ("Running: <agent>,
 <repo> <worktree> <branch>, brief/handoff <path>"); that marker is what to read
