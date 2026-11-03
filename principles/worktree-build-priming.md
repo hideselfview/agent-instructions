@@ -364,9 +364,11 @@ fine after a toolchain upgrade.
 - One server on sccache's default TCP port (4226), cache in
   `/Volumes/Builds/caches/sccache` and capped at 30 GiB in
   `~/Library/Application Support/Mozilla.sccache/config`, both written by
-  `builds install`. Each checkout state writes about 3.3 GiB; a day of agents
-  building in seven bae and five coven checkouts wrote 12.6 GiB, so 30 GiB keeps
-  about two days of branch states.
+  `builds install`. A tool change to the cap reaches the config only when
+  `install` runs again, which restarts the server; `builds status` flags a
+  config that no longer holds the tool's cap. Each checkout state writes about
+  3.3 GiB; a day of agents building in seven bae and five coven checkouts wrote
+  12.6 GiB, so 30 GiB keeps about two days of branch states.
 - Started by launchd (`local.sccache-server`) with the system `TMPDIR` and no
   idle timeout. A server inherits the `TMPDIR` of whichever client starts it;
   once that directory is deleted every compile fails. Don't use the Unix-socket

@@ -1057,7 +1057,10 @@ status_caches() {
         else
             kib="$(kib_of "$dir")"
             when="$(newest_write "$dir")"
-            if [ "$name" = sccache ]; then
+            if [ "$name" = sccache ] \
+                && [ "$(cat "$SCCACHE_CONFIG" 2>/dev/null)" != "$(sccache_config "$cap")" ]; then
+                state="CONFIG DIFFERS: ${SCCACHE_CONFIG/#"$HOME"/~} does not hold this cap; run builds install"
+            elif [ "$name" = sccache ]; then
                 state="(sccache keeps it under its own cap)"
             elif [ "$kib" -gt "$cap" ]; then
                 state="OVER CAP"
@@ -1278,6 +1281,19 @@ link_cache() {
     note "linked $shown -> $dir"
 }
 
+# The sccache config file, which sccache reads on every client and server
+# start, whatever the caller's environment, so the cap holds for builds that
+# never source a shell profile; and the text `install` writes there for a cap
+# of $1 KiB.
+SCCACHE_CONFIG="$HOME/Library/Application Support/Mozilla.sccache/config"
+sccache_config() {
+    cat <<EOF
+# Written by builds install ($SELF).
+[cache.disk]
+size = $(( $1 * 1024 ))
+EOF
+}
+
 cmd_install() {
     local sccache_bin config_dir plist name cap link sccache_kib="" restart=0 xcode
     mkdir -p "$HOME/.local/bin"
@@ -1293,18 +1309,11 @@ cmd_install() {
     [ -n "$sccache_kib" ] || die "the shared caches list no sccache cache"
 
     sccache_bin="$(command -v sccache)" || die "sccache is not installed"
-    # sccache reads this file on every client and server start, whatever the
-    # caller's environment, so the cap holds for builds that never source a
-    # shell profile.
-    config_dir="$HOME/Library/Application Support/Mozilla.sccache"
+    config_dir="$(dirname "$SCCACHE_CONFIG")"
     mkdir -p "$config_dir"
-    if write_if_changed "$config_dir/config" <<EOF
-# Written by builds install ($SELF).
-[cache.disk]
-size = $(( sccache_kib * 1024 ))
-EOF
+    if sccache_config "$sccache_kib" | write_if_changed "$SCCACHE_CONFIG"
     then
-        note "wrote $config_dir/config ($(human "$sccache_kib") cache)"
+        note "wrote $SCCACHE_CONFIG ($(human "$sccache_kib") cache)"
         restart=1
     fi
 
