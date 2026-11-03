@@ -51,6 +51,10 @@
 #   builds new [<repo>] [-b <branch>]
 #                               add the next free side-N worktree from
 #                               origin/main, link it, run its post-checkout
+#                               [--for <who>]: claim it for <who> (below)
+#   builds claim <checkout> <who>
+#                               record that <who> works in the side worktree
+#   builds release <checkout>   remove its claim
 #   builds retire <checkout>    remove a side worktree and its build root
 #   builds app-checkout <checkout>
 #                               record the side worktree as its repo's app
@@ -80,6 +84,16 @@
 #                               and their links, write the sccache config, run
 #                               the sccache server under launchd, point Xcode's
 #                               default DerivedData at the volume
+#
+# Claims. A claim records who works in a side worktree, so another session
+# doesn't take it: whoever hands out the worktree (a coordinator dispatching an
+# agent, a person) claims it and releases it when the work lands or moves on.
+# It is a file in the worktree's own git dir, so it goes when the worktree
+# does; `status` shows it, and `retire` refuses a claimed worktree. A claim is
+# not a lock: agents are a series of separate commands, so nothing could hold
+# one, and a session that ends without releasing leaves its claim behind
+# (status shows its age). Short exclusive use, one build at a time, stays a
+# real lock, like the app checkout's app.lock.
 #
 # By default a side worktree builds host Rust only, and a repo with app builds
 # keeps them warm in main and in one side worktree, its app checkout, which
@@ -955,6 +969,9 @@ status_root() {
         if [ "$(basename "$root")" != main ] && keeps_warm "$root"; then
             state="$state, app checkout"
         fi
+        if [ -f "$(claim_file "$top")" ]; then
+            state="$state, claimed by $(claim_text "$top")"
+        fi
         echo "${root#"$ROOT"/}  $top  [$state]"
     else
         echo "${root#"$ROOT"/}  $top  [checkout gone: prune deletes this root]"
@@ -1101,10 +1118,11 @@ cmd_status() {
 # ── New / retire ────────────────────────────────────────────────────────────
 
 cmd_new() {
-    local repo_path="." branch="" main repo parent n dir hook
+    local repo_path="." branch="" who="" main repo parent n dir hook
     while [ $# -gt 0 ]; do
         case "$1" in
             -b|--branch) branch="$2"; shift 2 ;;
+            --for) who="$2"; shift 2 ;;
             -*) die "new: unknown option $1" ;;
             *) repo_path="$1"; shift ;;
         esac
@@ -1135,7 +1153,47 @@ cmd_new() {
     if [ -x "$hook" ]; then
         (cd "$dir" && "$hook" 0000000000000000000000000000000000000000 "$(git rev-parse HEAD)" 1)
     fi
+    [ -z "$who" ] || write_claim "$dir" "$who"
     echo "$dir"
+}
+
+# ── Claims ──────────────────────────────────────────────────────────────────
+
+claim_file() { echo "$(git -C "$1" rev-parse --absolute-git-dir)/builds-claim"; }
+
+# "<who> since <date>" for the side worktree at <top>.
+claim_text() {
+    local who since
+    IFS=$'\t' read -r who since < "$(claim_file "$1")"
+    echo "$who since $since"
+}
+
+write_claim() {
+    printf '%s\t%s\n' "$2" "$(date '+%Y-%m-%d %H:%M')" > "$(claim_file "$1")"
+}
+
+cmd_claim() {
+    local top who held
+    [ $# -eq 2 ] || die "usage: builds claim <checkout> <who>"
+    top="$(checkout_top "$1")"
+    who="$2"
+    [ "$top" != "$(main_checkout "$top")" ] || die "$top is the main checkout; only side worktrees are claimed"
+    if [ -f "$(claim_file "$top")" ]; then
+        IFS=$'\t' read -r held _ < "$(claim_file "$top")"
+        [ "$held" = "$who" ] || die "$top is claimed by $(claim_text "$top"); builds release it first if that work is over"
+    fi
+    write_claim "$top" "$who"
+    note "claimed $top for $who"
+}
+
+cmd_release() {
+    local top file
+    [ $# -eq 1 ] || die "usage: builds release <checkout>"
+    top="$(checkout_top "$1")"
+    file="$(claim_file "$top")"
+    [ -f "$file" ] || { note "$top has no claim"; return 0; }
+    note "released $top (was $(claim_text "$top"))"
+    rm "$file"
 }
 
 cmd_retire() {
@@ -1149,6 +1207,9 @@ cmd_retire() {
         die "$top is $repo's app checkout; record another with builds app-checkout, or delete $(app_checkout_file "$repo"), first"
     fi
     root="$(build_root "$top")"
+    if [ -f "$(claim_file "$top")" ]; then
+        die "$top is claimed by $(claim_text "$top"); builds release it first"
+    fi
     if [ -n "$(git -C "$top" status --porcelain)" ]; then
         die "$top has uncommitted or untracked files; commit or remove them first"
     fi
@@ -1320,6 +1381,8 @@ case "$command" in
     setup) cmd_setup "$@" ;;
     new) cmd_new "$@" ;;
     retire) cmd_retire "$@" ;;
+    claim) cmd_claim "$@" ;;
+    release) cmd_release "$@" ;;
     app-checkout) cmd_app_checkout "$@" ;;
     status) cmd_status "$@" ;;
     prune) cmd_prune "$@" ;;
@@ -1327,5 +1390,5 @@ case "$command" in
     cargo) cmd_cargo "$@" ;;
     record-use) cmd_record_use "$@" ;;
     -h|--help|help) sed -n '2,/^$/s/^# \{0,1\}//p' "$SELF" ;;
-    *) die "unknown command $command (setup | new | retire | app-checkout | status | prune | cargo | record-use | install)" ;;
+    *) die "unknown command $command (setup | new | claim | release | retire | app-checkout | status | prune | cargo | record-use | install)" ;;
 esac

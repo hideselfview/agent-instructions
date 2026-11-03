@@ -43,11 +43,20 @@ as `~/.local/bin/builds`):
   volume's free-space floor (below). The repo's `scripts/build-layout.sh` calls
   it, and the hooks and every build script call that first. Without the tool
   (CI) the script does nothing and the tools write into real directories.
-- `builds new [<repo>] [-b <branch>]` adds the next free `side-N` from
-  `origin/main`, links it, and runs its own `post-checkout`, which sets the
-  checkout up and builds nothing.
-- `builds retire <checkout>` removes a clean side worktree and its build root;
-  it refuses the app checkout.
+- `builds new [<repo>] [-b <branch>] [--for <who>]` adds the next free `side-N`
+  from `origin/main`, links it, and runs its own `post-checkout`, which sets the
+  checkout up and builds nothing; `--for` claims it.
+- `builds claim <checkout> <who>` and `builds release <checkout>` record and
+  remove who works in a side worktree. Whoever hands a worktree out (a
+  coordinator dispatching an agent, a person) claims it, and releases it when
+  the work lands or moves on; an agent works in the worktree its brief names, or
+  one it gets from `builds new --for`, never a side-N picked by hand. The claim
+  is a file in the worktree's git dir, shown by `status` and refused by
+  `retire`. It isn't a lock: an agent is a series of separate commands, so
+  nothing could hold one, and a claim left by a session that ended shows its age
+  in `status`. One build at a time stays a real lock (`app.lock`).
+- `builds retire <checkout>` removes a clean, unclaimed side worktree and its
+  build root; it refuses the app checkout.
 - `builds app-checkout <checkout>` records a side worktree as its repo's app
   checkout (below), in `/Volumes/Builds/<repo>/app-checkout`.
 - `builds status` lists every entry on the volume: each root's folders, each

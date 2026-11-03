@@ -170,6 +170,12 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   person asks for one in a particular worktree; clear it once that work has
   moved on.
 
+- **Claims:** work in the worktree your brief names, or get a new one with
+  `builds new ~/dev/bae --for <who>`; never pick a side-N by hand. Whoever hands
+  a worktree out claims it (`builds claim <worktree> <who>`) and releases it
+  (`builds release`) when the work lands; `builds status` shows who holds each
+  one.
+
 - **New side worktree:** `builds new ~/dev/bae` creates the next free
   `~/dev/bae-worktrees/side-N` from `origin/main` and runs its `post-checkout`,
   which links the build folders, `CLAUDE.md`, the main checkout's `bae-ffmpeg`,
