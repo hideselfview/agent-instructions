@@ -1,8 +1,9 @@
 # bae
 
-Personal music library + playback. Rust core (bae-core), platform UIs via uniffi
-(bae-bridge → bae-macos, bae-ios, bae-android), and cloud sync via coven
-supporting S3 / Google Drive / Dropbox / OneDrive / iCloud.
+Personal music library + playback. Rust core (bae-app over bae-library and the
+domain crates), platform UIs via uniffi (bae-bridge → bae-macos, bae-ios,
+bae-android), and cloud sync via coven supporting S3 / Google Drive / Dropbox /
+OneDrive / iCloud.
 
 bae-avalonia is a Windows/Linux infrastructure skeleton, not a UI: startup,
 single-instancing, crash capture, telemetry, the Velopack updater and release
@@ -166,11 +167,11 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   work has moved on.
 
   bae-audio links FFmpeg and finds it via `FFMPEG_DIR` (set to `bae-ffmpeg/dist`
-  in `.cargo/config.toml`), so bae-audio and bae-core build in any checkout.
-  Their tests find FFmpeg's dylibs through `DYLD_LIBRARY_PATH` in the same
-  config, which cargo passes to every process it runs, so no export is needed.
-  macOS drops `DYLD_*` whenever a shell script starts, so an export before
-  `scripts/cargo.sh` would never reach the tests anyway.
+  in `.cargo/config.toml`), so bae-audio and every crate above it build in any
+  checkout. Their tests find FFmpeg's dylibs through `DYLD_LIBRARY_PATH` in the
+  same config, which cargo passes to every process it runs, so no export is
+  needed. macOS drops `DYLD_*` whenever a shell script starts, so an export
+  before `scripts/cargo.sh` would never reach the tests anyway.
 
 - **Don't set `CARGO_TARGET_DIR`, `RUSTC_WRAPPER` or other `CARGO_*` variables
   per command.** Host cargo (tests, clippy, the pre-commit hook) builds into the
