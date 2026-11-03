@@ -32,7 +32,10 @@ Both obscure the shape. When an easy fix conflicts with revealing real structure
 
 - **Wrapper chain.** Each wrapper either represents a distinct state with
   different invariants (`Request → AuthorizedRequest → ValidatedRequest`) or
-  it's a decorative rename. Keep the meaningful; collapse the decorative.
+  it's a decorative rename. Keep the meaningful; collapse the decorative. A
+  wrapper that exists only to get around a crate or module boundary is the same
+  kind of decoration
+  (`rules/structure-follows-the-domain-not-the-crate-boundary.md`).
 - **Compound vs separate types.** Splitting reveals when distinct concepts are
   sharing one container. Merging hides ownership.
 - **Primitives first, sugar later.** Sugar invented before patterns are real
