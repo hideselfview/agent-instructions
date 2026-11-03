@@ -1351,7 +1351,9 @@ cmd_install() {
     # client has a reason to start one of its own. SCCACHE_START_SERVER=1 makes
     # this process the server and SCCACHE_NO_DAEMON=1 keeps it from forking, so
     # it is the process launchd watches (`--start-server` forks the server off,
-    # and the server daemonizes itself without NO_DAEMON).
+    # and the server daemonizes itself without NO_DAEMON). launchd starts a job
+    # at 256 open files; the server holds every source file it hashes open, and
+    # a crate like aws-sdk-s3 runs out at that, so the job raises its own limit.
     plist="$HOME/Library/LaunchAgents/$SCCACHE_LABEL.plist"
     if write_if_changed "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1377,6 +1379,16 @@ cmd_install() {
     <string>0</string>
     <key>SCCACHE_ERROR_LOG</key>
     <string>$HOME/Library/Logs/sccache-server.log</string>
+  </dict>
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>65536</integer>
+  </dict>
+  <key>HardResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>65536</integer>
   </dict>
   <key>RunAtLoad</key>
   <true/>
