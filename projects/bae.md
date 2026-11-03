@@ -59,9 +59,13 @@ list of work), put every piece of work the answer implies into §2 in the same
 edit, renumber, and ask the new #1. While a question is open, talk about that
 question only. A finding that needs no decision goes straight into §2 without
 being raised; one that needs a decision goes on the stack, and is mentioned in
-one line at most. An answer about a design plan also goes, numbered, in that
-plan's Decisions section. A question settled from existing rules or code is not
-their decision and is not recorded as one.
+one line at most. When it is unclear whether something needs the person, or the
+work is large in scope (a new tool or product, not a fix), it goes on top of §1.
+Work that is held until they start it, or blocked on something only they can do
+(an account, a device, a hand check), is §1 too, not §2. An answer about a
+design plan also goes, numbered, in that plan's Decisions section. A question
+settled from existing rules or code is not their decision and is not recorded as
+one.
 
 A §2 item that an agent is working on says so at its start ("Running: <agent>,
 <repo> <worktree> <branch>, brief/handoff <path>"); that marker is what to read
