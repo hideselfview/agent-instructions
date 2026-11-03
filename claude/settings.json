@@ -22,8 +22,17 @@
     ]
   },
   "enabledPlugins": {
-    "rust-analyzer-lsp@claude-plugins-official": true,
-    "swift-lsp@claude-plugins-official": true
+    "rust-analyzer-lsp@claude-plugins-official": false,
+    "swift-lsp@claude-plugins-official": true,
+    "rust-analyzer@agent-instructions": true
+  },
+  "extraKnownMarketplaces": {
+    "agent-instructions": {
+      "source": {
+        "source": "directory",
+        "path": "/Users/dima/dev/agent-instructions/claude/plugins"
+      }
+    }
   },
   "effortLevel": "high",
   "modelSettings": {
