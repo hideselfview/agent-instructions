@@ -2,8 +2,8 @@
 
 Personal music library + playback. Rust core (bae-app over bae-library and the
 domain crates), platform UIs via uniffi (bae-bridge → bae-macos, bae-ios,
-bae-android), and cloud sync via coven supporting S3 / Google Drive / Dropbox /
-OneDrive / iCloud.
+bae-android), and cloud sync via coven supporting S3 / Dropbox / OneDrive /
+iCloud.
 
 bae-avalonia is a Windows/Linux infrastructure skeleton, not a UI: startup,
 single-instancing, crash capture, telemetry, the Velopack updater and release
