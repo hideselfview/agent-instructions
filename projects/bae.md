@@ -46,10 +46,11 @@ level kept in Debug builds:
 `/usr/bin/log show --last 10m --info --debug --predicate 'subsystem == "fm.bae.desktop"'`.
 
 bae and coven keep two lists, both in `~/dev/bae/plans/todo.md` (gitignored),
-and that file holds nothing else: the **decision stack** (§1), questions waiting
-on the person, and the **work queue** (§2), everything there is to do. Nothing
-to do lives anywhere else: not in an agent's brief, a handoff, a plan, the
-decision log or a chat message, unless §2 has an item pointing at it.
+and that file holds nothing else: the **decision stack** (§1), what waits on the
+person (questions, and work only they can do), and the **work queue** (§2), the
+task list for the coordinator and its agents: only what they can do. Nothing to
+do lives anywhere else: not in an agent's brief, a handoff, a plan, the decision
+log or a chat message, unless §2 has an item pointing at it.
 
 §1 is a stack, newest on top: a new question goes on top as #1. Work it from the
 top, one question at a time: ask #1 and say what it blocks. Once they answer,
