@@ -91,11 +91,13 @@ as `~/.local/bin/builds`):
   volume's free space as a bar against the 30 GiB warning floor and the 10 GiB
   hard floor, and how long ago the state was read. Each repo pins its main
   checkout and its app checkout ("App build") first, each with its total build
-  output and the size of each build folder that holds any, and for the App build
-  whether its `app.lock` is free or held, the command holding it and how many
-  wait, read without taking the lock (the process with the file open holds it,
-  since `lockf` waits inside `open`). Every other side worktree is a card: name,
-  branch, state, the claim's who and note, the commits waiting to land, its last
+  output and its 3 largest build folders (short names such as "Xcode build" and
+  "Android app", the path in the chip's tooltip; the rest behind a "+N more
+  folders" disclosure), and for the App build whether its `app.lock` is free or
+  held, the command holding it and how many wait, read without taking the lock
+  (the process with the file open holds it, since `lockf` waits inside `open`).
+  Every other side worktree is a card, as tall as its content: name, branch,
+  state, the claim's who and note, the commits waiting to land, its last
   commit's age, the count of uncommitted files, its build size (flagged over a
   cap) and the claim's date.
   - **States.** Each side worktree gets one, the first that matches: *Waiting on

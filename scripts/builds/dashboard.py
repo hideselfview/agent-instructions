@@ -398,7 +398,7 @@ section.repo { display: flex; flex-direction: column; gap: 12px; }
 .repo-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .repo-head span { font-size: 13px; color: var(--muted); }
 .pinned-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: 12px; align-items: start; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; align-items: start; }
 article { min-width: 0; display: flex; flex-direction: column; }
 .pinned { background: var(--pinned); border: 1px solid var(--pinned-line); border-radius: 12px; padding: 14px 16px; gap: 10px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; gap: 10px; }
@@ -419,6 +419,9 @@ article { min-width: 0; display: flex; flex-direction: column; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px 8px; }
 .chip { font-size: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; color: var(--text-3); overflow-wrap: anywhere; }
 .chip .mono { color: var(--text); }
+.more-folders summary { font-size: 12px; color: var(--muted); cursor: pointer; width: fit-content; }
+.more-folders summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.more-folders .chips { margin-top: 6px; }
 .chip.over { border-color: var(--bad); }
 .chip.over .mono { color: var(--bad); }
 .command { font: 12px/1.4 var(--mono); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -431,7 +434,7 @@ article { min-width: 0; display: flex; flex-direction: column; }
 .commit .sha { font-family: var(--mono); color: var(--accent); flex: none; }
 .commit .subject { color: var(--text-2); overflow-wrap: anywhere; min-width: 0; }
 .more { font-size: 12px; color: var(--muted); }
-.foot { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line-soft); padding-top: 8px; margin-top: auto; }
+.foot { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line-soft); padding-top: 8px; }
 .bad { color: var(--bad); font-weight: 600; }
 .warn { color: var(--warn); font-weight: 600; }
 
@@ -613,12 +616,41 @@ function totalBlock(b) {
   if (!b) return h("div", {class: "total"}, h("span", {class: "of"}, "measuring…"));
   return h("div", {class: "total"}, h("span", {class: "big"}, size(b.total)), h("span", {class: "of"}, "of build output"));
 }
+// Short names for the build folders; any other shows its path. The chip's
+// title holds the path.
+const FOLDER_NAMES = {
+  "bae-macos/bae/.build": "Xcode build",
+  "bae-ios/bae/.build": "iOS Xcode build",
+  "bae-android/app/build": "Android app",
+  "bae-android/bridge/build": "Android bridge",
+  "bae-android/fastvalues/build": "Android fastvalues",
+  "bae-android/screensubscription/build": "Android screensubscription",
+  "bae-android/.gradle": "Gradle",
+  "bae-android/debug-symbols": "Android symbols",
+  "BaeKit/Frameworks": "BaeKit",
+  "BaeKit/.build": "BaeKit build",
+  "bae-avalonia/bin": "Avalonia bin",
+  "bae-avalonia/obj": "Avalonia obj",
+  "bae-avalonia/bae-avalonia.Tests/bin": "Avalonia tests bin",
+  "bae-avalonia/bae-avalonia.Tests/obj": "Avalonia tests obj",
+};
+function folderName(path) {
+  const proof = /^spec\/proofs\/([^/]+)\/\.lake$/.exec(path);
+  return FOLDER_NAMES[path] || (proof ? "Lean " + proof[1] + " proofs" : path);
+}
+// The 3 largest folders inline; the rest behind a disclosure.
+const INLINE_CHIPS = 3;
 function chips(b) {
   if (!b) return null;
-  const kids = b.chips.map(f => h("span", {class: "chip" + (f.over ? " over" : "")}, f.path + " ",
-    h("span", {class: "mono"}, size(f.kib) + (f.over ? " over cap" : ""))));
+  const chip = f => h("span", {class: "chip" + (f.over ? " over" : ""), title: f.path}, folderName(f.path) + " ",
+    h("span", {class: "mono"}, size(f.kib) + (f.over ? " over cap" : "")));
   const problems = b.links.map(p => h("span", {class: "chip over"}, p));
-  return kids.length || problems.length ? h("div", {class: "chips"}, kids, problems) : null;
+  const rest = b.chips.slice(INLINE_CHIPS);
+  return [
+    b.chips.length || problems.length ? h("div", {class: "chips"}, b.chips.slice(0, INLINE_CHIPS).map(chip), problems) : null,
+    rest.length ? h("details", {class: "more-folders"},
+      h("summary", {}, "+" + plural(rest.length, "more folder", "more folders")),
+      h("div", {class: "chips"}, rest.map(chip))) : null];
 }
 function mainLine(repo) {
   return "Your checkout. No agent works or builds here" + (repo.app_checkout ? "; you install from it." : ".");
