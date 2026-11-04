@@ -112,6 +112,12 @@ as `~/.local/bin/builds`):
     cards and then its worktrees, sorted by state; and *Lanes*, the pinned cards
     in one row and then every worktree in a lane: Waiting on you, Ready to land,
     Working (with Winding down and Landing tagged), Free.
+  - **Hide free worktrees.** A checkbox in the header, kept in the browser like
+    the view, leaves out the Free worktrees (unclaimed, nothing waiting to land)
+    in both views: their cards in *By repo* and the Free lane in *Lanes*. The
+    header then says how many are hidden ("3 free hidden"). Main and the App
+    build stay shown, and an unclaimed worktree with commits waiting to land is
+    *Ready to land*, so it stays shown too.
   - **Polling.** The page asks `/api/state` every few seconds, read fresh on
     every request with no cache, and `/api/folders` every minute. Measuring the
     build folders walks the disk for most of half a minute, so one background

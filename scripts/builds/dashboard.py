@@ -378,6 +378,8 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .switch button { font: 600 13px var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 5px 12px; cursor: pointer; }
 .switch button[aria-pressed="true"] { background: var(--on); color: var(--on-text); }
 .switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hide-free { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-3); cursor: pointer; }
+.hide-free input { margin: 0; accent-color: var(--on); cursor: pointer; }
 .disk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
 .disk .label { font-size: 13px; color: var(--muted); }
 .bar { position: relative; width: 140px; height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
@@ -475,6 +477,8 @@ article { min-width: 0; display: flex; flex-direction: column; }
       <button type="button" data-view="repos" aria-pressed="true">By repo</button>
       <button type="button" data-view="lanes" aria-pressed="false">Lanes</button>
     </div>
+    <label class="hide-free"><input type="checkbox" id="hide-free"> Hide free worktrees</label>
+    <span class="updated" id="hidden-count"></span>
     <div class="disk" id="disk"><span class="label">Disk</span><span class="floors">reading</span></div>
     <span class="updated" id="updated"></span>
   </div>
@@ -503,12 +507,14 @@ const LANES = [
   {title: "Free", hint: "Unclaimed worktrees, ready for the next agent.", dot: "--dot-free", states: ["free"]},
 ];
 const VIEW_KEY = "builds-dashboard-view";
+const HIDE_FREE_KEY = "builds-dashboard-hide-free";
 let state = null, folders = null, stateError = "", foldersError = "";
-let view = "repos";
+let view = "repos", hideFree = false;
 try {
   const saved = localStorage.getItem(VIEW_KEY);
   if (saved === "repos" || saved === "lanes") view = saved;
-} catch (e) { /* no storage: the default view */ }
+  hideFree = localStorage.getItem(HIDE_FREE_KEY) === "true";
+} catch (e) { /* no storage: the defaults */ }
 
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
@@ -595,6 +601,8 @@ function split(repo) {
   sides.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || sideNumber(a.name) - sideNumber(b.name));
   return {main, app, sides, gone: repo.checkouts.filter(c => !c.live)};
 }
+// The side worktrees a view lists: all, or with the Free ones left out.
+function shown(sides) { return hideFree ? sides.filter(c => c.state !== "free") : sides; }
 function counts(cs) {
   const n = {};
   for (const c of cs) n[c.state] = (n[c.state] || 0) + 1;
@@ -699,7 +707,7 @@ function reposView() {
       h("div", {class: "repo-head"}, h("h2", {}, repo.name),
         h("span", {}, summary([...stateCounts(sides), goneLine(gone)]) || "no side worktrees")),
       pinned.length ? h("div", {class: "pinned-grid"}, pinned) : null,
-      sides.length ? h("div", {class: "cards"}, sides.map(card)) : null);
+      shown(sides).length ? h("div", {class: "cards"}, shown(sides).map(card)) : null);
   });
 }
 
@@ -744,7 +752,7 @@ function lanesView() {
     for (const c of s.sides) all.push([repo, c]);
     for (const c of s.gone) gone.push(c);
   }
-  const lanes = LANES.map(lane => {
+  const lanes = LANES.filter(lane => !(hideFree && lane.states.includes("free"))).map(lane => {
     const cards = all.filter(([, c]) => lane.states.includes(c.state));
     cards.sort((a, b) => lane.states.indexOf(a[1].state) - lane.states.indexOf(b[1].state));
     return h("section", {class: "lane"},
@@ -792,6 +800,8 @@ function render() {
   if (!state) return;
   const sides = state.repos.flatMap(r => split(r).sides);
   const n = counts(sides);
+  document.getElementById("hide-free").checked = hideFree;
+  document.getElementById("hidden-count").textContent = hideFree && n["free"] ? n["free"] + " free hidden" : "";
   const working = (n["working"] || 0) + (n["winding-down"] || 0);
   document.getElementById("sub").textContent = summary([SUBTITLE,
     working ? working + " working" : null,
@@ -808,6 +818,12 @@ for (const b of document.querySelectorAll(".switch button")) {
     render();
   });
 }
+
+document.getElementById("hide-free").addEventListener("change", e => {
+  hideFree = e.target.checked;
+  try { localStorage.setItem(HIDE_FREE_KEY, String(hideFree)); } catch (err) { /* kept for this page only */ }
+  render();
+});
 
 async function fetchJson(path) {
   const response = await fetch(path, {cache: "no-store"});
