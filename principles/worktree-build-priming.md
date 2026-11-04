@@ -65,10 +65,9 @@ as `~/.local/bin/builds`):
 - `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` deletes every
   checkout's unused build copies, applies every cap, deletes roots whose
   checkout is gone and DerivedData entries nothing wrote to for a day; `--idle`
-  also deletes every folder and DerivedData entry nothing wrote to for that long
-  (the reclaim-disk skill uses it), except main's and the app checkout's
-  folders, which `--include-warm` adds. `--dry-run` deletes nothing and prints
-  what it would.
+  also deletes every folder and DerivedData entry nothing wrote to for that
+  long, except main's and the app checkout's folders, which `--include-warm`
+  adds. `--dry-run` deletes nothing and prints what it would.
 - `builds cargo <subcommand> [<args>...]` runs cargo and records the build
   copies it used (below); the repo's `scripts/cargo.sh` calls it, and the hooks
   and build scripts run cargo through that. `builds record-use` records the
@@ -107,11 +106,11 @@ has a cap, about twice its size when the caps were set (gradle 8G, npm 1G, nuget
 6G, swiftpm 3G). Only the cap deletes one: `setup` or `prune` deletes a cache
 over its cap, whole, once nothing has written to it for 30 minutes and no
 process holds a file in it, and puts back the settings files it holds
-(`gradle.properties`, Gradle init scripts, `NuGet/NuGet.Config`). The floor and
-the reclaim-disk skill never touch them: deleting one makes every checkout, warm
-ones included, download it all again, and a SwiftPM fetch cut off halfway
-corrupts its cache. sccache keeps its own cache under the 30 GiB cap `install`
-writes into its config; `builds` only shows it.
+(`gradle.properties`, Gradle init scripts, `NuGet/NuGet.Config`). The floor
+never touches them: deleting one makes every checkout, warm ones included,
+download it all again, and a SwiftPM fetch cut off halfway corrupts its cache.
+sccache keeps its own cache under the 30 GiB cap `install` writes into its
+config; `builds` only shows it.
 
 **Cargo's git checkouts.** Cargo checks out each git dependency commit it builds
 into `~/.cargo/git/checkouts/<repo>-<hash>/<commit>` and never deletes one;

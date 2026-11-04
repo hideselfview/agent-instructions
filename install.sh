@@ -113,13 +113,6 @@ if [[ -d "$repo/claude/agents" ]]; then
   done
 fi
 
-# The disk-reclaim script (scripts/reclaim-disk/reclaim.sh) is run by hand only.
-# It used to be installed as a launchd timer; the timer deleted live checkouts'
-# build output and caches whenever free space dipped under its threshold, which
-# made every build cold for as long as the disk stayed full.
-reclaim_script="$repo/scripts/reclaim-disk/reclaim.sh"
-[[ -f "$reclaim_script" ]] && chmod +x "$reclaim_script"
-
 # Per-project instruction symlinks. Convention: each projects/<name>.md
 # targets ~/dev/<name>/CLAUDE.md and ~/dev/<name>/AGENTS.md. Skip projects whose
 # target dir doesn't exist on this machine.

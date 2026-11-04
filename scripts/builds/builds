@@ -68,8 +68,7 @@
 #                               wrote to for a day, and cargo's git checkouts
 #                               no checkout's Cargo.lock pins. --idle also
 #                               deletes every folder and DerivedData entry
-#                               nothing wrote to for that long (how
-#                               reclaim-disk frees the build volume), outside
+#                               nothing wrote to for that long, outside
 #                               main and the app checkout unless --include-warm
 #   builds cargo <subcommand> [<args>...]
 #                               run cargo (build, check, clippy, doc, rustc,
@@ -880,7 +879,7 @@ keep_floor() {
                 echo "    $(human "$(kib_of "$CACHES/$name")")  $CACHES/$name"
             fi
         done
-        echo "Retire finished side worktrees (builds retire), or free space outside the build folders (the reclaim-disk skill)."
+        echo "Retire finished side worktrees (builds retire), or delete idle build folders (builds prune --idle <minutes>)."
     } >&2
     REPORTED=1
     exit 1
