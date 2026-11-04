@@ -1,6 +1,8 @@
 #!/bin/bash
 # land.sh <worktree> <sha>...: put the commits on origin/main (fast-forward when they sit on it, else cherry-pick), retrying the whole step on a refused push.
 cd "$1" || exit 1; shift
+# An agent's worktree sits on its branch; the landing worktree is detached. Landing there would move the agent off its branch.
+if b=$(git symbolic-ref -q --short HEAD); then echo "refusing: $PWD is on branch $b; land from the detached landing worktree"; exit 1; fi
 last="${@: -1}"
 for attempt in 1 2 3 4 5; do
   git fetch -q origin || { echo "fetch failed"; continue; }
