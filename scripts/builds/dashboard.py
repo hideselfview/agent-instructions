@@ -335,7 +335,7 @@ function card(c, built) {
   const claimed = !!c.claim;
   const chips = [];
   if (c.main) chips.push(h("span", {class: "chip"}, "main checkout"));
-  if (c.app_checkout) chips.push(h("span", {class: "chip app"}, "app checkout"));
+  if (c.app_checkout) chips.push(h("span", {class: "chip app"}, "app build"));
   if (c.landing) chips.push(h("span", {class: "chip landing"}, "landing"));
   if (!c.live) chips.push(h("span", {class: "chip gone"}, "checkout gone"));
   const kids = [
@@ -400,7 +400,8 @@ function render() {
   for (const r of (folders ? folders.repos : []))
     for (const c of r.checkouts) measured[r.name + "/" + c.name] = c;
   document.getElementById("repos").replaceChildren(...state.repos.map(r => {
-    const order = r.checkouts.map((c, i) => [c.claim ? 0 : 1, i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const rank = c => c.main ? 0 : c.app_checkout ? 1 : c.claim ? 2 : 3;
+    const order = r.checkouts.map((c, i) => [rank(c), i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     const claimed = r.checkouts.filter(c => c.claim).length;
     return h("section", {},
       h("h2", {}, r.name, h("span", {class: "meta"}, "  " + r.checkouts.length + " checkouts, " + claimed + " claimed")),
