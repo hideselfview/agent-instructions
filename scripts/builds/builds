@@ -66,9 +66,12 @@
 #                               [--for <who>]: claim it for <who> (below)
 #   builds claim <checkout> <who>
 #                               record that <who> works in the side worktree
-#   builds note <checkout> [<text>]
+#   builds note <checkout> [--state waiting-on-you|winding-down] [<text>]
 #                               set the claim's one-line note, what its work
-#                               waits on; with no text, clear it
+#                               waits on; with no text, clear it. --state marks
+#                               what git can't show: the work waits on the
+#                               person, or is finishing its last item; a note
+#                               without it has no state
 #   builds release <checkout>   remove its claim
 #   builds retire <checkout>    remove a side worktree and its build root
 #   builds app-checkout <checkout>
@@ -85,9 +88,10 @@
 #                               minute or more while agents build)
 #   builds dashboard [--port <port>]
 #                               serve a page on 127.0.0.1 (port 7787) showing
-#                               every checkout: its claim and note, the
+#                               every checkout: its state, claim and note, the
 #                               commits waiting to land, uncommitted files,
-#                               build sizes, free space, the app.lock holder
+#                               build sizes, free space, the app.lock holder;
+#                               by repo or in lanes by state
 #   builds prune [--dry-run] [--idle <minutes> [--include-warm]]
 #                               delete every checkout's unused build copies
 #                               (below) and apply every cap; delete roots whose
@@ -123,8 +127,11 @@
 # (status shows its age). Short exclusive use, one build at a time, stays a
 # real lock, like the app checkout's app.lock. A claim may carry a one-line
 # note of where its work stands ("waiting on Linux CI"), which `note` sets and
-# status and the dashboard show; a claim whose <who> ends in "(landing)" is the
-# worktree its coordinator lands commits from.
+# status and the dashboard show, and the note may carry a state the dashboard
+# can't read from git: waiting-on-you (a question or step only the person can
+# take) or winding-down (the agent's last item, then its handoff). A claim
+# whose <who> ends in "(landing)" is the worktree its coordinator lands
+# commits from.
 #
 # By default a side worktree builds host Rust only, and a repo with app builds
 # keeps them warm in main and in one side worktree, its app checkout, which
@@ -1084,7 +1091,7 @@ checkout_branch() { git -C "$1" branch --show-current 2>/dev/null || true; }
 is_app_checkout() { [ "$(basename "$1")" != main ] && keeps_warm "$1"; }
 
 status_root() {
-    local root="$1" top path cap kib when state total claim_who claim_since claim_note=""
+    local root="$1" top path cap kib when state total claim_who claim_since claim_note="" claim_state=""
     top="$(cat "$root/.checkout")"
     if checkout_is_live "$root"; then
         state="$(checkout_branch "$top")"
@@ -1097,7 +1104,11 @@ status_root() {
             state="$state, claimed by $claim_who since $claim_since"
         fi
         echo "${root#"$ROOT"/}  $top  [$state]"
-        [ -z "$claim_note" ] || echo "    note: $claim_note"
+        if [ -n "$claim_state" ]; then
+            echo "    note (${claim_state//-/ }): $claim_note"
+        elif [ -n "$claim_note" ]; then
+            echo "    note: $claim_note"
+        fi
     else
         echo "${root#"$ROOT"/}  $top  [checkout gone: prune deletes this root]"
         echo "    $(human "$(kib_of "$root")") total"
@@ -1289,7 +1300,7 @@ json_str_or_null() {
 # folders and total are null.
 status_root_json() {
     local root="$1" with_folders="$2" top path cap kib when link target total=0 sep=""
-    local claim_who claim_since claim_note
+    local claim_who claim_since claim_note claim_state
     top="$(cat "$root/.checkout")"
     printf '{"name":%s,"path":%s,"root":%s' "$(json_str "$(basename "$root")")" \
         "$(json_str "$top")" "$(json_str "$root")"
@@ -1304,8 +1315,9 @@ status_root_json() {
         "$(is_app_checkout "$root" && echo true || echo false)"
     if [ -f "$(claim_file "$top")" ]; then
         read_claim "$top"
-        printf ',"claim":{"who":%s,"since":%s,"note":%s}' "$(json_str "$claim_who")" \
-            "$(json_str "$claim_since")" "$(json_str_or_null "$claim_note")"
+        printf ',"claim":{"who":%s,"since":%s,"note":%s,"note_state":%s}' "$(json_str "$claim_who")" \
+            "$(json_str "$claim_since")" "$(json_str_or_null "$claim_note")" \
+            "$(json_str_or_null "$claim_state")"
     else
         printf ',"claim":null'
     fi
@@ -1434,17 +1446,23 @@ cmd_new() {
 # ── Claims ──────────────────────────────────────────────────────────────────
 
 # A claim is one line in the worktree's git dir: "<who>\t<since>", then
-# "\t<note>" when it has a note.
+# "\t<note>" when it has a note, then "\t<state>" when the note has a state.
+# A state needs a note, so no field is ever empty: read splits on tabs the way
+# it splits on spaces, and two tabs in a row would read as one.
 claim_file() { echo "$(git -C "$1" rev-parse --absolute-git-dir)/builds-claim"; }
 
-# Sets claim_who, claim_since and claim_note from the claim of <top>.
+# The states a note may carry: what the dashboard can't read from git.
+NOTE_STATES="waiting-on-you winding-down"
+
+# Sets claim_who, claim_since, claim_note and claim_state from the claim of
+# <top>.
 read_claim() {
-    IFS=$'\t' read -r claim_who claim_since claim_note < "$(claim_file "$1")"
+    IFS=$'\t' read -r claim_who claim_since claim_note claim_state < "$(claim_file "$1")"
 }
 
 # "<who> since <date>" for the side worktree at <top>.
 claim_text() {
-    local claim_who claim_since claim_note
+    local claim_who claim_since claim_note claim_state
     read_claim "$1"
     echo "$claim_who since $claim_since"
 }
@@ -1456,21 +1474,28 @@ require_one_line() {
     esac
 }
 
-# Claims <top> for <who> from now, with note <note> when given.
-write_claim() {
-    local since
-    since="$(date '+%Y-%m-%d %H:%M')"
-    if [ -n "${3:-}" ]; then
-        printf '%s\t%s\t%s\n' "$2" "$since" "$3" > "$(claim_file "$1")"
+# Writes <top>'s claim: <who> since <since>, with note <note> and its state
+# <state> when given.
+put_claim() {
+    local top="$1" who="$2" since="$3" text="${4:-}" state="${5:-}"
+    [ -n "$text" ] || [ -z "$state" ] || die "a note's state needs a note"
+    if [ -n "$state" ]; then
+        printf '%s\t%s\t%s\t%s\n' "$who" "$since" "$text" "$state" > "$(claim_file "$top")"
+    elif [ -n "$text" ]; then
+        printf '%s\t%s\t%s\n' "$who" "$since" "$text" > "$(claim_file "$top")"
     else
-        printf '%s\t%s\n' "$2" "$since" > "$(claim_file "$1")"
+        printf '%s\t%s\n' "$who" "$since" > "$(claim_file "$top")"
     fi
 }
 
+# Claims <top> for <who> from now, with note <note> and its state <state>
+# when given.
+write_claim() { put_claim "$1" "$2" "$(date '+%Y-%m-%d %H:%M')" "${3:-}" "${4:-}"; }
+
 # Claims a side worktree. Claiming it again for the one who holds it renews
-# the claim's date and keeps its note.
+# the claim's date and keeps its note and the note's state.
 cmd_claim() {
-    local top who claim_who claim_since claim_note=""
+    local top who claim_who claim_since claim_note="" claim_state=""
     [ $# -eq 2 ] || die "usage: builds claim <checkout> <who>"
     top="$(checkout_top "$1")"
     who="$2"
@@ -1481,27 +1506,39 @@ cmd_claim() {
         read_claim "$top"
         [ "$claim_who" = "$who" ] || die "$top is claimed by $(claim_text "$top"); builds release it first if that work is over"
     fi
-    write_claim "$top" "$who" "$claim_note"
+    write_claim "$top" "$who" "$claim_note" "$claim_state"
     note "claimed $top for $who"
 }
 
 # Sets the claim's note to <text> (the rest of the arguments, joined by
-# spaces), or clears it when there is none. The claim's date stays.
+# spaces), with the state --state names or none, or clears note and state when
+# there is no text. The claim's date stays.
 cmd_note() {
-    local top text file claim_who claim_since claim_note
-    [ $# -ge 1 ] || die "usage: builds note <checkout> [<text>]"
+    local usage="usage: builds note <checkout> [--state ${NOTE_STATES// /|}] [<text>]"
+    local top text state="" file claim_who claim_since claim_note claim_state
+    [ $# -ge 1 ] || die "$usage"
     top="$(checkout_top "$1")"
     shift
+    if [ "${1:-}" = --state ]; then
+        state="${2:-}"
+        case " $NOTE_STATES " in
+            *" $state "*) ;;
+            *) die "note: --state is one of ${NOTE_STATES// /, }, got '$state'" ;;
+        esac
+        shift 2
+    fi
     text="$*"
     require_one_line "a note" "$text"
+    [ -n "$text" ] || [ -z "$state" ] || die "note: --state $state needs the note's text, what it is about"
     file="$(claim_file "$top")"
     [ -f "$file" ] || die "$top has no claim; a note belongs to a claim (builds claim it first)"
     read_claim "$top"
-    if [ -n "$text" ]; then
-        printf '%s\t%s\t%s\n' "$claim_who" "$claim_since" "$text" > "$file"
+    put_claim "$top" "$claim_who" "$claim_since" "$text" "$state"
+    if [ -n "$state" ]; then
+        note "noted on $top's claim (${state//-/ }): $text"
+    elif [ -n "$text" ]; then
         note "noted on $top's claim: $text"
     else
-        printf '%s\t%s\n' "$claim_who" "$claim_since" > "$file"
         note "cleared the note on $top's claim"
     fi
 }

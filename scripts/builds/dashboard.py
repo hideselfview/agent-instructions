@@ -7,9 +7,14 @@
 `status --json --no-folders` for the checkouts and their claims, and
 `status --json` for their build folders' sizes and last writes. Git is asked
 only about side worktrees, read-only and with --no-optional-locks: HEAD, the
-commits on HEAD that the local origin/main ref doesn't have, and the count of
-uncommitted files. Main checkouts are the person's; for them the page shows
-only what `builds status` does. Nothing is fetched.
+commits on HEAD whose change the local origin/main ref doesn't have, and the
+count of uncommitted files. Main checkouts are the person's; for them the page
+shows only what `builds status` does. Nothing is fetched.
+
+Each side worktree gets one state, from its claim and git (worktree_state):
+waiting-on-you, landing, ready-to-land, winding-down, working or free. The
+page has two views of them, cards by repo and lanes by state, and keeps the
+viewer's choice in the browser.
 
 Every request reads fresh, and the server keeps no state between requests:
 
@@ -84,12 +89,17 @@ def uncommitted(top):
 
 def side_git(top):
     """HEAD, the commits waiting to land and the uncommitted count of the side
-    worktree at <top>; on a failure, what git said."""
+    worktree at <top>; on a failure, what git said.
+
+    A commit waits to land when origin/main has no commit with the same change:
+    a coordinator lands a branch by rebasing or cherry-picking it, so the
+    branch's own commits stay off origin/main by hash after they land, and
+    `origin/main..HEAD` would list landed work as waiting."""
     try:
         head = commits(top, "-1", "HEAD")
         return {
             "head": head[0] if head else None,
-            "ahead": commits(top, "origin/main..HEAD"),
+            "ahead": commits(top, "--cherry-pick", "--right-only", "origin/main...HEAD"),
             "uncommitted": uncommitted(top),
             "error": None,
         }
@@ -122,6 +132,38 @@ def lock_state(path):
     return {"holders": held, "waiting": waiting}
 
 
+def worktree_state(checkout):
+    """The one state the page shows for the live side worktree <checkout>,
+    first match wins:
+
+        waiting-on-you  its note says so: a question or step only the person
+                        can take
+        landing         its claim's who ends in "(landing)": the worktree a
+                        coordinator lands commits from, whose commits off
+                        origin/main are a landing under way
+        ready-to-land   commits waiting to land, claimed or not: unclaimed
+                        ones are work an agent left behind
+        winding-down    its note says so: the agent's last item, then its
+                        handoff
+        working         claimed, none of the above
+        free            unclaimed, nothing waiting to land
+    """
+    claim = checkout.get("claim")
+    git = checkout.get("git")
+    ahead = bool(git and git["ahead"])
+    if not claim:
+        return "ready-to-land" if ahead else "free"
+    if claim["note_state"] == "waiting-on-you":
+        return "waiting-on-you"
+    if claim["who"].endswith("(landing)"):
+        return "landing"
+    if ahead:
+        return "ready-to-land"
+    if claim["note_state"] == "winding-down":
+        return "winding-down"
+    return "working"
+
+
 def state(builds):
     started = time.time()
     status = builds_status(builds, folders=False)
@@ -134,8 +176,8 @@ def state(builds):
         repo["lock"] = held.get(repo["app_lock"])
         for checkout in repo["checkouts"]:
             checkout["git"] = gits.get(checkout["path"])
-            claim = checkout.get("claim")
-            checkout["landing"] = bool(claim and claim["who"].endswith("(landing)"))
+            side = checkout["live"] and not checkout["main"]
+            checkout["state"] = worktree_state(checkout) if side else None
     status["generated_at"] = int(time.time())
     status["took_seconds"] = round(time.time() - started, 1)
     return status
@@ -210,66 +252,189 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Builds</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 :root {
-  --bg: #f6f6f4; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66;
-  --line: #deded8; --accent: #2457c5; --warn: #9a5b00; --warn-bg: #fff3dc;
-  --bad: #b3261e; --bad-bg: #fde7e5; --ok: #1e7a3c; --chip: #ecece6;
-  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bg: #F6F6F3; --surface: #FFFFFF; --pinned: #EDEDE8; --pinned-line: #DADAD3;
+  --line: #E2E2DC; --line-soft: #F0F0EA; --track: #ECECE6;
+  --text: #1A1A19; --text-2: #2B2B29; --text-3: #3A3A37; --muted: #5C5C57; --muted-2: #6B6B66;
+  --ok: #2E7D4F; --warn: #9A5B00; --bad: #B3261E; --bad-bg: #FDE7E5;
+  --accent: #1F4FB8; --waiting-bg: #EEF3FC;
+  --working-bg: #E7F2EA; --working: #1F5E38;
+  --ready-bg: #E3ECFB; --ready: #1F4FB8;
+  --you-bg: #FBEBDD; --you: #8A3E08;
+  --winding-bg: #EFEDE6; --winding: #4F4C42;
+  --free-bg: #F1F1EC; --free: #5C5C57;
+  --dot-you: #C25E10; --dot-ready: #1F4FB8; --dot-working: #2E7D4F; --dot-free: #9A9A92;
+  --on: #1A1A19; --on-text: #FFFFFF;
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #161615; --card: #20201f; --text: #e8e8e4; --muted: #9a9a94;
-    --line: #34342f; --accent: #8fb0ff; --warn: #f0b660; --warn-bg: #3a2c12;
-    --bad: #ff8a80; --bad-bg: #3d1a17; --ok: #7fd49a; --chip: #2e2e2b;
+    --bg: #161615; --surface: #1F1F1D; --pinned: #262624; --pinned-line: #383833;
+    --line: #34342F; --line-soft: #2B2B28; --track: #34342F;
+    --text: #ECECE8; --text-2: #D9D9D3; --text-3: #C9C9C2; --muted: #A6A69F; --muted-2: #9C9C95;
+    --ok: #5DBB84; --warn: #E8A84A; --bad: #FF8A80; --bad-bg: #3D1A17;
+    --accent: #93B2FF; --waiting-bg: #1C2538;
+    --working-bg: #1C3324; --working: #93D8AE;
+    --ready-bg: #1D2A45; --ready: #A9C3FF;
+    --you-bg: #3E2614; --you: #F6B27C;
+    --winding-bg: #2D2B25; --winding: #D3CEBD;
+    --free-bg: #2A2A27; --free: #B5B5AE;
+    --dot-you: #E07A2E; --dot-ready: #6F95F0; --dot-working: #4FAE76; --dot-free: #85857E;
+    --on: #ECECE8; --on-text: #161615;
+    color-scheme: dark;
   }
 }
 * { box-sizing: border-box; }
-body {
-  margin: 0; background: var(--bg); color: var(--text);
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
+.page { padding: 24px 28px 48px; display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+.mono { font-family: var(--mono); }
+
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.title { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; min-width: 0; }
+h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.sub { font-size: 14px; color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.switch { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.switch button { font: 600 13px var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 5px 12px; cursor: pointer; }
+.switch button[aria-pressed="true"] { background: var(--on); color: var(--on-text); }
+.switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.disk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.disk .label { font-size: 13px; color: var(--muted); }
+.bar { position: relative; width: 140px; height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
+.bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ok); }
+.bar .mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--muted-2); }
+.disk .free { font: 500 13px var(--mono); }
+.disk .floors, .updated { font-size: 12px; color: var(--muted-2); }
+.disk .floors.warn { color: var(--warn); }
+.disk .floors.bad { color: var(--bad); }
+.error { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 8px 10px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.loading { font-size: 14px; color: var(--muted); }
+#view { display: flex; flex-direction: column; gap: 28px; }
+
+section.repo { display: flex; flex-direction: column; gap: 12px; }
+.repo-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.repo-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.repo-head span { font-size: 13px; color: var(--muted); }
+.pinned-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: 12px; align-items: start; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; }
+article { min-width: 0; display: flex; flex-direction: column; }
+.pinned { background: var(--pinned); border: 1px solid var(--pinned-line); border-radius: 12px; padding: 14px 16px; gap: 10px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; gap: 10px; }
+.row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.ident { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.name { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.where { font: 12px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; flex: none; }
+.s-working { background: var(--working-bg); color: var(--working); }
+.s-ready { background: var(--ready-bg); color: var(--ready); }
+.s-you { background: var(--you-bg); color: var(--you); }
+.s-winding { background: var(--winding-bg); color: var(--winding); }
+.s-free { background: var(--free-bg); color: var(--free); }
+.line { font-size: 14px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.total { display: flex; align-items: baseline; gap: 10px; }
+.total .big { font: 500 20px var(--mono); }
+.total .of { font-size: 12px; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px 8px; }
+.chip { font-size: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; color: var(--text-3); overflow-wrap: anywhere; }
+.chip .mono { color: var(--text); }
+.chip.over { border-color: var(--bad); }
+.chip.over .mono { color: var(--bad); }
+.command { font: 12px/1.4 var(--mono); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; }
+.who-block { display: flex; flex-direction: column; gap: 3px; }
+.who { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.note { font-size: 14px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.waiting { background: var(--waiting-bg); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.waiting .label { font-size: 12px; font-weight: 600; color: var(--accent); }
+.commit { display: flex; gap: 8px; font-size: 13px; line-height: 1.35; min-width: 0; }
+.commit .sha { font-family: var(--mono); color: var(--accent); flex: none; }
+.commit .subject { color: var(--text-2); overflow-wrap: anywhere; min-width: 0; }
+.more { font-size: 12px; color: var(--muted); }
+.foot { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line-soft); padding-top: 8px; margin-top: auto; }
+.bad { color: var(--bad); font-weight: 600; }
+.warn { color: var(--warn); font-weight: 600; }
+
+.pinned-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px; align-items: start; }
+.pinned.compact { padding: 12px 14px; gap: 6px; }
+.compact .row1 { align-items: baseline; }
+.compact .name { font-size: 14px; white-space: normal; }
+.compact .big { font: 500 16px var(--mono); white-space: nowrap; }
+.compact .line { font-size: 13px; color: var(--text-3); }
+.lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; align-items: start; }
+.lane { background: var(--pinned); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lane-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; }
+.lane-head > div { display: flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.lane h2 { margin: 0; font-size: 14px; font-weight: 700; }
+.lane .count { font: 13px var(--mono); color: var(--muted); }
+.lane .hint, .lane .none { font-size: 12px; color: var(--muted); padding: 0 4px; }
+.lcard { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; gap: 8px; }
+.lcard .row1 { align-items: baseline; }
+.lcard .name { font-size: 14px; }
+.lcard .age { font-size: 12px; color: var(--muted-2); white-space: nowrap; }
+.lcard .who { font-size: 13px; color: var(--text-3); }
+.lcard .note { font-size: 13px; color: var(--text); }
+.lcard .commits { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--line-soft); padding-top: 6px; }
+.lcard .commit { font-size: 12px; }
+.lcard .pill { align-self: flex-start; font-size: 11px; padding: 2px 8px; }
+
+@media (max-width: 600px) {
+  .page { padding: 16px 16px 40px; gap: 16px; }
+  .bar { width: 100px; }
 }
-main { padding: 16px; }
-h1 { font-size: 18px; margin: 0 0 4px; }
-h2 { font-size: 16px; margin: 24px 0 8px; }
-.meta { color: var(--muted); font-size: 12px; }
-.top { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 12px 0; }
-.panel { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
-.bar { height: 8px; background: var(--chip); border-radius: 4px; position: relative; margin: 6px 0 2px; overflow: hidden; }
-.bar > span { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ok); }
-.bar > i { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--muted); }
-.grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
-.card.claimed { border-left: 3px solid var(--accent); }
-.head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
-.name { font-weight: 600; font-size: 15px; }
-.chip { font-size: 11px; padding: 1px 6px; border-radius: 9px; background: var(--chip); color: var(--muted); }
-.chip.app { color: var(--accent); }
-.chip.landing { color: var(--ok); }
-.chip.gone { color: var(--bad); }
-.path, .mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
-.path { color: var(--muted); }
-.row { margin-top: 4px; overflow-wrap: anywhere; }
-.label { color: var(--muted); }
-.note { margin-top: 6px; padding: 4px 8px; border-radius: 6px; background: var(--warn-bg); color: var(--warn); }
-ul { margin: 2px 0 0; padding-left: 18px; }
-li { overflow-wrap: anywhere; }
-.warn { color: var(--warn); }
-.bad { color: var(--bad); }
-.error { background: var(--bad-bg); color: var(--bad); border-radius: 6px; padding: 6px 10px; margin: 8px 0; white-space: pre-wrap; }
 </style>
 </head>
 <body>
-<main>
-<h1>Builds</h1>
-<div class="meta" id="meta">loading</div>
-<div id="error"></div>
-<div class="top" id="top"></div>
-<div id="repos"></div>
-</main>
+<div class="page">
+<header>
+  <div class="title">
+    <h1>Builds</h1>
+    <span class="sub" id="sub">Worktrees, and the agents working and building in them</span>
+  </div>
+  <div class="controls">
+    <div class="switch" role="group" aria-label="View">
+      <button type="button" data-view="repos" aria-pressed="true">By repo</button>
+      <button type="button" data-view="lanes" aria-pressed="false">Lanes</button>
+    </div>
+    <div class="disk" id="disk"><span class="label">Disk</span><span class="floors">reading</span></div>
+    <span class="updated" id="updated"></span>
+  </div>
+</header>
+<div id="errors"></div>
+<main id="view"><div class="loading">Reading the checkouts</div></main>
+</div>
 <script>
 "use strict";
+const SUBTITLE = "Worktrees, and the agents working and building in them";
+// The states the server derives for each side worktree (worktree_state in
+// dashboard.py), in the order the cards sort.
+const STATES = {
+  "waiting-on-you": {label: "Waiting on you", cls: "s-you"},
+  "ready-to-land": {label: "Ready to land", cls: "s-ready"},
+  "winding-down": {label: "Winding down", cls: "s-winding"},
+  "working": {label: "Working", cls: "s-working"},
+  "landing": {label: "Landing", cls: "s-free"},
+  "free": {label: "Free", cls: "s-free"},
+};
+const ORDER = Object.keys(STATES);
+const LANES = [
+  {title: "Waiting on you", hint: "A question only you can answer, or a step only you can do.", dot: "--dot-you", states: ["waiting-on-you"]},
+  {title: "Ready to land", hint: "Commits on the branch whose change main doesn’t have yet.", dot: "--dot-ready", states: ["ready-to-land"]},
+  {title: "Working", hint: "Claimed, with no commit waiting and nothing asked.", dot: "--dot-working", states: ["winding-down", "working", "landing"]},
+  {title: "Free", hint: "Unclaimed worktrees, ready for the next agent.", dot: "--dot-free", states: ["free"]},
+];
+const VIEW_KEY = "builds-dashboard-view";
 let state = null, folders = null, stateError = "", foldersError = "";
+let view = "repos";
+try {
+  const saved = localStorage.getItem(VIEW_KEY);
+  if (saved === "repos" || saved === "lanes") view = saved;
+} catch (e) { /* no storage: the default view */ }
 
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
@@ -284,129 +449,291 @@ function size(kib) {
   if (kib === null || kib === undefined) return "-";
   return kib >= 1048576 ? (kib / 1048576).toFixed(1) + "G" : Math.floor(kib / 1024) + "M";
 }
+function wholeSize(kib) { return size(kib).replace(".0G", "G"); }
 function ago(epoch) {
-  if (!epoch) return "-";
   const s = Math.max(0, Date.now() / 1000 - epoch);
-  if (s < 90) return Math.round(s) + "s ago";
-  if (s < 5400) return Math.round(s / 60) + "m ago";
-  if (s < 172800) return (s / 3600).toFixed(1) + "h ago";
-  return Math.round(s / 86400) + "d ago";
+  if (s < 60) return Math.round(s) + "s";
+  if (s < 3600) return Math.round(s / 60) + "m";
+  if (s < 172800) return Math.round(s / 3600) + "h";
+  return Math.round(s / 86400) + "d";
 }
-function clock(epoch) { return new Date(epoch * 1000).toLocaleTimeString(); }
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function hhmm(d) { return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
+// A local time as the clock today, "yesterday 22:52" or "Nov 3".
+function when(d) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const day = new Date(d); day.setHours(0, 0, 0, 0);
+  const days = Math.round((today - day) / 86400000);
+  if (days <= 0) return hhmm(d);
+  if (days === 1) return "yesterday " + hhmm(d);
+  return MONTHS[d.getMonth()] + " " + d.getDate();
+}
 // A claim's date is local time, "YYYY-MM-DD HH:MM".
 function since(text) {
   const t = Date.parse(text.replace(" ", "T"));
-  return isNaN(t) ? text : text + " (" + ago(t / 1000) + ")";
+  return isNaN(t) ? text : when(new Date(t));
+}
+function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+function tilde(path) { return path.replace(/^\/Users\/[^/]+/, "~"); }
+function sideNumber(name) { const m = /(\d+)$/.exec(name); return m ? Number(m[1]) : 0; }
+
+// What the folder measurement says about a checkout's build output.
+function built(c) {
+  if (!folders) return null;
+  for (const r of folders.repos) for (const m of r.checkouts) if (m.path === c.path) return facts(m);
+  return null;
+}
+function facts(m) {
+  const out = {total: m.total_kib, newest: 0, chips: [], over: [], links: []};
+  for (const f of (m.folders || [])) {
+    if (!f.exists) continue;
+    if (f.last_write > out.newest) out.newest = f.last_write;
+    const over = f.kib > f.cap_kib;
+    if (over) out.over.push(f.path + " " + size(f.kib) + " over its " + size(f.cap_kib) + " cap");
+    if (f.link !== "linked") out.links.push(f.path + (f.link === "elsewhere" ? " links elsewhere" : " not linked"));
+    // A folder under 1M shows as 0M: no build output worth a chip.
+    if (f.kib >= 1024) out.chips.push({path: f.path, kib: f.kib, over});
+  }
+  out.chips.sort((a, b) => b.kib - a.kib);
+  return out;
 }
 
-function volumePanel(v) {
-  const gib = k => k / 1048576;
-  const scale = Math.max(gib(v.floor_kib) * 2, gib(v.free_kib) * 1.2);
-  const pct = x => Math.min(100, 100 * x / scale) + "%";
-  let cls = "", word = "above the floors";
-  if (v.free_kib < v.hard_floor_kib) { cls = "bad"; word = "under the hard floor: builds stop"; }
-  else if (v.free_kib < v.floor_kib) { cls = "warn"; word = "under the floor: builds warn"; }
-  const bar = h("div", {class: "bar"},
-    h("span", {style: "width:" + pct(gib(v.free_kib)) + (cls ? ";background:var(--" + cls + ")" : "")}),
-    h("i", {style: "left:" + pct(gib(v.hard_floor_kib)), title: "hard floor"}),
-    h("i", {style: "left:" + pct(gib(v.floor_kib)), title: "floor"}));
-  return h("div", {class: "panel"},
-    h("div", {}, h("b", {}, size(v.free_kib) + " free"), " of " + size(v.size_kib) + " ",
-      h("span", {class: cls}, word)),
-    bar,
-    h("div", {class: "meta"}, "floor " + size(v.floor_kib) + ", hard floor " + size(v.hard_floor_kib)));
-}
-
-function lockPanel(repo) {
+function pill(text, cls) { return h("span", {class: "pill " + cls}, text); }
+function stateOf(c) { return STATES[c.state] || {label: c.state, cls: "s-free"}; }
+function lockOf(repo) {
   const lock = repo.lock;
-  const kids = [h("div", {}, h("b", {}, repo.name + " app.lock"),
-    repo.app_checkout ? " (app checkout " + repo.app_checkout + ")" : "")];
-  if (!lock || lock.holders.length === 0) kids.push(h("div", {class: "meta"}, "free"));
-  for (const holder of (lock ? lock.holders : [])) {
-    kids.push(h("div", {class: "row"}, h("span", {class: "warn"}, "held"), " by pid " + holder.pid));
-    for (const c of (holder.running.length ? holder.running : [holder.command]))
-      kids.push(h("div", {class: "mono"}, c));
-  }
-  if (lock && lock.waiting) kids.push(h("div", {class: "row"}, lock.waiting + " waiting"));
-  return h("div", {class: "panel"}, kids);
+  return {held: !!(lock && lock.holders.length), waiting: lock ? lock.waiting : 0, holders: lock ? lock.holders : []};
+}
+function commands(lock) {
+  return lock.holders.map(x => h("div", {class: "command"}, (x.running.length ? x.running : [x.command]).join("\n")));
+}
+function detachedAt(c) {
+  if (c.branch) return c.branch;
+  return c.git && c.git.head ? "detached at " + c.git.head.sha : "detached";
 }
 
-function card(c, built) {
-  const claimed = !!c.claim;
-  const chips = [];
-  if (c.main) chips.push(h("span", {class: "chip"}, "main checkout"));
-  if (c.app_checkout) chips.push(h("span", {class: "chip app"}, "app build"));
-  if (c.landing) chips.push(h("span", {class: "chip landing"}, "landing"));
-  if (!c.live) chips.push(h("span", {class: "chip gone"}, "checkout gone"));
-  const kids = [
-    h("div", {class: "head"}, h("span", {class: "name"}, c.name), chips),
-    h("div", {class: "path"}, c.path),
-  ];
-  if (c.live) kids.push(h("div", {class: "row"}, h("span", {class: "label"}, "branch "),
-    h("span", {class: "mono"}, c.branch || "detached")));
-  if (claimed) {
-    kids.push(h("div", {class: "row"}, h("span", {class: "label"}, "claimed by "), h("b", {}, c.claim.who),
-      " since " + since(c.claim.since)));
-    if (c.claim.note) kids.push(h("div", {class: "note"}, c.claim.note));
+// Each repo's pinned checkouts (main, then the App build), its other live
+// side worktrees, and the build roots whose checkout is gone.
+function split(repo) {
+  const main = repo.checkouts.find(c => c.live && c.main);
+  const app = repo.checkouts.find(c => c.live && c.app_checkout);
+  const sides = repo.checkouts.filter(c => c.live && !c.main && !c.app_checkout);
+  sides.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || sideNumber(a.name) - sideNumber(b.name));
+  return {main, app, sides, gone: repo.checkouts.filter(c => !c.live)};
+}
+function counts(cs) {
+  const n = {};
+  for (const c of cs) n[c.state] = (n[c.state] || 0) + 1;
+  return n;
+}
+
+function totalBlock(b) {
+  if (!b) return h("div", {class: "total"}, h("span", {class: "of"}, "measuring build output"));
+  return h("div", {class: "total"}, h("span", {class: "big"}, size(b.total)), h("span", {class: "of"}, "of build output"));
+}
+function chips(b) {
+  if (!b) return null;
+  const kids = b.chips.map(f => h("span", {class: "chip" + (f.over ? " over" : "")}, f.path + " ",
+    h("span", {class: "mono"}, size(f.kib) + (f.over ? " over cap" : ""))));
+  const problems = b.links.map(p => h("span", {class: "chip over"}, p));
+  return kids.length || problems.length ? h("div", {class: "chips"}, kids, problems) : null;
+}
+function mainLine(repo) {
+  return "Your checkout. No agent works or builds here" + (repo.app_checkout ? "; you install from it." : ".");
+}
+function appLine(lock, b) {
+  if (lock.held) {
+    return "An agent is building here under the app lock" +
+      (lock.waiting ? "; " + plural(lock.waiting, "more waits", "more wait") + " for it." : ".");
   }
-  const g = c.git;
-  if (g && g.error) kids.push(h("div", {class: "error"}, g.error));
-  if (g && g.head) kids.push(h("div", {class: "row"}, h("span", {class: "label"}, "HEAD "),
-    h("span", {class: "mono"}, g.head.sha), " " + g.head.subject + " ",
-    h("span", {class: "meta"}, ago(g.head.time))));
-  if (g && !g.error) {
-    if (g.ahead.length) {
-      kids.push(h("div", {class: "row"}, h("span", {class: "label"},
-        g.ahead.length + " commit" + (g.ahead.length === 1 ? "" : "s") + " not on origin/main")));
-      kids.push(h("ul", {}, g.ahead.slice(0, 30).map(x =>
-        h("li", {}, h("span", {class: "mono"}, x.sha), " " + x.subject))));
-      if (g.ahead.length > 30) kids.push(h("div", {class: "meta"}, "and " + (g.ahead.length - 30) + " more"));
-    } else {
-      kids.push(h("div", {class: "row meta"}, "nothing waiting to land"));
-    }
-    kids.push(h("div", {class: "row"}, h("span", {class: "label"}, "uncommitted "),
-      h("span", {class: g.uncommitted ? "warn" : ""}, g.uncommitted + " file" + (g.uncommitted === 1 ? "" : "s"))));
+  return "Where agents build the apps, one at a time under the app lock." +
+    (b && b.newest ? " Last build " + when(new Date(b.newest * 1000)) + "." : "");
+}
+
+function pinnedMain(repo, c) {
+  const b = built(c);
+  return h("article", {class: "pinned"},
+    h("div", {class: "row1"},
+      h("div", {class: "ident"}, h("span", {class: "name"}, "main"),
+        h("span", {class: "where"}, tilde(c.path) + " · " + (c.branch || "detached"))),
+      pill("Yours", "s-free")),
+    h("span", {class: "line"}, mainLine(repo)),
+    totalBlock(b), chips(b));
+}
+function pinnedApp(repo, c) {
+  const b = built(c), lock = lockOf(repo);
+  return h("article", {class: "pinned"},
+    h("div", {class: "row1"},
+      h("div", {class: "ident"}, h("span", {class: "name"}, "App build"),
+        h("span", {class: "where"}, c.name + " · " + detachedAt(c))),
+      lock.held ? pill("Lock held", "s-working") : pill("Lock free", "s-free")),
+    h("span", {class: "line"}, appLine(lock, b)),
+    lock.held ? commands(lock) : null,
+    c.claim ? h("div", {class: "who-block"}, h("span", {class: "who"}, c.claim.who),
+      c.claim.note ? h("span", {class: "note"}, c.claim.note) : null) : null,
+    totalBlock(b), chips(b));
+}
+
+function waitingBox(c, max) {
+  const ahead = c.git && !c.git.error ? c.git.ahead : [];
+  if (!ahead.length) return null;
+  return h("div", {class: "waiting"},
+    h("span", {class: "label"}, plural(ahead.length, "commit", "commits") + " waiting to land"),
+    ahead.slice(0, max).map(x => h("div", {class: "commit"}, h("span", {class: "sha"}, x.sha), h("span", {class: "subject"}, x.subject))),
+    ahead.length > max ? h("span", {class: "more"}, "and " + (ahead.length - max) + " more") : null);
+}
+function buildFact(b) {
+  if (!b) return h("span", {}, "build measuring");
+  if (b.over.length) return h("span", {class: "bad", title: b.over.join("; ")}, "build " + size(b.total) + " over cap");
+  return h("span", {}, "build " + size(b.total));
+}
+function card(c) {
+  const st = stateOf(c), g = c.git, b = built(c);
+  const foot = [];
+  if (g && g.head) foot.push(h("span", {}, "last commit " + ago(g.head.time) + " ago"));
+  if (g && !g.error) foot.push(g.uncommitted ? h("span", {}, plural(g.uncommitted, "file", "files") + " changed") : h("span", {}, "clean"));
+  foot.push(buildFact(b));
+  if (b) for (const p of b.links) foot.push(h("span", {class: "bad"}, p));
+  if (c.claim) foot.push(h("span", {}, "since " + since(c.claim.since)));
+  return h("article", {class: "card"},
+    h("div", {class: "row1"},
+      h("div", {class: "ident"}, h("span", {class: "name"}, c.name), h("span", {class: "where", title: detachedAt(c)}, detachedAt(c))),
+      pill(st.label, st.cls)),
+    h("div", {class: "who-block"},
+      h("span", {class: "who"}, c.claim ? c.claim.who : "Unclaimed"),
+      c.claim && c.claim.note ? h("span", {class: "note"}, c.claim.note) : null),
+    g && g.error ? h("div", {class: "error"}, g.error) : null,
+    waitingBox(c, 10),
+    h("div", {class: "foot"}, foot));
+}
+
+function summary(parts) { return parts.filter(Boolean).join(" · "); }
+function stateCounts(cs) {
+  const n = counts(cs);
+  return ORDER.filter(s => n[s]).map(s => n[s] + " " + STATES[s].label.toLowerCase());
+}
+function goneLine(gone) {
+  return gone.length ? plural(gone.length, "build root whose checkout is gone", "build roots whose checkouts are gone") +
+    " (" + gone.map(c => c.name).join(", ") + "; builds prune deletes them)" : null;
+}
+
+function reposView() {
+  return state.repos.map(repo => {
+    const {main, app, sides, gone} = split(repo);
+    const pinned = [main ? pinnedMain(repo, main) : null, app ? pinnedApp(repo, app) : null].filter(Boolean);
+    return h("section", {class: "repo"},
+      h("div", {class: "repo-head"}, h("h2", {}, repo.name),
+        h("span", {}, summary([...stateCounts(sides), goneLine(gone)]) || "no side worktrees")),
+      pinned.length ? h("div", {class: "pinned-grid"}, pinned) : null,
+      sides.length ? h("div", {class: "cards"}, sides.map(card)) : null);
+  });
+}
+
+function compactMain(repo, c) {
+  const b = built(c);
+  return h("article", {class: "pinned compact"},
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " main"), h("span", {class: "big"}, b ? size(b.total) : "-")),
+    h("span", {class: "line"}, "Yours. No agent works or builds here."));
+}
+function compactApp(repo, c) {
+  const b = built(c), lock = lockOf(repo);
+  const line = lock.held
+    ? "Lock held: an agent is building here" + (lock.waiting ? ", " + lock.waiting + " waiting." : ".")
+    : "Lock free. Agents build the apps here, one at a time.";
+  return h("article", {class: "pinned compact"},
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " App build · " + c.name), h("span", {class: "big"}, b ? size(b.total) : "-")),
+    h("span", {class: "line"}, line),
+    lock.held ? commands(lock) : null);
+}
+function laneCard(repo, c) {
+  const g = c.git, b = built(c);
+  const tag = c.state === "winding-down" || c.state === "landing" ? pill(stateOf(c).label, stateOf(c).cls) : null;
+  let note = c.claim && c.claim.note ? c.claim.note : null;
+  if (!c.claim) note = summary([detachedAt(c), b ? "build " + size(b.total) : null]);
+  return h("article", {class: "lcard"},
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " " + c.name),
+      h("span", {class: "age"}, g && g.head ? ago(g.head.time) : "")),
+    h("span", {class: "who"}, c.claim ? c.claim.who : "Unclaimed"),
+    tag,
+    note ? h("span", {class: "note"}, note) : null,
+    g && g.error ? h("div", {class: "error"}, g.error) : null,
+    g && !g.error && g.ahead.length ? h("div", {class: "commits"},
+      g.ahead.slice(0, 6).map(x => h("div", {class: "commit"}, h("span", {class: "sha"}, x.sha), h("span", {class: "subject"}, x.subject))),
+      g.ahead.length > 6 ? h("span", {class: "more"}, "and " + (g.ahead.length - 6) + " more") : null) : null);
+}
+function lanesView() {
+  const pinned = [], all = [], gone = [];
+  for (const repo of state.repos) {
+    const s = split(repo);
+    if (s.main) pinned.push(compactMain(repo, s.main));
+    if (s.app) pinned.push(compactApp(repo, s.app));
+    for (const c of s.sides) all.push([repo, c]);
+    for (const c of s.gone) gone.push(c);
   }
-  if (built) {
-    let newest = 0;
-    const problems = [];
-    for (const f of (built.folders || [])) {
-      if (!f.exists) continue;
-      if (f.last_write > newest) newest = f.last_write;
-      if (f.kib > f.cap_kib) problems.push(f.path + " over its cap (" + size(f.kib) + " / " + size(f.cap_kib) + ")");
-      if (f.link !== "linked") problems.push(f.path + " " + (f.link === "elsewhere" ? "links elsewhere" : "not linked"));
-    }
-    kids.push(h("div", {class: "row"}, h("span", {class: "label"}, "builds "), size(built.total_kib),
-      built.folders ? ", newest write " + ago(newest) : ""));
-    for (const p of problems) kids.push(h("div", {class: "row bad"}, p));
-  } else {
-    kids.push(h("div", {class: "row meta"}, "builds: measuring"));
-  }
-  return h("div", {class: "card" + (claimed ? " claimed" : "")}, kids);
+  const lanes = LANES.map(lane => {
+    const cards = all.filter(([, c]) => lane.states.includes(c.state));
+    cards.sort((a, b) => lane.states.indexOf(a[1].state) - lane.states.indexOf(b[1].state));
+    return h("section", {class: "lane"},
+      h("div", {class: "lane-head"},
+        h("div", {}, h("span", {class: "dot", style: "background: var(" + lane.dot + ")"}), h("h2", {}, lane.title)),
+        h("span", {class: "count"}, String(cards.length))),
+      h("span", {class: "hint"}, lane.hint),
+      cards.length ? cards.map(([repo, c]) => laneCard(repo, c)) : h("span", {class: "none"}, "None."));
+  });
+  return [h("div", {class: "pinned-row"}, pinned),
+    gone.length ? h("div", {class: "loading"}, goneLine(gone)) : null,
+    h("div", {class: "lanes"}, lanes)];
+}
+
+function disk(v) {
+  const gib = k => k / 1048576;
+  const scale = Math.max(gib(v.floor_kib) * 2, gib(v.free_kib) * 1.25);
+  const pct = x => Math.min(100, 100 * x / scale) + "%";
+  let color = "var(--ok)", note = h("span", {class: "floors"}, "warns " + wholeSize(v.floor_kib) + " · stops " + wholeSize(v.hard_floor_kib));
+  if (v.free_kib < v.hard_floor_kib) { color = "var(--bad)"; note = h("span", {class: "bad floors"}, "under " + wholeSize(v.hard_floor_kib) + ": builds stop"); }
+  else if (v.free_kib < v.floor_kib) { color = "var(--warn)"; note = h("span", {class: "warn floors"}, "under " + wholeSize(v.floor_kib) + ": builds warn · stop at " + wholeSize(v.hard_floor_kib)); }
+  return [h("span", {class: "label"}, "Disk"),
+    h("div", {class: "bar", role: "img", "aria-label": size(v.free_kib) + " free; builds warn under " + wholeSize(v.floor_kib) + " and stop under " + wholeSize(v.hard_floor_kib)},
+      h("span", {class: "fill", style: "width: " + pct(gib(v.free_kib)) + "; background: " + color}),
+      h("span", {class: "mark", style: "left: " + pct(gib(v.hard_floor_kib))}),
+      h("span", {class: "mark", style: "left: " + pct(gib(v.floor_kib))})),
+    h("span", {class: "free"}, size(v.free_kib) + " free"),
+    note];
+}
+
+// The state's age; the folder sizes', measured about once a minute, while
+// they are first measured and on hover after.
+function tick() {
+  const el = document.getElementById("updated");
+  const parts = [];
+  if (state) parts.push("updated " + ago(state.generated_at) + " ago");
+  if (!folders) parts.push("measuring sizes");
+  el.textContent = parts.join(" · ");
+  el.title = folders ? "build folder sizes measured " + ago(folders.generated_at) + " ago" : "";
 }
 
 function render() {
-  const meta = [];
-  if (state) meta.push("updated " + clock(state.generated_at) + " (" + state.took_seconds + "s)");
-  if (folders) meta.push("build folders measured " + clock(folders.generated_at) + " (" + folders.took_seconds + "s)");
-  else meta.push("measuring build folders");
-  document.getElementById("meta").textContent = meta.join(" · ");
-  const errors = document.getElementById("error");
-  errors.replaceChildren(...[stateError, foldersError].filter(Boolean).map(e => h("div", {class: "error"}, e)));
+  for (const b of document.querySelectorAll(".switch button")) b.setAttribute("aria-pressed", String(b.dataset.view === view));
+  document.getElementById("errors").replaceChildren(...[stateError, foldersError].filter(Boolean).map(e => h("div", {class: "error"}, e)));
+  tick();
   if (!state) return;
-  document.getElementById("top").replaceChildren(volumePanel(state.volume),
-    ...state.repos.filter(r => r.app_lock).map(lockPanel));
-  const measured = {};
-  for (const r of (folders ? folders.repos : []))
-    for (const c of r.checkouts) measured[r.name + "/" + c.name] = c;
-  document.getElementById("repos").replaceChildren(...state.repos.map(r => {
-    const rank = c => c.main ? 0 : c.app_checkout ? 1 : c.claim ? 2 : 3;
-    const order = r.checkouts.map((c, i) => [rank(c), i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-    const claimed = r.checkouts.filter(c => c.claim).length;
-    return h("section", {},
-      h("h2", {}, r.name, h("span", {class: "meta"}, "  " + r.checkouts.length + " checkouts, " + claimed + " claimed")),
-      h("div", {class: "grid"}, order.map(([, , c]) => card(c, measured[r.name + "/" + c.name]))));
-  }));
+  const sides = state.repos.flatMap(r => split(r).sides);
+  const n = counts(sides);
+  const working = (n["working"] || 0) + (n["winding-down"] || 0);
+  document.getElementById("sub").textContent = summary([SUBTITLE,
+    working ? working + " working" : null,
+    n["ready-to-land"] ? n["ready-to-land"] + " ready to land" : null,
+    n["waiting-on-you"] ? n["waiting-on-you"] + " waiting on you" : null]);
+  document.getElementById("disk").replaceChildren(...disk(state.volume).filter(Boolean));
+  document.getElementById("view").replaceChildren(...(view === "lanes" ? lanesView() : reposView()).filter(Boolean));
+}
+
+for (const b of document.querySelectorAll(".switch button")) {
+  b.addEventListener("click", () => {
+    view = b.dataset.view;
+    try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* kept for this page only */ }
+    render();
+  });
 }
 
 async function fetchJson(path) {
@@ -427,6 +754,8 @@ async function pollFolders() {
   render();
   setTimeout(pollFolders, 60000);
 }
+render();
+setInterval(tick, 1000);
 pollState();
 pollFolders();
 </script>

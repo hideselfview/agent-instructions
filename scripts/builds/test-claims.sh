@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Tests claims, their notes, `status --json` and the dashboard's answers on a
-# scratch repo with a side worktree and a scratch build volume (BUILDS_ROOT)
-# in a temporary folder: nothing here touches the real build volume or any
-# real checkout.
+# Tests claims, their notes and the notes' states, `status --json` and the
+# dashboard's answers, the states it derives among them, on a scratch repo
+# with two side worktrees and a scratch build volume (BUILDS_ROOT) in a
+# temporary folder: nothing here touches the real build volume or any real
+# checkout.
 
 set -euo pipefail
 
@@ -28,13 +29,15 @@ refuses() {
 # The value at <python expression on d> in the JSON on stdin.
 json() { python3 -c 'import json, sys; d = json.load(sys.stdin); print(json.dumps(eval(sys.argv[1])))' "$1"; }
 
-# A repo whose origin/main has one commit, and a side worktree on a branch two
-# commits ahead of it, with one changed and one untracked file. Each checkout
-# has the build root and link `builds setup` would make (setup itself also
-# prunes the real temporary folders, so it isn't run here).
+# A repo whose origin/main has one commit; side-1 on a branch two commits
+# ahead of it, with one changed and one untracked file; side-2 on a branch
+# whose one commit landed on origin/main by cherry-pick, under another hash.
+# Each checkout has the build root and link `builds setup` would make (setup
+# itself also prunes the real temporary folders, so it isn't run here).
 git init -q --bare "$scratch/origin.git"
 main="$scratch/demo"
 side="$scratch/demo-worktrees/side-1"
+side2="$scratch/demo-worktrees/side-2"
 git init -q -b main "$main"
 git -C "$main" config user.email test@example.com
 git -C "$main" config user.name test
@@ -47,8 +50,9 @@ git -C "$main" push -q origin main
 git -C "$main" fetch -q origin
 mkdir -p "$scratch/demo-worktrees"
 git -C "$main" worktree add -q -b work "$side" origin/main
-for top in "$main" "$side"; do
-    if [ "$top" = "$main" ]; then root="$BUILDS_ROOT/demo/main"; else root="$BUILDS_ROOT/demo/side-1"; fi
+git -C "$main" worktree add -q -b landed "$side2" origin/main
+for top in "$main" "$side" "$side2"; do
+    if [ "$top" = "$main" ]; then root="$BUILDS_ROOT/demo/main"; else root="$BUILDS_ROOT/demo/$(basename "$top")"; fi
     mkdir -p "$root/target"
     printf '%s\n' "$top" > "$root/.checkout"
     ln -s "$root/target" "$top/target"
@@ -58,6 +62,13 @@ echo one > "$side/one" && git -C "$side" add one && git -C "$side" commit -q -m 
 echo two > "$side/two" && git -C "$side" add two && git -C "$side" commit -q -m 'Add two'
 echo changed > "$side/one"
 echo new > "$side/untracked"
+echo three > "$side2/three" && git -C "$side2" add three && git -C "$side2" commit -q -m 'Add three'
+echo other > "$main/other" && git -C "$main" add other && git -C "$main" commit -q -m 'Move main on'
+git -C "$main" cherry-pick landed >/dev/null
+git -C "$main" push -q origin main
+git -C "$main" fetch -q origin
+[ -n "$(git -C "$side2" log --format=%h origin/main..HEAD)" ] \
+    || fail "side-2's landed commit should still be off origin/main by hash"
 claim_file="$(git -C "$side" rev-parse --absolute-git-dir)/builds-claim"
 
 # A note needs a claim, and main is never claimed.
@@ -85,10 +96,33 @@ refuses "claimed by agent A" claim "$side" "agent B"
 refuses "one line without tabs" note "$side" "$(printf 'a\tb')"
 refuses "one line without tabs" claim "$side" "$(printf 'agent\tA')"
 
+# A note's state: a fourth field, shown by status, kept by a re-claim and
+# cleared by a note without one. (The re-claim above renewed the date.)
+since="$(cut -f2 "$claim_file")"
+"$builds" note "$side" --state waiting-on-you which schema to keep 2>/dev/null
+[ "$(cat "$claim_file")" = "agent A	$since	which schema to keep	waiting-on-you" ] \
+    || fail "note --state wrote '$(cat "$claim_file")'"
+grep -A1 '^demo/side-1 ' <<<"$("$builds" status)" | grep -q '^    note (waiting on you): which schema to keep$' \
+    || fail "status doesn't show the note's state: $("$builds" status)"
+[ "$("$builds" status --json --no-folders | json 'd["repos"][0]["checkouts"][1]["claim"]')" \
+    = '{"who": "agent A", "since": "'"$since"'", "note": "which schema to keep", "note_state": "waiting-on-you"}' ] \
+    || fail "note state in json: $("$builds" status --json --no-folders)"
+"$builds" claim "$side" "agent A" 2>/dev/null
+[ "$(cut -f1,3,4 "$claim_file")" = "agent A	which schema to keep	waiting-on-you" ] || fail "re-claim dropped the state: '$(cat "$claim_file")'"
+since="$(cut -f2 "$claim_file")"
+refuses "needs the note's text" note "$side" --state winding-down
+refuses "is one of waiting-on-you, winding-down, got 'done'" note "$side" --state done finished
+refuses "is one of waiting-on-you, winding-down, got ''" note "$side" --state
+[ "$(cut -f4 "$claim_file")" = waiting-on-you ] || fail "a refused note changed the claim: '$(cat "$claim_file")'"
+"$builds" note "$side" waiting on Linux CI 2>/dev/null
+[ "$(cat "$claim_file")" = "agent A	$since	waiting on Linux CI" ] || fail "a plain note kept the state: '$(cat "$claim_file")'"
+[ "$("$builds" status --json --no-folders | json 'd["repos"][0]["checkouts"][1]["claim"]["note_state"]')" = null ] \
+    || fail "a plain note's state in json"
+
 # status --json, with and without the folders.
 "$builds" status --json --no-folders > "$scratch/fast.json"
 [ "$(json 'd["repos"][0]["name"]' < "$scratch/fast.json")" = '"demo"' ] || fail "no demo repo in $(cat "$scratch/fast.json")"
-[ "$(json '[c["name"] for c in d["repos"][0]["checkouts"]]' < "$scratch/fast.json")" = '["main", "side-1"]' ] \
+[ "$(json '[c["name"] for c in d["repos"][0]["checkouts"]]' < "$scratch/fast.json")" = '["main", "side-1", "side-2"]' ] \
     || fail "checkouts: $(cat "$scratch/fast.json")"
 [ "$(json 'd["repos"][0]["checkouts"][1]["claim"]["note"]' < "$scratch/fast.json")" = '"waiting on Linux CI"' ] \
     || fail "note in json: $(cat "$scratch/fast.json")"
@@ -110,14 +144,20 @@ for _ in $(seq 50); do
     curl -sf "http://127.0.0.1:$port/" >/dev/null 2>&1 && break
     sleep 0.1
 done
-curl -sf "http://127.0.0.1:$port/" | grep -q '<title>Builds</title>' || fail "no page: $(cat "$scratch/dashboard.log")"
+# Saved first: under pipefail, grep -q quitting at its match would fail curl
+# still writing the page.
+curl -sf "http://127.0.0.1:$port/" > "$scratch/page.html" || fail "no page: $(cat "$scratch/dashboard.log")"
+grep -q '<title>Builds</title>' "$scratch/page.html" || fail "the page has no title Builds"
 curl -sf "http://127.0.0.1:$port/api/state" > "$scratch/state.json" || fail "no state"
 [ "$(json '[x["subject"] for x in d["repos"][0]["checkouts"][1]["git"]["ahead"]]' < "$scratch/state.json")" = '["Add two", "Add one"]' ] \
     || fail "commits waiting to land: $(cat "$scratch/state.json")"
 [ "$(json 'd["repos"][0]["checkouts"][1]["git"]["uncommitted"]' < "$scratch/state.json")" = 2 ] || fail "uncommitted count"
 [ "$(json 'd["repos"][0]["checkouts"][1]["git"]["head"]["subject"]' < "$scratch/state.json")" = '"Add two"' ] || fail "HEAD"
 [ "$(json 'd["repos"][0]["checkouts"][0]["git"]' < "$scratch/state.json")" = null ] || fail "asked git about main"
-[ "$(json 'd["repos"][0]["checkouts"][1]["landing"]' < "$scratch/state.json")" = false ] || fail "landing without (landing)"
+[ "$(json 'd["repos"][0]["checkouts"][1]["state"]' < "$scratch/state.json")" = '"ready-to-land"' ] || fail "side-1's state"
+[ "$(json 'd["repos"][0]["checkouts"][0]["state"]' < "$scratch/state.json")" = null ] || fail "main got a state"
+[ "$(json 'd["repos"][0]["checkouts"][2]["git"]["ahead"]' < "$scratch/state.json")" = '[]' ] \
+    || fail "side-2's cherry-picked commit listed as waiting: $(cat "$scratch/state.json")"
 curl -sf "http://127.0.0.1:$port/api/folders" > "$scratch/folders.json" || fail "no folders"
 [ "$(json 'd["repos"][0]["checkouts"][1]["total_kib"] >= 2048' < "$scratch/folders.json")" = true ] || fail "folders' size"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: example.com' "http://127.0.0.1:$port/api/state")" = 403 ] \
@@ -126,13 +166,34 @@ kill "$server"
 wait "$server" 2>/dev/null || true
 server=""
 
-# Clearing the note keeps the claim; a landing claim is flagged.
+# Clearing the note keeps the claim.
 "$builds" note "$side" 2>/dev/null
 [ "$(cat "$claim_file")" = "agent A	$since" ] || fail "clearing wrote '$(cat "$claim_file")'"
+
+# The state the dashboard derives for each side worktree, from its claim, the
+# note's state and the commits waiting to land: <expected side-1> <expected
+# side-2>.
+states() {
+    local got
+    got="$(python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import dashboard
+d = dashboard.state(sys.argv[2])
+print(" ".join(str(c["state"]) for c in d["repos"][0]["checkouts"]))' "$script_dir" "$builds")"
+    [ "$got" = "None $1 $2" ] || fail "states: wanted main None, side-1 $1, side-2 $2, got '$got'"
+}
+states ready-to-land free
+"$builds" claim "$side2" "agent B" 2>/dev/null
+states ready-to-land working
+"$builds" note "$side2" --state winding-down last item, then the handoff 2>/dev/null
+"$builds" note "$side" --state winding-down last item 2>/dev/null
+states ready-to-land winding-down
+"$builds" note "$side" --state waiting-on-you which schema to keep 2>/dev/null
+"$builds" note "$side2" --state waiting-on-you run the reset 2>/dev/null
+states waiting-on-you waiting-on-you
+"$builds" release "$side2" 2>/dev/null
+"$builds" claim "$side2" "coordinator (landing)" 2>/dev/null
+states waiting-on-you landing
 "$builds" release "$side" 2>/dev/null
 [ ! -e "$claim_file" ] || fail "release left the claim"
-"$builds" claim "$side" "coordinator (landing)" 2>/dev/null
-python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import dashboard; d = dashboard.state(sys.argv[2]); assert d["repos"][0]["checkouts"][1]["landing"], d' \
-    "$script_dir" "$builds" || fail "landing claim not flagged"
+states ready-to-land landing
 
-echo "claims, notes, status --json and the dashboard: ok"
+echo "claims, notes and their states, status --json and the dashboard: ok"

@@ -64,6 +64,14 @@ as `~/.local/bin/builds`):
   note. `status` prints it under the checkout. A claim whose who ends in
   `(landing)` (`coordinator (landing)`) marks the worktree its coordinator lands
   commits from.
+- `builds note <checkout> --state waiting-on-you|winding-down <text>` sets the
+  note with a state the dashboard can't read from git: `waiting-on-you` (a
+  question only the person can answer, or a step only they can take) or
+  `winding-down` (the agent's last item, then its handoff). The state is a
+  fourth field on the claim's line and needs the note's text; a plain `note`
+  sets the note without one, so a coordinator clears the state by writing the
+  next note. `status` prints it as `note (waiting on you): <text>`, and
+  `status --json` as the claim's `note_state` (null without one).
 - `builds retire <checkout>` removes a clean, unclaimed side worktree and its
   build root; it refuses the app checkout.
 - `builds app-checkout <checkout>` records a side worktree as its repo's app
@@ -77,23 +85,42 @@ as `~/.local/bin/builds`):
   against both floors, as JSON; `--no-folders` leaves out the build folders,
   whose measurement takes nearly all of the half minute or more a full status
   takes while agents build.
-- `builds dashboard [--port <port>]` serves a page at `http://127.0.0.1:7787/`
-  (only on 127.0.0.1, standard-library Python, `dashboard.py`) showing what
-  every checkout is doing, one card per checkout `status` lists, grouped by repo
-  with claimed ones first: path, branch, claim and note, landing worktree and
-  app checkout, the build folders' total size and newest write, and for side
-  worktrees HEAD, the commits on HEAD the local `origin/main` ref doesn't have
-  (the work waiting to land) and the count of uncommitted files. Above them: the
-  volume's free space against the 30 GiB and 10 GiB floors, and who holds each
-  repo's `app.lock` and how many wait for it, read without taking it (the
-  process with the file open holds it, since `lockf` waits inside `open`). The
-  page asks for its state every few seconds and for the build folders a minute
-  after each measurement; every answer is read fresh and the server keeps
-  nothing between requests. It runs git only in side worktrees, read-only with
-  `--no-optional-locks`, and fetches nothing: for the person's main checkouts it
-  shows what `status` shows. Coordinators keep it current through the claims and
-  notes they already make. `test-claims.sh` tests claims, notes, `status --json`
-  and the dashboard on a scratch repo and build volume.
+- `builds dashboard [--port <port>]` serves a page called Builds at
+  `http://127.0.0.1:7787/` (only on 127.0.0.1, standard-library Python,
+  `dashboard.py`) showing every checkout `status` lists. Its header shows the
+  volume's free space as a bar against the 30 GiB warning floor and the 10 GiB
+  hard floor, and how long ago the state was read. Each repo pins its main
+  checkout and its app checkout ("App build") first, each with its total build
+  output and the size of each build folder that holds any, and for the App build
+  whether its `app.lock` is free or held, the command holding it and how many
+  wait, read without taking the lock (the process with the file open holds it,
+  since `lockf` waits inside `open`). Every other side worktree is a card: name,
+  branch, state, the claim's who and note, the commits waiting to land, its last
+  commit's age, the count of uncommitted files, its build size (flagged over a
+  cap) and the claim's date.
+  - **States.** Each side worktree gets one, the first that matches: *Waiting on
+    you* (the note's state says so), *Landing* (the claim's who ends in
+    `(landing)`), *Ready to land* (commits waiting to land, claimed or not:
+    unclaimed ones are work an agent left behind), *Winding down* (the note's
+    state says so), *Working* (claimed), *Free* (unclaimed). A commit waits to
+    land when `origin/main` has no commit with the same change
+    (`git log --cherry-pick --right-only origin/main...HEAD`): a coordinator
+    lands by rebasing or cherry-picking, so a branch's own commits stay off
+    `origin/main` by hash after they land.
+  - **Two views,** switched by the two buttons in the header, the choice kept in
+    the browser: *By repo* (the default), a section per repo with its pinned
+    cards and then its worktrees, sorted by state; and *Lanes*, the pinned cards
+    in one row and then every worktree in a lane: Waiting on you, Ready to land,
+    Working (with Winding down and Landing tagged), Free.
+  - The page asks for its state every few seconds and for the build folders a
+    minute after each measurement; every answer is read fresh and the server
+    keeps nothing between requests. It runs git only in side worktrees,
+    read-only with `--no-optional-locks`, and fetches nothing: for the person's
+    main checkouts it shows what `status` shows. Coordinators keep it current
+    through the claims and notes they already make, setting a note's state when
+    the work waits on the person or is winding down. `test-claims.sh` tests
+    claims, notes and their states, `status --json`, the dashboard's answers and
+    the states it derives on a scratch repo and build volume.
 - `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` deletes every
   checkout's unused build copies, applies every cap, deletes roots whose
   checkout is gone, DerivedData entries nothing wrote to for a day and build
