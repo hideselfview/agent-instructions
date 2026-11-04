@@ -25,7 +25,7 @@ a new runtime is installed, delete the old runtime and its devices
 `xcrun simctl delete`). Each runtime takes 8–20 GB of the disk the builds share.
 
 Tests, benches and probes never write to the person's keychain. Use an in-memory
-keychain (`coven::TestCoven`) or a temporary one. That goes double for the
+keychain (`Coven::in_memory`) or a temporary one. That goes double for the
 synced iCloud Keychain: an entry there reaches every device on the person's
 Apple account, and a probe library's restore code once showed up on their
 welcome screen. Read the person's keychain only when they ask for it, for that
