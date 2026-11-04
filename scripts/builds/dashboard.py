@@ -229,7 +229,7 @@ body {
   margin: 0; background: var(--bg); color: var(--text);
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-main { max-width: 1400px; margin: 0 auto; padding: 16px; }
+main { padding: 16px; }
 h1 { font-size: 18px; margin: 0 0 4px; }
 h2 { font-size: 16px; margin: 24px 0 8px; }
 .meta { color: var(--muted); font-size: 12px; }
