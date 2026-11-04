@@ -39,10 +39,11 @@ as `~/.local/bin/builds`):
   link that was deleted, deletes a folder an older layout left behind (never
   moves it: Xcode's DerivedData records its own absolute path, so a moved one
   can't find its packages), deletes that checkout's unused build copies, applies
-  the caps to it, to DerivedData and to the shared caches, and keeps the
-  volume's free-space floor (below). The repo's `scripts/build-layout.sh` calls
-  it, and the hooks and every build script call that first. Without the tool
-  (CI) the script does nothing and the tools write into real directories.
+  the caps to it, to DerivedData and to the shared caches, deletes idle build
+  output in the temporary folders, and keeps the volume's free-space floor
+  (below). The repo's `scripts/build-layout.sh` calls it, and the hooks and
+  every build script call that first. Without the tool (CI) the script does
+  nothing and the tools write into real directories.
 - `builds new [<repo>] [-b <branch>] [--for <who>]` adds the next free `side-N`
   from `origin/main`, links it, and runs its own `post-checkout`, which sets the
   checkout up and builds nothing; `--for` claims it.
@@ -61,13 +62,15 @@ as `~/.local/bin/builds`):
   checkout (below), in `/Volumes/Builds/<repo>/app-checkout`.
 - `builds status` lists every entry on the volume: each root's folders, each
   DerivedData entry and each shared cache, with size against cap, last write,
-  and whether the links are in place; anything else as UNKNOWN.
+  and whether the links are in place; anything else as UNKNOWN. It also lists
+  build output in the temporary folders.
 - `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` deletes every
   checkout's unused build copies, applies every cap, deletes roots whose
-  checkout is gone and DerivedData entries nothing wrote to for a day; `--idle`
-  also deletes every folder and DerivedData entry nothing wrote to for that
-  long, except main's and the app checkout's folders, which `--include-warm`
-  adds. `--dry-run` deletes nothing and prints what it would.
+  checkout is gone, DerivedData entries nothing wrote to for a day and build
+  output in the temporary folders nothing wrote to for 30 minutes; `--idle` also
+  deletes every folder and DerivedData entry nothing wrote to for that long,
+  except main's and the app checkout's folders, which `--include-warm` adds.
+  `--dry-run` deletes nothing and prints what it would.
 - `builds cargo <subcommand> [<args>...]` runs cargo and records the build
   copies it used (below); the repo's `scripts/cargo.sh` calls it, and the hooks
   and build scripts run cargo through that. `builds record-use` records the
@@ -119,6 +122,25 @@ every coven pin bump in bae adds one, and 64 had piled up, two of them pinned.
 tool knows pins, while holding cargo's package cache locks (a cargo checking a
 commit out holds them). The git databases in `~/.cargo/git/db` stay: cargo
 checks an older commit out of them again in seconds when a branch needs it.
+
+**Build output in the temporary folders.** A build pointed at `/private/tmp` or
+the user's temporary folder (`getconf DARWIN_USER_TEMP_DIR`, where `mktemp` puts
+things) — `CARGO_TARGET_DIR=/tmp/...`, `-derivedDataPath /tmp/...`, a probe
+crate or package built where it was made — writes 5–14 GB there that nothing
+else deletes; before `builds` covered them such folders piled up past 100 GB.
+Nothing on this machine points a build there any more (the shell profile,
+agent-instructions, the repos' scripts and the Claude Code and Codex settings
+were checked on 2026-11-04): build in the checkout, whose paths lead to the
+volume. `setup` and `prune` delete each cargo target folder (`.rustc_info.json`
+at its top), Xcode DerivedData folder (`info.plist` beside `Logs` and `Build` or
+`ModuleCache.noindex`) and SwiftPM folder (`workspace-state.json` beside
+`checkouts`, `repositories` or `artifacts`) found there, four levels deep at
+most, that nothing wrote to for 30 minutes and no process holds a file in
+(`temp_builds.py` lists them; `status` shows them). They skip `/private/tmp`'s
+`claude-*` (Claude Code sessions' scratch, whose entries go after three days),
+`com.apple.*` (launchd's per-session socket folders) and `tmux-*` (the tmux
+server's socket: deleting it leaves the running server unreachable), and
+anything the user doesn't own.
 
 ## rust-analyzer builds into a folder of its own
 

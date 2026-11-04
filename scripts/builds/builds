@@ -41,12 +41,24 @@
 # off halfway corrupts its cache. sccache keeps its own cache under the cap
 # `install` writes into its config; this tool only shows it.
 #
+# Build output in the temporary folders. A build pointed at /private/tmp or
+# the user's temporary folder (CARGO_TARGET_DIR, -derivedDataPath, a probe
+# crate built where it was made) writes 5-14 GB there that nothing else
+# deletes. `setup` and `prune` delete each cargo target, DerivedData or
+# SwiftPM folder there (temp_builds.py) that nothing wrote to for 30 minutes
+# and no process holds a file in; status lists them. They skip
+# /private/tmp's claude-* (Claude Code sessions' scratch, whose entries go
+# after three days), com.apple.* and tmux-* (live sockets). Nothing on this
+# machine points a build there: build into the checkout, whose paths lead to
+# the volume.
+#
 # Commands:
 #   builds setup [<checkout>]   link the checkout's build paths, recreate any
 #                               missing folder, delete its unused build copies
 #                               (below), apply the caps to it, to DerivedData
-#                               and to the shared caches, then make sure the
-#                               volume has the free-space floor.
+#                               and to the shared caches, delete idle build
+#                               output in the temporary folders, then make
+#                               sure the volume has the free-space floor.
 #                               The repo's hooks and build scripts run this.
 #   builds new [<repo>] [-b <branch>]
 #                               add the next free side-N worktree from
@@ -60,13 +72,16 @@
 #                               record the side worktree as its repo's app
 #                               checkout, in /Volumes/Builds/<repo>/app-checkout
 #   builds status               every entry on the volume: size per folder vs
-#                               cap, last write, links
+#                               cap, last write, links; and build output in
+#                               the temporary folders
 #   builds prune [--dry-run] [--idle <minutes> [--include-warm]]
 #                               delete every checkout's unused build copies
 #                               (below) and apply every cap; delete roots whose
 #                               checkout is gone, DerivedData entries nothing
-#                               wrote to for a day, and cargo's git checkouts
-#                               no checkout's Cargo.lock pins. --idle also
+#                               wrote to for a day, build output in the
+#                               temporary folders nothing wrote to for 30
+#                               minutes, and cargo's git checkouts no
+#                               checkout's Cargo.lock pins. --idle also
 #                               deletes every folder and DerivedData entry
 #                               nothing wrote to for that long, outside
 #                               main and the app checkout unless --include-warm
@@ -239,6 +254,8 @@ SELF="$(cd "$(dirname "$self")" && pwd -P)/$(basename "$self")"
 UNITS="$(dirname "$SELF")/cargo_units.py"
 # The space a folder takes, counting blocks APFS clones share once.
 USAGE="$(dirname "$SELF")/disk_usage.py"
+# Build output in the temporary folders.
+TEMP_BUILDS="$(dirname "$SELF")/temp_builds.py"
 
 # A failure that says why: what `die` reports, the exit trap below stays
 # quiet about.
@@ -407,22 +424,6 @@ may_delete() {
 
 # ── Linking ─────────────────────────────────────────────────────────────────
 
-same_volume() { [ "$(stat -f %d "$1")" = "$(stat -f %d "$2")" ]; }
-
-# Deletes <dir>, a build folder from an older layout: through evict on the
-# build volume, which refuses while a build uses it; elsewhere renamed aside
-# and removed in the background. Returns 1, deleting nothing, when in use.
-discard() {
-    local dir="$1" aside
-    if same_volume "$dir" "$ROOT"; then
-        evict "$dir" 0 || return 1
-    else
-        aside="$(mktemp -d "$(dirname "$dir")/.builds-deleting.XXXXXX")"
-        mv "$dir" "$aside/"
-        nohup rm -rf "$aside" >/dev/null 2>&1 &
-    fi
-}
-
 # Makes <link> a symlink to <dest> and makes sure <dest> exists. A folder at
 # any other place — behind a link to an older location (when may_delete says
 # it is this checkout's), or a real directory a tool left before the link
@@ -435,7 +436,7 @@ place() {
         current="$(absolute_link_target "$link")"
         if [ "$current" != "$dest" ]; then
             if [ -d "$current" ] && may_delete "$current" "$top"; then
-                discard "$current" \
+                evict "$current" 0 \
                     || die "a build is using $current; run builds setup again once it ends"
                 note "deleted $current, a folder from an older layout"
             fi
@@ -443,7 +444,7 @@ place() {
             note "linked ${link#"$top"/} -> $dest"
         fi
     elif [ -e "$link" ]; then
-        discard "$link" \
+        evict "$link" 0 \
             || die "a build is using ${link#"$top"/}; run builds setup again once it ends"
         note "deleted ${link#"$top"/}, a real directory; it builds into $dest now"
         ln -s "$dest" "$link"
@@ -478,6 +479,7 @@ cmd_setup() {
     prune_derived_data 0 0
     prune_caches 0
     prune_test_temps 0
+    prune_temp_builds 0
     prune_scratchpads 0
     prune_cargo_git 0
     keep_floor
@@ -542,6 +544,51 @@ prune_scratchpads() {
         "${folders[@]}" -maxdepth 1 -mindepth 1 -mtime +3 -user "$(id -un)"
 }
 
+# The temporary folders build output can land in: /private/tmp, the user's
+# temporary folder (`getconf DARWIN_USER_TEMP_DIR`, where mktemp puts things),
+# and this session's $TMPDIR when it is another, unless it is inside a Claude
+# Code session's folder (/private/tmp/claude-*), which is skipped whole.
+temp_folders() {
+    local user tmp="${TMPDIR:-}"
+    user="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)"
+    echo /private/tmp
+    [ -n "$user" ] && echo "${user%/}"
+    case "$tmp" in
+        ''|/tmp|/tmp/|/private/tmp|/private/tmp/|/tmp/claude-*|/private/tmp/claude-*) ;;
+        *) [ "${tmp%/}" = "${user%/}" ] || echo "${tmp%/}" ;;
+    esac
+    return 0
+}
+
+# Build output in the temporary folders (temp_builds.py): a cargo target
+# folder, an Xcode DerivedData folder or a SwiftPM folder a build was pointed
+# at there, or a probe built where it was made. Each one nothing wrote to in
+# the last FLOOR_IDLE_MINUTES (a build between two of its steps holds no file
+# open) and no process holds a file in is deleted.
+temp_build_folders() {
+    local folders=() folder
+    while IFS= read -r folder; do
+        [ -d "$folder" ] && folders+=("$folder")
+    done < <(temp_folders)
+    [ "${#folders[@]}" -gt 0 ] || return 0
+    python3 "$TEMP_BUILDS" "${folders[@]}" || die "listing build output in ${folders[*]} failed"
+}
+
+prune_temp_builds() {
+    local dry="$1" folder kib
+    while IFS= read -r folder; do
+        has_write_within "$folder" "$FLOOR_IDLE_MINUTES" && continue
+        kib="$(kib_of "$folder")"
+        if [ "$dry" = 1 ]; then
+            note "would delete $folder ($(human "${kib:-0}") of build output in a temporary folder, no write in ${FLOOR_IDLE_MINUTES}m)"
+        elif evict "$folder" 0; then
+            note "deleted $folder ($(human "${kib:-0}") of build output in a temporary folder, no write in ${FLOOR_IDLE_MINUTES}m)"
+        else
+            note "in use, kept: $folder (build output in a temporary folder)"
+        fi
+    done < <(temp_build_folders)
+}
+
 # Tests' temporary folders (tempfile's `.tmp*` under $TMPDIR) that a test left
 # behind: nothing reads one a day after it was last written. Newer ones may
 # belong to a test still running.
@@ -566,9 +613,11 @@ human() {
 }
 
 # Deletes <dir> whole unless a build is using it: renamed into the trash
-# (instant, same volume) and removed in the background, or before returning
-# when <now>=1. <recreate>=1 puts an empty folder back, so a link to it stays
-# valid. Returns 1, deleting nothing, when the folder is in use.
+# (instant), and removed in the background, or before returning when <now>=1.
+# The trash is $TRASH on the build volume, and for a folder on another volume
+# a new folder beside it, since a rename can't cross volumes. <recreate>=1
+# puts an empty folder back, so a link to it stays valid. Returns 1, deleting
+# nothing, when the folder is in use.
 #
 # A build in another process can start at any moment, so "in use" is decided
 # while holding what a build holds. Cargo keeps an exclusive flock on
@@ -587,6 +636,11 @@ evict() {
 import fcntl, os, subprocess, sys, tempfile
 
 folder, trash, recreate = os.path.realpath(sys.argv[1]), sys.argv[2], sys.argv[3] == "1"
+parent = os.path.dirname(folder)
+if os.stat(parent).st_dev != os.stat(trash).st_dev:
+    trash, prefix = parent, ".builds-deleting."
+else:
+    prefix = "evict."
 held = []
 for root, dirs, files in os.walk(folder):
     if root[len(folder):].count(os.sep) >= 2:
@@ -607,7 +661,7 @@ for line in subprocess.run(["lsof", "-n", "-Fpn"], capture_output=True, text=Tru
         name = line[1:]
         if name == folder or name.startswith(folder + "/"):
             sys.exit(1)
-slot = tempfile.mkdtemp(prefix="evict.", dir=trash)
+slot = tempfile.mkdtemp(prefix=prefix, dir=trash)
 os.rename(folder, os.path.join(slot, os.path.basename(folder)))
 if recreate:
     os.mkdir(folder)
@@ -924,6 +978,7 @@ cmd_prune() {
     fi
     prune_caches "$dry"
     prune_test_temps "$dry"
+    prune_temp_builds "$dry"
     prune_scratchpads "$dry"
     prune_cargo_git "$dry"
     if [ "$dry" = 0 ]; then
@@ -1112,6 +1167,21 @@ status_caches() {
     done
 }
 
+# Build output in the temporary folders, which belongs on the build volume.
+status_temp_builds() {
+    local folder when state
+    while IFS= read -r folder; do
+        when="$(newest_write "$folder")"
+        if has_write_within "$folder" "$FLOOR_IDLE_MINUTES"; then
+            state="written in the last ${FLOOR_IDLE_MINUTES}m"
+        else
+            state="prune deletes it"
+        fi
+        printf 'temp build output  %s  %s  last write %s  (%s)\n' "$folder" \
+            "$(human "$(kib_of "$folder")")" "$(last_write "$when")" "$state"
+    done < <(temp_build_folders)
+}
+
 # Every entry at the volume's root but macOS's own.
 cmd_status() {
     local entry
@@ -1133,6 +1203,7 @@ cmd_status() {
             status_unknown "$entry"
         fi
     done
+    status_temp_builds
     [ -d "$DERIVED_DATA" ] || echo "DerivedData  (no folder: run builds install)"
     [ -d "$CACHES" ] || echo "caches  (no folder: run builds install)"
     # --show-stats would start a server if none is listening; only ask a
