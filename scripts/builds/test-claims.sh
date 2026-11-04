@@ -135,6 +135,25 @@ refuses "is one of waiting-on-you, winding-down, got ''" note "$side" --state
     || fail "side-1's size: $(cat "$scratch/full.json")"
 refuses "usage: builds status" status --sizes
 
+# disk_usage.py and newest_write.py: one call measures every path, in order,
+# each on its own; a folder holding an APFS clone (cp -c) counts the shared
+# blocks once, where du counts them twice.
+mkdir "$scratch/usage" "$scratch/usage/clones" "$scratch/usage/plain"
+head -c 4194304 /dev/urandom > "$scratch/usage/clones/a"
+cp -c "$scratch/usage/clones/a" "$scratch/usage/clones/b"
+head -c 4194304 /dev/urandom > "$scratch/usage/plain/a"
+sizes=($(python3 "$script_dir/disk_usage.py" "$scratch/usage/clones" "$scratch/usage/missing" "$scratch/usage/plain"))
+[ "${#sizes[@]}" = 3 ] || fail "disk_usage.py printed ${sizes[*]}"
+[ "${sizes[0]}" -ge 4096 ] && [ "${sizes[0]}" -lt 4500 ] || fail "a folder with a clone took ${sizes[0]} KiB, not the 4096 of its shared blocks"
+[ "${sizes[1]}" = 0 ] || fail "a missing path took ${sizes[1]} KiB"
+[ "${sizes[2]}" -ge 4096 ] && [ "${sizes[2]}" -lt 4500 ] || fail "a plain 4 MiB file took ${sizes[2]} KiB"
+[ "$(du -sk "$scratch/usage/clones" | cut -f1)" -ge 8192 ] || echo "note: du didn't double-count the clone here" >&2
+touch -t 202001010000 "$scratch/usage/plain/a" "$scratch/usage/plain" "$scratch/usage/clones/a"
+touch -t 202101010000 "$scratch/usage/clones/b"
+writes=($(python3 "$script_dir/newest_write.py" "$scratch/usage/plain" "$scratch/usage/clones"))
+[ "${writes[0]}" = "$(date -j -f %Y%m%d%H%M%S 20200101000000 +%s)" ] || fail "newest write of plain: ${writes[0]}"
+[ "${writes[1]}" -gt "${writes[0]}" ] || fail "newest write of clones: ${writes[1]}"
+
 # The dashboard: its answers for the side worktree, the page, and a Host it
 # doesn't serve.
 port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
@@ -177,11 +196,11 @@ kill "$server"
 wait "$server" 2>/dev/null || true
 server=""
 
-# The measurement thread: with a stand-in measure, no run before anyone asks,
-# one at a time, none once the asking stops, and a run as soon as a request
-# finds the last result older than the interval.
+# The measurement thread: with a stand-in measure, a run at once at start, one
+# at a time, none once the asking stops, and a run as soon as a request finds
+# the last result older than the interval.
 python3 -B - "$script_dir" <<'PY' || fail "measurement thread"
-import sys, threading, time
+import sys, time
 sys.path.insert(0, sys.argv[1])
 import dashboard
 
@@ -196,15 +215,11 @@ def measure():
     return {"repos": [], "generated_at": len(runs)}
 
 m = dashboard.Measurement(measure, interval=0.5, window=0.3)
-time.sleep(0.4)
-assert not runs, "ran before anyone asked"
-assert m.latest() == {"measuring": True}
-m.want()
 assert m.latest() == {"measuring": True}, "latest waited on the run"
 for _ in range(20):
     m.want()
 time.sleep(0.25)
-assert len(runs) == 1 and m.latest()["generated_at"] == 1, runs
+assert len(runs) == 1 and m.latest()["generated_at"] == 1, f"no run at start: {runs}"
 # Asked again inside the interval: the next run waits for the interval to end.
 m.want()
 time.sleep(0.1)

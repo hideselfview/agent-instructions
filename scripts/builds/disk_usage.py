@@ -9,10 +9,15 @@ CLONE_MIN is measured by its physical extents (fcntl F_LOG2PHYS_EXT), each
 counted once; a clone of a smaller file would shift a total by too little to
 look for.
 
-    disk_usage.py <path>    prints the KiB <path> takes, 0 when it is missing
+    disk_usage.py <path>...    prints, one line per path in order, the KiB it
+                               takes, 0 when it is missing
+
+One call measures every path asked, 8 folders at a time: a Python process per
+folder, and one process walking them all, each took several times longer.
 """
 
 import fcntl
+import multiprocessing
 import os
 import stat
 import struct
@@ -25,6 +30,7 @@ F_LOG2PHYS_EXT = 65
 LOG2PHYS = struct.Struct("=Iqq")
 BLOCK = 4096
 CLONE_MIN = 1 << 20
+WORKERS = 8
 
 
 def extents(path, size):
@@ -93,11 +99,21 @@ class Usage:
         return total
 
 
+def kib(path):
+    # Each path is measured on its own: a block shared by two paths counts in
+    # both.
+    return Usage().of(path) // 1024
+
+
 def main(argv):
-    if len(argv) != 1:
-        print("usage: disk_usage.py <path>", file=sys.stderr)
+    if not argv:
+        print("usage: disk_usage.py <path>...", file=sys.stderr)
         return 2
-    print(Usage().of(argv[0]) // 1024)
+    # The walk is system calls on many small files: eight processes walk
+    # eight folders at once, many times faster than one.
+    with multiprocessing.get_context("fork").Pool(min(WORKERS, len(argv))) as pool:
+        for size in pool.map(kib, argv, chunksize=1):
+            print(size)
     return 0
 
 

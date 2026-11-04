@@ -17,8 +17,8 @@ page has two views of them, cards by repo and lanes by state, and keeps the
 viewer's choice in the browser.
 
 /api/state reads fresh on every request and keeps nothing. Measuring the build
-folders walks the disk for most of half a minute, so one background thread
-owns it (Measurement): it runs `status --json`, keeps the last result with the
+folders walks the disk for several seconds, so one background thread
+owns it (Measurement): it runs `status --json` at once when the server starts, keeps the last result with the
 time it finished, waits 5 minutes, and runs again, but only while /api/state or
 /api/folders was asked for in the last 2 minutes: with no page open, nothing
 walks the disk. A request that finds the last result older than 5 minutes
@@ -212,7 +212,9 @@ class Measurement:
         self.interval = interval
         self.window = window
         self.cond = threading.Condition()
-        self.wanted_at = None  # monotonic time of the last request
+        # The server's start counts as a request, so the first measurement
+        # begins at once and the page fills soon after a restart.
+        self.wanted_at = time.monotonic()  # monotonic time of the last request
         self.finished_at = None  # monotonic time the last run ended, either way
         self.result = None
         self.error = None

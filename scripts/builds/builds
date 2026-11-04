@@ -283,6 +283,8 @@ SELF="$(cd "$(dirname "$self")" && pwd -P)/$(basename "$self")"
 UNITS="$(dirname "$SELF")/cargo_units.py"
 # The space a folder takes, counting blocks APFS clones share once.
 USAGE="$(dirname "$SELF")/disk_usage.py"
+# When a folder was last written to.
+NEWEST="$(dirname "$SELF")/newest_write.py"
 # Build output in the temporary folders.
 TEMP_BUILDS="$(dirname "$SELF")/temp_builds.py"
 # The page `dashboard` serves.
@@ -634,7 +636,77 @@ prune_test_temps() {
 
 # ── Pruning ─────────────────────────────────────────────────────────────────
 
-kib_of() { python3 "$USAGE" "$1"; }
+# What measure_folders measured ahead for <SIZE_COUNT> folders: each one's
+# path, KiB and last write.
+SIZE_COUNT=0
+SIZE_PATHS=()
+SIZE_KIBS=()
+SIZE_WRITES=()
+
+# Prints the index in SIZE_PATHS of <path>; fails when it wasn't measured.
+measured_index() {
+    local i=0
+    while [ "$i" -lt "$SIZE_COUNT" ]; do
+        if [ "${SIZE_PATHS[$i]}" = "$1" ]; then
+            echo "$i"
+            return 0
+        fi
+        i=$(( i + 1 ))
+    done
+    return 1
+}
+
+# The KiB <path> takes: the size measure_folders took if it measured it, else
+# measured now.
+kib_of() {
+    local i
+    if i="$(measured_index "$1")"; then
+        echo "${SIZE_KIBS[$i]}"
+    else
+        python3 "$USAGE" "$1"
+    fi
+}
+
+# Measures every folder on the lines of stdin, its size and last write, each
+# in one call that reads eight folders at a time; kib_of and newest_write then
+# answer from it. A Python process per folder cost far more than the walk of
+# the disk.
+measure_folders() {
+    local paths=() path value
+    while IFS= read -r path; do
+        paths+=("$path")
+    done
+    [ "${#paths[@]}" -gt 0 ] || return 0
+    SIZE_PATHS=("${paths[@]}")
+    SIZE_KIBS=()
+    SIZE_WRITES=()
+    while read -r value; do
+        SIZE_KIBS+=("$value")
+    done < <(python3 "$USAGE" "${paths[@]}")
+    while IFS= read -r value; do
+        SIZE_WRITES+=("$value")
+    done < <(python3 "$NEWEST" "${paths[@]}")
+    [ "${#SIZE_KIBS[@]}" = "${#paths[@]}" ] && [ "${#SIZE_WRITES[@]}" = "${#paths[@]}" ] \
+        || die "measuring ${#paths[@]} folders gave ${#SIZE_KIBS[@]} sizes and ${#SIZE_WRITES[@]} last writes"
+    SIZE_COUNT="${#paths[@]}"
+}
+
+# The paths status measures: each live checkout's existing build folders, and
+# each gone one's root.
+status_folders() {
+    local root top path _cap
+    while IFS= read -r root; do
+        if checkout_is_live "$root"; then
+            top="$(cat "$root/.checkout")"
+            while read -r path _cap; do
+                [ -d "$root/$path" ] && echo "$root/$path"
+            done < <(manifest_entries "$top")
+        else
+            echo "$root"
+        fi
+    done < <(all_roots)
+    return 0
+}
 
 human() {
     local kib="$1"
@@ -863,8 +935,7 @@ checkout_is_live() {
     [ -f "$root/.checkout" ] || return 1
     top="$(cat "$root/.checkout")"
     [ -d "$top" ] || return 1
-    git -C "$top" rev-parse --show-toplevel >/dev/null 2>&1 || return 1
-    [ "$(git -C "$top" rev-parse --show-toplevel)" = "$top" ] || return 1
+    [ "$(git -C "$top" rev-parse --show-toplevel 2>/dev/null)" = "$top" ] || return 1
     [ "$(build_root "$top")" = "$root" ]
 }
 
@@ -1069,6 +1140,11 @@ cmd_record_use() {
 # ── Status ──────────────────────────────────────────────────────────────────
 
 newest_write() {
+    local i
+    if i="$(measured_index "$1")"; then
+        echo "${SIZE_WRITES[$i]}"
+        return 0
+    fi
     find "$1" -maxdepth 2 -print0 2>/dev/null \
         | xargs -0 stat -f '%m' 2>/dev/null | sort -n | tail -1
 }
@@ -1091,7 +1167,7 @@ checkout_branch() { git -C "$1" branch --show-current 2>/dev/null || true; }
 is_app_checkout() { [ "$(basename "$1")" != main ] && keeps_warm "$1"; }
 
 status_root() {
-    local root="$1" top path cap kib when state total claim_who claim_since claim_note="" claim_state=""
+    local root="$1" top path cap kib when state total claim_path claim_who claim_since claim_note="" claim_state=""
     top="$(cat "$root/.checkout")"
     if checkout_is_live "$root"; then
         state="$(checkout_branch "$top")"
@@ -1099,8 +1175,9 @@ status_root() {
         if is_app_checkout "$root"; then
             state="$state, app checkout"
         fi
-        if [ -f "$(claim_file "$top")" ]; then
-            read_claim "$top"
+        claim_path="$(claim_file "$top")"
+        if [ -f "$claim_path" ]; then
+            read_claim_file "$claim_path"
             state="$state, claimed by $claim_who since $claim_since"
         fi
         echo "${root#"$ROOT"/}  $top  [$state]"
@@ -1247,6 +1324,7 @@ cmd_status() {
         *) die "usage: builds status [--json [--no-folders]]" ;;
     esac
     require_volume
+    measure_folders < <(status_folders)
     for entry in "$ROOT"/* "$ROOT"/.[!.]*; do
         [ -e "$entry" ] || [ -L "$entry" ] || continue
         case "$SYSTEM_ENTRIES" in *" $(basename "$entry") "*) continue ;; esac
@@ -1300,7 +1378,7 @@ json_str_or_null() {
 # folders and total are null.
 status_root_json() {
     local root="$1" with_folders="$2" top path cap kib when link target total=0 sep=""
-    local claim_who claim_since claim_note claim_state
+    local claim_path claim_who claim_since claim_note claim_state
     top="$(cat "$root/.checkout")"
     printf '{"name":%s,"path":%s,"root":%s' "$(json_str "$(basename "$root")")" \
         "$(json_str "$top")" "$(json_str "$root")"
@@ -1313,8 +1391,9 @@ status_root_json() {
         "$([ "$(basename "$root")" = main ] && echo true || echo false)" \
         "$(json_str_or_null "$(checkout_branch "$top")")" \
         "$(is_app_checkout "$root" && echo true || echo false)"
-    if [ -f "$(claim_file "$top")" ]; then
-        read_claim "$top"
+    claim_path="$(claim_file "$top")"
+    if [ -f "$claim_path" ]; then
+        read_claim_file "$claim_path"
         printf ',"claim":{"who":%s,"since":%s,"note":%s,"note_state":%s}' "$(json_str "$claim_who")" \
             "$(json_str "$claim_since")" "$(json_str_or_null "$claim_note")" \
             "$(json_str_or_null "$claim_state")"
@@ -1355,6 +1434,7 @@ status_root_json() {
 cmd_status_json() {
     local with_folders="$1" entry repo app lock root sep="" csep
     require_volume
+    [ "$with_folders" = 0 ] || measure_folders < <(status_folders)
     printf '{"root":%s,"volume":{"free_kib":%s,"size_kib":%s,"floor_kib":%s,"hard_floor_kib":%s},"repos":[' \
         "$(json_str "$ROOT")" "$(free_kib)" "$(df -k "$ROOT" | awk 'NR==2 { print $2 }')" \
         "$FLOOR_KIB" "$HARD_FLOOR_KIB"
@@ -1456,8 +1536,11 @@ NOTE_STATES="waiting-on-you winding-down"
 
 # Sets claim_who, claim_since, claim_note and claim_state from the claim of
 # <top>.
-read_claim() {
-    IFS=$'\t' read -r claim_who claim_since claim_note claim_state < "$(claim_file "$1")"
+read_claim() { read_claim_file "$(claim_file "$1")"; }
+
+# The same from the claim file <file>, for a caller that has it already.
+read_claim_file() {
+    IFS=$'\t' read -r claim_who claim_since claim_note claim_state < "$1"
 }
 
 # "<who> since <date>" for the side worktree at <top>.

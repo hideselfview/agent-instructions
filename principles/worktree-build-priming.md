@@ -83,8 +83,11 @@ as `~/.local/bin/builds`):
   repos' checkouts (path, branch, app checkout, claim and note, each build
   folder's size against cap, last write and link) and the volume's free space
   against both floors, as JSON; `--no-folders` leaves out the build folders,
-  whose measurement takes nearly all of the half minute or more a full status
-  takes while agents build.
+  whose measurement is most of what a full status takes (about 9 s at load 40,
+  from 31 s when each folder started its own Python process). `disk_usage.py`
+  and `newest_write.py` each take every folder in one call and read eight at a
+  time: the walk is system calls on many small files, which eight processes
+  finish several times faster than one.
 - `builds dashboard [--port <port>]` serves a page called Builds at
   `http://127.0.0.1:7787/` (only on 127.0.0.1, standard-library Python,
   `dashboard.py`) showing every checkout `status` lists. Its header shows the
@@ -122,18 +125,18 @@ as `~/.local/bin/builds`):
     *Ready to land*, so it stays shown too.
   - **Polling.** The page asks `/api/state` every few seconds, read fresh on
     every request with no cache, and `/api/folders` every minute. Measuring the
-    build folders walks the disk for most of half a minute, so one background
-    thread in the server owns it: it keeps the last `status --json` with the
-    time it finished, waits 5 minutes, and measures again, but only if
-    `/api/state` or `/api/folders` was asked for in the last 2 minutes, so with
-    no page open nothing walks the disk. A request that finds the result older
-    than 5 minutes starts a run at once. Runs never overlap, and no request
-    waits on one: `/api/folders` answers with the last result and its
-    `generated_at` time, or `{"measuring": true}` before the first run ends (the
-    page shows "measuring…", then "sizes from 3m ago" beside the state's age).
-    While the tab is hidden (`document.visibilityState`) the page asks for
-    nothing; when it shows again it asks for both at once and resumes. The
-    server runs git only in side worktrees, read-only with
+    build folders walks the disk for several seconds, so one background thread
+    in the server owns it: it keeps the last `status --json` with the time it
+    finished (the first run starts with the server), waits 5 minutes, and
+    measures again, but only if `/api/state` or `/api/folders` was asked for in
+    the last 2 minutes, so with no page open nothing walks the disk. A request
+    that finds the result older than 5 minutes starts a run at once. Runs never
+    overlap, and no request waits on one: `/api/folders` answers with the last
+    result and its `generated_at` time, or `{"measuring": true}` before the
+    first run ends (the page shows "measuring…", then "sizes from 3m ago" beside
+    the state's age). While the tab is hidden (`document.visibilityState`) the
+    page asks for nothing; when it shows again it asks for both at once and
+    resumes. The server runs git only in side worktrees, read-only with
     `--no-optional-locks`, and fetches nothing: for the person's main checkouts
     it shows what `status` shows. Coordinators keep it current through the
     claims and notes they already make, setting a note's state when the work
