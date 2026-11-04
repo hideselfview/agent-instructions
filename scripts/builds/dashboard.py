@@ -16,14 +16,22 @@ waiting-on-you, landing, ready-to-land, winding-down, working or free. The
 page has two views of them, cards by repo and lanes by state, and keeps the
 viewer's choice in the browser.
 
-Every request reads fresh, and the server keeps no state between requests:
+/api/state reads fresh on every request and keeps nothing. Measuring the build
+folders walks the disk for most of half a minute, so one background thread
+owns it (Measurement): it runs `status --json`, keeps the last result with the
+time it finished, waits 5 minutes, and runs again, but only while /api/state or
+/api/folders was asked for in the last 2 minutes: with no page open, nothing
+walks the disk. A request that finds the last result older than 5 minutes
+starts a run at once. No request waits on a measurement.
 
-    /                the page; it asks /api/state every few seconds, and
-                     /api/folders a minute after each answer, since measuring
-                     the folders takes most of half a minute
+    /                the page; it asks /api/state every few seconds and
+                     /api/folders every minute, and nothing while its tab is
+                     hidden
     /api/state       the volume's free space and floors, each repo's app.lock
                      and its holder, and each checkout with its claim and git
-    /api/folders     each checkout's build folders, with sizes
+    /api/folders     the last measurement of each checkout's build folders,
+                     with sizes and generated_at, the time it finished; until
+                     the first one finishes, {"measuring": true}
 
 A request whose Host isn't this server's own address is refused, so a page
 from elsewhere that resolves its name to 127.0.0.1 can't read these.
@@ -35,6 +43,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 
 GIT = ["git", "--no-optional-locks"]
@@ -183,7 +192,7 @@ def state(builds):
     return status
 
 
-def folders(builds):
+def measure_folders(builds):
     started = time.time()
     status = builds_status(builds, folders=True)
     status["generated_at"] = int(time.time())
@@ -191,7 +200,71 @@ def folders(builds):
     return status
 
 
+class Measurement:
+    """The build folders' sizes, measured by one background thread, never by a
+    request. A run starts when someone has asked for the page's data in the
+    last `window` seconds and the last run finished `interval` or more seconds
+    ago (or none has finished); runs never overlap, since the one thread
+    makes them."""
+
+    def __init__(self, measure, interval=300.0, window=120.0):
+        self.measure = measure
+        self.interval = interval
+        self.window = window
+        self.cond = threading.Condition()
+        self.wanted_at = None  # monotonic time of the last request
+        self.finished_at = None  # monotonic time the last run ended, either way
+        self.result = None
+        self.error = None
+        threading.Thread(target=self.loop, daemon=True).start()
+
+    def want(self):
+        """Note a request for the page's data, waking the thread."""
+        with self.cond:
+            self.wanted_at = time.monotonic()
+            self.cond.notify_all()
+
+    def latest(self):
+        """The last result, {"measuring": true} before the first run ends, or
+        raise Failed when the runs so far have all failed. Never waits."""
+        with self.cond:
+            result, error = self.result, self.error
+        if result is None:
+            if error:
+                raise Failed(error)
+            return {"measuring": True}
+        return dict(result, error=error)
+
+    def next_wait(self):
+        """Seconds until a run is due, 0 when one is, None when nobody wants
+        one. Called with the lock held."""
+        now = time.monotonic()
+        if self.wanted_at is None or now - self.wanted_at >= self.window:
+            return None
+        if self.finished_at is None:
+            return 0
+        return max(0.0, self.interval - (now - self.finished_at))
+
+    def loop(self):
+        while True:
+            with self.cond:
+                wait = self.next_wait()
+                while wait != 0:
+                    self.cond.wait(wait)
+                    wait = self.next_wait()
+            try:
+                result, error = self.measure(), None
+            except (Failed, ValueError) as e:
+                result, error = None, str(e)
+            with self.cond:
+                if error is None:
+                    self.result = result
+                self.error = error
+                self.finished_at = time.monotonic()
+
+
 def handler(builds, port):
+    measurement = Measurement(lambda: measure_folders(builds))
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -208,13 +281,14 @@ def handler(builds, port):
             if self.headers.get("Host") not in hosts:
                 self.send(403, "text/plain; charset=utf-8", "only for this machine's own browser\n")
                 return
-            routes = {"/api/state": state, "/api/folders": folders}
+            routes = {"/api/state": lambda: state(builds), "/api/folders": measurement.latest}
             path = self.path.split("?", 1)[0]
             if path == "/":
                 self.send(200, "text/html; charset=utf-8", PAGE)
             elif path in routes:
+                measurement.want()
                 try:
-                    body = json.dumps(routes[path](builds))
+                    body = json.dumps(routes[path]())
                 except (Failed, ValueError) as e:
                     self.send(500, "application/json", json.dumps({"error": str(e)}))
                     return
@@ -528,7 +602,7 @@ function counts(cs) {
 }
 
 function totalBlock(b) {
-  if (!b) return h("div", {class: "total"}, h("span", {class: "of"}, "measuring build output"));
+  if (!b) return h("div", {class: "total"}, h("span", {class: "of"}, "measuring…"));
   return h("div", {class: "total"}, h("span", {class: "big"}, size(b.total)), h("span", {class: "of"}, "of build output"));
 }
 function chips(b) {
@@ -583,7 +657,7 @@ function waitingBox(c, max) {
     ahead.length > max ? h("span", {class: "more"}, "and " + (ahead.length - max) + " more") : null);
 }
 function buildFact(b) {
-  if (!b) return h("span", {}, "build measuring");
+  if (!b) return h("span", {}, "build size measuring…");
   if (b.over.length) return h("span", {class: "bad", title: b.over.join("; ")}, "build " + size(b.total) + " over cap");
   return h("span", {}, "build " + size(b.total));
 }
@@ -632,7 +706,7 @@ function reposView() {
 function compactMain(repo, c) {
   const b = built(c);
   return h("article", {class: "pinned compact"},
-    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " main"), h("span", {class: "big"}, b ? size(b.total) : "-")),
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " main"), h("span", {class: "big"}, b ? size(b.total) : "measuring…")),
     h("span", {class: "line"}, "Yours. No agent works or builds here."));
 }
 function compactApp(repo, c) {
@@ -641,7 +715,7 @@ function compactApp(repo, c) {
     ? "Lock held: an agent is building here" + (lock.waiting ? ", " + lock.waiting + " waiting." : ".")
     : "Lock free. Agents build the apps here, one at a time.";
   return h("article", {class: "pinned compact"},
-    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " App build · " + c.name), h("span", {class: "big"}, b ? size(b.total) : "-")),
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " App build · " + c.name), h("span", {class: "big"}, b ? size(b.total) : "measuring…")),
     h("span", {class: "line"}, line),
     lock.held ? commands(lock) : null);
 }
@@ -701,15 +775,14 @@ function disk(v) {
     note];
 }
 
-// The state's age; the folder sizes', measured about once a minute, while
-// they are first measured and on hover after.
+// The state's age and the age of the folder sizes next to it: the server
+// measures them every 5 minutes while a page is open.
 function tick() {
   const el = document.getElementById("updated");
   const parts = [];
   if (state) parts.push("updated " + ago(state.generated_at) + " ago");
-  if (!folders) parts.push("measuring sizes");
+  parts.push(folders ? "sizes from " + ago(folders.generated_at) + " ago" : "measuring sizes…");
   el.textContent = parts.join(" · ");
-  el.title = folders ? "build folder sizes measured " + ago(folders.generated_at) + " ago" : "";
 }
 
 function render() {
@@ -742,22 +815,44 @@ async function fetchJson(path) {
   if (!response.ok) throw new Error(body.error || response.statusText);
   return body;
 }
-async function pollState() {
+// Both polls run only while the tab is visible. Each start() begins a new
+// epoch, so an answer that lands after the tab was hidden, or after a newer
+// start, schedules nothing.
+let epoch = 0, stateTimer = null, foldersTimer = null;
+async function pollState(mine) {
   try { state = await fetchJson("/api/state"); stateError = ""; }
   catch (e) { stateError = "state: " + e.message; }
   render();
-  setTimeout(pollState, 4000);
+  if (mine === epoch) stateTimer = setTimeout(() => pollState(mine), 4000);
 }
-async function pollFolders() {
-  try { folders = await fetchJson("/api/folders"); foldersError = ""; }
-  catch (e) { foldersError = "build folders: " + e.message; }
+async function pollFolders(mine) {
+  let measuring = false;
+  try {
+    const answer = await fetchJson("/api/folders");
+    measuring = !!answer.measuring;
+    folders = measuring ? null : answer;
+    foldersError = answer.error ? "build folders: " + answer.error : "";
+  } catch (e) { foldersError = "build folders: " + e.message; }
   render();
-  setTimeout(pollFolders, 60000);
+  // Until the first measurement ends, ask again soon.
+  if (mine === epoch) foldersTimer = setTimeout(() => pollFolders(mine), measuring ? 3000 : 60000);
 }
+function stop() {
+  epoch++;
+  clearTimeout(stateTimer);
+  clearTimeout(foldersTimer);
+}
+function start() {
+  stop();
+  pollState(epoch);
+  pollFolders(epoch);
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") start(); else stop();
+});
 render();
 setInterval(tick, 1000);
-pollState();
-pollFolders();
+if (document.visibilityState === "visible") start();
 </script>
 </body>
 </html>

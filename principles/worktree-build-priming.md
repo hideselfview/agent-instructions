@@ -112,15 +112,26 @@ as `~/.local/bin/builds`):
     cards and then its worktrees, sorted by state; and *Lanes*, the pinned cards
     in one row and then every worktree in a lane: Waiting on you, Ready to land,
     Working (with Winding down and Landing tagged), Free.
-  - The page asks for its state every few seconds and for the build folders a
-    minute after each measurement; every answer is read fresh and the server
-    keeps nothing between requests. It runs git only in side worktrees,
-    read-only with `--no-optional-locks`, and fetches nothing: for the person's
-    main checkouts it shows what `status` shows. Coordinators keep it current
-    through the claims and notes they already make, setting a note's state when
-    the work waits on the person or is winding down. `test-claims.sh` tests
-    claims, notes and their states, `status --json`, the dashboard's answers and
-    the states it derives on a scratch repo and build volume.
+  - **Polling.** The page asks `/api/state` every few seconds, read fresh on
+    every request with no cache, and `/api/folders` every minute. Measuring the
+    build folders walks the disk for most of half a minute, so one background
+    thread in the server owns it: it keeps the last `status --json` with the
+    time it finished, waits 5 minutes, and measures again, but only if
+    `/api/state` or `/api/folders` was asked for in the last 2 minutes, so with
+    no page open nothing walks the disk. A request that finds the result older
+    than 5 minutes starts a run at once. Runs never overlap, and no request
+    waits on one: `/api/folders` answers with the last result and its
+    `generated_at` time, or `{"measuring": true}` before the first run ends (the
+    page shows "measuring…", then "sizes from 3m ago" beside the state's age).
+    While the tab is hidden (`document.visibilityState`) the page asks for
+    nothing; when it shows again it asks for both at once and resumes. The
+    server runs git only in side worktrees, read-only with
+    `--no-optional-locks`, and fetches nothing: for the person's main checkouts
+    it shows what `status` shows. Coordinators keep it current through the
+    claims and notes they already make, setting a note's state when the work
+    waits on the person or is winding down. `test-claims.sh` tests claims, notes
+    and their states, `status --json`, the dashboard's answers and the states it
+    derives on a scratch repo and build volume.
 - `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` deletes every
   checkout's unused build copies, applies every cap, deletes roots whose
   checkout is gone, DerivedData entries nothing wrote to for a day and build

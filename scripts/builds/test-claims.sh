@@ -148,6 +148,10 @@ done
 # still writing the page.
 curl -sf "http://127.0.0.1:$port/" > "$scratch/page.html" || fail "no page: $(cat "$scratch/dashboard.log")"
 grep -q '<title>Builds</title>' "$scratch/page.html" || fail "the page has no title Builds"
+# /api/folders never waits on the measurement: the first request of the server's
+# life, which is what asks for the measurement, gets the "measuring" marker.
+curl -sf "http://127.0.0.1:$port/api/folders" > "$scratch/folders.json" || fail "no folders"
+[ "$(cat "$scratch/folders.json")" = '{"measuring": true}' ] || fail "first folders answer: $(cat "$scratch/folders.json")"
 curl -sf "http://127.0.0.1:$port/api/state" > "$scratch/state.json" || fail "no state"
 [ "$(json '[x["subject"] for x in d["repos"][0]["checkouts"][1]["git"]["ahead"]]' < "$scratch/state.json")" = '["Add two", "Add one"]' ] \
     || fail "commits waiting to land: $(cat "$scratch/state.json")"
@@ -158,13 +162,62 @@ curl -sf "http://127.0.0.1:$port/api/state" > "$scratch/state.json" || fail "no 
 [ "$(json 'd["repos"][0]["checkouts"][0]["state"]' < "$scratch/state.json")" = null ] || fail "main got a state"
 [ "$(json 'd["repos"][0]["checkouts"][2]["git"]["ahead"]' < "$scratch/state.json")" = '[]' ] \
     || fail "side-2's cherry-picked commit listed as waiting: $(cat "$scratch/state.json")"
-curl -sf "http://127.0.0.1:$port/api/folders" > "$scratch/folders.json" || fail "no folders"
-[ "$(json 'd["repos"][0]["checkouts"][1]["total_kib"] >= 2048' < "$scratch/folders.json")" = true ] || fail "folders' size"
+# Later answers carry the data and the time it was taken.
+for _ in $(seq 100); do
+    curl -sf "http://127.0.0.1:$port/api/folders" > "$scratch/folders.json" || fail "no folders"
+    [ "$(json '"measuring" in d' < "$scratch/folders.json")" = false ] && break
+    sleep 0.2
+done
+[ "$(json 'd["repos"][0]["checkouts"][1]["total_kib"] >= 2048' < "$scratch/folders.json")" = true ] \
+    || fail "folders' size: $(cat "$scratch/folders.json")"
+[ "$(json 'd["generated_at"] > 0 and d["error"] is None' < "$scratch/folders.json")" = true ] || fail "folders' time"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: example.com' "http://127.0.0.1:$port/api/state")" = 403 ] \
     || fail "served a foreign Host"
 kill "$server"
 wait "$server" 2>/dev/null || true
 server=""
+
+# The measurement thread: with a stand-in measure, no run before anyone asks,
+# one at a time, none once the asking stops, and a run as soon as a request
+# finds the last result older than the interval.
+python3 -B - "$script_dir" <<'PY' || fail "measurement thread"
+import sys, threading, time
+sys.path.insert(0, sys.argv[1])
+import dashboard
+
+runs, active, overlap = [], [0], []
+def measure():
+    active[0] += 1
+    if active[0] > 1:
+        overlap.append(1)
+    runs.append(time.monotonic())
+    time.sleep(0.1)
+    active[0] -= 1
+    return {"repos": [], "generated_at": len(runs)}
+
+m = dashboard.Measurement(measure, interval=0.5, window=0.3)
+time.sleep(0.4)
+assert not runs, "ran before anyone asked"
+assert m.latest() == {"measuring": True}
+m.want()
+assert m.latest() == {"measuring": True}, "latest waited on the run"
+for _ in range(20):
+    m.want()
+time.sleep(0.25)
+assert len(runs) == 1 and m.latest()["generated_at"] == 1, runs
+# Asked again inside the interval: the next run waits for the interval to end.
+m.want()
+time.sleep(0.1)
+assert len(runs) == 1, "ran again before the interval ended"
+# Asking stops (window 0.3s): nothing runs after the interval passes.
+time.sleep(1.0)
+assert len(runs) == 1, f"ran with nobody asking: {len(runs)}"
+# A request now finds the result older than the interval: a run starts at once.
+m.want()
+time.sleep(0.05)
+assert len(runs) == 2, f"no run on a request after the interval: {len(runs)}"
+assert not overlap, "two runs at once"
+PY
 
 # Clearing the note keeps the claim.
 "$builds" note "$side" 2>/dev/null
