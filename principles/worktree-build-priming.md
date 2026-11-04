@@ -368,11 +368,16 @@ across every checkout but main and the app checkout, least recently written
 first, each one only if nothing wrote to it in the last 30 minutes (a build
 between two of its steps holds no lock) and it passes the same in-use check as a
 cap eviction, waiting for each deletion so the next reading counts it. It never
-deletes a shared cache. If the floor is still out of reach it fails, naming the
+deletes a shared cache. If the floor is still out of reach it warns, naming the
 free space, the biggest folders it may delete and the size of main's and the app
-checkout's, so the build stops before it starts instead of running out of space
-halfway. It never falls back to main's or the app checkout's folders: the person
-decides what to free there. `BUILDS_FREE_FLOOR_GIB` overrides the floor.
+checkout's, and the build goes on: a commit's hook stalling an agent mid-work is
+the wrong place to manage disk; whoever runs the agents sees the warning in
+their reports, stops starting more and retires one at a clean point. Only under
+a hard floor of 10 GiB, about one platform build, does it fail, so the build
+stops before it starts instead of running out of space halfway, which would also
+break the person's apps on the shared pool. It never falls back to main's or the
+app checkout's folders: the person decides what to free there.
+`BUILDS_FREE_FLOOR_GIB` and `BUILDS_HARD_FLOOR_GIB` override the two floors.
 
 Access times can't say what a build used: APFS refreshes a file's access time
 only when it is not newer than its modification time (8 of 1,325 fingerprint

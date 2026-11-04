@@ -153,9 +153,10 @@
 # So `setup` also keeps a free-space floor: under it, it deletes DerivedData's
 # idle entries, then whole idle folders across every checkout but main and the
 # app checkout, whose builds stay warm on purpose, least recently written
-# first, and fails, naming the biggest folders, if it still can't reach the
-# floor, rather than let the build run out of space halfway. It never deletes a
-# shared cache.
+# first. If it still can't reach the floor it warns, naming the biggest
+# folders, and the build goes on: whoever runs the agents frees space or runs
+# fewer of them. Only under the hard floor does it fail, rather than let the
+# build run out of space halfway. It never deletes a shared cache.
 
 set -euo pipefail
 
@@ -179,6 +180,10 @@ MANIFEST=.build-dirs
 # checkout building macOS at the same time (bridge 7.4G + DerivedData 5.2G) is
 # the headroom.
 FLOOR_KIB=$(( ${BUILDS_FREE_FLOOR_GIB:-30} * 1024 * 1024 ))
+# Under this a build fails instead of warning: the space left is about one
+# platform build, and the main disk shares the pool, so running out would
+# break the person's own apps too, not only the build.
+HARD_FLOOR_KIB=$(( ${BUILDS_HARD_FLOOR_GIB:-10} * 1024 * 1024 ))
 # A folder written this recently may belong to a build between two of its
 # steps, when it holds no lock or open file; the floor never deletes it.
 FLOOR_IDLE_MINUTES=30
@@ -865,8 +870,9 @@ floor_candidates() {
 # that are gone, DerivedData's entries, then whole folders of the other
 # checkouts, each least recently written first and only when nothing is using
 # it or wrote to it lately. Main's and the app checkout's folders and the
-# shared caches are never deleted here. Fails, naming the biggest folders,
-# when everything left is in use, freshly written or kept.
+# shared caches are never deleted here. When everything left is in use,
+# freshly written or kept, it warns, naming the biggest folders, and fails
+# only under the hard floor.
 keep_floor() {
     local free when dir kib root
     free="$(free_kib)"
@@ -911,8 +917,15 @@ keep_floor() {
         fi
     done < <(floor_candidates)
     [ "$free" -ge "$FLOOR_KIB" ] && return 0
+    local hard=0
+    [ "$free" -lt "$HARD_FLOOR_KIB" ] && hard=1
     {
-        echo "builds: the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") a build may need, and every build folder and DerivedData entry left is in use, was written in the last ${FLOOR_IDLE_MINUTES}m, or is main's or an app checkout's, which stay warm. The biggest the floor may delete:"
+        if [ "$hard" = 1 ]; then
+            echo "builds: the build volume has $(human "$free") free, under the $(human "$HARD_FLOOR_KIB") hard floor, so this build stops before it starts."
+        else
+            echo "builds: warning: the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") floor; the build goes on, and under $(human "$HARD_FLOOR_KIB") builds stop."
+        fi
+        echo "Every build folder and DerivedData entry left is in use, was written in the last ${FLOOR_IDLE_MINUTES}m, or is main's or an app checkout's, which stay warm. The biggest the floor may delete:"
         floor_candidates | while read -r _when dir; do
             echo "$(kib_of "$dir") $dir"
         done | sort -rn | head -8 | while read -r kib dir; do
@@ -935,6 +948,7 @@ keep_floor() {
         done
         echo "Retire finished side worktrees (builds retire), or delete idle build folders (builds prune --idle <minutes>)."
     } >&2
+    [ "$hard" = 1 ] || return 0
     REPORTED=1
     exit 1
 }
