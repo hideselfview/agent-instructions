@@ -178,8 +178,11 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
 - **Claims:** work in the worktree your brief names, or get a new one with
   `builds new ~/dev/bae --for <who>`; never pick a side-N by hand. Whoever hands
   a worktree out claims it (`builds claim <worktree> <who>`) and releases it
-  (`builds release`) when the work lands; `builds status` shows who holds each
-  one.
+  (`builds release`) when the work lands, and keeps a one-line note on it of
+  what the work is at (`builds note <worktree> <text>`), updated when the agent
+  starts, hands off or has a commit landed. `builds status` shows who holds each
+  one and the note; `builds dashboard` shows the same, with each worktree's
+  commits waiting to land, at http://127.0.0.1:7787/.
 
 - **New side worktree:** `builds new ~/dev/bae` creates the next free
   `~/dev/bae-worktrees/side-N` from `origin/main` and runs its `post-checkout`,
