@@ -227,6 +227,14 @@ changes, anything whose shape is still open, and every audit or read-only
 review: a wrong verdict there costs more than the run. When a brief can't name
 the change, the work isn't settled enough for the implementer.
 
+**Sample the implementer's work.** The orchestrator reviews about one in five of
+the implementer's commits before landing them, chosen without warning, plus
+every commit that touches something tricky: concurrency, a schema or sync shape,
+an error or panic path, a public API, or a diff that strays from its brief. A
+review reads the diff against the brief and the rules that apply. A finding goes
+back to the implementer to fix, and two findings from one agent mean its next
+commits are all reviewed until it lands one clean.
+
 **Code review: one manual pass.** The agent holding the implementation context
 reviews the diff itself against the requirements and applicable coding rules.
 Fix confirmed findings and verify those corrections with relevant checks. Do not
