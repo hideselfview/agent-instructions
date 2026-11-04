@@ -241,7 +241,10 @@ hook-running commits) as background tasks and rely on the completion
 notification — the harness re-invokes you when they exit. Never write
 pgrep/sleep polling loops to watch your own processes. When a genuine
 condition-wait has no notification, use one watcher, with a hard timeout;
-duplicate watchers are a defect.
+duplicate watchers are a defect. `until ! pgrep -f "<pattern>"` never ends: the
+watcher's own command line holds the pattern, so pgrep always finds it. On
+2026-11-04 twenty such loops, some five days old, were still running after their
+agents had finished.
 
 **Read macOS's unified log with `/usr/bin/log`, never bare `log`.** In zsh,
 `log` is a shell builtin, so `log show …` silently prints nothing (or "too many
