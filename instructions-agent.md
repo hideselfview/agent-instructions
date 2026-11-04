@@ -216,14 +216,16 @@ next clean point it writes a handoff file (what's committed, what's uncommitted
 and its state, what's left in order, decisions, traps, commands), and a fresh
 agent continues from that file and the branch.
 
-**Pick each agent's model by how settled the work is.** Sonnet takes work whose
-shape is already stated: a fix whose cause and change are named, a test that
-follows a named pattern, a move or split with its target named, a rename or a
-deletion. It follows a clear brief well, so this covers more than renames. Opus
-takes design, concurrency, schema changes, anything whose shape is still open,
-and every audit or read-only review: a wrong verdict there costs more than the
-run. When a brief can't name the change, the work isn't settled enough for
-Sonnet.
+**Pick each agent's model by how settled the work is.** Two roles: the
+*orchestrator* model, the strongest one (as of 2026-11, Claude Opus), and the
+*implementer* model, a faster and cheaper one that follows a clear brief well
+(as of 2026-11, Claude Sonnet). The implementer takes work whose shape is
+already stated: a fix whose cause and change are named, a test that follows a
+named pattern, a move or split with its target named, a rename or a deletion.
+That is more than renames. The orchestrator takes design, concurrency, schema
+changes, anything whose shape is still open, and every audit or read-only
+review: a wrong verdict there costs more than the run. When a brief can't name
+the change, the work isn't settled enough for the implementer.
 
 **Code review: one manual pass.** The agent holding the implementation context
 reviews the diff itself against the requirements and applicable coding rules.
