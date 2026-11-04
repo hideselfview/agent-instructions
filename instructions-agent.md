@@ -216,6 +216,15 @@ next clean point it writes a handoff file (what's committed, what's uncommitted
 and its state, what's left in order, decisions, traps, commands), and a fresh
 agent continues from that file and the branch.
 
+**Pick each agent's model by how settled the work is.** Sonnet takes work whose
+shape is already stated: a fix whose cause and change are named, a test that
+follows a named pattern, a move or split with its target named, a rename or a
+deletion. It follows a clear brief well, so this covers more than renames. Opus
+takes design, concurrency, schema changes, anything whose shape is still open,
+and every audit or read-only review: a wrong verdict there costs more than the
+run. When a brief can't name the change, the work isn't settled enough for
+Sonnet.
+
 **Code review: one manual pass.** The agent holding the implementation context
 reviews the diff itself against the requirements and applicable coding rules.
 Fix confirmed findings and verify those corrections with relevant checks. Do not
