@@ -107,10 +107,13 @@ duplicate types to make a split compile.
 
 ## Schema and compatibility
 
-The database schema is one flat migration, `bae-db/migrations/001_initial.sql`.
-A schema change edits that file; it never adds a second migration. No library
-has to advance from an older schema: development data is reset with
-`rm -rf ~/.bae`.
+The database schema is one migration, assembled by bae-library (`SCHEMA`) from
+each crate's parts in crate order. A domain's SQL files sit in its home beside a
+same-stem `.rs`, with their trigger tests in `<stem>_tests.rs`;
+`bae-db/migrations/001_initial.sql` holds every table no other part has yet. A
+schema change edits its domain's SQL file; it never adds a second migration. No
+library has to advance from an older schema: the person resets development data
+with `scripts/reset-bae.py`.
 
 When another canonical shape changes — bae-bridge types, UiEventBus event
 payloads, on-disk file layouts, sync membership chain format, encryption
