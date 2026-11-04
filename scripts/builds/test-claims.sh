@@ -175,6 +175,9 @@ curl -sf "http://127.0.0.1:$port/api/state" > "$scratch/state.json" || fail "no 
 [ "$(json '[x["subject"] for x in d["repos"][0]["checkouts"][1]["git"]["ahead"]]' < "$scratch/state.json")" = '["Add two", "Add one"]' ] \
     || fail "commits waiting to land: $(cat "$scratch/state.json")"
 [ "$(json 'd["repos"][0]["checkouts"][1]["git"]["uncommitted"]' < "$scratch/state.json")" = 2 ] || fail "uncommitted count"
+[ "$(json 'abs(d["repos"][0]["checkouts"][1]["git"]["last_write"] - d["generated_at"]) < 600' < "$scratch/state.json")" = true ] \
+    || fail "uncommitted files' newest write: $(cat "$scratch/state.json")"
+[ "$(json 'd["repos"][0]["checkouts"][2]["git"]["last_write"]' < "$scratch/state.json")" = null ] || fail "a clean worktree has a last write"
 [ "$(json 'd["repos"][0]["checkouts"][1]["git"]["head"]["subject"]' < "$scratch/state.json")" = '"Add two"' ] || fail "HEAD"
 [ "$(json 'd["repos"][0]["checkouts"][0]["git"]' < "$scratch/state.json")" = null ] || fail "asked git about main"
 [ "$(json 'd["repos"][0]["checkouts"][1]["state"]' < "$scratch/state.json")" = '"ready-to-land"' ] || fail "side-1's state"

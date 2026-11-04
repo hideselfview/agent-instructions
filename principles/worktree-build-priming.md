@@ -117,6 +117,16 @@ as `~/.local/bin/builds`):
     cards and then its worktrees, sorted by state; and *Lanes*, the pinned cards
     in one row and then every worktree in a lane: Waiting on you, Ready to land,
     Working (with Winding down and Landing tagged), Free.
+  - **Order and quiet.** Within each state (and each lane) the worktrees sort by
+    last activity, newest first: the newer of HEAD's commit time and the newest
+    modification time among the uncommitted files (`status --porcelain -z`, each
+    listed path `lstat`ed; a directory listed as untracked counts by its own
+    time). A card shows "last write Nm ago" beside "last commit", and a worktree
+    with uncommitted files and no write in 30 minutes gets a muted "quiet" mark,
+    so a stalled agent stands out. The stats add about 2 ms to side-5's 177
+    changed files, whose `git status` takes 30-60 ms. When the app lock is held,
+    the page shows the holder's command as its script's file name, the full
+    command in the tooltip. The pinned row's two cards share one height.
   - **Hide free worktrees.** A checkbox in the header, kept in the browser like
     the view, leaves out the Free worktrees (unclaimed, nothing waiting to land)
     in both views: their cards in *By repo* and the Free lane in *Lanes*. The

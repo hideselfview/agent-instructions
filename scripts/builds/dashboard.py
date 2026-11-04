@@ -80,25 +80,32 @@ def commits(top, *rev):
 
 
 def uncommitted(top):
-    """The count of changed and untracked files in <top>."""
+    """The count of changed and untracked files in <top>, and the newest
+    modification time among them (None when none still exists). A directory git
+    lists as untracked counts by its own time; a deleted file has no time."""
     out = run(GIT + ["-C", top, "status", "--porcelain", "-z"])
     entries = out.split("\0")
-    count, i = 0, 0
+    count, i, newest = 0, 0, None
     while i < len(entries):
         entry = entries[i]
         i += 1
         if not entry:
             continue
         count += 1
+        try:
+            when = int(os.lstat(os.path.join(top, entry[3:])).st_mtime)
+            newest = when if newest is None else max(newest, when)
+        except FileNotFoundError:
+            pass
         # A rename or copy names its source in the entry after it.
         if entry[0] in "RC" or entry[1] in "RC":
             i += 1
-    return count
+    return count, newest
 
 
 def side_git(top):
-    """HEAD, the commits waiting to land and the uncommitted count of the side
-    worktree at <top>; on a failure, what git said.
+    """HEAD, the commits waiting to land, the uncommitted count and the newest
+    time among those files of the side worktree at <top>; on a failure, what git said.
 
     A commit waits to land when origin/main has no commit with the same change:
     a coordinator lands a branch by rebasing or cherry-picking it, so the
@@ -106,14 +113,16 @@ def side_git(top):
     `origin/main..HEAD` would list landed work as waiting."""
     try:
         head = commits(top, "-1", "HEAD")
+        count, newest = uncommitted(top)
         return {
             "head": head[0] if head else None,
             "ahead": commits(top, "--cherry-pick", "--right-only", "origin/main...HEAD"),
-            "uncommitted": uncommitted(top),
+            "uncommitted": count,
+            "last_write": newest,
             "error": None,
         }
     except Failed as e:
-        return {"head": None, "ahead": [], "uncommitted": None, "error": str(e)}
+        return {"head": None, "ahead": [], "uncommitted": None, "last_write": None, "error": str(e)}
 
 
 def lock_state(path):
@@ -399,7 +408,7 @@ section.repo { display: flex; flex-direction: column; gap: 12px; }
 .repo-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
 .repo-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .repo-head span { font-size: 13px; color: var(--muted); }
-.pinned-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: 12px; align-items: start; }
+.pinned-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: 12px; align-items: stretch; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; align-items: start; }
 article { min-width: 0; display: flex; flex-direction: column; }
 .pinned { background: var(--pinned); border: 1px solid var(--pinned-line); border-radius: 12px; padding: 14px 16px; gap: 10px; }
@@ -437,6 +446,7 @@ article { min-width: 0; display: flex; flex-direction: column; }
 .commit .subject { color: var(--text-2); overflow-wrap: anywhere; min-width: 0; }
 .more { font-size: 12px; color: var(--muted); }
 .foot { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line-soft); padding-top: 8px; }
+.quiet { color: var(--muted-2); font-style: italic; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
 .bad { color: var(--bad); font-weight: 600; }
 .warn { color: var(--warn); font-weight: 600; }
 
@@ -560,6 +570,21 @@ function since(text) {
 }
 function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
 function tilde(path) { return path.replace(/^\/Users\/[^/]+/, "~"); }
+// A worktree's last activity: the newer of its HEAD commit and its newest
+// uncommitted file, in epoch seconds; 0 when git said nothing.
+function activity(c) {
+  const g = c.git;
+  if (!g || g.error) return 0;
+  return Math.max(g.head ? g.head.time : 0, g.last_write || 0);
+}
+// Most recent activity first.
+function byActivity(a, b) { return activity(b) - activity(a) || sideNumber(a.name) - sideNumber(b.name); }
+const QUIET_SECONDS = 30 * 60;
+// Uncommitted files and no write to them for 30 minutes: an agent that may have stalled.
+function quiet(c) {
+  const g = c.git;
+  return !!(g && !g.error && g.uncommitted && g.last_write && Date.now() / 1000 - g.last_write >= QUIET_SECONDS);
+}
 function sideNumber(name) { const m = /(\d+)$/.exec(name); return m ? Number(m[1]) : 0; }
 
 // What the folder measurement says about a checkout's build output.
@@ -589,8 +614,19 @@ function lockOf(repo) {
   const lock = repo.lock;
   return {held: !!(lock && lock.holders.length), waiting: lock ? lock.waiting : 0, holders: lock ? lock.holders : []};
 }
+// What holds the app lock, each command as its script's file name with the
+// whole command in the tooltip.
+function shortCommand(command) {
+  const words = command.split(/\s+/).filter(Boolean);
+  const script = words.find((w, i) => i > 0 && /\.(sh|py|rb|js)$/.test(w));
+  const name = (script || words[0] || command).split("/").pop();
+  return {name, rest: script ? "" : words.slice(1, 3).join(" ")};
+}
 function commands(lock) {
-  return lock.holders.map(x => h("div", {class: "command"}, (x.running.length ? x.running : [x.command]).join("\n")));
+  return lock.holders.flatMap(x => (x.running.length ? x.running : [x.command]).map(command => {
+    const short = shortCommand(command);
+    return h("div", {class: "command", title: command}, (short.name + " " + short.rest).trim());
+  }));
 }
 function detachedAt(c) {
   if (c.branch) return c.branch;
@@ -603,7 +639,7 @@ function split(repo) {
   const main = repo.checkouts.find(c => c.live && c.main);
   const app = repo.checkouts.find(c => c.live && c.app_checkout);
   const sides = repo.checkouts.filter(c => c.live && !c.main && !c.app_checkout);
-  sides.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || sideNumber(a.name) - sideNumber(b.name));
+  sides.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || byActivity(a, b));
   return {main, app, sides, gone: repo.checkouts.filter(c => !c.live)};
 }
 // The side worktrees a view lists: all, or with the Free ones left out.
@@ -708,6 +744,8 @@ function card(c) {
   const foot = [];
   if (g && g.head) foot.push(h("span", {}, "last commit " + ago(g.head.time) + " ago"));
   if (g && !g.error) foot.push(g.uncommitted ? h("span", {}, plural(g.uncommitted, "file", "files") + " changed") : h("span", {}, "clean"));
+  if (g && g.last_write) foot.push(h("span", {}, "last write " + ago(g.last_write) + " ago"));
+  if (quiet(c)) foot.push(h("span", {class: "quiet", title: "Uncommitted files, and none written for 30 minutes"}, "quiet"));
   foot.push(buildFact(b));
   if (b) for (const p of b.links) foot.push(h("span", {class: "bad"}, p));
   if (c.claim) foot.push(h("span", {}, "since " + since(c.claim.since)));
@@ -768,7 +806,8 @@ function laneCard(repo, c) {
   if (!c.claim) note = summary([detachedAt(c), b ? "build " + size(b.total) : null]);
   return h("article", {class: "lcard"},
     h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " " + c.name),
-      h("span", {class: "age"}, g && g.head ? ago(g.head.time) : "")),
+      h("span", {class: "age", title: "last activity: the newer of the last commit and the newest uncommitted file"},
+        activity(c) ? ago(activity(c)) : "", quiet(c) ? " " : "", quiet(c) ? h("span", {class: "quiet"}, "quiet") : null)),
     h("span", {class: "who"}, c.claim ? c.claim.who : "Unclaimed"),
     tag,
     note ? h("span", {class: "note"}, note) : null,
@@ -788,7 +827,7 @@ function lanesView() {
   }
   const lanes = LANES.filter(lane => !(hideFree && lane.states.includes("free"))).map(lane => {
     const cards = all.filter(([, c]) => lane.states.includes(c.state));
-    cards.sort((a, b) => lane.states.indexOf(a[1].state) - lane.states.indexOf(b[1].state));
+    cards.sort((a, b) => lane.states.indexOf(a[1].state) - lane.states.indexOf(b[1].state) || byActivity(a[1], b[1]));
     return h("section", {class: "lane"},
       h("div", {class: "lane-head"},
         h("div", {}, h("span", {class: "dot", style: "background: var(" + lane.dot + ")"}), h("h2", {}, lane.title)),
