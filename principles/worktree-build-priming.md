@@ -433,17 +433,19 @@ deletion cut off halfway leaves only files the unit's next build overwrites.
 
 **Caps.** A folder still over its cap is deleted whole (renamed into
 `/Volumes/Builds/.trash`, removed in the background, recreated empty), unless a
-build is using it. Hooks and build scripts in one checkout overlap, so "in use"
-is decided while holding what a build holds: every `.cargo-lock` flock in the
-folder, taken without waiting (cargo holds one for a whole build), then a fresh
-check that no process has a file or working directory inside it, then the
-rename, then the locks are released. A cargo build that starts meanwhile queues
-on the lock and writes into the new folder. Caps are about twice a fresh build
-of the folder; the next build refills it, mostly from sccache (a wipe and
-rebuild took 137 s and 8.9 GB). Sizes, for the caps and `builds status`, count
-each block once (`disk_usage.py`): cargo uplifts a library out of `deps/` as an
-APFS clone, which shares its blocks, and `du` counts those blocks once per file,
-so it read bae's `target-macos` as 9.3 GB where it took 7.3 GB.
+build is using it or its worktree is claimed: a claimed worktree's agent is
+mid-task, so the build reports the folder over its cap and keeps it. Hooks and
+build scripts in one checkout overlap, so "in use" is decided while holding what
+a build holds: every `.cargo-lock` flock in the folder, taken without waiting
+(cargo holds one for a whole build), then a fresh check that no process has a
+file or working directory inside it, then the rename, then the locks are
+released. A cargo build that starts meanwhile queues on the lock and writes into
+the new folder. Caps are about twice a fresh build of the folder; the next build
+refills it, mostly from sccache (a wipe and rebuild took 137 s and 8.9 GB).
+Sizes, for the caps and `builds status`, count each block once
+(`disk_usage.py`): cargo uplifts a library out of `deps/` as an APFS clone,
+which shares its blocks, and `du` counts those blocks once per file, so it read
+bae's `target-macos` as 9.3 GB where it took 7.3 GB.
 
 Caps bound folders, not the volume: a bae checkout with every platform built is
 45-52 GB, the build volume shares its APFS pool with the main disk, and with six

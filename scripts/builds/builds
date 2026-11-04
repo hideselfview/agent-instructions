@@ -821,6 +821,12 @@ prune_root() {
         else
             continue
         fi
+        # A claimed worktree's agent is mid-task; emptying its folder costs it
+        # a cold rebuild of every dependency, as the floor's exemption says.
+        if [ -f "$(claim_file "$top")" ]; then
+            note "claimed, kept: $root/$path ($reason)"
+            continue
+        fi
         if [ "$dry" = 1 ]; then
             note "would delete $root/$path ($reason)"
         elif evict "$root/$path" 1; then
