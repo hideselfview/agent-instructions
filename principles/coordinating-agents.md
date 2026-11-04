@@ -33,6 +33,21 @@ project's lists, worktrees and landing worktree.
 4. **Review a sample** before landing: about one implementer commit in five,
    plus every tricky one ("Sample the implementer's work").
 
+## What an implementing agent does
+
+1. **Read the real code paths** its brief names, not summaries; a fork the brief
+   didn't settle goes back to the coordinator, not into a guess.
+2. **Branch from `origin/main`** in its claimed worktree.
+3. **Implement** to the brief; a bug fix starts with its failing test.
+4. **One manual review** of its own diff against the brief and the matching rule
+   bodies.
+5. **Local checks: only what the change touches**: the hook, builds of touched
+   platforms (app builds in the app checkout under its lock), tests covering the
+   changed code. Never a whole app test suite (it launches the app on the
+   person's screen) or the full CI script: CI runs those. A project with no
+   pre-commit hook gets one.
+6. **Commit and report** the SHA, base and checks; the coordinator lands it.
+
 ## Dispatch
 
 - One task per agent (a commit or a short chain); later items go to the same
