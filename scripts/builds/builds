@@ -958,6 +958,10 @@ floor_candidates() {
         checkout_is_live "$root" || continue
         keeps_warm "$root" && continue
         top="$(cat "$root/.checkout")"
+        # A claimed worktree has an agent at work in it, who may go quiet for
+        # an hour between builds; deleting its folders costs that agent a
+        # cold rebuild of every dependency.
+        [ -f "$(claim_file "$top")" ] && continue
         while read -r path _cap; do
             [ -d "$root/$path" ] && echo "$(newest_write "$root/$path") $root/$path"
         done < <(manifest_entries "$top")
@@ -968,15 +972,15 @@ floor_candidates() {
 # so the next free-space reading counts it: the trash, the roots of checkouts
 # that are gone, DerivedData's entries, then whole folders of the other
 # checkouts, each least recently written first and only when nothing is using
-# it or wrote to it lately. Main's and the app checkout's folders and the
-# shared caches are never deleted here. When everything left is in use,
+# it or wrote to it lately. Main's and the app checkout's folders, a claimed
+# worktree's folders and the shared caches are never deleted here. When everything left is in use,
 # freshly written or kept, it warns, naming the biggest folders, and fails
 # only under the hard floor.
 keep_floor() {
     local free when dir kib root
     free="$(free_kib)"
     [ "$free" -ge "$FLOOR_KIB" ] && return 0
-    note "the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") floor; deleting idle DerivedData entries, then idle build folders outside main and the app checkouts, least recently written first"
+    note "the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") floor; deleting idle DerivedData entries, then idle build folders of unclaimed side worktrees, least recently written first"
     # Folders already renamed into the trash still hold their space until the
     # background removal finishes.
     if [ -d "$TRASH" ]; then
@@ -1024,7 +1028,7 @@ keep_floor() {
         else
             echo "builds: warning: the build volume has $(human "$free") free, under the $(human "$FLOOR_KIB") floor; the build goes on, and under $(human "$HARD_FLOOR_KIB") builds stop."
         fi
-        echo "Every build folder and DerivedData entry left is in use, was written in the last ${FLOOR_IDLE_MINUTES}m, or is main's or an app checkout's, which stay warm. The biggest the floor may delete:"
+        echo "Every build folder and DerivedData entry left is in use, was written in the last ${FLOOR_IDLE_MINUTES}m, belongs to a claimed worktree, or is main's or an app checkout's, which stay warm. The biggest the floor may delete:"
         floor_candidates | while read -r _when dir; do
             echo "$(kib_of "$dir") $dir"
         done | sort -rn | head -8 | while read -r kib dir; do

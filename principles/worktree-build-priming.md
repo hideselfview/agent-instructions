@@ -453,19 +453,23 @@ largest single platform build (target-ios 12.2 GB + bae-ios/.build 4.9 GB
 fresh), plus a macOS build in another checkout at the same time (7.4 + 5.2 GB).
 Under the floor it first finishes removing the trash, then deletes the build
 roots of checkouts that are gone, then DerivedData's entries, then whole folders
-across every checkout but main and the app checkout, least recently written
-first, each one only if nothing wrote to it in the last 30 minutes (a build
-between two of its steps holds no lock) and it passes the same in-use check as a
-cap eviction, waiting for each deletion so the next reading counts it. It never
-deletes a shared cache. If the floor is still out of reach it warns, naming the
-free space, the biggest folders it may delete and the size of main's and the app
-checkout's, and the build goes on: a commit's hook stalling an agent mid-work is
-the wrong place to manage disk; whoever runs the agents sees the warning in
-their reports, stops starting more and retires one at a clean point. Only under
-a hard floor of 10 GiB, about one platform build, does it fail, so the build
-stops before it starts instead of running out of space halfway, which would also
-break the person's apps on the shared pool. It never falls back to main's or the
-app checkout's folders: the person decides what to free there.
+of unclaimed side worktrees, least recently written first, each one only if
+nothing wrote to it in the last 30 minutes (a build between two of its steps
+holds no lock) and it passes the same in-use check as a cap eviction, waiting
+for each deletion so the next reading counts it. A claimed worktree's folders
+are never deleted here: the agent working in it can go an hour between builds
+while it reads and edits, and losing its folder costs it a cold rebuild of every
+dependency in the middle of its task (bae side-5's 14.9 GB target was deleted
+that way on 2026-11-04, and its next checks took over two hours under load). It
+never deletes a shared cache. If the floor is still out of reach it warns,
+naming the free space, the biggest folders it may delete and the size of main's
+and the app checkout's, and the build goes on: a commit's hook stalling an agent
+mid-work is the wrong place to manage disk; whoever runs the agents sees the
+warning in their reports, stops starting more and retires one at a clean point.
+Only under a hard floor of 10 GiB, about one platform build, does it fail, so
+the build stops before it starts instead of running out of space halfway, which
+would also break the person's apps on the shared pool. It never falls back to
+main's or the app checkout's folders: the person decides what to free there.
 `BUILDS_FREE_FLOOR_GIB` and `BUILDS_HARD_FLOOR_GIB` override the two floors.
 
 Access times can't say what a build used: APFS refreshes a file's access time
