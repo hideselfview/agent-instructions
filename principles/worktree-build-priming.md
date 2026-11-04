@@ -56,6 +56,14 @@ as `~/.local/bin/builds`):
   `retire`. It isn't a lock: an agent is a series of separate commands, so
   nothing could hold one, and a claim left by a session that ended shows its age
   in `status`. One build at a time stays a real lock (`app.lock`).
+- `builds note <checkout> <text>` sets a one-line note on the side worktree's
+  claim, where its work stands ("waiting on Linux CI", "held: needs a
+  decision"); `builds note <checkout>` clears it. The note is a third
+  tab-separated field on the claim's line, so it goes with the claim; claiming
+  the worktree again for the same who renews the claim's date and keeps the
+  note. `status` prints it under the checkout. A claim whose who ends in
+  `(landing)` (`coordinator (landing)`) marks the worktree its coordinator lands
+  commits from.
 - `builds retire <checkout>` removes a clean, unclaimed side worktree and its
   build root; it refuses the app checkout.
 - `builds app-checkout <checkout>` records a side worktree as its repo's app
@@ -63,7 +71,29 @@ as `~/.local/bin/builds`):
 - `builds status` lists every entry on the volume: each root's folders, each
   DerivedData entry and each shared cache, with size against cap, last write,
   and whether the links are in place; anything else as UNKNOWN. It also lists
-  build output in the temporary folders.
+  build output in the temporary folders. `builds status --json` prints the
+  repos' checkouts (path, branch, app checkout, claim and note, each build
+  folder's size against cap, last write and link) and the volume's free space
+  against both floors, as JSON; `--no-folders` leaves out the build folders,
+  whose measurement takes nearly all of the half minute or more a full status
+  takes while agents build.
+- `builds dashboard [--port <port>]` serves a page at `http://127.0.0.1:7787/`
+  (only on 127.0.0.1, standard-library Python, `dashboard.py`) showing what
+  every checkout is doing, one card per checkout `status` lists, grouped by repo
+  with claimed ones first: path, branch, claim and note, landing worktree and
+  app checkout, the build folders' total size and newest write, and for side
+  worktrees HEAD, the commits on HEAD the local `origin/main` ref doesn't have
+  (the work waiting to land) and the count of uncommitted files. Above them: the
+  volume's free space against the 30 GiB and 10 GiB floors, and who holds each
+  repo's `app.lock` and how many wait for it, read without taking it (the
+  process with the file open holds it, since `lockf` waits inside `open`). The
+  page asks for its state every few seconds and for the build folders a minute
+  after each measurement; every answer is read fresh and the server keeps
+  nothing between requests. It runs git only in side worktrees, read-only with
+  `--no-optional-locks`, and fetches nothing: for the person's main checkouts it
+  shows what `status` shows. Coordinators keep it current through the claims and
+  notes they already make. `test-claims.sh` tests claims, notes, `status --json`
+  and the dashboard on a scratch repo and build volume.
 - `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` deletes every
   checkout's unused build copies, applies every cap, deletes roots whose
   checkout is gone, DerivedData entries nothing wrote to for a day and build

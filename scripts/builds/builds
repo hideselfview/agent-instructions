@@ -66,6 +66,9 @@
 #                               [--for <who>]: claim it for <who> (below)
 #   builds claim <checkout> <who>
 #                               record that <who> works in the side worktree
+#   builds note <checkout> [<text>]
+#                               set the claim's one-line note, what its work
+#                               waits on; with no text, clear it
 #   builds release <checkout>   remove its claim
 #   builds retire <checkout>    remove a side worktree and its build root
 #   builds app-checkout <checkout>
@@ -74,6 +77,17 @@
 #   builds status               every entry on the volume: size per folder vs
 #                               cap, last write, links; and build output in
 #                               the temporary folders
+#   builds status --json [--no-folders]
+#                               the repos' checkouts and the volume's free
+#                               space, as JSON; --no-folders leaves out each
+#                               checkout's build folders, whose sizes and last
+#                               writes take nearly all of its time (half a
+#                               minute or more while agents build)
+#   builds dashboard [--port <port>]
+#                               serve a page on 127.0.0.1 (port 7787) showing
+#                               every checkout: its claim and note, the
+#                               commits waiting to land, uncommitted files,
+#                               build sizes, free space, the app.lock holder
 #   builds prune [--dry-run] [--idle <minutes> [--include-warm]]
 #                               delete every checkout's unused build copies
 #                               (below) and apply every cap; delete roots whose
@@ -107,7 +121,10 @@
 # not a lock: agents are a series of separate commands, so nothing could hold
 # one, and a session that ends without releasing leaves its claim behind
 # (status shows its age). Short exclusive use, one build at a time, stays a
-# real lock, like the app checkout's app.lock.
+# real lock, like the app checkout's app.lock. A claim may carry a one-line
+# note of where its work stands ("waiting on Linux CI"), which `note` sets and
+# status and the dashboard show; a claim whose <who> ends in "(landing)" is the
+# worktree its coordinator lands commits from.
 #
 # By default a side worktree builds host Rust only, and a repo with app builds
 # keeps them warm in main and in one side worktree, its app checkout, which
@@ -261,6 +278,10 @@ UNITS="$(dirname "$SELF")/cargo_units.py"
 USAGE="$(dirname "$SELF")/disk_usage.py"
 # Build output in the temporary folders.
 TEMP_BUILDS="$(dirname "$SELF")/temp_builds.py"
+# The page `dashboard` serves.
+DASHBOARD="$(dirname "$SELF")/dashboard.py"
+# The port it serves on unless --port names another.
+DASHBOARD_PORT=7787
 
 # A failure that says why: what `die` reports, the exit trap below stays
 # quiet about.
@@ -1055,19 +1076,28 @@ status_unknown() {
     printf '%s  %s  UNKNOWN: builds made nothing here\n' "${1#"$ROOT"/}" "$(human "$(kib_of "$1")")"
 }
 
+# The branch checked out at <top>; nothing when HEAD is detached.
+checkout_branch() { git -C "$1" branch --show-current 2>/dev/null || true; }
+
+# Is <root> its repo's app checkout (main keeps its builds warm too, but is
+# not one)?
+is_app_checkout() { [ "$(basename "$1")" != main ] && keeps_warm "$1"; }
+
 status_root() {
-    local root="$1" top path cap kib when state total
+    local root="$1" top path cap kib when state total claim_who claim_since claim_note=""
     top="$(cat "$root/.checkout")"
     if checkout_is_live "$root"; then
-        state="$(git -C "$top" branch --show-current 2>/dev/null)"
+        state="$(checkout_branch "$top")"
         state="${state:-detached}"
-        if [ "$(basename "$root")" != main ] && keeps_warm "$root"; then
+        if is_app_checkout "$root"; then
             state="$state, app checkout"
         fi
         if [ -f "$(claim_file "$top")" ]; then
-            state="$state, claimed by $(claim_text "$top")"
+            read_claim "$top"
+            state="$state, claimed by $claim_who since $claim_since"
         fi
         echo "${root#"$ROOT"/}  $top  [$state]"
+        [ -z "$claim_note" ] || echo "    note: $claim_note"
     else
         echo "${root#"$ROOT"/}  $top  [checkout gone: prune deletes this root]"
         echo "    $(human "$(kib_of "$root")") total"
@@ -1199,6 +1229,12 @@ status_temp_builds() {
 # Every entry at the volume's root but macOS's own.
 cmd_status() {
     local entry
+    case "$*" in
+        '') ;;
+        --json) cmd_status_json 1; return 0 ;;
+        '--json --no-folders'|'--no-folders --json') cmd_status_json 0; return 0 ;;
+        *) die "usage: builds status [--json [--no-folders]]" ;;
+    esac
     require_volume
     for entry in "$ROOT"/* "$ROOT"/.[!.]*; do
         [ -e "$entry" ] || [ -L "$entry" ] || continue
@@ -1229,6 +1265,129 @@ cmd_status() {
     df -h "$ROOT" | awk 'NR==2 { print "volume: " $4 " free of " $2 }'
 }
 
+# ── Status as JSON ──────────────────────────────────────────────────────────
+
+# <text> as a JSON string. The text status prints holds no control
+# characters but the tabs and newlines escaped here; claims refuse both.
+json_str() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\t'/\\t}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    printf '"%s"' "$s"
+}
+
+# <text> as a JSON string, or null when it is empty.
+json_str_or_null() {
+    if [ -n "$1" ]; then json_str "$1"; else printf null; fi
+}
+
+# The checkout at <root> as a JSON object: what status_root prints, with each
+# size in KiB and each time in seconds since 1970; with <with_folders>=0, its
+# folders and total are null.
+status_root_json() {
+    local root="$1" with_folders="$2" top path cap kib when link target total=0 sep=""
+    local claim_who claim_since claim_note
+    top="$(cat "$root/.checkout")"
+    printf '{"name":%s,"path":%s,"root":%s' "$(json_str "$(basename "$root")")" \
+        "$(json_str "$top")" "$(json_str "$root")"
+    if ! checkout_is_live "$root"; then
+        if [ "$with_folders" = 1 ]; then total="$(kib_of "$root")"; else total=null; fi
+        printf ',"live":false,"total_kib":%s}' "$total"
+        return 0
+    fi
+    printf ',"live":true,"main":%s,"branch":%s,"app_checkout":%s' \
+        "$([ "$(basename "$root")" = main ] && echo true || echo false)" \
+        "$(json_str_or_null "$(checkout_branch "$top")")" \
+        "$(is_app_checkout "$root" && echo true || echo false)"
+    if [ -f "$(claim_file "$top")" ]; then
+        read_claim "$top"
+        printf ',"claim":{"who":%s,"since":%s,"note":%s}' "$(json_str "$claim_who")" \
+            "$(json_str "$claim_since")" "$(json_str_or_null "$claim_note")"
+    else
+        printf ',"claim":null'
+    fi
+    if [ "$with_folders" = 0 ]; then
+        printf ',"folders":null,"total_kib":null}'
+        return 0
+    fi
+    printf ',"folders":['
+    while read -r path cap; do
+        printf '%s{"path":%s,"cap_kib":%s' "$sep" "$(json_str "$path")" "$cap"
+        sep=,
+        if [ ! -d "$root/$path" ]; then
+            printf ',"exists":false}'
+            continue
+        fi
+        kib="$(kib_of "$root/$path")"
+        total=$(( total + kib ))
+        when="$(newest_write "$root/$path")"
+        if [ -L "$top/$path" ]; then
+            target="$(absolute_link_target "$top/$path")"
+            if [ "$target" = "$root/$path" ]; then link=linked; else link=elsewhere; fi
+        else
+            link="not linked"
+            target=""
+        fi
+        printf ',"exists":true,"kib":%s,"last_write":%s,"link":%s,"link_target":%s}' \
+            "$kib" "${when:-null}" "$(json_str "$link")" "$(json_str_or_null "$target")"
+    done < <(manifest_entries "$top")
+    printf '],"total_kib":%s}' "$total"
+}
+
+# The repos on the volume, each with its checkouts in the order status lists
+# them, and the volume's free space against the floors, as one JSON object;
+# <with_folders>=0 leaves out the checkouts' build folders.
+cmd_status_json() {
+    local with_folders="$1" entry repo app lock root sep="" csep
+    require_volume
+    printf '{"root":%s,"volume":{"free_kib":%s,"size_kib":%s,"floor_kib":%s,"hard_floor_kib":%s},"repos":[' \
+        "$(json_str "$ROOT")" "$(free_kib)" "$(df -k "$ROOT" | awk 'NR==2 { print $2 }')" \
+        "$FLOOR_KIB" "$HARD_FLOOR_KIB"
+    for entry in "$ROOT"/* "$ROOT"/.[!.]*; do
+        [ -e "$entry" ] || continue
+        case "$entry" in "$TRASH"|"$DERIVED_DATA"|"$CACHES") continue ;; esac
+        is_repo_dir "$entry" || continue
+        repo="$(basename "$entry")"
+        app="$(app_checkout_of "$repo")"
+        lock=""
+        [ -f "$entry/app.lock" ] && lock="$entry/app.lock"
+        printf '%s{"name":%s,"app_checkout":%s,"app_lock":%s,"checkouts":[' "$sep" \
+            "$(json_str "$repo")" "$(json_str_or_null "$app")" "$(json_str_or_null "$lock")"
+        sep=,
+        csep=""
+        for root in "$entry"/* "$entry"/.[!.]*; do
+            [ -d "$root" ] && [ ! -L "$root" ] && [ -f "$root/.checkout" ] || continue
+            printf '%s' "$csep"
+            csep=,
+            status_root_json "$root" "$with_folders"
+        done
+        printf ']}'
+    done
+    printf ']}\n'
+}
+
+# ── Dashboard ───────────────────────────────────────────────────────────────
+
+# Serves the dashboard (dashboard.py) on 127.0.0.1 until it is killed. It asks
+# this script for status on each request and keeps nothing between them.
+cmd_dashboard() {
+    local port="$DASHBOARD_PORT"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --port)
+                case "${2:-}" in ''|*[!0-9]*) die "dashboard: --port takes a port number" ;; esac
+                port="$2"; shift 2 ;;
+            *) die "usage: builds dashboard [--port <port>]" ;;
+        esac
+    done
+    require_volume
+    REPORTED=1
+    exec python3 "$DASHBOARD" "$SELF" "$port"
+}
+
 # ── New / retire ────────────────────────────────────────────────────────────
 
 cmd_new() {
@@ -1241,6 +1400,7 @@ cmd_new() {
             *) repo_path="$1"; shift ;;
         esac
     done
+    [ -z "$who" ] || require_one_line "--for <who>" "$who"
     require_volume
     main="$(main_checkout "$(checkout_top "$repo_path")")"
     repo="$(basename "$main")"
@@ -1273,31 +1433,77 @@ cmd_new() {
 
 # ── Claims ──────────────────────────────────────────────────────────────────
 
+# A claim is one line in the worktree's git dir: "<who>\t<since>", then
+# "\t<note>" when it has a note.
 claim_file() { echo "$(git -C "$1" rev-parse --absolute-git-dir)/builds-claim"; }
+
+# Sets claim_who, claim_since and claim_note from the claim of <top>.
+read_claim() {
+    IFS=$'\t' read -r claim_who claim_since claim_note < "$(claim_file "$1")"
+}
 
 # "<who> since <date>" for the side worktree at <top>.
 claim_text() {
-    local who since
-    IFS=$'\t' read -r who since < "$(claim_file "$1")"
-    echo "$who since $since"
+    local claim_who claim_since claim_note
+    read_claim "$1"
+    echo "$claim_who since $claim_since"
 }
 
+# The claim's fields are tab-separated on one line, so none may hold either.
+require_one_line() {
+    case "$2" in
+        *$'\t'*|*$'\n'*|*$'\r'*) die "$1 must be one line without tabs" ;;
+    esac
+}
+
+# Claims <top> for <who> from now, with note <note> when given.
 write_claim() {
-    printf '%s\t%s\n' "$2" "$(date '+%Y-%m-%d %H:%M')" > "$(claim_file "$1")"
+    local since
+    since="$(date '+%Y-%m-%d %H:%M')"
+    if [ -n "${3:-}" ]; then
+        printf '%s\t%s\t%s\n' "$2" "$since" "$3" > "$(claim_file "$1")"
+    else
+        printf '%s\t%s\n' "$2" "$since" > "$(claim_file "$1")"
+    fi
 }
 
+# Claims a side worktree. Claiming it again for the one who holds it renews
+# the claim's date and keeps its note.
 cmd_claim() {
-    local top who held
+    local top who claim_who claim_since claim_note=""
     [ $# -eq 2 ] || die "usage: builds claim <checkout> <who>"
     top="$(checkout_top "$1")"
     who="$2"
+    [ -n "$who" ] || die "usage: builds claim <checkout> <who>"
+    require_one_line "<who>" "$who"
     [ "$top" != "$(main_checkout "$top")" ] || die "$top is the main checkout; only side worktrees are claimed"
     if [ -f "$(claim_file "$top")" ]; then
-        IFS=$'\t' read -r held _ < "$(claim_file "$top")"
-        [ "$held" = "$who" ] || die "$top is claimed by $(claim_text "$top"); builds release it first if that work is over"
+        read_claim "$top"
+        [ "$claim_who" = "$who" ] || die "$top is claimed by $(claim_text "$top"); builds release it first if that work is over"
     fi
-    write_claim "$top" "$who"
+    write_claim "$top" "$who" "$claim_note"
     note "claimed $top for $who"
+}
+
+# Sets the claim's note to <text> (the rest of the arguments, joined by
+# spaces), or clears it when there is none. The claim's date stays.
+cmd_note() {
+    local top text file claim_who claim_since claim_note
+    [ $# -ge 1 ] || die "usage: builds note <checkout> [<text>]"
+    top="$(checkout_top "$1")"
+    shift
+    text="$*"
+    require_one_line "a note" "$text"
+    file="$(claim_file "$top")"
+    [ -f "$file" ] || die "$top has no claim; a note belongs to a claim (builds claim it first)"
+    read_claim "$top"
+    if [ -n "$text" ]; then
+        printf '%s\t%s\t%s\n' "$claim_who" "$claim_since" "$text" > "$file"
+        note "noted on $top's claim: $text"
+    else
+        printf '%s\t%s\n' "$claim_who" "$claim_since" > "$file"
+        note "cleared the note on $top's claim"
+    fi
 }
 
 cmd_release() {
@@ -1514,13 +1720,15 @@ case "$command" in
     new) cmd_new "$@" ;;
     retire) cmd_retire "$@" ;;
     claim) cmd_claim "$@" ;;
+    note) cmd_note "$@" ;;
     release) cmd_release "$@" ;;
     app-checkout) cmd_app_checkout "$@" ;;
     status) cmd_status "$@" ;;
+    dashboard) cmd_dashboard "$@" ;;
     prune) cmd_prune "$@" ;;
     install) cmd_install "$@" ;;
     cargo) cmd_cargo "$@" ;;
     record-use) cmd_record_use "$@" ;;
     -h|--help|help) sed -n '2,/^$/s/^# \{0,1\}//p' "$SELF" ;;
-    *) die "unknown command $command (setup | new | claim | release | retire | app-checkout | status | prune | cargo | record-use | install)" ;;
+    *) die "unknown command $command (setup | new | claim | note | release | retire | app-checkout | status | dashboard | prune | cargo | record-use | install)" ;;
 esac
