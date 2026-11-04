@@ -227,6 +227,8 @@ changes, anything whose shape is still open, and every audit or read-only
 review: a wrong verdict there costs more than the run. When a brief can't name
 the change, the work isn't settled enough for the implementer.
 
+*Running several agents at once: `principles/coordinating-agents.md`.*
+
 **Sample the implementer's work.** The orchestrator reviews about one in five of
 the implementer's commits before landing them, chosen without warning, plus
 every commit that touches something tricky: concurrency, a schema or sync shape,
