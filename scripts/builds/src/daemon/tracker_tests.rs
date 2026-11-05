@@ -23,8 +23,10 @@ fn follows_writes_links_clones_renames_and_deletions() {
     let target = root.join("demo/side-1/target");
     fill(&target.join("debug/deps/libone.rlib"), 1500);
     fill(&target.join("debug/incremental/one-1/s-1/part.o"), 300);
+    fill(&root.join(".builds-daemon/mark-7"), 0);
     let tracker = Tracker::start(&root, &root.join(".builds-daemon")).unwrap();
     tracker.wait_ready();
+    assert!(!root.join(".builds-daemon/mark-7").exists(), "a killed daemon's mark was left");
     // Not the root itself: each answer's mark writes in the daemon's own
     // folder there, after the answer.
     let folders = [root.join("demo"), target.clone(), target.join("debug/incremental")];

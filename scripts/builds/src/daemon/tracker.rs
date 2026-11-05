@@ -72,7 +72,11 @@ pub type Listener = Box<dyn Fn(&[PathBuf]) + Send + Sync>;
 pub struct Tracker {
     pub root: PathBuf,
     listener: Mutex<Option<Listener>>,
-    /// Where questions write their marks: a file `mark-<n>` whose event,
+    /// This daemon's marks are `<marks_prefix><n>`: a name no other daemon
+    /// used, so removing a killed daemon's marks at start, whose events
+    /// arrive after, never reads as delivery of one of this daemon's.
+    marks_prefix: String,
+    /// Where questions write their marks: a file `<marks_prefix><n>` whose event,
     /// once handled, says every write made before the question has been.
     marks_dir: PathBuf,
     marks: Mutex<Marks>,
@@ -97,6 +101,14 @@ impl Tracker {
     pub fn start(root: &Path, marks_dir: &Path) -> std::io::Result<Arc<Tracker>> {
         let meta = std::fs::symlink_metadata(root)?;
         std::fs::create_dir_all(marks_dir)?;
+        // Marks a daemon killed mid-question left; no question waits on
+        // them, since one daemon follows a root.
+        for entry in std::fs::read_dir(marks_dir)? {
+            let entry = entry?;
+            if entry.file_name().to_str().is_some_and(|name| name.starts_with("mark-")) {
+                std::fs::remove_file(entry.path())?;
+            }
+        }
         let tracker = Arc::new_cyclic(|me: &std::sync::Weak<Tracker>| {
             let weak = me.clone();
             let parent = root.parent().and_then(|parent| {
@@ -116,6 +128,11 @@ impl Tracker {
                 root: root.to_path_buf(),
                 listener: Mutex::new(None),
                 marks_dir: marks_dir.to_path_buf(),
+                marks_prefix: format!(
+                    "mark-{}-{}-",
+                    std::process::id(),
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+                ),
                 marks: Mutex::new(Marks::default()),
                 delivered: Condvar::new(),
                 index: Mutex::new(Index::new(root, &meta)),
@@ -267,7 +284,7 @@ impl Tracker {
         let mark = events
             .iter()
             .filter(|event| event.path.parent() == Some(self.marks_dir.as_path()))
-            .filter_map(|event| event.path.file_name()?.to_str()?.strip_prefix("mark-")?.parse::<u64>().ok())
+            .filter_map(|event| event.path.file_name()?.to_str()?.strip_prefix(&self.marks_prefix)?.parse::<u64>().ok())
             .max()
             .unwrap_or(0);
         let paths: Vec<PathBuf> = events.iter().map(|event| event.path.clone()).collect();
@@ -468,7 +485,7 @@ impl Tracker {
             marks.taken += 1;
             marks.taken
         };
-        let mark = self.marks_dir.join(format!("mark-{n}"));
+        let mark = self.marks_dir.join(format!("{}{n}", self.marks_prefix));
         if let Err(error) = std::fs::write(&mark, b"") {
             eprintln!("builds: writing {}: {error}; answering nothing", mark.display());
             return false;
