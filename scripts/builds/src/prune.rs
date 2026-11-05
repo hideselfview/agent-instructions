@@ -47,7 +47,7 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
         tool.rules.incremental_hours,
     );
     let mut freed = units::prune::prune(&ages, run.dry(), &folders)?;
-    freed.extend(prune_trees(tool, &folders, run)?);
+    freed.extend(prune_trees(tool, root, checkout, &folders, run)?);
     let claimed = checkout.claim_file().is_file();
     // Measured together, after the pruning: deleting one folder changes no
     // other's size.

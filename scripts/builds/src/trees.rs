@@ -17,6 +17,9 @@
 //!                      macosx/debug); checkouts, repositories and artifacts
 //!                      belong to every build and stay
 //!
+//! A `keep <path>` line in `.build-dirs` exempts one build in main and the app
+//! checkout, where the person runs and tests the app built there.
+//!
 //! A build's last use is the newest write anywhere inside it. xcodebuild writes
 //! a log under Logs/Build on every run, and `swift build` rewrites
 //! plugin-tools-description.json and the output file maps even when nothing
@@ -28,9 +31,11 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::checkout::{Checkout, keeps_warm};
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::Result;
+use crate::manifest::kept_builds;
 use crate::prune::Run;
 use crate::text::{human, note};
 use crate::tool::Tool;
@@ -145,11 +150,26 @@ pub fn unused(tool: &Tool, measured: &Measure) -> bool {
 /// Deletes each build inside <folders> that no build used for the rules' days,
 /// or says it would on a dry run. Returns, per folder, the KiB a dry run
 /// would free, for the caller measuring the folder against its cap.
-pub fn prune_trees(tool: &Tool, folders: &[PathBuf], run: Run) -> Result<Vec<(PathBuf, u64)>> {
+pub fn prune_trees(
+    tool: &Tool,
+    root: &Path,
+    checkout: &Checkout,
+    folders: &[PathBuf],
+    run: Run,
+) -> Result<Vec<(PathBuf, u64)>> {
+    // The builds the manifest keeps stay in the checkouts the person builds
+    // and runs in; in any other checkout they age like the rest.
+    let kept: Vec<PathBuf> = if keeps_warm(&tool.places, root)? {
+        kept_builds(&checkout.top)?.iter().map(|path| root.join(path)).collect()
+    } else {
+        Vec::new()
+    };
     let mut all = Vec::new();
     for folder in folders {
         for tree in trees_in(folder)? {
-            all.push((folder.clone(), tree));
+            if !kept.contains(&tree.path) {
+                all.push((folder.clone(), tree));
+            }
         }
     }
     let paths: Vec<PathBuf> = all.iter().map(|(_, tree)| tree.path.clone()).collect();

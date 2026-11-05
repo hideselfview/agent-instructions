@@ -12,7 +12,7 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
 use crate::install::sccache_config_holds;
-use crate::manifest::{BuildDir, SHARED_CACHES, build_dirs};
+use crate::manifest::{BuildDir, SHARED_CACHES, build_dirs, kept_builds};
 use crate::places::{DERIVED_DATA_CAP_KIB, FLOOR_IDLE_MINUTES, MACOS_ENTRIES, Places};
 use crate::prune::derived_data;
 use crate::temp_builds::temp_build_folders;
@@ -192,6 +192,11 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
         }
     }
     let mut total = 0;
+    let kept: Vec<PathBuf> = if root.keeps_warm(&tool.places)? {
+        kept_builds(&root.top)?.iter().map(|path| root.path.join(path)).collect()
+    } else {
+        Vec::new()
+    };
     for BuildDir { path, cap_kib } in build_dirs(&root.top)? {
         let folder = root.path.join(&path);
         if !folder.is_dir() {
@@ -209,7 +214,9 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
         ));
         for tree in trees_in(&folder)? {
             let measured = tool.measure(&tree.path)?;
-            let state = if unused(tool, &measured) {
+            let state = if kept.contains(&tree.path) {
+                "kept: the person runs it".to_string()
+            } else if unused(tool, &measured) {
                 format!("unused for {} days: setup deletes it", tool.rules.unused_days)
             } else {
                 String::new()

@@ -24,17 +24,41 @@ pub fn has_manifest(top: &Path) -> bool {
 /// The entries of <top>'s manifest, in its order; none without one. Fails on
 /// a malformed line, naming it.
 pub fn build_dirs(top: &Path) -> Result<Vec<BuildDir>> {
+    Ok(parse(top)?.0)
+}
+
+/// The paths a `keep <path>` line of <top>'s manifest names: builds inside a
+/// build folder (an Xcode tree) that `setup` and `prune` never age out in a
+/// checkout that keeps its builds warm (main, the app checkout), because the
+/// person runs or tests the app built there. A path is relative to the
+/// checkout.
+pub fn kept_builds(top: &Path) -> Result<Vec<String>> {
+    Ok(parse(top)?.1)
+}
+
+fn parse(top: &Path) -> Result<(Vec<BuildDir>, Vec<String>)> {
     let file = top.join(MANIFEST);
     let text = match std::fs::read_to_string(&file) {
         Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((Vec::new(), Vec::new())),
         Err(error) => fail!("reading {}: {error}", file.display()),
     };
     let mut entries = Vec::new();
+    let mut kept = Vec::new();
     for line in text.lines() {
         let mut fields = line.split_ascii_whitespace();
         let Some(path) = fields.next() else { continue };
         if path.starts_with('#') {
+            continue;
+        }
+        if path == "keep" {
+            let (Some(kept_path), None) = (fields.next(), fields.next()) else {
+                fail!("{}: 'keep' takes one path, got '{line}'", file.display());
+            };
+            if kept_path.starts_with('/') || kept_path.split('/').any(|part| part == "..") {
+                fail!("{}: '{kept_path}' must be inside the checkout", file.display());
+            }
+            kept.push(kept_path.to_string());
             continue;
         }
         let cap = fields.next().unwrap_or("");
@@ -53,7 +77,7 @@ pub fn build_dirs(top: &Path) -> Result<Vec<BuildDir>> {
         let cap_kib = cap_kib(cap, &format!("{}: '{path}'", file.display()))?;
         entries.push(BuildDir { path: path.to_string(), cap_kib });
     }
-    Ok(entries)
+    Ok((entries, kept))
 }
 
 /// <cap> (20G, 500M) in KiB; fails naming <what> when it is neither.
@@ -172,6 +196,20 @@ mod tests {
                 Err(fail::Fail::Message(message)) => assert!(message.contains(says), "{message}"),
                 other => panic!("{bad}: {other:?}"),
             }
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn keep_lines() {
+        let dir = std::env::temp_dir().join(format!("builds-manifest-keep-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(MANIFEST), "bae/.build 2G\nkeep bae/.build/run\n").unwrap();
+        assert_eq!(build_dirs(&dir).unwrap(), vec![BuildDir { path: "bae/.build".into(), cap_kib: 2 * GIB }]);
+        assert_eq!(kept_builds(&dir).unwrap(), vec!["bae/.build/run".to_string()]);
+        for bad in ["keep\n", "keep a b\n", "keep ../x\n"] {
+            std::fs::write(dir.join(MANIFEST), bad).unwrap();
+            assert!(kept_builds(&dir).is_err(), "{bad} passed");
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }

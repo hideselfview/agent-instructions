@@ -117,3 +117,30 @@ fn an_old_swiftpm_configuration_goes_and_its_link_target_alone() {
     assert!(build.join("arm64-apple-macosx/debug/Lib.build/out").exists());
     assert!(build.join("checkouts/dep/debug/file").exists(), "a dependency's folder was taken for a build");
 }
+
+#[test]
+fn a_kept_tree_stays_in_main_and_the_app_checkout_but_not_in_another_worktree() {
+    let scratch = Scratch::new("trees-kept");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    repo(&main, "app/.build 1G\nkeep app/.build/run\n");
+    let side = scratch.dir.join("demo-worktrees/side-1");
+    crate::testing::git(&main, &["worktree", "add", "-q", "--detach", &side.display().to_string()]);
+    let other = scratch.dir.join("demo-worktrees/side-2");
+    crate::testing::git(&main, &["worktree", "add", "-q", "--detach", &other.display().to_string()]);
+    std::fs::create_dir_all(tool.places.root.join("demo")).unwrap();
+    std::fs::write(tool.places.app_checkout_file("demo"), "side-1\n").unwrap();
+
+    for (top, name, kept) in [(&main, "main", true), (&side, "side-1", true), (&other, "side-2", false)] {
+        let checkout = Checkout::find(&top.display().to_string()).unwrap();
+        setup(&tool, &checkout).unwrap();
+        let build = tool.places.root.join("demo").join(name).join("app/.build");
+        xcode_tree(&build.join("run"), 8);
+        xcode_tree(&build.join("unsigned"), 8);
+        age_all(&build.join("run"), 24 * 10);
+        age_all(&build.join("unsigned"), 24 * 10);
+        setup(&tool, &checkout).unwrap();
+        assert_eq!(build.join("run").exists(), kept, "{name}: the kept tree");
+        assert!(!build.join("unsigned").exists(), "{name}: an unkept unused tree was kept");
+    }
+}
