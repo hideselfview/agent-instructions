@@ -49,7 +49,7 @@
     },
     "claude-opus-5-5": {
       "effortLevel": "high",
-      "autoCompactWindow": 700000
+      "autoCompactWindow": 500000
     }
   },
   "tui": "fullscreen",
