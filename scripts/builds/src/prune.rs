@@ -305,9 +305,8 @@ fn prune_listed(run: Run, what: &str, listing: std::result::Result<Vec<PathBuf>,
     }
 }
 
-/// The entries directly in <folders> older than <days> days as macOS's find
-/// `-mtime +<days>` counts them (whole days, rounded down, more than <days>:
-/// `+1` takes two days), owned by <uid>, that <pick> picks.
+/// The entries directly in <folders> nothing wrote to for more than <days>
+/// days, owned by <uid>, that <pick> picks.
 fn old_entries(
     folders: &[PathBuf],
     days: i64,
@@ -327,7 +326,7 @@ fn old_entries(
                 Err(error) => return Err(format!("{}: {error}", entry.path().display())),
             };
             let name = entry.file_name().to_string_lossy().into_owned();
-            if (now - meta.mtime()).div_euclid(86400) > days && meta.uid() == uid && pick(&name, &meta) {
+            if now - meta.mtime() > days * 86400 && meta.uid() == uid && pick(&name, &meta) {
                 found.push(entry.path());
             }
         }
@@ -490,3 +489,7 @@ pub fn empty_trash(tool: &Tool) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "prune_tests.rs"]
+mod tests;
