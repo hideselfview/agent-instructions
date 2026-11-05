@@ -16,6 +16,7 @@ use crate::temp_builds::temp_build_folders;
 use crate::text::{human, note};
 use crate::tool::Tool;
 use crate::units;
+use crate::usage::Measure;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Run {
@@ -46,12 +47,13 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
     );
     let freed = units::prune::prune(&ages, run.dry(), &folders)?;
     let claimed = checkout.claim_file().is_file();
+    // Measured together, after the pruning: deleting one folder changes no
+    // other's size.
+    let measures = tool.measure_all(&folders)?;
     for entry in &manifest {
         let folder = root.join(&entry.path);
-        if !folder.is_dir() {
-            continue;
-        }
-        let measured = tool.measure(&folder)?;
+        let Some(at) = folders.iter().position(|f| *f == folder) else { continue };
+        let measured = measures[at];
         let mut kib = measured.kib;
         if run.dry() {
             // Nothing was deleted; measure the folder as pruning would leave
@@ -130,17 +132,24 @@ pub struct Entry {
     pub newest: i64,
 }
 
-/// DerivedData's entries, least recently written first.
-pub fn derived_data_entries(tool: &Tool) -> Result<Vec<Entry>> {
+/// DerivedData as a whole, and its entries, least recently written first,
+/// measured together.
+pub fn derived_data(tool: &Tool) -> Result<(Measure, Vec<Entry>)> {
     let dir = tool.places.derived_data();
-    let mut entries = Vec::new();
+    let mut paths = vec![dir.clone()];
     for name in crate::text::glob_names(&dir)? {
-        let path = dir.join(name);
-        let measured = tool.measure(&path)?;
-        entries.push(Entry { path, kib: measured.kib, newest: measured.newest.unwrap_or(0) });
+        paths.push(dir.join(name));
     }
+    let mut measures = tool.measure_all(&paths)?.into_iter();
+    let total = measures.next().expect("the folder was measured");
+    let mut entries: Vec<Entry> = paths
+        .into_iter()
+        .skip(1)
+        .zip(measures)
+        .map(|(path, measured)| Entry { path, kib: measured.kib, newest: measured.newest.unwrap_or(0) })
+        .collect();
     entries.sort_by(|a, b| a.newest.cmp(&b.newest).then_with(|| a.path.cmp(&b.path)));
-    Ok(entries)
+    Ok((total, entries))
 }
 
 /// Deletes DerivedData entries, least recently written first: with <idle>
@@ -154,12 +163,13 @@ pub fn prune_derived_data(tool: &Tool, run: Run, idle: u64) -> Result<()> {
         return Ok(());
     }
     let cap = DERIVED_DATA_CAP_KIB;
-    let mut total = tool.measure(&dir)?.kib;
+    let (measured, entries) = derived_data(tool)?;
+    let mut total = measured.kib;
     if idle == 0 && total <= cap {
         return Ok(());
     }
-    for entry in derived_data_entries(tool)? {
-        let measured = crate::usage::Measure { kib: entry.kib, newest: Some(entry.newest) };
+    for entry in entries {
+        let measured = Measure { kib: entry.kib, newest: Some(entry.newest) };
         let reason = if idle > 0 && !tool.written_within(&measured, idle) {
             format!("{}, no write in {idle}m", human(entry.kib))
         } else if total > cap && !tool.written_within(&measured, FLOOR_IDLE_MINUTES) {
@@ -229,15 +239,13 @@ pub fn prune_caches(tool: &Tool, run: Run) -> Result<()> {
     if !caches.is_dir() {
         return Ok(());
     }
-    for cache in SHARED_CACHES {
-        if cache.name == "sccache" {
-            continue;
-        }
-        let dir = caches.join(cache.name);
-        if !dir.is_dir() {
-            continue;
-        }
-        let measured = tool.measure(&dir)?;
+    let capped: Vec<_> = SHARED_CACHES
+        .iter()
+        .filter(|cache| cache.name != "sccache" && caches.join(cache.name).is_dir())
+        .collect();
+    let dirs: Vec<PathBuf> = capped.iter().map(|cache| caches.join(cache.name)).collect();
+    let measures = tool.measure_all(&dirs)?;
+    for ((cache, dir), measured) in capped.into_iter().zip(dirs).zip(measures) {
         if measured.kib <= cache.cap_kib {
             continue;
         }
@@ -387,8 +395,9 @@ pub fn prune_test_temps(tool: &Tool, run: Run) -> Result<()> {
 /// last FLOOR_IDLE_MINUTES (a build between two of its steps holds no file
 /// open) and no process holds a file in is deleted.
 pub fn prune_temp_builds(tool: &Tool, run: Run) -> Result<()> {
-    for folder in temp_build_folders(&tool.places)? {
-        let measured = tool.measure(&folder)?;
+    let folders = temp_build_folders(&tool.places)?;
+    let measures = tool.measure_all(&folders)?;
+    for (folder, measured) in folders.into_iter().zip(measures) {
         if tool.written_within(&measured, FLOOR_IDLE_MINUTES) {
             continue;
         }

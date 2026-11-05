@@ -18,7 +18,7 @@ use crate::evict::{Recreate, Removal, evict};
 use crate::fail::{Fail, Result};
 use crate::manifest::{SHARED_CACHES, build_dirs};
 use crate::places::FLOOR_IDLE_MINUTES;
-use crate::prune::derived_data_entries;
+use crate::prune::derived_data;
 use crate::text::{human, local_minute, note};
 use crate::tool::Tool;
 use crate::usage::Measure;
@@ -48,7 +48,7 @@ fn floor_candidates(tool: &Tool, roots: &[Root]) -> Result<Vec<Candidate>> {
             }
         }
     }
-    let measured = crate::usage::measure_many(&paths)?;
+    let measured = tool.measure_all(&paths)?;
     let mut candidates: Vec<Candidate> =
         paths.into_iter().zip(measured).map(|(path, measured)| Candidate { path, measured }).collect();
     candidates.sort_by(|a, b| {
@@ -84,20 +84,21 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
         }
         free = tool.free_kib()?;
     }
-    for root in roots {
+    let gone: Vec<&Root> = roots.iter().filter(|root| root.live.is_none()).collect();
+    let gone_paths: Vec<PathBuf> = gone.iter().map(|root| root.path.clone()).collect();
+    let gone_measures = if free >= floor { Vec::new() } else { tool.measure_all(&gone_paths)? };
+    for (root, measured) in gone.into_iter().zip(gone_measures) {
         if free >= floor {
             break;
         }
-        if root.live.is_some() {
-            continue;
-        }
-        let kib = tool.measure(&root.path)?.kib;
+        let kib = measured.kib;
         if evict(&tool.places, &root.path, Recreate::No, Removal::Now)? {
             note(format!("deleted {} ({}; its checkout is gone)", root.path.display(), human(kib)));
             free = tool.free_kib()?;
         }
     }
-    for entry in derived_data_entries(tool)? {
+    let entries = if free >= floor { Vec::new() } else { derived_data(tool)?.1 };
+    for entry in entries {
         if free >= floor {
             break;
         }
@@ -163,26 +164,33 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
     for candidate in biggest.iter().take(8) {
         lines.push(format!("    {}  {}", human(candidate.measured.kib), candidate.path.display()));
     }
-    let derived_data = tool.places.derived_data();
-    if derived_data.is_dir() {
-        lines.push(format!(
-            "    {}  {} (entries in use or written lately)",
-            human(tool.measure(&derived_data)?.kib),
-            derived_data.display()
-        ));
-    }
-    lines.push("Kept warm:".to_string());
+    let derived = tool.places.derived_data();
+    let mut warm = Vec::new();
     for root in roots {
         if root.live.is_some() && root.keeps_warm(&tool.places)? {
-            lines.push(format!("    {}  {}", human(tool.measure(&root.path)?.kib), root.path.display()));
+            warm.push(root.path.clone());
         }
     }
+    let caches: Vec<PathBuf> = SHARED_CACHES
+        .iter()
+        .map(|cache| tool.places.caches().join(cache.name))
+        .filter(|dir| dir.is_dir())
+        .collect();
+    let mut asked = vec![derived.clone()];
+    asked.extend(warm.iter().cloned());
+    asked.extend(caches.iter().cloned());
+    let mut kib = tool.measure_all(&asked)?.into_iter().map(|measured| measured.kib);
+    let derived_kib = kib.next().expect("measured");
+    if derived.is_dir() {
+        lines.push(format!("    {}  {} (entries in use or written lately)", human(derived_kib), derived.display()));
+    }
+    lines.push("Kept warm:".to_string());
+    for path in &warm {
+        lines.push(format!("    {}  {}", human(kib.next().expect("measured")), path.display()));
+    }
     lines.push("Shared caches, which only their caps delete:".to_string());
-    for cache in SHARED_CACHES {
-        let dir = tool.places.caches().join(cache.name);
-        if dir.is_dir() {
-            lines.push(format!("    {}  {}", human(tool.measure(&dir)?.kib), dir.display()));
-        }
+    for dir in &caches {
+        lines.push(format!("    {}  {}", human(kib.next().expect("measured")), dir.display()));
     }
     lines.push(
         "Retire finished side worktrees (builds retire), or delete idle build folders (builds prune --idle <minutes>)."

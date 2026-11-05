@@ -13,23 +13,17 @@ use crate::fail;
 use crate::fail::Result;
 use crate::install::sccache_config_holds;
 use crate::manifest::{BuildDir, SHARED_CACHES, build_dirs};
-use crate::places::{DERIVED_DATA_CAP_KIB, FLOOR_IDLE_MINUTES, Places};
-use crate::prune::derived_data_entries;
+use crate::places::{DERIVED_DATA_CAP_KIB, FLOOR_IDLE_MINUTES, MACOS_ENTRIES, Places};
+use crate::prune::derived_data;
 use crate::temp_builds::temp_build_folders;
 use crate::text::{glob_names, human, last_write, tilde};
 use crate::tool::{Tool, volume_space};
 
-/// macOS's own entries at the root of a volume; status leaves them out.
-const SYSTEM_ENTRIES: [&str; 8] = [
-    ".DS_Store",
-    ".Spotlight-V100",
-    ".fseventsd",
-    ".TemporaryItems",
-    ".Trashes",
-    ".DocumentRevisions-V100",
-    ".VolumeIcon.icns",
-    ".com.apple.timemachine.donotpresent",
-];
+/// What status leaves out at the volume's root: macOS's own entries and
+/// the daemon's folder.
+fn left_out(name: &str) -> bool {
+    MACOS_ENTRIES.contains(&name) || name == ".builds-daemon"
+}
 
 /// What a repo's folder on the volume holds, in glob order.
 pub enum RepoEntry {
@@ -80,7 +74,7 @@ pub fn repos(places: &Places) -> Result<Vec<Repo>> {
     let mut root_paths = Vec::new();
     for name in glob_names(&places.root)? {
         let dir = places.root.join(&name);
-        if SYSTEM_ENTRIES.contains(&name.to_string_lossy().as_ref()) {
+        if left_out(&name.to_string_lossy()) {
             continue;
         }
         if dir == places.trash() || dir == places.derived_data() || dir == places.caches() {
@@ -236,8 +230,8 @@ fn xcode_derived_data() -> Option<String> {
 fn derived_data_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
     let dir = tool.places.derived_data();
     let cap = DERIVED_DATA_CAP_KIB;
-    let kib = tool.measure(&dir)?.kib;
-    let entries = derived_data_entries(tool)?;
+    let (measured, entries) = derived_data(tool)?;
+    let kib = measured.kib;
     let newest = entries.last().map(|entry| entry.newest).unwrap_or(0);
     let over = if kib > cap { "OVER CAP" } else { "" };
     out.push(format!(
@@ -364,8 +358,10 @@ pub fn cmd_status(tool: &mut Tool, args: &[String]) -> Result<()> {
     let temps = temp_build_folders(&tool.places)?;
     let mut ahead = status_folders(&repos)?;
     ahead.extend(temps.iter().cloned());
-    for name in [".trash", "DerivedData"] {
-        ahead.push(tool.places.root.join(name));
+    for name in glob_names(&tool.places.root)? {
+        if !left_out(&name.to_string_lossy()) {
+            ahead.push(tool.places.root.join(name));
+        }
     }
     for name in glob_names(&tool.places.derived_data())? {
         ahead.push(tool.places.derived_data().join(name));
@@ -377,7 +373,7 @@ pub fn cmd_status(tool: &mut Tool, args: &[String]) -> Result<()> {
     let mut out = Vec::new();
     for name in glob_names(&tool.places.root)? {
         let entry = tool.places.root.join(&name);
-        if SYSTEM_ENTRIES.contains(&name.to_string_lossy().as_ref()) {
+        if left_out(&name.to_string_lossy()) {
             continue;
         }
         if entry == tool.places.trash() && entry.is_dir() {

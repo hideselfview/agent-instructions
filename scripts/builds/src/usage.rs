@@ -25,7 +25,7 @@ pub const CLONE_MIN: u64 = 1 << 20;
 const WORKERS: usize = 8;
 
 /// What a folder takes and its newest write.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Measure {
     pub kib: u64,
     /// The newest modification time of the folder and anything inside it,
@@ -105,13 +105,18 @@ impl Seen {
 
 /// Measures <path>, a file or a whole folder; a missing path takes 0. The
 /// walk stays on <path>'s device and never follows a link.
+#[cfg(test)]
 pub fn measure(path: &Path) -> Result<Measure> {
     measure_with(path, WORKERS)
 }
 
 /// Measures each of <paths> on its own (a block two of them share counts in
-/// both), several at a time.
+/// both): one path walked several folders at a time, several paths each
+/// walked by one thread.
 pub fn measure_many(paths: &[PathBuf]) -> Result<Vec<Measure>> {
+    if let [path] = paths {
+        return Ok(vec![measure_with(path, WORKERS)?]);
+    }
     crate::checkout::parallel_map(paths, |path| measure_with(path, 1)).into_iter().collect()
 }
 

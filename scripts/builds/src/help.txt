@@ -95,11 +95,12 @@ Commands:
                               each app lock's holder; exits 1 when something
                               needs acting on
   builds dashboard [--port <port>]
-                              serve a page on 127.0.0.1 (port 7787) showing
-                              every checkout: its state, claim and note, the
-                              commits waiting to land, uncommitted files,
-                              build sizes, free space, the app.lock holder;
-                              by repo or in lanes by state
+                              run the daemon until killed: it follows the
+                              volume through FSEvents, keeps every folder's
+                              size and last write current, and answers the
+                              commands' questions about sizes on
+                              <root>/.builds-daemon/socket; a command with
+                              no daemon measures itself
   builds prune [--dry-run] [--idle <minutes> [--include-warm]]
                               delete every checkout's unused build copies
                               (below) and apply every cap; delete roots whose

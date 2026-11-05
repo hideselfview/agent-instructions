@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::checkout::{Root, all_roots};
+use crate::daemon::client;
 use crate::fail::Result;
 use crate::places::{Places, Rules};
-use crate::usage::{Measure, measure, measure_many};
+use crate::usage::{Measure, measure_many};
 
 pub struct Tool {
     pub places: Places,
@@ -27,21 +28,51 @@ impl Tool {
         Tool { places, rules, now, measured: HashMap::new() }
     }
 
-    /// <path>'s size and newest write: measured ahead, else now. Deciding
-    /// commands never measure ahead, so a size after their own deletions is
-    /// read fresh.
+    /// <path>'s size and newest write, counting every write made before
+    /// the call: measured ahead, else the daemon's answer, else measured now.
     pub fn measure(&self, path: &Path) -> Result<Measure> {
-        match self.measured.get(path) {
-            Some(measured) => Ok(*measured),
-            None => measure(path),
-        }
+        Ok(self.measure_all(&[path.to_path_buf()])?.remove(0))
     }
 
-    /// Measures every one of <paths> now, several at a time, for `measure`
-    /// to answer from.
+    /// Each of <paths>' size and newest write, counting every write made
+    /// before the call: measured ahead, else the daemon's answers, asked
+    /// together, else measured now, several at a time. Deciding commands
+    /// never measure ahead, so a size after their own deletions is fresh.
+    pub fn measure_all(&self, paths: &[PathBuf]) -> Result<Vec<Measure>> {
+        let wanted: Vec<PathBuf> = paths.iter().filter(|p| !self.measured.contains_key(*p)).cloned().collect();
+        let learned = self.learn(&wanted, true)?;
+        Ok(paths
+            .iter()
+            .map(|path| match self.measured.get(path) {
+                Some(measured) => *measured,
+                None => learned[wanted.iter().position(|w| w == path).expect("asked above")],
+            })
+            .collect())
+    }
+
+    /// <paths>' sizes from the daemon (<fresh>: see `Question`), the rest
+    /// measured here.
+    fn learn(&self, paths: &[PathBuf], fresh: bool) -> Result<Vec<Measure>> {
+        if paths.is_empty() {
+            return Ok(Vec::new());
+        }
+        let answers =
+            client::measure(&self.places, paths, fresh).unwrap_or_else(|| paths.iter().map(|_| None).collect());
+        let unanswered: Vec<PathBuf> =
+            paths.iter().zip(&answers).filter(|(_, a)| a.is_none()).map(|(p, _)| p.clone()).collect();
+        let mut measured = measure_many(&unanswered)?.into_iter();
+        Ok(answers
+            .into_iter()
+            .map(|answer| answer.unwrap_or_else(|| measured.next().expect("one measure per unanswered path")))
+            .collect())
+    }
+
+    /// Learns every one of <paths> now, for `measure` to answer from: the
+    /// daemon's answers without waiting for the last second's writes (status
+    /// shows them; nothing decides on them), the rest measured.
     pub fn measure_ahead(&mut self, paths: Vec<PathBuf>) -> Result<()> {
-        let measured = measure_many(&paths)?;
-        self.measured.extend(paths.into_iter().zip(measured));
+        let learned = self.learn(&paths, false)?;
+        self.measured.extend(paths.into_iter().zip(learned));
         Ok(())
     }
 

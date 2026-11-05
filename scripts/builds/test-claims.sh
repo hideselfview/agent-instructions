@@ -147,6 +147,36 @@ refuses "is one of waiting-on-you, winding-down, got ''" note "$side" --state
     || fail "side-1's size: $(cat "$scratch/full.json")"
 refuses "usage: builds status" status --sizes
 
+# The binary's daemon follows the scratch volume; status asks it for the
+# sizes, and says the same as when it measured them itself. A second daemon
+# on the same volume is refused; once the daemon is gone, status measures
+# again.
+if [ -n "${BUILDS:-}" ]; then
+    "$builds" dashboard 2>"$scratch/daemon.log" &
+    server=$!
+    for _ in $(seq 100); do
+        grep -q 'following ' "$scratch/daemon.log" && break
+        sleep 0.1
+    done
+    grep -q 'following ' "$scratch/daemon.log" || fail "the daemon did not follow the volume: $(cat "$scratch/daemon.log")"
+    "$builds" status --json > "$scratch/daemon.json"
+    [ "$(json '[(c["name"], c["total_kib"]) for c in d["repos"][0]["checkouts"]]' < "$scratch/daemon.json")" \
+        = "$(json '[(c["name"], c["total_kib"]) for c in d["repos"][0]["checkouts"]]' < "$scratch/full.json")" ] \
+        || fail "the daemon's sizes differ: $(cat "$scratch/daemon.json") against $(cat "$scratch/full.json")"
+    head -c 1048576 /dev/urandom > "$BUILDS_ROOT/demo/side-1/target/more"
+    "$builds" prune --dry-run 2>/dev/null
+    [ "$(json 'd["repos"][0]["checkouts"][1]["total_kib"] >= 3072' < <("$builds" status --json))" = true ] \
+        || fail "the daemon missed a write: $("$builds" status --json)"
+    rm "$BUILDS_ROOT/demo/side-1/target/more"
+    refuses "a daemon already answers on" dashboard
+    kill "$server"
+    wait "$server" 2>/dev/null || true
+    server=""
+    "$builds" status --json > "$scratch/after.json"
+    [ "$(json 'd["repos"][0]["checkouts"][1]["total_kib"] >= 2048' < "$scratch/after.json")" = true ] \
+        || fail "status after the daemon stopped: $(cat "$scratch/after.json")"
+fi
+
 # Sizes count each block once: a folder holding an APFS clone (cp -c) counts
 # the shared blocks once, where du counts them twice; one call measures every
 # path, in order, each on its own.

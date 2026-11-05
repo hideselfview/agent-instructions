@@ -4,6 +4,7 @@
 mod cargo_run;
 mod checkout;
 mod claim;
+mod daemon;
 mod evict;
 mod fail;
 mod floor;
@@ -84,6 +85,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "units" => units::cmd_units(args),
         "du" => usage::cmd_du(args),
         "health" => health::cmd_health(&tool, args),
+        "dashboard" => daemon::cmd_dashboard(&tool, args),
         other => fail!(
             "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | status | health | dashboard | prune | cargo | record-use | install)"
         ),

@@ -20,6 +20,21 @@ pub const DERIVED_DATA_CAP_KIB: u64 = 15 * 1024 * 1024;
 /// `prune` deletes a DerivedData entry nothing wrote to for this long: a day
 /// of work keeps what that day's one-off runs resolved.
 pub const DERIVED_DATA_IDLE_MINUTES: u64 = 1440;
+/// The port `dashboard` serves on unless `--port` names another.
+pub const DASHBOARD_PORT: u16 = 7787;
+
+/// macOS's own entries at the root of a volume. Nothing builds there, and
+/// most are closed to the user.
+pub const MACOS_ENTRIES: [&str; 8] = [
+    ".DS_Store",
+    ".Spotlight-V100",
+    ".fseventsd",
+    ".TemporaryItems",
+    ".Trashes",
+    ".DocumentRevisions-V100",
+    ".VolumeIcon.icns",
+    ".com.apple.timemachine.donotpresent",
+];
 
 #[derive(Clone, Debug)]
 pub struct Places {
@@ -95,6 +110,17 @@ impl Places {
     /// Claude Code sessions' scratch folders: /private/tmp/claude-<uid>.
     pub fn scratch_base(&self) -> PathBuf {
         self.private_tmp.join(format!("claude-{}", self.uid))
+    }
+
+    /// The daemon's own folder: its socket, and the marks it writes to know
+    /// FSEvents has delivered everything before a question.
+    pub fn daemon_dir(&self) -> PathBuf {
+        self.root.join(".builds-daemon")
+    }
+
+    /// The socket the daemon answers on; one daemon per root.
+    pub fn daemon_socket(&self) -> PathBuf {
+        self.daemon_dir().join("socket")
     }
 
     pub fn require_volume(&self) -> Result<()> {
