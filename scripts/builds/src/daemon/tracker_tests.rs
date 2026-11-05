@@ -54,3 +54,35 @@ fn follows_writes_links_clones_renames_and_deletions() {
 
     assert_eq!(tracker.measure(&[scratch.dir.join("elsewhere")], true), vec![None], "a path outside the root was answered");
 }
+
+#[test]
+fn a_replaced_root_is_walked_again() {
+    let scratch = Scratch::new("tracker-root");
+    let base = std::fs::canonicalize(&scratch.dir).unwrap();
+    let root = base.join("volume");
+    fill(&root.join("demo/main/target/a"), 100);
+    let tracker = Tracker::start(&root, &root.join(".builds-daemon")).unwrap();
+    tracker.wait_ready();
+    // The volume goes and another comes back in its place.
+    std::fs::rename(&root, base.join("old")).unwrap();
+    fill(&root.join("demo/main/target/b"), 300);
+    std::fs::create_dir_all(root.join(".builds-daemon")).unwrap();
+    tracker.wait_walks(2);
+    agrees(&tracker, &[root.join("demo/main/target"), root.join("demo")], "after the root came back");
+}
+
+#[test]
+fn dropped_events_and_a_rescan_read_the_disk_again() {
+    let scratch = Scratch::new("tracker-rescan");
+    let root = std::fs::canonicalize(&scratch.dir).unwrap().join("volume");
+    fill(&root.join("demo/side-1/target/a"), 100);
+    let tracker = Tracker::start(&root, &root.join(".builds-daemon")).unwrap();
+    tracker.wait_ready();
+    fill(&root.join("demo/side-1/target/deep/b"), 200);
+    std::fs::remove_file(root.join("demo/side-1/target/a")).unwrap();
+    tracker.on_events(vec![Event { path: root.join("demo/side-1"), flags: flags::MUST_SCAN_SUBDIRS }]);
+    agrees(&tracker, &[root.join("demo/side-1/target")], "after a rescan of a subtree");
+    fill(&root.join("demo/side-2/target/c"), 50);
+    tracker.on_events(vec![Event { path: root.clone(), flags: flags::USER_DROPPED }]);
+    agrees(&tracker, &[root.join("demo/side-2/target"), root.join("demo")], "after dropped events");
+}

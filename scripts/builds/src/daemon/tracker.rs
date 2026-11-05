@@ -40,6 +40,8 @@ struct Flags {
     followed: Option<(u64, u64)>,
     /// The root's stream needs starting again.
     restart: bool,
+    /// How many times the root has been walked whole.
+    walks: u64,
 }
 
 /// The marks questions write, and how far the stream has delivered them.
@@ -176,6 +178,7 @@ impl Tracker {
                     }
                     if flags.pending.is_empty() {
                         flags.ready = true;
+                        flags.walks += 1;
                         self.wake.notify_all();
                         break;
                     }
@@ -442,8 +445,14 @@ impl Tracker {
     /// Blocks until the whole root is followed.
     #[cfg(test)]
     pub fn wait_ready(&self) {
+        self.wait_walks(1);
+    }
+
+    /// Blocks until the root has been walked whole <n> times and is followed.
+    #[cfg(test)]
+    pub fn wait_walks(&self, n: u64) {
         let mut flags = self.flags.lock().expect("no panic holding it");
-        while !flags.ready {
+        while !(flags.ready && flags.walks >= n) {
             flags = self.wake.wait(flags).expect("no panic holding it");
         }
     }
