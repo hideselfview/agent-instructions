@@ -62,8 +62,13 @@ project's lists, worktrees and landing worktree.
   dashboard (`builds dashboard`) shows the same.
 - Read-only agents (planners, audits) read through `git show`/`git grep` on
   `origin/main`, never a checkout.
-- Watch disk before starting an agent that needs a cold build: under the builds
-  tool's warning floor, wait for a slot.
+- Disk is a queue limit, never a question for the person. Under the builds
+  tool's floor, start nothing new; work waits in the queue. As agents finish,
+  release their worktrees, let `builds prune --idle` delete their build folders,
+  and start the next work. Never ask the person to clear warm checkouts to make
+  room.
+- Keep the queue moving: when an agent finishes, land its commits and start the
+  next work in the same turn, before writing up anything else.
 
 ## Landing
 
