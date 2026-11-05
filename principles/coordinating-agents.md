@@ -67,8 +67,13 @@ project's lists, worktrees and landing worktree.
   release their worktrees, let `builds prune --idle` delete their build folders,
   and start the next work. Never ask the person to clear warm checkouts to make
   room.
+- Load is a queue limit too. While `builds health` shows load well over the core
+  count, start nothing new: running agents carry on, and work waits in the queue
+  until enough of them have finished to bring the load down. Too many builds at
+  once make every one of them slower; none finishes sooner.
 - Keep the queue moving: when an agent finishes, land its commits and start the
-  next work in the same turn, before writing up anything else.
+  next work in the same turn (within the limits above), before writing up
+  anything else.
 
 ## Landing
 
