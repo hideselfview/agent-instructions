@@ -335,7 +335,9 @@ pub fn assess(
         let building: Vec<BuildProcess> = machine.builds.iter().filter(|b| b.place == place).cloned().collect();
         let quiet_minutes = git.activity().map(|when| minutes_since(now, when));
         let label = places[place].label.clone();
-        if building.is_empty() && quiet_minutes.is_none_or(|m| m >= QUIET_MINUTES) {
+        // A held claim is quiet on purpose: its note says why.
+        let held = claim.note_state.as_deref() == Some("held");
+        if !held && building.is_empty() && quiet_minutes.is_none_or(|m| m >= QUIET_MINUTES) {
             findings.push(format!(
                 "worktree: {label} ({}) has had no change for {} and no build runs there",
                 claim.who,
@@ -500,7 +502,11 @@ pub fn lines(health: &Health) -> Vec<String> {
             w.branch.as_deref().unwrap_or("detached"),
             w.claim.who,
             w.claim.since,
-            w.claim.note.as_ref().map(|n| format!(": {n}")).unwrap_or_default()
+            match (&w.claim.note_state, &w.claim.note) {
+                (Some(state), note) => format!(" ({}): {}", state.replace('-', " "), note.as_deref().unwrap_or("")),
+                (None, Some(note)) => format!(": {note}"),
+                (None, None) => String::new(),
+            }
         ));
         out.push(format!(
             "        {git}; last change {}; {}",
@@ -570,7 +576,51 @@ mod tests {
         .map(|s| s.to_string())
         .collect();
         assert_eq!(shell_command(&argv), "until ! pgrep -f 'cargo test'; do sleep 5; done");
-        assert!(runs_the_dashboard("~/dev/agent-instructions/scripts/builds/builds dashboard --port 7787"));
+        assert!(runs_the_dashboard("/Users/x/.local/bin/builds dashboard --port 7787"));
         assert!(!runs_the_dashboard("builds status"));
+    }
+
+    /// A claim with no change for hours and no build is idle, unless its
+    /// note says it is held.
+    #[test]
+    fn a_held_claim_is_not_idle() {
+        let now = 1_800_000_000;
+        let machine = Machine {
+            at: now,
+            load: [1.0; 3],
+            cores: 8,
+            builds: Vec::new(),
+            sccache: SccacheHealth { listening: true, executed: Some(1), compared: None, waiting: Vec::new() },
+            shells: Vec::new(),
+            locks: Vec::new(),
+        };
+        let place = |n: usize| Place {
+            label: format!("demo/side-{n}"),
+            top: PathBuf::from(format!("/demo-worktrees/side-{n}")),
+            root: PathBuf::from(format!("/volume/demo/side-{n}")),
+        };
+        let claimed = |n: usize, state: Option<&str>| Claimed {
+            place: n - 1,
+            claim: Claim {
+                who: format!("agent {n}"),
+                since: "2026-11-05 08:00".to_string(),
+                note: Some("kept for later".to_string()),
+                note_state: state.map(str::to_string),
+            },
+            branch: Some("work".to_string()),
+            git: SideGit { head: None, ahead: Vec::new(), uncommitted: Some(3), last_write: Some(now - 3 * 3600), error: None },
+        };
+        let health = assess(
+            now,
+            100 << 20,
+            30 << 20,
+            10 << 20,
+            machine,
+            &[place(1), place(2)],
+            vec![claimed(1, None), claimed(2, Some("held"))],
+        );
+        assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
+        assert!(health.findings[0].starts_with("worktree: demo/side-1 "), "{:?}", health.findings);
+        assert_eq!(health.worktrees.len(), 2);
     }
 }

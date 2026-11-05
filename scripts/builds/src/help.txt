@@ -65,11 +65,12 @@ Commands:
                               [--for <who>]: claim it for <who> (below)
   builds claim <checkout> <who>
                               record that <who> works in the side worktree
-  builds note <checkout> [--state waiting-on-you|winding-down] [<text>]
+  builds note <checkout> [--state waiting-on-you|winding-down|held] [<text>]
                               set the claim's one-line note, what its work
                               waits on; with no text, clear it. --state marks
                               what git can't show: the work waits on the
-                              person, or is finishing its last item; a note
+                              person, is finishing its last item, or is
+                              held on purpose with no work running; a note
                               without it has no state
   builds release <checkout>   remove its claim
   builds retire <checkout>    remove a side worktree and its build root
@@ -147,7 +148,9 @@ real lock, like the app checkout's app.lock. A claim may carry a one-line
 note of where its work stands ("waiting on Linux CI"), which `note` sets and
 status and the dashboard show, and the note may carry a state the dashboard
 can't read from git: waiting-on-you (a question or step only the person can
-take) or winding-down (the agent's last item, then its handoff). A claim
+take), winding-down (the agent's last item, then its handoff) or held
+(kept on purpose with no work running, the note saying why; health doesn't
+flag it as idle). A claim
 whose <who> ends in "(landing)" is the worktree its coordinator lands
 commits from.
 

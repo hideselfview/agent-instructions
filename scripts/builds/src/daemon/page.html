@@ -196,6 +196,7 @@ const STATES = {
   "ready-to-land": {label: "Ready to land", cls: "s-ready"},
   "winding-down": {label: "Winding down", cls: "s-winding"},
   "working": {label: "Working", cls: "s-working"},
+  "held": {label: "Held", cls: "s-winding"},
   "landing": {label: "Landing", cls: "s-free"},
   "free": {label: "Free", cls: "s-free"},
 };
@@ -203,7 +204,7 @@ const ORDER = Object.keys(STATES);
 const LANES = [
   {title: "Waiting on you", hint: "A question only you can answer, or a step only you can do.", dot: "--dot-you", states: ["waiting-on-you"]},
   {title: "Ready to land", hint: "Commits on the branch whose change main doesn’t have yet.", dot: "--dot-ready", states: ["ready-to-land"]},
-  {title: "Working", hint: "Claimed, with no commit waiting and nothing asked.", dot: "--dot-working", states: ["winding-down", "working", "landing"]},
+  {title: "Working", hint: "Claimed, with no commit waiting and nothing asked.", dot: "--dot-working", states: ["winding-down", "working", "held", "landing"]},
   {title: "Free", hint: "Unclaimed worktrees, ready for the next agent.", dot: "--dot-free", states: ["free"]},
 ];
 const VIEW_KEY = "builds-dashboard-view";
@@ -553,7 +554,7 @@ function compactApp(repo, c) {
 }
 function laneCard(repo, c) {
   const g = c.git, b = built(c);
-  const tag = c.state === "winding-down" || c.state === "landing" ? pill(stateOf(c).label, stateOf(c).cls) : null;
+  const tag = ["winding-down", "held", "landing"].includes(c.state) ? pill(stateOf(c).label, stateOf(c).cls) : null;
   let note = c.claim && c.claim.note ? c.claim.note : null;
   if (!c.claim) note = summary([detachedAt(c), b && b.total !== null ? size(b.total) + " build" : null]);
   else if (b && b.over.length) note = (note ? note + " " : "") + "Build folder over its cap.";

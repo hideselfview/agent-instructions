@@ -572,6 +572,8 @@ fn claimed_of(roots: &[Root], facts: &HashMap<PathBuf, Facts>, places: &[Place])
 ///                     can take
 ///     landing         its claim's who ends in "(landing)": the worktree a
 ///                     coordinator lands commits from
+///     held            its note says so: kept on purpose with no work
+///                     running, commits waiting to land or not
 ///     ready-to-land   commits waiting to land, claimed or not: unclaimed
 ///                     ones are work an agent left behind
 ///     winding-down    its note says so: the agent's last item, then its
@@ -588,6 +590,9 @@ pub fn worktree_state(claim: Option<&Claim>, git: Option<&SideGit>) -> &'static 
     }
     if claim.who.ends_with("(landing)") {
         return "landing";
+    }
+    if claim.note_state.as_deref() == Some("held") {
+        return "held";
     }
     if ahead {
         return "ready-to-land";

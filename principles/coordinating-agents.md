@@ -95,7 +95,10 @@ a schedule can do: nothing else wakes a session), the coordinator runs
 - **A Claude shell older than 2 hours:** read what it runs; stop it by PID when
   it waits on something that is over or never comes.
 - **A claimed worktree with no change and no build for an hour:** ask its agent
-  what it waits on, or land and release it if the work is done.
+  what it waits on, or land and release it if the work is done. A claim kept on
+  purpose with nothing running gets
+  `builds note <worktree> --state held "<why, and until when>"`, which health
+  doesn't flag.
 - **Disk under the floor:** hold the queue (Dispatch).
 - **An app lock held long, or with agents waiting:** check its holder is
   building, not stuck.

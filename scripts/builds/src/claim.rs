@@ -6,8 +6,9 @@
 //! hold one, and a session that ends without releasing leaves its claim behind
 //! (status shows its age). It may carry a one-line note of where its work
 //! stands, and the note may carry a state git can't show: waiting-on-you (a
-//! question or step only the person can take) or winding-down (the agent's
-//! last item, then its handoff). A claim whose who ends in "(landing)" is the
+//! question or step only the person can take), winding-down (the agent's
+//! last item, then its handoff) or held (kept on purpose with no work
+//! running, the note saying why and until when). A claim whose who ends in "(landing)" is the
 //! worktree its coordinator lands commits from.
 //!
 //! The file is one line in the worktree's git dir: `<who>\t<since>`, then
@@ -21,7 +22,7 @@ use crate::fail::Result;
 use crate::text::{local_minute, note};
 
 /// The states a note may carry.
-pub const NOTE_STATES: [&str; 2] = ["waiting-on-you", "winding-down"];
+pub const NOTE_STATES: [&str; 3] = ["waiting-on-you", "winding-down", "held"];
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Claim {

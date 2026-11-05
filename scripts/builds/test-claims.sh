@@ -124,8 +124,8 @@ grep -A1 '^demo/side-1 ' <<<"$("$builds" status)" | grep -q '^    note (waiting 
 [ "$(cut -f1,3,4 "$claim_file")" = "agent A	which schema to keep	waiting-on-you" ] || fail "re-claim dropped the state: '$(cat "$claim_file")'"
 since="$(cut -f2 "$claim_file")"
 refuses "needs the note's text" note "$side" --state winding-down
-refuses "is one of waiting-on-you, winding-down, got 'done'" note "$side" --state done finished
-refuses "is one of waiting-on-you, winding-down, got ''" note "$side" --state
+refuses "is one of waiting-on-you, winding-down, held, got 'done'" note "$side" --state done finished
+refuses "is one of waiting-on-you, winding-down, held, got ''" note "$side" --state
 [ "$(cut -f4 "$claim_file")" = waiting-on-you ] || fail "a refused note changed the claim: '$(cat "$claim_file")'"
 "$builds" note "$side" waiting on Linux CI 2>/dev/null
 [ "$(cat "$claim_file")" = "agent A	$since	waiting on Linux CI" ] || fail "a plain note kept the state: '$(cat "$claim_file")'"
@@ -274,6 +274,11 @@ states waiting-on-you waiting-on-you
 "$builds" release "$side2" 2>/dev/null
 "$builds" claim "$side2" "coordinator (landing)" 2>/dev/null
 states waiting-on-you landing
+# A held claim shows as held, commits waiting to land or not.
+"$builds" note "$side" --state held kept until step 8 lands 2>/dev/null
+grep -A1 '^demo/side-1 ' <<<"$("$builds" status)" | grep -q '^    note (held): kept until step 8 lands$' \
+    || fail "status doesn't show the hold: $("$builds" status)"
+states held landing
 "$builds" release "$side" 2>/dev/null
 [ ! -e "$claim_file" ] || fail "release left the claim"
 states ready-to-land landing

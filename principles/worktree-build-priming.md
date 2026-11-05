@@ -60,21 +60,23 @@ a failed build leaves the installed one as it was; a commit on main that touches
   nothing could hold one, and a claim left by a session that ended shows its age
   in `status`. One build at a time stays a real lock (`app.lock`).
 - `builds note <checkout> <text>` sets a one-line note on the side worktree's
-  claim, where its work stands ("waiting on Linux CI", "held: needs a
-  decision"); `builds note <checkout>` clears it. The note is a third
-  tab-separated field on the claim's line, so it goes with the claim; claiming
-  the worktree again for the same who renews the claim's date and keeps the
-  note. `status` prints it under the checkout. A claim whose who ends in
-  `(landing)` (`coordinator (landing)`) marks the worktree its coordinator lands
-  commits from.
-- `builds note <checkout> --state waiting-on-you|winding-down <text>` sets the
-  note with a state the dashboard can't read from git: `waiting-on-you` (a
-  question only the person can answer, or a step only they can take) or
-  `winding-down` (the agent's last item, then its handoff). The state is a
-  fourth field on the claim's line and needs the note's text; a plain `note`
-  sets the note without one, so a coordinator clears the state by writing the
-  next note. `status` prints it as `note (waiting on you): <text>`, and
-  `status --json` as the claim's `note_state` (null without one).
+  claim, where its work stands ("waiting on Linux CI"); `builds note <checkout>`
+  clears it. The note is a third tab-separated field on the claim's line, so it
+  goes with the claim; claiming the worktree again for the same who renews the
+  claim's date and keeps the note. `status` prints it under the checkout. A
+  claim whose who ends in `(landing)` (`coordinator (landing)`) marks the
+  worktree its coordinator lands commits from.
+- `builds note <checkout> --state waiting-on-you|winding-down|held <text>` sets
+  the note with a state the dashboard can't read from git: `waiting-on-you` (a
+  question only the person can answer, or a step only they can take),
+  `winding-down` (the agent's last item, then its handoff) or `held` (the claim
+  is kept on purpose with no work running, such as uncommitted work waiting for
+  another change to land; the note says why and until when). `health` doesn't
+  flag a held claim as idle, and the dashboard shows it as *Held* with its note.
+  The state is a fourth field on the claim's line and needs the note's text; a
+  plain `note` sets the note without one, so a coordinator clears the state by
+  writing the next note. `status` prints it as `note (waiting on you): <text>`,
+  and `status --json` as the claim's `note_state` (null without one).
 - `builds retire <checkout>` removes a clean, unclaimed side worktree and its
   build root; it refuses the app checkout.
 - `builds app-checkout <checkout>` records a side worktree as its repo's app
@@ -128,10 +130,11 @@ a failed build leaves the installed one as it was; a commit on main that touches
   says which (`cargo ×3, rustc`), with their CPU and memory.
   - **States.** Each side worktree gets one, the first that matches: *Waiting on
     you* (the note's state says so), *Landing* (the claim's who ends in
-    `(landing)`), *Ready to land* (commits waiting to land, claimed or not:
-    unclaimed ones are work an agent left behind), *Winding down* (the note's
-    state says so), *Working* (claimed), *Free* (unclaimed). A commit waits to
-    land when `origin/main` has no commit with the same change
+    `(landing)`), *Held* (the note's state says so), *Ready to land* (commits
+    waiting to land, claimed or not: unclaimed ones are work an agent left
+    behind), *Winding down* (the note's state says so), *Working* (claimed),
+    *Free* (unclaimed). A commit waits to land when `origin/main` has no commit
+    with the same change
     (`git log --cherry-pick --right-only origin/main...HEAD`): a coordinator
     lands by rebasing or cherry-picking, so a branch's own commits stay off
     `origin/main` by hash after they land.
@@ -139,7 +142,7 @@ a failed build leaves the installed one as it was; a commit on main that touches
     the browser: *By repo* (the default), a section per repo with its pinned
     cards and then its worktrees, sorted by state; and *Lanes*, the pinned cards
     in one row and then every worktree in a lane: Waiting on you, Ready to land,
-    Working (with Winding down and Landing tagged), Free.
+    Working (with Winding down, Held and Landing tagged), Free.
   - **Order and quiet.** Within each state (and each lane) the worktrees sort by
     last activity, newest first: the newer of HEAD's commit time and the newest
     modification time among the uncommitted files (`status --porcelain -z`, each
