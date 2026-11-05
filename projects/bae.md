@@ -90,6 +90,12 @@ components they affect. Commit and push after those checks pass; CI validates
 macOS, iOS, Android, Linux, and Windows concurrently. Reproduce an individual CI
 gate locally when it fails.
 
+Test a crate with the feature set the hook builds it with, so the test reuses
+the hook's build instead of making another copy of every crate:
+`scripts/cargo.sh test -p <crate> --features test-utils <filter>`, and
+`--features desktop` for bae-bridge. Another feature set is another copy; use
+one only to check that feature set itself.
+
 `scripts/check.sh` serializes every non-Windows CI gate on one machine. Run it
 only when explicitly validating the complete non-Windows system locally, not as
 the routine local gate before a commit or push.
