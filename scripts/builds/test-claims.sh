@@ -278,6 +278,9 @@ states waiting-on-you landing
 "$builds" note "$side" --state held kept until step 8 lands 2>/dev/null
 grep -A1 '^demo/side-1 ' <<<"$("$builds" status)" | grep -q '^    note (held): kept until step 8 lands$' \
     || fail "status doesn't show the hold: $("$builds" status)"
+# Health, asked right after, reads the claim as it is now.
+[ "$("$builds" health --json | json '[w["claim"]["note_state"] for w in d["worktrees"] if w["checkout"] == "demo/side-1"]')" = '["held"]' ] \
+    || fail "health missed the hold: $("$builds" health --json)"
 states held landing
 "$builds" release "$side" 2>/dev/null
 [ ! -e "$claim_file" ] || fail "release left the claim"

@@ -415,7 +415,7 @@ impl Model {
         while state.load.len() > LOAD_KEPT {
             state.load.pop_front();
         }
-        let claimed = claimed_of(&roots, &state.facts, &places);
+        let claimed = claimed_of(&roots, &state.facts, &places)?;
         let health = assess(now, free_kib, self.rules.floor_kib, self.rules.hard_floor_kib, machine.clone(), &places, claimed);
         state.machine = Some(machine);
         state.health = Some(health.clone());
@@ -551,7 +551,7 @@ fn folder_facts(entry: &BuildDir, folder: &Path, link: &Path, answer: Option<Mea
     }
 }
 
-fn claimed_of(roots: &[Root], facts: &HashMap<PathBuf, Facts>, places: &[Place]) -> Vec<Claimed> {
+fn claimed_of(roots: &[Root], facts: &HashMap<PathBuf, Facts>, places: &[Place]) -> crate::fail::Result<Vec<Claimed>> {
     let mut claimed = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
@@ -559,11 +559,15 @@ fn claimed_of(roots: &[Root], facts: &HashMap<PathBuf, Facts>, places: &[Place])
             continue;
         }
         let Some(facts) = facts.get(&root.path) else { continue };
-        let (Some(claim), Some(git)) = (&facts.claim, &facts.git) else { continue };
+        // The claim is read now, not taken from the facts: a command that
+        // just wrote one (`note --state held`) asks for health next, before
+        // the change has come through FSEvents.
+        let claim = Claim::read(&checkout.claim_file())?;
+        let (Some(claim), Some(git)) = (&claim, &facts.git) else { continue };
         let Some(place) = places.iter().position(|p| p.root == root.path) else { continue };
         claimed.push(Claimed { place, claim: claim.clone(), branch: facts.branch.clone(), git: git.clone() });
     }
-    claimed
+    Ok(claimed)
 }
 
 /// The one state the page shows for a live side worktree, first match wins:
