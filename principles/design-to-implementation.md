@@ -11,3 +11,11 @@ When a plan implements a design file:
   prose, and build and check against the markup.
 - Done means a screenshot of the built view compared against the design's
   render, before review and before merge.
+
+When drawing a design:
+
+- Start from what the code does today, then draw the screen the way the product
+  should work. Anything the code can't do yet, already queued or not, is drawn
+  anyway.
+- A note beside the design names each thing the code needs for it, with the file
+  and line of what it does today.
