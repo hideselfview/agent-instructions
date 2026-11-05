@@ -535,8 +535,36 @@ fine after a toolchain upgrade.
 - Fresh target dirs are fine: sccache does not need an existing `deps/`, and
   concurrent worktree creation does not race it. Failures blamed on that were
   one of the two causes above.
-- Sharing across checkouts is partial and no setting fixes it: registry crates
-  about 72% hits, git dependencies 0%, workspace crates about 29%.
+- Sharing across checkouts is partial and no setting of sccache 0.13 fixes it.
+  Measured 2026-11-05 (coven-database built in two fresh worktrees of one
+  commit, empty cache): the second worktree hit 92 of 126 cacheable compiles
+  (73%). The 34 misses are crates that read `OUT_DIR` (serde_core, thiserror,
+  libsqlite3-sys, ...) or depend on a proc-macro crate, whose dylib is rebuilt
+  per checkout and never cached. `SCCACHE_BASEDIRS` exists since 0.14.0 but
+  strips paths for C/C++ only until Rust support (PR #2918, merged to main
+  2026-11-02) ships; 0.19.0, the newest release, lacks it. It also needs one
+  prefix per checkout root in the server's config (a restart), so adopting it
+  waits for a release that has it.
+- What sccache never caches, by sccache's own reason: `crate-type` (build
+  scripts and proc-macros, 213 of 800 requests in a coven check/clippy/test
+  cycle), `incremental` (coven's workspace crates, whose profile has incremental
+  on) and `multiple input files` (every workspace crate clippy lints:
+  `sccache clippy-driver rustc ...` reads the rustc path as a second input). The
+  last is correct: a lint run has to run.
+- The cache held 19.5 hours of writes at 30 GiB on 2026-11-05 (18.9k entries),
+  not two days; 70% of its bytes are workspace-crate states of a unit that
+  already has an entry.
+- Incremental on or off (edit-and-recheck loop, user+sys CPU seconds, one added
+  constant; `clippy --all-targets`): coven off 84 / 28 (edit in foundation / in
+  sync), on 27 / 10; bae off 20 / 10 (edit in bae-db / bae-library), on 10 / 4.
+  sccache never sees clippy's workspace crates, so incremental off buys a hit
+  only when a worktree returns to an earlier source state for build or test. Do
+  not set `CARGO_INCREMENTAL=1` in the environment: sccache then refuses every
+  compile; use `profile.dev.incremental` in Cargo.toml.
+- `[profile.<p>.package."*"]` beats `[profile.<p>.build-override]`: with the
+  `"*"` override at opt-level 3, build scripts, proc-macros and their host
+  dependencies still compile at opt-level 3 whatever `build-override` says
+  (measured: 24 build scripts and 8 proc-macros stayed at 3).
 
 Keep `split-debuginfo` unpacked (the macOS default): packed was 33% slower and
 53% bigger, and off drops file:line from the top crate's frames.
