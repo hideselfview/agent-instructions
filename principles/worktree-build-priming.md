@@ -385,6 +385,22 @@ counts as used when cargo last built it.
   after cargo last rebuilt it, and its next build rebuilds that, mostly from
   sccache.
 
+**Idle incremental folders.** Cargo never deletes an
+`incremental/<crate>-<hash>` folder of an old hash (another feature set, older
+sources, the dev profile clippy, check and the hook use), so they fill a folder
+up to its cap: coven side-3's `target` stood at 44.9 GB under a 45 GB cap, 28 GB
+of it `debug/incremental`, and 112 of its 162 folders had not been written in
+two hours. So `setup` and `prune` also delete, in every profile folder of every
+checkout (main's and the app checkout's too), each incremental folder whose
+newest write anywhere inside it is more than six hours old
+(`BUILDS_INCREMENTAL_HOURS` overrides it), whether or not its unit is still in
+use. Losing one costs an incremental rebuild of its crate, mostly from sccache.
+It runs under the same guard as the rest of the prune: a profile whose cargo
+lock a build holds is skipped, and so is a folder a process holds a file in. The
+line it prints gives the count, the size freed (not counting `deps/` files the
+folder hard-links, which stay) and the three largest; a dry run
+(`builds prune --dry-run`) prints what it would delete.
+
 **Replaced build copies.** Three days is what keeps the copies a branch from the
 last few days builds against, and lowering it would delete what builds use
 cargo's report doesn't record (rust-analyzer, cargo typed by hand): at one day

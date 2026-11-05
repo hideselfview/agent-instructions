@@ -232,10 +232,13 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
 - **Build copies no build used for three days are deleted**, at the start of the
   next hook or build script in that checkout; the hooks and build scripts run
   cargo through `scripts/cargo.sh`, which records each copy cargo uses. Run
-  cargo through it in a new script too. **Folders are deleted whole when they
-  still pass their cap** in `.build-dirs`, and refilled by that build. Leave
-  main's and the app checkout's otherwise: the person installs from main and
-  tests from the app checkout. The free-space floor never deletes theirs.
+  cargo through it in a new script too. **Incremental folders nothing wrote to
+  for six hours are deleted** at the same moment, in every checkout including
+  main's and the app checkout; a build holding the target keeps them, and losing
+  one costs an incremental rebuild of its crate. **Folders are deleted whole
+  when they still pass their cap** in `.build-dirs`, and refilled by that build.
+  Leave main's and the app checkout's otherwise: the person installs from main
+  and tests from the app checkout. The free-space floor never deletes theirs.
   `builds status` shows each checkout's sizes.
 
 - **Sparkle is the SwiftPM dep that corrupts** (xcodebuild fails with "Couldn't

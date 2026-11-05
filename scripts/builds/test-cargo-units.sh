@@ -160,7 +160,7 @@ all="$(fingerprints)"
 old="$(comm -23 <(echo "$all") <(echo "$used"))"
 
 # A dry run deletes nothing.
-python3 "$units" prune 3 12 1 "$ws/target" > /dev/null 2>&1
+python3 "$units" prune 3 12 100000 1 "$ws/target" > /dev/null 2>&1
 [ "$(fingerprints)" = "$all" ] || fail "a dry run deleted something"
 
 # A build holding the profile folder's lock keeps everything.
@@ -168,7 +168,7 @@ python3 - "$profile/.cargo-lock" "$units" "$ws/target" <<'PY'
 import fcntl, os, subprocess, sys
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
 fcntl.flock(fd, fcntl.LOCK_EX)
-result = subprocess.run(["python3", sys.argv[2], "prune", "3", "12", "0", sys.argv[3]], capture_output=True, text=True)
+result = subprocess.run(["python3", sys.argv[2], "prune", "3", "12", "100000", "0", sys.argv[3]], capture_output=True, text=True)
 assert "a build holds its lock" in result.stderr, result.stderr
 PY
 [ "$(fingerprints)" = "$all" ] || fail "pruning deleted while a build held the lock"
@@ -181,7 +181,7 @@ if [ -n "$held_file" ]; then
     exec 3< "$held_file"
 fi
 
-python3 "$units" prune 3 12 0 "$ws/target" > /dev/null
+python3 "$units" prune 3 12 100000 0 "$ws/target" > /dev/null
 remaining="$(fingerprints)"
 if [ -n "$held_file" ]; then
     exec 3<&-
@@ -234,10 +234,10 @@ before="$(fingerprints | grep -vxF "$held_unit")"
 sed -i '' 's/^version = "0.1.1"/version = "0.1.2"/' dep/Cargo.toml
 build_all "$builds" cargo
 bumped="$(recent)"
-python3 "$units" prune 3 24 0 "$ws/target" > /dev/null 2>&1
+python3 "$units" prune 3 24 100000 0 "$ws/target" > /dev/null 2>&1
 [ "$(fingerprints)" = "$(sort <(echo "$before") <(echo "$bumped") | uniq)" ] \
     || fail "pruning deleted copies used within the last 24 hours: $(comm -23 <(sort <(echo "$before") <(echo "$bumped") | uniq) <(fingerprints))"
-python3 "$units" prune 3 12 0 "$ws/target" > /dev/null 2>&1
+python3 "$units" prune 3 12 100000 0 "$ws/target" > /dev/null 2>&1
 [ "$(fingerprints)" = "$bumped" ] \
     || fail "pruning kept $(comm -13 <(echo "$bumped") <(fingerprints)) and deleted $(comm -23 <(echo "$bumped") <(fingerprints))"
 for command in "build --all-targets" "doc --no-deps" "test --no-run"; do
@@ -302,5 +302,52 @@ exec 4<&-
 python3 "$units" trim 10 3700 0 "$trim_target" > /dev/null 2>&1
 [ -z "$(incrementals)" ] || fail "trimming over a cap it cannot reach left $(incrementals)"
 [ -f "$trim_profile/deps/other" ] || fail "trimming deleted something that is no incremental folder"
+
+# Incremental folders nothing wrote anywhere inside for the idle hours go, in
+# every profile folder; one with a single fresh file deep inside, one a process
+# holds a file of, and everything while a build holds the profile's lock stay.
+# A dry run deletes nothing.
+idle_target="$scratch/idle/target"
+idle_profile="$idle_target/debug"
+mkdir -p "$idle_profile/.fingerprint" "$idle_profile/deps" "$idle_target/release/.fingerprint"
+for n in stale fresh deep held; do
+    for dir in "$idle_profile" "$idle_target/release"; do
+        mkdir -p "$dir/incremental/$n-id/s-1-abc"
+        head -c 262144 /dev/urandom > "$dir/incremental/$n-id/s-1-abc/data"
+    done
+done
+old() { touch -t "$(date -v-7H +%Y%m%d%H%M)" "$@"; }
+for dir in "$idle_profile" "$idle_target/release"; do
+    for n in stale deep held; do
+        old "$dir/incremental/$n-id/s-1-abc/data" "$dir/incremental/$n-id/s-1-abc" "$dir/incremental/$n-id"
+    done
+done
+# deep: everything old but a file inside, written now.
+touch "$idle_profile/incremental/deep-id/s-1-abc/data"
+idle_left() { ls "$idle_profile/incremental" | tr '\n' ' '; }
+release_left() { ls "$idle_target/release/incremental" | tr '\n' ' '; }
+dry_out="$(python3 "$units" prune 3 12 6 1 "$idle_target" 2>&1 >/dev/null)"
+[ "$(idle_left)" = "deep-id fresh-id held-id stale-id " ] || fail "a dry run deleted idle incremental folders: $(idle_left)"
+case "$dry_out" in
+    *"would delete 2 incremental folders nothing wrote to in 6 hours from"*"debug"*) ;;
+    *) fail "the dry run did not report the idle folders: $dry_out" ;;
+esac
+python3 - "$idle_profile/.cargo-lock" "$units" "$idle_target" <<'PY'
+import fcntl, os, subprocess, sys
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
+fcntl.flock(fd, fcntl.LOCK_EX)
+result = subprocess.run(["python3", sys.argv[2], "prune", "3", "12", "6", "0", sys.argv[3]], capture_output=True, text=True)
+assert "kept 2 incremental folders nothing wrote to in 6 hours" in result.stderr, result.stderr
+PY
+[ "$(idle_left)" = "deep-id fresh-id held-id stale-id " ] || fail "deleted idle folders while a build held the lock: $(idle_left)"
+[ "$(release_left)" = "fresh-id " ] || fail "the release profile's idle folders survived: $(release_left)"
+exec 6< "$idle_profile/incremental/held-id/s-1-abc/data"
+live_out="$(python3 "$units" prune 3 12 6 0 "$idle_target" 2>&1 >/dev/null)"
+exec 6<&-
+[ "$(idle_left)" = "deep-id fresh-id held-id " ] || fail "idle pruning left the wrong folders: $(idle_left)"
+case "$live_out" in
+    *"deleted 1 incremental folder nothing wrote to in 6 hours from"*) ;;
+    *) fail "pruning did not report the idle folder: $live_out" ;;
+esac
 
 echo "ok"

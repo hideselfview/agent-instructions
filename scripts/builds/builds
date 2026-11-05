@@ -150,8 +150,10 @@
 # and `prune` delete, in each cargo folder (target, target-macos, ...), every
 # file of each unit nothing used for BUILDS_UNUSED_DAYS days (default 3), and
 # of each unit a newer copy of the same thing replaced that nothing used for
-# BUILDS_SUPERSEDED_HOURS hours (default 12), and the incremental folders only
-# those units used, while holding cargo's locks on that folder and keeping any
+# BUILDS_SUPERSEDED_HOURS hours (default 12), the incremental folders only
+# those units used, and every incremental folder nothing wrote anywhere inside
+# for BUILDS_INCREMENTAL_HOURS hours (default 6; in every checkout, main's and
+# the app checkout's too), while holding cargo's locks on that folder and keeping any
 # unit a process holds a file of. The repo's hooks and build scripts run cargo
 # through `builds cargo`.
 #
@@ -238,6 +240,16 @@ esac
 SUPERSEDED_HOURS="${BUILDS_SUPERSEDED_HOURS:-12}"
 case "$SUPERSEDED_HOURS" in
     ''|*[!0-9]*|0) echo "builds: BUILDS_SUPERSEDED_HOURS must be a whole number of hours, at least 1, got '$SUPERSEDED_HOURS'" >&2; exit 1 ;;
+esac
+# An incremental folder (<crate>-<hash> in a profile folder's incremental/)
+# nothing wrote anywhere inside for this many hours is deleted. Cargo never
+# deletes a folder of an old hash (another feature set, older sources, the dev
+# profile clippy and check use), so they fill the cap: one coven checkout had
+# 112 of 162 folders, most of 28 GB, unwritten for two hours. Losing one costs
+# an incremental rebuild of its crate.
+INCREMENTAL_HOURS="${BUILDS_INCREMENTAL_HOURS:-6}"
+case "$INCREMENTAL_HOURS" in
+    ''|*[!0-9]*|0) echo "builds: BUILDS_INCREMENTAL_HOURS must be a whole number of hours, at least 1, got '$INCREMENTAL_HOURS'" >&2; exit 1 ;;
 esac
 
 # Xcode's default DerivedData location (`install` sets it). 15G holds five
@@ -803,7 +815,7 @@ empty_trash() {
 prune_units() {
     local dry="$1"
     shift
-    python3 "$UNITS" prune "$UNUSED_DAYS" "$SUPERSEDED_HOURS" "$dry" "$@" \
+    python3 "$UNITS" prune "$UNUSED_DAYS" "$SUPERSEDED_HOURS" "$INCREMENTAL_HOURS" "$dry" "$@" \
         || die "pruning unused build copies in $* failed"
 }
 

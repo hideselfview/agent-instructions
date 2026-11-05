@@ -67,6 +67,9 @@ OUTPUT_DIRS = ("deps", "examples")
 # How deep below a build folder a profile folder can sit:
 # owner-construction-check/<rev>/release.
 PROFILE_DEPTH = 3
+# How deep inside an incremental folder a write counts toward its last one:
+# <crate>-<id>/s-<session>-<hash>/ and the files in it are three levels.
+INCREMENTAL_DEPTH = 8
 
 
 def note(message):
@@ -779,20 +782,27 @@ def single_link(path):
         return False
 
 
-def prune_profile(profile, units, replaced, cutoff, days, hours, dry, open_files):
+def prune_profile(profile, units, replaced, cutoff, days, hours, idle_cutoff, idle_hours, dry, open_files):
     """Deletes <profile>'s <units> no build used since <cutoff>, those in
-    <replaced> (superseded), the incremental folders only they used, and the
-    other units' dead object files, but none a process holds a file of.
+    <replaced> (superseded), the incremental folders only they used, every
+    incremental folder nothing wrote anywhere inside since <idle_cutoff>, and
+    the other units' dead object files, but none a process holds a file of.
     Returns the bytes freed (or that would be)."""
     stale = {h: u for h, u in units.items() if u.last_use() < cutoff}
     older = {h: u for h, u in units.items() if h in replaced and h not in stale}
+    every_increment = incremental_dirs(profile, units)
     increments = [
-        (crate_dir, owners) for crate_dir, owners in incremental_dirs(profile, units)
+        (crate_dir, owners) for crate_dir, owners in every_increment
         if (owners and owners <= stale.keys() | older.keys())
         or (not owners and newest_mtime(crate_dir, 2) < cutoff)
     ]
+    taken = {crate_dir for crate_dir, _owners in increments}
+    idle = [
+        crate_dir for crate_dir, _owners in every_increment
+        if crate_dir not in taken and newest_mtime(crate_dir, INCREMENTAL_DEPTH) < idle_cutoff
+    ]
     objects = dead_objects(profile, {h: u for h, u in units.items() if h not in stale and h not in older})
-    if not stale and not older and not increments and not objects:
+    if not stale and not older and not increments and not idle and not objects:
         return 0
     held = open_files.get()
     kept = [h for group in (stale, older) for h, found in group.items() if holds_any(found.paths(), held)]
@@ -803,6 +813,7 @@ def prune_profile(profile, units, replaced, cutoff, days, hours, dry, open_files
         crate_dir for crate_dir, owners in increments
         if owners <= stale.keys() | older.keys() and not holds_any([crate_dir], held)
     ]
+    idle = [crate_dir for crate_dir in idle if not holds_any([crate_dir], held)]
     objects = [path for path in objects if not holds_any([path], held)]
     usage, freed = Usage(), 0
     for group, why in ((stale, f"no build used in {days} days"),
@@ -832,6 +843,20 @@ def prune_profile(profile, units, replaced, cutoff, days, hours, dry, open_files
         note(f"{'would delete' if dry else 'deleted'} "
              f"{counted(len(increments), 'incremental folder', 'incremental folders')} "
              f"no build copy left uses from {profile} ({human(size)})")
+    if idle:
+        # Not what deleting frees: rustc hard-links a unit's deps files into
+        # these folders, and those stay with the unit.
+        sizes = {crate_dir: freeable(crate_dir) for crate_dir in idle}
+        size = sum(sizes.values())
+        freed += size
+        if not dry:
+            for crate_dir in idle:
+                remove(crate_dir)
+        most = sorted(idle, key=lambda crate_dir: -sizes[crate_dir])[:3]
+        note(f"{'would delete' if dry else 'deleted'} "
+             f"{counted(len(idle), 'incremental folder', 'incremental folders')} "
+             f"nothing wrote to in {idle_hours} hours from {profile} ({human(size)}; most: "
+             + ", ".join(f"{os.path.basename(crate_dir)} {human(sizes[crate_dir])}" for crate_dir in most) + ")")
     if objects:
         # A file the incremental folder also links stays on disk.
         size = sum(usage.of(path) for path in objects if single_link(path))
@@ -846,12 +871,12 @@ def prune_profile(profile, units, replaced, cutoff, days, hours, dry, open_files
     return freed
 
 
-def prune(days, hours, dry, folders):
+def prune(days, hours, idle_hours, dry, folders):
     """Prunes each build folder's profile folders, each while holding its
     cargo lock (a dry run takes none and deletes nothing). Prints
     "<KiB freed>\\t<folder>" per folder on stdout, notes on stderr."""
     now = time.time()
-    cutoff, since = now - days * 86400, now - hours * 3600
+    cutoff, since, idle_cutoff = now - days * 86400, now - hours * 3600, now - idle_hours * 3600
     for folder in folders:
         root = os.path.realpath(folder)
         profiles, locks = profile_dirs(root), []
@@ -873,10 +898,17 @@ def prune(days, hours, dry, folders):
                     if waiting:
                         note(f"kept {counted(waiting, 'unused build copy', 'unused build copies')} in {profile}: "
                              "a build holds its lock")
+                    incremental = os.path.join(profile, "incremental")
+                    idle = sum(
+                        1 for name in (os.listdir(incremental) if os.path.isdir(incremental) else [])
+                        if newest_mtime(os.path.join(incremental, name), INCREMENTAL_DEPTH) < idle_cutoff)
+                    if idle:
+                        note(f"kept {counted(idle, 'incremental folder', 'incremental folders')} nothing wrote to in "
+                             f"{idle_hours} hours in {profile}: a build holds its lock")
             open_files = OpenFiles([root])
             freed = sum(
                 prune_profile(profile, every[profile], {h for p, h in replaced if p == profile},
-                              cutoff, days, hours, dry, open_files)
+                              cutoff, days, hours, idle_cutoff, idle_hours, dry, open_files)
                 for profile in free)
         finally:
             for fd in locks:
@@ -926,7 +958,7 @@ def trim(cap_kib, size_kib, dry, folders):
                 incremental = os.path.join(profile, "incremental")
                 if os.path.isdir(incremental):
                     candidates += [
-                        (newest_mtime(path, 8), path)
+                        (newest_mtime(path, INCREMENTAL_DEPTH), path)
                         for path in (os.path.join(incremental, name) for name in os.listdir(incremental))
                         if os.path.isdir(path) and not os.path.islink(path)]
             candidates.sort()
@@ -1029,13 +1061,13 @@ def prune_git_checkouts(cargo_home, dry, lockfiles):
 def main(argv):
     if argv[:1] == ["record"] and len(argv) == 1:
         return record()
-    if argv[:1] == ["prune"] and len(argv) >= 4:
-        return prune(int(argv[1]), int(argv[2]), argv[3] == "1", argv[4:])
+    if argv[:1] == ["prune"] and len(argv) >= 5:
+        return prune(int(argv[1]), int(argv[2]), int(argv[3]), argv[4] == "1", argv[5:])
     if argv[:1] == ["trim"] and len(argv) >= 5:
         return trim(int(argv[1]), int(argv[2]), argv[3] == "1", argv[4:])
     if argv[:1] == ["git-checkouts"] and len(argv) >= 3:
         return prune_git_checkouts(argv[1], argv[2] == "1", argv[3:])
-    print("usage: cargo_units.py record | prune <days> <hours> <dry 0|1> <folder>... | "
+    print("usage: cargo_units.py record | prune <days> <hours> <incremental hours> <dry 0|1> <folder>... | "
           "trim <cap KiB> <size KiB> <dry 0|1> <folder>... | git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...", file=sys.stderr)
     return 2
 
