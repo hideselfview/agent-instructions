@@ -279,4 +279,34 @@ states waiting-on-you landing
 [ ! -e "$claim_file" ] || fail "release left the claim"
 states ready-to-land landing
 
+# A claimed worktree's cargo folder over its cap is trimmed of incremental
+# folders, not deleted whole or skipped; an unclaimed one is deleted whole; the
+# app checkout's is left alone. (A dry run: a real prune also deletes build
+# output in the machine's real temporary folders.)
+echo 'target 1M' > "$side3/.build-dirs"
+trim_profile="$BUILDS_ROOT/demo/side-3/target/debug"
+mkdir -p "$trim_profile/.fingerprint"
+for n in 1 2 3 4; do
+    mkdir -p "$trim_profile/incremental/crate$n-id"
+    head -c 524288 /dev/urandom > "$trim_profile/incremental/crate$n-id/data"
+    touch -t "20260101000$n" "$trim_profile/incremental/crate$n-id/data"
+done
+before="$(find "$trim_profile" | sort)"
+"$builds" claim "$side3" "agent C" 2>/dev/null
+out="$("$builds" prune --dry-run 2>&1)"
+grep -q "would delete 2 incremental folders of 4 in .*demo/side-3/target" <<<"$out" \
+    || fail "a claimed folder over its cap wasn't trimmed: $out"
+grep -q "claimed, would trim: .*demo/side-3/target (.* left, under the cap)" <<<"$out" \
+    || fail "the trim said nothing of what is left: $out"
+[ "$(find "$trim_profile" | sort)" = "$before" ] || fail "a dry run trimmed"
+"$builds" app-checkout "$side3" 2>/dev/null
+out="$("$builds" prune --dry-run 2>&1)"
+grep -q "claimed, kept: .*demo/side-3/target" <<<"$out" && ! grep -q "incremental" <<<"$out" \
+    || fail "the app checkout's claimed folder was trimmed: $out"
+rm "$BUILDS_ROOT/demo/app-checkout"
+"$builds" release "$side3" 2>/dev/null
+out="$("$builds" prune --dry-run 2>&1)"
+grep -q "would delete .*demo/side-3/target (.* > 1M)" <<<"$out" || fail "an unclaimed folder over its cap wasn't deleted whole: $out"
+git -C "$side3" checkout -q .build-dirs
+
 echo "claims, notes and their states, status --json and the dashboard: ok"

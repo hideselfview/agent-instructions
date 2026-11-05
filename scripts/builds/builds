@@ -168,6 +168,18 @@
 # build repopulates it, mostly from sccache. A folder that any process holds a
 # file open in is never deleted.
 #
+# A claimed worktree's folder is not deleted whole, since its agent is at work
+# in it, but an agent that builds all day would grow it without bound (one
+# coven checkout stood at 50 GB against a 45 GB cap, 37 GB of it incremental
+# folders, about 25 per crate). So over its cap, `setup` and `prune` delete its
+# incremental folders, least recently used first (judged by the newest write
+# anywhere inside each one), until the folder is under its cap or none is left,
+# under the same locks and keeping any folder a process holds a file in. An
+# incremental folder is pure cache: deleting one costs a recompile of its unit.
+# They say what they trimmed and what is left; a folder still over its cap
+# after that is kept whole ("claimed, kept"). Main's and the app checkout's
+# folders are never trimmed this way.
+#
 # Sizes, against caps and in status, count each block once (disk_usage.py):
 # du counts the blocks of an APFS clone once per file, and cargo uplifts its
 # libraries out of deps/ as clones.
@@ -795,6 +807,25 @@ prune_units() {
         || die "pruning unused build copies in $* failed"
 }
 
+# Trims the incremental folders of <folder>, a claimed worktree's cargo folder
+# of <kib> over its <cap>, least recently written first, until it is under its
+# cap or none is left (cargo_units.py trim); says what went and what is left.
+trim_claimed() {
+    local folder="$1" kib="$2" cap="$3" dry="$4" reason="$5" freed left
+    freed="$(python3 "$UNITS" trim "$cap" "$kib" "$dry" "$folder")" \
+        || die "trimming the incremental folders in $folder failed"
+    if [ "$dry" = 1 ]; then
+        left=$(( kib - freed ))
+    else
+        left="$(python3 "$USAGE" "$folder")"
+    fi
+    if [ "$left" -gt "$cap" ]; then
+        note "claimed, kept: $folder ($reason; $(human "$left") > $(human "$cap") after trimming its incremental folders)"
+    else
+        note "claimed, $([ "$dry" = 1 ] && echo 'would trim' || echo 'trimmed'): $folder ($reason; $(human "$left") left, under the cap)"
+    fi
+}
+
 # Deletes the unused build copies in the folders of <top>'s manifest in
 # <root>, then applies the manifest's caps to them; with <idle> minutes > 0,
 # also deletes folders nothing wrote to for that long.
@@ -823,8 +854,16 @@ prune_root() {
         fi
         # A claimed worktree's agent is mid-task; emptying its folder costs it
         # a cold rebuild of every dependency, as the floor's exemption says.
+        # Its incremental folders are pure cache, though, and an agent that
+        # builds all day would otherwise grow the folder without bound: over
+        # its cap, those go, least recently written first, until it fits.
+        # Main's and the app checkout's folders are left whole.
         if [ -f "$(claim_file "$top")" ]; then
-            note "claimed, kept: $root/$path ($reason)"
+            if [ "$kib" -gt "$cap" ] && ! keeps_warm "$root"; then
+                trim_claimed "$root/$path" "$kib" "$cap" "$dry" "$reason"
+            else
+                note "claimed, kept: $root/$path ($reason)"
+            fi
             continue
         fi
         if [ "$dry" = 1 ]; then

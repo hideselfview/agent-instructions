@@ -16,6 +16,10 @@ nested target such as a `cargo install --target-dir` one) a unit owns
     build/<package>-<hash>/          a build script, or what running it wrote
     incremental/<crate>-<id>/        rustc's incremental state
 
+A claimed worktree's folder over its cap is never deleted whole; `trim` deletes
+its incremental folders instead, least recently written first, until it is
+under the cap or none is left.
+
 A cdylib or staticlib unit's files in deps carry no hash: each build of that
 crate overwrites them, so they never pile up and nothing here deletes them.
 The incremental folder's id is rustc's, not cargo's hash; it belongs to the
@@ -45,6 +49,7 @@ import mmap
 import os
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -880,6 +885,80 @@ def prune(days, hours, dry, folders):
     return 0
 
 
+def freeable(path):
+    """Bytes deleting <path> frees: the blocks of its files nothing else hard
+    links (rustc hard-links a unit's deps files into its incremental folder,
+    and those stay with the unit)."""
+    total = 0
+    for root, dirs, files in os.walk(path):
+        for name in dirs + files:
+            try:
+                st = os.lstat(os.path.join(root, name))
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISDIR(st.st_mode) and st.st_nlink == 1:
+                total += st.st_blocks * 512
+    return total
+
+
+def trim(cap_kib, size_kib, dry, folders):
+    """Deletes incremental folders from each of <folders>, least recently
+    written first (the newest write anywhere inside one), while the whole is
+    over <cap_kib> KiB, starting from <size_kib>: a claimed worktree's folder
+    is never deleted whole, so this keeps it from growing without bound. An
+    incremental folder is only a cache; deleting one costs a recompile of its
+    unit. Each profile folder is locked as prune does (a dry run takes no
+    locks), and a folder a process holds a file in stays. Prints the KiB freed
+    on stdout, notes on stderr."""
+    freed = 0
+    left = size_kib
+    for folder in folders:
+        root = os.path.realpath(folder)
+        locks, candidates = [], []
+        try:
+            for profile in profile_dirs(root):
+                fd = None if dry else lock_profile(profile)
+                if not dry and fd is None:
+                    note(f"kept the incremental folders in {profile}: a build holds its lock")
+                    continue
+                if fd is not None:
+                    locks.append(fd)
+                incremental = os.path.join(profile, "incremental")
+                if os.path.isdir(incremental):
+                    candidates += [
+                        (newest_mtime(path, 8), path)
+                        for path in (os.path.join(incremental, name) for name in os.listdir(incremental))
+                        if os.path.isdir(path) and not os.path.islink(path)]
+            candidates.sort()
+            held = OpenFiles([root]) if candidates else None
+            deleted, removed, in_use = [], 0, 0
+            for _when, path in candidates:
+                if left <= cap_kib:
+                    break
+                if holds_any([path], held.get()):
+                    in_use += 1
+                    continue
+                size = freeable(path)
+                if not dry:
+                    remove(path)
+                deleted.append(path)
+                removed += size
+                left -= size // 1024
+            freed += removed // 1024
+            if deleted:
+                note(f"{'would delete' if dry else 'deleted'} "
+                     f"{counted(len(deleted), 'incremental folder', 'incremental folders')} "
+                     f"of {len(candidates)} in {folder}, least recently written first ({human(removed)})")
+            if in_use:
+                note(f"kept {counted(in_use, 'incremental folder', 'incremental folders')} in {folder}: "
+                     "a process holds their files")
+        finally:
+            for fd in locks:
+                os.close(fd)
+    print(freed)
+    return 0
+
+
 # ── Git checkouts ──────────────────────────────────────────────────────────
 
 # source = "git+https://github.com/bae-fm/coven?rev=04561fe...#04561fe49ad0..."
@@ -952,10 +1031,12 @@ def main(argv):
         return record()
     if argv[:1] == ["prune"] and len(argv) >= 4:
         return prune(int(argv[1]), int(argv[2]), argv[3] == "1", argv[4:])
+    if argv[:1] == ["trim"] and len(argv) >= 5:
+        return trim(int(argv[1]), int(argv[2]), argv[3] == "1", argv[4:])
     if argv[:1] == ["git-checkouts"] and len(argv) >= 3:
         return prune_git_checkouts(argv[1], argv[2] == "1", argv[3:])
     print("usage: cargo_units.py record | prune <days> <hours> <dry 0|1> <folder>... | "
-          "git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...", file=sys.stderr)
+          "trim <cap KiB> <size KiB> <dry 0|1> <folder>... | git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...", file=sys.stderr)
     return 2
 
 
