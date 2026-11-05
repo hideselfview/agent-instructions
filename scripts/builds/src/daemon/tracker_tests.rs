@@ -43,14 +43,16 @@ fn follows_writes_links_clones_renames_and_deletions() {
     fill(&root.join("demo/side-2/target/a/b/c/file"), 64);
     agrees(&tracker, &[root.join("demo/side-2/target"), root.join("demo")], "after a new tree");
 
-    // An eviction: renamed into the trash, then removed.
+    // An eviction: renamed into the trash, then removed. The trash isn't
+    // followed, so a question about it gets no answer.
     let slot = root.join(".trash/evict.1");
     std::fs::create_dir_all(&slot).unwrap();
     std::fs::rename(&target, slot.join("target")).unwrap();
     std::fs::create_dir(&target).unwrap();
-    agrees(&tracker, &[target.clone(), slot.clone(), root.join("demo")], "after a rename into the trash");
+    agrees(&tracker, &[target.clone(), root.join("demo")], "after a rename into the trash");
+    assert_eq!(tracker.measure(&[slot.clone(), root.join(".trash")], true), vec![None, None], "the trash was answered");
     std::fs::remove_dir_all(&slot).unwrap();
-    agrees(&tracker, &[root.join(".trash"), root.join("demo")], "after the trash emptied");
+    agrees(&tracker, &[root.join("demo")], "after the trash emptied");
 
     assert_eq!(tracker.measure(&[scratch.dir.join("elsewhere")], true), vec![None], "a path outside the root was answered");
 }

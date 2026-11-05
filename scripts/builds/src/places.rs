@@ -36,6 +36,14 @@ pub const MACOS_ENTRIES: [&str; 8] = [
     ".com.apple.timemachine.donotpresent",
 ];
 
+/// Is <name>, an entry at the volume's root, one the daemon doesn't follow?
+/// macOS's own entries, and the trash, which holds only folders being
+/// deleted: following it would apply each of their files' deletions, 100k
+/// for one cargo folder, to answer questions nobody asks.
+pub fn unfollowed(name: &str) -> bool {
+    MACOS_ENTRIES.contains(&name) || name == ".trash"
+}
+
 #[derive(Clone, Debug)]
 pub struct Places {
     /// The build volume, `/Volumes/Builds` (BUILDS_ROOT).

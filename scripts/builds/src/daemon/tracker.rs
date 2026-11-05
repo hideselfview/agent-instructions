@@ -15,6 +15,8 @@
 //!   back under its new name (a rename, such as an eviction into .trash,
 //!   moves 100k entries without a walk). The parent of each path is read too,
 //!   since a deletion writes only to its folder.
+//! - The root's macOS entries and its trash are not followed (see
+//!   `places::unfollowed`); a question about them gets no answer.
 //! - MUST_SCAN_SUBDIRS on a path walks that subtree again; a dropped-events
 //!   flag walks the whole root again. While a walk runs, a question about the
 //!   folders it covers gets no answer, and the asker measures them itself.
@@ -94,6 +96,7 @@ impl Tracker {
             let parent = root.parent().and_then(|parent| {
                 Stream::start(
                     &[parent],
+                    &[],
                     Detail::Folders,
                     0.5,
                     Box::new(move |_| {
@@ -172,8 +175,10 @@ impl Tracker {
             *self.index.lock().expect("no panic holding it") = Index::new(&self.root, &meta);
             self.flags.lock().expect("no panic holding it").followed = Some((meta.dev(), meta.ino()));
             let me = Arc::downgrade(&self);
+            let trash = self.root.join(".trash");
             let stream = Stream::start(
                 &[self.root.as_path()],
+                &[trash.as_path()],
                 Detail::Files,
                 0.2,
                 Box::new(move |events| {
@@ -319,12 +324,11 @@ impl Tracker {
         self.flags.lock().expect("no panic holding it").rescanning.retain(|p| p != path);
     }
 
-    /// Is <path> in one of macOS's own entries at the root, which the index
-    /// leaves out?
+    /// Is <path> in one of the root's entries the index leaves out?
     fn left_out(&self, path: &Path) -> bool {
         let Ok(rest) = path.strip_prefix(&self.root) else { return false };
         let first = rest.components().next().map(|c| c.as_os_str().to_string_lossy().into_owned());
-        first.is_some_and(|name| crate::places::MACOS_ENTRIES.contains(&name.as_str()))
+        first.is_some_and(|name| crate::places::unfollowed(&name))
     }
 
     /// Reads each changed path and its folder, and records what is there now.
@@ -480,6 +484,7 @@ impl Tracker {
             .iter()
             .map(|path| {
                 if !path.starts_with(&self.root)
+                    || self.left_out(path)
                     || flags.rescanning.iter().any(|scan| path.starts_with(scan) || scan.starts_with(path))
                 {
                     return None;

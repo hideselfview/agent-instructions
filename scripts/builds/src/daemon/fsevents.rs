@@ -60,6 +60,7 @@ unsafe extern "C" {
         flags: FSEventStreamCreateFlags,
     ) -> FSEventStreamRef;
     fn FSEventStreamSetDispatchQueue(stream: FSEventStreamRef, queue: DispatchQueue);
+    fn FSEventStreamSetExclusionPaths(stream: FSEventStreamRef, paths: CFArrayRef) -> bool;
     fn FSEventStreamStart(stream: FSEventStreamRef) -> bool;
     fn FSEventStreamFlushSync(stream: FSEventStreamRef);
     fn FSEventStreamStop(stream: FSEventStreamRef);
@@ -131,30 +132,32 @@ extern "C" fn deliver(
     handler(events);
 }
 
+/// A CFArray of <paths> as CFStrings; the caller releases it.
+fn paths_array(paths: &[&Path]) -> CFArrayRef {
+    let strings: Vec<CFStringRef> = paths
+        .iter()
+        .map(|path| {
+            let text = CString::new(path.as_os_str().as_encoded_bytes()).expect("a path holds no NUL");
+            unsafe { CFStringCreateWithCString(std::ptr::null(), text.as_ptr(), UTF8) }
+        })
+        .collect();
+    let array = unsafe {
+        CFArrayCreate(std::ptr::null(), strings.as_ptr(), strings.len() as CFIndex, &kCFTypeArrayCallBacks as *const c_void)
+    };
+    for string in &strings {
+        unsafe { CFRelease(*string) };
+    }
+    array
+}
+
 impl Stream {
-    /// Starts following <folders>, calling <handler> with each batch of
-    /// events on a queue of the stream's own, in order, one batch at a time.
-    /// Events come from now on; with `WatchRoot`, a change to a followed
-    /// folder's own path arrives as ROOT_CHANGED.
-    pub fn start(folders: &[&Path], detail: Detail, latency: f64, handler: Handler) -> Option<Stream> {
-        let strings: Vec<CFStringRef> = folders
-            .iter()
-            .map(|folder| {
-                let text = CString::new(folder.as_os_str().as_encoded_bytes()).expect("a path holds no NUL");
-                unsafe { CFStringCreateWithCString(std::ptr::null(), text.as_ptr(), UTF8) }
-            })
-            .collect();
-        let array = unsafe {
-            CFArrayCreate(
-                std::ptr::null(),
-                strings.as_ptr(),
-                strings.len() as CFIndex,
-                &kCFTypeArrayCallBacks as *const c_void,
-            )
-        };
-        for string in &strings {
-            unsafe { CFRelease(*string) };
-        }
+    /// Starts following <folders>, leaving out what happens under <excluded>
+    /// (at most 8), calling <handler> with each batch of events on a queue of
+    /// the stream's own, in order, one batch at a time. Events come from now
+    /// on; with `WatchRoot`, a change to a followed folder's own path arrives
+    /// as ROOT_CHANGED.
+    pub fn start(folders: &[&Path], excluded: &[&Path], detail: Detail, latency: f64, handler: Handler) -> Option<Stream> {
+        let array = paths_array(folders);
         let handler = Box::into_raw(Box::new(handler));
         let context = FSEventStreamContext {
             version: 0,
@@ -174,6 +177,19 @@ impl Stream {
         if stream.is_null() {
             drop(unsafe { Box::from_raw(handler) });
             return None;
+        }
+        if !excluded.is_empty() {
+            let excluded_array = paths_array(excluded);
+            let set = unsafe { FSEventStreamSetExclusionPaths(stream, excluded_array) };
+            unsafe { CFRelease(excluded_array) };
+            if !set {
+                unsafe {
+                    FSEventStreamInvalidate(stream);
+                    FSEventStreamRelease(stream);
+                    drop(Box::from_raw(handler));
+                }
+                return None;
+            }
         }
         let queue = unsafe { dispatch_queue_create(c"builds.fsevents".as_ptr(), std::ptr::null()) };
         unsafe {

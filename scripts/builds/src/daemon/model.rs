@@ -235,6 +235,7 @@ impl Model {
         let refs: Vec<&Path> = folders.iter().map(PathBuf::as_path).collect();
         let started = Stream::start(
             &refs,
+            &[],
             Detail::Folders,
             0.2,
             Box::new(move |events| {

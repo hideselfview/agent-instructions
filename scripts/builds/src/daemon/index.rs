@@ -478,11 +478,13 @@ pub fn walk(index: &Mutex<Index>, start: NodeId, path: &Path, workers: usize) {
                 }
             };
             let listed = match list(&folder) {
-                // macOS's own entries at the root are not followed.
+                // The root's unfollowed entries stay out.
                 Ok(Some(entries)) if id == 0 => Ok(Some(
                     entries
                         .into_iter()
-                        .filter(|(entry, _)| !crate::places::MACOS_ENTRIES.iter().any(|n| n.as_bytes() == &*entry.name))
+                        .filter(|(entry, _)| {
+                            !std::str::from_utf8(&entry.name).is_ok_and(crate::places::unfollowed)
+                        })
                         .collect(),
                 )),
                 other => other,
