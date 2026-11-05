@@ -100,7 +100,7 @@ def full_cargo_run(tokens):
         if arg in CARGO_VALUE_OPTIONS:
             skip = True
             continue
-        if not arg.startswith("-"):
+        if names_something(arg):
             return False
     skip = False
     for arg in after:
@@ -110,9 +110,15 @@ def full_cargo_run(tokens):
         if arg in LIBTEST_VALUE_OPTIONS:
             skip = True
             continue
-        if not arg.startswith("-"):
+        if names_something(arg):
             return False
     return True
+
+
+def names_something(arg: str) -> bool:
+    """A test filter that narrows the run: it has a letter or digit. `::` or
+    `_` matches every test's path, so it is a full run."""
+    return not arg.startswith("-") and bool(re.search(r"[A-Za-z0-9]", arg))
 
 
 # Words that run the command after them: `bash scripts/check.sh`, `env X=1 ./check.sh`.

@@ -38,6 +38,11 @@ CASES = [
     (True, "scripts/cargo.sh nextest run -p x > log 2>&1 &"),
     (False, "echo hi # scripts/" + C),
     (False, f"git commit -m \"first\n\nnames scripts/{C} | in\ntext\" && git push"),
+    (True, "scripts/cargo.sh test -p bae-records --features test-utils --lib ::"),
+    (True, "scripts/cargo.sh test -p x -- ::"),
+    (True, "scripts/cargo.sh test -p x _"),
+    (False, "scripts/cargo.sh test -p x --lib people::"),
+    (False, "scripts/cargo.sh test -p x -- tests::a_b"),
     (True, f"echo x\nscripts/{C}"),
 ]
 bad = 0
