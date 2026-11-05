@@ -85,6 +85,15 @@ Commands:
                               checkout's build folders, whose sizes and last
                               writes take nearly all of its time (half a
                               minute or more while agents build)
+  builds health [--json]      what is stuck or needs acting on: load, free
+                              space against the floor, whether sccache
+                              finished compiles since the last readings
+                              while clients wait 10+ min, Claude shells over
+                              2h, each claimed worktree (claim, branch,
+                              uncommitted files, commits waiting to land,
+                              minutes since a change, build processes there),
+                              each app lock's holder; exits 1 when something
+                              needs acting on
   builds dashboard [--port <port>]
                               serve a page on 127.0.0.1 (port 7787) showing
                               every checkout: its state, claim and note, the

@@ -324,20 +324,12 @@ fn caches_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
-/// `sccache: ...` lines from a running server; asking one that isn't
-/// running would start it.
+/// `sccache: ...` lines from a running server.
 fn sccache_lines(out: &mut Vec<String>) {
-    let listening = Command::new("lsof")
-        .args(["-nP", "-iTCP:4226", "-sTCP:LISTEN"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success());
-    if !listening {
+    if !crate::sccache::listening() {
         return;
     }
-    let Ok(stats) = Command::new("sccache").arg("--show-stats").stderr(Stdio::null()).output() else { return };
-    for line in String::from_utf8_lossy(&stats.stdout).lines() {
+    for line in crate::sccache::stats() {
         if line.starts_with("Cache location") || line.starts_with("Cache size") || line.starts_with("Max cache size") {
             out.push(format!("sccache: {line}"));
         }

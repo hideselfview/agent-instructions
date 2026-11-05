@@ -7,10 +7,14 @@ mod claim;
 mod evict;
 mod fail;
 mod floor;
+mod health;
 mod install;
 mod manifest;
 mod places;
+mod procs;
 mod prune;
+mod sccache;
+mod side_git;
 mod setup;
 mod status;
 mod temp_builds;
@@ -79,8 +83,9 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "install" => install::cmd_install(&tool, args),
         "units" => units::cmd_units(args),
         "du" => usage::cmd_du(args),
+        "health" => health::cmd_health(&tool, args),
         other => fail!(
-            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | status | dashboard | prune | cargo | record-use | install)"
+            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | status | health | dashboard | prune | cargo | record-use | install)"
         ),
     }
 }
