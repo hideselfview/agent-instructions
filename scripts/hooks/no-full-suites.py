@@ -63,7 +63,8 @@ def full_cargo_run(tokens):
     """True when tokens are a cargo test / nextest run that names nothing."""
     words = [t for t in tokens if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", t)]
     try:
-        start = next(i for i, t in enumerate(words) if t.endswith("cargo"))
+        # A repo's cargo wrapper (scripts/cargo.sh) runs cargo with its arguments.
+        start = next(i for i, t in enumerate(words) if t.endswith(("cargo", "cargo.sh")))
     except StopIteration:
         return False
     rest = [t for t in words[start + 1:] if not t.startswith("+")]
