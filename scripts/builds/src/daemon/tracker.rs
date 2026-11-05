@@ -4,10 +4,7 @@
 //! - The stream on the root starts before the walk; events that arrive
 //!   during it wait and are applied after it.
 //! - The stream's callback only queues its events; one thread applies them,
-//!   everything queued at once. A callback that walked or read the disk
-//!   itself would hold up delivery, and FSEvents drops events for a client
-//!   that falls behind, which asks for a walk of the whole root: under load
-//!   40 that came back every few seconds, each walk causing the next.
+//!   everything queued at once, so delivery never waits on a walk.
 //! - Applying an event never trusts the event's flags for what a path is now:
 //!   it reads the path. Gone: its entry and everything under it go. A file:
 //!   its facts are read again. A folder that is new or has a new inode is
@@ -17,9 +14,18 @@
 //!   since a deletion writes only to its folder.
 //! - The root's macOS entries and its trash are not followed (see
 //!   `places::unfollowed`); a question about them gets no answer.
-//! - MUST_SCAN_SUBDIRS on a path walks that subtree again; a dropped-events
-//!   flag walks the whole root again. While a walk runs, a question about the
-//!   folders it covers gets no answer, and the asker measures them itself.
+//! - MUST_SCAN_SUBDIRS on a folder below the root walks that subtree again
+//!   in place; while it runs, a question about the folders it covers gets no
+//!   answer, and the asker measures them itself.
+//! - A dropped-events flag, or MUST_SCAN_SUBDIRS on the root, walks the whole
+//!   root into a new index beside the current one, which keeps answering
+//!   until the new one replaces it. Under load 40 FSEvents drops events every
+//!   few minutes, for a folder-level and a file-level stream at the same
+//!   instant, with a few hundred events a minute delivered: the drops are the
+//!   machine's, not this client falling behind. A deciding command's question
+//!   waits for its mark, which is applied after the walk, so its answer
+//!   counts every write; `status` and the page get the old index's sizes
+//!   meanwhile.
 //! - The root changing or its volume unmounting stops the stream; a stream
 //!   on the root's parent reports it coming back, and then the stream starts
 //!   again and the root is walked. Nothing polls.
@@ -298,11 +304,11 @@ impl Tracker {
             .iter()
             .map(|event| event.flags & (flags::USER_DROPPED | flags::KERNEL_DROPPED | flags::EVENT_IDS_WRAPPED))
             .fold(0, |all, flags| all | flags);
-        if dropped != 0 {
+        let root_scan = events.iter().any(|event| event.flags & flags::MUST_SCAN_SUBDIRS != 0 && event.path == self.root);
+        if dropped != 0 || root_scan {
             // Every other event in the batch came before the walk, which
             // reads what they changed.
-            eprintln!("builds: FSEvents dropped events (flags {dropped:#x})");
-            self.rescan(&self.root.clone());
+            self.rewalk(dropped);
             return;
         }
         let (scans, others): (Vec<Event>, Vec<Event>) =
@@ -311,6 +317,29 @@ impl Tracker {
         for event in scans {
             self.rescan(&event.path);
         }
+    }
+
+    /// Walks the whole root into a new index and puts it in place of the
+    /// current one, which answers questions until then.
+    fn rewalk(&self, dropped: u32) {
+        let Ok(meta) = std::fs::symlink_metadata(&self.root) else {
+            self.signal_restart("is gone");
+            return;
+        };
+        let started = std::time::Instant::now();
+        let fresh = Mutex::new(Index::new(&self.root, &meta));
+        walk(&fresh, 0, &self.root, WORKERS);
+        *self.index.lock().expect("no panic holding it") = fresh.into_inner().expect("no panic holding it");
+        let mut flags = self.flags.lock().expect("no panic holding it");
+        flags.walks += 1;
+        self.wake.notify_all();
+        drop(flags);
+        eprintln!(
+            "builds: FSEvents {} {}; walked it again in {:.1}s",
+            if dropped != 0 { format!("dropped events (flags {dropped:#x}) under") } else { "asked to read".to_string() },
+            self.root.display(),
+            started.elapsed().as_secs_f64()
+        );
     }
 
     /// Walks <path> again in place, answering nothing about it meanwhile.
