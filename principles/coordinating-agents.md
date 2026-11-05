@@ -53,6 +53,12 @@ project's lists, worktrees and landing worktree.
 - One task per agent (a commit or a short chain); later items go to the same
   agent while its context is small, to a successor from its handoff once it
   passes about 550k tokens.
+- Give work to the agent that already holds its context: a finding goes back to
+  the agent that reported it, and an item in an area goes to the agent that just
+  finished work there, resumed with SendMessage, before any fresh agent. A fresh
+  agent rereads the same files and the same commits first. Start a new one only
+  when no finished agent under the handoff size knows the area, or when the item
+  needs the other model.
 - Each brief to an agent names its worktree, its items, the rules it must read,
   the project's hard limits (main checkouts, credentials, keychain, devices,
   cargo through the wrapper, no `git add -A`/stash/`--no-verify`), the model's
