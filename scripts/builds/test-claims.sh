@@ -31,19 +31,24 @@ json() { python3 -c 'import json, sys; d = json.load(sys.stdin); print(json.dump
 
 # A repo whose origin/main has one commit; side-1 on a branch two commits
 # ahead of it, with one changed and one untracked file; side-2 on a branch
-# whose one commit landed on origin/main by cherry-pick, under another hash.
+# whose one commit landed on origin/main by cherry-pick, under another hash;
+# side-3 on a branch whose one commit landed the same way but with a changed
+# neighbouring line, so its patch differs and only its author time and subject
+# match.
 # Each checkout has the build root and link `builds setup` would make (setup
 # itself also prunes the real temporary folders, so it isn't run here).
 git init -q --bare "$scratch/origin.git"
 main="$scratch/demo"
 side="$scratch/demo-worktrees/side-1"
 side2="$scratch/demo-worktrees/side-2"
+side3="$scratch/demo-worktrees/side-3"
 git init -q -b main "$main"
 git -C "$main" config user.email test@example.com
 git -C "$main" config user.name test
 echo 'target 1G' > "$main/.build-dirs"
 echo target > "$main/.gitignore"
-git -C "$main" add .build-dirs .gitignore
+seq 1 10 > "$main/ctx"
+git -C "$main" add .build-dirs .gitignore ctx
 git -C "$main" commit -q -m 'Start'
 git -C "$main" remote add origin "$scratch/origin.git"
 git -C "$main" push -q origin main
@@ -51,7 +56,8 @@ git -C "$main" fetch -q origin
 mkdir -p "$scratch/demo-worktrees"
 git -C "$main" worktree add -q -b work "$side" origin/main
 git -C "$main" worktree add -q -b landed "$side2" origin/main
-for top in "$main" "$side" "$side2"; do
+git -C "$main" worktree add -q -b landed-moved "$side3" origin/main
+for top in "$main" "$side" "$side2" "$side3"; do
     if [ "$top" = "$main" ]; then root="$BUILDS_ROOT/demo/main"; else root="$BUILDS_ROOT/demo/$(basename "$top")"; fi
     mkdir -p "$root/target"
     printf '%s\n' "$top" > "$root/.checkout"
@@ -63,12 +69,16 @@ echo two > "$side/two" && git -C "$side" add two && git -C "$side" commit -q -m 
 echo changed > "$side/one"
 echo new > "$side/untracked"
 echo three > "$side2/three" && git -C "$side2" add three && git -C "$side2" commit -q -m 'Add three'
+sed -i.bak 5s/5/five/ "$side3/ctx" && rm "$side3/ctx.bak" && git -C "$side3" commit -q -am 'Rename five'
 echo other > "$main/other" && git -C "$main" add other && git -C "$main" commit -q -m 'Move main on'
-git -C "$main" cherry-pick landed >/dev/null
+sed -i.bak 7s/7/seven/ "$main/ctx" && rm "$main/ctx.bak" && git -C "$main" commit -q -am 'Rename seven'
+git -C "$main" cherry-pick landed landed-moved >/dev/null
 git -C "$main" push -q origin main
 git -C "$main" fetch -q origin
 [ -n "$(git -C "$side2" log --format=%h origin/main..HEAD)" ] \
     || fail "side-2's landed commit should still be off origin/main by hash"
+[ "$(git -C "$side3" cherry origin/main HEAD | cut -c1)" = + ] \
+    || fail "side-3's landed commit should differ in patch from its copy"
 claim_file="$(git -C "$side" rev-parse --absolute-git-dir)/builds-claim"
 
 # A note needs a claim, and main is never claimed.
@@ -122,7 +132,7 @@ refuses "is one of waiting-on-you, winding-down, got ''" note "$side" --state
 # status --json, with and without the folders.
 "$builds" status --json --no-folders > "$scratch/fast.json"
 [ "$(json 'd["repos"][0]["name"]' < "$scratch/fast.json")" = '"demo"' ] || fail "no demo repo in $(cat "$scratch/fast.json")"
-[ "$(json '[c["name"] for c in d["repos"][0]["checkouts"]]' < "$scratch/fast.json")" = '["main", "side-1", "side-2"]' ] \
+[ "$(json '[c["name"] for c in d["repos"][0]["checkouts"]]' < "$scratch/fast.json")" = '["main", "side-1", "side-2", "side-3"]' ] \
     || fail "checkouts: $(cat "$scratch/fast.json")"
 [ "$(json 'd["repos"][0]["checkouts"][1]["claim"]["note"]' < "$scratch/fast.json")" = '"waiting on Linux CI"' ] \
     || fail "note in json: $(cat "$scratch/fast.json")"
@@ -184,6 +194,8 @@ curl -sf "http://127.0.0.1:$port/api/state" > "$scratch/state.json" || fail "no 
 [ "$(json 'd["repos"][0]["checkouts"][0]["state"]' < "$scratch/state.json")" = null ] || fail "main got a state"
 [ "$(json 'd["repos"][0]["checkouts"][2]["git"]["ahead"]' < "$scratch/state.json")" = '[]' ] \
     || fail "side-2's cherry-picked commit listed as waiting: $(cat "$scratch/state.json")"
+[ "$(json 'd["repos"][0]["checkouts"][3]["git"]["ahead"]' < "$scratch/state.json")" = '[]' ] \
+    || fail "side-3's landed commit with a changed patch listed as waiting: $(cat "$scratch/state.json")"
 # Later answers carry the data and the time it was taken.
 for _ in $(seq 100); do
     curl -sf "http://127.0.0.1:$port/api/folders" > "$scratch/folders.json" || fail "no folders"
@@ -249,7 +261,7 @@ states() {
     got="$(python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import dashboard
 d = dashboard.state(sys.argv[2])
 print(" ".join(str(c["state"]) for c in d["repos"][0]["checkouts"]))' "$script_dir" "$builds")"
-    [ "$got" = "None $1 $2" ] || fail "states: wanted main None, side-1 $1, side-2 $2, got '$got'"
+    [ "$got" = "None $1 $2 free" ] || fail "states: wanted main None, side-1 $1, side-2 $2, side-3 free, got '$got'"
 }
 states ready-to-land free
 "$builds" claim "$side2" "agent B" 2>/dev/null

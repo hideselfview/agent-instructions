@@ -70,13 +70,32 @@ def builds_status(builds, folders):
 
 
 def commits(top, *rev):
-    """The commits `git log <rev>` lists in <top>, newest first."""
-    out = run(GIT + ["-C", top, "log", "--format=%h%x00%ct%x00%s%x00", *rev])
+    """The commits `git log <rev>` lists in <top>, newest first, each with its
+    abbreviated hash, full hash, commit time, author time and subject."""
+    out = run(GIT + ["-C", top, "log", "--format=%h%x00%H%x00%ct%x00%at%x00%s%x00", *rev])
     fields = out.split("\0")
     found = []
-    for i in range(0, len(fields) - 2, 3):
-        found.append({"sha": fields[i].strip(), "time": int(fields[i + 1]), "subject": fields[i + 2]})
+    for i in range(0, len(fields) - 4, 5):
+        found.append({"sha": fields[i].strip(), "full": fields[i + 1], "time": int(fields[i + 2]),
+                      "authored": int(fields[i + 3]), "subject": fields[i + 4]})
     return found
+
+
+def waiting_to_land(top):
+    """The commits on HEAD that origin/main has no copy of, newest first.
+
+    A coordinator lands a branch by cherry-picking or rebasing it, so the
+    branch's own commits stay off origin/main by hash after they land. A copy
+    is either a commit with the same patch (`git cherry` marks it "-"), or,
+    when the landing resolved a conflict or sat beside a changed neighbour
+    line so the patch differs, a commit on origin/main since the branch left it
+    with the same author time and subject, which a cherry-pick and a rebase
+    both keep."""
+    marks = run(GIT + ["-C", top, "cherry", "origin/main", "HEAD"]).splitlines()
+    unmatched = {line[2:] for line in marks if line.startswith("+ ")}
+    landed = {(x["authored"], x["subject"]) for x in commits(top, "HEAD..origin/main")}
+    return [x for x in commits(top, "origin/main..HEAD")
+            if x["full"] in unmatched and (x["authored"], x["subject"]) not in landed]
 
 
 def uncommitted(top):
@@ -107,16 +126,13 @@ def side_git(top):
     """HEAD, the commits waiting to land, the uncommitted count and the newest
     time among those files of the side worktree at <top>; on a failure, what git said.
 
-    A commit waits to land when origin/main has no commit with the same change:
-    a coordinator lands a branch by rebasing or cherry-picking it, so the
-    branch's own commits stay off origin/main by hash after they land, and
-    `origin/main..HEAD` would list landed work as waiting."""
+    A commit waits to land when origin/main has no copy of it (waiting_to_land)."""
     try:
         head = commits(top, "-1", "HEAD")
         count, newest = uncommitted(top)
         return {
             "head": head[0] if head else None,
-            "ahead": commits(top, "--cherry-pick", "--right-only", "origin/main...HEAD"),
+            "ahead": waiting_to_land(top),
             "uncommitted": count,
             "last_write": newest,
             "error": None,
@@ -409,10 +425,14 @@ section.repo { display: flex; flex-direction: column; gap: 12px; }
 .repo-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .repo-head span { font-size: 13px; color: var(--muted); }
 .pinned-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: 12px; align-items: stretch; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; align-items: start; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; align-items: stretch; }
 article { min-width: 0; display: flex; flex-direction: column; }
 .pinned { background: var(--pinned); border: 1px solid var(--pinned-line); border-radius: 12px; padding: 14px 16px; gap: 10px; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; gap: 10px; }
+/* Cards in a row stretch to the tallest; the title, agent and note stay at the
+   top and the foot sits at the bottom. The min-height fits a usual card: title
+   line, agent line, a two-line note and the foot. */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; gap: 10px; min-height: 176px; }
+.card .foot { margin-top: auto; }
 .row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .ident { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .name { font-size: 15px; font-weight: 700; white-space: nowrap; }
@@ -774,10 +794,11 @@ function goneLine(gone) {
 function reposView() {
   return state.repos.map(repo => {
     const {main, app, sides, gone} = split(repo);
+    const agents = sides.filter(c => c.claim && c.state !== "landing").length;
     const pinned = [main ? pinnedMain(repo, main) : null, app ? pinnedApp(repo, app) : null].filter(Boolean);
     return h("section", {class: "repo"},
       h("div", {class: "repo-head"}, h("h2", {}, repo.name),
-        h("span", {}, summary([...stateCounts(sides), goneLine(gone)]) || "no side worktrees")),
+        h("span", {}, summary([agents ? plural(agents, "agent", "agents") : null, ...stateCounts(sides), goneLine(gone)]) || "no side worktrees")),
       pinned.length ? h("div", {class: "pinned-grid"}, pinned) : null,
       shown(sides).length ? h("div", {class: "cards"}, shown(sides).map(card)) : null);
   });
@@ -803,7 +824,8 @@ function laneCard(repo, c) {
   const g = c.git, b = built(c);
   const tag = c.state === "winding-down" || c.state === "landing" ? pill(stateOf(c).label, stateOf(c).cls) : null;
   let note = c.claim && c.claim.note ? c.claim.note : null;
-  if (!c.claim) note = summary([detachedAt(c), b ? "build " + size(b.total) : null]);
+  if (!c.claim) note = summary([detachedAt(c), b ? size(b.total) + " build" : null, activity(c) ? "last used " + ago(activity(c)) + " ago" : null]);
+  else if (b && b.over.length) note = (note ? note + " " : "") + "Build folder over its cap.";
   return h("article", {class: "lcard"},
     h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " " + c.name),
       h("span", {class: "age", title: "last activity: the newer of the last commit and the newest uncommitted file"},
