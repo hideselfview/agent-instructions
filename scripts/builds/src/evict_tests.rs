@@ -12,10 +12,16 @@ fn a_held_cargo_lock_keeps_the_folder() {
     // process held would also be held, for a moment, by every child another
     // test forks.
     let lock = folder.join("debug/.cargo-lock");
-    let mut build = Command::new("lockf").arg("-k").arg(&lock).args(["sleep", "60"]).spawn().unwrap();
-    while try_lock(&lock).unwrap().is_some() {
-        std::thread::yield_now();
-    }
+    let mut build = Command::new("lockf")
+        .arg("-k")
+        .arg(&lock)
+        .args(["sh", "-c", "echo held; exec sleep 60"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut said = String::new();
+    std::io::BufRead::read_line(&mut std::io::BufReader::new(build.stdout.take().unwrap()), &mut said).unwrap();
+    assert_eq!(said, "held\n");
     let kept = evict(&places, &folder, Recreate::Yes, Removal::Now);
     build.kill().unwrap();
     build.wait().unwrap();
