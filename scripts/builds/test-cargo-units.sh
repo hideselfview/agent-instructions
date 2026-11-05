@@ -1,20 +1,14 @@
 #!/usr/bin/env bash
-# Tests `builds cargo` and the pruning of unused build copies (cargo_units.py)
+# Tests `builds cargo` and the pruning of unused build copies (`builds units`)
 # on a scratch cargo workspace in a temporary folder: nothing here touches the
 # build volume.
 
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# BUILDS names the binary to test; without it, the bash script and its
-# Python helpers.
-if [ -n "${BUILDS:-}" ]; then
-    builds="$BUILDS"
-    export UNITS_CMD="$builds units"
-else
-    builds="$script_dir/builds"
-    export UNITS_CMD="python3 $script_dir/cargo_units.py"
-fi
+cargo build --quiet --manifest-path "$script_dir/Cargo.toml"
+builds="$script_dir/target/debug/builds"
+export UNITS_CMD="$builds units"
 # The steps setup and prune run on cargo's folders, on the folders named.
 units() { $UNITS_CMD "$@"; }
 scratch="$(mktemp -d)"
@@ -140,7 +134,7 @@ sed -i '' 's/^version = "0.1.0"/version = "0.1.1"/' dep/Cargo.toml
 build_all cargo
 all="$(fingerprints)"
 
-# A build that finds everything up to date writes nothing cargo_units.py
+# A build that finds everything up to date writes nothing `builds units`
 # could read its use from.
 age 5
 build_all cargo

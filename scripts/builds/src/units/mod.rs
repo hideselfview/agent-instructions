@@ -272,7 +272,7 @@ pub fn remove(path: &Path) -> Result<()> {
 }
 
 /// `builds units prune|trim|git-checkouts ...`: the steps setup and prune
-/// run, on the folders named, with the arguments cargo_units.py took.
+/// run, on the folders named; the shell tests drive them this way.
 pub fn cmd_units(args: &[String]) -> Result<()> {
     let usage = "usage: builds units prune <days> <hours> <incremental hours> <dry 0|1> <folder>... | \
                  trim <cap KiB> <size KiB> <dry 0|1> <folder>... | git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...";
