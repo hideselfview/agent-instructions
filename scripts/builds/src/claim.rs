@@ -23,7 +23,7 @@ use crate::text::{local_minute, note};
 /// The states a note may carry.
 pub const NOTE_STATES: [&str; 2] = ["waiting-on-you", "winding-down"];
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Claim {
     pub who: String,
     pub since: String,

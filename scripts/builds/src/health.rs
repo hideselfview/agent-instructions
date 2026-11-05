@@ -29,7 +29,7 @@ const QUIET_MINUTES: i64 = 60;
 /// Readings of sccache's count this old or older say whether it moved.
 const READING_MINUTES: i64 = 5;
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Health {
     pub generated_at: i64,
     pub load: [f64; 3],
@@ -45,7 +45,7 @@ pub struct Health {
     pub findings: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SccacheHealth {
     pub listening: bool,
     /// "Compile requests executed" now.
@@ -63,7 +63,7 @@ pub struct Reading {
     pub at: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Client {
     pub pid: i32,
     pub minutes: i64,
@@ -71,14 +71,14 @@ pub struct Client {
     pub checkout: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Shell {
     pub pid: i32,
     pub minutes: i64,
     pub command: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct WorktreeHealth {
     pub checkout: String,
     pub path: String,
@@ -91,7 +91,7 @@ pub struct WorktreeHealth {
     pub building: Vec<BuildProcess>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LockHealth {
     pub repo: String,
     pub path: String,
@@ -99,7 +99,7 @@ pub struct LockHealth {
     pub waiting: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Holder {
     pub pid: i32,
     pub minutes: i64,
@@ -109,8 +109,8 @@ pub struct Holder {
 }
 
 /// The record of sccache readings between runs.
-fn readings_file(tool: &Tool) -> PathBuf {
-    tool.places.home.join("Library/Caches/builds/sccache-readings.json")
+fn readings_file(home: &Path) -> PathBuf {
+    home.join("Library/Caches/builds/sccache-readings.json")
 }
 
 fn read_readings(file: &Path) -> Result<Vec<Reading>> {
@@ -161,44 +161,57 @@ fn command_line(pid: i32) -> String {
     if line.chars().count() > 200 { format!("{}…", line.chars().take(200).collect::<String>()) } else { line }
 }
 
-/// Gathers the machine's health now.
-pub fn health(tool: &Tool) -> Result<Health> {
-    let now = tool.now;
-    let roots = tool.roots()?;
-    let live: Vec<&Root> = roots.iter().filter(|root| root.live.is_some()).collect();
-    let places: Vec<Place> = live
-        .iter()
-        .map(|root| Place { label: format!("{}/{}", root_repo(root), root.name()), top: root.top.clone(), root: root.path.clone() })
-        .collect();
-    let processes = Processes::read();
-    let builds = build_processes(&processes, &places, &BUILD_NAMES);
-    let mut findings = Vec::new();
+/// What the processes and sccache say now: the part of health a daemon
+/// samples while a page is open, and a command reads once.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Machine {
+    pub at: i64,
+    pub load: [f64; 3],
+    pub cores: usize,
+    /// Build processes, each placed in one of the places it was sampled
+    /// with.
+    pub builds: Vec<BuildProcess>,
+    pub sccache: SccacheHealth,
+    pub shells: Vec<Shell>,
+    pub locks: Vec<LockHealth>,
+}
 
-    let free_kib = tool.free_kib()?;
-    if free_kib < tool.rules.floor_kib {
-        findings.push(format!(
-            "disk: {} free, under the {} floor",
-            human(free_kib),
-            human(tool.rules.floor_kib)
-        ));
-    }
-
-    // sccache.
+/// sccache's count of finished compiles now, against the newest reading at
+/// least READING_MINUTES old; this reading joins the record when the newest
+/// in it is a minute old or more.
+pub fn sccache_reading(home: &Path, now: i64) -> Result<(bool, Option<u64>, Option<Reading>)> {
     let listening = crate::sccache::listening();
     let executed = if listening {
         crate::sccache::count(&crate::sccache::stats(), "Compile requests executed")
     } else {
         None
     };
-    let file = readings_file(tool);
+    let file = readings_file(home);
     let mut readings = read_readings(&file)?;
     let compared = readings.iter().filter(|r| now - r.at >= READING_MINUTES * 60).max_by_key(|r| r.at).cloned();
-    if let Some(executed) = executed {
-        readings.push(Reading { executed, at: now });
-        // Keep what the next runs compare against: the last hour.
-        readings.retain(|r| now - r.at <= 3600);
-        write_readings(&file, &readings)?;
-    }
+    if let Some(executed) = executed
+        && readings.iter().all(|r| now - r.at >= 60) {
+            readings.push(Reading { executed, at: now });
+            // Keep what the next runs compare against: the last hour.
+            readings.retain(|r| now - r.at <= 3600);
+            write_readings(&file, &readings)?;
+        }
+    Ok((listening, executed, compared))
+}
+
+/// Reads the processes now: build processes placed in <places>, sccache's
+/// waiting clients, Claude shells, and the holders of <locks> (each repo's
+/// app.lock). <sccache> is a `sccache_reading`.
+pub fn sample(
+    places: &[Place],
+    locks: &[(String, PathBuf)],
+    uid: u32,
+    now: i64,
+    sccache: (bool, Option<u64>, Option<Reading>),
+) -> Machine {
+    let processes = Processes::read();
+    let builds = build_processes(&processes, places, &BUILD_NAMES);
+    let (listening, executed, compared) = sccache;
     let mut waiting = Vec::new();
     for process in &processes.list {
         if process.name != "sccache" || minutes_since(now, process.started) < CLIENT_MINUTES {
@@ -217,27 +230,9 @@ pub fn health(tool: &Tool) -> Result<Health> {
         });
     }
     waiting.sort_by_key(|c| std::cmp::Reverse(c.minutes));
-    if !waiting.is_empty() {
-        let oldest = waiting[0].minutes;
-        match (listening, executed, &compared) {
-            (false, _, _) => findings.push(format!(
-                "sccache: no server is listening and {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m)",
-                waiting.len()
-            )),
-            (true, Some(now_count), Some(before)) if now_count == before.executed => findings.push(format!(
-                "sccache: {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m) and the server finished no compile since {} ({}m ago)",
-                waiting.len(),
-                local_minute(before.at),
-                minutes_since(now, before.at)
-            )),
-            _ => {}
-        }
-    }
-
-    // Claude Code shells.
     let mut shells = Vec::new();
     for process in &processes.list {
-        if !matches!(process.name.as_str(), "zsh" | "bash" | "sh") || process.uid != tool.places.uid {
+        if !matches!(process.name.as_str(), "zsh" | "bash" | "sh") || process.uid != uid {
             continue;
         }
         let minutes = minutes_since(now, process.started);
@@ -249,67 +244,21 @@ pub fn health(tool: &Tool) -> Result<Health> {
             continue;
         }
         let command = shell_command(&argv);
-        if runs_the_dashboard(&command) {
-            continue;
-        }
-        findings.push(format!("shell: pid {} has run {}h{:02}m: {command}", process.pid, minutes / 60, minutes % 60));
-        shells.push(Shell { pid: process.pid, minutes, command });
-    }
-
-    // Claimed side worktrees.
-    let mut claimed = Vec::new();
-    for (at, root) in live.iter().enumerate() {
-        let checkout = root.live.as_ref().expect("live");
-        if checkout.is_main() {
-            continue;
-        }
-        if let Some(claim) = Claim::read(&checkout.claim_file())? {
-            claimed.push((at, *root, claim));
+        if !runs_the_dashboard(&command) {
+            shells.push(Shell { pid: process.pid, minutes, command });
         }
     }
-    let gits = parallel_map(&claimed, |(_, root, _)| crate::side_git::read(&root.top));
-    let mut worktrees = Vec::new();
-    for ((at, root, claim), git) in claimed.into_iter().zip(gits) {
-        let checkout = root.live.as_ref().expect("live");
-        let building: Vec<BuildProcess> = builds.iter().filter(|b| b.place == at).cloned().collect();
-        let quiet_minutes = git.activity().map(|when| minutes_since(now, when));
-        let label = places[at].label.clone();
-        if building.is_empty() && quiet_minutes.is_none_or(|m| m >= QUIET_MINUTES) {
-            findings.push(format!(
-                "worktree: {label} ({}) has had no change for {} and no build runs there",
-                claim.who,
-                quiet_minutes.map(|m| format!("{m}m")).unwrap_or_else(|| "as long as git can tell".to_string())
-            ));
-        }
-        worktrees.push(WorktreeHealth {
-            checkout: label,
-            path: root.top.display().to_string(),
-            claim,
-            branch: checkout.branch()?,
-            git,
-            quiet_minutes,
-            building,
-        });
-    }
-
-    // App locks.
-    let mut locks = Vec::new();
-    let mut repos: Vec<String> = roots.iter().map(root_repo).collect();
-    repos.dedup();
-    for repo in repos {
-        let path = tool.places.root.join(&repo).join("app.lock");
-        if !path.is_file() {
-            continue;
-        }
+    let mut held = Vec::new();
+    for (repo, path) in locks {
         let shown = path.display().to_string();
-        let real = std::fs::canonicalize(&path).unwrap_or(path.clone());
+        let real = std::fs::canonicalize(path).unwrap_or(path.clone());
         let mut holder = None;
         let mut waiting = 0;
         for process in processes.list.iter().filter(|p| p.name == "lockf") {
             if !args(process.pid).is_some_and(|argv| argv.contains(&shown)) {
                 continue;
             }
-            if open_files(process.pid).iter().any(|open| *open == real || *open == path) {
+            if open_files(process.pid).iter().any(|open| *open == real || open == path) {
                 holder = Some(Holder {
                     pid: process.pid,
                     minutes: minutes_since(now, process.started),
@@ -320,22 +269,151 @@ pub fn health(tool: &Tool) -> Result<Health> {
                 waiting += 1;
             }
         }
-        locks.push(LockHealth { repo, path: shown, holder, waiting });
+        held.push(LockHealth { repo: repo.clone(), path: shown, holder, waiting });
     }
-
-    Ok(Health {
-        generated_at: now,
+    Machine {
+        at: now,
         load: load_average(),
         cores: cores(),
-        free_kib,
-        floor_kib: tool.rules.floor_kib,
-        hard_floor_kib: tool.rules.hard_floor_kib,
+        builds,
         sccache: SccacheHealth { listening, executed, compared, waiting },
         shells,
+        locks: held,
+    }
+}
+
+/// A claimed side worktree as health judges it.
+pub struct Claimed {
+    /// Its index among the places the machine was sampled with.
+    pub place: usize,
+    pub claim: Claim,
+    pub branch: Option<String>,
+    pub git: SideGit,
+}
+
+/// Judges what needs acting on.
+pub fn assess(
+    now: i64,
+    free_kib: u64,
+    floor_kib: u64,
+    hard_floor_kib: u64,
+    machine: Machine,
+    places: &[Place],
+    claimed: Vec<Claimed>,
+) -> Health {
+    let mut findings = Vec::new();
+    if free_kib < floor_kib {
+        findings.push(format!("disk: {} free, under the {} floor", human(free_kib), human(floor_kib)));
+    }
+    let s = &machine.sccache;
+    if let Some(oldest) = s.waiting.first().map(|c| c.minutes) {
+        match (s.listening, s.executed, &s.compared) {
+            (false, _, _) => findings.push(format!(
+                "sccache: no server is listening and {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m)",
+                s.waiting.len()
+            )),
+            (true, Some(now_count), Some(before)) if now_count == before.executed => findings.push(format!(
+                "sccache: {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m) and the server finished no compile since {} ({}m ago)",
+                s.waiting.len(),
+                local_minute(before.at),
+                minutes_since(now, before.at)
+            )),
+            _ => {}
+        }
+    }
+    for shell in &machine.shells {
+        findings.push(format!(
+            "shell: pid {} has run {}h{:02}m: {}",
+            shell.pid,
+            shell.minutes / 60,
+            shell.minutes % 60,
+            shell.command
+        ));
+    }
+    let mut worktrees = Vec::new();
+    for Claimed { place, claim, branch, git } in claimed {
+        let building: Vec<BuildProcess> = machine.builds.iter().filter(|b| b.place == place).cloned().collect();
+        let quiet_minutes = git.activity().map(|when| minutes_since(now, when));
+        let label = places[place].label.clone();
+        if building.is_empty() && quiet_minutes.is_none_or(|m| m >= QUIET_MINUTES) {
+            findings.push(format!(
+                "worktree: {label} ({}) has had no change for {} and no build runs there",
+                claim.who,
+                quiet_minutes.map(|m| format!("{m}m")).unwrap_or_else(|| "as long as git can tell".to_string())
+            ));
+        }
+        worktrees.push(WorktreeHealth {
+            checkout: label,
+            path: places[place].top.display().to_string(),
+            claim,
+            branch,
+            git,
+            quiet_minutes,
+            building,
+        });
+    }
+    Health {
+        generated_at: now,
+        load: machine.load,
+        cores: machine.cores,
+        free_kib,
+        floor_kib,
+        hard_floor_kib,
+        sccache: machine.sccache,
+        shells: machine.shells,
         worktrees,
-        locks,
+        locks: machine.locks,
         findings,
-    })
+    }
+}
+
+/// The places processes are placed in: every live checkout.
+pub fn places_of(roots: &[Root]) -> Vec<Place> {
+    roots
+        .iter()
+        .filter(|root| root.live.is_some())
+        .map(|root| Place { label: format!("{}/{}", root_repo(root), root.name()), top: root.top.clone(), root: root.path.clone() })
+        .collect()
+}
+
+/// Each repo's app lock that exists.
+pub fn locks_of(places: &crate::places::Places, roots: &[Root]) -> Vec<(String, PathBuf)> {
+    let mut repos: Vec<String> = roots.iter().map(root_repo).collect();
+    repos.dedup();
+    repos
+        .into_iter()
+        .map(|repo| {
+            let path = places.root.join(&repo).join("app.lock");
+            (repo, path)
+        })
+        .filter(|(_, path)| path.is_file())
+        .collect()
+}
+
+/// Gathers the machine's health now, reading everything itself.
+pub fn health(tool: &Tool) -> Result<Health> {
+    let now = tool.now;
+    let roots = tool.roots()?;
+    let live: Vec<&Root> = roots.iter().filter(|root| root.live.is_some()).collect();
+    let places = places_of(&roots);
+    let sccache = sccache_reading(&tool.places.home, now)?;
+    let machine = sample(&places, &locks_of(&tool.places, &roots), tool.places.uid, now, sccache);
+    let mut claimed = Vec::new();
+    for (at, root) in live.iter().enumerate() {
+        let checkout = root.live.as_ref().expect("live");
+        if checkout.is_main() {
+            continue;
+        }
+        if let Some(claim) = Claim::read(&checkout.claim_file())? {
+            claimed.push((at, checkout, claim));
+        }
+    }
+    let gits = parallel_map(&claimed, |(_, checkout, _)| crate::side_git::read(&checkout.top));
+    let mut judged = Vec::new();
+    for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
+        judged.push(Claimed { place, claim, branch: checkout.branch()?, git });
+    }
+    Ok(assess(now, tool.free_kib()?, tool.rules.floor_kib, tool.rules.hard_floor_kib, machine, &places, judged))
 }
 
 fn root_repo(root: &Root) -> String {
@@ -463,7 +541,10 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         _ => crate::fail!("usage: builds health [--json]"),
     };
     tool.places.require_volume()?;
-    let health = health(tool)?;
+    let health = match crate::daemon::client::health(&tool.places) {
+        Some(health) => health,
+        None => health(tool)?,
+    };
     if json {
         println!("{}", serde_json::to_string(&health).expect("health serializes"));
     } else {

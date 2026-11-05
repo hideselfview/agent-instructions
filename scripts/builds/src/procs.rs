@@ -269,7 +269,7 @@ pub struct Place {
 }
 
 /// A build process at work in a checkout.
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BuildProcess {
     pub pid: i32,
     pub name: String,

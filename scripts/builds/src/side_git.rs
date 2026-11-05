@@ -8,10 +8,10 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// One commit, as the page and `health` show it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Commit {
     pub sha: String,
     pub full: String,
@@ -22,7 +22,7 @@ pub struct Commit {
     pub subject: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SideGit {
     pub head: Option<Commit>,
     /// The commits on HEAD origin/main has no copy of, newest first.

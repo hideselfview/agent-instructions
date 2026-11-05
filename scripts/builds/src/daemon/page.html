@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Builds</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bg: #F6F6F3; --surface: #FFFFFF; --pinned: #EDEDE8; --pinned-line: #DADAD3;
+  --line: #E2E2DC; --line-soft: #F0F0EA; --track: #ECECE6;
+  --text: #1A1A19; --text-2: #2B2B29; --text-3: #3A3A37; --muted: #5C5C57; --muted-2: #6B6B66;
+  --ok: #2E7D4F; --warn: #9A5B00; --bad: #B3261E; --bad-bg: #FDE7E5;
+  --accent: #1F4FB8; --waiting-bg: #EEF3FC;
+  --working-bg: #E7F2EA; --working: #1F5E38;
+  --ready-bg: #E3ECFB; --ready: #1F4FB8;
+  --you-bg: #FBEBDD; --you: #8A3E08;
+  --winding-bg: #EFEDE6; --winding: #4F4C42;
+  --free-bg: #F1F1EC; --free: #5C5C57;
+  --dot-you: #C25E10; --dot-ready: #1F4FB8; --dot-working: #2E7D4F; --dot-free: #9A9A92;
+  --on: #1A1A19; --on-text: #FFFFFF;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --surface: #1F1F1D; --pinned: #262624; --pinned-line: #383833;
+    --line: #34342F; --line-soft: #2B2B28; --track: #34342F;
+    --text: #ECECE8; --text-2: #D9D9D3; --text-3: #C9C9C2; --muted: #A6A69F; --muted-2: #9C9C95;
+    --ok: #5DBB84; --warn: #E8A84A; --bad: #FF8A80; --bad-bg: #3D1A17;
+    --accent: #93B2FF; --waiting-bg: #1C2538;
+    --working-bg: #1C3324; --working: #93D8AE;
+    --ready-bg: #1D2A45; --ready: #A9C3FF;
+    --you-bg: #3E2614; --you: #F6B27C;
+    --winding-bg: #2D2B25; --winding: #D3CEBD;
+    --free-bg: #2A2A27; --free: #B5B5AE;
+    --dot-you: #E07A2E; --dot-ready: #6F95F0; --dot-working: #4FAE76; --dot-free: #85857E;
+    --on: #ECECE8; --on-text: #161615;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
+.page { padding: 24px 28px 48px; display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+.mono { font-family: var(--mono); }
+
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.title { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; min-width: 0; }
+h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.sub { font-size: 14px; color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.switch { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.switch button { font: 600 13px var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 5px 12px; cursor: pointer; }
+.switch button[aria-pressed="true"] { background: var(--on); color: var(--on-text); }
+.switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hide-free { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-3); cursor: pointer; }
+.hide-free input { margin: 0; accent-color: var(--on); cursor: pointer; }
+.disk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.disk .label { font-size: 13px; color: var(--muted); }
+.bar { position: relative; width: 140px; height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
+.bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ok); }
+.bar .mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--muted-2); }
+.disk .free { font: 500 13px var(--mono); }
+.disk .floors, .updated { font-size: 12px; color: var(--muted-2); }
+.disk .floors.warn { color: var(--warn); }
+.disk .floors.bad { color: var(--bad); }
+.error { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 8px 10px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.loading { font-size: 14px; color: var(--muted); }
+#view { display: flex; flex-direction: column; gap: 28px; }
+
+section.repo { display: flex; flex-direction: column; gap: 12px; }
+.repo-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.repo-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.repo-head span { font-size: 13px; color: var(--muted); }
+.pinned-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: 12px; align-items: stretch; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; align-items: stretch; }
+article { min-width: 0; display: flex; flex-direction: column; }
+.pinned { background: var(--pinned); border: 1px solid var(--pinned-line); border-radius: 12px; padding: 14px 16px; gap: 10px; }
+/* Cards in a row stretch to the tallest; the title, agent and note stay at the
+   top and the foot sits at the bottom. The min-height fits a usual card: title
+   line, agent line, a two-line note and the foot. */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; gap: 10px; min-height: 176px; }
+.card .foot { margin-top: auto; }
+.row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.ident { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.name { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.where { font: 12px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; flex: none; }
+.s-working { background: var(--working-bg); color: var(--working); }
+.s-ready { background: var(--ready-bg); color: var(--ready); }
+.s-you { background: var(--you-bg); color: var(--you); }
+.s-winding { background: var(--winding-bg); color: var(--winding); }
+.s-free { background: var(--free-bg); color: var(--free); }
+.line { font-size: 14px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.total { display: flex; align-items: baseline; gap: 10px; }
+.total .big { font: 500 20px var(--mono); }
+.total .of { font-size: 12px; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px 8px; }
+.chip { font-size: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; color: var(--text-3); overflow-wrap: anywhere; }
+.chip .mono { color: var(--text); }
+.more-folders summary { font-size: 12px; color: var(--muted); cursor: pointer; width: fit-content; }
+.more-folders summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.more-folders .chips { margin-top: 6px; }
+.chip.over { border-color: var(--bad); }
+.chip.over .mono { color: var(--bad); }
+.command { font: 12px/1.4 var(--mono); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; }
+.who-block { display: flex; flex-direction: column; gap: 3px; }
+.who { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.note { font-size: 14px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.waiting { background: var(--waiting-bg); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.waiting .label { font-size: 12px; font-weight: 600; color: var(--accent); }
+.commit { display: flex; gap: 8px; font-size: 13px; line-height: 1.35; min-width: 0; }
+.commit .sha { font-family: var(--mono); color: var(--accent); flex: none; }
+.commit .subject { color: var(--text-2); overflow-wrap: anywhere; min-width: 0; }
+.more { font-size: 12px; color: var(--muted); }
+.foot { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line-soft); padding-top: 8px; }
+.quiet { color: var(--muted-2); font-style: italic; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
+.bad { color: var(--bad); font-weight: 600; }
+.warn { color: var(--warn); font-weight: 600; }
+
+.pinned-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px; align-items: start; }
+.pinned.compact { padding: 12px 14px; gap: 6px; }
+.compact .row1 { align-items: baseline; }
+.compact .name { font-size: 14px; white-space: normal; }
+.compact .big { font: 500 16px var(--mono); white-space: nowrap; }
+.compact .line { font-size: 13px; color: var(--text-3); }
+.lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; align-items: start; }
+.lane { background: var(--pinned); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lane-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; }
+.lane-head > div { display: flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.lane h2 { margin: 0; font-size: 14px; font-weight: 700; }
+.lane .count { font: 13px var(--mono); color: var(--muted); }
+.lane .hint, .lane .none { font-size: 12px; color: var(--muted); padding: 0 4px; }
+.lcard { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; gap: 8px; }
+.lcard .row1 { align-items: baseline; }
+.lcard .name { font-size: 14px; }
+.lcard .age { font-size: 12px; color: var(--muted-2); white-space: nowrap; }
+.lcard .who { font-size: 13px; color: var(--text-3); }
+.lcard .note { font-size: 13px; color: var(--text); }
+.lcard .commits { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--line-soft); padding-top: 6px; }
+.lcard .commit { font-size: 12px; }
+.lcard .pill { align-self: flex-start; font-size: 11px; padding: 2px 8px; }
+
+@media (max-width: 600px) {
+  .page { padding: 16px 16px 40px; gap: 16px; }
+  .bar { width: 100px; }
+}
+.load { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; }
+.load .label { font-size: 13px; color: var(--muted); }
+.load .value { font: 500 13px var(--mono); }
+.load svg { display: block; }
+.load .spark { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.load .cores { stroke: var(--muted-2); stroke-width: 1; stroke-dasharray: 2 2; }
+.load .note { font-size: 12px; color: var(--muted-2); }
+.live { font-size: 12px; color: var(--muted-2); }
+.live.down { color: var(--bad); font-weight: 600; }
+.findings { background: var(--you-bg); color: var(--you); border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
+.findings .label { font-weight: 700; }
+.activity { font-size: 12px; color: var(--working); background: var(--working-bg); border-radius: 6px; padding: 4px 8px; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="page">
+<header>
+  <div class="title">
+    <h1>Builds</h1>
+    <span class="sub" id="sub">Worktrees, and the agents working and building in them</span>
+  </div>
+  <div class="controls">
+    <div class="switch" role="group" aria-label="View">
+      <button type="button" data-view="repos" aria-pressed="true">By repo</button>
+      <button type="button" data-view="lanes" aria-pressed="false">Lanes</button>
+    </div>
+    <label class="hide-free"><input type="checkbox" id="hide-free"> Hide free worktrees</label>
+    <span class="updated" id="hidden-count"></span>
+    <div class="load" id="load"><span class="label">Load</span><span class="note">read while this page is open</span></div>
+    <div class="disk" id="disk"><span class="label">Disk</span><span class="floors">reading</span></div>
+    <span class="live" id="live">connecting</span>
+  </div>
+</header>
+<div id="findings"></div>
+<div id="errors"></div>
+<main id="view"><div class="loading">Reading the checkouts</div></main>
+</div>
+<script>
+"use strict";
+const SUBTITLE = "Worktrees, and the agents working and building in them";
+// The states the daemon derives for each side worktree (worktree_state in
+// model.rs), in the order the cards sort.
+const STATES = {
+  "waiting-on-you": {label: "Waiting on you", cls: "s-you"},
+  "ready-to-land": {label: "Ready to land", cls: "s-ready"},
+  "winding-down": {label: "Winding down", cls: "s-winding"},
+  "working": {label: "Working", cls: "s-working"},
+  "landing": {label: "Landing", cls: "s-free"},
+  "free": {label: "Free", cls: "s-free"},
+};
+const ORDER = Object.keys(STATES);
+const LANES = [
+  {title: "Waiting on you", hint: "A question only you can answer, or a step only you can do.", dot: "--dot-you", states: ["waiting-on-you"]},
+  {title: "Ready to land", hint: "Commits on the branch whose change main doesn’t have yet.", dot: "--dot-ready", states: ["ready-to-land"]},
+  {title: "Working", hint: "Claimed, with no commit waiting and nothing asked.", dot: "--dot-working", states: ["winding-down", "working", "landing"]},
+  {title: "Free", hint: "Unclaimed worktrees, ready for the next agent.", dot: "--dot-free", states: ["free"]},
+];
+const VIEW_KEY = "builds-dashboard-view";
+const HIDE_FREE_KEY = "builds-dashboard-hide-free";
+let state = null, streamError = "";
+let view = "repos", hideFree = false;
+try {
+  const saved = localStorage.getItem(VIEW_KEY);
+  if (saved === "repos" || saved === "lanes") view = saved;
+  hideFree = localStorage.getItem(HIDE_FREE_KEY) === "true";
+} catch (e) { /* no storage: the defaults */ }
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  for (const kid of kids.flat()) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    el.append(typeof kid === "string" ? document.createTextNode(kid) : kid);
+  }
+  return el;
+}
+function size(kib) {
+  if (kib === null || kib === undefined) return "-";
+  return kib >= 1048576 ? (kib / 1048576).toFixed(1) + "G" : Math.floor(kib / 1024) + "M";
+}
+function bytes(n) { return size(Math.floor(n / 1024)); }
+function wholeSize(kib) { return size(kib).replace(".0G", "G"); }
+function ago(epoch) {
+  const s = Math.max(0, Date.now() / 1000 - epoch);
+  if (s < 60) return Math.round(s) + "s";
+  if (s < 3600) return Math.round(s / 60) + "m";
+  if (s < 172800) return Math.round(s / 3600) + "h";
+  return Math.round(s / 86400) + "d";
+}
+// A span whose text is "<before><age><after>", kept current by the ticker
+// without redrawing its card.
+function agoSpan(epoch, before, after, attrs) {
+  return h("span", Object.assign({"data-ago": String(epoch), "data-before": before || "", "data-after": after || ""}, attrs || {}),
+    (before || "") + ago(epoch) + (after || ""));
+}
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function hhmm(d) { return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
+// A local time as the clock today, "yesterday 22:52" or "Nov 3".
+function when(d) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const day = new Date(d); day.setHours(0, 0, 0, 0);
+  const days = Math.round((today - day) / 86400000);
+  if (days <= 0) return hhmm(d);
+  if (days === 1) return "yesterday " + hhmm(d);
+  return MONTHS[d.getMonth()] + " " + d.getDate();
+}
+// A claim's date is local time, "YYYY-MM-DD HH:MM".
+function since(text) {
+  const t = Date.parse(text.replace(" ", "T"));
+  return isNaN(t) ? text : when(new Date(t));
+}
+function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+function tilde(path) { return path.replace(/^\/Users\/[^/]+/, "~"); }
+// A worktree's last activity: the newer of its HEAD commit and its newest
+// uncommitted file, in epoch seconds; 0 when git said nothing.
+function activity(c) {
+  const g = c.git;
+  if (!g || g.error) return 0;
+  return Math.max(g.head ? g.head.time : 0, g.last_write || 0);
+}
+function sideNumber(name) { const m = /(\d+)$/.exec(name); return m ? Number(m[1]) : 0; }
+// Most recent activity first.
+function byActivity(a, b) { return activity(b) - activity(a) || sideNumber(a.name) - sideNumber(b.name); }
+const QUIET_SECONDS = 30 * 60;
+// Uncommitted files and no write to them for 30 minutes: an agent that may have stalled.
+function quiet(c) {
+  const g = c.git;
+  return !!(g && !g.error && g.uncommitted && g.last_write && Date.now() / 1000 - g.last_write >= QUIET_SECONDS);
+}
+
+// What a checkout's build folders say.
+function built(c) {
+  if (!c.folders) return null;
+  const out = {total: c.total_kib, newest: 0, chips: [], over: [], links: []};
+  for (const f of c.folders) {
+    if (!f.exists) continue;
+    if (f.last_write && f.last_write > out.newest) out.newest = f.last_write;
+    const over = f.kib !== null && f.kib > f.cap_kib;
+    if (over) out.over.push(f.path + " " + size(f.kib) + " over its " + size(f.cap_kib) + " cap");
+    if (f.link !== "linked") out.links.push(f.path + (f.link === "elsewhere" ? " links elsewhere" : " not linked"));
+    // A folder under 1M shows as 0M: no build output worth a chip.
+    if (f.kib === null || f.kib >= 1024) out.chips.push({path: f.path, kib: f.kib, over});
+  }
+  out.chips.sort((a, b) => (b.kib || 0) - (a.kib || 0));
+  return out;
+}
+
+function pill(text, cls) { return h("span", {class: "pill " + cls}, text); }
+function stateOf(c) { return STATES[c.state] || {label: c.state, cls: "s-free"}; }
+function lockOf(repo) {
+  const lock = repo.lock;
+  return {held: !!(lock && lock.holder), waiting: lock ? lock.waiting : 0, holder: lock ? lock.holder : null};
+}
+// What holds the app lock, each command as its script's file name with the
+// whole command in the tooltip.
+function shortCommand(command) {
+  const words = command.split(/\s+/).filter(Boolean);
+  const script = words.find((w, i) => i > 0 && /\.(sh|py|rb|js)$/.test(w));
+  const name = (script || words[0] || command).split("/").pop();
+  return {name, rest: script ? "" : words.slice(1, 3).join(" ")};
+}
+function commands(lock) {
+  if (!lock.holder) return [];
+  const running = lock.holder.running.length ? lock.holder.running : [lock.holder.command];
+  return running.map(command => {
+    const short = shortCommand(command);
+    return h("div", {class: "command", title: command}, (short.name + " " + short.rest).trim());
+  });
+}
+function detachedAt(c) {
+  if (c.branch) return c.branch;
+  return c.git && c.git.head ? "detached at " + c.git.head.sha : "detached";
+}
+
+// The build processes at work in a checkout, as one line.
+function activityLine(c) {
+  const a = c.activity;
+  if (!a || !a.processes.length) return null;
+  const counts = {};
+  for (const p of a.processes) counts[p.name] = (counts[p.name] || 0) + 1;
+  const names = Object.entries(counts).map(([n, k]) => k > 1 ? n + " ×" + k : n).join(", ");
+  return h("div", {class: "activity", title: a.processes.map(p => p.name + " " + p.pid).join(", ")},
+    "Building: " + names + " · " + Math.round(a.cpu) + "% CPU · " + bytes(a.memory));
+}
+
+// Each repo's pinned checkouts (main, then the App build), its other live
+// side worktrees, and the build roots whose checkout is gone.
+function split(repo) {
+  const main = repo.checkouts.find(c => c.live && c.main);
+  const app = repo.checkouts.find(c => c.live && c.app_checkout);
+  const sides = repo.checkouts.filter(c => c.live && !c.main && !c.app_checkout);
+  sides.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || byActivity(a, b));
+  return {main, app, sides, gone: repo.checkouts.filter(c => !c.live)};
+}
+// The side worktrees a view lists: all, or with the Free ones left out.
+function shown(sides) { return hideFree ? sides.filter(c => c.state !== "free") : sides; }
+function counts(cs) {
+  const n = {};
+  for (const c of cs) n[c.state] = (n[c.state] || 0) + 1;
+  return n;
+}
+
+function totalBlock(b) {
+  if (!b || b.total === null) return h("div", {class: "total"}, h("span", {class: "of"}, "measuring…"));
+  return h("div", {class: "total"}, h("span", {class: "big"}, size(b.total)), h("span", {class: "of"}, "of build output"));
+}
+// Short names for the build folders; any other shows its path. The chip's
+// title holds the path.
+const FOLDER_NAMES = {
+  "bae-macos/bae/.build": "Xcode build",
+  "bae-ios/bae/.build": "iOS Xcode build",
+  "bae-android/app/build": "Android app",
+  "bae-android/bridge/build": "Android bridge",
+  "bae-android/fastvalues/build": "Android fastvalues",
+  "bae-android/screensubscription/build": "Android screensubscription",
+  "bae-android/.gradle": "Gradle",
+  "bae-android/debug-symbols": "Android symbols",
+  "BaeKit/Frameworks": "BaeKit",
+  "BaeKit/.build": "BaeKit build",
+  "bae-avalonia/bin": "Avalonia bin",
+  "bae-avalonia/obj": "Avalonia obj",
+  "bae-avalonia/bae-avalonia.Tests/bin": "Avalonia tests bin",
+  "bae-avalonia/bae-avalonia.Tests/obj": "Avalonia tests obj",
+};
+function folderName(path) {
+  const proof = /^spec\/proofs\/([^/]+)\/\.lake$/.exec(path);
+  return FOLDER_NAMES[path] || (proof ? "Lean " + proof[1] + " proofs" : path);
+}
+// The 3 largest folders inline; the rest behind a disclosure.
+const INLINE_CHIPS = 3;
+function chips(b) {
+  if (!b) return null;
+  const chip = f => h("span", {class: "chip" + (f.over ? " over" : ""), title: f.path}, folderName(f.path) + " ",
+    h("span", {class: "mono"}, (f.kib === null ? "measuring…" : size(f.kib)) + (f.over ? " over cap" : "")));
+  const problems = b.links.map(p => h("span", {class: "chip over"}, p));
+  const rest = b.chips.slice(INLINE_CHIPS);
+  return [
+    b.chips.length || problems.length ? h("div", {class: "chips"}, b.chips.slice(0, INLINE_CHIPS).map(chip), problems) : null,
+    rest.length ? h("details", {class: "more-folders"},
+      h("summary", {}, "+" + plural(rest.length, "more folder", "more folders")),
+      h("div", {class: "chips"}, rest.map(chip))) : null];
+}
+function mainLine(repo) {
+  return "Your checkout. No agent works or builds here" + (repo.app_checkout ? "; you install from it." : ".");
+}
+function appLine(lock, b) {
+  if (lock.held) {
+    return "An agent is building here under the app lock" +
+      (lock.holder.minutes ? " (held " + lock.holder.minutes + "m)" : "") +
+      (lock.waiting ? "; " + plural(lock.waiting, "more waits", "more wait") + " for it." : ".");
+  }
+  return "Where agents build the apps, one at a time under the app lock." +
+    (b && b.newest ? " Last build " + when(new Date(b.newest * 1000)) + "." : "");
+}
+
+function pinnedMain(repo, c) {
+  const b = built(c);
+  return h("article", {class: "pinned"},
+    h("div", {class: "row1"},
+      h("div", {class: "ident"}, h("span", {class: "name"}, "main"),
+        h("span", {class: "where"}, tilde(c.path) + " · " + (c.branch || "detached"))),
+      pill("Yours", "s-free")),
+    h("span", {class: "line"}, mainLine(repo)),
+    activityLine(c),
+    totalBlock(b), chips(b));
+}
+function pinnedApp(repo, c) {
+  const b = built(c), lock = lockOf(repo);
+  return h("article", {class: "pinned"},
+    h("div", {class: "row1"},
+      h("div", {class: "ident"}, h("span", {class: "name"}, "App build"),
+        h("span", {class: "where"}, c.name + " · " + detachedAt(c))),
+      lock.held ? pill("Lock held", "s-working") : pill("Lock free", "s-free")),
+    h("span", {class: "line"}, appLine(lock, b)),
+    lock.held ? commands(lock) : null,
+    activityLine(c),
+    c.claim ? h("div", {class: "who-block"}, h("span", {class: "who"}, c.claim.who),
+      c.claim.note ? h("span", {class: "note"}, c.claim.note) : null) : null,
+    totalBlock(b), chips(b));
+}
+
+function waitingBox(c, max) {
+  const ahead = c.git && !c.git.error ? c.git.ahead : [];
+  if (!ahead.length) return null;
+  return h("div", {class: "waiting"},
+    h("span", {class: "label"}, plural(ahead.length, "commit", "commits") + " waiting to land"),
+    ahead.slice(0, max).map(x => h("div", {class: "commit"}, h("span", {class: "sha"}, x.sha), h("span", {class: "subject"}, x.subject))),
+    ahead.length > max ? h("span", {class: "more"}, "and " + (ahead.length - max) + " more") : null);
+}
+function buildFact(b) {
+  if (!b || b.total === null) return h("span", {}, "build size measuring…");
+  if (b.over.length) return h("span", {class: "bad", title: b.over.join("; ")}, "build " + size(b.total) + " over cap");
+  return h("span", {}, "build " + size(b.total));
+}
+function card(c) {
+  const st = stateOf(c), g = c.git, b = built(c);
+  const foot = [];
+  if (g && g.head) foot.push(agoSpan(g.head.time, "last commit ", " ago"));
+  if (g && !g.error) foot.push(g.uncommitted ? h("span", {}, plural(g.uncommitted, "file", "files") + " changed") : h("span", {}, "clean"));
+  if (g && g.last_write) foot.push(agoSpan(g.last_write, "last write ", " ago"));
+  if (quiet(c)) foot.push(h("span", {class: "quiet", title: "Uncommitted files, and none written for 30 minutes"}, "quiet"));
+  foot.push(buildFact(b));
+  if (b) for (const p of b.links) foot.push(h("span", {class: "bad"}, p));
+  if (c.claim) foot.push(h("span", {}, "since " + since(c.claim.since)));
+  return h("article", {class: "card"},
+    h("div", {class: "row1"},
+      h("div", {class: "ident"}, h("span", {class: "name"}, c.name), h("span", {class: "where", title: detachedAt(c)}, detachedAt(c))),
+      pill(st.label, st.cls)),
+    h("div", {class: "who-block"},
+      h("span", {class: "who"}, c.claim ? c.claim.who : "Unclaimed"),
+      c.claim && c.claim.note ? h("span", {class: "note"}, c.claim.note) : null),
+    g && g.error ? h("div", {class: "error"}, g.error) : null,
+    activityLine(c),
+    waitingBox(c, 10),
+    h("div", {class: "foot"}, foot));
+}
+
+function summary(parts) { return parts.filter(Boolean).join(" · "); }
+function stateCounts(cs) {
+  const n = counts(cs);
+  return ORDER.filter(s => n[s]).map(s => n[s] + " " + STATES[s].label.toLowerCase());
+}
+function goneLine(gone) {
+  return gone.length ? plural(gone.length, "build root whose checkout is gone", "build roots whose checkouts are gone") +
+    " (" + gone.map(c => c.name).join(", ") + "; builds prune deletes them)" : null;
+}
+
+// Puts <items> ({key, data, make}) in <parent> in order, keeping each
+// existing element whose key and data are unchanged and replacing only the
+// rest, so an open disclosure or a selection in an unchanged card stays.
+function patch(parent, items) {
+  const old = new Map();
+  for (const el of Array.from(parent.children)) if (el.dataset.key) old.set(el.dataset.key, el);
+  let at = 0;
+  for (const item of items) {
+    const sig = JSON.stringify(item.data);
+    let el = old.get(item.key);
+    if (!el || el.dataset.sig !== sig) {
+      const made = item.make();
+      made.dataset.key = item.key;
+      made.dataset.sig = sig;
+      if (el) {
+        const open = new Set(Array.from(el.querySelectorAll("details[open]")).map(d => d.textContent));
+        for (const d of made.querySelectorAll("details")) if (open.has(d.textContent)) d.open = true;
+      }
+      el = made;
+    }
+    old.delete(item.key);
+    if (parent.children[at] !== el) parent.insertBefore(el, parent.children[at] || null);
+    at++;
+  }
+  for (const el of old.values()) el.remove();
+  while (parent.children.length > at) parent.lastChild.remove();
+}
+// The element for <key> in <parent>, made once with <make>.
+function slot(parent, key, make) {
+  let el = Array.from(parent.children).find(e => e.dataset.key === key);
+  if (!el) { el = make(); el.dataset.key = key; parent.append(el); }
+  return el;
+}
+
+function reposView(root) {
+  const items = state.repos.map(repo => ({key: "repo:" + repo.name, data: null, repo}));
+  // Sections are kept by repo; their insides are patched below.
+  const sections = items.map(item => {
+    const repo = item.repo;
+    const section = slot(root, item.key, () => h("section", {class: "repo"},
+      h("div", {class: "repo-head"}, h("h2", {}, repo.name), h("span", {})),
+      h("div", {class: "pinned-grid"}), h("div", {class: "cards"})));
+    const {main, app, sides, gone} = split(repo);
+    const agents = sides.filter(c => c.claim && c.state !== "landing").length;
+    section.querySelector(".repo-head span").textContent =
+      summary([agents ? plural(agents, "agent", "agents") : null, ...stateCounts(sides), goneLine(gone)]) || "no side worktrees";
+    const pinned = [];
+    if (main) pinned.push({key: "main", data: [repo.app_checkout, main], make: () => pinnedMain(repo, main)});
+    if (app) pinned.push({key: "app", data: [repo.lock, app], make: () => pinnedApp(repo, app)});
+    patch(section.querySelector(".pinned-grid"), pinned);
+    patch(section.querySelector(".cards"), shown(sides).map(c => ({key: c.name, data: c, make: () => card(c)})));
+    return section;
+  });
+  // Only their order and presence: each one's insides were patched above.
+  patch(root, sections.map(s => ({key: s.dataset.key, data: null, make: () => s})));
+}
+
+function compactMain(repo, c) {
+  const b = built(c);
+  return h("article", {class: "pinned compact"},
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " main"), h("span", {class: "big"}, b && b.total !== null ? size(b.total) : "measuring…")),
+    h("span", {class: "line"}, "Yours. No agent works or builds here."),
+    activityLine(c));
+}
+function compactApp(repo, c) {
+  const b = built(c), lock = lockOf(repo);
+  const line = lock.held
+    ? "Lock held: an agent is building here" + (lock.waiting ? ", " + lock.waiting + " waiting." : ".")
+    : "Lock free. Agents build the apps here, one at a time.";
+  return h("article", {class: "pinned compact"},
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " App build · " + c.name), h("span", {class: "big"}, b && b.total !== null ? size(b.total) : "measuring…")),
+    h("span", {class: "line"}, line),
+    lock.held ? commands(lock) : null,
+    activityLine(c));
+}
+function laneCard(repo, c) {
+  const g = c.git, b = built(c);
+  const tag = c.state === "winding-down" || c.state === "landing" ? pill(stateOf(c).label, stateOf(c).cls) : null;
+  let note = c.claim && c.claim.note ? c.claim.note : null;
+  if (!c.claim) note = summary([detachedAt(c), b && b.total !== null ? size(b.total) + " build" : null]);
+  else if (b && b.over.length) note = (note ? note + " " : "") + "Build folder over its cap.";
+  return h("article", {class: "lcard"},
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " " + c.name),
+      h("span", {class: "age", title: "last activity: the newer of the last commit and the newest uncommitted file"},
+        activity(c) ? agoSpan(activity(c)) : "", quiet(c) ? " " : "", quiet(c) ? h("span", {class: "quiet"}, "quiet") : null)),
+    h("span", {class: "who"}, c.claim ? c.claim.who : "Unclaimed"),
+    tag,
+    note ? h("span", {class: "note"}, note) : null,
+    activityLine(c),
+    g && g.error ? h("div", {class: "error"}, g.error) : null,
+    g && !g.error && g.ahead.length ? h("div", {class: "commits"},
+      g.ahead.slice(0, 6).map(x => h("div", {class: "commit"}, h("span", {class: "sha"}, x.sha), h("span", {class: "subject"}, x.subject))),
+      g.ahead.length > 6 ? h("span", {class: "more"}, "and " + (g.ahead.length - 6) + " more") : null) : null);
+}
+function lanesView(root) {
+  const pinned = [], all = [], gone = [];
+  for (const repo of state.repos) {
+    const s = split(repo);
+    if (s.main) pinned.push({key: repo.name + " main", data: [s.main], make: () => compactMain(repo, s.main)});
+    if (s.app) pinned.push({key: repo.name + " app", data: [repo.lock, s.app], make: () => compactApp(repo, s.app)});
+    for (const c of s.sides) all.push([repo, c]);
+    for (const c of s.gone) gone.push(c);
+  }
+  const pinnedRow = slot(root, "pinned", () => h("div", {class: "pinned-row"}));
+  patch(pinnedRow, pinned);
+  const goneEl = slot(root, "gone", () => h("div", {class: "loading"}));
+  goneEl.textContent = goneLine(gone) || "";
+  const lanes = slot(root, "lanes", () => h("div", {class: "lanes"}));
+  patch(lanes, LANES.filter(lane => !(hideFree && lane.states.includes("free"))).map(lane => ({
+    key: lane.title, data: null, lane,
+    make: () => h("section", {class: "lane"},
+      h("div", {class: "lane-head"},
+        h("div", {}, h("span", {class: "dot", style: "background: var(" + lane.dot + ")"}), h("h2", {}, lane.title)),
+        h("span", {class: "count"})),
+      h("span", {class: "hint"}, lane.hint),
+      h("div", {class: "lane-cards"})),
+  })));
+  for (const laneEl of lanes.children) {
+    const lane = LANES.find(l => l.title === laneEl.dataset.key);
+    const cards = all.filter(([, c]) => lane.states.includes(c.state));
+    cards.sort((a, b) => lane.states.indexOf(a[1].state) - lane.states.indexOf(b[1].state) || byActivity(a[1], b[1]));
+    laneEl.querySelector(".count").textContent = String(cards.length);
+    const holder = laneEl.querySelector(".lane-cards");
+    holder.style.display = "flex"; holder.style.flexDirection = "column"; holder.style.gap = "10px";
+    if (cards.length) patch(holder, cards.map(([repo, c]) => ({key: repo.name + " " + c.name, data: c, make: () => laneCard(repo, c)})));
+    else patch(holder, [{key: "none", data: null, make: () => h("span", {class: "none"}, "None.")}]);
+  }
+  for (const el of Array.from(root.children)) if (!["pinned", "gone", "lanes"].includes(el.dataset.key)) el.remove();
+}
+
+function disk(v) {
+  const gib = k => k / 1048576;
+  const scale = Math.max(gib(v.floor_kib) * 2, gib(v.free_kib) * 1.25);
+  const pct = x => Math.min(100, 100 * x / scale) + "%";
+  let color = "var(--ok)", note = h("span", {class: "floors"}, "warns " + wholeSize(v.floor_kib) + " · stops " + wholeSize(v.hard_floor_kib));
+  if (v.free_kib < v.hard_floor_kib) { color = "var(--bad)"; note = h("span", {class: "bad floors"}, "under " + wholeSize(v.hard_floor_kib) + ": builds stop"); }
+  else if (v.free_kib < v.floor_kib) { color = "var(--warn)"; note = h("span", {class: "warn floors"}, "under " + wholeSize(v.floor_kib) + ": builds warn · stop at " + wholeSize(v.hard_floor_kib)); }
+  return [h("span", {class: "label"}, "Disk"),
+    h("div", {class: "bar", role: "img", "aria-label": size(v.free_kib) + " free; builds warn under " + wholeSize(v.floor_kib) + " and stop under " + wholeSize(v.hard_floor_kib)},
+      h("span", {class: "fill", style: "width: " + pct(gib(v.free_kib)) + "; background: " + color}),
+      h("span", {class: "mark", style: "left: " + pct(gib(v.hard_floor_kib))}),
+      h("span", {class: "mark", style: "left: " + pct(gib(v.floor_kib))})),
+    h("span", {class: "free"}, size(v.free_kib) + " free"),
+    note];
+}
+
+// The load: now, and a line of the last ten minutes against the core count.
+const SVG = "http://www.w3.org/2000/svg";
+function svg(tag, attrs) {
+  const el = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+function loadView(load) {
+  if (!load) return [h("span", {class: "label"}, "Load"), h("span", {class: "note"}, "reading")];
+  const width = 120, height = 24;
+  const points = load.history;
+  const top = Math.max(load.cores * 1.25, ...points.map(p => p[1]), 1);
+  const line = svg("svg", {width: String(width), height: String(height), viewBox: "0 0 " + width + " " + height, role: "img",
+    "aria-label": "load over the last ten minutes"});
+  const y = v => (height - 1 - (height - 2) * v / top).toFixed(1);
+  line.append(svg("line", {class: "cores", x1: "0", x2: String(width), y1: y(load.cores), y2: y(load.cores)}));
+  if (points.length > 1) {
+    const t0 = points[0][0], span = Math.max(1, points[points.length - 1][0] - t0);
+    line.append(svg("polyline", {class: "spark", points: points.map(p => ((p[0] - t0) / span * width).toFixed(1) + "," + y(p[1])).join(" ")}));
+  }
+  return [h("span", {class: "label"}, "Load"),
+    h("span", {class: "value", title: "1, 5 and 15-minute load averages on " + load.cores + " cores"},
+      load.now.map(n => n.toFixed(1)).join(" ")),
+    line];
+}
+
+function findingsView(health) {
+  const box = document.getElementById("findings");
+  const findings = health ? health.findings : [];
+  box.replaceChildren(...(findings.length ? [h("div", {class: "findings"},
+    h("span", {class: "label"}, plural(findings.length, "thing needs", "things need") + " acting on"),
+    findings.map(f => h("span", {}, f)))] : []));
+}
+
+function tick() {
+  for (const el of document.querySelectorAll("[data-ago]")) {
+    el.textContent = el.dataset.before + ago(Number(el.dataset.ago)) + el.dataset.after;
+  }
+}
+
+function render() {
+  for (const b of document.querySelectorAll(".switch button")) b.setAttribute("aria-pressed", String(b.dataset.view === view));
+  document.getElementById("errors").replaceChildren(...[streamError].filter(Boolean).map(e => h("div", {class: "error"}, e)));
+  if (!state) return;
+  const sides = state.repos.flatMap(r => split(r).sides);
+  const n = counts(sides);
+  document.getElementById("hide-free").checked = hideFree;
+  document.getElementById("hidden-count").textContent = hideFree && n["free"] ? n["free"] + " free hidden" : "";
+  const working = (n["working"] || 0) + (n["winding-down"] || 0);
+  document.getElementById("sub").textContent = summary([SUBTITLE,
+    working ? working + " working" : null,
+    n["ready-to-land"] ? n["ready-to-land"] + " ready to land" : null,
+    n["waiting-on-you"] ? n["waiting-on-you"] + " waiting on you" : null]);
+  document.getElementById("disk").replaceChildren(...disk(state.volume).filter(Boolean));
+  document.getElementById("load").replaceChildren(...loadView(state.load));
+  findingsView(state.health);
+  const root = document.getElementById("view");
+  if (root.dataset.view !== view) { root.replaceChildren(); root.dataset.view = view; }
+  if (view === "lanes") lanesView(root); else reposView(root);
+  tick();
+}
+
+for (const b of document.querySelectorAll(".switch button")) {
+  b.addEventListener("click", () => {
+    view = b.dataset.view;
+    try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* kept for this page only */ }
+    render();
+  });
+}
+document.getElementById("hide-free").addEventListener("change", e => {
+  hideFree = e.target.checked;
+  try { localStorage.setItem(HIDE_FREE_KEY, String(hideFree)); } catch (err) { /* kept for this page only */ }
+  render();
+});
+
+// The daemon pushes the whole state when it changes; EventSource reconnects
+// by itself after the daemon restarts.
+const live = document.getElementById("live");
+const events = new EventSource("/events");
+events.addEventListener("open", () => { live.textContent = "live"; live.classList.remove("down"); });
+events.addEventListener("error", () => { live.textContent = "reconnecting…"; live.classList.add("down"); });
+events.addEventListener("state", e => {
+  state = JSON.parse(e.data);
+  streamError = "";
+  live.textContent = "live";
+  live.title = "the daemon follows " + state.daemon.entries.toLocaleString() + " files and folders in " + bytes(state.daemon.memory_bytes) + " of memory";
+  render();
+});
+events.addEventListener("failure", e => { streamError = "state: " + JSON.parse(e.data).error; render(); });
+setInterval(tick, 1000);
+render();
+</script>
+</body>
+</html>

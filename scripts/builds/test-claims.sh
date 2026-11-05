@@ -13,8 +13,10 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 builds="${BUILDS:-$script_dir/builds}"
 scratch="$(cd "$(mktemp -d)" && pwd -P)"
 server=""
+watcher=""
 cleanup() {
     [ -z "$server" ] || kill "$server" 2>/dev/null || true
+    [ -z "$watcher" ] || kill "$watcher" 2>/dev/null || true
     rm -rf "$scratch"
 }
 trap cleanup EXIT
@@ -147,12 +149,21 @@ refuses "is one of waiting-on-you, winding-down, got ''" note "$side" --state
     || fail "side-1's size: $(cat "$scratch/full.json")"
 refuses "usage: builds status" status --sizes
 
+# A build folder's last write is its newest write inside.
+touch -t 202001010000 "$BUILDS_ROOT/demo/side-1/target"
+touch -t 202101010000 "$BUILDS_ROOT/demo/side-1/target/blob"
+[ "$("$builds" status --json | json 'd["repos"][0]["checkouts"][1]["folders"][0]["last_write"]')" \
+    = "$(date -j -f %Y%m%d%H%M%S 20210101000000 +%s)" ] || fail "side-1's target's last write: $("$builds" status --json)"
+touch "$BUILDS_ROOT/demo/side-1/target/blob"
+
 # The binary's daemon follows the scratch volume; status asks it for the
 # sizes, and says the same as when it measured them itself. A second daemon
-# on the same volume is refused; once the daemon is gone, status measures
-# again.
+# on the same volume is refused. It serves the page, the state the page shows,
+# and the same state as events when anything changes; it refuses a Host it
+# doesn't serve. It runs until the states below are checked.
+port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
 if [ -n "${BUILDS:-}" ]; then
-    "$builds" dashboard 2>"$scratch/daemon.log" &
+    "$builds" dashboard --port "$port" 2>"$scratch/daemon.log" &
     server=$!
     for _ in $(seq 100); do
         grep -q 'following ' "$scratch/daemon.log" && break
@@ -168,44 +179,61 @@ if [ -n "${BUILDS:-}" ]; then
     [ "$(json 'd["repos"][0]["checkouts"][1]["total_kib"] >= 3072' < <("$builds" status --json))" = true ] \
         || fail "the daemon missed a write: $("$builds" status --json)"
     rm "$BUILDS_ROOT/demo/side-1/target/more"
-    refuses "a daemon already answers on" dashboard
-    kill "$server"
-    wait "$server" 2>/dev/null || true
-    server=""
-    "$builds" status --json > "$scratch/after.json"
-    [ "$(json 'd["repos"][0]["checkouts"][1]["total_kib"] >= 2048' < "$scratch/after.json")" = true ] \
-        || fail "status after the daemon stopped: $(cat "$scratch/after.json")"
-fi
+    port2="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+    refuses "a daemon already answers on" dashboard --port "$port2"
 
-# Sizes count each block once: a folder holding an APFS clone (cp -c) counts
-# the shared blocks once, where du counts them twice; one call measures every
-# path, in order, each on its own.
-mkdir "$scratch/usage" "$scratch/usage/clones" "$scratch/usage/plain"
-head -c 4194304 /dev/urandom > "$scratch/usage/clones/a"
-cp -c "$scratch/usage/clones/a" "$scratch/usage/clones/b"
-head -c 4194304 /dev/urandom > "$scratch/usage/plain/a"
-if [ -n "${BUILDS:-}" ]; then
-    sizes=($("$builds" du "$scratch/usage/clones" "$scratch/usage/missing" "$scratch/usage/plain"))
-else
-    sizes=($(python3 "$script_dir/disk_usage.py" "$scratch/usage/clones" "$scratch/usage/missing" "$scratch/usage/plain"))
-fi
-[ "${#sizes[@]}" = 3 ] || fail "measuring printed ${sizes[*]}"
-[ "${sizes[0]}" -ge 4096 ] && [ "${sizes[0]}" -lt 4500 ] || fail "a folder with a clone took ${sizes[0]} KiB, not the 4096 of its shared blocks"
-[ "${sizes[1]}" = 0 ] || fail "a missing path took ${sizes[1]} KiB"
-[ "${sizes[2]}" -ge 4096 ] && [ "${sizes[2]}" -lt 4500 ] || fail "a plain 4 MiB file took ${sizes[2]} KiB"
-[ "$(du -sk "$scratch/usage/clones" | cut -f1)" -ge 8192 ] || echo "note: du didn't double-count the clone here" >&2
+    curl -sf "http://127.0.0.1:$port/" > "$scratch/page.html" || fail "no page: $(cat "$scratch/daemon.log")"
+    grep -q '<title>Builds</title>' "$scratch/page.html" || fail "the page has no title Builds"
+    # The first state may come before the checkouts are read.
+    for _ in $(seq 100); do
+        curl -sf "http://127.0.0.1:$port/api/state" > "$scratch/state.json" || fail "no state: $(cat "$scratch/daemon.log")"
+        [ "$(json 'len(d["repos"]) == 1 and d["repos"][0]["checkouts"][1]["git"] is not None and d["repos"][0]["checkouts"][1]["total_kib"] is not None' < "$scratch/state.json")" = true ] && break
+        sleep 0.1
+    done
+    [ "$(json '[x["subject"] for x in d["repos"][0]["checkouts"][1]["git"]["ahead"]]' < "$scratch/state.json")" = '["Add two", "Add one"]' ] \
+        || fail "commits waiting to land: $(cat "$scratch/state.json")"
+    [ "$(json 'd["repos"][0]["checkouts"][1]["git"]["uncommitted"]' < "$scratch/state.json")" = 2 ] || fail "uncommitted count"
+    [ "$(json 'abs(d["repos"][0]["checkouts"][1]["git"]["last_write"] - d["generated_at"]) < 600' < "$scratch/state.json")" = true ] \
+        || fail "uncommitted files' newest write: $(cat "$scratch/state.json")"
+    [ "$(json 'd["repos"][0]["checkouts"][2]["git"]["last_write"]' < "$scratch/state.json")" = null ] || fail "a clean worktree has a last write"
+    [ "$(json 'd["repos"][0]["checkouts"][1]["git"]["head"]["subject"]' < "$scratch/state.json")" = '"Add two"' ] || fail "HEAD"
+    [ "$(json 'd["repos"][0]["checkouts"][0]["git"]' < "$scratch/state.json")" = null ] || fail "asked git about main"
+    [ "$(json 'd["repos"][0]["checkouts"][1]["state"]' < "$scratch/state.json")" = '"ready-to-land"' ] || fail "side-1's state"
+    [ "$(json 'd["repos"][0]["checkouts"][0]["state"]' < "$scratch/state.json")" = null ] || fail "main got a state"
+    [ "$(json 'd["repos"][0]["checkouts"][2]["git"]["ahead"]' < "$scratch/state.json")" = '[]' ] \
+        || fail "side-2's cherry-picked commit listed as waiting: $(cat "$scratch/state.json")"
+    [ "$(json 'd["repos"][0]["checkouts"][3]["git"]["ahead"]' < "$scratch/state.json")" = '[]' ] \
+        || fail "side-3's landed commit with a changed patch listed as waiting: $(cat "$scratch/state.json")"
+    [ "$(json 'd["repos"][0]["checkouts"][1]["total_kib"] >= 2048' < "$scratch/state.json")" = true ] \
+        || fail "side-1's size in the state: $(cat "$scratch/state.json")"
+    [ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: example.com' "http://127.0.0.1:$port/api/state")" = 403 ] \
+        || fail "served a foreign Host"
 
-# A build folder's last write is its newest write inside.
-touch -t 202001010000 "$BUILDS_ROOT/demo/side-1/target"
-touch -t 202101010000 "$BUILDS_ROOT/demo/side-1/target/blob"
-[ "$("$builds" status --json | json 'd["repos"][0]["checkouts"][1]["folders"][0]["last_write"]')" \
-    = "$(date -j -f %Y%m%d%H%M%S 20210101000000 +%s)" ] || fail "side-1's target's last write: $("$builds" status --json)"
-touch "$BUILDS_ROOT/demo/side-1/target/blob"
+    # A note written while the page watches reaches it as an event, along
+    # with the load the daemon reads while a page watches.
+    curl -sN "http://127.0.0.1:$port/events" > "$scratch/events.txt" &
+    watcher=$!
+    for _ in $(seq 100); do
+        grep -q '^event: state' "$scratch/events.txt" && break
+        sleep 0.1
+    done
+    grep -q '^event: state' "$scratch/events.txt" || fail "no state event"
+    "$builds" note "$side" seen by the page 2>/dev/null
+    for _ in $(seq 100); do
+        grep -q '"note":"seen by the page"' "$scratch/events.txt" && break
+        sleep 0.1
+    done
+    grep -q '"note":"seen by the page"' "$scratch/events.txt" || fail "the note never reached the page"
+    grep -q '"load":{"now":\[' "$scratch/events.txt" || fail "no load while the page watched"
+    kill "$watcher"
+    wait "$watcher" 2>/dev/null || true
+    watcher=""
+    "$builds" note "$side" waiting on Linux CI 2>/dev/null
+fi
 
 if [ -z "${BUILDS:-}" ]; then
 # The dashboard: its answers for the side worktree, the page, and a Host it
 # doesn't serve.
-port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
 "$builds" dashboard --port "$port" 2>"$scratch/dashboard.log" &
 server=$!
 for _ in $(seq 50); do
@@ -290,6 +318,25 @@ PY
 
 fi
 
+# Sizes count each block once: a folder holding an APFS clone (cp -c) counts
+# the shared blocks once, where du counts them twice; one call measures every
+# path, in order, each on its own.
+mkdir "$scratch/usage" "$scratch/usage/clones" "$scratch/usage/plain"
+head -c 4194304 /dev/urandom > "$scratch/usage/clones/a"
+cp -c "$scratch/usage/clones/a" "$scratch/usage/clones/b"
+head -c 4194304 /dev/urandom > "$scratch/usage/plain/a"
+if [ -n "${BUILDS:-}" ]; then
+    sizes=($("$builds" du "$scratch/usage/clones" "$scratch/usage/missing" "$scratch/usage/plain"))
+else
+    sizes=($(python3 "$script_dir/disk_usage.py" "$scratch/usage/clones" "$scratch/usage/missing" "$scratch/usage/plain"))
+fi
+[ "${#sizes[@]}" = 3 ] || fail "measuring printed ${sizes[*]}"
+[ "${sizes[0]}" -ge 4096 ] && [ "${sizes[0]}" -lt 4500 ] || fail "a folder with a clone took ${sizes[0]} KiB, not the 4096 of its shared blocks"
+[ "${sizes[1]}" = 0 ] || fail "a missing path took ${sizes[1]} KiB"
+[ "${sizes[2]}" -ge 4096 ] && [ "${sizes[2]}" -lt 4500 ] || fail "a plain 4 MiB file took ${sizes[2]} KiB"
+[ "$(du -sk "$scratch/usage/clones" | cut -f1)" -ge 8192 ] || echo "note: du didn't double-count the clone here" >&2
+
+
 # Clearing the note keeps the claim.
 "$builds" note "$side" 2>/dev/null
 [ "$(cat "$claim_file")" = "agent A	$since" ] || fail "clearing wrote '$(cat "$claim_file")'"
@@ -299,11 +346,20 @@ fi
 # side-2>.
 states() {
     local got
-    # The daemon derives them for the binary.
-    [ -z "${BUILDS:-}" ] || return 0
-    got="$(python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import dashboard
+    if [ -n "${BUILDS:-}" ]; then
+        # The binary's daemon reads the change from its events, a moment
+        # after the command wrote it.
+        for _ in $(seq 100); do
+            got="$(curl -sf "http://127.0.0.1:$port/api/state" | python3 -c 'import json, sys
+print(" ".join(str(c["state"]) for c in json.load(sys.stdin)["repos"][0]["checkouts"]))')"
+            [ "$got" = "None $1 $2 free" ] && return 0
+            sleep 0.1
+        done
+    else
+        got="$(python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import dashboard
 d = dashboard.state(sys.argv[2])
 print(" ".join(str(c["state"]) for c in d["repos"][0]["checkouts"]))' "$script_dir" "$builds")"
+    fi
     [ "$got" = "None $1 $2 free" ] || fail "states: wanted main None, side-1 $1, side-2 $2, side-3 free, got '$got'"
 }
 states ready-to-land free
@@ -321,6 +377,16 @@ states waiting-on-you landing
 "$builds" release "$side" 2>/dev/null
 [ ! -e "$claim_file" ] || fail "release left the claim"
 states ready-to-land landing
+
+# Once the daemon is gone, status measures again.
+if [ -n "${BUILDS:-}" ]; then
+    kill "$server"
+    wait "$server" 2>/dev/null || true
+    server=""
+    "$builds" status --json > "$scratch/after.json"
+    [ "$(json 'd["repos"][0]["checkouts"][1]["total_kib"] >= 2048' < "$scratch/after.json")" = true ] \
+        || fail "status after the daemon stopped: $(cat "$scratch/after.json")"
+fi
 
 # A claimed worktree's cargo folder over its cap is trimmed of incremental
 # folders, not deleted whole or skipped; an unclaimed one is deleted whole; the

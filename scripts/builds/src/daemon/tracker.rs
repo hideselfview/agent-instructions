@@ -53,8 +53,12 @@ struct Marks {
     seen: u64,
 }
 
+/// Told the paths each handled batch named; after a whole walk, the root.
+pub type Listener = Box<dyn Fn(&[PathBuf]) + Send + Sync>;
+
 pub struct Tracker {
     pub root: PathBuf,
+    listener: Mutex<Option<Listener>>,
     /// Where questions write their marks: a file `mark-<n>` whose event,
     /// once handled, says every write made before the question has been.
     marks_dir: PathBuf,
@@ -93,6 +97,7 @@ impl Tracker {
             });
             Tracker {
                 root: root.to_path_buf(),
+                listener: Mutex::new(None),
                 marks_dir: marks_dir.to_path_buf(),
                 marks: Mutex::new(Marks::default()),
                 delivered: Condvar::new(),
@@ -168,7 +173,7 @@ impl Tracker {
                 continue;
             }
             *self.stream.lock().expect("no panic holding it") = stream;
-                let started = std::time::Instant::now();
+            let started = std::time::Instant::now();
             walk(&self.index, 0, &self.root, WORKERS);
             loop {
                 let pending = {
@@ -186,6 +191,7 @@ impl Tracker {
                 };
                 self.apply(pending);
             }
+            self.tell(std::slice::from_ref(&self.root));
             let (entries, bytes) = self.size();
             eprintln!(
                 "builds: following {}: {entries} entries, walked in {:.1}s, {} in memory",
@@ -193,6 +199,17 @@ impl Tracker {
                 started.elapsed().as_secs_f64(),
                 crate::text::human_bytes(bytes as u64)
             );
+        }
+    }
+
+    /// Has <listener> told of every batch handled from now on.
+    pub fn listen(&self, listener: Listener) {
+        *self.listener.lock().expect("no panic holding it") = Some(listener);
+    }
+
+    fn tell(&self, paths: &[PathBuf]) {
+        if let Some(listener) = self.listener.lock().expect("no panic holding it").as_ref() {
+            listener(paths);
         }
     }
 
@@ -212,7 +229,9 @@ impl Tracker {
             .filter_map(|event| event.path.file_name()?.to_str()?.strip_prefix("mark-")?.parse::<u64>().ok())
             .max()
             .unwrap_or(0);
+        let paths: Vec<PathBuf> = events.iter().map(|event| event.path.clone()).collect();
         self.handle(events);
+        self.tell(&paths);
         if mark > 0 {
             let mut marks = self.marks.lock().expect("no panic holding it");
             marks.seen = marks.seen.max(mark);
