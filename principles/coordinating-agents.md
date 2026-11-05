@@ -83,6 +83,25 @@ project's lists, worktrees and landing worktree.
 - Don't land in the landing worktree while a check runs there.
 - A CI run on main that goes red or stalls is the coordinator's to run down.
 
+## Health check
+
+Every 5 minutes, scheduled in the coordinator's session (CronCreate, which only
+a schedule can do: nothing else wakes a session), the coordinator runs
+`builds health` and acts on its "needs action" list before anything else:
+
+- **sccache finished no compiles while clients wait:** the server is stuck;
+  restart it (`launchctl kickstart -k gui/$(id -u)/local.sccache-server`).
+  Compiles in flight fail once and rerun.
+- **A Claude shell older than 2 hours:** read what it runs; stop it by PID when
+  it waits on something that is over or never comes.
+- **A claimed worktree with no change and no build for an hour:** ask its agent
+  what it waits on, or land and release it if the work is done.
+- **Disk under the floor:** hold the queue (Dispatch).
+- **An app lock held long, or with agents waiting:** check its holder is
+  building, not stuck.
+
+A quiet check needs no message to the person.
+
 ## Background shells
 
 Notify, don't poll; one watcher with a hard timeout. A coordinator checks now
