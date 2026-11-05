@@ -4,8 +4,8 @@
 CI runs every suite on main. Locally an agent runs the pre-commit hook and the
 tests for what it changed, so a cargo test or nextest run must name what it
 runs: a test-name filter, or one integration-test file with --test. A run that
-only compiles (--no-run) is fine. scripts/check.sh, which runs every non-Windows
-CI gate in a row, is refused outright.
+only compiles (--no-run) is fine. Running scripts/check.sh, which runs every
+non-Windows CI gate in a row, is refused outright; reading it is not.
 """
 
 import json
@@ -104,9 +104,35 @@ def full_cargo_run(tokens):
     return True
 
 
+# Words that run the command after them: `bash scripts/check.sh`, `env X=1 ./check.sh`.
+RUNNERS = {"bash", "sh", "zsh", "env", "exec", "time", "nice", "nohup", "caffeinate"}
+# Runners whose first non-option argument is theirs, not the command:
+# `lockf -k <file> <command>`, `timeout <duration> <command>`.
+RUNNERS_WITH_ARGUMENT = {"lockf", "timeout"}
+
+
+def runs_check_script(tokens) -> bool:
+    """True when check.sh is the command a segment runs, not an argument to one
+    (`git show HEAD:scripts/check.sh`, `grep deny scripts/check.sh` only read it)."""
+    skip_argument = False
+    for token in tokens:
+        if token == "check.sh" or token.endswith("/check.sh"):
+            return not skip_argument
+        if token in RUNNERS_WITH_ARGUMENT:
+            skip_argument = True
+            continue
+        if token in RUNNERS or token.startswith("-") or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token):
+            continue
+        if skip_argument:
+            skip_argument = False
+            continue
+        return False
+    return False
+
+
 def blocked(command: str) -> bool:
     for tokens in segments(command):
-        if any(t == "check.sh" or t.endswith("/check.sh") for t in tokens):
+        if runs_check_script(tokens):
             return True
         if full_cargo_run(tokens):
             return True
