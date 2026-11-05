@@ -32,8 +32,11 @@ its root (`target`, `target-macos`, Xcode `.build` dirs, Gradle `build` and
 the checkout to the same path under the checkout's root:
 `~/dev/bae/target -> /Volumes/Builds/bae/main/target`.
 
-The tool is `builds` (`~/dev/agent-instructions/scripts/builds/builds`, on PATH
-as `~/.local/bin/builds`):
+The tool is `builds`, a Rust program in
+`~/dev/agent-instructions/scripts/builds`. `install.sh` builds it and
+`builds install` copies it onto PATH as `~/.local/bin/builds` in one rename, so
+a failed build leaves the installed one as it was; a commit on main that touches
+`scripts/builds/` runs `install.sh` again:
 
 - `builds setup [<checkout>]` creates the links, recreates any folder behind a
   link that was deleted, deletes a folder an older layout left behind (never
@@ -82,27 +85,47 @@ as `~/.local/bin/builds`):
   build output in the temporary folders. `builds status --json` prints the
   repos' checkouts (path, branch, app checkout, claim and note, each build
   folder's size against cap, last write and link) and the volume's free space
-  against both floors, as JSON; `--no-folders` leaves out the build folders,
-  whose measurement is most of what a full status takes (about 9 s at load 40,
-  from 31 s when each folder started its own Python process). `disk_usage.py`
-  and `newest_write.py` each take every folder in one call and read eight at a
-  time: the walk is system calls on many small files, which eight processes
-  finish several times faster than one.
-- `builds dashboard [--port <port>]` serves a page called Builds at
-  `http://127.0.0.1:7787/` (only on 127.0.0.1, standard-library Python,
-  `dashboard.py`) showing every checkout `status` lists. Its header shows the
-  volume's free space as a bar against the 30 GiB warning floor and the 10 GiB
-  hard floor, and how long ago the state was read. Each repo pins its main
-  checkout and its app checkout ("App build") first, each with its total build
-  output and its 3 largest build folders (short names such as "Xcode build" and
-  "Android app", the path in the chip's tooltip; the rest behind a "+N more
-  folders" disclosure), and for the App build whether its `app.lock` is free or
-  held, the command holding it and how many wait, read without taking the lock
-  (the process with the file open holds it, since `lockf` waits inside `open`).
-  Every other side worktree is a card, as tall as its content: name, branch,
-  state, the claim's who and note, the commits waiting to land, its last
-  commit's age, the count of uncommitted files, its build size (flagged over a
-  cap) and the claim's date.
+  against both floors, as JSON; `--no-folders` leaves out the build folders. A
+  folder's last write is the newest write anywhere inside it. While the
+  dashboard's daemon runs, `status` takes every size and last write from it
+  (`status --json` in 0.2 s, where walking the volume took 19 s at load 40);
+  without it, `status` walks the folders itself, eight threads at a time: the
+  walk is system calls on many small files, which eight threads finish several
+  times faster than one. Commands that delete (`setup`, `prune`, the floor) ask
+  the daemon too, but first wait for it to have seen every write made before the
+  question, so a size measured after a deletion counts it.
+- `builds health [--json]` says what is stuck or needs acting on: load, free
+  space against both floors, whether sccache finished compiles since the last
+  readings while clients wait 10+ minutes, Claude shells older than 2 hours,
+  each claimed worktree (claim, branch, uncommitted files, commits waiting to
+  land, minutes since a change, build processes there) and each app lock's
+  holder; it exits 1 when something needs acting on. It asks the daemon when one
+  runs and reads the machine itself otherwise; it never changes anything.
+- `builds dashboard [--port <port>]` runs the daemon until it is killed. It
+  follows the volume through FSEvents, walking it whole only at its start or
+  when FSEvents says it dropped events (476k entries in about 4 s, about 100 MB
+  resident) and a folder again when FSEvents asks for that, and keeps every
+  folder's size and last write current, each block counted once and each
+  hard-linked file once. It follows every checkout's folder and git dir the same
+  way and reads a checkout's git state, claim and manifest again only when
+  something there changed. It answers the commands' questions on
+  `/Volumes/Builds/.builds-daemon/socket` and serves a page called Builds at
+  `http://127.0.0.1:7787/` (only on 127.0.0.1, only to a Host of 127.0.0.1 or
+  localhost) showing every checkout `status` lists. Its header shows the load
+  with a line of the last ten minutes against the core count, the volume's free
+  space as a bar against the 30 GiB warning floor and the 10 GiB hard floor, and
+  whether the page is live; under it, what `health` says needs acting on. Each
+  repo pins its main checkout and its app checkout ("App build") first, each
+  with its total build output and its 3 largest build folders (short names such
+  as "Xcode build" and "Android app", the path in the chip's tooltip; the rest
+  behind a "+N more folders" disclosure), and for the App build whether its
+  `app.lock` is free or held, the command holding it and how many wait, read
+  without taking the lock (the process with the file open holds it, since
+  `lockf` waits inside `open`). Every other side worktree is a card, as tall as
+  its content: name, branch, state, the claim's who and note, the commits
+  waiting to land, its last commit's age, the count of uncommitted files, its
+  build size (flagged over a cap) and the claim's date. A card where builds run
+  says which (`cargo ×3, rustc`), with their CPU and memory.
   - **States.** Each side worktree gets one, the first that matches: *Waiting on
     you* (the note's state says so), *Landing* (the claim's who ends in
     `(landing)`), *Ready to land* (commits waiting to land, claimed or not:
@@ -133,26 +156,20 @@ as `~/.local/bin/builds`):
     header then says how many are hidden ("3 free hidden"). Main and the App
     build stay shown, and an unclaimed worktree with commits waiting to land is
     *Ready to land*, so it stays shown too.
-  - **Polling.** The page asks `/api/state` every few seconds, read fresh on
-    every request with no cache, and `/api/folders` every minute. Measuring the
-    build folders walks the disk for several seconds, so one background thread
-    in the server owns it: it keeps the last `status --json` with the time it
-    finished (the first run starts with the server), waits 5 minutes, and
-    measures again, but only if `/api/state` or `/api/folders` was asked for in
-    the last 2 minutes, so with no page open nothing walks the disk. A request
-    that finds the result older than 5 minutes starts a run at once. Runs never
-    overlap, and no request waits on one: `/api/folders` answers with the last
-    result and its `generated_at` time, or `{"measuring": true}` before the
-    first run ends (the page shows "measuring…", then "sizes from 3m ago" beside
-    the state's age). While the tab is hidden (`document.visibilityState`) the
-    page asks for nothing; when it shows again it asks for both at once and
-    resumes. The server runs git only in side worktrees, read-only with
-    `--no-optional-locks`, and fetches nothing: for the person's main checkouts
-    it shows what `status` shows. Coordinators keep it current through the
-    claims and notes they already make, setting a note's state when the work
-    waits on the person or is winding down. `test-claims.sh` tests claims, notes
-    and their states, `status --json`, the dashboard's answers and the states it
-    derives on a scratch repo and build volume.
+  - **Live.** The page asks for nothing: it holds one `/events` stream
+    (server-sent events), and the daemon sends the whole state on it, at most
+    four times a second, whenever anything in it changed, waiting 300 ms after a
+    change for the rest of a burst of writes. Cards are replaced only when what
+    they show changed, so an open disclosure stays open. While a page watches,
+    the daemon reads the load and the processes every 2 seconds (with no page
+    open it reads none) and asks sccache for its count every 30 seconds.
+    `/api/state` answers the same state once. The daemon runs git only in side
+    worktrees, read-only with `--no-optional-locks`, and fetches nothing: for
+    the person's main checkouts it shows what `status` shows. Coordinators keep
+    it current through the claims and notes they already make, setting a note's
+    state when the work waits on the person or is winding down. `test-claims.sh`
+    tests claims, notes and their states, `status --json`, the daemon's answers,
+    its events and the states it derives on a scratch repo and build volume.
 - `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` deletes every
   checkout's unused build copies, applies every cap, deletes roots whose
   checkout is gone, DerivedData entries nothing wrote to for a day and build
@@ -225,11 +242,10 @@ at its top), Xcode DerivedData folder (`info.plist` beside `Logs` and `Build` or
 `ModuleCache.noindex`) and SwiftPM folder (`workspace-state.json` beside
 `checkouts`, `repositories` or `artifacts`) found there, four levels deep at
 most, that nothing wrote to for 30 minutes and no process holds a file in
-(`temp_builds.py` lists them; `status` shows them). They skip `/private/tmp`'s
-`claude-*` (Claude Code sessions' scratch, whose entries go after three days),
-`com.apple.*` (launchd's per-session socket folders) and `tmux-*` (the tmux
-server's socket: deleting it leaves the running server unreachable), and
-anything the user doesn't own.
+(`status` shows them). They skip `/private/tmp`'s `claude-*` (Claude Code
+sessions' scratch, whose entries go after three days), `com.apple.*` (launchd's
+per-session socket folders) and `tmux-*` (the tmux server's socket: deleting it
+leaves the running server unreachable), and anything the user doesn't own.
 
 ## rust-analyzer builds into a folder of its own
 
@@ -359,9 +375,9 @@ date writes nothing in `deps/` or `.fingerprint/` and access times can't tell
 (below). The repos run cargo in their hooks and build scripts through
 `scripts/cargo.sh`, which runs `builds cargo`: cargo with
 `--message-format=json-render-diagnostics` (`--cargo-message-format` for
-nextest), its stdout through `cargo_units.py record`; without the tool (CI), or
-with a `builds` that has no `cargo` command, `scripts/cargo.sh` is cargo itself.
-Each `compiler-artifact` message, for an up-to-date unit too, and each
+nextest), its stdout read by the tool as cargo writes it; without the tool (CI),
+or with a `builds` that has no `cargo` command, `scripts/cargo.sh` is cargo
+itself. Each `compiler-artifact` message, for an up-to-date unit too, and each
 `build-script-executed` names its unit's files; the recorder sets that unit's
 fingerprint folder's modification time to now and passes every other line
 through, so a `cargo run` program's output and test output still reach the
@@ -459,9 +475,11 @@ released. A cargo build that starts meanwhile queues on the lock and writes into
 the new folder. Caps are about twice a fresh build of the folder; the next build
 refills it, mostly from sccache (a wipe and rebuild took 137 s and 8.9 GB).
 Sizes, for the caps and `builds status`, count each block once
-(`disk_usage.py`): cargo uplifts a library out of `deps/` as an APFS clone,
-which shares its blocks, and `du` counts those blocks once per file, so it read
-bae's `target-macos` as 9.3 GB where it took 7.3 GB.
+(`builds du <path>...` prints them): cargo uplifts a library out of `deps/` as
+an APFS clone, which shares its blocks, and `du` counts those blocks once per
+file, so it read bae's `target-macos` as 9.3 GB where it took 7.3 GB. A file
+with several hard links (rustc links `deps/` files into `incremental/`) counts
+once.
 
 Caps bound folders, not the volume: a bae checkout with every platform built is
 45-52 GB, the build volume shares its APFS pool with the main disk, and with six

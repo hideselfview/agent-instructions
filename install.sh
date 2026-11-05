@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Symlink agent-instructions content into Claude Code and Codex homes so both
 # tools read the same user-level instructions. Also installs the markdown
-# pre-commit hook for this repo.
+# pre-commit hook for this repo, and builds and installs the `builds` tool.
 #
 # Idempotent — safe to re-run after pulling new files.
 
@@ -149,3 +149,9 @@ for rules_dir in "$repo/projects"/*-rules; do
     echo "Skipped ${name}-rules (no $HOME/dev/$name)"
   fi
 done
+
+# The build volume's tool, a Rust program: built here, then its own `install`
+# copies it onto PATH in one rename, so a failed build leaves the installed one
+# as it was, and sets up the shared caches and the sccache server.
+cargo build --release --quiet --manifest-path "$repo/scripts/builds/Cargo.toml"
+"$repo/scripts/builds/target/release/builds" install
