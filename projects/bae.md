@@ -41,6 +41,11 @@ new coven needs the library recreated: land the bump and tell the person to run
 is landing a planned series of commits, move the pin once, after the series
 finishes, not after each commit.
 
+Schema and format changes, and the resets they need, are normal in development.
+Don't call one out as a cost or a caveat when describing, weighing or
+recommending work; the only time to mention a reset is telling the person to run
+`scripts/reset-bae.py` once a change that needs it has landed.
+
 The macOS app logs to the unified log under subsystem `fm.bae.desktop`, every
 level kept in Debug builds:
 `/usr/bin/log show --last 10m --info --debug --predicate 'subsystem == "fm.bae.desktop"'`.
