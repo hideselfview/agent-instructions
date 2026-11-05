@@ -37,10 +37,13 @@ CASES = [
     (False, "scripts/cargo.sh test -p x foo 2>&1 | tail"),
     (True, "scripts/cargo.sh nextest run -p x > log 2>&1 &"),
     (False, "echo hi # scripts/" + C),
+    (False, f"git commit -m \"first\n\nnames scripts/{C} | in\ntext\" && git push"),
+    (True, f"echo x\nscripts/{C}"),
 ]
 bad = 0
 for want, cmd in CASES:
-    out = subprocess.run([sys.executable, HOOK], input=json.dumps({"tool_input": {"command": cmd}}),
+    # -I as the hook settings run it, so a missing import shows here.
+    out = subprocess.run([sys.executable, "-I", HOOK], input=json.dumps({"tool_input": {"command": cmd}}),
                          capture_output=True, text=True).stdout
     got = "deny" in out
     print(("ok  " if got == want else "FAIL"), "deny" if got else "allow", cmd)

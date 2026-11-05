@@ -10,8 +10,13 @@ non-Windows CI gate in a row, is refused outright; reading it is not.
 
 import json
 import re
-import shlex
 import sys
+from pathlib import Path
+
+# The hooks run under `python3 -I`, which leaves the script's own folder off
+# the import path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import shell_words  # noqa: E402
 
 REASON = (
     "Full suites run in CI only: run the pre-commit hook and the tests for what "
@@ -49,7 +54,6 @@ def without_redirections(tokens):
     return out
 
 
-SEPARATOR = re.compile(r"[;&|()]+")
 SUBSTITUTION = re.compile(r"\$\(([^)]*)\)?|`([^`]*)`?")
 
 
@@ -57,22 +61,12 @@ def segments(command: str):
     # Split on shell separators outside quotes, so a `|` inside a grep pattern
     # is not a pipe. A command substitution, quoted or not, runs: its inside
     # is checked as a command of its own.
-    for line in command.split("\n"):
-        lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()")
-        lexer.whitespace_split = True
-        try:
-            tokens = list(lexer)
-        except ValueError:
-            tokens = line.split()
+    for words, _ in shell_words.commands(command):
         current = []
-        for token in tokens:
-            for inner in SUBSTITUTION.finditer(token):
+        for word in words:
+            for inner in SUBSTITUTION.finditer(word):
                 yield from segments(inner.group(1) or inner.group(2) or "")
-            if SEPARATOR.fullmatch(token):
-                yield without_redirections(current)
-                current = []
-            else:
-                current.append(SUBSTITUTION.sub(" ", token).strip() or token)
+            current.append(SUBSTITUTION.sub(" ", word).strip() or word)
         yield without_redirections(current)
 
 
