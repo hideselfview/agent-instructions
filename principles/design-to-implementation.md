@@ -19,3 +19,8 @@ When drawing a design:
   anyway.
 - A note beside the design names each thing the code needs for it, with the file
   and line of what it does today.
+- The design system and the mocks live in the project's repository; the
+  claude.ai pages are where they are seen and edited. Each change is published
+  to the page and committed in the same step. An edit made on a page is copied
+  back into the repository before the next change, so the repository is never
+  more than one change behind.
