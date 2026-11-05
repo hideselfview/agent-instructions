@@ -208,7 +208,8 @@ stale build beside a live one (an Xcode tree from last week beside today's)
 would never age out. So `setup` and `prune` find the builds inside each
 folder and delete each one no build used for three days, as they do cargo's
 copies; main's and the app checkout's too, and a build a process holds a
-file in is kept. Two kinds are recognized: an Xcode tree (info.plist beside
+file in is kept, and so is one the manifest names in a `keep <path>` line, in
+main and the app checkout only (the person runs the app built there). Two kinds are recognized: an Xcode tree (info.plist beside
 Logs and Build, up to two levels below the folder) and a SwiftPM
 <triple>/debug or <triple>/release folder in a `.build` that holds
 workspace-state.json. Last use is the newest write inside the build: xcodebuild

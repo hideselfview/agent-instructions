@@ -415,21 +415,25 @@ Xcode tree last built on October 25 (2.8 GB) beside the one built on November 3,
 and nothing aged it out. `setup` and `prune` also find the builds inside each
 folder of the manifest and delete each one no build used for three days
 (`BUILDS_UNUSED_DAYS`, the cargo copies' setting), in main's and the app
-checkout's folders too: they rebuild. A build a process holds a file in is kept.
-Two kinds are recognized by what their tool writes: an Xcode tree (`info.plist`
-beside `Logs`, and `Build` or `ModuleCache.noindex`, one or two levels below the
-folder) and a SwiftPM configuration (`<triple>/debug` or `<triple>/release` in a
-`.build` holding `workspace-state.json`; `checkouts`, `repositories` and
-`artifacts` belong to every configuration and stay). A build's last use is the
-newest write inside it, which holds because an up-to-date `xcodebuild` writes a
-log and an up-to-date `swift build` rewrites its output file maps (both measured
-on 2026-11-05). The other tools in the manifests were checked and are not split:
-an up-to-date `dotnet build` writes nothing (measured), so Avalonia's
-`bin/Debug` could not tell a build in daily use from an abandoned one; Gradle's
-per-variant output is task output inside one build folder, which Gradle itself
-removes and reruns; Lean's `.lake` holds one package's build and its
-dependencies. `status` lists each build under its folder with its last use, and
-`status --json` as the folder's `trees`.
+checkout's folders too: they rebuild. A build a process holds a file in is kept,
+and so is one the manifest names in a `keep <path>` line (bae:
+`keep bae-macos/bae/.build/runApp`), but only in main and the app checkout,
+where the person runs and tests the app built there; in any other checkout that
+build ages like the rest. Two kinds are recognized by what their tool writes: an
+Xcode tree (`info.plist` beside `Logs`, and `Build` or `ModuleCache.noindex`,
+one or two levels below the folder) and a SwiftPM configuration
+(`<triple>/debug` or `<triple>/release` in a `.build` holding
+`workspace-state.json`; `checkouts`, `repositories` and `artifacts` belong to
+every configuration and stay). A build's last use is the newest write inside it,
+which holds because an up-to-date `xcodebuild` writes a log and an up-to-date
+`swift build` rewrites its output file maps (both measured on 2026-11-05). The
+other tools in the manifests were checked and are not split: an up-to-date
+`dotnet build` writes nothing (measured), so Avalonia's `bin/Debug` could not
+tell a build in daily use from an abandoned one; Gradle's per-variant output is
+task output inside one build folder, which Gradle itself removes and reruns;
+Lean's `.lake` holds one package's build and its dependencies. `status` lists
+each build under its folder with its last use, and `status --json` as the
+folder's `trees`.
 
 **Idle incremental folders.** Cargo never deletes an
 `incremental/<crate>-<hash>` folder of an old hash (another feature set, older
