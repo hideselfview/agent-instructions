@@ -1,0 +1,166 @@
+//! Side worktrees: adding one, retiring one, and recording a repo's app
+//! checkout.
+//!
+//! By default a side worktree builds host Rust only, and a repo with app
+//! builds keeps them warm in main and in one side worktree, its app checkout,
+//! which agents take turns in by holding <root>/<repo>/app.lock; see
+//! principles/worktree-build-priming.md. Nothing here enforces who builds
+//! what: the caps bound whatever a checkout builds, and the floor bounds every
+//! checkout but main and the app checkout.
+
+use std::path::Path;
+
+use crate::checkout::{Checkout, git, git_text};
+use crate::claim::{Claim, require_one_line, write_claim};
+use crate::evict::{Recreate, Removal, evict};
+use crate::fail;
+use crate::fail::{Context, Fail, Result};
+use crate::setup::setup;
+use crate::text::note;
+use crate::tool::Tool;
+
+fn run_checked(command: &mut std::process::Command, what: &str) -> Result<()> {
+    let status = command.status().context(|| format!("running {what}"))?;
+    if !status.success() {
+        // The command printed why.
+        return Err(Fail::Message(format!("{what} exited {}", status.code().unwrap_or(-1))));
+    }
+    Ok(())
+}
+
+/// `builds new [<repo>] [-b <branch>] [--for <who>]`: adds the next free
+/// side-N worktree from origin/main, links it, runs its post-checkout, and
+/// prints its path.
+pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
+    let mut repo_path = ".".to_string();
+    let mut branch = None;
+    let mut who = None;
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        match arg.as_str() {
+            "-b" | "--branch" => branch = rest.next().cloned(),
+            "--for" => who = rest.next().cloned(),
+            other if other.starts_with('-') => fail!("new: unknown option {other}"),
+            other => repo_path = other.to_string(),
+        }
+    }
+    if let Some(who) = &who {
+        require_one_line("--for <who>", who)?;
+    }
+    tool.places.require_volume()?;
+    let main = Checkout::find(&repo_path)?.main;
+    let repo = crate::checkout::file_name(&main);
+    let parent = main.parent().expect("a main checkout has a folder").join(format!("{repo}-worktrees"));
+    let mut n = 1;
+    while parent.join(format!("side-{n}")).exists() || tool.places.root.join(&repo).join(format!("side-{n}")).exists() {
+        n += 1;
+    }
+    let dir = parent.join(format!("side-{n}"));
+    std::fs::create_dir_all(&parent).context(|| format!("creating {}", parent.display()))?;
+    run_checked(git(&main).args(["fetch", "-q", "origin"]), "git fetch")?;
+    // The hooks the common .git points at may belong to another checkout;
+    // this one's own post-checkout runs below, after its build paths are
+    // linked.
+    let mut add = git(&main);
+    add.args(["-c", "core.hooksPath=/dev/null", "worktree", "add", "-q"]);
+    match &branch {
+        Some(branch) => add.arg("-b").arg(branch),
+        None => add.arg("--detach"),
+    };
+    add.arg(&dir).arg("origin/main");
+    run_checked(&mut add, "git worktree add")?;
+    let checkout = Checkout::find(&dir.display().to_string())?;
+    setup(tool, &checkout)?;
+    let install_hooks = dir.join("scripts/install-hooks.sh");
+    if is_executable(&install_hooks) {
+        run_checked(
+            std::process::Command::new("./scripts/install-hooks.sh").current_dir(&dir).stdout(std::process::Stdio::null()),
+            "scripts/install-hooks.sh",
+        )?;
+    }
+    let hook = dir.join("scripts/hooks/post-checkout");
+    if is_executable(&hook) {
+        let head = git_text(git(&dir).args(["rev-parse", "HEAD"]), "read HEAD")?;
+        run_checked(
+            std::process::Command::new(&hook)
+                .args(["0000000000000000000000000000000000000000", head.trim(), "1"])
+                .current_dir(&dir),
+            "scripts/hooks/post-checkout",
+        )?;
+    }
+    if let Some(who) = &who {
+        write_claim(&checkout, who, tool.now, None, None)?;
+    }
+    println!("{}", dir.display());
+    Ok(())
+}
+
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+/// `builds retire <checkout>`: removes a clean, unclaimed side worktree and
+/// its build root.
+pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
+    let [arg] = args else { fail!("usage: builds retire <checkout>") };
+    let checkout = Checkout::find(arg)?;
+    let top = checkout.top.display();
+    if checkout.is_main() {
+        fail!("{top} is the main checkout; only side worktrees retire");
+    }
+    let repo = checkout.repo();
+    if tool.places.app_checkout_of(&repo)?.as_deref() == Some(checkout.name().as_str()) {
+        fail!(
+            "{top} is {repo}'s app checkout; record another with builds app-checkout, or delete {}, first",
+            tool.places.app_checkout_file(&repo).display()
+        );
+    }
+    let root = checkout.build_root(&tool.places);
+    if let Some(claim) = Claim::read(&checkout.claim_file())? {
+        fail!("{top} is claimed by {}; builds release it first", claim.text());
+    }
+    let dirty = git_text(git(&checkout.top).args(["status", "--porcelain"]), "read the worktree's status")?;
+    if !dirty.is_empty() {
+        fail!("{top} has uncommitted or untracked files; commit or remove them first");
+    }
+    run_checked(git(&checkout.main).arg("worktree").arg("remove").arg(&checkout.top), "git worktree remove")?;
+    if root.is_dir() && !evict(&tool.places, &root, Recreate::No, Removal::Background)? {
+        fail!(
+            "worktree removed, but a process holds files in {}; run builds prune once it exits",
+            root.display()
+        );
+    }
+    note(format!("retired {top} and deleted {}", root.display()));
+    Ok(())
+}
+
+/// `builds app-checkout <checkout>`: records the side worktree as its repo's
+/// app checkout, replacing the one recorded before.
+pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
+    let [arg] = args else { fail!("usage: builds app-checkout <checkout>") };
+    let checkout = Checkout::find(arg)?;
+    if checkout.is_main() {
+        fail!(
+            "{} is the main checkout, which keeps its builds warm already; the app checkout is a side worktree",
+            checkout.top.display()
+        );
+    }
+    tool.places.require_volume()?;
+    checkout.require_repo_name(&tool.places)?;
+    let repo = checkout.repo();
+    let file = tool.places.app_checkout_file(&repo);
+    let dir = tool.places.root.join(&repo);
+    std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+    std::fs::write(&file, format!("{}\n", checkout.name())).context(|| format!("writing {}", file.display()))?;
+    note(format!(
+        "recorded {} as {repo}'s app checkout in {}; the free-space floor keeps its folders",
+        checkout.top.display(),
+        file.display()
+    ));
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "worktree_tests.rs"]
+mod tests;

@@ -1,0 +1,178 @@
+//! A repo's `.build-dirs`: its build output paths and the size each may reach,
+//! and the shared caches every checkout uses, with theirs.
+
+use std::path::{Path, PathBuf};
+
+use crate::fail;
+use crate::fail::Result;
+
+pub const MANIFEST: &str = ".build-dirs";
+
+/// One build output path of a checkout and its cap.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BuildDir {
+    /// Relative to the checkout and to its build root: `target`,
+    /// `bae-macos/bae/.build`.
+    pub path: String,
+    pub cap_kib: u64,
+}
+
+pub fn has_manifest(top: &Path) -> bool {
+    top.join(MANIFEST).is_file()
+}
+
+/// The entries of <top>'s manifest, in its order; none without one. Fails on
+/// a malformed line, naming it.
+pub fn build_dirs(top: &Path) -> Result<Vec<BuildDir>> {
+    let file = top.join(MANIFEST);
+    let text = match std::fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => fail!("reading {}: {error}", file.display()),
+    };
+    let mut entries = Vec::new();
+    for line in text.lines() {
+        let mut fields = line.split_ascii_whitespace();
+        let Some(path) = fields.next() else { continue };
+        if path.starts_with('#') {
+            continue;
+        }
+        let cap = fields.next().unwrap_or("");
+        let rest: Vec<&str> = fields.collect();
+        if !rest.is_empty() {
+            fail!("{}: extra field after '{path} {cap}'", file.display());
+        }
+        if path.starts_with('/')
+            || path == ".."
+            || path.starts_with("../")
+            || path.ends_with("/..")
+            || path.contains("/../")
+        {
+            fail!("{}: '{path}' must be inside the checkout", file.display());
+        }
+        let cap_kib = cap_kib(cap, &format!("{}: '{path}'", file.display()))?;
+        entries.push(BuildDir { path: path.to_string(), cap_kib });
+    }
+    Ok(entries)
+}
+
+/// <cap> (20G, 500M) in KiB; fails naming <what> when it is neither.
+pub fn cap_kib(cap: &str, what: &str) -> Result<u64> {
+    let (digits, unit) = cap.split_at(cap.len().saturating_sub(1));
+    if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+        && let Ok(n) = digits.parse::<u64>() {
+            match unit {
+                "G" => return Ok(n * 1024 * 1024),
+                "M" => return Ok(n * 1024),
+                _ => {}
+            }
+        }
+    fail!("{what} needs a cap like 20G or 500M, got '{cap}'")
+}
+
+/// A download cache every checkout shares: a folder in <root>/caches with a
+/// link to it from where its tool looks.
+#[derive(Clone, Debug)]
+pub struct SharedCache {
+    pub name: &'static str,
+    pub cap_kib: u64,
+    /// Relative to $HOME.
+    pub link: &'static str,
+    /// Settings the person writes into the tool's home folder, which a
+    /// deletion copies out first and puts back in the emptied folder.
+    pub settings: &'static [&'static str],
+}
+
+impl SharedCache {
+    pub fn link_path(&self, home: &Path) -> PathBuf {
+        home.join(self.link)
+    }
+}
+
+const GIB: u64 = 1024 * 1024;
+
+/// The shared caches. Caps are about twice each cache's size when they got
+/// them (Oct 2026: gradle 3.4G, npm 0.3G, nuget 2.6G, swiftpm 1.0G). Old
+/// Gradle, AGP and NuGet package versions pile up as dependencies move, and
+/// deleting a cache costs every checkout a download, so the cap leaves room
+/// rather than fitting tightly. sccache's cap is the size `install` writes
+/// into its config, and sccache evicts within it itself; its own accounting
+/// reads about 0.2 GiB under the folder's size on disk, so status may show
+/// it a little over. 30G holds about two days of builds: on a day of agents
+/// building in seven bae and five coven checkouts sccache wrote 12.6G, and
+/// nothing in it was older than three days.
+///
+/// The links for Gradle and NuGet point at their tools' whole home folders,
+/// which also hold settings the person writes (gradle.properties, init
+/// scripts, NuGet.Config).
+pub const SHARED_CACHES: &[SharedCache] = &[
+    SharedCache {
+        name: "gradle",
+        cap_kib: 8 * GIB,
+        link: ".gradle",
+        settings: &["gradle.properties", "init.d", "init.gradle", "init.gradle.kts"],
+    },
+    SharedCache { name: "npm", cap_kib: GIB, link: ".npm", settings: &[] },
+    SharedCache {
+        name: "nuget",
+        cap_kib: 6 * GIB,
+        link: ".nuget",
+        settings: &["NuGet/NuGet.Config"],
+    },
+    SharedCache {
+        name: "swiftpm",
+        cap_kib: 3 * GIB,
+        link: "Library/Caches/org.swift.swiftpm",
+        settings: &[],
+    },
+    SharedCache {
+        name: "sccache",
+        cap_kib: 30 * GIB,
+        link: "Library/Caches/Mozilla.sccache",
+        settings: &[],
+    },
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn caps() {
+        assert_eq!(cap_kib("20G", "x").unwrap(), 20 * GIB);
+        assert_eq!(cap_kib("500M", "x").unwrap(), 500 * 1024);
+        for bad in ["", "G", "20", "2X", "1G2G", "-1G", "20g"] {
+            assert!(cap_kib(bad, "x").is_err(), "{bad} passed");
+        }
+    }
+
+    #[test]
+    fn manifest_lines() {
+        let dir = std::env::temp_dir().join(format!("builds-manifest-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(MANIFEST), "# a comment\n\ntarget 30G\n  bae/.build   2G  \nlast 1M").unwrap();
+        let entries = build_dirs(&dir).unwrap();
+        assert_eq!(
+            entries,
+            vec![
+                BuildDir { path: "target".into(), cap_kib: 30 * GIB },
+                BuildDir { path: "bae/.build".into(), cap_kib: 2 * GIB },
+                BuildDir { path: "last".into(), cap_kib: 1024 },
+            ]
+        );
+        for (bad, says) in [
+            ("target 1G extra\n", "extra field after 'target 1G'"),
+            ("../out 1G\n", "must be inside the checkout"),
+            ("/abs 1G\n", "must be inside the checkout"),
+            ("a/../b 1G\n", "must be inside the checkout"),
+            ("target\n", "needs a cap like 20G or 500M, got ''"),
+        ] {
+            std::fs::write(dir.join(MANIFEST), bad).unwrap();
+            match build_dirs(&dir) {
+                Err(fail::Fail::Message(message)) => assert!(message.contains(says), "{message}"),
+                other => panic!("{bad}: {other:?}"),
+            }
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

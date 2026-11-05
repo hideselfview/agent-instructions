@@ -6,8 +6,17 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-builds="$script_dir/builds"
-units="$script_dir/cargo_units.py"
+# BUILDS names the binary to test; without it, the bash script and its
+# Python helpers.
+if [ -n "${BUILDS:-}" ]; then
+    builds="$BUILDS"
+    export UNITS_CMD="$builds units"
+else
+    builds="$script_dir/builds"
+    export UNITS_CMD="python3 $script_dir/cargo_units.py"
+fi
+# The steps setup and prune run on cargo's folders, on the folders named.
+units() { $UNITS_CMD "$@"; }
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 ws="$scratch/ws"
@@ -160,15 +169,15 @@ all="$(fingerprints)"
 old="$(comm -23 <(echo "$all") <(echo "$used"))"
 
 # A dry run deletes nothing.
-python3 "$units" prune 3 12 100000 1 "$ws/target" > /dev/null 2>&1
+units prune 3 12 100000 1 "$ws/target" > /dev/null 2>&1
 [ "$(fingerprints)" = "$all" ] || fail "a dry run deleted something"
 
 # A build holding the profile folder's lock keeps everything.
-python3 - "$profile/.cargo-lock" "$units" "$ws/target" <<'PY'
-import fcntl, os, subprocess, sys
+python3 - "$profile/.cargo-lock" - "$ws/target" <<'PY'
+import fcntl, os, shlex, subprocess, sys
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
 fcntl.flock(fd, fcntl.LOCK_EX)
-result = subprocess.run(["python3", sys.argv[2], "prune", "3", "12", "100000", "0", sys.argv[3]], capture_output=True, text=True)
+result = subprocess.run(shlex.split(os.environ["UNITS_CMD"]) + ["prune", "3", "12", "100000", "0", sys.argv[3]], capture_output=True, text=True)
 assert "a build holds its lock" in result.stderr, result.stderr
 PY
 [ "$(fingerprints)" = "$all" ] || fail "pruning deleted while a build held the lock"
@@ -181,7 +190,7 @@ if [ -n "$held_file" ]; then
     exec 3< "$held_file"
 fi
 
-python3 "$units" prune 3 12 100000 0 "$ws/target" > /dev/null
+units prune 3 12 100000 0 "$ws/target" > /dev/null
 remaining="$(fingerprints)"
 if [ -n "$held_file" ]; then
     exec 3<&-
@@ -234,10 +243,10 @@ before="$(fingerprints | grep -vxF "$held_unit")"
 sed -i '' 's/^version = "0.1.1"/version = "0.1.2"/' dep/Cargo.toml
 build_all "$builds" cargo
 bumped="$(recent)"
-python3 "$units" prune 3 24 100000 0 "$ws/target" > /dev/null 2>&1
+units prune 3 24 100000 0 "$ws/target" > /dev/null 2>&1
 [ "$(fingerprints)" = "$(sort <(echo "$before") <(echo "$bumped") | uniq)" ] \
     || fail "pruning deleted copies used within the last 24 hours: $(comm -23 <(sort <(echo "$before") <(echo "$bumped") | uniq) <(fingerprints))"
-python3 "$units" prune 3 12 100000 0 "$ws/target" > /dev/null 2>&1
+units prune 3 12 100000 0 "$ws/target" > /dev/null 2>&1
 [ "$(fingerprints)" = "$bumped" ] \
     || fail "pruning kept $(comm -13 <(echo "$bumped") <(fingerprints)) and deleted $(comm -23 <(echo "$bumped") <(fingerprints))"
 for command in "build --all-targets" "doc --no-deps" "test --no-run"; do
@@ -253,15 +262,15 @@ mkdir -p "$home/git/checkouts/coven-f7c984c541c70e3c/04561fe" "$home/git/checkou
     "$home/git/checkouts/other-2dad6eb5752945c7/c0649fc" "$home/git/db/coven-f7c984c541c70e3c"
 printf '[[package]]\nname = "coven"\nsource = "git+https://github.com/bae-fm/coven?rev=%s#%s"\n' "$pinned" "$pinned" > "$scratch/Cargo.lock"
 checkouts() { (cd "$home/git" && { find checkouts -mindepth 2 -maxdepth 2; find db -mindepth 1 -maxdepth 1; } | sort); }
-python3 - "$home/.package-cache" "$units" "$home" "$scratch/Cargo.lock" <<'PY'
-import fcntl, os, subprocess, sys
+python3 - "$home/.package-cache" - "$home" "$scratch/Cargo.lock" <<'PY'
+import fcntl, os, shlex, subprocess, sys
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
 fcntl.flock(fd, fcntl.LOCK_EX)
-result = subprocess.run(["python3", sys.argv[2], "git-checkouts", sys.argv[3], "0", sys.argv[4]], capture_output=True, text=True)
+result = subprocess.run(shlex.split(os.environ["UNITS_CMD"]) + ["git-checkouts", sys.argv[3], "0", sys.argv[4]], capture_output=True, text=True)
 assert "a cargo holds its package cache" in result.stderr, result.stderr
 PY
 [ "$(checkouts | wc -l)" -eq 4 ] || fail "pruning git checkouts deleted while a cargo held the package cache: $(checkouts)"
-python3 "$units" git-checkouts "$home" 0 "$scratch/Cargo.lock" > /dev/null 2>&1
+units git-checkouts "$home" 0 "$scratch/Cargo.lock" > /dev/null 2>&1
 [ "$(checkouts)" = "$(printf '%s\n' checkouts/coven-f7c984c541c70e3c/04561fe db/coven-f7c984c541c70e3c)" ] \
     || fail "pruning git checkouts left $(checkouts)"
 
@@ -282,24 +291,24 @@ done
 touch -t 202609010000 "$trim_profile/incremental/crate1-id/s-1/data"
 incrementals() { ls "$trim_profile/incremental" | tr '\n' ' '; }
 # 3700 KiB against a 2400 KiB cap: three folders of 512 KiB go.
-python3 "$units" trim 2400 3700 1 "$trim_target" > /dev/null 2>&1
+units trim 2400 3700 1 "$trim_target" > /dev/null 2>&1
 [ "$(incrementals)" = "crate1-id crate2-id crate3-id crate4-id crate5-id " ] || fail "a dry run trimmed: $(incrementals)"
-python3 - "$trim_profile/.cargo-lock" "$units" "$trim_target" <<'PY'
-import fcntl, os, subprocess, sys
+python3 - "$trim_profile/.cargo-lock" - "$trim_target" <<'PY'
+import fcntl, os, shlex, subprocess, sys
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
 fcntl.flock(fd, fcntl.LOCK_EX)
-result = subprocess.run(["python3", sys.argv[2], "trim", "2400", "3700", "0", sys.argv[3]], capture_output=True, text=True)
+result = subprocess.run(shlex.split(os.environ["UNITS_CMD"]) + ["trim", "2400", "3700", "0", sys.argv[3]], capture_output=True, text=True)
 assert "a build holds its lock" in result.stderr, result.stderr
 PY
 [ "$(incrementals)" = "crate1-id crate2-id crate3-id crate4-id crate5-id " ] || fail "trimming deleted while a build held the lock: $(incrementals)"
 exec 4< "$trim_profile/incremental/crate2-id/s-1/data"
-freed="$(python3 "$units" trim 2400 3700 0 "$trim_target" 2>/dev/null)"
+freed="$(units trim 2400 3700 0 "$trim_target" 2>/dev/null)"
 exec 4<&-
 [ "$(incrementals)" = "crate1-id crate2-id " ] \
     || fail "trimming kept the wrong folders (crate2 is held, crate1 was written last): $(incrementals)"
 [ "$freed" -ge 1000 ] || fail "trimming reported $freed KiB freed"
 # Still over the cap with none left to delete: every unheld one goes.
-python3 "$units" trim 10 3700 0 "$trim_target" > /dev/null 2>&1
+units trim 10 3700 0 "$trim_target" > /dev/null 2>&1
 [ -z "$(incrementals)" ] || fail "trimming over a cap it cannot reach left $(incrementals)"
 [ -f "$trim_profile/deps/other" ] || fail "trimming deleted something that is no incremental folder"
 
@@ -326,23 +335,23 @@ done
 touch "$idle_profile/incremental/deep-id/s-1-abc/data"
 idle_left() { ls "$idle_profile/incremental" | tr '\n' ' '; }
 release_left() { ls "$idle_target/release/incremental" | tr '\n' ' '; }
-dry_out="$(python3 "$units" prune 3 12 6 1 "$idle_target" 2>&1 >/dev/null)"
+dry_out="$(units prune 3 12 6 1 "$idle_target" 2>&1 >/dev/null)"
 [ "$(idle_left)" = "deep-id fresh-id held-id stale-id " ] || fail "a dry run deleted idle incremental folders: $(idle_left)"
 case "$dry_out" in
     *"would delete 2 incremental folders nothing wrote to in 6 hours from"*"debug"*) ;;
     *) fail "the dry run did not report the idle folders: $dry_out" ;;
 esac
-python3 - "$idle_profile/.cargo-lock" "$units" "$idle_target" <<'PY'
-import fcntl, os, subprocess, sys
+python3 - "$idle_profile/.cargo-lock" - "$idle_target" <<'PY'
+import fcntl, os, shlex, subprocess, sys
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
 fcntl.flock(fd, fcntl.LOCK_EX)
-result = subprocess.run(["python3", sys.argv[2], "prune", "3", "12", "6", "0", sys.argv[3]], capture_output=True, text=True)
+result = subprocess.run(shlex.split(os.environ["UNITS_CMD"]) + ["prune", "3", "12", "6", "0", sys.argv[3]], capture_output=True, text=True)
 assert "kept 2 incremental folders nothing wrote to in 6 hours" in result.stderr, result.stderr
 PY
 [ "$(idle_left)" = "deep-id fresh-id held-id stale-id " ] || fail "deleted idle folders while a build held the lock: $(idle_left)"
 [ "$(release_left)" = "fresh-id " ] || fail "the release profile's idle folders survived: $(release_left)"
 exec 6< "$idle_profile/incremental/held-id/s-1-abc/data"
-live_out="$(python3 "$units" prune 3 12 6 0 "$idle_target" 2>&1 >/dev/null)"
+live_out="$(units prune 3 12 6 0 "$idle_target" 2>&1 >/dev/null)"
 exec 6<&-
 [ "$(idle_left)" = "deep-id fresh-id held-id " ] || fail "idle pruning left the wrong folders: $(idle_left)"
 case "$live_out" in

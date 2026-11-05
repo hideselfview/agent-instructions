@@ -8,7 +8,9 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-builds="$script_dir/builds"
+# BUILDS names the binary to test; without it, the bash script and its
+# Python helpers.
+builds="${BUILDS:-$script_dir/builds}"
 scratch="$(cd "$(mktemp -d)" && pwd -P)"
 server=""
 cleanup() {
@@ -145,25 +147,32 @@ refuses "is one of waiting-on-you, winding-down, got ''" note "$side" --state
     || fail "side-1's size: $(cat "$scratch/full.json")"
 refuses "usage: builds status" status --sizes
 
-# disk_usage.py and newest_write.py: one call measures every path, in order,
-# each on its own; a folder holding an APFS clone (cp -c) counts the shared
-# blocks once, where du counts them twice.
+# Sizes count each block once: a folder holding an APFS clone (cp -c) counts
+# the shared blocks once, where du counts them twice; one call measures every
+# path, in order, each on its own.
 mkdir "$scratch/usage" "$scratch/usage/clones" "$scratch/usage/plain"
 head -c 4194304 /dev/urandom > "$scratch/usage/clones/a"
 cp -c "$scratch/usage/clones/a" "$scratch/usage/clones/b"
 head -c 4194304 /dev/urandom > "$scratch/usage/plain/a"
-sizes=($(python3 "$script_dir/disk_usage.py" "$scratch/usage/clones" "$scratch/usage/missing" "$scratch/usage/plain"))
-[ "${#sizes[@]}" = 3 ] || fail "disk_usage.py printed ${sizes[*]}"
+if [ -n "${BUILDS:-}" ]; then
+    sizes=($("$builds" du "$scratch/usage/clones" "$scratch/usage/missing" "$scratch/usage/plain"))
+else
+    sizes=($(python3 "$script_dir/disk_usage.py" "$scratch/usage/clones" "$scratch/usage/missing" "$scratch/usage/plain"))
+fi
+[ "${#sizes[@]}" = 3 ] || fail "measuring printed ${sizes[*]}"
 [ "${sizes[0]}" -ge 4096 ] && [ "${sizes[0]}" -lt 4500 ] || fail "a folder with a clone took ${sizes[0]} KiB, not the 4096 of its shared blocks"
 [ "${sizes[1]}" = 0 ] || fail "a missing path took ${sizes[1]} KiB"
 [ "${sizes[2]}" -ge 4096 ] && [ "${sizes[2]}" -lt 4500 ] || fail "a plain 4 MiB file took ${sizes[2]} KiB"
 [ "$(du -sk "$scratch/usage/clones" | cut -f1)" -ge 8192 ] || echo "note: du didn't double-count the clone here" >&2
-touch -t 202001010000 "$scratch/usage/plain/a" "$scratch/usage/plain" "$scratch/usage/clones/a"
-touch -t 202101010000 "$scratch/usage/clones/b"
-writes=($(python3 "$script_dir/newest_write.py" "$scratch/usage/plain" "$scratch/usage/clones"))
-[ "${writes[0]}" = "$(date -j -f %Y%m%d%H%M%S 20200101000000 +%s)" ] || fail "newest write of plain: ${writes[0]}"
-[ "${writes[1]}" -gt "${writes[0]}" ] || fail "newest write of clones: ${writes[1]}"
 
+# A build folder's last write is its newest write inside.
+touch -t 202001010000 "$BUILDS_ROOT/demo/side-1/target"
+touch -t 202101010000 "$BUILDS_ROOT/demo/side-1/target/blob"
+[ "$("$builds" status --json | json 'd["repos"][0]["checkouts"][1]["folders"][0]["last_write"]')" \
+    = "$(date -j -f %Y%m%d%H%M%S 20210101000000 +%s)" ] || fail "side-1's target's last write: $("$builds" status --json)"
+touch "$BUILDS_ROOT/demo/side-1/target/blob"
+
+if [ -z "${BUILDS:-}" ]; then
 # The dashboard: its answers for the side worktree, the page, and a Host it
 # doesn't serve.
 port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
@@ -249,6 +258,8 @@ assert len(runs) == 2, f"no run on a request after the interval: {len(runs)}"
 assert not overlap, "two runs at once"
 PY
 
+fi
+
 # Clearing the note keeps the claim.
 "$builds" note "$side" 2>/dev/null
 [ "$(cat "$claim_file")" = "agent A	$since" ] || fail "clearing wrote '$(cat "$claim_file")'"
@@ -258,6 +269,8 @@ PY
 # side-2>.
 states() {
     local got
+    # The daemon derives them for the binary.
+    [ -z "${BUILDS:-}" ] || return 0
     got="$(python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import dashboard
 d = dashboard.state(sys.argv[2])
 print(" ".join(str(c["state"]) for c in d["repos"][0]["checkouts"]))' "$script_dir" "$builds")"
