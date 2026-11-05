@@ -254,11 +254,14 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   macOS app resolves its packages into `bae-macos/bae/.build/SourcePackages`:
 
   ```sh
-  rm -rf bae-macos/bae/.build/derivedData bae-macos/bae/.build/SourcePackages
+  rm -rf bae-macos/bae/.build/runApp bae-macos/bae/.build/unsigned \
+    bae-macos/bae/.build/SourcePackages
   rm -rf ~/Library/Caches/org.swift.swiftpm/repositories/Sparkle*
-  cd bae-macos/bae && xcodebuild -project bae.xcodeproj -scheme bae \
-    -derivedDataPath .build/derivedData \
-    -clonedSourcePackagesDirPath .build/SourcePackages build
+  ./bae-macos/run.sh --no-open
   ```
+
+  The two trees and the packages' folder are defined in
+  `scripts/xcode-trees.sh`; `builds` deletes a tree no build used for three
+  days.
 
   Disconnect VPN first — incomplete fetches corrupt the SwiftPM cache.

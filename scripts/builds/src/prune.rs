@@ -15,6 +15,7 @@ use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_
 use crate::temp_builds::temp_build_folders;
 use crate::text::{human, note};
 use crate::tool::Tool;
+use crate::trees::prune_trees;
 use crate::units;
 use crate::usage::Measure;
 
@@ -45,7 +46,8 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
         tool.rules.superseded_hours,
         tool.rules.incremental_hours,
     );
-    let freed = units::prune::prune(&ages, run.dry(), &folders)?;
+    let mut freed = units::prune::prune(&ages, run.dry(), &folders)?;
+    freed.extend(prune_trees(tool, &folders, run)?);
     let claimed = checkout.claim_file().is_file();
     // Measured together, after the pruning: deleting one folder changes no
     // other's size.
@@ -58,7 +60,7 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
         if run.dry() {
             // Nothing was deleted; measure the folder as pruning would leave
             // it.
-            let pruned = freed.iter().find(|(f, _)| *f == folder).map(|(_, kib)| *kib).unwrap_or(0);
+            let pruned: u64 = freed.iter().filter(|(f, _)| *f == folder).map(|(_, kib)| *kib).sum();
             kib = kib.saturating_sub(pruned);
         }
         let reason = if kib > entry.cap_kib {

@@ -23,6 +23,7 @@ mod temp_builds;
 mod testing;
 mod text;
 mod tool;
+mod trees;
 mod units;
 mod usage;
 mod worktree;

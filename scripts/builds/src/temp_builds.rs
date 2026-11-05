@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use crate::fail;
 use crate::fail::Result;
 use crate::places::Places;
+use crate::trees::{is_swiftpm_folder, is_xcode_tree};
 
 /// Deep enough for /private/tmp/<probe>/<crate>/target and
 /// $TMPDIR/<tool>-<id>/<package>/.build; a build folder's own contents are
@@ -55,11 +56,7 @@ pub fn temp_folders(places: &Places) -> Vec<PathBuf> {
 }
 
 fn is_build_folder(names: &HashSet<String>) -> bool {
-    let has = |name: &str| names.contains(name);
-    has(".rustc_info.json")
-        || (has("info.plist") && has("Logs") && (has("Build") || has("ModuleCache.noindex")))
-        || (has("workspace-state.json")
-            && (has("checkouts") || has("repositories") || has("artifacts")))
+    names.contains(".rustc_info.json") || is_xcode_tree(names) || is_swiftpm_folder(names)
 }
 
 /// Every build output folder found under the temporary folders, outermost

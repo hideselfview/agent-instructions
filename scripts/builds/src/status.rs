@@ -18,6 +18,7 @@ use crate::prune::derived_data;
 use crate::temp_builds::temp_build_folders;
 use crate::text::{glob_names, human, last_write, tilde};
 use crate::tool::{Tool, volume_space};
+use crate::trees::{Tree, trees_in, unused};
 
 /// What status leaves out at the volume's root: macOS's own entries and
 /// the daemon's folder.
@@ -130,6 +131,7 @@ fn status_folders(repos: &[Repo]) -> Result<Vec<PathBuf>> {
                     for dir in build_dirs(&root.top)? {
                         let folder = root.path.join(&dir.path);
                         if folder.is_dir() {
+                            paths.extend(trees_in(&folder)?.into_iter().map(|tree| tree.path));
                             paths.push(folder);
                         }
                     }
@@ -152,6 +154,11 @@ fn unknown_line(tool: &Tool, path: &Path) -> Result<String> {
         relative(tool, path),
         human(tool.measure(path)?.kib)
     ))
+}
+
+/// <tree>'s path inside <folder>, as status names it.
+fn tree_name(folder: &Path, tree: &Tree) -> String {
+    tree.path.strip_prefix(folder).unwrap_or(&tree.path).display().to_string()
 }
 
 fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
@@ -200,6 +207,20 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
             human(cap_kib),
             last_write(measured.newest)
         ));
+        for tree in trees_in(&folder)? {
+            let measured = tool.measure(&tree.path)?;
+            let state = if unused(tool, &measured) {
+                format!("unused for {} days: setup deletes it", tool.rules.unused_days)
+            } else {
+                String::new()
+            };
+            out.push(format!(
+                "      {:<32} {:>8}           last use {}  {state}",
+                tree_name(&folder, &tree),
+                human(measured.kib),
+                last_write(measured.newest)
+            ));
+        }
         let link = root.top.join(&path);
         if link.is_symlink() {
             if absolute_link_target(&link)? != folder {
@@ -495,7 +516,18 @@ pub enum FolderJson {
         last_write: Option<i64>,
         link: &'static str,
         link_target: Option<String>,
+        trees: Vec<TreeJson>,
     },
+}
+
+/// A build inside a build folder (see trees.rs): its path inside the folder,
+/// its tool, its size and when a build last used it.
+#[derive(Serialize)]
+pub struct TreeJson {
+    pub path: String,
+    pub kind: &'static str,
+    pub kib: u64,
+    pub last_use: Option<i64>,
 }
 
 fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<CheckoutJson> {
@@ -526,6 +558,16 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
             } else {
                 ("not linked", None)
             };
+            let mut trees = Vec::new();
+            for tree in trees_in(&folder)? {
+                let measured = tool.measure(&tree.path)?;
+                trees.push(TreeJson {
+                    path: tree_name(&folder, &tree),
+                    kind: tree.kind.name(),
+                    kib: measured.kib,
+                    last_use: measured.newest,
+                });
+            }
             list.push(FolderJson::Present {
                 path,
                 cap_kib,
@@ -534,6 +576,7 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
                 last_write: measured.newest,
                 link,
                 link_target,
+                trees,
             });
         }
         folders = Some(list);

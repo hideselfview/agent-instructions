@@ -54,7 +54,7 @@ the volume.
 Commands:
   builds setup [<checkout>]   link the checkout's build paths, recreate any
                               missing folder, delete its unused build copies
-                              (below), apply the caps to it, to DerivedData
+                              and builds inside a folder (below), apply the caps to it, to DerivedData
                               and to the shared caches, delete idle build
                               output in the temporary folders, then make
                               sure the volume has the free-space floor.
@@ -202,6 +202,20 @@ incremental folder is pure cache: deleting one costs a recompile of its unit.
 They say what they trimmed and what is left; a folder still over its cap
 after that is kept whole ("claimed, kept"). Main's and the app checkout's
 folders are never trimmed this way.
+
+Separate builds inside one folder. A folder is aged by its newest write, so a
+stale build beside a live one (an Xcode tree from last week beside today's)
+would never age out. So `setup` and `prune` find the builds inside each
+folder and delete each one no build used for three days, as they do cargo's
+copies; main's and the app checkout's too, and a build a process holds a
+file in is kept. Two kinds are recognized: an Xcode tree (info.plist beside
+Logs and Build, up to two levels below the folder) and a SwiftPM
+<triple>/debug or <triple>/release folder in a `.build` that holds
+workspace-state.json. Last use is the newest write inside the build: xcodebuild
+and `swift build` write on a build that finds everything up to date, which
+`dotnet build` does not, and Gradle keeps no build per variant, so those
+folders are not split. status lists each build under its folder with its last
+use, and `status --json` as the folder's `trees`.
 
 Sizes, against caps and in status, count each block once:
 du counts the blocks of an APFS clone once per file, and cargo uplifts its

@@ -41,12 +41,13 @@ a failed build leaves the installed one as it was; a commit on main that touches
 - `builds setup [<checkout>]` creates the links, recreates any folder behind a
   link that was deleted, deletes a folder an older layout left behind (never
   moves it: Xcode's DerivedData records its own absolute path, so a moved one
-  can't find its packages), deletes that checkout's unused build copies, applies
-  the caps to it, to DerivedData and to the shared caches, deletes idle build
-  output in the temporary folders, and keeps the volume's free-space floor
-  (below). The repo's `scripts/build-layout.sh` calls it, and the hooks and
-  every build script call that first. Without the tool (CI) the script does
-  nothing and the tools write into real directories.
+  can't find its packages), deletes that checkout's unused build copies and
+  unused builds inside a folder (below), applies the caps to it, to DerivedData
+  and to the shared caches, deletes idle build output in the temporary folders,
+  and keeps the volume's free-space floor (below). The repo's
+  `scripts/build-layout.sh` calls it, and the hooks and every build script call
+  that first. Without the tool (CI) the script does nothing and the tools write
+  into real directories.
 - `builds new [<repo>] [-b <branch>] [--for <who>]` adds the next free `side-N`
   from `origin/main`, links it, and runs its own `post-checkout`, which sets the
   checkout up and builds nothing; `--for` claims it.
@@ -83,19 +84,20 @@ a failed build leaves the installed one as it was; a commit on main that touches
   checkout (below), in `/Volumes/Builds/<repo>/app-checkout`.
 - `builds status` lists every entry on the volume: each root's folders, each
   DerivedData entry and each shared cache, with size against cap, last write,
-  and whether the links are in place; anything else as UNKNOWN. It also lists
-  build output in the temporary folders. `builds status --json` prints the
-  repos' checkouts (path, branch, app checkout, claim and note, each build
-  folder's size against cap, last write and link) and the volume's free space
-  against both floors, as JSON; `--no-folders` leaves out the build folders. A
-  folder's last write is the newest write anywhere inside it. While the
-  dashboard's daemon runs, `status` takes every size and last write from it
-  (`status --json` in 0.2 s, where walking the volume took 19 s at load 40);
-  without it, `status` walks the folders itself, eight threads at a time: the
-  walk is system calls on many small files, which eight threads finish several
-  times faster than one. Commands that delete (`setup`, `prune`, the floor) ask
-  the daemon too, but first wait for it to have seen every write made before the
-  question, so a size measured after a deletion counts it.
+  and whether the links are in place, and under each folder the builds inside it
+  (below) with their last use; anything else as UNKNOWN. It also lists build
+  output in the temporary folders. `builds status --json` prints the repos'
+  checkouts (path, branch, app checkout, claim and note, each build folder's
+  size against cap, last write and link) and the volume's free space against
+  both floors, as JSON; `--no-folders` leaves out the build folders. A folder's
+  last write is the newest write anywhere inside it. While the dashboard's
+  daemon runs, `status` takes every size and last write from it (`status --json`
+  in 0.2 s, where walking the volume took 19 s at load 40); without it, `status`
+  walks the folders itself, eight threads at a time: the walk is system calls on
+  many small files, which eight threads finish several times faster than one.
+  Commands that delete (`setup`, `prune`, the floor) ask the daemon too, but
+  first wait for it to have seen every write made before the question, so a size
+  measured after a deletion counts it.
 - `builds health [--json]` says what is stuck or needs acting on: load, free
   space against both floors, whether sccache finished compiles since the last
   readings while clients wait 10+ minutes, Claude shells older than 2 hours,
@@ -194,19 +196,21 @@ a failed build leaves the installed one as it was; a commit on main that touches
 
 ## DerivedData and the shared caches
 
-**DerivedData.** bae's build scripts pass `-derivedDataPath` into a `.build`
-folder in the checkout, so no checkout's build lives in Xcode's default
-location; it holds what one-off `xcodebuild` runs (`-showBuildSettings`, package
-resolves) and the Xcode app write: one `<project>-<hash>` entry per project
-path, mostly SwiftPM checkouts of about 3 GB. Nothing deleted them, and nine had
-piled up to 27 GB, four from worktrees already removed. It is one disposable
-cache with a 15 GB cap, about five entries: `setup` and `prune` delete entries,
-least recently written first, while it is over the cap; `prune` also deletes
-entries nothing wrote to for a day; the free-space floor deletes its idle
-entries before any checkout's folders. Deletions for the cap and the floor skip
-an entry written in the last 30 minutes (a one-off run between two steps holds
-no file open), and every deletion skips one a process holds a file in. A one-off
-run that needs its packages again resolves them again.
+**DerivedData.** bae's build scripts and workflows get their `-derivedDataPath`
+from one definition, `scripts/xcode-trees.sh`, which puts each tree in a
+`.build` folder in the checkout (a pre-commit check refuses the flag anywhere
+else), so no checkout's build lives in Xcode's default location; it holds what
+one-off `xcodebuild` runs (`-showBuildSettings`, package resolves) and the Xcode
+app write: one `<project>-<hash>` entry per project path, mostly SwiftPM
+checkouts of about 3 GB. Nothing deleted them, and nine had piled up to 27 GB,
+four from worktrees already removed. It is one disposable cache with a 15 GB
+cap, about five entries: `setup` and `prune` delete entries, least recently
+written first, while it is over the cap; `prune` also deletes entries nothing
+wrote to for a day; the free-space floor deletes its idle entries before any
+checkout's folders. Deletions for the cap and the floor skip an entry written in
+the last 30 minutes (a one-off run between two steps holds no file open), and
+every deletion skips one a process holds a file in. A one-off run that needs its
+packages again resolves them again.
 
 **Shared caches.** Gradle, npm, NuGet, SwiftPM and sccache keep their downloads
 and compiler outputs in `/Volumes/Builds/caches/<name>`, linked from where each
@@ -404,6 +408,29 @@ counts as used when cargo last built it.
   after cargo last rebuilt it, and its next build rebuilds that, mostly from
   sccache.
 
+**Separate builds inside one folder.** A folder's last write is the newest write
+anywhere inside it, so when one folder holds several builds, a live one keeps a
+stale one beside it young for good: bae main's `bae-macos/bae/.build` held an
+Xcode tree last built on October 25 (2.8 GB) beside the one built on November 3,
+and nothing aged it out. `setup` and `prune` also find the builds inside each
+folder of the manifest and delete each one no build used for three days
+(`BUILDS_UNUSED_DAYS`, the cargo copies' setting), in main's and the app
+checkout's folders too: they rebuild. A build a process holds a file in is kept.
+Two kinds are recognized by what their tool writes: an Xcode tree (`info.plist`
+beside `Logs`, and `Build` or `ModuleCache.noindex`, one or two levels below the
+folder) and a SwiftPM configuration (`<triple>/debug` or `<triple>/release` in a
+`.build` holding `workspace-state.json`; `checkouts`, `repositories` and
+`artifacts` belong to every configuration and stay). A build's last use is the
+newest write inside it, which holds because an up-to-date `xcodebuild` writes a
+log and an up-to-date `swift build` rewrites its output file maps (both measured
+on 2026-11-05). The other tools in the manifests were checked and are not split:
+an up-to-date `dotnet build` writes nothing (measured), so Avalonia's
+`bin/Debug` could not tell a build in daily use from an abandoned one; Gradle's
+per-variant output is task output inside one build folder, which Gradle itself
+removes and reruns; Lean's `.lake` holds one package's build and its
+dependencies. `status` lists each build under its folder with its last use, and
+`status --json` as the folder's `trees`.
+
 **Idle incremental folders.** Cargo never deletes an
 `incremental/<crate>-<hash>` folder of an old hash (another feature set, older
 sources, the dev profile clippy, check and the hook use), so they fill a folder
@@ -576,13 +603,13 @@ SwiftPM dependency (Sparkle is a frequent offender), its checkout cache is
 corrupt. Clear it and rebuild:
 
 ```sh
-rm -rf <app>/.build/derivedData
+rm -rf <the app's Xcode build trees and its SourcePackages folder>
 rm -rf ~/Library/Caches/org.swift.swiftpm/repositories/<Dep>*
-cd <app> && xcodebuild -project <proj>.xcodeproj -scheme <scheme> \
-  -derivedDataPath .build/derivedData build
+<the repo's build script>
 ```
 
 VPN can cause incomplete git fetches that corrupt the SwiftPM cache; disconnect
 and retry. A prime and the scripts that build after it must use the same
 xcodebuild flags (notably `-derivedDataPath`), or the primed packages land where
-the later build can't find them.
+the later build can't find them: a repo keeps them in one definition every
+script sources (bae: `scripts/xcode-trees.sh`).
