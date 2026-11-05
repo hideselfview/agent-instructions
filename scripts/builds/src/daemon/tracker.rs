@@ -3,6 +3,11 @@
 //!
 //! - The stream on the root starts before the walk; events that arrive
 //!   during it wait and are applied after it.
+//! - The stream's callback only queues its events; one thread applies them,
+//!   everything queued at once. A callback that walked or read the disk
+//!   itself would hold up delivery, and FSEvents drops events for a client
+//!   that falls behind, which asks for a walk of the whole root: under load
+//!   40 that came back every few seconds, each walk causing the next.
 //! - Applying an event never trusts the event's flags for what a path is now:
 //!   it reads the path. Gone: its entry and everything under it go. A file:
 //!   its facts are read again. A folder that is new or has a new inode is
@@ -68,6 +73,9 @@ pub struct Tracker {
     flags: Mutex<Flags>,
     wake: Condvar,
     stream: Mutex<Option<Stream>>,
+    /// Events delivered and not yet applied.
+    queue: Mutex<Vec<Event>>,
+    queued: Condvar,
     /// Follows the root's parent, to learn the root came back.
     _parent: Option<Stream>,
 }
@@ -105,6 +113,8 @@ impl Tracker {
                 flags: Mutex::new(Flags { restart: true, ..Flags::default() }),
                 wake: Condvar::new(),
                 stream: Mutex::new(None),
+                queue: Mutex::new(Vec::new()),
+                queued: Condvar::new(),
                 _parent: parent,
             }
         });
@@ -112,6 +122,10 @@ impl Tracker {
         std::thread::Builder::new()
             .name("builds-tracker".into())
             .spawn(move || supervisor.supervise())?;
+        let applier = tracker.clone();
+        std::thread::Builder::new()
+            .name("builds-apply".into())
+            .spawn(move || applier.apply_loop())?;
         Ok(tracker)
     }
 
@@ -164,7 +178,8 @@ impl Tracker {
                 0.2,
                 Box::new(move |events| {
                     if let Some(tracker) = me.upgrade() {
-                        tracker.on_events(events);
+                        tracker.queue.lock().expect("no panic holding it").extend(events);
+                        tracker.queued.notify_all();
                     }
                 }),
             );
@@ -220,6 +235,21 @@ impl Tracker {
         now.is_none() || now != followed
     }
 
+    /// Applies the queued events, everything queued at once, for as long
+    /// as the daemon runs.
+    fn apply_loop(&self) {
+        loop {
+            let events = {
+                let mut queue = self.queue.lock().expect("no panic holding it");
+                while queue.is_empty() {
+                    queue = self.queued.wait(queue).expect("no panic holding it");
+                }
+                std::mem::take(&mut *queue)
+            };
+            self.on_events(events);
+        }
+    }
+
     fn on_events(&self, events: Vec<Event>) {
         // Marks are entries like any other; their events also say how far
         // delivery has come.
@@ -261,8 +291,12 @@ impl Tracker {
         }
         let dropped = events
             .iter()
-            .any(|event| event.flags & (flags::USER_DROPPED | flags::KERNEL_DROPPED | flags::EVENT_IDS_WRAPPED) != 0);
-        if dropped {
+            .map(|event| event.flags & (flags::USER_DROPPED | flags::KERNEL_DROPPED | flags::EVENT_IDS_WRAPPED))
+            .fold(0, |all, flags| all | flags);
+        if dropped != 0 {
+            // Every other event in the batch came before the walk, which
+            // reads what they changed.
+            eprintln!("builds: FSEvents dropped events (flags {dropped:#x})");
             self.rescan(&self.root.clone());
             return;
         }
