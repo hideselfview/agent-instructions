@@ -49,14 +49,31 @@ def without_redirections(tokens):
     return out
 
 
+SEPARATOR = re.compile(r"[;&|()]+")
+SUBSTITUTION = re.compile(r"\$\(([^)]*)\)?|`([^`]*)`?")
+
+
 def segments(command: str):
-    # Split on shell separators; a quoted separator only costs a missed check.
-    for part in re.split(r"&&|\|\||[;|\n]|\$\(|`", command):
+    # Split on shell separators outside quotes, so a `|` inside a grep pattern
+    # is not a pipe. A command substitution, quoted or not, runs: its inside
+    # is checked as a command of its own.
+    for line in command.split("\n"):
+        lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()")
+        lexer.whitespace_split = True
         try:
-            tokens = shlex.split(part, comments=True)
+            tokens = list(lexer)
         except ValueError:
-            tokens = part.split()
-        yield without_redirections(tokens)
+            tokens = line.split()
+        current = []
+        for token in tokens:
+            for inner in SUBSTITUTION.finditer(token):
+                yield from segments(inner.group(1) or inner.group(2) or "")
+            if SEPARATOR.fullmatch(token):
+                yield without_redirections(current)
+                current = []
+            else:
+                current.append(SUBSTITUTION.sub(" ", token).strip() or token)
+        yield without_redirections(current)
 
 
 def full_cargo_run(tokens):
@@ -130,8 +147,27 @@ def runs_check_script(tokens) -> bool:
     return False
 
 
+QUOTED_HEREDOC = re.compile(r"""<<-?\s*(['"])(\w+)\1[^\n]*\n(.*?\n)?[ \t]*\2[ \t]*(?:\n|$)""", re.S)
+SHELLS = ("bash", "sh", "zsh")
+
+
+def without_data_heredocs(command: str) -> str:
+    """Drop the body of a quoted heredoc (`<<'EOF'`): the shell expands nothing
+    in it, so to any command but a shell running it as a script it is text (a
+    Python script that names check.sh in a string runs nothing)."""
+
+    def replace(match):
+        line_start = command.rfind("\n", 0, match.start()) + 1
+        words = command[line_start:match.start()].split()
+        if any(w in SHELLS or w.endswith(tuple("/" + s for s in SHELLS)) for w in words):
+            return match.group(0)
+        return "\n"
+
+    return QUOTED_HEREDOC.sub(replace, command)
+
+
 def blocked(command: str) -> bool:
-    for tokens in segments(command):
+    for tokens in segments(without_data_heredocs(command)):
         if runs_check_script(tokens):
             return True
         if full_cargo_run(tokens):
