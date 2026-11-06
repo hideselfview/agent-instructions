@@ -125,13 +125,14 @@ duplicate types to make a split compile.
 
 ## Schema and compatibility
 
-The database schema is one migration, assembled by bae-library (`SCHEMA`) from
-each crate's parts in crate order. A domain's SQL files sit in its home beside a
-same-stem `.rs`, with their trigger tests in `<stem>_tests.rs`;
-`bae-db/migrations/001_initial.sql` holds every table no other part has yet. A
-schema change edits its domain's SQL file; it never adds a second migration. No
-library has to advance from an older schema: the person resets development data
-with `scripts/reset-bae.py`.
+Tables live with the domain that owns them, in that domain's crate: records in
+bae-records, members and people in bae-people, the import's in bae-import, the
+library views' in bae-views, and so on; bae-store holds none. The schema is one
+migration, assembled by bae-library (`SCHEMA`) from each crate's parts in crate
+order. A domain's SQL files sit in its home beside a same-stem `.rs`, with their
+trigger tests in `<stem>_tests.rs`. A schema change edits its domain's SQL file;
+it never adds a second migration. No library has to advance from an older
+schema: the person resets development data with `scripts/reset-bae.py`.
 
 When another canonical shape changes — bae-bridge types, UiEventBus event
 payloads, on-disk file layouts, sync membership chain format, encryption
