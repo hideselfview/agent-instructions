@@ -85,7 +85,13 @@ project's lists, worktrees and landing worktree.
 
 - Land from the claimed landing worktree with
   `scripts/land/land.sh <worktree> <sha>...`: it fast-forwards when the commits
-  sit on origin/main, else cherry-picks them, and retries a refused push.
+  sit on origin/main, else cherry-picks them, and retries a refused push. A
+  cherry-picked result is a tree no hook has seen, so before pushing it land.sh
+  runs the commands in the repo's `.land-checks` (one per line, run from the
+  repo root: the cheap whole-tree checks commits can break together, such as the
+  file size cap) and refuses to push when one fails, leaving the worktree at
+  origin/main. A fast-forward skips them. No compile or test step: that stays
+  with the coordinator.
 - After landing commits whose base is behind main and that touch shared code
   (schema, test stores, bridge types), build main
   (`check --workspace --all-targets --all-features`) before landing more; send
