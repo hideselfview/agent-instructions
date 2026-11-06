@@ -201,7 +201,9 @@ a failed build leaves the installed one as it was; a commit on main that touches
   launchd (restarting it only when its settings changed, since a restart fails
   every compile in flight), and points Xcode's default DerivedData
   (`IDECustomDerivedDataLocation`) at `/Volumes/Builds/DerivedData`. Run it
-  again any time: it changes only what differs.
+  again any time: it changes only what differs. When it replaced the installed
+  binary it also stops each running `builds dashboard` and starts it again,
+  detached, with the same arguments, so the daemon runs the new code.
 
 ## DerivedData and the shared caches
 

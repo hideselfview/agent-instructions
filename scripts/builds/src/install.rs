@@ -170,19 +170,78 @@ fn on_path(name: &str) -> Option<PathBuf> {
 }
 
 /// Copies this binary to ~/.local/bin/builds in one rename, so no hook ever
-/// finds the path missing or half written while it is replaced.
-fn put_on_path(home: &Path) -> Result<()> {
+/// finds the path missing or half written while it is replaced, and a process
+/// running the old file keeps that file: writing over it in place invalidates
+/// its code signature and the kernel kills it. Returns whether it replaced the
+/// binary.
+fn put_on_path(home: &Path) -> Result<bool> {
     let bin = home.join(".local/bin");
     std::fs::create_dir_all(&bin).context(|| format!("creating {}", bin.display()))?;
     let me = std::env::current_exe().context(|| "finding this binary".to_string())?;
     let dest = bin.join("builds");
     if std::fs::canonicalize(&dest).ok() == std::fs::canonicalize(&me).ok() {
-        return Ok(());
+        return Ok(false);
     }
     let staged = bin.join(format!(".builds.{}", std::process::id()));
     std::fs::copy(&me, &staged).context(|| format!("copying {} to {}", me.display(), staged.display()))?;
     std::fs::rename(&staged, &dest).context(|| format!("replacing {}", dest.display()))?;
     note(format!("copied {} to ~/.local/bin/builds", me.display()));
+    Ok(true)
+}
+
+/// The dashboard daemons running now: the pid and the arguments after
+/// `builds dashboard`, found by their exact command line.
+fn running_dashboards() -> Result<Vec<(u32, Vec<String>)>> {
+    let listing = Command::new("ps")
+        .args(["-axo", "pid=,command="])
+        .output()
+        .context(|| "running ps".to_string())?;
+    let listing = String::from_utf8_lossy(&listing.stdout);
+    Ok(listing
+        .lines()
+        .filter_map(|line| {
+            let (pid, command) = line.trim_start().split_once(' ')?;
+            let mut words = command.split_whitespace();
+            (words.next()? == "builds" && words.next()? == "dashboard").then_some(())?;
+            Some((pid.parse().ok()?, words.map(String::from).collect()))
+        })
+        .collect())
+}
+
+/// Stops each running dashboard daemon and starts it again, detached, from the
+/// binary just installed, so it runs the new code. The daemon holds only
+/// state it rebuilds from the volume.
+fn restart_dashboards(home: &Path) -> Result<()> {
+    for (pid, args) in running_dashboards()? {
+        let raw = pid as libc::pid_t;
+        // SAFETY: kill(2) on a pid ps just listed; no memory is touched.
+        if unsafe { libc::kill(raw, libc::SIGTERM) } != 0 {
+            fail!("stopping the dashboard (pid {pid}): {}", std::io::Error::last_os_error());
+        }
+        let mut waited = 0;
+        // SAFETY: signal 0 only checks that the process exists.
+        while unsafe { libc::kill(raw, 0) } == 0 {
+            if waited >= 100 {
+                fail!("the dashboard (pid {pid}) did not stop within 10 s");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            waited += 1;
+        }
+        let child = {
+            use std::os::unix::process::CommandExt;
+            Command::new(home.join(".local/bin/builds"))
+                .arg0("builds")
+                .arg("dashboard")
+                .args(&args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .process_group(0)
+                .spawn()
+                .context(|| "starting the dashboard".to_string())?
+        };
+        note(format!("restarted the dashboard (was pid {pid}, now pid {})", child.id()));
+    }
     Ok(())
 }
 
@@ -202,7 +261,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("usage: builds install");
     }
     let home = &tool.places.home;
-    put_on_path(home)?;
+    let replaced = put_on_path(home)?;
     tool.places.require_volume()?;
     let caches = tool.places.caches();
     let derived_data = tool.places.derived_data();
@@ -271,6 +330,9 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
             derived_data.display(),
             if current.is_empty() { "~/Library/Developer/Xcode/DerivedData".to_string() } else { current }
         ));
+    }
+    if replaced {
+        restart_dashboards(home)?;
     }
     Ok(())
 }
