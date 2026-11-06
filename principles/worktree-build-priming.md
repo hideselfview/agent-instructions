@@ -34,7 +34,9 @@ its root (`target`, `target-macos`, Xcode `.build` dirs, Gradle `build` and
 the checkout's root: `~/dev/bae/target -> /Volumes/Builds/bae/main/target`.
 
 The tool is `builds`, a Rust program in
-`~/dev/agent-instructions/scripts/builds`. `install.sh` builds it and
+`~/dev/agent-instructions/scripts/builds`. `install.sh` builds it from the
+committed HEAD (an export of `scripts/builds`, never the working tree, so
+another session's commit can't install an edit still in progress in main) and
 `builds install` copies it onto PATH as `~/.local/bin/builds` in one rename, so
 a failed build leaves the installed one as it was; a commit on main that touches
 `scripts/builds/` runs `install.sh` again:
