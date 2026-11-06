@@ -68,7 +68,9 @@ def main(todo):
     with open(todo) as f:
         text = f.read()
     lines = text.split("\n")
-    next_id = state["next_id"] if state else 1
+    # An id written by hand may be past the state's next one.
+    taken = [int(m.group(1)) for line in lines if (m := ID.search(line))]
+    next_id = max([state["next_id"] if state else 1] + [n + 1 for n in taken])
     for i, _ in items(lines):
         if not ID.search(lines[i]):
             lines[i] = f"{lines[i].rstrip()} [#{next_id}]"
