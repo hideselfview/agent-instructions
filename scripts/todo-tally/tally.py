@@ -11,6 +11,11 @@ position or number changes. Items are counted per "## 1." and "## 2." section.
 State (the open ids and the totals) is kept in todo-tally.json beside the todo
 file; each run that finds a change appends a line to todo-tally.log there.
 
+Items another session writes into the file are counted apart from this
+session's: the state's "sources" maps a source's name to the areas its items
+start with ("[settings, bae; …]" is area "settings"), and an item in one of
+those areas is opened and closed under that source.
+
     tally.py ~/dev/bae/plans/todo.md
 """
 
@@ -55,6 +60,27 @@ def title(line):
     return text[:70]
 
 
+def area(title):
+    m = re.match(r"\[([^,\]]+)", title)
+    return m.group(1).strip() if m else None
+
+
+def source_of(title, sources):
+    a = area(title)
+    for name, areas in sources.items():
+        if a in areas:
+            return name
+    return "here"
+
+
+def summary(totals):
+    parts = []
+    for name in ["here"] + sorted(k for k in totals if k != "here"):
+        t = totals.get(name, {"opened": 0, "closed": 0})
+        parts.append(f"{name} {t['opened']} opened, {t['closed']} closed")
+    return "; ".join(parts)
+
+
 def main(todo):
     folder = os.path.dirname(os.path.abspath(todo))
     state_path = os.path.join(folder, "todo-tally.json")
@@ -68,6 +94,7 @@ def main(todo):
     with open(todo) as f:
         text = f.read()
     lines = text.split("\n")
+    sources = state.get("sources", {}) if state else {}
     # An id written by hand may be past the state's next one.
     taken = [int(m.group(1)) for line in lines if (m := ID.search(line))]
     next_id = max([state["next_id"] if state else 1] + [n + 1 for n in taken])
@@ -81,7 +108,8 @@ def main(todo):
         ident = ID.search(lines[i]).group(1)
         if ident in now:
             sys.exit(f"tally: id #{ident} is on two items; give one of them a new id")
-        now[ident] = {"section": section, "title": title(lines[i])}
+        t = title(lines[i])
+        now[ident] = {"section": section, "title": t, "source": source_of(t, sources)}
 
     new_text = "\n".join(lines)
     if new_text != text:
@@ -94,21 +122,24 @@ def main(todo):
     counts = {s: sum(1 for v in now.values() if v["section"] == s) for s in "12"}
     if state is None:
         entry = f"{stamp}  baseline: §1 {counts['1']} open, §2 {counts['2']} open"
-        state = {"opened": 0, "closed": 0}
+        totals = {}
         lines_out = [entry]
     else:
         before = state["open"]
+        totals = state["totals"]
         opened = [k for k in now if k not in before]
         closed = [k for k in before if k not in now]
         moved = [k for k in now if k in before and before[k]["section"] != now[k]["section"]]
-        state_opened = state["opened"] + len(opened)
-        state_closed = state["closed"] + len(closed)
+        for k in opened:
+            totals.setdefault(now[k]["source"], {"opened": 0, "closed": 0})["opened"] += 1
+        for k in closed:
+            src = before[k].get("source", "here")
+            totals.setdefault(src, {"opened": 0, "closed": 0})["closed"] += 1
         lines_out = []
         if opened or closed or moved:
             lines_out.append(
                 f"{stamp}  §1 {counts['1']} open, §2 {counts['2']} open;"
-                f" +{len(opened)} opened, -{len(closed)} closed;"
-                f" since baseline {state_opened} opened, {state_closed} closed"
+                f" +{len(opened)} opened, -{len(closed)} closed; since baseline {summary(totals)}"
             )
             for k in opened:
                 lines_out.append(f"    + #{k} §{now[k]['section']} {now[k]['title']}")
@@ -116,9 +147,8 @@ def main(todo):
                 lines_out.append(f"    - #{k} §{before[k]['section']} {before[k]['title']}")
             for k in moved:
                 lines_out.append(f"    > #{k} §{before[k]['section']}→§{now[k]['section']} {now[k]['title']}")
-        state = {"opened": state_opened, "closed": state_closed}
 
-    state.update(next_id=next_id, open=now)
+    state = {"sources": sources, "totals": totals, "next_id": next_id, "open": now}
     tmp = state_path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(state, f, indent=1)
@@ -126,10 +156,7 @@ def main(todo):
     if lines_out:
         with open(log_path, "a") as f:
             f.write("\n".join(lines_out) + "\n")
-    print(
-        f"§1 {counts['1']} open, §2 {counts['2']} open;"
-        f" since baseline {state['opened']} opened, {state['closed']} closed"
-    )
+    print(f"§1 {counts['1']} open, §2 {counts['2']} open; since baseline {summary(totals)}")
 
 
 if __name__ == "__main__":
