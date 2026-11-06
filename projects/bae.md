@@ -200,6 +200,14 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     tests), chained in the same command. The person tests an agent's app build
     there.
 
+    `run.sh` builds the app but not its unit-test target, so a change to a
+    bridge shape or to Swift code also compiles the macOS tests, chained after
+    it: `./bae-macos/run.sh --no-open && ./bae-macos/test.sh --build-only`. For
+    Android, `bae-android/run.sh` installs the app without compiling the unit
+    tests or the screenshot tests, so chain
+    `. bae-android/toolchain.sh && (cd bae-android && ./gradlew compileFullDebugUnitTestKotlin compileFullDebugScreenshotTestKotlin)`
+    after it.
+
   Another warm app build is fine while a wave of work needs it, such as when the
   person asks for one in a particular worktree; clear it once that work has
   moved on.
