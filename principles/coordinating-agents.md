@@ -66,8 +66,9 @@ another's message, written to the same file name.
   needs the other model.
 - Each brief to an agent names its worktree, its items, the rules it must read,
   the project's hard limits (main checkouts, credentials, keychain, devices,
-  cargo through the wrapper, no `git add -A`/stash/`--no-verify`), the model's
-  commit trailer, and "report each commit; don't push main".
+  cargo through the wrapper, no `git add -A`/stash, and `--no-verify` only in
+  quick mode), the mode, the model's commit trailer, and "report each commit;
+  don't push main".
 - Claim the worktree (`builds claim`), keep its note current (`builds note`) on
   every dispatch, handoff and landing, and release it when the work lands. The
   dashboard (`builds dashboard`) shows the same.
@@ -78,13 +79,34 @@ another's message, written to the same file name.
   release their worktrees, let `builds prune --idle` delete their build folders,
   and start the next work. Never ask the person to clear warm checkouts to make
   room.
-- Load is a queue limit too. While `builds health` shows load well over the core
-  count, start nothing new: running agents carry on, and work waits in the queue
-  until enough of them have finished to bring the load down. Too many builds at
-  once make every one of them slower; none finishes sooner.
 - Keep the queue moving: when an agent finishes, land its commits and start the
-  next work in the same turn (within the limits above), before writing up
+  next work in the same turn (within the mode's limits), before writing up
   anything else.
+
+## Modes
+
+The person picks the mode; the project's todo file names the current one at the
+top of §2, with when it started and the next full-suite run.
+
+- **Strict.** Agents commit through the pre-commit hook and run the tests of
+  what they touched. Load is a queue limit: while `builds health` shows load
+  well over the core count, start nothing new; running agents carry on, and work
+  waits until enough of them finish to bring the load down.
+- **Quick.** Load is no queue limit; keep 8 agents running, topping up at every
+  health check and every landing. Before each commit an agent compiles what it
+  touched (`cargo check --all-targets` with the project's test features, and the
+  apps' test-target compiles for Swift or Kotlin changes) and commits with
+  `--no-verify`. The person's choice of quick mode is the authorization to skip
+  the hook, for as long as the mode lasts. Agents run only the one test that
+  proves a fix. land.sh's compile of the touched crates still gates every
+  landing, so main always builds. At the full-suite run the person sets, a fixer
+  agent runs every suite and CI, and fixes each failure with the commit that
+  caused it. A test that fails during the window is checked on `origin/main`
+  first; when it fails there too and isn't the agent's, the agent notes it and
+  moves on.
+
+Disk under the floor holds new dispatch in both modes. Each brief names the
+mode, and switching modes means telling every running agent.
 
 ## Landing
 
