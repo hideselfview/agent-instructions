@@ -16,14 +16,23 @@ with its worktree and says what about it breaks that:
 import re
 import subprocess
 
-# The feature sets each repo's hook builds with.
-HOOK_SETS = {
-    "coven": [{"--all-features"}],
-    "bae": [
-        {"--features test-utils"},
-        {"--features oauth-providers,cloudkit,cast,test-keyring,dev-reset"},
-    ],
-}
+# What each repo's hook builds with. coven's builds with --all-features. bae's
+# adds, per covered crate, the test features it declares (scripts/hooks/lib/
+# file-list.sh crate_check_plan); bae-bridge's tests use the bridge set.
+BAE_TEST_FEATURES = {"test-utils", "test-instrumentation"}
+BAE_BRIDGE_SET = {"oauth-providers", "cloudkit", "cast", "test-keyring", "dev-reset"}
+
+
+def hook_builds(repo, found):
+    if repo == "coven":
+        return found == {"--all-features"}
+    names = set()
+    for f in found:
+        if f == "--all-features":
+            return False
+        for name in f.removeprefix("--features ").replace(",", " ").split():
+            names.add(name.split("/")[-1])
+    return names <= BAE_TEST_FEATURES or names == BAE_BRIDGE_SET
 
 
 def cwd_of(pid):
@@ -68,7 +77,7 @@ def main():
         cwd = cwd_of(pid)
         repo = "coven" if "/coven" in cwd else "bae" if "/bae" in cwd else None
         problems = []
-        if repo and features(args) not in HOOK_SETS[repo]:
+        if repo and not hook_builds(repo, features(args)):
             problems.append(f"feature set {sorted(features(args)) or ['default']}, not the hook's")
         if kind == "test":
             rest = args[args.index("test") + 1 :]
