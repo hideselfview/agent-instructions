@@ -104,6 +104,9 @@ impl Entry {
 pub struct Index {
     pub root: PathBuf,
     pub dev: u64,
+    /// The root is the volume's, whose unfollowed entries a walk leaves out;
+    /// false for an index of one folder below it.
+    volume: bool,
     nodes: Vec<Node>,
     free: Vec<NodeId>,
     linked: HashMap<u64, Linked>,
@@ -120,12 +123,23 @@ fn file_kind(kind: KindOf) -> Kind {
 }
 
 impl Index {
-    /// An index holding only <root>, which <meta> describes.
+    /// An index holding only the volume's <root>, which <meta> describes.
     pub fn new(root: &Path, meta: &Metadata) -> Index {
+        Index::rooted(root, meta, true)
+    }
+
+    /// An index holding only <folder>, a folder below the volume's root,
+    /// which <meta> describes: a walk of it to graft into the volume's.
+    pub fn of_folder(folder: &Path, meta: &Metadata) -> Index {
+        Index::rooted(folder, meta, false)
+    }
+
+    fn rooted(root: &Path, meta: &Metadata, volume: bool) -> Index {
         let entry = Entry::read(b"", root, meta);
         let mut index = Index {
             root: root.to_path_buf(),
             dev: meta.dev(),
+            volume,
             nodes: Vec::new(),
             free: Vec::new(),
             linked: HashMap::new(),
@@ -333,6 +347,41 @@ impl Index {
         node.name = name.into();
     }
 
+    /// Puts what <other>, an index of the folder at <id>, holds in place of
+    /// what the folder held here: the folder's own facts and its whole
+    /// subtree, links and extents included.
+    pub fn graft(&mut self, id: NodeId, other: &Index) {
+        self.forget_contents(id);
+        let top = &other.nodes[ROOT as usize];
+        let node = &mut self.nodes[id as usize];
+        node.kind = Kind::Dir;
+        node.ino = top.ino;
+        node.nlink = top.nlink;
+        node.bytes = top.bytes;
+        node.mtime = top.mtime;
+        let mut pending: Vec<(NodeId, NodeId)> = top.children.iter().map(|child| (*child, id)).collect();
+        while let Some((from, parent)) = pending.pop() {
+            let entry = other.entry(from);
+            let made = self.set(parent, entry);
+            pending.extend(other.nodes[from as usize].children.iter().map(|child| (*child, made)));
+        }
+    }
+
+    /// What <id> records, as the entry a read of it would give.
+    fn entry(&self, id: NodeId) -> Entry {
+        let node = &self.nodes[id as usize];
+        let kind = match node.kind {
+            Kind::Dir => KindOf::Dir,
+            Kind::File => KindOf::File,
+            Kind::Other | Kind::Free => KindOf::Other,
+        };
+        let (bytes, extents) = match self.linked.get(&node.ino) {
+            Some(shared) if node.kind == Kind::File && node.nlink > 1 => (shared.bytes, shared.extents.clone()),
+            _ => (node.bytes, self.extents.get(&id).cloned()),
+        };
+        Entry { name: node.name.clone(), kind, dev: self.dev, ino: node.ino, nlink: node.nlink, bytes, mtime: node.mtime, extents }
+    }
+
     /// Frees a detached <id> and what it holds.
     pub fn discard(&mut self, id: NodeId) {
         self.free_subtree(id);
@@ -458,7 +507,10 @@ pub fn walk(index: &Mutex<Index>, start: NodeId, path: &Path, workers: usize) {
         folders: Vec<(NodeId, PathBuf)>,
         busy: usize,
     }
-    let dev = index.lock().expect("no panic holding it").dev;
+    let (dev, volume) = {
+        let index = index.lock().expect("no panic holding it");
+        (index.dev, index.volume)
+    };
     let queue = Mutex::new(Queue { folders: vec![(start, path.to_path_buf())], busy: 0 });
     let ready = Condvar::new();
     let work = || {
@@ -478,8 +530,8 @@ pub fn walk(index: &Mutex<Index>, start: NodeId, path: &Path, workers: usize) {
                 }
             };
             let listed = match list(&folder) {
-                // The root's unfollowed entries stay out.
-                Ok(Some(entries)) if id == 0 => Ok(Some(
+                // The volume root's unfollowed entries stay out.
+                Ok(Some(entries)) if id == ROOT && volume => Ok(Some(
                     entries
                         .into_iter()
                         .filter(|(entry, _)| {
@@ -524,3 +576,7 @@ pub fn walk(index: &Mutex<Index>, start: NodeId, path: &Path, workers: usize) {
         work();
     });
 }
+
+#[cfg(test)]
+#[path = "index_tests.rs"]
+mod tests;

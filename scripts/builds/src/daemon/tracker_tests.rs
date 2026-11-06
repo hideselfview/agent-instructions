@@ -86,7 +86,18 @@ fn dropped_events_and_a_rescan_read_the_disk_again() {
     std::fs::remove_file(root.join("demo/side-1/target/a")).unwrap();
     tracker.on_events(vec![Event { path: root.join("demo/side-1"), flags: flags::MUST_SCAN_SUBDIRS }]);
     agrees(&tracker, &[root.join("demo/side-1/target")], "after a rescan of a subtree");
+    // A lost batch naming a folder walks that folder alone again.
     fill(&root.join("demo/side-2/target/c"), 50);
+    let walks = tracker.flags.lock().unwrap().walks;
+    tracker.on_events(vec![Event {
+        path: root.join("demo/side-2"),
+        flags: flags::MUST_SCAN_SUBDIRS | flags::USER_DROPPED,
+    }]);
+    agrees(&tracker, &[root.join("demo/side-2/target"), root.join("demo")], "after events lost under a folder");
+    assert_eq!(tracker.flags.lock().unwrap().walks, walks, "a lost batch naming a folder walked the whole root");
+    // One naming no folder walks the whole root.
+    fill(&root.join("demo/side-2/target/d"), 70);
     tracker.on_events(vec![Event { path: root.clone(), flags: flags::USER_DROPPED }]);
     agrees(&tracker, &[root.join("demo/side-2/target"), root.join("demo")], "after dropped events");
+    assert_eq!(tracker.flags.lock().unwrap().walks, walks + 1, "a lost batch naming no folder didn't walk the root");
 }

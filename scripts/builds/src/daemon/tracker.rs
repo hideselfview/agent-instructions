@@ -14,17 +14,14 @@
 //!   since a deletion writes only to its folder.
 //! - The root's macOS entries and its trash are not followed (see
 //!   `places::unfollowed`); a question about them gets no answer.
-//! - MUST_SCAN_SUBDIRS on a folder below the root walks that subtree again
-//!   in place; while it runs, a question about the folders it covers gets no
-//!   answer, and the asker measures them itself.
-//! - A dropped-events flag, or MUST_SCAN_SUBDIRS on the root, walks the whole
-//!   root into a new index beside the current one, which keeps answering
-//!   until the new one replaces it. Under load 40 FSEvents drops events every
-//!   few minutes, for a folder-level and a file-level stream at the same
-//!   instant, with a few hundred events a minute delivered: the drops are the
-//!   machine's, not this client falling behind. A deciding command's question
-//!   waits for its mark, which is applied after the walk, so its answer
-//!   counts every write; `status` and the page get the old index's sizes
+//! - Lost events: MUST_SCAN_SUBDIRS names the folder under which FSEvents
+//!   lost them (with USER_DROPPED or KERNEL_DROPPED when it dropped a batch),
+//!   and that folder is walked again into an index of its own, grafted in
+//!   place of what the index held for it. A dropped batch with no folder
+//!   named, or event ids wrapping, walks the whole root the same way into a
+//!   new index. The current index answers meanwhile. A deciding command's
+//!   question waits for its mark, which is applied after the walk, so its
+//!   answer counts every write; `status` and the page get the old sizes
 //!   meanwhile.
 //! - The root changing or its volume unmounting stops the stream; a stream
 //!   on the root's parent reports it coming back, and then the stream starts
@@ -47,8 +44,6 @@ struct Flags {
     ready: bool,
     /// Events that arrived while the index was being walked.
     pending: Vec<Event>,
-    /// Subtrees being walked again.
-    rescanning: Vec<PathBuf>,
     /// The root's (dev, inode) when its stream started.
     followed: Option<(u64, u64)>,
     /// The root's stream needs starting again.
@@ -317,57 +312,93 @@ impl Tracker {
                 return;
             }
         }
-        let dropped = events
-            .iter()
-            .map(|event| event.flags & (flags::USER_DROPPED | flags::KERNEL_DROPPED | flags::EVENT_IDS_WRAPPED))
-            .fold(0, |all, flags| all | flags);
-        let root_scan = events.iter().any(|event| event.flags & flags::MUST_SCAN_SUBDIRS != 0 && event.path == self.root);
-        if dropped != 0 || root_scan {
+        // FSEvents names the folder under which it lost events with
+        // MUST_SCAN_SUBDIRS; that folder alone is walked again. A lost batch
+        // with no folder named, or event ids wrapping, says nothing narrower
+        // than the root.
+        let whole = events.iter().find(|event| {
+            let lost = event.flags & (flags::USER_DROPPED | flags::KERNEL_DROPPED) != 0;
+            (lost && event.flags & flags::MUST_SCAN_SUBDIRS == 0) || event.flags & flags::EVENT_IDS_WRAPPED != 0
+        });
+        if let Some(event) = whole {
             // Every other event in the batch came before the walk, which
             // reads what they changed.
-            self.rewalk(dropped);
+            let flags = event.flags;
+            self.rewalk(&self.root.clone(), flags);
             return;
         }
         let (scans, others): (Vec<Event>, Vec<Event>) =
             events.into_iter().partition(|event| event.flags & flags::MUST_SCAN_SUBDIRS != 0);
         self.apply(others);
-        for event in scans {
-            self.rescan(&event.path);
+        // A folder under another one walked again is walked with it.
+        let mut folders: Vec<(PathBuf, u32)> = scans
+            .into_iter()
+            .filter(|event| event.path.starts_with(&self.root) && !self.left_out(&event.path))
+            .map(|event| (event.path, event.flags))
+            .collect();
+        folders.sort();
+        let mut walked: Vec<PathBuf> = Vec::new();
+        for (folder, flags) in folders {
+            if walked.iter().any(|done| folder.starts_with(done)) {
+                continue;
+            }
+            self.rewalk(&folder, flags);
+            walked.push(folder);
         }
     }
 
-    /// Walks the whole root into a new index and puts it in place of the
-    /// current one, which answers questions until then.
-    fn rewalk(&self, dropped: u32) {
-        let Ok(meta) = std::fs::symlink_metadata(&self.root) else {
-            self.signal_restart("is gone");
-            return;
-        };
+    /// Walks <folder> (the root, or a folder below it) again into an index
+    /// of its own and puts that in place of what the index held for it: the
+    /// current index answers questions until then. Events that arrive
+    /// meanwhile wait in the queue and are applied after.
+    fn rewalk(&self, folder: &Path, flags: u32) {
         let started = std::time::Instant::now();
-        let fresh = Mutex::new(Index::new(&self.root, &meta));
-        walk(&fresh, 0, &self.root, WORKERS);
-        *self.index.lock().expect("no panic holding it") = fresh.into_inner().expect("no panic holding it");
-        let mut flags = self.flags.lock().expect("no panic holding it");
-        flags.walks += 1;
-        self.wake.notify_all();
-        drop(flags);
+        let meta = match std::fs::symlink_metadata(folder) {
+            Ok(meta) if meta.is_dir() => meta,
+            _ if *folder == self.root => {
+                self.signal_restart("is gone");
+                return;
+            }
+            // Gone, or no longer a folder: what is there now is read like
+            // any change.
+            _ => {
+                self.apply(vec![Event { path: folder.to_path_buf(), flags: 0 }]);
+                return;
+            }
+        };
+        let entries = if *folder == self.root {
+            let fresh = Mutex::new(Index::new(&self.root, &meta));
+            walk(&fresh, 0, &self.root, WORKERS);
+            let fresh = fresh.into_inner().expect("no panic holding it");
+            let entries = fresh.len();
+            *self.index.lock().expect("no panic holding it") = fresh;
+            let mut state = self.flags.lock().expect("no panic holding it");
+            state.walks += 1;
+            self.wake.notify_all();
+            entries
+        } else {
+            if self.index.lock().expect("no panic holding it").lookup(folder).is_none() {
+                // A folder the index doesn't hold yet: applying it walks it.
+                self.apply(vec![Event { path: folder.to_path_buf(), flags: 0 }]);
+                return;
+            }
+            let fresh = Mutex::new(Index::of_folder(folder, &meta));
+            walk(&fresh, 0, folder, WORKERS);
+            let fresh = fresh.into_inner().expect("no panic holding it");
+            let mut index = self.index.lock().expect("no panic holding it");
+            match index.lookup(folder) {
+                Some(id) if index.is_dir(id) => index.graft(id, &fresh),
+                // Gone from the index meanwhile: the events that took it
+                // are applied next.
+                _ => {}
+            }
+            fresh.len()
+        };
         eprintln!(
-            "builds: FSEvents {} {}; walked it again in {:.1}s",
-            if dropped != 0 { format!("dropped events (flags {dropped:#x}) under") } else { "asked to read".to_string() },
-            self.root.display(),
+            "builds: FSEvents lost events (flags {flags:#x}); walked {} again: {entries} entries in {:.1}s",
+            folder.display(),
             started.elapsed().as_secs_f64()
         );
-    }
-
-    /// Walks <path> again in place, answering nothing about it meanwhile.
-    fn rescan(&self, path: &Path) {
-        eprintln!("builds: FSEvents asked for {} to be read again", path.display());
-        self.apply(vec![Event { path: path.to_path_buf(), flags: 0 }]);
-        let id = self.index.lock().expect("no panic holding it").lookup(path);
-        let Some(id) = id else { return };
-        self.flags.lock().expect("no panic holding it").rescanning.push(path.to_path_buf());
-        walk(&self.index, id, path, WORKERS);
-        self.flags.lock().expect("no panic holding it").rescanning.retain(|p| p != path);
     }
 
     /// Is <path> in one of the root's entries the index leaves out?
@@ -531,7 +562,6 @@ impl Tracker {
             .map(|path| {
                 if !path.starts_with(&self.root)
                     || self.left_out(path)
-                    || flags.rescanning.iter().any(|scan| path.starts_with(scan) || scan.starts_with(path))
                 {
                     return None;
                 }
