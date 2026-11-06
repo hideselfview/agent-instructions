@@ -4,6 +4,7 @@ on it:
   <repo>/<checkout>/    one build root per checkout; checkout = main | side-N
   <repo>/app-checkout   the name of the repo's app checkout (side-N)
   <repo>/app.lock       the lock agents hold to build in the app checkout
+  mode                  the pre-commit hooks' mode, quick or strict
   DerivedData/          Xcode's default DerivedData location
   caches/<name>/        download caches every checkout shares, each linked
                         from where its tool looks (~/.gradle -> caches/gradle)
@@ -77,6 +78,13 @@ Commands:
   builds app-checkout <checkout>
                               record the side worktree as its repo's app
                               checkout, in /Volumes/Builds/<repo>/app-checkout
+  builds mode [quick|strict]  set the mode the pre-commit hooks run in, for
+                              every repo on the machine, in
+                              /Volumes/Builds/mode; with no argument, print
+                              it (strict when none is set). Strict runs the
+                              whole hook; quick runs its cheap checks and a
+                              compile of what changed, with no clippy,
+                              rustdoc or tests
   builds status               every entry on the volume: size per folder vs
                               cap, last write, links; and build output in
                               the temporary folders

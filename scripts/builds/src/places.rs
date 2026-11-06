@@ -141,7 +141,7 @@ impl Places {
     /// Is <dir> one of the volume's own folders (DerivedData, caches, the
     /// trash), which a repo can't be named after?
     pub fn is_reserved_name(&self, name: &str) -> bool {
-        name == "DerivedData" || name == "caches" || name.starts_with('.')
+        name == "DerivedData" || name == "caches" || name == "mode" || name.starts_with('.')
     }
 }
 

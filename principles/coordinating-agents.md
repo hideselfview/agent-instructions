@@ -66,9 +66,8 @@ another's message, written to the same file name.
   needs the other model.
 - Each brief to an agent names its worktree, its items, the rules it must read,
   the project's hard limits (main checkouts, credentials, keychain, devices,
-  cargo through the wrapper, no `git add -A`/stash, and `--no-verify` only in
-  quick mode), the mode, the model's commit trailer, and "report each commit;
-  don't push main".
+  cargo through the wrapper, no `git add -A`/stash, and no `--no-verify`), the
+  mode, the model's commit trailer, and "report each commit; don't push main".
 - Claim the worktree (`builds claim`), keep its note current (`builds note`) on
   every dispatch, handoff and landing, and release it when the work lands. The
   dashboard (`builds dashboard`) shows the same.
@@ -95,9 +94,9 @@ top of §2, with when it started and the next full-suite run.
 - **Quick.** Load is no queue limit; keep 8 agents running, topping up at every
   health check and every landing. Before each commit an agent compiles what it
   touched (`cargo check --all-targets` with the project's test features, and the
-  apps' test-target compiles for Swift or Kotlin changes) and commits with
-  `--no-verify`. The person's choice of quick mode is the authorization to skip
-  the hook, for as long as the mode lasts. Agents run only the one test that
+  apps' test-target compiles for Swift or Kotlin changes) and commits through
+  the hook, which in quick mode runs fmt, the static checks, and a compile of
+  what changed (no clippy, rustdoc or tests). Agents run only the one test that
   proves a fix. land.sh's compile of the touched crates still gates every
   landing, so main always builds. At the full-suite run the person sets, a fixer
   agent runs every suite and CI, and fixes each failure with the commit that
@@ -105,8 +104,12 @@ top of §2, with when it started and the next full-suite run.
   first; when it fails there too and isn't the agent's, the agent notes it and
   moves on.
 
-Disk under the floor holds new dispatch in both modes. Each brief names the
-mode, and switching modes means telling every running agent.
+The mode is one machine-wide setting the pre-commit hooks of every repo read:
+the coordinator switches it with `builds mode quick` or `builds mode strict`
+(`builds mode` prints it; unset means strict), and a hook prints the mode it
+ran. Agents never set it. Disk under the floor holds new dispatch in both modes.
+Each brief names the mode, and switching modes means telling every running
+agent.
 
 ## Landing
 

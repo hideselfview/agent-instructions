@@ -11,6 +11,7 @@ mod floor;
 mod health;
 mod install;
 mod manifest;
+mod mode;
 mod places;
 mod procs;
 mod prune;
@@ -80,6 +81,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "note" => claim::cmd_note(args),
         "release" => claim::cmd_release(args),
         "app-checkout" => worktree::cmd_app_checkout(&tool, args),
+        "mode" => mode::cmd_mode(&tool, args),
         "status" => status::cmd_status(&mut tool, args),
         "prune" => prune::cmd_prune(&tool, args),
         "install" => install::cmd_install(&tool, args),
@@ -88,7 +90,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "health" => health::cmd_health(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
         other => fail!(
-            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | status | health | dashboard | prune | cargo | record-use | install)"
+            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | dashboard | prune | cargo | record-use | install)"
         ),
     }
 }
