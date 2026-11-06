@@ -46,8 +46,8 @@ def cwd_of(pid):
 
 
 def run_by_hook(pid):
-    """Whether a pre-commit hook started this run: the hook's own builds are
-    what quick mode asks for."""
+    """Whether a pre-commit hook or a landing started this run: their builds
+    are the gates quick mode keeps."""
     while pid and pid != "1":
         out = subprocess.run(
             ["ps", "-o", "ppid=,command=", "-p", pid], capture_output=True, text=True
@@ -55,7 +55,7 @@ def run_by_hook(pid):
         if not out:
             return False
         ppid, _, cmd = out.partition(" ")
-        if "hooks/pre-commit" in cmd or "check-fast.sh" in cmd:
+        if any(m in cmd for m in ("hooks/pre-commit", "check-fast.sh", "land/land.sh", ".land-compile")):
             return True
         pid = ppid.strip()
     return False
