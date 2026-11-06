@@ -42,6 +42,18 @@ CASES = [
     (False, ELSEWHERE, RECIPE),
     (False, ELSEWHERE, f"lockf -k {LOCK} git -C {APP} checkout x"),
     (False, "/Users/dima/dev/bae", RECIPE),
+    (True, ELSEWHERE, f"cd {APP} && git commit -m x"),
+    (True, ELSEWHERE, f"git -C {APP} add -A"),
+    (True, ELSEWHERE, f"cd {APP} && git rm old.txt"),
+    (True, ELSEWHERE, f"cd {APP} && git mv a b"),
+    (True, ELSEWHERE, f"cd {APP} && git apply fix.patch"),
+    (True, ELSEWHERE, f"cd {APP} && git update-ref refs/heads/x HEAD"),
+    (True, ELSEWHERE, f"cd {APP} && git symbolic-ref HEAD refs/heads/x"),
+    (True, ELSEWHERE, f"cd {APP} && git worktree add ../x"),
+    (True, ELSEWHERE, f"git -C {APP} -c user.name=x commit -m x"),
+    (False, ELSEWHERE, f"cd {APP} && git symbolic-ref HEAD && git worktree list"),
+    (False, ELSEWHERE, f"cd {APP} && git commit --dry-run && git add -n ."),
+    (False, ELSEWHERE, f"lockf -k {LOCK} sh -c 'cd {APP} && git commit -m x'"),
     # Read-only git stays allowed in the app checkout.
     (False, APP, "git status --short"),
     (False, ELSEWHERE, f"git -C {APP} log --oneline -3"),
@@ -63,7 +75,11 @@ for want, cwd, cmd in CASES:
     bad += got != want
 
 # End to end through the hook's stdin protocol, with the app checkout `builds` records.
-live = hook.app_checkouts()
+try:
+    live = hook.app_checkouts()
+except Exception as error:  # noqa: BLE001
+    live = []
+    print("builds failed:", error)
 if live:
     path, lock = live[0]
     for want, cmd in [
@@ -79,4 +95,11 @@ if live:
         bad += got != want
 else:
     print("skip end-to-end cases: `builds` records no app checkout")
-sys.exit(bad)
+
+# When `builds` cannot be run, the command is allowed with a warning on stderr and exit 1.
+broken = subprocess.run([sys.executable, "-I", str(HOOK)], env={"PATH": "/nonexistent"},
+                        input=json.dumps({"tool_input": {"command": f"cd {APP} && git checkout x"}, "cwd": "/tmp"}),
+                        capture_output=True, text=True)
+ok = "deny" not in broken.stdout and "builds status --json" in broken.stderr and broken.returncode == 1
+print("ok  " if ok else "FAIL", "allow with a stderr warning when builds fails")
+sys.exit(bad + (not ok))

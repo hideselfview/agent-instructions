@@ -11,7 +11,13 @@ checkout (cd into it, `git -C <it>`, or a working directory inside it) is
 refused unless it is inside that `lockf`. Read-only git is not affected.
 
 The checkouts and lock paths come from `builds status --json`, which records
-them, so any repo with an app checkout recorded is covered.
+them, so any repo with an app checkout recorded is covered. When `builds`
+fails the command is allowed, with a warning on stderr (exit 1, which Claude
+Code shows without blocking).
+
+Known false refusal, kept because refusing too much is the safe side: a `cd`
+inside `( ... )` is read as lasting to the end of the command, so
+`(cd <app checkout> && git status); git checkout x` run elsewhere is refused.
 """
 
 import json
@@ -34,7 +40,8 @@ REASON = (
 # git subcommands that change HEAD, the index or the working tree.
 MUTATING = {
     "checkout", "switch", "reset", "clean", "rebase", "cherry-pick", "merge", "stash",
-    "restore", "pull", "revert", "am",
+    "restore", "pull", "revert", "am", "commit", "add", "rm", "mv", "apply", "update-ref",
+    "symbolic-ref", "worktree", "update-index", "read-tree",
 }
 # Global options that take a value, which are not the subcommand.
 GIT_VALUE_OPTIONS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix"}
@@ -43,13 +50,11 @@ CD = {"cd", "pushd"}
 
 
 def app_checkouts() -> list[tuple[str, str]]:
-    """(app checkout path, app lock path) for each repo with an app checkout recorded."""
-    try:
-        out = subprocess.run(["builds", "status", "--json", "--no-folders"], capture_output=True, text=True,
-                             timeout=8).stdout
-        repos = json.loads(out)["repos"]
-    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
-        return []
+    """(app checkout path, app lock path) for each repo with an app checkout recorded.
+    Raises OSError, ValueError, KeyError or SubprocessError when `builds` cannot say."""
+    result = subprocess.run(["builds", "status", "--json", "--no-folders"], capture_output=True, text=True,
+                            timeout=8, check=True)
+    repos = json.loads(result.stdout)["repos"]
     return [
         (c["path"], repo["app_lock"])
         for repo in repos
@@ -86,7 +91,11 @@ def git_change(words: list[str], cwd: str):
     if i >= len(words) or words[i] not in MUTATING:
         return None
     sub, rest = words[i], words[i + 1:]
-    if sub == "stash" and rest[:1] and rest[0] in {"list", "show"}:
+    if sub in {"stash", "worktree"} and rest[:1] and rest[0] in {"list", "show"}:
+        return None
+    if sub == "symbolic-ref" and len([w for w in rest if not w.startswith("-")]) < 2:
+        return None  # reading the ref
+    if sub in {"commit", "add", "rm", "mv", "apply"} and any(w in {"-n", "--dry-run", "--check"} for w in rest):
         return None
     if sub == "clean" and any(w in {"-n", "--dry-run"} or (w.startswith("-") and not w.startswith("--") and "n" in w)
                               for w in rest):
@@ -130,7 +139,13 @@ def main():
     cwd = payload.get("cwd") or os.getcwd()
     if "git" not in command:
         return
-    if blocked(command, cwd, app_checkouts()):
+    try:
+        checkouts = app_checkouts()
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        print(f"no-unlocked-app-checkout-moves: allowed unchecked, `builds status --json` failed: {error!r}",
+              file=sys.stderr)
+        sys.exit(1)
+    if blocked(command, cwd, checkouts):
         print(json.dumps({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
