@@ -45,6 +45,22 @@ def cwd_of(pid):
     return "?"
 
 
+def run_by_hook(pid):
+    """Whether a pre-commit hook started this run: the hook's own builds are
+    what quick mode asks for."""
+    while pid and pid != "1":
+        out = subprocess.run(
+            ["ps", "-o", "ppid=,command=", "-p", pid], capture_output=True, text=True
+        ).stdout.strip()
+        if not out:
+            return False
+        ppid, _, cmd = out.partition(" ")
+        if "hooks/pre-commit" in cmd or "check-fast.sh" in cmd:
+            return True
+        pid = ppid.strip()
+    return False
+
+
 def features(args):
     found = set()
     for i, a in enumerate(args):
@@ -73,6 +89,8 @@ def main():
         args = cmd.split()
         kind = next((a for a in args if a in ("test", "check", "clippy")), None)
         if not kind:
+            continue
+        if run_by_hook(pid):
             continue
         cwd = cwd_of(pid)
         repo = "coven" if "/coven" in cwd else "bae" if "/bae" in cwd else None
