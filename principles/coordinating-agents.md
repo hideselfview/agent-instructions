@@ -48,6 +48,11 @@ project's lists, worktrees and landing worktree.
    pre-commit hook gets one.
 6. **Commit and report** the SHA, base and checks; the coordinator lands it.
 
+Every agent the coordinator starts shares its session's scratchpad directory, so
+each one keeps its scratch files (commit messages, receipts, probes) in a folder
+of its own under it, named for its branch. One agent's commit once went out with
+another's message, written to the same file name.
+
 ## Dispatch
 
 - One task per agent (a commit or a short chain); later items go to the same
