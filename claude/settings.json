@@ -21,6 +21,11 @@
             "type": "command",
             "command": "python3 -I \"$HOME/dev/agent-instructions/scripts/hooks/no-polling-loops.py\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 -I \"$HOME/dev/agent-instructions/scripts/hooks/no-unlocked-app-checkout-moves.py\"",
+            "timeout": 10
           }
         ]
       }
