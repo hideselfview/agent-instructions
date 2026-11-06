@@ -106,8 +106,16 @@ a failed build leaves the installed one as it was; a commit on main that touches
   readings while clients wait 10+ minutes, Claude shells older than 2 hours,
   each claimed worktree (claim, branch, uncommitted files, commits waiting to
   land, minutes since a change, build processes there) and each app lock's
-  holder; it exits 1 when something needs acting on. It asks the daemon when one
-  runs and reads the machine itself otherwise; it never changes anything.
+  holder; it exits 1 when something needs acting on, such as a claimed worktree
+  with no change and no build for an hour. A build under the app lock counts as
+  the build of the worktree it is for: the one `builds lock` was run from, or
+  the one whose own commit (one `origin/main` has no copy of) the app checkout
+  is at. The holder is the `builds lock` with the lock file open; when none is
+  (it was killed outright and its build holds the lock), it is the top of the
+  processes that have the file open, looked for only when a lock taken without
+  waiting says it is held. It asks the daemon when one runs and reads the
+  machine itself otherwise; it changes nothing (that check takes the lock and
+  lets it go at once, only when it is free).
 - `builds dashboard [--port <port>]` runs the daemon until it is killed. It
   follows the volume through FSEvents, walking it whole only at its start or
   when FSEvents says it dropped events (476k entries in about 4 s, about 100 MB

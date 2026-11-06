@@ -101,8 +101,10 @@ Commands:
                               while clients wait 10+ min, Claude shells over
                               2h, each claimed worktree (claim, branch,
                               uncommitted files, commits waiting to land,
-                              minutes since a change, build processes there),
-                              each app lock's holder; exits 1 when something
+                              minutes since a change, build processes there
+                              or under the app lock for it), each app lock's
+                              holder (the build's top process when its
+                              `builds lock` is gone); exits 1 when something
                               needs acting on. Asks the daemon when one runs
   builds dashboard [--port <port>]
                               run the daemon until killed: it follows the

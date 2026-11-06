@@ -5,8 +5,9 @@
 //!
 //! It exits 1 when something needs acting on: clients waiting on an sccache
 //! server that finished nothing since the last readings, a Claude shell over
-//! two hours old, a claimed worktree with no change and no build for an hour,
-//! or the volume under its free-space floor.
+//! two hours old, a claimed worktree with no change and no build for an hour
+//! (its own, or one it holds the app lock for), or the volume under its
+//! free-space floor.
 
 use std::path::{Path, PathBuf};
 
@@ -15,7 +16,10 @@ use serde::{Deserialize, Serialize};
 use crate::checkout::{Root, parallel_map};
 use crate::claim::Claim;
 use crate::fail::{Context, Fail, Result};
-use crate::procs::{BUILD_NAMES, BuildProcess, Place, Processes, args, build_processes, cores, load_average, open_files, usage};
+use crate::procs::{
+    BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, cwd, load_average, open_files,
+    usage,
+};
 use crate::side_git::SideGit;
 use crate::text::{human, local_minute};
 use crate::tool::Tool;
@@ -89,6 +93,9 @@ pub struct WorktreeHealth {
     /// write.
     pub quiet_minutes: Option<i64>,
     pub building: Vec<BuildProcess>,
+    /// The holder of an app lock building for this worktree in the app
+    /// checkout (`Holder::builds_for`).
+    pub app_build: Option<i32>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -106,6 +113,30 @@ pub struct Holder {
     pub command: String,
     /// What it runs: its children's commands.
     pub running: Vec<String>,
+    /// The checkout its working directory is in: for `builds lock`, the
+    /// worktree it was run from.
+    pub started_from: Option<String>,
+    /// The app checkout's HEAD while it holds the lock: the commit it builds.
+    pub app_head: Option<String>,
+}
+
+impl Holder {
+    /// Does it build for the worktree <label> at <git>? When it was run from
+    /// there, or the app checkout is at a commit of that worktree's own (one
+    /// origin/main has no copy of), as when it was run from elsewhere or its
+    /// `builds lock` was killed and a process of its build holds the lock.
+    fn builds_for(&self, label: &str, git: &SideGit) -> bool {
+        self.started_from.as_deref() == Some(label)
+            || (self.app_head.is_some() && git.ahead.iter().any(|c| Some(&c.full) == self.app_head.as_ref()))
+    }
+}
+
+/// A repo's app lock and its app checkout.
+pub struct AppLock {
+    pub repo: String,
+    pub path: PathBuf,
+    /// The app checkout's top, when it is a live checkout.
+    pub app_top: Option<PathBuf>,
 }
 
 /// The record of sccache readings between runs.
@@ -204,7 +235,7 @@ pub fn sccache_reading(home: &Path, now: i64) -> Result<(bool, Option<u64>, Opti
 /// app.lock). <sccache> is a `sccache_reading`.
 pub fn sample(
     places: &[Place],
-    locks: &[(String, PathBuf)],
+    locks: &[AppLock],
     uid: u32,
     now: i64,
     sccache: (bool, Option<u64>, Option<Reading>),
@@ -249,10 +280,11 @@ pub fn sample(
         }
     }
     let mut held = Vec::new();
-    for (repo, path) in locks {
+    for AppLock { repo, path, app_top } in locks {
         let shown = path.display().to_string();
         let real = std::fs::canonicalize(path).unwrap_or(path.clone());
-        let mut holder = None;
+        let opened = |pid: i32| open_files(pid).iter().any(|open| *open == real || open == path);
+        let mut holding = None;
         let mut waiting = 0;
         // `builds lock <repo> ...`: the one with the lock's file open holds
         // it; the others wait inside `open`.
@@ -261,17 +293,26 @@ pub fn sample(
             if !args(process.pid).is_some_and(locking) {
                 continue;
             }
-            if open_files(process.pid).iter().any(|open| *open == real || open == path) {
-                holder = Some(Holder {
-                    pid: process.pid,
-                    minutes: minutes_since(now, process.started),
-                    command: command_line(process.pid),
-                    running: processes.children(process.pid).map(|child| command_line(child.pid)).collect(),
-                });
+            if opened(process.pid) {
+                holding = Some(process);
             } else {
                 waiting += 1;
             }
         }
+        // A build whose `builds lock` was killed outright still holds the
+        // lock: its processes have the file open. Found only when the lock is
+        // taken, since reading every process's open files costs.
+        if holding.is_none() && taken(path) {
+            holding = topmost(&processes, uid, opened);
+        }
+        let holder = holding.map(|process| Holder {
+            pid: process.pid,
+            minutes: minutes_since(now, process.started),
+            command: command_line(process.pid),
+            running: processes.children(process.pid).map(|child| command_line(child.pid)).collect(),
+            started_from: cwd(process.pid).and_then(|dir| place_of(places, &dir)).map(|at| places[at].label.clone()),
+            app_head: app_top.as_deref().and_then(head_of),
+        });
         held.push(LockHealth { repo: repo.clone(), path: shown, holder, waiting });
     }
     Machine {
@@ -283,6 +324,49 @@ pub fn sample(
         shells,
         locks: held,
     }
+}
+
+/// Is the lock at <path> taken? Asked by taking it without waiting and
+/// letting it go at once.
+fn taken(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c_path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false };
+    let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | libc::O_EXLOCK | libc::O_NONBLOCK | libc::O_CLOEXEC) };
+    if fd >= 0 {
+        unsafe { libc::close(fd) };
+        return false;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)
+}
+
+/// Of <uid>'s processes for which <holds> is true, the oldest one whose
+/// parent doesn't hold it too: the top of the build holding a lock.
+fn topmost(processes: &Processes, uid: u32, holds: impl Fn(i32) -> bool) -> Option<&Process> {
+    let holding: Vec<&Process> = processes.list.iter().filter(|p| p.uid == uid && holds(p.pid)).collect();
+    holding
+        .iter()
+        .filter(|p| !holding.iter().any(|q| q.pid == p.ppid))
+        .min_by_key(|p| p.started)
+        .copied()
+}
+
+/// The place <dir> is in, the deepest when several hold it.
+fn place_of(places: &[Place], dir: &Path) -> Option<usize> {
+    (0..places.len()).filter(|at| dir.starts_with(&places[*at].top)).max_by_key(|at| places[*at].top.as_os_str().len())
+}
+
+/// The full sha of <top>'s HEAD.
+fn head_of(top: &Path) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(top)
+        .args(["--no-optional-locks", "rev-parse", "HEAD"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (output.status.success() && !sha.is_empty()).then_some(sha)
 }
 
 /// A claimed side worktree as health judges it.
@@ -338,9 +422,11 @@ pub fn assess(
         let building: Vec<BuildProcess> = machine.builds.iter().filter(|b| b.place == place).cloned().collect();
         let quiet_minutes = git.activity().map(|when| minutes_since(now, when));
         let label = places[place].label.clone();
+        let app_build =
+            machine.locks.iter().filter_map(|lock| lock.holder.as_ref()).find(|h| h.builds_for(&label, &git)).map(|h| h.pid);
         // A held claim is quiet on purpose: its note says why.
         let held = claim.note_state.as_deref() == Some("held");
-        if !held && building.is_empty() && quiet_minutes.is_none_or(|m| m >= QUIET_MINUTES) {
+        if !held && building.is_empty() && app_build.is_none() && quiet_minutes.is_none_or(|m| m >= QUIET_MINUTES) {
             findings.push(format!(
                 "worktree: {label} ({}) has had no change for {} and no build runs there",
                 claim.who,
@@ -355,6 +441,7 @@ pub fn assess(
             git,
             quiet_minutes,
             building,
+            app_build,
         });
     }
     Health {
@@ -381,18 +468,24 @@ pub fn places_of(roots: &[Root]) -> Vec<Place> {
         .collect()
 }
 
-/// Each repo's app lock that exists.
-pub fn locks_of(places: &crate::places::Places, roots: &[Root]) -> Vec<(String, PathBuf)> {
+/// Each repo's app lock that exists, with its app checkout.
+pub fn locks_of(places: &crate::places::Places, roots: &[Root]) -> Result<Vec<AppLock>> {
     let mut repos: Vec<String> = roots.iter().map(root_repo).collect();
     repos.dedup();
-    repos
-        .into_iter()
-        .map(|repo| {
-            let path = places.root.join(&repo).join("app.lock");
-            (repo, path)
-        })
-        .filter(|(_, path)| path.is_file())
-        .collect()
+    let mut locks = Vec::new();
+    for repo in repos {
+        let path = places.root.join(&repo).join("app.lock");
+        if !path.is_file() {
+            continue;
+        }
+        let app = places.app_checkout_of(&repo)?;
+        let app_top = roots
+            .iter()
+            .find(|root| root_repo(root) == repo && Some(root.name()) == app && root.live.is_some())
+            .map(|root| root.top.clone());
+        locks.push(AppLock { repo, path, app_top });
+    }
+    Ok(locks)
 }
 
 /// Gathers the machine's health now, reading everything itself.
@@ -402,7 +495,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let live: Vec<&Root> = roots.iter().filter(|root| root.live.is_some()).collect();
     let places = places_of(&roots);
     let sccache = sccache_reading(&tool.places.home, now)?;
-    let machine = sample(&places, &locks_of(&tool.places, &roots), tool.places.uid, now, sccache);
+    let machine = sample(&places, &locks_of(&tool.places, &roots)?, tool.places.uid, now, sccache);
     let mut claimed = Vec::new();
     for (at, root) in live.iter().enumerate() {
         let checkout = root.live.as_ref().expect("live");
@@ -514,7 +607,12 @@ pub fn lines(health: &Health) -> Vec<String> {
         out.push(format!(
             "        {git}; last change {}; {}",
             w.quiet_minutes.map(|m| format!("{m}m ago")).unwrap_or_else(|| "unknown".to_string()),
-            if w.building.is_empty() { "no build running".to_string() } else { format!("building: {}", process_summary(&w.building)) }
+            match (w.building.is_empty(), w.app_build) {
+                (true, None) => "no build running".to_string(),
+                (true, Some(pid)) => format!("building in the app checkout (pid {pid})"),
+                (false, None) => format!("building: {}", process_summary(&w.building)),
+                (false, Some(pid)) => format!("building: {}; and in the app checkout (pid {pid})", process_summary(&w.building)),
+            }
         ));
     }
     for lock in &health.locks {
