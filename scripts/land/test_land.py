@@ -27,7 +27,7 @@ def commit_file(cwd, name, text, msg):
     return git(cwd, "rev-parse", "HEAD")
 
 
-def fixture(root, checks):
+def fixture(root, checks, compile_check=None):
     """An origin with one commit, an agent clone, and a detached landing clone."""
     origin = f"{root}/origin.git"
     git(root, "init", "-q", "--bare", "-b", "main", origin)
@@ -36,6 +36,9 @@ def fixture(root, checks):
     Path(agent, ".land-checks").write_text(checks)
     commit_file(agent, "base.txt", "base\n", "base")
     git(agent, "add", ".land-checks")
+    if compile_check is not None:
+        Path(agent, ".land-compile").write_text(compile_check)
+        git(agent, "add", ".land-compile")
     git(agent, "commit", "-q", "--amend", "--no-edit")
     git(agent, "push", "-q", "origin", "HEAD:main")
     land = f"{root}/land"
@@ -105,5 +108,35 @@ with tempfile.TemporaryDirectory() as root:
     publish(agent, "c", c)
     code, out = run_land(land, a, c)
     expect("fast-forward of a failing tree skips the checks", code == 0 and git(origin, "rev-parse", "main") == c)
+
+COMPILE = "#!/bin/bash\n! { test -e a.txt && test -e b.txt; } || { echo 'a.txt and b.txt do not compile together'; exit 1; }\n"
+
+with tempfile.TemporaryDirectory() as root:
+    origin, agent, land = fixture(root, "true\n", COMPILE)
+    a, b = two_sibling_commits(agent, land)
+    run_land(land, a)
+    code, out = run_land(land, b)
+    expect("cherry-picked result failing the compile check is refused",
+           code == 1 and "COMPILE CHECK FAILED" in out and "do not compile together" in out)
+    expect("origin unchanged after compile refusal", git(origin, "rev-parse", "main") == a)
+    expect("landing worktree clean at origin/main after compile refusal",
+           git(land, "rev-parse", "HEAD") == a and git(land, "status", "--porcelain") == "")
+
+with tempfile.TemporaryDirectory() as root:
+    origin, agent, land = fixture(root, "true\n", "#!/bin/bash\ntrue\n")
+    a, b = two_sibling_commits(agent, land)
+    run_land(land, a)
+    code, out = run_land(land, b)
+    expect("cherry-picked result passing the compile check is pushed",
+           code == 0 and git(origin, "show", "main:b.txt") == "b")
+
+with tempfile.TemporaryDirectory() as root:
+    origin, agent, land = fixture(root, "true\n", COMPILE)
+    a, b = two_sibling_commits(agent, land)
+    git(agent, "checkout", "-q", "--detach", a)
+    c = commit_file(agent, "b.txt", "b\n", "add b on a")
+    publish(agent, "c", c)
+    code, out = run_land(land, a, c)
+    expect("fast-forward skips the compile check", code == 0 and git(origin, "rev-parse", "main") == c)
 
 sys.exit(bad)
