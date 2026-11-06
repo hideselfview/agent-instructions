@@ -1,6 +1,5 @@
-//! `builds cargo` and `builds record-use`: recording the build copies cargo
-//! used, so setup and prune keep those while they delete the ones no build
-//! used for days.
+//! `builds cargo`: recording the build copies cargo used, so setup and prune
+//! keep those while they delete the ones no build used for days.
 
 use std::io::BufReader;
 use std::path::Path;
@@ -80,18 +79,6 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         return Err(Fail::Exit(status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0))));
     }
     match recorded {
-        0 => Ok(()),
-        code => Err(Fail::Exit(code)),
-    }
-}
-
-/// `builds record-use`: records the build copies a cargo report on stdin
-/// names, passing every other line through.
-pub fn cmd_record_use(args: &[String]) -> Result<()> {
-    if !args.is_empty() {
-        fail!("usage: cargo ... --message-format=json-render-diagnostics | builds record-use");
-    }
-    match record(std::io::stdin().lock(), &mut std::io::stdout().lock())? {
         0 => Ok(()),
         code => Err(Fail::Exit(code)),
     }

@@ -187,9 +187,7 @@ a failed build leaves the installed one as it was; a commit on main that touches
   `--dry-run` deletes nothing and prints what it would.
 - `builds cargo <subcommand> [<args>...]` runs cargo and records the build
   copies it used (below); the repo's `scripts/cargo.sh` calls it, and the hooks
-  and build scripts run cargo through that. `builds record-use` records the
-  copies a cargo report on stdin names, for a script that keeps cargo's JSON for
-  itself.
+  and build scripts run cargo through that.
 - `builds install` puts the tool on PATH, creates the shared caches and the
   links to them, writes the sccache config, runs the sccache server under
   launchd (restarting it only when its settings changed, since a restart fails

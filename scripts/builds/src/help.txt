@@ -132,9 +132,6 @@ Commands:
                               the tests', passes through. In the app checkout
                               it builds without incremental compilation
                               (--config build.incremental=false)
-  builds record-use           record the build copies a cargo report on stdin
-                              (--message-format=json-render-diagnostics)
-                              names, passing every other line through
   builds units prune <days> <hours> <incremental hours> <dry 0|1> <folder>...
   builds units trim <cap KiB> <size KiB> <dry 0|1> <folder>...
   builds units git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...
@@ -184,10 +181,10 @@ in .build-dirs). Main and the other side worktrees keep incremental.
 Unused build copies. Cargo names each unit it builds (one crate target, for
 one profile, target and feature set) by a hash of everything that build
 depends on, dependency versions included: every dependency bump builds a new
-copy of each unit above it, and the old copies stay. `cargo` and
-`record-use` record each unit a build reports, whether it rebuilt it or found
-it up to date, by setting its fingerprint folder's modification time; a unit
-no recorded build has used counts as used when cargo last built it. `setup`
+copy of each unit above it, and the old copies stay. `cargo` records each
+unit a build reports, whether it rebuilt it or found it up to date, by
+setting its fingerprint folder's modification time; a unit no recorded build
+has used counts as used when cargo last built it. `setup`
 and `prune` delete, in each cargo folder (target, target-macos, ...), every
 file of each unit nothing used for BUILDS_UNUSED_DAYS days (default 3), and
 of each unit a newer copy of the same thing replaced that nothing used for
