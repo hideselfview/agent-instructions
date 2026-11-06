@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::checkout::{Checkout, Root, git_text, git, keeps_warm};
+use crate::checkout::{Checkout, Root, git_text, git, is_app_checkout, keeps_warm};
 use crate::evict::{Recreate, Removal, background_rm, evict, make_temp_dir};
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -49,6 +49,7 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
     let mut freed = units::prune::prune(&ages, run.dry(), &folders)?;
     freed.extend(prune_trees(tool, root, checkout, &folders, run)?);
     let claimed = checkout.claim_file().is_file();
+    let app_checkout = is_app_checkout(&tool.places, root)?;
     // Measured together, after the pruning: deleting one folder changes no
     // other's size.
     let measures = tool.measure_all(&folders)?;
@@ -63,8 +64,9 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
             let pruned: u64 = freed.iter().filter(|(f, _)| *f == folder).map(|(_, kib)| *kib).sum();
             kib = kib.saturating_sub(pruned);
         }
-        let reason = if kib > entry.cap_kib {
-            format!("{} > {}", human(kib), human(entry.cap_kib))
+        let cap_kib = entry.cap_kib(app_checkout);
+        let reason = if kib > cap_kib {
+            format!("{} > {}", human(kib), human(cap_kib))
         } else if idle > 0 && kib > 1024 && !tool.written_within(&measured, idle) {
             format!("{}, no write in {idle}m", human(kib))
         } else {
@@ -77,8 +79,8 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
         // its cap, those go, least recently written first, until it fits.
         // Main's and the app checkout's folders are left whole.
         if claimed {
-            if kib > entry.cap_kib && !keeps_warm(&tool.places, root)? {
-                trim_claimed(tool, &folder, kib, entry.cap_kib, run, &reason)?;
+            if kib > cap_kib && !keeps_warm(&tool.places, root)? {
+                trim_claimed(tool, &folder, kib, cap_kib, run, &reason)?;
             } else {
                 note(format!("claimed, kept: {} ({reason})", folder.display()));
             }

@@ -8,13 +8,28 @@ use crate::fail::Result;
 
 pub const MANIFEST: &str = ".build-dirs";
 
-/// One build output path of a checkout and its cap.
+/// One build output path of a checkout and its caps.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BuildDir {
     /// Relative to the checkout and to its build root: `target`,
     /// `bae-macos/bae/.build`.
     pub path: String,
-    pub cap_kib: u64,
+    cap_kib: u64,
+    /// The cap in the repo's app checkout, where it differs (an `app <cap>`
+    /// field): its cargo builds run without incremental compilation (see
+    /// `cargo_run`), so a full build there takes less.
+    app_cap_kib: Option<u64>,
+}
+
+impl BuildDir {
+    /// The folder's cap in the app checkout (<app_checkout>) or in any other
+    /// checkout.
+    pub fn cap_kib(&self, app_checkout: bool) -> u64 {
+        match (app_checkout, self.app_cap_kib) {
+            (true, Some(cap)) => cap,
+            _ => self.cap_kib,
+        }
+    }
 }
 
 pub fn has_manifest(top: &Path) -> bool {
@@ -62,10 +77,11 @@ fn parse(top: &Path) -> Result<(Vec<BuildDir>, Vec<String>)> {
             continue;
         }
         let cap = fields.next().unwrap_or("");
-        let rest: Vec<&str> = fields.collect();
-        if !rest.is_empty() {
-            fail!("{}: extra field after '{path} {cap}'", file.display());
-        }
+        let app_cap = match (fields.next(), fields.next(), fields.next()) {
+            (None, _, _) => None,
+            (Some("app"), Some(app_cap), None) => Some(app_cap),
+            _ => fail!("{}: '{line}' takes a path, a cap and at most 'app <cap>'", file.display()),
+        };
         if path.starts_with('/')
             || path == ".."
             || path.starts_with("../")
@@ -74,8 +90,10 @@ fn parse(top: &Path) -> Result<(Vec<BuildDir>, Vec<String>)> {
         {
             fail!("{}: '{path}' must be inside the checkout", file.display());
         }
-        let cap_kib = cap_kib(cap, &format!("{}: '{path}'", file.display()))?;
-        entries.push(BuildDir { path: path.to_string(), cap_kib });
+        let what = format!("{}: '{path}'", file.display());
+        let cap_kib = cap_kib(cap, &what)?;
+        let app_cap_kib = app_cap.map(|cap| self::cap_kib(cap, &format!("{what} (app)"))).transpose()?;
+        entries.push(BuildDir { path: path.to_string(), cap_kib, app_cap_kib });
     }
     Ok((entries, kept))
 }
@@ -174,18 +192,24 @@ mod tests {
     fn manifest_lines() {
         let dir = std::env::temp_dir().join(format!("builds-manifest-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(MANIFEST), "# a comment\n\ntarget 30G\n  bae/.build   2G  \nlast 1M").unwrap();
+        std::fs::write(dir.join(MANIFEST), "# a comment\n\ntarget 30G app 12G\n  bae/.build   2G  \nlast 1M").unwrap();
         let entries = build_dirs(&dir).unwrap();
         assert_eq!(
             entries,
             vec![
-                BuildDir { path: "target".into(), cap_kib: 30 * GIB },
-                BuildDir { path: "bae/.build".into(), cap_kib: 2 * GIB },
-                BuildDir { path: "last".into(), cap_kib: 1024 },
+                BuildDir { path: "target".into(), cap_kib: 30 * GIB, app_cap_kib: Some(12 * GIB) },
+                BuildDir { path: "bae/.build".into(), cap_kib: 2 * GIB, app_cap_kib: None },
+                BuildDir { path: "last".into(), cap_kib: 1024, app_cap_kib: None },
             ]
         );
+        assert_eq!(entries[0].cap_kib(false), 30 * GIB);
+        assert_eq!(entries[0].cap_kib(true), 12 * GIB);
+        assert_eq!(entries[1].cap_kib(true), 2 * GIB);
         for (bad, says) in [
-            ("target 1G extra\n", "extra field after 'target 1G'"),
+            ("target 1G extra\n", "takes a path, a cap and at most 'app <cap>'"),
+            ("target 1G app\n", "takes a path, a cap and at most 'app <cap>'"),
+            ("target 1G app 1G more\n", "takes a path, a cap and at most 'app <cap>'"),
+            ("target 1G app 1X\n", "'target' (app) needs a cap like 20G or 500M, got '1X'"),
             ("../out 1G\n", "must be inside the checkout"),
             ("/abs 1G\n", "must be inside the checkout"),
             ("a/../b 1G\n", "must be inside the checkout"),
@@ -205,7 +229,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("builds-manifest-keep-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(MANIFEST), "bae/.build 2G\nkeep bae/.build/run\n").unwrap();
-        assert_eq!(build_dirs(&dir).unwrap(), vec![BuildDir { path: "bae/.build".into(), cap_kib: 2 * GIB }]);
+        assert_eq!(build_dirs(&dir).unwrap(), vec![BuildDir { path: "bae/.build".into(), cap_kib: 2 * GIB, app_cap_kib: None }]);
         assert_eq!(kept_builds(&dir).unwrap(), vec!["bae/.build/run".to_string()]);
         for bad in ["keep\n", "keep a b\n", "keep ../x\n"] {
             std::fs::write(dir.join(MANIFEST), bad).unwrap();

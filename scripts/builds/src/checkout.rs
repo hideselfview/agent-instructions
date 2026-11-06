@@ -20,14 +20,18 @@ use crate::text::sort_collated;
 /// checkout, and each of another repo's build roots reads as gone. Every
 /// command that runs git drops them first.
 pub fn drop_git_local_env() -> Result<()> {
-    let mut command = Command::new("git");
-    command.args(["rev-parse", "--local-env-vars"]);
-    let listed = git_text(&mut command, "list its local variables")?;
-    for name in listed.split_whitespace() {
+    for name in git_local_env_vars()? {
         // Runs before any thread starts.
         unsafe { std::env::remove_var(name) };
     }
     Ok(())
+}
+
+fn git_local_env_vars() -> Result<Vec<String>> {
+    let mut command = Command::new("git");
+    command.args(["rev-parse", "--local-env-vars"]);
+    let listed = git_text(&mut command, "list its local variables")?;
+    Ok(listed.split_whitespace().map(str::to_string).collect())
 }
 
 /// `git -C <dir>`.
@@ -66,7 +70,23 @@ pub struct Checkout {
 impl Checkout {
     /// The checkout <path> is in, or None when it is in none.
     pub fn at(path: &Path) -> Result<Option<Checkout>> {
-        let output = git(path)
+        Checkout::asking_git(path, &[])
+    }
+
+    /// `at`, for a command that runs in its caller's environment as it is
+    /// (`builds cargo`, whose cargo inherits it): git is asked without the
+    /// caller's git variables, which a hook exports for its own repository,
+    /// and this process keeps them.
+    pub fn at_keeping_env(path: &Path) -> Result<Option<Checkout>> {
+        Checkout::asking_git(path, &git_local_env_vars()?)
+    }
+
+    fn asking_git(path: &Path, unset: &[String]) -> Result<Option<Checkout>> {
+        let mut command = git(path);
+        for name in unset {
+            command.env_remove(name);
+        }
+        let output = command
             .args([
                 "rev-parse",
                 "--path-format=absolute",
@@ -207,8 +227,13 @@ impl Root {
     /// Is this its repo's app checkout (main keeps its builds warm too, but
     /// is not one)?
     pub fn is_app_checkout(&self, places: &Places) -> Result<bool> {
-        Ok(self.name() != "main" && self.keeps_warm(places)?)
+        is_app_checkout(places, &self.path)
     }
+}
+
+/// See `Root::is_app_checkout`; for a root path.
+pub fn is_app_checkout(places: &Places, root: &Path) -> Result<bool> {
+    Ok(file_name(root) != "main" && keeps_warm(places, root)?)
 }
 
 /// See `Root::keeps_warm`; for a root path.

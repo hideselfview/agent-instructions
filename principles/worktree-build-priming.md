@@ -28,9 +28,10 @@ Every checkout owns one build root at a fixed path on the build volume.
 
 The repo lists its build output paths, each with a size cap, in `.build-dirs` at
 its root (`target`, `target-macos`, Xcode `.build` dirs, Gradle `build` and
-`.gradle`, dotnet `obj`/`bin`, Lean `.lake`). Each listed path is a symlink in
-the checkout to the same path under the checkout's root:
-`~/dev/bae/target -> /Volumes/Builds/bae/main/target`.
+`.gradle`, dotnet `obj`/`bin`, Lean `.lake`): `<path> <cap>`, or
+`<path> <cap> app <cap>` for a folder with a cap of its own in the app checkout
+(below). Each listed path is a symlink in the checkout to the same path under
+the checkout's root: `~/dev/bae/target -> /Volumes/Builds/bae/main/target`.
 
 The tool is `builds`, a Rust program in
 `~/dev/agent-instructions/scripts/builds`. `install.sh` builds it and
@@ -306,6 +307,23 @@ folders behind its app links while nothing builds there; the next `builds setup`
 recreates them empty). The caps bound whatever a checkout builds, and the floor
 bounds every checkout but main and the app checkout; they are the safety net,
 not the rule.
+
+**The app checkout builds without incremental compilation.** `builds cargo`,
+which the repos' `scripts/cargo.sh` runs, passes
+`--config build.incremental=false` when the checkout it runs in is its repo's
+app checkout. Agents move that checkout between their branches, so a crate's
+incremental state is rarely there for the next build to reuse, and sccache
+refuses every incremental compile: with incremental off, sccache keeps each
+workspace crate a branch built there, and a branch built there before builds
+from the cache. Main and the other side worktrees stay on one branch for long
+stretches and keep incremental, which halves an edit-and-recheck loop's CPU
+there. It is a `--config` argument, not `CARGO_INCREMENTAL` or another `CARGO_*`
+variable: cargo hands its environment on to rustc and sccache keys every
+`CARGO_*` variable, so with a variable every dependency would get other cache
+entries than the same dependency built by cargo run by hand there. Every cargo
+build in a repo runs through `scripts/cargo.sh` for this and for recording use
+(above). A full build is smaller without incremental output, so the app
+checkout's folders take lower caps: `<path> <cap> app <cap>` in `.build-dirs`.
 
 The app checkout's working tree belongs to whoever holds
 `/Volumes/Builds/<repo>/app.lock`, and only for the command they run holding it:
@@ -589,9 +607,10 @@ fine after a toolchain upgrade.
   constant; `clippy --all-targets`): coven off 84 / 28 (edit in foundation / in
   sync), on 27 / 10; bae off 20 / 10 (edit in bae-db / bae-library), on 10 / 4.
   sccache never sees clippy's workspace crates, so incremental off buys a hit
-  only when a worktree returns to an earlier source state for build or test. Do
-  not set `CARGO_INCREMENTAL=1` in the environment: sccache then refuses every
-  compile; use `profile.dev.incremental` in Cargo.toml.
+  only when a worktree returns to an earlier source state for build or test,
+  which is what the app checkout does all day, so it builds without incremental
+  (above). Do not set `CARGO_INCREMENTAL=1` in the environment: sccache then
+  refuses every compile; use `profile.dev.incremental` in Cargo.toml.
 - `[profile.<p>.package."*"]` beats `[profile.<p>.build-override]`: with the
   `"*"` override at opt-level 3, build scripts, proc-macros and their host
   dependencies still compile at opt-level 3 whatever `build-override` says

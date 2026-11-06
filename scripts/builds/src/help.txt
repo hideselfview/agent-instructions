@@ -15,9 +15,10 @@ UNKNOWN; it leaves out macOS's own volume metadata (.Spotlight-V100,
 .fseventsd, .Trashes, ...).
 
 Build roots. The repo lists its build-output paths and their size caps in
-`.build-dirs` at its root. Each listed path is a symlink in the checkout to
-the same path under the checkout's build root
-(target -> /Volumes/Builds/bae/main/target).
+`.build-dirs` at its root, one `<path> <cap>` per line; `<path> <cap> app
+<cap>` gives the folder a cap of its own in the repo's app checkout. Each
+listed path is a symlink in the checkout to the same path under the
+checkout's build root (target -> /Volumes/Builds/bae/main/target).
 
 The path a tool sees never changes: cargo, xcodebuild, Gradle, dotnet and
 lake always write through `<checkout>/<path>`, so sccache keys and cargo
@@ -128,7 +129,9 @@ Commands:
                               rustdoc, test, bench, run, install, nextest
                               run|list|archive) and record the build copies
                               it used; the rest of its output, a program's or
-                              the tests', passes through
+                              the tests', passes through. In the app checkout
+                              it builds without incremental compilation
+                              (--config build.incremental=false)
   builds record-use           record the build copies a cargo report on stdin
                               (--message-format=json-render-diagnostics)
                               names, passing every other line through
@@ -168,6 +171,15 @@ agents take turns in by holding /Volumes/Builds/<repo>/app.lock; see
 principles/worktree-build-priming.md. Nothing here enforces who builds what:
 the caps bound whatever a checkout builds, and the floor below bounds every
 checkout but main and the app checkout.
+
+The app checkout's cargo builds run without incremental compilation:
+`builds cargo` passes `--config build.incremental=false` there. Agents move
+it between their branches, so a crate's incremental state is rarely there
+for the next build, and sccache refuses every incremental compile; without
+it sccache keeps each workspace crate a branch built there, and a branch
+built there before builds from the cache. A full build takes less space
+without it, so the app checkout's folders can take lower caps (`app <cap>`
+in .build-dirs). Main and the other side worktrees keep incremental.
 
 Unused build copies. Cargo names each unit it builds (one crate target, for
 one profile, target and feature set) by a hash of everything that build

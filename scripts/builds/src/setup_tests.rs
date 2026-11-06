@@ -41,6 +41,29 @@ fn a_claimed_worktree_keeps_its_folder_over_its_cap() {
 }
 
 #[test]
+fn the_app_checkout_takes_its_own_cap() {
+    let scratch = Scratch::new("setup-app-cap");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    repo(&main, "target 4M app 1M\n");
+    let mut roots = Vec::new();
+    for name in ["side-1", "side-2"] {
+        let side = scratch.dir.join("demo-worktrees").join(name);
+        git(&main, &["worktree", "add", "-q", "--detach", &side.display().to_string()]);
+        let checkout = Checkout::find(&side.display().to_string()).unwrap();
+        setup(&tool, &checkout).unwrap();
+        roots.push((checkout, tool.places.root.join("demo").join(name)));
+    }
+    std::fs::write(tool.places.app_checkout_file("demo"), "side-1\n").unwrap();
+    for (checkout, root) in &roots {
+        fill(&root.join("target/blob"), 2048);
+        setup(&tool, checkout).unwrap();
+    }
+    assert!(!roots[0].1.join("target/blob").exists(), "the app checkout's folder over its app cap was kept");
+    assert!(roots[1].1.join("target/blob").exists(), "another worktree's folder under its cap was deleted");
+}
+
+#[test]
 fn a_real_directory_becomes_a_link() {
     let scratch = Scratch::new("setup-real-dir");
     let tool = scratch.tool(0);

@@ -318,12 +318,15 @@ impl Model {
             let manifest = self.state.lock().expect("no panic holding it").facts.get(&root.path).map(|f| f.manifest.clone());
             let (folders, gone_kib) = match (&root.live, manifest) {
                 (Some(checkout), Some(manifest)) => {
+                    let app_checkout = root.is_app_checkout(&self.places)?;
                     let paths: Vec<PathBuf> = manifest.iter().map(|e| root.path.join(&e.path)).collect();
                     let answers = self.tracker.measure(&paths, false);
                     let folders = manifest
                         .iter()
                         .zip(paths.iter().zip(answers))
-                        .map(|(entry, (folder, answer))| folder_facts(entry, folder, &checkout.top.join(&entry.path), answer))
+                        .map(|(entry, (folder, answer))| {
+                            folder_facts(entry, app_checkout, folder, &checkout.top.join(&entry.path), answer)
+                        })
                         .collect();
                     (folders, None)
                 }
@@ -535,7 +538,7 @@ impl Model {
     }
 }
 
-fn folder_facts(entry: &BuildDir, folder: &Path, link: &Path, answer: Option<Measure>) -> FolderFacts {
+fn folder_facts(entry: &BuildDir, app_checkout: bool, folder: &Path, link: &Path, answer: Option<Measure>) -> FolderFacts {
     let exists = folder.is_dir();
     let link_state = if link.is_symlink() {
         if absolute_link_target(link).is_ok_and(|target| target == folder) { "linked" } else { "elsewhere" }
@@ -544,7 +547,7 @@ fn folder_facts(entry: &BuildDir, folder: &Path, link: &Path, answer: Option<Mea
     };
     FolderFacts {
         path: entry.path.clone(),
-        cap_kib: entry.cap_kib,
+        cap_kib: entry.cap_kib(app_checkout),
         exists,
         kib: if exists { answer.map(|m| m.kib) } else { Some(0) },
         last_write: answer.and_then(|m| m.newest),

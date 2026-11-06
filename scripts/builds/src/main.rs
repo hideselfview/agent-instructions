@@ -61,7 +61,8 @@ fn main() -> ExitCode {
 
 fn run(command: &str, args: &[String]) -> Result<()> {
     match command {
-        // These run in the caller's environment as it is and call no git.
+        // These run in the caller's environment as it is, which cargo
+        // inherits; `cargo` asks git about its checkout without changing it.
         "cargo" => return cargo_run::cmd_cargo(args),
         "record-use" => return cargo_run::cmd_record_use(args),
         "-h" | "--help" | "help" => {

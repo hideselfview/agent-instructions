@@ -208,6 +208,12 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     `. bae-android/toolchain.sh && (cd bae-android && ./gradlew compileFullDebugUnitTestKotlin compileFullDebugScreenshotTestKotlin)`
     after it.
 
+    Cargo builds there run without incremental compilation (`builds cargo`
+    passes `--config build.incremental=false` in the app checkout), so sccache
+    caches every crate a branch built there, and its folders take the lower
+    `app` caps in `.build-dirs`. Run every cargo build through
+    `scripts/cargo.sh` so the setting reaches it.
+
   Another warm app build is fine while a wave of work needs it, such as when the
   person asks for one in a particular worktree; clear it once that work has
   moved on.

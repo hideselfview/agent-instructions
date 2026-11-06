@@ -12,7 +12,7 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
 use crate::install::sccache_config_holds;
-use crate::manifest::{BuildDir, SHARED_CACHES, build_dirs, kept_builds};
+use crate::manifest::{SHARED_CACHES, build_dirs, kept_builds};
 use crate::places::{DERIVED_DATA_CAP_KIB, FLOOR_IDLE_MINUTES, MACOS_ENTRIES, Places};
 use crate::prune::derived_data;
 use crate::temp_builds::temp_build_folders;
@@ -197,8 +197,10 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
     } else {
         Vec::new()
     };
-    for BuildDir { path, cap_kib } in build_dirs(&root.top)? {
-        let folder = root.path.join(&path);
+    let app_checkout = root.is_app_checkout(&tool.places)?;
+    for entry in build_dirs(&root.top)? {
+        let (path, cap_kib) = (&entry.path, entry.cap_kib(app_checkout));
+        let folder = root.path.join(path);
         if !folder.is_dir() {
             out.push(format!("    {path:<34} {:>8} / {:<6}  (no folder)", "-", human(cap_kib)));
             continue;
@@ -228,7 +230,7 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
                 last_write(measured.newest)
             ));
         }
-        let link = root.top.join(&path);
+        let link = root.top.join(path);
         if link.is_symlink() {
             if absolute_link_target(&link)? != folder {
                 out.push(format!(
@@ -550,7 +552,10 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
     if with_folders {
         let mut list = Vec::new();
         let mut total = 0;
-        for BuildDir { path, cap_kib } in build_dirs(&root.top)? {
+        let app_checkout = root.is_app_checkout(&tool.places)?;
+        for entry in build_dirs(&root.top)? {
+            let cap_kib = entry.cap_kib(app_checkout);
+            let path = entry.path;
             let folder = root.path.join(&path);
             if !folder.is_dir() {
                 list.push(FolderJson::Missing { path, cap_kib, exists: false });
