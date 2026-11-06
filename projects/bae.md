@@ -134,6 +134,18 @@ trigger tests in `<stem>_tests.rs`. A schema change edits its domain's SQL file;
 it never adds a second migration. No library has to advance from an older
 schema: the person resets development data with `scripts/reset-bae.py`.
 
+Only a domain's homes write its tables, as the `[database]` rows of
+`owner-construction-check.toml` list them; the checker's `database-boundary`
+rule holds every crate to that. Tests build library state through the owning
+domain's own writes, never by writing tables on a bare connection. Damage a test
+needs (a value a CHECK refuses, a failing write) is planted by a named function
+in the owning domain, and a bare file open goes only through
+`bae_store::test_fixtures::planted_damage::plant_in_library_file`. bae-store
+hands out no `Connection`: a home's tests open their own in-memory library from
+`Schema::bare_library_parts()`. A trigger never waits for a parent row: foreign
+keys hold for every local write, and coven applies another device's rows in the
+order of their writes, parents first.
+
 When another canonical shape changes — bae-bridge types, UiEventBus event
 payloads, on-disk file layouts, sync membership chain format, encryption
 schemes, cloud storage paths — edit the definition and update every caller in
