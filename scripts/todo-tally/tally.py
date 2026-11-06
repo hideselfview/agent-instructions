@@ -3,7 +3,8 @@
 
 An item is a list line ("- " or "N. ", any indent) with no list lines nested
 under it; a line with nested items is a group heading, not an item. Each item
-carries a stable id, " [#N]" at the end of its first line: this script appends
+carries a stable id, " [#N]" at the end of its first line (a "[#N]" elsewhere
+in the text is a reference, not an id): this script appends
 one to every item that has none, so an item keeps its id while its text,
 position or number changes. Items are counted per "## 1." and "## 2." section.
 
@@ -20,7 +21,9 @@ import re
 import sys
 
 LIST = re.compile(r"^(\s*)(?:- |\d+\. )")
-ID = re.compile(r" \[#(\d+)\]")
+# Only the tag at the end of an item's first line is its id; a "[#12]" inside
+# the text is a reference to another item.
+ID = re.compile(r" \[#(\d+)\]\s*$")
 
 
 def items(lines):
