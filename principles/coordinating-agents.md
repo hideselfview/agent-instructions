@@ -93,16 +93,17 @@ top of §2, with when it started and the next full-suite run.
   waits until enough of them finish to bring the load down.
 - **Quick.** Load is no queue limit; keep 8 agents running, topping up at every
   health check and every landing. Before each commit an agent compiles what it
-  touched (`cargo check --all-targets` with the project's test features, and the
-  apps' test-target compiles for Swift or Kotlin changes) and commits through
-  the hook, which in quick mode runs fmt, the static checks, and a compile of
-  what changed (no clippy, rustdoc or tests). Agents run only the one test that
-  proves a fix. land.sh's compile of the touched crates still gates every
-  landing, so main always builds. At the full-suite run the person sets, a fixer
-  agent runs every suite and CI, and fixes each failure with the commit that
-  caused it. A test that fails during the window is checked on `origin/main`
-  first; when it fails there too and isn't the agent's, the agent notes it and
-  moves on.
+  touched (`cargo clippy --all-targets -- -D warnings` with the project's test
+  features, and the apps' test-target compiles for Swift or Kotlin changes) and
+  commits through the hook, which in quick mode runs fmt, the static checks, and
+  a compile of what changed (no clippy, rustdoc or tests). Agents run only the
+  one test that proves a fix. land.sh's compile of the touched crates, clippy
+  included, still gates every landing, so main always builds; an agent that
+  skips clippy finds its lint at landing, a round trip later. At the full-suite
+  run the person sets, a fixer agent runs every suite and CI, and fixes each
+  failure with the commit that caused it. A test that fails during the window is
+  checked on `origin/main` first; when it fails there too and isn't the agent's,
+  the agent notes it and moves on.
 
 The mode is one machine-wide setting the pre-commit hooks of every repo read:
 the coordinator switches it with `builds mode quick` or `builds mode strict`
