@@ -20,7 +20,7 @@ import shell_words  # noqa: E402
 
 REASON = (
     "A while/until loop that polls (on pgrep, or sleeping between checks), or "
-    "a `tail -f | grep` wait, can run for hours after its condition came true "
+    "a `tail -f | grep` or `tail -f --pid` wait, can run for hours after its condition came true "
     "or when it never does. Run the work in the background (run_in_background) "
     "and wait for its completion notification."
 )
@@ -41,12 +41,23 @@ def follows_into_pipe(command: str) -> bool:
     )
 
 
+def waits_on_pid(command: str) -> bool:
+    """`tail -f /dev/null --pid=N`: GNU tail's wait for a process to exit.
+    macOS's tail has no --pid, so with stderr hidden it follows /dev/null
+    forever; one ran 2 hours after its process was gone."""
+    return any(
+        words[:1] == ["tail"] and any(FOLLOW.fullmatch(w) for w in words[1:])
+        and any(w == "/dev/null" or w.startswith("--pid") for w in words[1:])
+        for words, _ in shell_words.commands(command)
+    )
+
+
 def blocked(command: str) -> bool:
     # A loop on pgrep, or any loop that sleeps between checks: both poll for a
     # condition the harness already reports, and a condition that never comes
     # true (a pattern matching the loop itself, a log line that is never the
     # last one) keeps the shell running for hours.
-    return follows_into_pipe(command) or any(
+    return follows_into_pipe(command) or waits_on_pid(command) or any(
         "pgrep" in m.group("cond") or re.search(r"\bsleep\b", m.group("body"))
         for m in LOOP.finditer(command)
     )

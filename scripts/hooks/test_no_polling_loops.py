@@ -29,6 +29,10 @@ CASES = [
     (True, 'tail -n 5 -f log|grep y'),
     (False, 'git commit -q -m "first line\n\ntail -F | grep -m1 wait outlived\nits match" && git push'),
     (True, 'echo x\ntail -F log | grep y'),
+    (True, 'tail -f /dev/null --pid=39764 2>/dev/null || lsof -p 39764 >/dev/null; cat out'),
+    (True, 'tail --pid=1 -f /dev/null'),
+    (False, 'tail -n 3 /dev/null'),
+    (False, 'git commit -m "tail -f /dev/null --pid=1 never ends on macOS"'),
 ]
 bad = 0
 for want, cmd in CASES:
