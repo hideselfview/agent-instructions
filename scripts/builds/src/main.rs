@@ -10,6 +10,7 @@ mod fail;
 mod floor;
 mod health;
 mod install;
+mod lock;
 mod manifest;
 mod mode;
 mod places;
@@ -64,6 +65,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         // These run in the caller's environment as it is, which cargo
         // inherits; `cargo` asks git about its checkout without changing it.
         "cargo" => return cargo_run::cmd_cargo(args),
+        "lock" => return lock::cmd_lock(&Places::from_env()?, args),
         "-h" | "--help" | "help" => {
             print!("{HELP}");
             return Ok(());
@@ -90,7 +92,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "health" => health::cmd_health(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
         other => fail!(
-            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | dashboard | prune | cargo | install)"
+            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | dashboard | prune | cargo | lock | install)"
         ),
     }
 }

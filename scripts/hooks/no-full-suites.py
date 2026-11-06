@@ -132,9 +132,16 @@ def runs_check_script(tokens) -> bool:
     """True when check.sh is the command a segment runs, not an argument to one
     (`git show HEAD:scripts/check.sh`, `grep deny scripts/check.sh` only read it)."""
     skip_argument = False
-    for token in tokens:
+    tokens = list(tokens)
+    for i, token in enumerate(tokens):
         if token == "check.sh" or token.endswith("/check.sh"):
             return not skip_argument
+        # `builds lock <repo> <command>` runs the command after the repo.
+        if token == "lock" and i > 0 and tokens[i - 1].split("/")[-1] == "builds":
+            skip_argument = True
+            continue
+        if token.split("/")[-1] == "builds" and tokens[i + 1:i + 2] == ["lock"]:
+            continue
         if token in RUNNERS_WITH_ARGUMENT:
             skip_argument = True
             continue

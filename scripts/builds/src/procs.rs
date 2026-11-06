@@ -7,8 +7,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::path::PathBuf;
 
-/// Names of the processes that build: compilers, linkers, build tools, and
-/// `lockf`, which holds a repo's app lock while a build runs under it.
+/// Names of the processes that build: compilers, linkers and build tools.
 pub const BUILD_NAMES: [&str; 17] = [
     "cargo",
     "rustc",

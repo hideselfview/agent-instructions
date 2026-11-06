@@ -127,8 +127,8 @@ a failed build leaves the installed one as it was; a commit on main that touches
   as "Xcode build" and "Android app", the path in the chip's tooltip; the rest
   behind a "+N more folders" disclosure), and for the App build whether its
   `app.lock` is free or held, the command holding it and how many wait, read
-  without taking the lock (the process with the file open holds it, since
-  `lockf` waits inside `open`). Every other side worktree is a card, as tall as
+  without taking the lock (the `builds lock` with the file open holds it, since
+  a waiter waits inside `open`). Every other side worktree is a card, as tall as
   its content: name, branch, state, the claim's who and note, the commits
   waiting to land, its last commit's age, the count of uncommitted files, its
   build size (flagged over a cap) and the claim's date. A card where builds run
@@ -332,17 +332,24 @@ your own side worktree, then run one command that holds the lock, moves the app
 checkout to your commit and builds. In bae:
 
 ```sh
-lockf -k /Volumes/Builds/bae/app.lock sh -c '
+builds lock bae sh -c '
   cd ~/dev/bae-worktrees/side-1 &&
   { test -z "$(git status --porcelain)" || { git status --short; exit 1; }; } &&
   git checkout -q --detach <branch> &&
   ./bae-macos/run.sh --no-open'
 ```
 
-- `lockf` waits until the lock is free (`-t <seconds>` gives up after that
-  long), so run it as a background task. It releases the lock when the command
-  exits, crashed or not, so a lock is never left stale. `-k` keeps the lock
-  file, which keeps waiters in order.
+- `builds lock <repo> <command>` waits until `/Volumes/Builds/<repo>/app.lock`
+  is free, so run it as a background task. The lock lives as long as any process
+  of the command does: its file descriptor passes to the command and everything
+  it starts, and the kernel frees the lock when the last of them exits, crashed
+  or not, so it is never left stale and never freed under a running build.
+  `lockf` held it in its own process alone: killing `lockf` freed the lock while
+  its build kept running, and the next waiter started a second build in the same
+  checkout. The command runs in a process group of its own; SIGTERM, SIGINT or
+  SIGHUP to `builds lock` goes to that whole group, so killing the holder stops
+  its build, and the next waiter starts once it has exited. `test-lock.sh`
+  checks both.
 - `--detach` checks out your branch's commit: the branch itself stays checked
   out in your worktree, and git checks out a branch in one worktree only.
 - To change something, edit and commit (or amend) in your worktree, then run the

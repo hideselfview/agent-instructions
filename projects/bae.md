@@ -188,7 +188,7 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     on your branch in your own worktree, then, as a background task:
 
     ```sh
-    lockf -k /Volumes/Builds/bae/app.lock sh -c '
+    builds lock bae sh -c '
       cd ~/dev/bae-worktrees/side-1 &&
       { test -z "$(git status --porcelain)" || { git status --short; exit 1; }; } &&
       git checkout -q --detach <branch> &&

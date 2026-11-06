@@ -6,11 +6,11 @@ The app checkout (`builds app-checkout`, one per repo) is where agents build
 Gradle, Xcode and bridge output, one at a time, under the repo's app lock. A
 `git checkout` there that does not hold the lock switches the tree under
 another agent's build mid-run. The lock is taken by running the command under
-`lockf -k <app.lock>`; a git command that changes HEAD or the tree in the app
+`builds lock <repo>`; a git command that changes HEAD or the tree in the app
 checkout (cd into it, `git -C <it>`, or a working directory inside it) is
-refused unless it is inside that `lockf`. Read-only git is not affected.
+refused unless it is inside that `builds lock`. Read-only git is not affected.
 
-The checkouts and lock paths come from `builds status --json`, which records
+The checkouts and their repos come from `builds status --json`, which records
 them, so any repo with an app checkout recorded is covered. When `builds`
 fails the command is allowed, with a warning on stderr (exit 1, which Claude
 Code shows without blocking).
@@ -33,7 +33,7 @@ import shell_words  # noqa: E402
 
 REASON = (
     "This changes the app checkout's HEAD or tree without holding its app lock: another agent's build "
-    "there gets its tree switched mid-run. Run it under `lockf -k <repo's app.lock> sh -c '...'` "
+    "there gets its tree switched mid-run. Run it under `builds lock <repo> sh -c '...'` "
     "(see the repo's CLAUDE.md), or do it in your own worktree."
 )
 
@@ -50,13 +50,13 @@ CD = {"cd", "pushd"}
 
 
 def app_checkouts() -> list[tuple[str, str]]:
-    """(app checkout path, app lock path) for each repo with an app checkout recorded.
+    """(app checkout path, repo name) for each repo with an app checkout recorded.
     Raises OSError, ValueError, KeyError or SubprocessError when `builds` cannot say."""
     result = subprocess.run(["builds", "status", "--json", "--no-folders"], capture_output=True, text=True,
                             timeout=8, check=True)
     repos = json.loads(result.stdout)["repos"]
     return [
-        (c["path"], repo["app_lock"])
+        (c["path"], repo["name"])
         for repo in repos
         for c in repo.get("checkouts", [])
         if c.get("app_checkout")
@@ -104,7 +104,7 @@ def git_change(words: list[str], cwd: str):
 
 
 def inner_script(words: list[str]):
-    """The script of `sh -c '<script>'`, also behind a wrapper such as `lockf -k <lock>`; else None."""
+    """The script of `sh -c '<script>'`, also behind a wrapper such as `builds lock <repo>`; else None."""
     for i, word in enumerate(words[:-2]):
         if word in SHELLS and words[i + 1] == "-c":
             return words[i + 2]
@@ -119,9 +119,9 @@ def blocked(command: str, cwd: str, checkouts: list[tuple[str, str]]) -> bool:
         if words[0] in CD and len(words) > 1:
             cwd = resolve(words[1], cwd)
             continue
-        if words[0] == "lockf" and any(os.path.realpath(expand(w)) in {os.path.realpath(lock) for _, lock in checkouts}
-                                       for w in words[1:]):
-            continue  # everything this lockf runs holds an app lock
+        if (os.path.basename(words[0]) == "builds" and words[1:2] == ["lock"]
+                and words[2:3] and words[2] in {repo for _, repo in checkouts}):
+            continue  # everything this runs holds the repo's app lock
         script = inner_script(words)
         if script is not None:
             if blocked(script, cwd, checkouts):

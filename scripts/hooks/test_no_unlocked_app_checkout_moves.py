@@ -12,11 +12,10 @@ hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
 
 APP = "/Users/dima/dev/bae-worktrees/side-1"
-LOCK = "/Volumes/Builds/bae/app.lock"
-CHECKOUTS = [(APP, LOCK)]
+CHECKOUTS = [(APP, "bae")]
 ELSEWHERE = "/Users/dima/dev/bae-worktrees/side-2"
 
-RECIPE = f"""lockf -k {LOCK} sh -c '
+RECIPE = f"""builds lock bae sh -c '
   cd ~/dev/bae-worktrees/side-1 &&
   {{ test -z "$(git status --porcelain)" || {{ git status --short; exit 1; }}; }} &&
   git checkout -q --detach android-test-timeouts &&
@@ -36,11 +35,13 @@ CASES = [
     (True, ELSEWHERE, f"cd {APP} && git cherry-pick abc123"),
     (True, ELSEWHERE, f"cd {APP} && git merge --ff-only x"),
     (True, ELSEWHERE, f"sh -c 'cd {APP} && git checkout x'"),
-    (True, ELSEWHERE, f"lockf -k /tmp/other.lock sh -c 'cd {APP} && git checkout x'"),
-    (True, ELSEWHERE, f"lockf -k {LOCK} true; cd {APP} && git checkout x"),
+    (True, ELSEWHERE, f"builds lock coven sh -c 'cd {APP} && git checkout x'"),
+    (True, ELSEWHERE, f"lockf -k /Volumes/Builds/bae/app.lock sh -c 'cd {APP} && git checkout x'"),
+    (True, ELSEWHERE, f"builds lock bae true; cd {APP} && git checkout x"),
     # The recipe from CLAUDE.md, and the same checkout moved under the lock.
     (False, ELSEWHERE, RECIPE),
-    (False, ELSEWHERE, f"lockf -k {LOCK} git -C {APP} checkout x"),
+    (False, ELSEWHERE, f"builds lock bae git -C {APP} checkout x"),
+    (False, ELSEWHERE, f"~/.local/bin/builds lock bae git -C {APP} checkout x"),
     (False, "/Users/dima/dev/bae", RECIPE),
     (True, ELSEWHERE, f"cd {APP} && git commit -m x"),
     (True, ELSEWHERE, f"git -C {APP} add -A"),
@@ -53,7 +54,7 @@ CASES = [
     (True, ELSEWHERE, f"git -C {APP} -c user.name=x commit -m x"),
     (False, ELSEWHERE, f"cd {APP} && git symbolic-ref HEAD && git worktree list"),
     (False, ELSEWHERE, f"cd {APP} && git commit --dry-run && git add -n ."),
-    (False, ELSEWHERE, f"lockf -k {LOCK} sh -c 'cd {APP} && git commit -m x'"),
+    (False, ELSEWHERE, f"builds lock bae sh -c 'cd {APP} && git commit -m x'"),
     # Read-only git stays allowed in the app checkout.
     (False, APP, "git status --short"),
     (False, ELSEWHERE, f"git -C {APP} log --oneline -3"),
@@ -81,10 +82,10 @@ except Exception as error:  # noqa: BLE001
     live = []
     print("builds failed:", error)
 if live:
-    path, lock = live[0]
+    path, repo = live[0]
     for want, cmd in [
         (True, f"cd {path} && git checkout -q --detach origin/main"),
-        (False, f"lockf -k {lock} sh -c 'cd {path} && git checkout -q --detach x'"),
+        (False, f"builds lock {repo} sh -c 'cd {path} && git checkout -q --detach x'"),
         (False, f"git -C {path} status"),
     ]:
         out = subprocess.run([sys.executable, "-I", str(HOOK)],

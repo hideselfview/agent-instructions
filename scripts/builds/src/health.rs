@@ -254,8 +254,11 @@ pub fn sample(
         let real = std::fs::canonicalize(path).unwrap_or(path.clone());
         let mut holder = None;
         let mut waiting = 0;
-        for process in processes.list.iter().filter(|p| p.name == "lockf") {
-            if !args(process.pid).is_some_and(|argv| argv.contains(&shown)) {
+        // `builds lock <repo> ...`: the one with the lock's file open holds
+        // it; the others wait inside `open`.
+        for process in processes.list.iter().filter(|p| p.name == "builds") {
+            let locking = |argv: Vec<String>| argv.get(1).is_some_and(|a| a == "lock") && argv.get(2) == Some(repo);
+            if !args(process.pid).is_some_and(locking) {
                 continue;
             }
             if open_files(process.pid).iter().any(|open| *open == real || open == path) {

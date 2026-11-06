@@ -132,6 +132,12 @@ Commands:
                               the tests', passes through. In the app checkout
                               it builds without incremental compilation
                               (--config build.incremental=false)
+  builds lock <repo> <command> [<args>...]
+                              run the command holding the repo's app lock
+                              (/Volumes/Builds/<repo>/app.lock), waiting for
+                              it; the lock lives until the last process of the
+                              command exits, and SIGTERM, SIGINT and SIGHUP go
+                              to the command's whole process group
   builds units prune <days> <hours> <incremental hours> <dry 0|1> <folder>...
   builds units trim <cap KiB> <size KiB> <dry 0|1> <folder>...
   builds units git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...
