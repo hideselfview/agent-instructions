@@ -150,6 +150,11 @@ a schedule can do: nothing else wakes a session), the coordinator runs
 - **An app lock held long, or with agents waiting:** check its holder is
   building, not stuck.
 
+Each check also runs `scripts/todo-tally/tally.py <todo file>`, which gives
+every item of the two lists a stable id and logs the items opened and closed
+since the last run (`todo-tally.log` beside the todo file), so the person can
+see whether the lists grow faster than they shrink.
+
 A quiet check needs no message to the person.
 
 ## Background shells
