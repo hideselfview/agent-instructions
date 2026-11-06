@@ -156,6 +156,11 @@ a schedule can do: nothing else wakes a session), the coordinator runs
 - **An app lock held long, or with agents waiting:** check its holder is
   building, not stuck.
 
+In quick mode each check also runs `scripts/agent-runs/check.py`, which lists
+running cargo builds and tests outside quick mode (a feature set other than the
+hook's, a test run with no name filter or over several crates), and tells each
+one's agent to stop it.
+
 Each check also runs `scripts/todo-tally/tally.py <todo file>`, which gives
 every item of the two lists a stable id and logs the items opened and closed
 since the last run (`todo-tally.log` beside the todo file), so the person can

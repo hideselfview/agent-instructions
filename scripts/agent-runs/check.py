@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Flag running cargo builds and tests that quick mode doesn't ask for.
+
+Quick mode wants each agent to build with the one feature set its repo's hook
+builds (another set is another copy of every crate) and to run only the test
+that proves its change. This lists every running `cargo test|check|clippy`
+with its worktree and says what about it breaks that:
+
+- a feature set other than the repo's hook set;
+- a test run with no name filter (a whole suite);
+- a test run over more than one crate.
+
+    check.py
+"""
+
+import re
+import subprocess
+
+# The feature sets each repo's hook builds with.
+HOOK_SETS = {
+    "coven": [{"--all-features"}],
+    "bae": [
+        {"--features test-utils"},
+        {"--features oauth-providers,cloudkit,cast,test-keyring,dev-reset"},
+    ],
+}
+
+
+def cwd_of(pid):
+    out = subprocess.run(
+        ["lsof", "-a", "-d", "cwd", "-p", pid, "-Fn"], capture_output=True, text=True
+    ).stdout
+    for line in out.splitlines():
+        if line.startswith("n"):
+            return line[1:]
+    return "?"
+
+
+def features(args):
+    found = set()
+    for i, a in enumerate(args):
+        if a == "--all-features":
+            found.add("--all-features")
+        elif a == "--features" and i + 1 < len(args):
+            found.add(f"--features {args[i + 1]}")
+        elif a.startswith("--features="):
+            found.add(f"--features {a.split('=', 1)[1]}")
+    return found
+
+
+def main():
+    ps = subprocess.run(
+        ["ps", "-axo", "pid=,etime=,command="], capture_output=True, text=True
+    ).stdout
+    flagged = 0
+    for line in ps.splitlines():
+        m = re.match(r"\s*(\d+)\s+(\S+)\s+(.*)", line)
+        if not m:
+            continue
+        pid, etime, cmd = m.groups()
+        # The wrapper's own line; the real cargo below it repeats the command.
+        if "/.local/bin/builds cargo" not in cmd:
+            continue
+        args = cmd.split()
+        kind = next((a for a in args if a in ("test", "check", "clippy")), None)
+        if not kind:
+            continue
+        cwd = cwd_of(pid)
+        repo = "coven" if "/coven" in cwd else "bae" if "/bae" in cwd else None
+        problems = []
+        if repo and features(args) not in HOOK_SETS[repo]:
+            problems.append(f"feature set {sorted(features(args)) or ['default']}, not the hook's")
+        if kind == "test":
+            rest = args[args.index("test") + 1 :]
+            names = [a for a in rest if not a.startswith("-")]
+            # Values of flags that take one aren't test names.
+            for flag in ("-p", "--package", "--features", "--test", "--bin", "--target"):
+                for i, a in enumerate(rest):
+                    if a == flag and i + 1 < len(rest) and rest[i + 1] in names:
+                        names.remove(rest[i + 1])
+            if not names:
+                problems.append("test run with no name filter")
+            if sum(1 for a in rest if a in ("-p", "--package")) > 1 or "--workspace" in rest:
+                problems.append("test run over more than one crate")
+        if problems:
+            flagged += 1
+            short = cwd.replace("/Users/dima/dev/", "")
+            print(f"{short}  pid {pid}, {etime}: {' '.join(args[2:])[:160]}")
+            for p in problems:
+                print(f"    {p}")
+    if not flagged:
+        print("agent runs: nothing outside quick mode")
+
+
+if __name__ == "__main__":
+    main()
