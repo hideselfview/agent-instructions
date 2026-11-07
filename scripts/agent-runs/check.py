@@ -103,7 +103,8 @@ def main():
         problems = []
         if repo and not hook_builds(repo, features(args)):
             problems.append(f"feature set {sorted(features(args)) or ['default']}, not the hook's")
-        if kind == "test":
+        # --no-run only builds the test binary, so it runs no suite.
+        if kind == "test" and "--no-run" not in args:
             rest = args[args.index("test") + 1 :]
             names = [a for a in rest if not a.startswith("-")]
             # Values of flags that take one aren't test names.
