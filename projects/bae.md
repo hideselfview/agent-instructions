@@ -46,7 +46,8 @@ for bae and coven alike. They are never a factor in a design decision: don't
 prefer an option because it avoids one, and don't call one out as a cost or a
 caveat when describing, weighing or recommending work. The only time to mention
 a reset is telling the person to run `scripts/reset-bae.py` once a change that
-needs it has landed.
+needs it has landed, in a message of its own: never tucked into a reply about
+something else, and never in a recommendation.
 
 The macOS app logs to the unified log under subsystem `fm.bae.desktop`, every
 level kept in Debug builds:
