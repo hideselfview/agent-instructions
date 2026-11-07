@@ -60,12 +60,25 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
     let [repo, command, rest @ ..] = args else {
         fail!("usage: builds lock <repo> <command> [<args>...]");
     };
+    take(places, repo)?;
+    let mut start = Command::new(command);
+    start.args(rest);
+    run_in_group(start, command)
+}
+
+/// Waits for <repo>'s app lock and holds it, returning the descriptor. Fails
+/// for a repo with no app checkout.
+pub fn take(places: &Places, repo: &str) -> Result<libc::c_int> {
     let dir = places.root.join(repo);
     if !places.app_checkout_file(repo).is_file() {
         fail!("{repo} has no app checkout recorded in {}; builds app-checkout records one", dir.display());
     }
-    let path = dir.join("app.lock");
-    open_locked(&path)?;
+    open_locked(&dir.join("app.lock"))
+}
+
+/// Runs <start> in a process group of its own, passing SIGTERM, SIGINT and
+/// SIGHUP on to the whole group, and fails with its exit status.
+pub fn run_in_group(mut start: Command, command: &str) -> Result<()> {
     // The signals stay blocked until the group is known, so one sent while
     // the command starts is passed on rather than lost; the command starts
     // with them unblocked.
@@ -78,8 +91,7 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
         }
         libc::sigprocmask(libc::SIG_BLOCK, &passed, std::ptr::null_mut());
     }
-    let mut start = Command::new(command);
-    start.args(rest).process_group(0);
+    start.process_group(0);
     unsafe {
         start.pre_exec(move || {
             libc::sigprocmask(libc::SIG_UNBLOCK, &passed, std::ptr::null_mut());
