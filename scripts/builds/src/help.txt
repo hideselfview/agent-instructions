@@ -4,6 +4,9 @@ on it:
   <repo>/<checkout>/    one build root per checkout; checkout = main | side-N
   <repo>/app-checkout   the name of the repo's app checkout (side-N)
   <repo>/app.lock       the lock agents hold to build in the app checkout
+  <repo>/app.queue/     who waits for it: `order` (one ticket per line, next
+                        first, the holder's at the head) and a ticket file
+                        per waiting process
   mode                  the pre-commit hooks' mode, quick or strict
   DerivedData/          Xcode's default DerivedData location
   caches/<name>/        download caches every checkout shares, each linked
@@ -139,7 +142,19 @@ Commands:
                               (/Volumes/Builds/<repo>/app.lock), waiting for
                               it; the lock lives until the last process of the
                               command exits, and SIGTERM, SIGINT and SIGHUP go
-                              to the command's whole process group
+                              to the command's whole process group; waiters go
+                              in the order they came, a dead one never lets
+                              anyone past the holder
+  builds queue <repo>         show the holder and who waits, next first
+  builds queue <repo> top <pid>
+                              move that waiter to right behind the holder
+  builds takeover <repo> [<pid>]
+                              stop the holder's build (SIGTERM to its whole
+                              process group), run the waiter <pid> (default
+                              the first) next, and run the stopped command
+                              again straight after it, by itself; with
+                              nothing holding the lock, the same as `top`.
+                              The dashboard's queue has both as buttons
   builds test-app <repo> [--no-open] [<ref>]
                               on the app lock, check out <ref> (default the
                               main branch, as it stands in the main checkout)

@@ -16,6 +16,7 @@ mod mode;
 mod places;
 mod procs;
 mod prune;
+mod queue;
 mod sccache;
 mod side_git;
 mod setup;
@@ -67,6 +68,8 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         // inherits; `cargo` asks git about its checkout without changing it.
         "cargo" => return cargo_run::cmd_cargo(args),
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
+        "queue" => return queue::cmd_queue(&Places::from_env()?, args),
+        "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
         "-h" | "--help" | "help" => {
             print!("{HELP}");
             return Ok(());
@@ -94,7 +97,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "health" => health::cmd_health(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
         other => fail!(
-            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | dashboard | prune | cargo | lock | test-app | install)"
+            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | dashboard | prune | cargo | lock | queue | takeover | test-app | install)"
         ),
     }
 }

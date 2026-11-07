@@ -360,6 +360,20 @@ builds lock bae sh -c '
   SIGHUP to `builds lock` goes to that whole group, so killing the holder stops
   its build, and the next waiter starts once it has exited. `test-lock.sh`
   checks both.
+- Waiters go in the order they came. `/Volumes/Builds/<repo>/app.queue/order`
+  lists one ticket per line, next first, the holder's at the head; each ticket
+  is a file `<pid>-<n>` its process holds locked for its whole life, children
+  included, and a waiter blocks on the ticket before its own. A waiter that dies
+  in line frees its ticket, and the one behind takes the entry away and waits on
+  the next, so nobody passes the holder. `builds queue <repo>` shows the line
+  (the dashboard does too, with buttons); `builds queue <repo> top <pid>` moves
+  a waiter to right behind the holder; `builds takeover <repo> [<pid>]` stops
+  the holder's build (SIGTERM to its process group), runs that waiter (default
+  the first) next, and puts the stopped command straight behind it to run again
+  by itself: `builds lock` reruns its command, `builds test-app` reruns from the
+  checkout. A holder past its build (test-app's copy) ignores a takeover.
+  `tests/app_queue.rs` checks the order, `top`, a killed waiter and a takeover
+  with real processes.
 - `--detach` checks out your branch's commit: the branch itself stays checked
   out in your worktree, and git checks out a branch in one worktree only.
 - To change something, edit and commit (or amend) in your worktree, then run the

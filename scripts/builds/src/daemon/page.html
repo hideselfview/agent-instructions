@@ -112,6 +112,11 @@ article { min-width: 0; display: flex; flex-direction: column; }
 .note { font-size: 14px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
 .waiting { background: var(--waiting-bg); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
 .waiting .label { font-size: 12px; font-weight: 600; color: var(--accent); }
+.qrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.qrow .queued { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.qbtn { font: 600 12px var(--sans); color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.qbtn.danger { color: var(--bad); }
+.qbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .commit { display: flex; gap: 8px; font-size: 13px; line-height: 1.35; min-width: 0; }
 .commit .sha { font-family: var(--mono); color: var(--accent); flex: none; }
 .commit .subject { color: var(--text-2); overflow-wrap: anywhere; min-width: 0; }
@@ -219,7 +224,9 @@ try {
 
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (typeof v === "function") el.addEventListener(k.slice(2), v); else el.setAttribute(k, v);
+  }
   for (const kid of kids.flat()) {
     if (kid === null || kid === undefined || kid === false) continue;
     el.append(typeof kid === "string" ? document.createTextNode(kid) : kid);
@@ -301,7 +308,7 @@ function pill(text, cls) { return h("span", {class: "pill " + cls}, text); }
 function stateOf(c) { return STATES[c.state] || {label: c.state, cls: "s-free"}; }
 function lockOf(repo) {
   const lock = repo.lock;
-  return {held: !!(lock && lock.holder), waiting: lock ? lock.waiting : 0, holder: lock ? lock.holder : null,
+  return {repo: lock ? lock.repo : null, held: !!(lock && lock.holder), waiting: lock ? lock.waiting : 0, holder: lock ? lock.holder : null,
     queue: lock ? lock.queue : []};
 }
 // What holds the app lock, each command as its script's file name with the
@@ -406,14 +413,39 @@ function appLine(lock, b) {
     (b && b.newest ? " Last build " + when(new Date(b.newest * 1000)) + "." : "");
 }
 
-// Who waits for the app lock, next first.
+// Who waits for the app lock, next first, each with the buttons that move it.
+function queuedName(q) {
+  return q.command.includes("test-app") ? "Your test app" : (q.started_from || "?").split("/").pop();
+}
+async function queueAction(action, lock, q) {
+  try {
+    const reply = await fetch("/api/queue", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({action, repo: lock.repo, pid: q.pid})});
+    if (!reply.ok) {
+      const body = await reply.json().catch(() => ({}));
+      throw new Error(body.error || reply.status);
+    }
+    streamError = "";
+  } catch (e) {
+    streamError = "queue: " + e.message;
+  }
+  render();
+}
+function takeOver(lock, q) {
+  const stopped = lock.holder ? shortCommand(lock.holder.command).name : "the build";
+  if (lock.holder && !confirm("Stop " + stopped + " (held " + lock.holder.minutes + "m) so " + queuedName(q) +
+    " builds now? " + stopped + " goes straight behind it and runs again by itself.")) return;
+  queueAction("takeover", lock, q);
+}
 function queueBox(lock) {
   if (!lock.queue.length) return null;
   return h("div", {class: "waiting"},
     h("span", {class: "label"}, "Queue"),
-    lock.queue.map((q, i) => h("span", {class: "queued", title: q.command},
-      (i + 1) + ". " + (q.command.includes("test-app") ? "Your test app" : (q.started_from || "?").split("/").pop()) +
-      (q.minutes ? " · " + q.minutes + "m" : ""))));
+    lock.queue.map((q, i) => h("div", {class: "qrow"},
+      h("span", {class: "queued", title: q.command},
+        (i + 1) + ". " + queuedName(q) + (q.minutes ? " · " + q.minutes + "m" : "")),
+      i > 0 ? h("button", {type: "button", class: "qbtn", onclick: () => queueAction("top", lock, q)}, "Move to top") : null,
+      h("button", {type: "button", class: "qbtn danger", onclick: () => takeOver(lock, q)}, "Take over"))));
 }
 
 function pinnedMain(repo, c) {

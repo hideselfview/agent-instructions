@@ -74,7 +74,7 @@ fn check_out(top: &Path, commit: &str) -> Result<Config> {
     parse(&std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?)
 }
 
-fn build(top: &Path, config: &Config) -> Result<()> {
+fn build(top: &Path, config: &Config) -> Result<lock::Ran> {
     let Some((program, args)) = config.build.split_first() else {
         fail!("{CONFIG}: build names no command");
     };
@@ -179,9 +179,19 @@ pub fn cmd_test_app(tool: &Tool, args: &[String]) -> Result<()> {
     let top = PathBuf::from(text.trim());
 
     note(format!("waiting for {repo}'s app lock, then building {commit}"));
-    let held = lock::take(places, repo)?;
-    let config = check_out(&top, commit)?;
-    build(&top, &config)?;
+    let mut held = lock::take(places, repo)?;
+    // A takeover stops the build; it runs again from the checkout, behind the
+    // build that took over.
+    let config = loop {
+        let config = check_out(&top, commit)?;
+        match build(&top, &config)? {
+            lock::Ran::Finished => break config,
+            lock::Ran::TakenOver => {
+                note(format!("the build was stopped for a takeover; building {commit} again after it"));
+                held = held.requeue()?;
+            }
+        }
+    };
     let app = copy_path(places, repo, &config)?;
     copy_out(&top.join(&config.app), &app)?;
     // The build and the copy are done: the next build can start.

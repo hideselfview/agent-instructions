@@ -327,7 +327,7 @@ pub fn sample(
             app_head: app_top.as_deref().and_then(head_of),
         });
         let holder_pid = holder.as_ref().map(|h| h.pid);
-        let in_line = path.parent().map(crate::lock::queued).unwrap_or_default();
+        let in_line = path.parent().map(|repo_dir| crate::queue::Queue::in_repo_dir(repo_dir).waiting()).unwrap_or_default();
         let queue = in_line
             .into_iter()
             .filter(|pid| Some(*pid) != holder_pid)

@@ -26,10 +26,10 @@ fn take_on_thread(places: &Places, name: &'static str, said: std::sync::mpsc::Se
     free
 }
 
-/// Waits until <queue> holds <count> tickets.
-fn until_tickets(queue: &Path, count: usize) {
+/// Waits until the queue holds <count> tickets.
+fn until_tickets(queue: &Queue, count: usize) {
     let deadline = Instant::now() + Duration::from_secs(10);
-    while tickets(queue).unwrap().len() < count {
+    while queue.order().len() < count {
         assert!(Instant::now() < deadline, "{count} tickets never appeared");
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -39,7 +39,7 @@ fn until_tickets(queue: &Path, count: usize) {
 fn waiters_take_the_lock_in_the_order_they_came() {
     let scratch = Scratch::new("lock-order");
     let places = places(&scratch);
-    let queue = places.root.join("demo/app.queue");
+    let queue = Queue::of(&places, "demo");
     let (said, heard) = channel();
     let free_first = take_on_thread(&places, "first", said.clone());
     assert_eq!(heard.recv().unwrap(), "first");
@@ -61,48 +61,11 @@ fn waiters_take_the_lock_in_the_order_they_came() {
 }
 
 #[test]
-fn a_waiter_gone_from_the_queue_lets_no_one_past_the_holder() {
-    let scratch = Scratch::new("lock-gone");
+fn a_build_in_a_group_finishes_or_fails_with_its_exit_status() {
+    let scratch = Scratch::new("lock-ran");
     let places = places(&scratch);
-    let queue = places.root.join("demo/app.queue");
-    let (said, heard) = channel();
-    let free_first = take_on_thread(&places, "first", said.clone());
-    assert_eq!(heard.recv().unwrap(), "first");
-    // A ticket nothing holds: its process died waiting.
-    std::fs::write(queue.join("2"), "").unwrap();
-    let free_third = take_on_thread(&places, "third", said);
-    assert!(heard.recv_timeout(SETTLE).is_err(), "the holder still holds the lock");
-    assert!(!queue.join("2").exists(), "the dead ticket is taken away");
-
-    free_first.send(()).unwrap();
-    assert_eq!(heard.recv().unwrap(), "third");
-    free_third.send(()).unwrap();
-}
-
-#[test]
-fn the_queue_lists_each_tickets_process_in_order() {
-    let scratch = Scratch::new("lock-queued");
-    let dir = scratch.dir.join("demo");
-    let queue = dir.join("app.queue");
-    std::fs::create_dir_all(&queue).unwrap();
-    std::fs::write(queue.join("2"), "222").unwrap();
-    std::fs::write(queue.join("10"), "1010").unwrap();
-    std::fs::write(queue.join("3"), "").unwrap();
-    assert_eq!(queued(&dir), vec![222, 1010]);
-}
-
-#[test]
-fn only_a_held_ticket_counts_as_ahead() {
-    let scratch = Scratch::new("lock-ahead");
-    let queue = scratch.dir.join("app.queue");
-    std::fs::create_dir_all(&queue).unwrap();
-    std::fs::write(queue.join("1"), "").unwrap();
-    let (_, first, ahead) = join_queue(&queue).unwrap();
-    assert_eq!(ahead, 0, "a ticket left by a finished process is no one");
-    let (number, second, ahead) = join_queue(&queue).unwrap();
-    assert_eq!((number, ahead), (3, 1));
-    unsafe {
-        libc::close(first);
-        libc::close(second);
-    }
+    let held = take(&places, "demo").unwrap();
+    assert_eq!(run_in_group(Command::new("true"), "true").unwrap(), Ran::Finished);
+    assert!(matches!(run_in_group(Command::new("false"), "false"), Err(Fail::Exit(1))));
+    held.release();
 }
