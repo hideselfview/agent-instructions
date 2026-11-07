@@ -84,10 +84,20 @@ fn join_queue(queue: &Path) -> Result<(u64, libc::c_int, usize)> {
     let guard = open_locked(&queue.join(".next"))?;
     let taken = tickets(queue)?;
     let number = taken.last().map_or(1, |last| last + 1);
-    let ticket = open_locked(&queue.join(number.to_string()))?;
+    let path = queue.join(number.to_string());
+    let ticket = open_locked(&path)?;
+    std::fs::write(&path, std::process::id().to_string()).context(|| format!("writing {}", path.display()))?;
     unsafe { libc::close(guard) };
     let ahead = taken.iter().filter(|before| is_held(&queue.join(before.to_string()))).count();
     Ok((number, ticket, ahead))
+}
+
+/// The process of each ticket in <repo_dir>'s queue, first in line first; one
+/// that is gone is still listed.
+pub fn queued(repo_dir: &Path) -> Vec<i32> {
+    let queue = repo_dir.join("app.queue");
+    let numbers = tickets(&queue).unwrap_or_default();
+    numbers.iter().filter_map(|n| std::fs::read_to_string(queue.join(n.to_string())).ok()?.parse().ok()).collect()
 }
 
 /// Whether a process holds the ticket at <path>.

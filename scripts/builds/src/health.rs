@@ -104,6 +104,17 @@ pub struct LockHealth {
     pub path: String,
     pub holder: Option<Holder>,
     pub waiting: usize,
+    /// Those waiting, next first.
+    pub queue: Vec<Queued>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Queued {
+    pub pid: i32,
+    pub minutes: i64,
+    pub command: String,
+    /// The checkout its working directory is in.
+    pub started_from: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -315,7 +326,20 @@ pub fn sample(
             started_from: cwd(process.pid).and_then(|dir| place_of(places, &dir)).map(|at| places[at].label.clone()),
             app_head: app_top.as_deref().and_then(head_of),
         });
-        held.push(LockHealth { repo: repo.clone(), path: shown, holder, waiting });
+        let holder_pid = holder.as_ref().map(|h| h.pid);
+        let in_line = path.parent().map(crate::lock::queued).unwrap_or_default();
+        let queue = in_line
+            .into_iter()
+            .filter(|pid| Some(*pid) != holder_pid)
+            .filter_map(|pid| processes.list.iter().find(|p| p.pid == pid && p.name == "builds"))
+            .map(|process| Queued {
+                pid: process.pid,
+                minutes: minutes_since(now, process.started),
+                command: command_line(process.pid),
+                started_from: cwd(process.pid).and_then(|dir| place_of(places, &dir)).map(|at| places[at].label.clone()),
+            })
+            .collect();
+        held.push(LockHealth { repo: repo.clone(), path: shown, holder, waiting, queue });
     }
     Machine {
         at: now,

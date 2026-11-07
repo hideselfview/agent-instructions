@@ -301,7 +301,8 @@ function pill(text, cls) { return h("span", {class: "pill " + cls}, text); }
 function stateOf(c) { return STATES[c.state] || {label: c.state, cls: "s-free"}; }
 function lockOf(repo) {
   const lock = repo.lock;
-  return {held: !!(lock && lock.holder), waiting: lock ? lock.waiting : 0, holder: lock ? lock.holder : null};
+  return {held: !!(lock && lock.holder), waiting: lock ? lock.waiting : 0, holder: lock ? lock.holder : null,
+    queue: lock ? lock.queue : []};
 }
 // What holds the app lock, each command as its script's file name with the
 // whole command in the tooltip.
@@ -405,6 +406,16 @@ function appLine(lock, b) {
     (b && b.newest ? " Last build " + when(new Date(b.newest * 1000)) + "." : "");
 }
 
+// Who waits for the app lock, next first.
+function queueBox(lock) {
+  if (!lock.queue.length) return null;
+  return h("div", {class: "waiting"},
+    h("span", {class: "label"}, "Queue"),
+    lock.queue.map((q, i) => h("span", {class: "queued", title: q.command},
+      (i + 1) + ". " + (q.command.includes("test-app") ? "Your test app" : (q.started_from || "?").split("/").pop()) +
+      (q.minutes ? " · " + q.minutes + "m" : ""))));
+}
+
 function pinnedMain(repo, c) {
   const b = built(c);
   return h("article", {class: "pinned"},
@@ -425,6 +436,7 @@ function pinnedApp(repo, c) {
       lock.held ? pill("Lock held", "s-working") : pill("Lock free", "s-free")),
     h("span", {class: "line"}, appLine(lock, b)),
     lock.held ? commands(lock) : null,
+    queueBox(lock),
     activityLine(c),
     c.claim ? h("div", {class: "who-block"}, h("span", {class: "who"}, c.claim.who),
       c.claim.note ? h("span", {class: "note"}, c.claim.note) : null) : null,

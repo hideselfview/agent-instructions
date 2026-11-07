@@ -80,6 +80,18 @@ fn a_waiter_gone_from_the_queue_lets_no_one_past_the_holder() {
 }
 
 #[test]
+fn the_queue_lists_each_tickets_process_in_order() {
+    let scratch = Scratch::new("lock-queued");
+    let dir = scratch.dir.join("demo");
+    let queue = dir.join("app.queue");
+    std::fs::create_dir_all(&queue).unwrap();
+    std::fs::write(queue.join("2"), "222").unwrap();
+    std::fs::write(queue.join("10"), "1010").unwrap();
+    std::fs::write(queue.join("3"), "").unwrap();
+    assert_eq!(queued(&dir), vec![222, 1010]);
+}
+
+#[test]
 fn only_a_held_ticket_counts_as_ahead() {
     let scratch = Scratch::new("lock-ahead");
     let queue = scratch.dir.join("app.queue");
