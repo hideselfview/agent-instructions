@@ -279,7 +279,9 @@ and stale dirty state then lingers, gets lost, or collides with the next change.
 Flag what you did in your reply so they can see it and revert if they disagree —
 but land it. Run the build/tests/review you'd normally run first; this is about
 the disposition of finished work, not skipping verification. (Commit on the
-active branch/worktree; together-edits land on `main`.)
+active branch/worktree; together-edits land on `main`.) Always push commits in
+`agent-instructions`: an unpushed change there hasn't reached the other machines
+and agents.
 
 **Don't `git add -A`.** Stage files individually or by targeted path.
 Sweep-staging accidentally captures secrets, generated files, or unrelated work.
