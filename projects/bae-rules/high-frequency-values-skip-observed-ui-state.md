@@ -36,9 +36,9 @@ that key's latest value on the display's own frame callback while the key is
 active, shows it if it changed, and stops when the key goes idle. Only a key
 starting or stopping reaches the main thread, to start or stop the views drawing
 it. That is the display's clock, not a timer standing in for knowing when a
-value changed. In bae: `LatestByKey` and `FrameFollowing` (BaeKit, using an
-`NSView` display link) and their Kotlin twins (`fm.bae.app.data`,
-`fm.bae.app.ui.components`, using `Choreographer`).
+value changed. In bae: `LatestStream` and `FrameFollowing` (BaeKit, using an
+`NSView` display link) and their Kotlin twins (`fm.bae.fastvalues`, using
+`Choreographer`).
 
 **On macOS and iOS:** the AppKit/UIKit view (or `CALayer`) reads its key's
 latest value each frame from its display link (`NSView.displayLink`,
