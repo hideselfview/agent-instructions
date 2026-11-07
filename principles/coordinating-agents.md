@@ -55,6 +55,11 @@ another's message, written to the same file name.
 
 ## Dispatch
 
+- Who implements: the coordinator settles the shape and writes the brief; the
+  implementer model builds it. The orchestrator model implements only when the
+  coordinator can't plan the work out, and the brief says why the coordinator
+  can't: what it read, and what stays unknown until the code is being written.
+  "The shape is open" is not a reason while reading the code would settle it.
 - One task per agent (a commit or a short chain); later items go to the same
   agent while its context is small, to a successor from its handoff once it
   passes about 550k tokens.
