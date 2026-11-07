@@ -286,10 +286,12 @@ pub fn sample(
         let opened = |pid: i32| open_files(pid).iter().any(|open| *open == real || open == path);
         let mut holding = None;
         let mut waiting = 0;
-        // `builds lock <repo> ...`: the one with the lock's file open holds
-        // it; the others wait inside `open`.
+        // `builds lock <repo> ...` and `builds test-app <repo> ...`: the one
+        // with the lock's file open holds it; the others wait in its queue.
         for process in processes.list.iter().filter(|p| p.name == "builds") {
-            let locking = |argv: Vec<String>| argv.get(1).is_some_and(|a| a == "lock") && argv.get(2) == Some(repo);
+            let locking = |argv: Vec<String>| {
+                argv.get(1).is_some_and(|a| a == "lock" || a == "test-app") && argv.get(2) == Some(repo)
+            };
             if !args(process.pid).is_some_and(locking) {
                 continue;
             }

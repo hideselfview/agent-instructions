@@ -185,7 +185,7 @@ pub fn cmd_test_app(tool: &Tool, args: &[String]) -> Result<()> {
     let app = copy_path(places, repo, &config)?;
     copy_out(&top.join(&config.app), &app)?;
     // The build and the copy are done: the next build can start.
-    unsafe { libc::close(held) };
+    held.release();
 
     quit(&config.bundle, &app)?;
     replace(&app)?;
