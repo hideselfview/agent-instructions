@@ -155,10 +155,19 @@ Commands:
                               again straight after it, by itself; with
                               nothing holding the lock, the same as `top`.
                               The dashboard's queue has both as buttons
+  builds app-build <repo> <ref> [<step>...]
+                              on the app lock, check out <ref> in the app
+                              checkout, which must be clean, and run the steps
+                              its .app-build names (step lines), in the order
+                              given, all of them in the order written when none
+                              is named, stopping at the first failure; a
+                              takeover reruns it from the checkout
+  builds app-build <repo> --list
+                              print the app checkout's steps
   builds test-app <repo> [--no-open] [<ref>]
                               on the app lock, check out <ref> (default the
                               main branch, as it stands in the main checkout)
-                              in the app checkout, which must be clean, run the build its .test-app names, copy
+                              in the app checkout, which must be clean, run the build its .app-build names, copy
                               the app to ~/Applications/<repo>-test, quit the
                               one running, and open the copy
   builds units prune <days> <hours> <incremental hours> <dry 0|1> <folder>...

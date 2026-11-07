@@ -51,7 +51,10 @@ impl Volume {
 
     fn builds(&self) -> Command {
         let mut command = Command::new(BUILDS);
-        command.env("BUILDS_ROOT", self.dir.join("volume")).env("HOME", self.dir.join("home"));
+        command
+            .env("BUILDS_ROOT", self.dir.join("volume"))
+            .env("HOME", self.dir.join("home"))
+            .env("QUEUE_TEST_DIR", &self.dir);
         command
     }
 
@@ -69,6 +72,54 @@ impl Volume {
         let pid = child.id() as i32;
         self.started.push(child);
         pid
+    }
+
+    /// Starts <args> as a `builds` command that is queued with the others;
+    /// its pid.
+    fn spawn(&mut self, args: &[&str]) -> i32 {
+        let child = self.builds().args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+        let pid = child.id() as i32;
+        self.started.push(child);
+        pid
+    }
+
+    /// A repo `demo` with an origin and a `.app-build` of the steps one and
+    /// two (scripts that log like `BUILD` and wait for `go-one`, `go-two`),
+    /// and its app checkout recorded.
+    fn app_repo(&self) {
+        let top = self.dir.join("checkout");
+        let git = |args: &[&str]| {
+            let status = Command::new("git").arg("-C").arg(&top).args(args).output().unwrap();
+            assert!(status.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&status.stderr));
+        };
+        std::fs::create_dir_all(&top).unwrap();
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "test"]);
+        for name in ["one", "two"] {
+            let script = format!(
+                "#!/bin/sh\ntrap 'echo \"stop {name}\" >> \"$QUEUE_TEST_DIR/log\"; exit 1' TERM\necho \"start {name}\" >> \"$QUEUE_TEST_DIR/log\"\nwhile [ ! -e \"$QUEUE_TEST_DIR/go-{name}\" ]; do sleep 0.05; done\necho \"end {name}\" >> \"$QUEUE_TEST_DIR/log\"\n"
+            );
+            let path = top.join(format!("{name}.sh"));
+            std::fs::write(&path, script).unwrap();
+            let mut mode = std::fs::metadata(&path).unwrap().permissions();
+            std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+            std::fs::set_permissions(&path, mode).unwrap();
+        }
+        std::fs::write(
+            top.join(".app-build"),
+            "build ./one.sh\napp out.app\nbundle demo.test\nstep one ./one.sh\nstep two ./two.sh\n",
+        )
+        .unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "Start"]);
+        let origin = self.dir.join("origin.git");
+        let made = Command::new("git").args(["init", "-q", "--bare"]).arg(&origin).output().unwrap();
+        assert!(made.status.success());
+        git(&["remote", "add", "origin", origin.to_str().unwrap()]);
+        git(&["push", "-q", "origin", "main"]);
+        std::fs::create_dir_all(self.dir.join("volume/demo/side-1")).unwrap();
+        std::fs::write(self.dir.join("volume/demo/side-1/.checkout"), top.to_str().unwrap()).unwrap();
     }
 
     fn order(&self) -> Vec<String> {
@@ -317,4 +368,39 @@ fn moving_the_last_waiter_to_the_top_leaves_no_cycle() {
         let log = volume.log_of(8);
         assert_eq!(log, lines(&["start H", "end H", "start X", "end X", "start A", "end A", "start B", "end B"]), "round {round}");
     }
+}
+
+#[test]
+fn a_takeover_runs_an_app_build_again_from_its_first_step() {
+    let mut volume = Volume::new("app-build");
+    volume.app_repo();
+    volume.spawn(&["app-build", "demo", "main"]);
+    volume.until_logged("start one");
+    volume.lock("W");
+    volume.until_queued(2);
+    volume.open_gate("W");
+    let taken = volume.run(&["takeover", "demo"]);
+    assert!(taken.status.success(), "{}", String::from_utf8_lossy(&taken.stderr));
+    volume.until_logged("end W");
+    volume.until_logged("stop one");
+    std::fs::write(volume.dir.join("go-one"), "").unwrap();
+    std::fs::write(volume.dir.join("go-two"), "").unwrap();
+    let log = volume.log_of(8);
+    assert_eq!(log, lines(&["start one", "stop one", "start W", "end W", "start one", "end one", "start two", "end two"]));
+    assert_one_at_a_time(&log);
+}
+
+#[test]
+fn app_build_runs_the_steps_named_and_lists_them() {
+    let volume = Volume::new("app-build-steps");
+    volume.app_repo();
+    let listed = volume.run(&["app-build", "demo", "--list"]);
+    assert_eq!(String::from_utf8_lossy(&listed.stdout), "one ./one.sh\ntwo ./two.sh\n");
+    std::fs::write(volume.dir.join("go-two"), "").unwrap();
+    let built = volume.run(&["app-build", "demo", "main", "two"]);
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    assert_eq!(volume.log(), lines(&["start two", "end two"]));
+    let unknown = volume.run(&["app-build", "demo", "main", "three"]);
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("no step three"));
 }

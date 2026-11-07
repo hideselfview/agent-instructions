@@ -2,12 +2,14 @@
 //! in the repo's app checkout, whose build stays warm, taking turns on its app
 //! lock, and copies the app out, since the next build there replaces it.
 //!
-//! A repo's `.test-app` says what only it knows, one field per line:
+//! A repo's `.app-build` says what only it knows, one field per line, and
+//! `builds app-build` (app_build.rs) reads its `step` lines:
 //!
 //! ```text
 //! build ./bae-macos/run.sh --no-open
 //! app bae-macos/bae/.build/runApp/Build/Products/Debug/bae.app
 //! bundle fm.bae.desktop
+//! step macos ./bae-macos/run.sh --no-open
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -23,14 +25,14 @@ use crate::places::Places;
 use crate::text::note;
 use crate::tool::Tool;
 
-const CONFIG: &str = ".test-app";
+pub const CONFIG: &str = ".app-build";
 const USAGE: &str = "usage: builds test-app <repo> [--no-open] [<ref>]";
 const QUIT_CHECKS: u32 = 60;
 const QUIT_CHECK_EVERY: Duration = Duration::from_millis(500);
 
-/// A repo's `.test-app`.
+/// A repo's `.app-build`.
 #[derive(Debug, PartialEq, Eq)]
-struct Config {
+pub struct Config {
     /// The build's program, relative to the checkout when it names a path,
     /// and its arguments.
     build: Vec<String>,
@@ -38,32 +40,61 @@ struct Config {
     app: String,
     /// The app's bundle id, to quit the one running.
     bundle: String,
+    /// What `builds app-build` runs, in the order written.
+    pub steps: Vec<Step>,
+}
+
+/// A `step <name> <program> [<args>...]` line: a program, relative to the
+/// checkout when it names a path. No shell reads it: a step that needs one is
+/// a script in the repo.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Step {
+    pub name: String,
+    pub command: Vec<String>,
+}
+
+pub fn parse_config(text: &str) -> Result<Config> {
+    parse(text)
 }
 
 fn parse(text: &str) -> Result<Config> {
     let (mut build, mut app, mut bundle) = (None, None, None);
+    let mut steps: Vec<Step> = Vec::new();
     for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
         match line.split_once(' ') {
             Some(("build", value)) => build = Some(value.split_whitespace().map(str::to_string).collect()),
             Some(("app", value)) => app = Some(value.trim().to_string()),
             Some(("bundle", value)) => bundle = Some(value.trim().to_string()),
+            Some(("step", value)) => {
+                let mut words = value.split_whitespace().map(str::to_string);
+                let (Some(name), command) = (words.next(), words.collect::<Vec<_>>()) else {
+                    fail!("{CONFIG}: a step needs a name and a command");
+                };
+                if command.is_empty() {
+                    fail!("{CONFIG}: step {name} names no command");
+                }
+                if steps.iter().any(|step| step.name == name) {
+                    fail!("{CONFIG}: step {name} is named twice");
+                }
+                steps.push(Step { name, command });
+            }
             _ => fail!("{CONFIG}: no field in {line:?}"),
         }
     }
     match (build, app, bundle) {
-        (Some(build), Some(app), Some(bundle)) => Ok(Config { build, app, bundle }),
+        (Some(build), Some(app), Some(bundle)) => Ok(Config { build, app, bundle, steps }),
         _ => fail!("{CONFIG} needs build, app and bundle lines"),
     }
 }
 
 /// Runs git in <top>, failing with what it said.
-fn run_git(top: &Path, args: &[&str]) -> Result<String> {
+pub fn run_git(top: &Path, args: &[&str]) -> Result<String> {
     git_text(git(top).args(args), &format!("git {}", args.join(" ")))
 }
 
 /// The ref checked out in the app checkout <top>, which must be clean, and its
-/// `.test-app`.
-fn check_out(top: &Path, commit: &str) -> Result<Config> {
+/// `.app-build`.
+pub fn check_out(top: &Path, commit: &str) -> Result<Config> {
     let changes = run_git(top, &["status", "--porcelain"])?;
     if !changes.trim().is_empty() {
         fail!("the app checkout has changes, so nothing was built:\n{changes}");
@@ -75,8 +106,13 @@ fn check_out(top: &Path, commit: &str) -> Result<Config> {
 }
 
 fn build(top: &Path, config: &Config) -> Result<lock::Ran> {
-    let Some((program, args)) = config.build.split_first() else {
-        fail!("{CONFIG}: build names no command");
+    run_command(top, &config.build)
+}
+
+/// Runs <command> in the checkout <top>, in a process group of its own.
+pub fn run_command(top: &Path, command: &[String]) -> Result<lock::Ran> {
+    let Some((program, args)) = command.split_first() else {
+        fail!("{CONFIG}: a command names no program");
     };
     let path = if program.contains('/') { top.join(program) } else { PathBuf::from(program) };
     let mut start = Command::new(path);
@@ -157,6 +193,16 @@ fn quit(bundle: &str, app: &Path) -> Result<()> {
     fail!("{bundle} is still running after being asked to quit; the new app is at {}", with_new(app).display())
 }
 
+/// The folder of <repo>'s app checkout.
+pub fn app_checkout_top(places: &Places, repo: &str) -> Result<PathBuf> {
+    let Some(name) = places.app_checkout_of(repo)? else {
+        fail!("{repo} has no app checkout; builds app-checkout records one");
+    };
+    let marker = places.root.join(repo).join(&name).join(".checkout");
+    let text = std::fs::read_to_string(&marker).context(|| format!("reading {}", marker.display()))?;
+    Ok(PathBuf::from(text.trim()))
+}
+
 pub fn cmd_test_app(tool: &Tool, args: &[String]) -> Result<()> {
     let Some((repo, rest)) = args.split_first() else {
         fail!("{USAGE}");
@@ -171,12 +217,7 @@ pub fn cmd_test_app(tool: &Tool, args: &[String]) -> Result<()> {
         }
     }
     let places = &tool.places;
-    let Some(name) = places.app_checkout_of(repo)? else {
-        fail!("{repo} has no app checkout; builds app-checkout records one");
-    };
-    let marker = places.root.join(repo).join(&name).join(".checkout");
-    let text = std::fs::read_to_string(&marker).context(|| format!("reading {}", marker.display()))?;
-    let top = PathBuf::from(text.trim());
+    let top = app_checkout_top(places, repo)?;
 
     note(format!("waiting for {repo}'s app lock, then building {commit}"));
     let mut held = lock::take(places, repo)?;

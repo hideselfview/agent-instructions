@@ -3,7 +3,7 @@ use crate::testing::{git, repo, Scratch};
 
 const CONFIG_TEXT: &str = "build mkdir out.app\napp out.app\nbundle demo.test\n";
 
-/// A repo with a `.test-app`, and <name> for its app checkout.
+/// A repo with a `.app-build`, and <name> for its app checkout.
 fn checkout(scratch: &Scratch, name: &str) -> PathBuf {
     let top = scratch.dir.join(name);
     repo(&top, "target 1G\nout.app 1G\n");
@@ -26,6 +26,7 @@ fn a_config_names_the_build_the_app_and_the_bundle() {
             build: vec!["mkdir".to_string(), "out.app".to_string()],
             app: "out.app".to_string(),
             bundle: "demo.test".to_string(),
+            steps: Vec::new(),
         }
     );
 }
@@ -72,4 +73,13 @@ fn the_copy_replaces_the_test_app() {
     assert!(app.join("new").exists());
     assert!(!app.join("old").exists());
     assert!(!with_new(&app).exists());
+}
+
+#[test]
+fn step_lines_name_a_command_each_in_the_order_written() {
+    let config = parse(&format!("{CONFIG_TEXT}step first ./a.sh --x\nstep second b\n")).unwrap();
+    let step = |name: &str, command: &[&str]| Step { name: name.to_string(), command: command.iter().map(|w| w.to_string()).collect() };
+    assert_eq!(config.steps, vec![step("first", &["./a.sh", "--x"]), step("second", &["b"])]);
+    assert!(parse(&format!("{CONFIG_TEXT}step lonely\n")).is_err(), "a step without a command");
+    assert!(parse(&format!("{CONFIG_TEXT}step a x\nstep a y\n")).is_err(), "a name twice");
 }

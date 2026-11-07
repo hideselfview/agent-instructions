@@ -185,28 +185,25 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   - **`~/dev/bae-worktrees/side-1`, the app checkout** (recorded for the tool
     with `builds app-checkout ~/dev/bae-worktrees/side-1`), for every agent
     whose change needs an app build (Swift, Kotlin, C#, or a bridge shape the
-    apps compile against). Take it under `/Volumes/Builds/bae/app.lock`: commit
-    on your branch in your own worktree, then, as a background task:
+    apps compile against). Commit on your branch in your own worktree, then run,
+    as a background task:
 
     ```sh
-    builds lock bae sh -c '
-      cd ~/dev/bae-worktrees/side-1 &&
-      { test -z "$(git status --porcelain)" || { git status --short; exit 1; }; } &&
-      git checkout -q --detach <branch> &&
-      ./bae-macos/run.sh --no-open'
+    builds app-build bae <branch> [<step>...]
     ```
 
-    with the build you need in place of `bae-macos/run.sh` (`bae-ios/run.sh`,
-    `bae-android/run.sh`, `bae-avalonia/smoke-test.sh`, a screenshot script,
-    tests), chained in the same command.
-
-    `run.sh` builds the app but not its unit-test target, so a change to a
-    bridge shape or to Swift code also compiles the macOS tests, chained after
-    it: `./bae-macos/run.sh --no-open && ./bae-macos/test.sh --build-only`. For
-    Android, `bae-android/run.sh` installs the app without compiling the unit
-    tests or the screenshot tests, so chain
-    `. bae-android/toolchain.sh && (cd bae-android && ./gradlew compileFullDebugUnitTestKotlin compileFullDebugScreenshotTestKotlin)`
-    after it.
+    It takes the queue for `/Volumes/Builds/bae/app.lock`, checks the branch out
+    in the app checkout (which must be clean) and runs the steps of the repo's
+    `.app-build`, in the order named, stopping at the first that fails; with no
+    step named it runs every one. `builds app-build bae --list` prints them:
+    `macos` (build the app), `macos-tests` (compile its unit tests),
+    `android-bridge` and `android` (the bridge, then the Kotlin and both test
+    targets). A change to a bridge shape or to Swift code needs `macos` and
+    `macos-tests`; one to Kotlin needs `android-bridge` and `android`. A step is
+    a program, not a shell string: one that needs a shell is a script in the
+    repo (`bae-android/compile-all.sh`). To build something else there
+    (`bae-ios/run.sh`, `bae-avalonia/smoke-test.sh`, a screenshot script), add a
+    `step` line.
 
     Cargo builds there run without incremental compilation (`builds cargo`
     passes `--config build.incremental=false` in the app checkout), so sccache

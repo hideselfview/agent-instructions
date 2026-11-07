@@ -1,6 +1,7 @@
 //! builds: owns this machine's build volume, /Volumes/Builds, and everything
 //! on it. `builds help` says what it does; src/help.txt is that text.
 
+mod app_build;
 mod cargo_run;
 mod checkout;
 mod claim;
@@ -68,6 +69,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         // inherits; `cargo` asks git about its checkout without changing it.
         "cargo" => return cargo_run::cmd_cargo(args),
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
+        "app-build" => return app_build::cmd_app_build(&Places::from_env()?, args),
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),
         "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
         "-h" | "--help" | "help" => {
@@ -97,7 +99,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "health" => health::cmd_health(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
         other => fail!(
-            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | dashboard | prune | cargo | lock | queue | takeover | test-app | install)"
+            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | dashboard | prune | cargo | lock | app-build | queue | takeover | test-app | install)"
         ),
     }
 }

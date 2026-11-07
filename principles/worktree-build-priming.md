@@ -342,12 +342,17 @@ your own side worktree, then run one command that holds the lock, moves the app
 checkout to your commit and builds. In bae:
 
 ```sh
-builds lock bae sh -c '
-  cd ~/dev/bae-worktrees/side-1 &&
-  { test -z "$(git status --porcelain)" || { git status --short; exit 1; }; } &&
-  git checkout -q --detach <branch> &&
-  ./bae-macos/run.sh --no-open'
+builds app-build bae <branch> [<step>...]
 ```
+
+It queues for the lock, checks the branch out in the app checkout (which must be
+clean) and runs the named steps of the repo's `.app-build`, one
+`step <name> <program> [<args>...]` line each, in the order named (every step,
+in the order written, with none named), stopping at the first that fails.
+`builds app-build <repo> --list` prints them. A step is a program, not a shell
+string: a step that needs a shell is a script in the repo. A takeover reruns the
+build from the checkout. `builds lock` stays for a command that is no repo's
+build.
 
 - `builds lock <repo> <command>` waits until `/Volumes/Builds/<repo>/app.lock`
   is free, so run it as a background task. The lock lives as long as any process
