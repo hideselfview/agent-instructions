@@ -141,9 +141,9 @@ Commands:
                               command exits, and SIGTERM, SIGINT and SIGHUP go
                               to the command's whole process group
   builds test-app <repo> [--no-open] [<ref>]
-                              on the app lock, check out <ref> (default
-                              origin/main) in the app checkout, which must be
-                              clean, run the build its .test-app names, copy
+                              on the app lock, check out <ref> (default the
+                              main branch, as it stands in the main checkout)
+                              in the app checkout, which must be clean, run the build its .test-app names, copy
                               the app to ~/Applications/<repo>-test, quit the
                               one running, and open the copy
   builds units prune <days> <hours> <incremental hours> <dry 0|1> <folder>...

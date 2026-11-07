@@ -162,7 +162,7 @@ pub fn cmd_test_app(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("{USAGE}");
     };
     let mut open = true;
-    let mut commit = "origin/main";
+    let mut commit = "main";
     for arg in rest {
         match arg.as_str() {
             "--no-open" => open = false,
