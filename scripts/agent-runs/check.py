@@ -26,13 +26,19 @@ BAE_BRIDGE_SET = {"oauth-providers", "cloudkit", "cast", "test-keyring", "dev-re
 def hook_builds(repo, found):
     if repo == "coven":
         return found == {"--all-features"}
-    names = set()
+    # A feature named "crate/feature" belongs to that crate, and each crate's
+    # set is judged on its own: one clippy over several crates names each
+    # crate's hook set, bae-bridge's bridge set among them.
+    per_crate = {}
     for f in found:
         if f == "--all-features":
             return False
         for name in f.removeprefix("--features ").replace(",", " ").split():
-            names.add(name.split("/")[-1])
-    return names <= BAE_TEST_FEATURES or names == BAE_BRIDGE_SET
+            crate, _, feature = name.rpartition("/")
+            per_crate.setdefault(crate, set()).add(feature)
+    return all(
+        names <= BAE_TEST_FEATURES or names == BAE_BRIDGE_SET for names in per_crate.values()
+    )
 
 
 def cwd_of(pid):
