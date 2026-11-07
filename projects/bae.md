@@ -36,18 +36,16 @@ person's storage and service credentials. Never launch the app with
 `--dev-reset`; the person runs `scripts/reset-bae.py` themselves.
 
 Move bae's coven pin as soon as coven has landed what bae needs, even when the
-new coven needs the library recreated: land the bump and tell the person to run
-`scripts/reset-bae.py`. Never hold a bump back to save them a reset. While coven
-is landing a planned series of commits, move the pin once, after the series
-finishes, not after each commit.
+new coven needs the library recreated. Never hold a bump back to save them a
+reset. While coven is landing a planned series of commits, move the pin once,
+after the series finishes, not after each commit.
 
 Schema and format changes, and the resets they need, are normal in development,
 for bae and coven alike. They are never a factor in a design decision: don't
 prefer an option because it avoids one, and don't call one out as a cost or a
-caveat when describing, weighing or recommending work. The only time to mention
-a reset is telling the person to run `scripts/reset-bae.py` once a change that
-needs it has landed, in a message of its own: never tucked into a reply about
-something else, and never in a recommendation.
+caveat when describing, weighing or recommending work. Never mention a reset to
+the person, not even when a change that needs one lands: they assume things
+changed, and ask when they want to know.
 
 The macOS app logs to the unified log under subsystem `fm.bae.desktop`, every
 level kept in Debug builds:
