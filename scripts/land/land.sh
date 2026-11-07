@@ -11,7 +11,18 @@ for attempt in 1 2 3 4 5; do
   all_in=1; for c in "$@"; do git merge-base --is-ancestor "$c" "$last" || all_in=0; done
   if [ "$all_in" = 0 ] || ! git merge -q --ff-only "$last" 2>/dev/null; then
     git checkout -q --detach origin/main
-    if ! git cherry-pick "$@" >/dev/null 2>&1; then git cherry-pick --abort; echo CONFLICT; exit 1; fi
+    # A push that reported failure may still have landed, and someone else may
+    # have landed the same change: pick only the commits whose change isn't on
+    # origin/main yet, so a retry doesn't call an applied commit a conflict.
+    todo=(); for c in "$@"; do
+      [ "$(git cherry origin/main "$c" "$c^" | cut -c1)" = + ] && todo+=("$c")
+    done
+    if [ "${#todo[@]}" = 0 ]; then
+      echo "already on origin/main:"
+      for c in "$@"; do git log --oneline -1 --grep="^$(git log -1 --format=%s "$c" | sed 's/[][\.*^$]/\\&/g')$" origin/main; done
+      exit 0
+    fi
+    if ! git cherry-pick "${todo[@]}" >/dev/null 2>&1; then git cherry-pick --abort; echo CONFLICT; exit 1; fi
     if [ -f .land-checks ]; then
       while IFS= read -r check || [ -n "$check" ]; do
         case "$check" in ''|'#'*) continue ;; esac
