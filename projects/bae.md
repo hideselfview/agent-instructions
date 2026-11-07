@@ -177,9 +177,12 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   pre-commit hook). App builds — the bridge for macOS, iOS or Android, the Xcode
   apps, BaeKit, Gradle, Avalonia — stay warm in two checkouts:
 
-  - **main**, for the person's installs. Notarized macOS releases come only from
+  - **main**, the person's checkout. Notarized macOS releases come only from
     main (`scripts/release-macos.sh` runs the `release-macos.yml` workflow on
-    it).
+    it, so they build on CI, not here). The person builds their test app with
+    `scripts/test-app.sh [<ref>]`, in the app checkout on its lock, which copies
+    the app to `~/Applications/bae-test/bae.app`, where `scripts/reset-bae.py`
+    launches it.
 
   - **`~/dev/bae-worktrees/side-1`, the app checkout** (recorded for the tool
     with `builds app-checkout ~/dev/bae-worktrees/side-1`), for every agent
@@ -197,8 +200,7 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
 
     with the build you need in place of `bae-macos/run.sh` (`bae-ios/run.sh`,
     `bae-android/run.sh`, `bae-avalonia/smoke-test.sh`, a screenshot script,
-    tests), chained in the same command. The person tests an agent's app build
-    there.
+    tests), chained in the same command.
 
     `run.sh` builds the app but not its unit-test target, so a change to a
     bridge shape or to Swift code also compiles the macOS tests, chained after
