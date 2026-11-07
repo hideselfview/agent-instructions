@@ -1,6 +1,11 @@
 #!/bin/bash
 # land.sh <worktree> <sha>...: put the commits on origin/main (fast-forward when they sit on it, else cherry-pick), retrying the whole step on a refused push.
 # A cherry-picked result is a tree no hook has seen, so before pushing it the repo's whole-tree checks run: the commands in the repo's `.land-checks` (one per line, blank lines and lines starting with # skipped, each run with `sh -c` from the repo root). A failing check is named with its output, nothing is pushed, and the worktree goes back to origin/main (exit 1, no retry). Then the repo's `.land-compile`, if present, runs (`bash .land-compile` from the repo root, reading what the commits changed from `git diff origin/main HEAD`): the compile check of the result, which the static checks can't do, since two commits that each compile can break each other. It fails the same way. A fast-forward is the tree the hook already ran on, so it skips both.
+# Two landings in one worktree move each other's HEAD: one pushed the other's and called it landed. Each waits for the worktree to itself.
+if [ -z "$LAND_LOCKED" ]; then
+  git_dir=$(git -C "$1" rev-parse --absolute-git-dir) || exit 1
+  LAND_LOCKED=1 exec lockf "$git_dir/land.lock" "$0" "$@"
+fi
 cd "$1" || exit 1; shift
 # An agent's worktree sits on its branch; the landing worktree is detached. Landing there would move the agent off its branch.
 if b=$(git symbolic-ref -q --short HEAD); then echo "refusing: $PWD is on branch $b; land from the detached landing worktree"; exit 1; fi
