@@ -101,7 +101,9 @@ def main():
         cwd = cwd_of(pid)
         repo = "coven" if "/coven" in cwd else "bae" if "/bae" in cwd else None
         problems = []
-        if repo and not hook_builds(repo, features(args)):
+        # The checker's own crate has no features, in either repo.
+        checker = 'owner-construction-check' in args
+        if repo and not checker and not hook_builds(repo, features(args)):
             problems.append(f"feature set {sorted(features(args)) or ['default']}, not the hook's")
         # --no-run only builds the test binary, so it runs no suite.
         if kind == "test" and "--no-run" not in args:
