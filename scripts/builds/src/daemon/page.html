@@ -393,7 +393,7 @@ function chips(b) {
       h("div", {class: "chips"}, rest.map(chip))) : null];
 }
 function mainLine(repo) {
-  return "Your checkout. No agent works or builds here" + (repo.app_checkout ? "; you install from it." : ".");
+  return "Your checkout. No agent works or builds here.";
 }
 function appLine(lock, b) {
   if (lock.held) {
