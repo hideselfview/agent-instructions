@@ -131,20 +131,32 @@ for f in "$repo/projects"/*.md; do
 done
 
 # Per-project rule files. Convention: projects/<name>-rules/*.md are path-scoped
-# rules for that project, symlinked into ~/dev/<name>/.claude/rules/ so Claude
-# Code loads them project-scoped. Gitignore .claude/rules/ in the target repo.
+# rules for that project, symlinked into .claude/rules/ of ~/dev/<name> and of
+# each of its worktrees, so Claude Code loads them project-scoped wherever an
+# agent edits; a link to a rule since removed is dropped. A repo's
+# post-checkout links them into a worktree it creates. Gitignore .claude/rules/
+# in the target repo.
 for rules_dir in "$repo/projects"/*-rules; do
   [[ -d "$rules_dir" ]] || continue
   name="$(basename "$rules_dir")"
   name="${name%-rules}"
   if [[ -d "$HOME/dev/$name" ]]; then
-    target_dir="$HOME/dev/$name/.claude/rules"
-    mkdir -p "$target_dir"
-    for f in "$rules_dir"/*.md; do
-      [[ -f "$f" ]] || continue
-      ln -sf "$f" "$target_dir/$(basename "$f")"
-      echo "Linked $target_dir/$(basename "$f") -> $f"
-    done
+    checkouts="$(git -C "$HOME/dev/$name" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')"
+    [[ -n "$checkouts" ]] || checkouts="$HOME/dev/$name"
+    while IFS= read -r checkout; do
+      target_dir="$checkout/.claude/rules"
+      mkdir -p "$target_dir"
+      for link in "$target_dir"/*.md; do
+        if [[ -L "$link" && ! -e "$link" && "$(readlink "$link")" == "$rules_dir"/* ]]; then
+          rm "$link"
+        fi
+      done
+      for f in "$rules_dir"/*.md; do
+        [[ -f "$f" ]] || continue
+        ln -sf "$f" "$target_dir/$(basename "$f")"
+      done
+      echo "Linked $name's rules into $target_dir"
+    done <<< "$checkouts"
   else
     echo "Skipped ${name}-rules (no $HOME/dev/$name)"
   fi
