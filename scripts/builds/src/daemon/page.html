@@ -415,7 +415,7 @@ function appLine(lock, b) {
 
 // Who waits for the app lock, next first, each with the buttons that move it.
 function queuedName(q) {
-  return q.command.includes("test-app") ? "Your test app" : (q.started_from || "?").split("/").pop();
+  return q.command.includes("build-app") ? "Your test app" : (q.started_from || "?").split("/").pop();
 }
 async function queueAction(action, lock, q) {
   try {

@@ -375,8 +375,8 @@ build.
   a waiter to right behind the holder; `builds takeover <repo> [<pid>]` stops
   the holder's build (SIGTERM to its process group), runs that waiter (default
   the first) next, and puts the stopped command straight behind it to run again
-  by itself: `builds lock` reruns its command, `builds test-app` reruns from the
-  checkout. A holder past its build (test-app's copy) ignores a takeover.
+  by itself: `builds lock` reruns its command, `builds build-app` reruns from
+  the checkout. A holder past its build (build-app's copy) ignores a takeover.
   `tests/app_queue.rs` checks the order, `top`, a killed waiter and a takeover
   with real processes.
 - `--detach` checks out your branch's commit: the branch itself stays checked

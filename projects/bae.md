@@ -178,9 +178,11 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
 
   - **main**, the person's checkout. Notarized macOS releases come only from
     main (`scripts/release-macos.sh` runs the `release-macos.yml` workflow on
-    it, so they build on CI, not here). The person builds their test app with
-    `builds test-app bae [<ref>]`, in the app checkout on its lock, which copies
-    the app to `~/Applications/bae-test/bae.app`.
+    it, so they build on CI, not here). The person builds their test apps with
+    `builds build-app bae mac|android [<ref>]`, in the app checkout on its lock:
+    `mac` copies the app to `~/Applications/bae-test/bae.app`, `android`
+    installs it on the connected phone (`bae-android/run.sh`). Neither opens the
+    app.
 
   - **`~/dev/bae-worktrees/side-1`, the app checkout** (recorded for the tool
     with `builds app-checkout ~/dev/bae-worktrees/side-1`), for every agent

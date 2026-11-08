@@ -164,12 +164,13 @@ Commands:
                               takeover reruns it from the checkout
   builds app-build <repo> --list
                               print the app checkout's steps
-  builds test-app <repo> [--no-open] [<ref>]
+  builds build-app <repo> mac|android [<ref>]
                               on the app lock, check out <ref> (default the
-                              main branch, as it stands in the main checkout)
-                              in the app checkout, which must be clean, run the build its .app-build names, copy
-                              the app to ~/Applications/<repo>-test, quit the
-                              one running, and open the copy
+                              main branch) in the app checkout, which must be
+                              clean, and run that platform's build its
+                              .app-build names; for mac, copy the app to
+                              ~/Applications/<repo>-test in place of the copy
+                              there, quitting the one running. Opens nothing
   builds units prune <days> <hours> <incremental hours> <dry 0|1> <folder>...
   builds units trim <cap KiB> <size KiB> <dry 0|1> <folder>...
   builds units git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...

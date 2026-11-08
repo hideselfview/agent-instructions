@@ -1,8 +1,8 @@
 use super::*;
-use crate::test_app::parse_config;
+use crate::app_config::parse_config;
 
 fn config() -> Config {
-    parse_config("build b\napp a\nbundle x\nstep one ./one\nstep two ./two\nstep three ./three\n").unwrap()
+    parse_config("step one ./one\nstep two ./two\nstep three ./three\n").unwrap()
 }
 
 fn names(steps: &[Step]) -> Vec<&str> {

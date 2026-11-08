@@ -13,7 +13,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lock::{self, Ran};
 use crate::places::Places;
-use crate::test_app::{CONFIG, Config, Step, app_checkout_top, check_out, parse_config, run_command};
+use crate::app_config::{CONFIG, Config, Step, app_checkout_top, check_out, parse_config, run_command};
 use crate::text::note;
 
 const USAGE: &str = "usage: builds app-build <repo> <ref> [<step>...] | builds app-build <repo> --list";

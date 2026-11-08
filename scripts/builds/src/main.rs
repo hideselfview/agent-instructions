@@ -2,6 +2,8 @@
 //! on it. `builds help` says what it does; src/help.txt is that text.
 
 mod app_build;
+mod app_config;
+mod build_app;
 mod cargo_run;
 mod checkout;
 mod claim;
@@ -23,7 +25,6 @@ mod side_git;
 mod setup;
 mod status;
 mod temp_builds;
-mod test_app;
 #[cfg(test)]
 mod testing;
 mod text;
@@ -89,7 +90,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "note" => claim::cmd_note(args),
         "release" => claim::cmd_release(args),
         "app-checkout" => worktree::cmd_app_checkout(&tool, args),
-        "test-app" => test_app::cmd_test_app(&tool, args),
+        "build-app" => build_app::cmd_build_app(&tool, args),
         "mode" => mode::cmd_mode(&tool, args),
         "status" => status::cmd_status(&mut tool, args),
         "prune" => prune::cmd_prune(&tool, args),
@@ -99,7 +100,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "health" => health::cmd_health(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
         other => fail!(
-            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | dashboard | prune | cargo | lock | app-build | queue | takeover | test-app | install)"
+            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install)"
         ),
     }
 }

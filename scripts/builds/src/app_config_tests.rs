@@ -1,0 +1,72 @@
+use super::*;
+use crate::testing::{git, repo, Scratch};
+
+const CONFIG_TEXT: &str = "mac build mkdir out.app\nmac app out.app\nmac bundle demo.test\nandroid build ./a.sh --x\n";
+
+/// A repo with a `.app-build`, and <name> for its app checkout.
+fn checkout(scratch: &Scratch, name: &str) -> PathBuf {
+    let top = scratch.dir.join(name);
+    repo(&top, "target 1G\nout.app 1G\n");
+    std::fs::write(top.join(CONFIG), CONFIG_TEXT).unwrap();
+    git(&top, &["add", CONFIG]);
+    git(&top, &["commit", "-q", "-m", "Test app"]);
+    let origin = scratch.dir.join(format!("{name}.git"));
+    git(&scratch.dir, &["init", "-q", "--bare", origin.to_str().unwrap()]);
+    git(&top, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    git(&top, &["push", "-q", "origin", "main"]);
+    top
+}
+
+fn words(text: &str) -> Vec<String> {
+    text.split_whitespace().map(str::to_string).collect()
+}
+
+#[test]
+fn a_config_names_each_platforms_build() {
+    assert_eq!(
+        parse_config(CONFIG_TEXT).unwrap(),
+        Config {
+            mac: Some(MacApp { build: words("mkdir out.app"), app: "out.app".to_string(), bundle: "demo.test".to_string() }),
+            android: Some(AndroidApp { build: words("./a.sh --x") }),
+            steps: Vec::new(),
+        }
+    );
+}
+
+#[test]
+fn a_platform_may_be_left_out_but_not_left_half_written() {
+    let config = parse_config("android build ./a.sh\n").unwrap();
+    assert_eq!(config.mac, None);
+    assert!(parse_config("mac build mkdir out.app\nmac app out.app\n").is_err(), "no bundle");
+    assert!(parse_config("mac nope x\n").is_err(), "a field mac lacks");
+    assert!(parse_config("ios build x\n").is_err(), "a platform there is none of");
+}
+
+#[test]
+fn the_commit_named_is_checked_out_and_built_in_the_checkout() {
+    let scratch = Scratch::new("app-config-build");
+    let top = checkout(&scratch, "demo");
+    let commit = run_git(&top, &["rev-parse", "HEAD"]).unwrap();
+    let config = check_out(&top, commit.trim()).unwrap();
+    assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap(), commit);
+    assert!(run_git(&top, &["symbolic-ref", "-q", "HEAD"]).is_err(), "the checkout is detached");
+    run_command(&top, &config.mac.unwrap().build).unwrap();
+    assert!(top.join("out.app").is_dir());
+}
+
+#[test]
+fn a_checkout_with_changes_builds_nothing() {
+    let scratch = Scratch::new("app-config-dirty");
+    let top = checkout(&scratch, "demo");
+    std::fs::write(top.join("unsaved"), "").unwrap();
+    assert!(check_out(&top, "origin/main").is_err());
+}
+
+#[test]
+fn step_lines_name_a_command_each_in_the_order_written() {
+    let config = parse_config(&format!("{CONFIG_TEXT}step first ./a.sh --x\nstep second b\n")).unwrap();
+    let step = |name: &str, command: &str| Step { name: name.to_string(), command: words(command) };
+    assert_eq!(config.steps, vec![step("first", "./a.sh --x"), step("second", "b")]);
+    assert!(parse_config(&format!("{CONFIG_TEXT}step lonely\n")).is_err(), "a step without a command");
+    assert!(parse_config(&format!("{CONFIG_TEXT}step a x\nstep a y\n")).is_err(), "a name twice");
+}
