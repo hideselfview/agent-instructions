@@ -173,6 +173,11 @@ see whether the lists grow faster than they shrink.
 
 A quiet check needs no message to the person.
 
+The schedule runs only while there is something to check: agents of the
+coordinator's running, or commits waiting to land. Once the last one lands and
+nothing runs, the coordinator deletes it (CronDelete), and creates it again with
+its next dispatch.
+
 ## Background shells
 
 Notify, don't poll; one watcher with a hard timeout. A coordinator checks now
