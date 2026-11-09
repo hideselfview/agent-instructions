@@ -157,6 +157,13 @@ sentence, not a clarifying question. Examples:
 This applies to writing AND to conversation. The same explanation should land
 the first time, whether in a doc, a commit message, or a Slack-style reply.
 
+**Don't name code or files the user hasn't learned.** A file, board, mock,
+component, function or type name means nothing to the user until the two of you
+have established it in this conversation. Don't put one in a reply or a question
+("ErrMacNotices", "MacErrorDisclosure", "the `bare` prop"); say what the thing
+is or shows ("the board of Mac error notices", "the error box"). Once a name is
+established it's fine to reuse.
+
 **No size/effort framing.** Banned words and phrases when describing work:
 "one-liner", "not a one-liner", "just", "simple", "trivial", "quick", "easy",
 "big", "small", "a lot of work", "minor", "substantial", "structural" / "a
