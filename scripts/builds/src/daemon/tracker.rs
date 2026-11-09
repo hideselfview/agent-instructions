@@ -206,12 +206,10 @@ impl Tracker {
             self.flags.lock().expect("no panic holding it").followed = Some((meta.dev(), meta.ino()));
             let me = Arc::downgrade(&self);
             let trash = self.root.join(".trash");
-            // A second's latency lets FSEvents fold a build's writes to one
-            // folder into one event; a question flushes what it holds back.
             let stream = Stream::start(
                 &[self.root.as_path()],
                 &[trash.as_path()],
-                1.0,
+                0.2,
                 Box::new(move |events| {
                     if let Some(tracker) = me.upgrade() {
                         tracker.queue.lock().expect("no panic holding it").extend(events);
