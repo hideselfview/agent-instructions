@@ -1,6 +1,6 @@
-//! macOS FSEvents: a stream of the paths that changed under some folders,
-//! delivered on a dispatch queue of its own. The system frameworks are
-//! declared here by hand; nothing else in the tool needs them.
+//! macOS FSEvents: a stream of the folders something changed in, under some
+//! folders, delivered on a dispatch queue of its own. The system frameworks
+//! are declared here by hand; nothing else in the tool needs them.
 
 use std::ffi::{CStr, CString, c_void};
 use std::os::raw::c_char;
@@ -83,15 +83,6 @@ pub mod flags {
     pub const UNMOUNT: u32 = 0x80;
 }
 
-/// How a stream reports.
-#[derive(Clone, Copy)]
-pub enum Detail {
-    /// One event per file that changed.
-    Files,
-    /// One event per folder something changed in.
-    Folders,
-}
-
 /// One changed path and what the stream says about it.
 #[derive(Clone, Debug)]
 pub struct Event {
@@ -156,7 +147,7 @@ impl Stream {
     /// the stream's own, in order, one batch at a time. Events come from now
     /// on; with `WatchRoot`, a change to a followed folder's own path arrives
     /// as ROOT_CHANGED.
-    pub fn start(folders: &[&Path], excluded: &[&Path], detail: Detail, latency: f64, handler: Handler) -> Option<Stream> {
+    pub fn start(folders: &[&Path], excluded: &[&Path], latency: f64, handler: Handler) -> Option<Stream> {
         let array = paths_array(folders);
         let handler = Box::into_raw(Box::new(handler));
         let context = FSEventStreamContext {
@@ -168,10 +159,7 @@ impl Stream {
         };
         // NoDefer: the first event after a quiet spell comes at once.
         // WatchRoot: a followed folder vanishing or moving is reported.
-        let mut create = 0x2 | 0x4;
-        if let Detail::Files = detail {
-            create |= 0x10;
-        }
+        let create = 0x2 | 0x4;
         let stream = unsafe { FSEventStreamCreate(std::ptr::null(), deliver, &context, array, SINCE_NOW, latency, create) };
         unsafe { CFRelease(array) };
         if stream.is_null() {

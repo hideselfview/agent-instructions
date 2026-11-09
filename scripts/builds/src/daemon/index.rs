@@ -20,7 +20,7 @@ use std::sync::{Condvar, Mutex};
 use crate::usage::{BLOCK, CLONE_MIN, Measure, extents};
 
 pub type NodeId = u32;
-const ROOT: NodeId = 0;
+pub const ROOT: NodeId = 0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
@@ -41,6 +41,9 @@ struct Node {
     /// in `linked` holds them instead.
     bytes: u64,
     mtime: i64,
+    /// The change time in nanoseconds, which moves with every write to the
+    /// entry's data or metadata.
+    changed: i64,
     /// Sorted by name.
     children: Vec<NodeId>,
 }
@@ -61,6 +64,7 @@ pub struct Entry {
     pub nlink: u32,
     pub bytes: u64,
     pub mtime: i64,
+    pub changed: i64,
     pub extents: Option<Box<[(i64, u64)]>>,
 }
 
@@ -96,6 +100,7 @@ impl Entry {
             nlink: meta.nlink() as u32,
             bytes,
             mtime: meta.mtime(),
+            changed: change_time(meta),
             extents,
         }
     }
@@ -153,6 +158,7 @@ impl Index {
             nlink: entry.nlink,
             bytes: entry.bytes,
             mtime: entry.mtime,
+            changed: entry.changed,
             children: Vec::new(),
         });
         index
@@ -191,6 +197,29 @@ impl Index {
             at = self.nodes[at as usize].children[self.child(at, part).ok()?];
         }
         Some(at)
+    }
+
+    /// <parent>'s child <name>, when the index holds it.
+    pub fn child_of(&self, parent: NodeId, name: &[u8]) -> Option<NodeId> {
+        Some(self.nodes[parent as usize].children[self.child(parent, name).ok()?])
+    }
+
+    /// <id>'s children, sorted by name.
+    pub fn children(&self, id: NodeId) -> &[NodeId] {
+        &self.nodes[id as usize].children
+    }
+
+    pub fn name(&self, id: NodeId) -> &[u8] {
+        &self.nodes[id as usize].name
+    }
+
+    /// Does the index record <parent>'s child <name> as <meta> has it now:
+    /// the same inode, its change time the same?
+    pub fn unchanged(&self, parent: NodeId, name: &[u8], meta: &Metadata) -> bool {
+        self.child_of(parent, name).is_some_and(|id| {
+            let node = &self.nodes[id as usize];
+            node.ino == meta.ino() && node.changed == change_time(meta)
+        })
     }
 
     pub fn is_dir(&self, id: NodeId) -> bool {
@@ -237,6 +266,7 @@ impl Index {
                     nlink: 1,
                     bytes: 0,
                     mtime: entry.mtime,
+                    changed: entry.changed,
                     children: Vec::new(),
                 });
                 self.nodes[parent as usize].children.insert(at, id);
@@ -253,6 +283,7 @@ impl Index {
         node.ino = entry.ino;
         node.nlink = entry.nlink;
         node.mtime = entry.mtime;
+        node.changed = entry.changed;
         if kind == Kind::File && entry.nlink > 1 {
             node.bytes = 0;
             self.extents.remove(&id);
@@ -305,6 +336,7 @@ impl Index {
     pub fn set_root(&mut self, entry: &Entry) {
         let root = &mut self.nodes[ROOT as usize];
         root.mtime = entry.mtime;
+        root.changed = entry.changed;
         root.bytes = entry.bytes;
         root.ino = entry.ino;
     }
@@ -359,6 +391,7 @@ impl Index {
         node.nlink = top.nlink;
         node.bytes = top.bytes;
         node.mtime = top.mtime;
+        node.changed = top.changed;
         let mut pending: Vec<(NodeId, NodeId)> = top.children.iter().map(|child| (*child, id)).collect();
         while let Some((from, parent)) = pending.pop() {
             let entry = other.entry(from);
@@ -379,7 +412,17 @@ impl Index {
             Some(shared) if node.kind == Kind::File && node.nlink > 1 => (shared.bytes, shared.extents.clone()),
             _ => (node.bytes, self.extents.get(&id).cloned()),
         };
-        Entry { name: node.name.clone(), kind, dev: self.dev, ino: node.ino, nlink: node.nlink, bytes, mtime: node.mtime, extents }
+        Entry {
+            name: node.name.clone(),
+            kind,
+            dev: self.dev,
+            ino: node.ino,
+            nlink: node.nlink,
+            bytes,
+            mtime: node.mtime,
+            changed: node.changed,
+            extents,
+        }
     }
 
     /// Frees a detached <id> and what it holds.
@@ -468,9 +511,26 @@ fn count_extents(found: &[(i64, u64)], seen: &mut HashSet<i64>) -> u64 {
         .sum()
 }
 
+fn change_time(meta: &Metadata) -> i64 {
+    meta.ctime() * 1_000_000_000 + meta.ctime_nsec()
+}
+
 /// Lists folder <dir>: its entries, each read. Entries gone while listed are
 /// left out; None when the folder itself is gone.
 pub fn list(dir: &Path) -> std::io::Result<Option<Vec<(Entry, PathBuf)>>> {
+    let listed = list_metadata(dir)?;
+    Ok(listed.map(|listed| listed.into_iter().map(|one| (Entry::read(&one.name, &one.path, &one.meta), one.path)).collect()))
+}
+
+/// One entry of a folder's listing, read no further than its metadata.
+pub struct Listed {
+    pub name: Box<[u8]>,
+    pub path: PathBuf,
+    pub meta: Metadata,
+}
+
+/// Lists folder <dir> as `list` does, reading each entry's metadata only.
+pub fn list_metadata(dir: &Path) -> std::io::Result<Option<Vec<Listed>>> {
     let listing = match std::fs::read_dir(dir) {
         Ok(listing) => listing,
         Err(error) if gone(&error) => return Ok(None),
@@ -489,7 +549,7 @@ pub fn list(dir: &Path) -> std::io::Result<Option<Vec<(Entry, PathBuf)>>> {
             Err(error) if gone(&error) => continue,
             Err(error) => return Err(error),
         };
-        entries.push((Entry::read(entry.file_name().as_bytes(), &path, &meta), path));
+        entries.push(Listed { name: entry.file_name().as_bytes().into(), path, meta });
     }
     Ok(Some(entries))
 }

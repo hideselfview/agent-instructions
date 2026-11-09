@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use super::fsevents::{Detail, Stream};
+use super::fsevents::Stream;
 use super::tracker::Tracker;
 use crate::checkout::{Root, absolute_link_target, all_roots, parallel_map};
 use crate::claim::Claim;
@@ -236,7 +236,6 @@ impl Model {
         let started = Stream::start(
             &refs,
             &[],
-            Detail::Folders,
             0.2,
             Box::new(move |events| {
                 if let Some(model) = weak.upgrade() {

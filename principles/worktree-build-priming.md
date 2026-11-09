@@ -117,13 +117,15 @@ a failed build leaves the installed one as it was; a commit on main that touches
   machine itself otherwise; it changes nothing (that check takes the lock and
   lets it go at once, only when it is free).
 - `builds dashboard [--port <port>]` runs the daemon until it is killed. It
-  follows the volume through FSEvents, walking it whole only at its start or
-  when FSEvents says it dropped events (476k entries in about 4 s, about 100 MB
-  resident) and a folder again when FSEvents asks for that, and keeps every
-  folder's size and last write current, each block counted once and each
-  hard-linked file once. It follows every checkout's folder and git dir the same
-  way and reads a checkout's git state, claim and manifest again only when
-  something there changed. It answers the commands' questions on
+  follows the volume through FSEvents, one event per folder something changed in
+  (listing that folder again and reading only the entries whose inode or change
+  time moved), walking it whole only at its start or when FSEvents says it
+  dropped events (476k entries in about 4 s, about 100 MB resident) and a folder
+  again when FSEvents asks for that, and keeps every folder's size and last
+  write current, each block counted once and each hard-linked file once. It
+  follows every checkout's folder and git dir the same way and reads a
+  checkout's git state, claim and manifest again only when something there
+  changed. It answers the commands' questions on
   `/Volumes/Builds/.builds-daemon/socket` and serves a page called Builds at
   `http://127.0.0.1:7787/` (only on 127.0.0.1, only to a Host of 127.0.0.1 or
   localhost) showing every checkout `status` lists. Its header shows the load

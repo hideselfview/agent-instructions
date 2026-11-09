@@ -5,13 +5,17 @@
 //!   during it wait and are applied after it.
 //! - The stream's callback only queues its events; one thread applies them,
 //!   everything queued at once, so delivery never waits on a walk.
-//! - Applying an event never trusts the event's flags for what a path is now:
-//!   it reads the path. Gone: its entry and everything under it go. A file:
-//!   its facts are read again. A folder that is new or has a new inode is
-//!   walked, or a folder removed in the same batch with that inode is put
-//!   back under its new name (a rename, such as an eviction into .trash,
-//!   moves 100k entries without a walk). The parent of each path is read too,
-//!   since a deletion writes only to its folder.
+//! - The stream reports folders, not files: one event per folder something
+//!   changed in, however many of its files a build wrote, so FSEvents carries
+//!   a few events a second through a build instead of one per file written.
+//! - Applying an event never trusts the event's flags for what a folder holds
+//!   now: it lists the folder. Gone: its entry and everything under it go.
+//!   Entries the listing no longer has go. A listed entry whose inode and
+//!   change time are those the index records is left as it is; any other is
+//!   read again. A folder that is new or has a new inode is walked, or a
+//!   folder gone from a listing in the same batch with that inode is put back
+//!   under its new name (a rename, such as an eviction into .trash, moves
+//!   100k entries without a walk).
 //! - The root's macOS entries and its trash are not followed (see
 //!   `places::unfollowed`); a question about them gets no answer.
 //! - Lost events: MUST_SCAN_SUBDIRS names the folder under which FSEvents
@@ -27,13 +31,15 @@
 //!   on the root's parent reports it coming back, and then the stream starts
 //!   again and the root is walked. Nothing polls.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fs::Metadata;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 
-use super::fsevents::{Detail, Event, Stream, flags};
-use super::index::{Entry, Index, KindOf, NodeId, gone, walk};
+use super::fsevents::{Event, Stream, flags};
+use super::index::{Entry, Index, KindOf, Listed, NodeId, ROOT, gone, list_metadata, walk};
 use crate::usage::Measure;
 
 const WORKERS: usize = 8;
@@ -52,7 +58,9 @@ struct Flags {
     walks: u64,
 }
 
-/// The marks questions write, and how far the stream has delivered them.
+/// The marks questions write, and how far the stream has delivered them. A
+/// mark is a folder with a file in it: writing the file is an event for the
+/// mark's own folder, which names the mark.
 #[derive(Default)]
 struct Marks {
     /// The last mark a question took.
@@ -71,8 +79,9 @@ pub struct Tracker {
     /// used, so removing a killed daemon's marks at start, whose events
     /// arrive after, never reads as delivery of one of this daemon's.
     marks_prefix: String,
-    /// Where questions write their marks: a file `<marks_prefix><n>` whose event,
-    /// once handled, says every write made before the question has been.
+    /// Where questions write their marks: a folder `<marks_prefix><n>` whose
+    /// event, once handled, says every write made before the question has
+    /// been.
     marks_dir: PathBuf,
     marks: Mutex<Marks>,
     delivered: Condvar,
@@ -101,7 +110,11 @@ impl Tracker {
         for entry in std::fs::read_dir(marks_dir)? {
             let entry = entry?;
             if entry.file_name().to_str().is_some_and(|name| name.starts_with("mark-")) {
-                std::fs::remove_file(entry.path())?;
+                if entry.file_type()?.is_dir() {
+                    std::fs::remove_dir_all(entry.path())?;
+                } else {
+                    std::fs::remove_file(entry.path())?;
+                }
             }
         }
         let tracker = Arc::new_cyclic(|me: &std::sync::Weak<Tracker>| {
@@ -110,7 +123,6 @@ impl Tracker {
                 Stream::start(
                     &[parent],
                     &[],
-                    Detail::Folders,
                     0.5,
                     Box::new(move |_| {
                         if let Some(tracker) = weak.upgrade() {
@@ -194,11 +206,12 @@ impl Tracker {
             self.flags.lock().expect("no panic holding it").followed = Some((meta.dev(), meta.ino()));
             let me = Arc::downgrade(&self);
             let trash = self.root.join(".trash");
+            // A second's latency lets FSEvents fold a build's writes to one
+            // folder into one event; a question flushes what it holds back.
             let stream = Stream::start(
                 &[self.root.as_path()],
                 &[trash.as_path()],
-                Detail::Files,
-                0.2,
+                1.0,
                 Box::new(move |events| {
                     if let Some(tracker) = me.upgrade() {
                         tracker.queue.lock().expect("no panic holding it").extend(events);
@@ -408,94 +421,135 @@ impl Tracker {
         first.is_some_and(|name| crate::places::unfollowed(&name))
     }
 
-    /// Reads each changed path and its folder, and records what is there now.
+    /// Lists each changed folder and records what it holds now.
     fn apply(&self, events: Vec<Event>) {
-        let mut paths: BTreeMap<PathBuf, Option<std::fs::Metadata>> = BTreeMap::new();
-        for event in events {
-            if !event.path.starts_with(&self.root) || self.left_out(&event.path) {
+        // Each folder once, parents before children.
+        let folders: BTreeSet<PathBuf> = events
+            .into_iter()
+            .map(|event| event.path)
+            .filter(|path| path.starts_with(&self.root) && !self.left_out(path))
+            .collect();
+        let mut read: Vec<Listing> = Vec::new();
+        for path in folders {
+            let meta = match std::fs::symlink_metadata(&path) {
+                Ok(meta) => meta,
+                Err(error) if gone(&error) => {
+                    read.push(Listing { path, meta: None, names: None, listed: Vec::new() });
+                    continue;
+                }
+                Err(error) => {
+                    eprintln!("builds: reading {}: {error}; left as it was", path.display());
+                    continue;
+                }
+            };
+            if !meta.is_dir() {
+                read.push(Listing { path, meta: Some(meta), names: None, listed: Vec::new() });
                 continue;
             }
-            if let Some(parent) = event.path.parent().filter(|p| p.starts_with(&self.root)) {
-                paths.entry(parent.to_path_buf()).or_insert(None);
+            match list_metadata(&path) {
+                Ok(Some(mut listed)) => {
+                    if path == self.root {
+                        listed.retain(|one| !std::str::from_utf8(&one.name).is_ok_and(crate::places::unfollowed));
+                    }
+                    let names = Some(listed.iter().map(|one| one.name.clone()).collect());
+                    read.push(Listing { path, meta: Some(meta), names, listed });
+                }
+                Ok(None) => read.push(Listing { path, meta: None, names: None, listed: Vec::new() }),
+                Err(error) => eprintln!("builds: listing {}: {error}; left as it was", path.display()),
             }
-            paths.entry(event.path).or_insert(None);
         }
-        let mut read: Vec<(PathBuf, Option<std::fs::Metadata>)> = Vec::new();
-        for path in paths.into_keys() {
-            match std::fs::symlink_metadata(&path) {
-                Ok(meta) => read.push((path, Some(meta))),
-                Err(error) if gone(&error) => read.push((path, None)),
-                Err(error) => eprintln!("builds: reading {}: {error}; left as it was", path.display()),
+        // Only the entries that changed are read further (a big file's
+        // extents), and outside the lock.
+        {
+            let index = self.index.lock().expect("no panic holding it");
+            for listing in &mut read {
+                let Some(meta) = &listing.meta else { continue };
+                let held = index.lookup(&listing.path).filter(|id| index.is_dir(*id) && index.ino(*id) == meta.ino());
+                if let Some(id) = held {
+                    listing.listed.retain(|one| !index.unchanged(id, &one.name, &one.meta));
+                }
             }
         }
+        let changed: Vec<Changed> = read
+            .into_iter()
+            .map(|Listing { path, meta, names, listed }| {
+                let own = meta.map(|meta| {
+                    let name = path.file_name().map(|n| n.as_encoded_bytes().to_vec()).unwrap_or_default();
+                    Entry::read(&name, &path, &meta)
+                });
+                let entries = listed.iter().map(|one| Entry::read(&one.name, &one.path, &one.meta)).collect();
+                Changed { path, own, names, entries }
+            })
+            .collect();
         let mut walks: Vec<(NodeId, PathBuf)> = Vec::new();
         {
             let mut index = self.index.lock().expect("no panic holding it");
             // Gone first, so a folder renamed within the batch is found again
             // by its inode wherever the batch lists it.
             let mut limbo: HashMap<u64, NodeId> = HashMap::new();
-            for (path, meta) in &read {
-                if meta.is_some() {
-                    continue;
-                }
-                if let Some(id) = index.lookup(path) {
-                    if index.is_dir(id) {
-                        index.detach(id);
-                        limbo.insert(index.ino(id), id);
-                    } else {
-                        index.remove(id);
+            for one in &changed {
+                let Some(id) = index.lookup(&one.path) else { continue };
+                match (&one.own, &one.names) {
+                    (None, _) if one.path != self.root => take(&mut index, id, &mut limbo),
+                    (Some(_), Some(names)) if index.is_dir(id) => {
+                        for child in unlisted(&index, id, names) {
+                            take(&mut index, child, &mut limbo);
+                        }
                     }
+                    _ => {}
                 }
             }
-            // Parents before children: the map is sorted by path.
-            for (path, meta) in &read {
-                let Some(meta) = meta else { continue };
-                let name = path.file_name().map(|n| n.as_encoded_bytes().to_vec()).unwrap_or_default();
-                let entry = Entry::read(&name, path, meta);
-                if *path == self.root {
-                    index.set_root(&entry);
+            for one in changed {
+                let Some(own) = one.own else { continue };
+                if walks.iter().any(|(_, walked)| one.path.starts_with(walked)) {
                     continue;
                 }
-                if walks.iter().any(|(_, walked)| path.starts_with(walked)) {
-                    continue;
-                }
-                let parent_path = path.parent().expect("a path below the root has a parent");
-                let Some(parent) = index.lookup(parent_path) else {
-                    // A folder the index lost track of: walk from the first
-                    // one missing.
-                    let mut missing = path.as_path();
-                    while let Some(up) = missing.parent() {
-                        if index.lookup(up).is_some() {
-                            break;
-                        }
-                        missing = up;
-                    }
-                    if let Ok(meta) = std::fs::symlink_metadata(missing) {
-                        let up = index.lookup(missing.parent().expect("below the root")).expect("found above");
-                        let name = missing.file_name().map(|n| n.as_encoded_bytes().to_vec()).unwrap_or_default();
-                        let id = index.set(up, Entry::read(&name, missing, &meta));
-                        if meta.is_dir() {
-                            walks.push((id, missing.to_path_buf()));
-                        }
-                    }
-                    continue;
-                };
-                if !index.is_dir(parent) {
-                    continue;
-                }
-                if entry.kind == KindOf::Dir {
-                    let existing = index.lookup(path).filter(|id| index.is_dir(*id) && index.ino(*id) == entry.ino);
-                    if existing.is_some() {
-                        index.set(parent, entry);
-                    } else if let Some(moved) = limbo.remove(&entry.ino) {
-                        index.attach(moved, parent, &name);
-                        index.set(parent, entry);
-                    } else {
-                        let id = index.set(parent, entry);
-                        walks.push((id, path.clone()));
-                    }
+                let id = if one.path == self.root {
+                    index.set_root(&own);
+                    ROOT
                 } else {
-                    index.set(parent, entry);
+                    let parent_path = one.path.parent().expect("a path below the root has a parent");
+                    let Some(parent) = index.lookup(parent_path) else {
+                        // A folder the index lost track of: walk from the
+                        // first one missing.
+                        let mut missing = one.path.as_path();
+                        while let Some(up) = missing.parent() {
+                            if index.lookup(up).is_some() {
+                                break;
+                            }
+                            missing = up;
+                        }
+                        if let Ok(meta) = std::fs::symlink_metadata(missing) {
+                            let up = index.lookup(missing.parent().expect("below the root")).expect("found above");
+                            let name = missing.file_name().map(|n| n.as_encoded_bytes().to_vec()).unwrap_or_default();
+                            let id = index.set(up, Entry::read(&name, missing, &meta));
+                            if meta.is_dir() {
+                                walks.push((id, missing.to_path_buf()));
+                            }
+                        }
+                        continue;
+                    };
+                    if !index.is_dir(parent) {
+                        continue;
+                    }
+                    let (id, new) = place(&mut index, parent, own, &mut limbo);
+                    if new {
+                        walks.push((id, one.path.clone()));
+                        continue;
+                    }
+                    id
+                };
+                let Some(names) = one.names else { continue };
+                // A folder put back from limbo still holds what it held.
+                for child in unlisted(&index, id, &names) {
+                    index.remove(child);
+                }
+                for entry in one.entries {
+                    let path = one.path.join(std::ffi::OsStr::from_bytes(&entry.name));
+                    let (child, new) = place(&mut index, id, entry, &mut limbo);
+                    if new {
+                        walks.push((child, path));
+                    }
                 }
             }
             for (_, id) in limbo {
@@ -517,7 +571,7 @@ impl Tracker {
             marks.taken
         };
         let mark = self.marks_dir.join(format!("{}{n}", self.marks_prefix));
-        if let Err(error) = std::fs::write(&mark, b"") {
+        if let Err(error) = std::fs::create_dir(&mark).and_then(|()| std::fs::write(mark.join("mark"), b"")) {
             eprintln!("builds: writing {}: {error}; answering nothing", mark.display());
             return false;
         }
@@ -538,7 +592,7 @@ impl Tracker {
             marks = self.delivered.wait_timeout(marks, left).expect("no panic holding it").0;
         };
         drop(marks);
-        if let Err(error) = std::fs::remove_file(&mark) {
+        if let Err(error) = std::fs::remove_dir_all(&mark) {
             eprintln!("builds: removing {}: {error}", mark.display());
         }
         caught_up
@@ -590,6 +644,63 @@ impl Tracker {
             flags = self.wake.wait(flags).expect("no panic holding it");
         }
     }
+}
+
+/// One changed folder as listed, before the index is locked.
+struct Listing {
+    path: PathBuf,
+    /// None when it is gone.
+    meta: Option<Metadata>,
+    /// The name of every entry it holds, when it is still a folder.
+    names: Option<HashSet<Box<[u8]>>>,
+    /// Its entries; once compared with the index, those that differ.
+    listed: Vec<Listed>,
+}
+
+/// One changed folder as it is now.
+struct Changed {
+    path: PathBuf,
+    /// The folder's own facts; None when it is gone.
+    own: Option<Entry>,
+    /// The name of every entry it holds, when it is still a folder.
+    names: Option<HashSet<Box<[u8]>>>,
+    /// Its entries that differ from what the index records.
+    entries: Vec<Entry>,
+}
+
+/// The children of <id> that <names>, its listing, no longer has.
+fn unlisted(index: &Index, id: NodeId, names: &HashSet<Box<[u8]>>) -> Vec<NodeId> {
+    index.children(id).iter().copied().filter(|child| !names.contains(index.name(*child))).collect()
+}
+
+/// Takes <id> out of the index: a folder into <limbo> by its inode, to be
+/// put back where a listing names it again, anything else for good.
+fn take(index: &mut Index, id: NodeId, limbo: &mut HashMap<u64, NodeId>) {
+    if index.is_dir(id) {
+        index.detach(id);
+        limbo.insert(index.ino(id), id);
+    } else {
+        index.remove(id);
+    }
+}
+
+/// Records <entry> as <parent>'s child: a folder the index holds keeps what
+/// it holds, one in <limbo> with its inode is put back here. Returns the
+/// child, and whether it is a folder the index never held, to walk.
+fn place(index: &mut Index, parent: NodeId, entry: Entry, limbo: &mut HashMap<u64, NodeId>) -> (NodeId, bool) {
+    if entry.kind != KindOf::Dir {
+        return (index.set(parent, entry), false);
+    }
+    let held = index.child_of(parent, &entry.name).is_some_and(|id| index.is_dir(id) && index.ino(id) == entry.ino);
+    if held {
+        return (index.set(parent, entry), false);
+    }
+    if let Some(moved) = limbo.remove(&entry.ino) {
+        let name = entry.name.clone();
+        index.attach(moved, parent, &name);
+        return (index.set(parent, entry), false);
+    }
+    (index.set(parent, entry), true)
 }
 
 #[cfg(test)]

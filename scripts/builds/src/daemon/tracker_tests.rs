@@ -45,6 +45,12 @@ fn follows_writes_links_clones_renames_and_deletions() {
     fill(&root.join("demo/side-2/target/a/b/c/file"), 64);
     agrees(&tracker, &[root.join("demo/side-2/target"), root.join("demo")], "after a new tree");
 
+    // A folder renamed in place, then moved into another folder.
+    std::fs::rename(root.join("demo/side-2/target/a"), root.join("demo/side-2/target/z")).unwrap();
+    agrees(&tracker, &[root.join("demo/side-2/target")], "after a rename in place");
+    std::fs::rename(root.join("demo/side-2/target/z/b"), target.join("debug/b")).unwrap();
+    agrees(&tracker, &[root.join("demo/side-2/target"), target.clone(), root.join("demo")], "after a move between folders");
+
     // An eviction: renamed into the trash, then removed. The trash isn't
     // followed, so a question about it gets no answer.
     let slot = root.join(".trash/evict.1");
