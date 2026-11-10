@@ -14,6 +14,9 @@ When a plan implements a design file:
 
 When drawing a design:
 
+- Lay the screen out as `principles/drawing-screens.md` says: one thing per
+  screen, the action under what it acts on, a wait that finishes on its own,
+  parts rather than drawings.
 - Start from what the code does today, then draw the screen the way the product
   should work. Anything the code can't do yet, already queued or not, is drawn
   anyway.
