@@ -295,23 +295,16 @@ pub fn sample(
         let shown = path.display().to_string();
         let real = std::fs::canonicalize(path).unwrap_or(path.clone());
         let opened = |pid: i32| open_files(pid).iter().any(|open| *open == real || open == path);
-        let mut holding = None;
-        let mut waiting = 0;
-        // `builds lock <repo> ...` and `builds build-app <repo> ...`: the one
-        // with the lock's file open holds it; the others wait in its queue.
-        for process in processes.list.iter().filter(|p| p.name == "builds") {
+        // `builds lock <repo> ...`, `builds build-app <repo> ...` and
+        // `builds app-build <repo> ...`: the one with the lock's file open
+        // holds it; the others wait in its queue.
+        let mut holding = processes.list.iter().filter(|p| p.name == "builds").find(|process| {
             let locking = |argv: Vec<String>| {
-                argv.get(1).is_some_and(|a| a == "lock" || a == "build-app") && argv.get(2) == Some(repo)
+                argv.get(1).is_some_and(|a| a == "lock" || a == "build-app" || a == "app-build")
+                    && argv.get(2) == Some(repo)
             };
-            if !args(process.pid).is_some_and(locking) {
-                continue;
-            }
-            if opened(process.pid) {
-                holding = Some(process);
-            } else {
-                waiting += 1;
-            }
-        }
+            args(process.pid).is_some_and(locking) && opened(process.pid)
+        });
         // A build whose `builds lock` was killed outright still holds the
         // lock: its processes have the file open. Found only when the lock is
         // taken, since reading every process's open files costs.
@@ -338,7 +331,8 @@ pub fn sample(
                 command: command_line(process.pid),
                 started_from: cwd(process.pid).and_then(|dir| place_of(places, &dir)).map(|at| places[at].label.clone()),
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let waiting = queue.len();
         held.push(LockHealth { repo: repo.clone(), path: shown, holder, waiting, queue });
     }
     Machine {
