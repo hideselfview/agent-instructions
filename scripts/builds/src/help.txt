@@ -64,13 +64,14 @@ Commands:
                               output in the temporary folders, then make
                               sure the volume has the free-space floor.
                               The repo's hooks and build scripts run this.
-  builds new [<repo>] [-b <branch>]
+  builds new [<repo>] [-b <branch>] [--for <who>]
                               hand out a free side worktree (no claim, clean
                               tree, every commit on origin/main by patch)
                               checked out afresh from origin/main, else add
                               the next side-N from it; link it, run its
-                              post-checkout
-                              [--for <who>]: claim it for <who> (below)
+                              post-checkout. It claims what it hands out,
+                              for <who> (--for) or "builds new", under a lock
+                              on the repo (claims: below)
   builds claim <checkout> <who>
                               record that <who> works in the side worktree
   builds note <checkout> [--state waiting-on-you|winding-down|held] [<text>]
@@ -133,8 +134,8 @@ Commands:
                               side worktree (no claim, clean tree, every
                               commit on origin/main by patch) that nothing
                               has written to or built in for a day, never
-                              main, the app checkout or one with commits
-                              waiting to land. --idle also
+                              main, side-1, the app checkout, a claimed
+                              worktree or one with commits waiting to land. --idle also
                               deletes every folder and DerivedData entry
                               nothing wrote to for that long, outside
                               main and the app checkout unless --include-warm

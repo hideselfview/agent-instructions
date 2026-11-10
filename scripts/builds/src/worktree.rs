@@ -29,7 +29,8 @@ fn run_checked(command: &mut std::process::Command, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// `builds new [<repo>] [-b <branch>] [--for <who>]`: hands out a free side
+/// `builds new [<repo>] [-b <branch>] [--for <who>]`: claims for <who> (default
+/// "builds new") and hands out a free side
 /// worktree (`find_free`) checked out afresh from origin/main, or adds the next
 /// side-N when none is free; links it, runs its post-checkout, and prints its
 /// path.
@@ -51,35 +52,48 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     }
     tool.places.require_volume()?;
     let main = Checkout::find(&repo_path)?.main;
+    // Held from picking a worktree to claiming it, so two calls never get the
+    // same one; released when the call ends.
+    let _picking = lock_picking(&main)?;
     run_checked(git(&main).args(["fetch", "-q", "origin"]), "git fetch")?;
-    let (checkout, claimed) = match find_free(tool, &main)? {
+    let who = who.unwrap_or_else(|| "builds new".to_string());
+    let checkout = match find_free(tool, &main)? {
         Some(free) => {
-            // Claimed before anything else, so a second `new` doesn't take it
-            // too; the claim goes again if it can't be handed out.
-            if let Some(who) = &who {
-                write_claim(&free, who, tool.now, None, None)?;
-            }
+            write_claim(&free, &who, tool.now, None, None)?;
             if let Err(error) = reuse(&free, branch.as_deref()).and_then(|()| prepare(tool, &free)) {
-                if who.is_some() {
-                    let _ = std::fs::remove_file(free.claim_file());
-                }
+                let _ = std::fs::remove_file(free.claim_file());
                 return Err(error);
             }
-            (free, who.is_some())
+            free
         }
         None => {
             let dir = add_new(tool, &main, branch.as_deref())?;
             let checkout = Checkout::find(&dir.display().to_string())?;
+            write_claim(&checkout, &who, tool.now, None, None)?;
             prepare(tool, &checkout)?;
-            (checkout, false)
+            checkout
         }
     };
-    if let (Some(who), false) = (&who, claimed) {
-        write_claim(&checkout, who, tool.now, None, None)?;
-    }
     let dir = &checkout.top;
     println!("{}", dir.display());
     Ok(())
+}
+
+/// An exclusive lock on <main>'s repo for picking a worktree (flock on a file
+/// in the common git dir), held until the returned file is dropped.
+fn lock_picking(main: &Path) -> Result<std::fs::File> {
+    use std::os::fd::AsRawFd;
+    let path = main.join(".git/builds-new.lock");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .context(|| format!("opening {}", path.display()))?;
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        fail!("locking {}: {}", path.display(), std::io::Error::last_os_error());
+    }
+    Ok(file)
 }
 
 /// Adds the next side-N worktree of <main>'s repo, from origin/main.

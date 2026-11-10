@@ -54,10 +54,12 @@ a failed build leaves the installed one as it was; a commit on main that touches
 - `builds new [<repo>] [-b <branch>] [--for <who>]` hands out a free side
   worktree first: one with no claim, a clean tree and no commit missing from
   `origin/main` (compared by patch with `git cherry`, since landing rebases),
-  never the app checkout. It checks a fresh branch (or a detached HEAD) out of
-  `origin/main` there. Only when none is free does it add the next `side-N` from
-  `origin/main`. Either way it links the checkout and runs its own
-  `post-checkout`, which sets it up and builds nothing; `--for` claims it.
+  never the app checkout. It holds a lock on the repo from picking to claiming,
+  so two calls never get the same worktree, and always claims what it hands out,
+  for `<who>` or `builds new` when `--for` is absent. It checks a fresh branch
+  (or a detached HEAD) out of `origin/main` there. Only when none is free does
+  it add the next `side-N` from `origin/main`. Either way it links the checkout
+  and runs its own `post-checkout`, which sets it up and builds nothing.
 - `builds claim <checkout> <who>` and `builds release <checkout>` record and
   remove who works in a side worktree. Whoever hands a worktree out (a
   coordinator dispatching an agent, a person) claims it, and releases it when
@@ -90,10 +92,12 @@ a failed build leaves the installed one as it was; a commit on main that touches
   worktree by itself once nothing has used it for a day: no claim, no write to
   its git dir (a checkout, a released claim) or build folders, no build process
   there, a clean tree, and every commit on `origin/main` by patch. It never
-  retires main, the app checkout or a worktree holding unlanded commits; those
-  show in `builds health`'s needs-action list. This keeps free worktrees from
-  piling up (28 free bae worktrees, none holding unlanded work, had to be
-  retired by hand on 2026-11-10).
+  retires main, `side-1` (each repo's long-lived side worktree), the app
+  checkout, a claimed worktree (the landing worktree's claim keeps it) or a
+  worktree holding unlanded commits; the last shows in `builds health`'s
+  needs-action list. This keeps free worktrees from piling up (28 free bae
+  worktrees, none holding unlanded work, had to be retired by hand on
+  2026-11-10).
 - `builds app-checkout <checkout>` records a side worktree as its repo's app
   checkout (below), in `/Volumes/Builds/<repo>/app-checkout`.
 - `builds status` lists every entry on the volume: each root's folders, each

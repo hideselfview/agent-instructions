@@ -1,5 +1,5 @@
 use super::*;
-use crate::claim::{cmd_release, write_claim};
+use crate::claim::cmd_release;
 use crate::testing::{Scratch, age, age_all, git, repo};
 use crate::worktree::cmd_new;
 
@@ -17,6 +17,10 @@ fn demo(scratch: &Scratch) -> (Tool, std::path::PathBuf) {
 
 fn side(scratch: &Scratch, n: usize) -> std::path::PathBuf {
     scratch.dir.join(format!("demo-worktrees/side-{n}"))
+}
+
+fn release(scratch: &Scratch, n: usize) {
+    cmd_release(&[side(scratch, n).display().to_string()]).unwrap();
 }
 
 fn new(tool: &Tool, main: &Path, extra: &[&str]) {
@@ -43,6 +47,7 @@ fn new_hands_out_a_free_worktree_before_adding_one() {
     let scratch = Scratch::new("free-reuse");
     let (tool, main) = demo(&scratch);
     new(&tool, &main, &["-b", "first"]);
+    release(&scratch, 1);
     // Its commit landed on origin/main under another hash, as a rebase does,
     // and origin/main has moved on since.
     commit(&side(&scratch, 1), "landed");
@@ -84,13 +89,15 @@ fn new_adds_a_worktree_when_none_is_free() {
 fn a_worktree_with_an_unlanded_commit_is_kept() {
     let scratch = Scratch::new("free-unlanded");
     let (tool, main) = demo(&scratch);
-    new(&tool, &main, &["-b", "work"]);
-    let top = side(&scratch, 1);
+    // side-1 stays claimed, so the work is in side-2, which is not exempt.
+    new(&tool, &main, &["--for", "agent"]);
+    new(&tool, &main, &["-b", "work", "--for", "agent"]);
+    release(&scratch, 2);
+    let top = side(&scratch, 2);
     commit(&top, "unlanded");
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
     // Nothing has touched it for days.
-    let root = checkout.build_root(&tool.places);
-    age_all(&root, 48);
+    age_all(&checkout.build_root(&tool.places), 48);
     for name in ["index", "HEAD", ""] {
         age(&checkout.git_dir.join(name), 48);
     }
@@ -98,26 +105,25 @@ fn a_worktree_with_an_unlanded_commit_is_kept() {
     retire_idle(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
     assert!(top.exists(), "a worktree holding an unlanded commit was retired");
     new(&tool, &main, &[]);
-    assert!(side(&scratch, 2).exists(), "a worktree holding an unlanded commit was handed out");
+    assert!(side(&scratch, 3).exists(), "a worktree holding an unlanded commit was handed out");
 }
 
 #[test]
 fn an_idle_free_worktree_is_retired_and_the_rest_stay() {
     let scratch = Scratch::new("free-idle");
     let (tool, main) = demo(&scratch);
-    for n in 1..=4 {
+    // All claimed while they are made, so each `new` adds one.
+    for n in 1..=5 {
         new(&tool, &main, &["--for", "agent"]);
-        // Each `new` would reuse a released one; keep them claimed until all exist.
         assert!(side(&scratch, n).exists());
     }
-    let tops: Vec<_> = (1..=4).map(|n| side(&scratch, n)).collect();
-    for top in &tops {
-        cmd_release(&[top.display().to_string()]).unwrap();
+    let tops: Vec<_> = (1..=5).map(|n| side(&scratch, n)).collect();
+    for n in [1, 2, 3, 5] {
+        release(&scratch, n);
     }
-    // side-3 is claimed again, side-4 is the app checkout.
-    let three = Checkout::find(&tops[2].display().to_string()).unwrap();
-    write_claim(&three, "agent", tool.now, None, None).unwrap();
-    crate::worktree::cmd_app_checkout(&tool, &[tops[3].display().to_string()]).unwrap();
+    // side-1 is the long-lived one, side-4 stays claimed, side-5 is the app
+    // checkout.
+    crate::worktree::cmd_app_checkout(&tool, &[tops[4].display().to_string()]).unwrap();
     for top in &tops {
         let checkout = Checkout::find(&top.display().to_string()).unwrap();
         age_all(&checkout.build_root(&tool.places), 48);
@@ -125,17 +131,51 @@ fn an_idle_free_worktree_is_retired_and_the_rest_stay() {
             age(&checkout.git_dir.join(name), 48);
         }
     }
-    // side-2 was used an hour ago.
-    let two = Checkout::find(&tops[1].display().to_string()).unwrap();
-    age(&two.git_dir.join("HEAD"), 1);
+    // side-3 was used an hour ago.
+    let three = Checkout::find(&tops[2].display().to_string()).unwrap();
+    age(&three.git_dir.join("HEAD"), 1);
 
     retire_idle(&tool, &tool.roots().unwrap(), Run::Dry).unwrap();
-    assert!(tops[0].exists(), "a dry run retired a worktree");
+    assert!(tops[1].exists(), "a dry run retired a worktree");
     retire_idle(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
-    assert!(!tops[0].exists(), "an idle free worktree was kept");
-    assert!(!tool.places.root.join("demo/side-1").exists());
-    assert!(tops[1].exists(), "a worktree used an hour ago was retired");
-    assert!(tops[2].exists(), "a claimed worktree was retired");
-    assert!(tops[3].exists(), "the app checkout was retired");
+    assert!(!tops[1].exists(), "an idle free worktree was kept");
+    assert!(!tool.places.root.join("demo/side-2").exists());
+    assert!(tops[0].exists(), "side-1, the long-lived worktree, was retired");
+    assert!(tops[2].exists(), "a worktree used an hour ago was retired");
+    assert!(tops[3].exists(), "a claimed worktree was retired");
+    assert!(tops[4].exists(), "the app checkout was retired");
     assert!(main.exists());
+}
+
+#[test]
+fn two_concurrent_news_never_get_the_same_worktree() {
+    let scratch = Scratch::new("free-race");
+    let (tool, main) = demo(&scratch);
+    new(&tool, &main, &["--for", "first"]);
+    release(&scratch, 1);
+    let other = scratch.tool(0);
+    let (a, b) = std::thread::scope(|scope| {
+        let a = scope.spawn(|| cmd_new(&tool, &[main.display().to_string(), "--for".into(), "A".into()]));
+        let b = scope.spawn(|| cmd_new(&other, &[main.display().to_string(), "--for".into(), "B".into()]));
+        (a.join().unwrap(), b.join().unwrap())
+    });
+    a.unwrap();
+    b.unwrap();
+    let whos: Vec<String> = (1..=2)
+        .map(|n| {
+            let checkout = Checkout::find(&side(&scratch, n).display().to_string()).unwrap();
+            Claim::read(&checkout.claim_file()).unwrap().unwrap().who
+        })
+        .collect();
+    assert!(whos.contains(&"A".to_string()) && whos.contains(&"B".to_string()), "{whos:?}");
+    assert!(!side(&scratch, 3).exists());
+}
+
+#[test]
+fn new_without_for_still_claims() {
+    let scratch = Scratch::new("free-default-claim");
+    let (tool, main) = demo(&scratch);
+    new(&tool, &main, &[]);
+    let checkout = Checkout::find(&side(&scratch, 1).display().to_string()).unwrap();
+    assert_eq!(Claim::read(&checkout.claim_file()).unwrap().unwrap().who, "builds new");
 }

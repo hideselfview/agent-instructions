@@ -312,17 +312,19 @@ the cause and fix it then.
 - **The side worktree** holds background development arcs. Each feature or fix
   is a new branch there (`git checkout -b <name> origin/main`); serial agents
   share it.
-- The branch is the unit of work, not the worktree. Both checkouts are
-  permanent, with warm builds: never delete the side worktree because a branch
-  landed, or delete and recreate it — setup (fresh checkout, dependency install,
-  first build) costs minutes and disk, and the warm build is lost.
-- More side worktrees when several agents work unrelated branches in the same
-  repo at once; get them with `builds new` (`side-2`, …), which hands out a free
-  one (no claim, clean, every commit on `origin/main` by patch) before adding
-  another. Keep them warm while that wave of parallel work lasts, reusing them
-  for each next branch. `builds prune` retires a free one nothing has used for a
-  day (no claim, write or build), so extras don't pile up; one holding unlanded
-  commits is never retired, and `builds health` lists it.
+- The branch is the unit of work, not the worktree. Main and the long-lived side
+  worktree (`side-1`) are permanent, with warm builds: never delete the side
+  worktree because a branch landed, or delete and recreate it — setup (fresh
+  checkout, dependency install, first build) costs minutes and disk, and the
+  warm build is lost.
+- Extra side worktrees (`side-2`, …) when several agents work unrelated branches
+  in the same repo at once. `builds new` hands out a free one first (no claim,
+  clean, every commit on `origin/main` by patch) and adds another only when none
+  is free; it always claims what it hands out. `builds prune` retires an extra
+  after a day idle (no claim, write or build) with everything landed. It never
+  retires main, `side-1`, the app checkout, a claimed worktree (the landing
+  worktree's claim holds it) or one with unlanded commits, which `builds health`
+  lists.
 - **App builds** (Xcode, Gradle, a bridge cross-compiled for a platform) stay
   warm in main and in one long-lived side worktree, the repo's app checkout;
   other side worktrees build host output only (Rust's `target`). Agents take
