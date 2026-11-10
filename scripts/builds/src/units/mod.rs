@@ -20,12 +20,23 @@
 //! to the unit whose deps files are hard links to its codegen and metadata
 //! files.
 //!
+//! A unit's files are deleted only while this holds cargo's lock on the
+//! profile folder and the checkout's `GUARD`, which `builds cargo` holds for
+//! a build's whole life, and never a file a process holds open. Cargo
+//! decides which units are up to date for its whole unit graph before it
+//! runs any job, and nothing outside cargo can see that graph, so no unit is
+//! deleted while a build runs: a build that starts after a deletion finds
+//! the unit's fingerprint gone and builds it again. `builds cargo` starts
+//! `units after-build` as it exits, so a copy another replaced goes moments
+//! after the build that replaced it.
+//!
 //! A build that finds a unit up to date writes nothing in any of these, so
 //! its use is recorded from cargo's own report (`--message-format=json-...`):
 //! `record` sets the modification time of the unit's fingerprint folder to
-//! now. A unit's last use is the newest modification time of that folder and
-//! the files in it, which for a unit no recorded build has used is when cargo
-//! last built it.
+//! the moment that build's cargo began reporting, one time for every unit of
+//! the build. A unit's last use is the newest modification time of that
+//! folder and the files in it, which for a unit no recorded build has used is
+//! when cargo last built it.
 
 pub mod git_checkouts;
 pub mod idle;
@@ -163,10 +174,49 @@ pub fn newest_mtime(path: &Path, depth: usize) -> Result<f64> {
     Ok(newest)
 }
 
-/// Takes cargo's lock on <profile> without waiting, as cargo holds it for a
-/// whole build: the open lock, or None while a build holds it.
+/// Takes cargo's lock on <profile> without waiting, as cargo holds it while
+/// it builds: the open lock, or None while a build holds it.
 pub fn lock_profile(profile: &Path) -> Result<Option<File>> {
     crate::evict::try_lock_creating(&profile.join(".cargo-lock"))
+}
+
+/// The file in a checkout's build root that `builds cargo` holds a shared
+/// lock on from before it starts cargo until cargo has exited and every unit
+/// cargo reported is recorded. Cargo's own lock doesn't cover a build's
+/// whole use of its folder: `cargo test` releases it once it has compiled,
+/// then runs each test binary and rustdoc on the doctests, which reads the
+/// rlibs; and the recorder may still be reading cargo's report after cargo
+/// let go. Deleting build copies, or a whole folder, takes it exclusively
+/// without waiting, beside cargo's.
+pub const GUARD: &str = ".builds-cargo.lock";
+
+/// The guard of the checkout <path> is in: the nearest <GUARD> at <path> or
+/// above it.
+pub fn guard_of(path: &Path) -> Option<PathBuf> {
+    path.ancestors().map(|dir| dir.join(GUARD)).find(|guard| guard.is_file())
+}
+
+/// Whether a `builds cargo` build is running in the checkout a path is in.
+pub enum Guard {
+    /// No guard is above the path: no `builds cargo` build takes one there.
+    Absent,
+    /// Held exclusively by this process until dropped; the file is kept
+    /// only to hold the lock.
+    Held(#[allow(dead_code)] File),
+    /// A `builds cargo` build holds it.
+    Busy,
+}
+
+/// Takes the guard above <path> exclusively, without waiting.
+pub fn lock_guard(path: &Path) -> Result<Guard> {
+    let Some(guard) = guard_of(path) else { return Ok(Guard::Absent) };
+    match crate::evict::try_lock(&guard) {
+        Ok(Some(file)) => Ok(Guard::Held(file)),
+        Ok(None) => Ok(Guard::Busy),
+        // Deleted since it was found: its checkout's root is being deleted.
+        Err(_) if !guard.exists() => Ok(Guard::Absent),
+        Err(error) => Err(error),
+    }
 }
 
 /// The files and folders under <roots> that a process other than this one
@@ -272,11 +322,13 @@ pub fn remove(path: &Path) -> Result<()> {
     }
 }
 
-/// `builds units prune|trim|git-checkouts ...`: the steps setup and prune
-/// run, on the folders named; the shell tests drive them this way.
-pub fn cmd_units(args: &[String]) -> Result<()> {
-    let usage = "usage: builds units prune <days> <hours> <incremental hours> <dry 0|1> <folder>... | \
-                 trim <cap KiB> <size KiB> <dry 0|1> <folder>... | git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...";
+/// `builds units prune|trim|git-checkouts|after-build ...`: the steps setup
+/// and prune run, on the folders named; the shell tests drive them this way.
+/// `after-build` is what `builds cargo` starts as it exits.
+pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
+    let usage = "usage: builds units prune <days> <incremental hours, 0 for all> <dry 0|1> <folder>... | \
+                 trim <cap KiB> <size KiB> <dry 0|1> <folder>... | git-checkouts <cargo home> <dry 0|1> <Cargo.lock>... | \
+                 after-build <checkout>";
     let number = |text: &String| -> Result<u64> {
         match text.parse() {
             Ok(n) => Ok(n),
@@ -284,10 +336,10 @@ pub fn cmd_units(args: &[String]) -> Result<()> {
         }
     };
     match args.first().map(String::as_str) {
-        Some("prune") if args.len() >= 5 => {
-            let folders: Vec<PathBuf> = args[5..].iter().map(PathBuf::from).collect();
-            let rules = prune::Ages::new(number(&args[1])?, number(&args[2])?, number(&args[3])?);
-            for (folder, freed_kib) in prune::prune(&rules, args[4] == "1", &folders)? {
+        Some("prune") if args.len() >= 4 => {
+            let folders: Vec<PathBuf> = args[4..].iter().map(PathBuf::from).collect();
+            let rules = prune::Ages::new(number(&args[1])?, number(&args[2])?);
+            for (folder, freed_kib) in prune::prune(&rules, args[3] == "1", &folders)? {
                 println!("{freed_kib}\t{}", folder.display());
             }
             Ok(())
@@ -303,6 +355,9 @@ pub fn cmd_units(args: &[String]) -> Result<()> {
             let freed = git_checkouts::prune_git_checkouts(Path::new(&args[1]), args[2] == "1", &lockfiles)?;
             println!("{freed}");
             Ok(())
+        }
+        Some("after-build") if args.len() == 2 => {
+            crate::prune::prune_after_build(tool, &crate::checkout::Checkout::find(&args[1])?)
         }
         _ => fail!("{usage}"),
     }

@@ -1,5 +1,7 @@
 //! `builds cargo`: recording the build copies cargo used, so setup and prune
-//! keep those while they delete the ones no build used for days.
+//! keep those while they delete the ones no build used for days, holding the
+//! checkout's guard while the build runs, and pruning the copies it replaced
+//! once it ends.
 
 use std::io::BufReader;
 use std::path::Path;
@@ -9,10 +11,17 @@ use crate::checkout::{Checkout, is_app_checkout};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::places::Places;
+use crate::units::GUARD;
 use crate::units::record::record;
 
-/// The cargo settings a build in <dir>'s checkout takes from the checkout's
-/// role, as `--config` arguments.
+/// Does <checkout> build with incremental compilation? Not the app
+/// checkout; `role_config` says why.
+pub fn builds_incrementally(places: &Places, checkout: &Checkout) -> Result<bool> {
+    Ok(!is_app_checkout(places, &checkout.build_root(places))?)
+}
+
+/// The cargo settings a build in <checkout> takes from the checkout's role,
+/// as `--config` arguments.
 ///
 /// The app checkout builds without incremental compilation. Agents take turns
 /// in it, each moving it to their own branch, so a crate's incremental state
@@ -27,12 +36,53 @@ use crate::units::record::record;
 /// with a variable every dependency built through this command would get
 /// other cache entries than the same dependency built by cargo run by hand
 /// in the same checkout. The argument changes only what it sets.
-fn role_config(places: &Places, dir: &Path) -> Result<&'static [&'static str]> {
-    let Some(checkout) = Checkout::at_keeping_env(dir)? else { return Ok(&[]) };
-    if is_app_checkout(places, &checkout.build_root(places))? {
-        Ok(&["--config", "build.incremental=false"])
-    } else {
-        Ok(&[])
+fn role_config(places: &Places, checkout: Option<&Checkout>) -> Result<&'static [&'static str]> {
+    let Some(checkout) = checkout else { return Ok(&[]) };
+    if builds_incrementally(places, checkout)? { Ok(&[]) } else { Ok(&["--config", "build.incremental=false"]) }
+}
+
+/// Starts `builds units after-build <checkout>` in a session of its own, so
+/// it outlives this process: it deletes the build copies this build
+/// replaced, once nothing holds the checkout's guard or the profile's lock.
+/// What it says goes to <root>/.after-build.log, which it holds an exclusive
+/// flock on for its whole run (taken here, on the file description it
+/// inherits as its stderr), so whoever needs it finished waits on that lock;
+/// one still running from an earlier build is waited for first. Space it
+/// doesn't free stays for the next prune, so a failure to start it is said
+/// and the build's own result stands.
+fn start_after_build(checkout: &Checkout, root: &Path) {
+    use std::os::unix::io::AsRawFd;
+    use std::os::unix::process::CommandExt;
+    let started = (|| -> std::io::Result<()> {
+        let log = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(root.join(".after-build.log"))?;
+        while unsafe { libc::flock(log.as_raw_fd(), libc::LOCK_EX) } != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+        log.set_len(0)?;
+        let mut command = Command::new(std::env::current_exe()?);
+        command
+            .args(["units", "after-build"])
+            .arg(&checkout.top)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(log);
+        unsafe {
+            command.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+        command.spawn().map(|_| ())
+    })();
+    if let Err(error) = started {
+        crate::text::note(format!("starting the prune of the build copies this build replaced: {error}"));
     }
 }
 
@@ -53,7 +103,15 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         Some(other) => fail!("cargo: cargo {other} builds nothing; run it without builds"),
     };
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
-    let config = role_config(&Places::from_env()?, &dir)?;
+    let places = Places::from_env()?;
+    let checkout = Checkout::at_keeping_env(&dir)?;
+    let config = role_config(&places, checkout.as_ref())?;
+    // Held until cargo has exited and the recorder has read its last line.
+    let root = checkout.as_ref().map(|checkout| checkout.build_root(&places)).filter(|root| root.is_dir());
+    let guard = match &root {
+        Some(root) => Some(crate::evict::lock_shared_creating(&root.join(GUARD))?),
+        None => None,
+    };
     let mut child = Command::new("cargo")
         .args(subcommand)
         .arg(format)
@@ -65,6 +123,10 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let stdout = child.stdout.take().expect("piped above");
     let recorded = record(BufReader::new(stdout), &mut std::io::stdout().lock());
     let status = child.wait().context(|| "waiting for cargo".to_string())?;
+    drop(guard);
+    if let (Some(checkout), Some(root)) = (&checkout, &root) {
+        start_after_build(checkout, root);
+    }
     // cargo and the recorder print their own failures.
     let recorded = match recorded {
         Ok(code) => code,
@@ -89,6 +151,10 @@ mod tests {
     use super::*;
     use crate::testing::{Scratch, git, repo};
 
+    fn role(places: &Places, dir: &Path) -> &'static [&'static str] {
+        role_config(places, Checkout::at(dir).unwrap().as_ref()).unwrap()
+    }
+
     #[test]
     fn only_the_app_checkout_builds_without_incremental() {
         let scratch = Scratch::new("cargo-role");
@@ -102,15 +168,15 @@ mod tests {
         let side_1 = scratch.dir.join("demo-worktrees/side-1");
         std::fs::create_dir_all(side_1.join("crate/src")).unwrap();
         let none: &[&str] = &[];
-        assert_eq!(role_config(&places, &side_1).unwrap(), none, "no app checkout is recorded yet");
+        assert_eq!(role(&places, &side_1), none, "no app checkout is recorded yet");
 
         std::fs::create_dir_all(places.root.join("demo")).unwrap();
         std::fs::write(places.app_checkout_file("demo"), "side-1\n").unwrap();
         let off: &[&str] = &["--config", "build.incremental=false"];
-        assert_eq!(role_config(&places, &side_1).unwrap(), off);
-        assert_eq!(role_config(&places, &side_1.join("crate/src")).unwrap(), off);
-        assert_eq!(role_config(&places, &main).unwrap(), none);
-        assert_eq!(role_config(&places, &scratch.dir.join("demo-worktrees/side-2")).unwrap(), none);
-        assert_eq!(role_config(&places, &scratch.dir).unwrap(), none, "outside any checkout");
+        assert_eq!(role(&places, &side_1), off);
+        assert_eq!(role(&places, &side_1.join("crate/src")), off);
+        assert_eq!(role(&places, &main), none);
+        assert_eq!(role(&places, &scratch.dir.join("demo-worktrees/side-2")), none);
+        assert_eq!(role(&places, &scratch.dir), none, "outside any checkout");
     }
 }

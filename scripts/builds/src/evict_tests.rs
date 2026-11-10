@@ -46,3 +46,32 @@ fn a_process_working_inside_keeps_the_folder() {
     assert!(!folder.exists());
     assert_eq!(std::fs::read_dir(places.trash()).unwrap().count(), 0, "Removal::Now left the slot");
 }
+
+#[test]
+fn a_build_holding_the_checkouts_guard_keeps_the_folder() {
+    // `cargo test` lets go of cargo's lock before it runs the tests it
+    // built; `builds cargo` holds the checkout's guard until cargo exits.
+    let scratch = Scratch::new("evict-guard");
+    let places = scratch.places();
+    let root = places.root.join("demo/side-1");
+    let folder = root.join("target");
+    fill(&folder.join("debug/deps/test-binary"), 4);
+    let guard = root.join(crate::units::GUARD);
+    std::fs::write(&guard, "").unwrap();
+    let mut build = Command::new("lockf")
+        .arg("-k")
+        .arg(&guard)
+        .args(["sh", "-c", "echo held; exec sleep 60"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut said = String::new();
+    std::io::BufRead::read_line(&mut std::io::BufReader::new(build.stdout.take().unwrap()), &mut said).unwrap();
+    assert_eq!(said, "held\n");
+    let kept = evict(&places, &folder, Recreate::Yes, Removal::Now);
+    build.kill().unwrap();
+    build.wait().unwrap();
+    assert!(!kept.unwrap(), "a folder whose checkout's guard a build holds was deleted");
+    assert!(folder.join("debug/deps/test-binary").exists());
+    assert!(evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap());
+}

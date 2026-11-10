@@ -265,20 +265,23 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   back to generate bindings. Each of those paths is part of sccache's key, so an
   inline override gets no cache hits.
 
-- **Build copies no build used for three days are deleted**, at the start of the
-  next hook or build script in that checkout; the hooks and build scripts run
-  cargo through `scripts/cargo.sh`, which records each copy cargo uses. Run
-  cargo through it in a new script too. **Incremental folders nothing wrote to
-  for six hours are deleted** at the same moment, in every checkout including
-  main's and the app checkout; a build holding the target keeps them, and losing
-  one costs an incremental rebuild of its crate. Under the free-space floor,
-  incremental folders nothing wrote to for an hour go first, in every checkout,
-  claimed ones and main's and the app checkout's included, before any whole
-  folder. **Folders are deleted whole when they still pass their cap** in
-  `.build-dirs`, and refilled by that build. Leave main's and the app checkout's
-  otherwise: the person installs from main and tests from the app checkout. The
-  free-space floor never deletes theirs whole. `builds status` shows each
-  checkout's sizes.
+- **Build copies no build used for three days are deleted, and a copy a newer
+  copy built from other sources replaced at once**, at the start of the next
+  hook or build script in that checkout and as each build through
+  `scripts/cargo.sh` exits, never while a build in that checkout runs; the hooks
+  and build scripts run cargo through `scripts/cargo.sh`, which records each
+  copy cargo uses and holds the checkout's guard while cargo runs. Run cargo
+  through it in a new script too. **Incremental folders nothing wrote to for six
+  hours are deleted** at the same moment, in every checkout including main's,
+  and every incremental folder in the app checkout, which builds without them; a
+  build holding the target keeps them, and losing one costs an incremental
+  rebuild of its crate. Under the free-space floor, incremental folders nothing
+  wrote to for an hour go first, in every checkout, claimed ones and main's and
+  the app checkout's included, before any whole folder. **Folders are deleted
+  whole when they still pass their cap** in `.build-dirs`, and refilled by that
+  build. Leave main's and the app checkout's otherwise: the person installs from
+  main and tests from the app checkout. The free-space floor never deletes
+  theirs whole. `builds status` shows each checkout's sizes.
 
 - **Sparkle is the SwiftPM dep that corrupts** (xcodebuild fails with "Couldn't
   check out revision" or "file not found" on Sparkle). Every xcodebuild of the

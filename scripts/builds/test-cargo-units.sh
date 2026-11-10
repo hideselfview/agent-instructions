@@ -163,7 +163,7 @@ all="$(fingerprints)"
 old="$(comm -23 <(echo "$all") <(echo "$used"))"
 
 # A dry run deletes nothing.
-units prune 3 12 100000 1 "$ws/target" > /dev/null 2>&1
+units prune 3 100000 1 "$ws/target" > /dev/null 2>&1
 [ "$(fingerprints)" = "$all" ] || fail "a dry run deleted something"
 
 # A build holding the profile folder's lock keeps everything.
@@ -171,7 +171,7 @@ python3 - "$profile/.cargo-lock" - "$ws/target" <<'PY'
 import fcntl, os, shlex, subprocess, sys
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
 fcntl.flock(fd, fcntl.LOCK_EX)
-result = subprocess.run(shlex.split(os.environ["UNITS_CMD"]) + ["prune", "3", "12", "100000", "0", sys.argv[3]], capture_output=True, text=True)
+result = subprocess.run(shlex.split(os.environ["UNITS_CMD"]) + ["prune", "3", "100000", "0", sys.argv[3]], capture_output=True, text=True)
 assert "a build holds its lock" in result.stderr, result.stderr
 PY
 [ "$(fingerprints)" = "$all" ] || fail "pruning deleted while a build held the lock"
@@ -184,7 +184,7 @@ if [ -n "$held_file" ]; then
     exec 3< "$held_file"
 fi
 
-units prune 3 12 100000 0 "$ws/target" > /dev/null
+units prune 3 100000 0 "$ws/target" > /dev/null
 remaining="$(fingerprints)"
 if [ -n "$held_file" ]; then
     exec 3<&-
@@ -228,25 +228,122 @@ for command in "build --all-targets" "doc --no-deps" "test --no-run"; do
     [ -z "$(rebuilt $command)" ] || fail "cargo $command rebuilt after pruning: $(rebuilt $command)"
 done
 
-# A copy a newer one with the same identity replaced goes once nothing used
-# it for the hours given, without waiting the days: a dependency bump leaves
-# a copy of every unit above it, all of which the bump replaces.
+# A copy a newer one built from other sources replaced goes at the next
+# prune, within days of its last use: a dependency bump leaves a copy of every
+# unit above it, all of which the bump replaces.
 age 0.6
-# The copy a process held above is days old and goes with the first prune.
-before="$(fingerprints | grep -vxF "$held_unit")"
 sed -i '' 's/^version = "0.1.1"/version = "0.1.2"/' dep/Cargo.toml
 build_all "$builds" cargo
 bumped="$(recent)"
-units prune 3 24 100000 0 "$ws/target" > /dev/null 2>&1
-[ "$(fingerprints)" = "$(sort <(echo "$before") <(echo "$bumped") | uniq)" ] \
-    || fail "pruning deleted copies used within the last 24 hours: $(comm -23 <(sort <(echo "$before") <(echo "$bumped") | uniq) <(fingerprints))"
-units prune 3 12 100000 0 "$ws/target" > /dev/null 2>&1
+units prune 3 100000 0 "$ws/target" > /dev/null 2>&1
 [ "$(fingerprints)" = "$bumped" ] \
     || fail "pruning kept $(comm -13 <(echo "$bumped") <(fingerprints)) and deleted $(comm -23 <(echo "$bumped") <(fingerprints))"
 for command in "build --all-targets" "doc --no-deps" "test --no-run"; do
     # shellcheck disable=SC2086
     [ -z "$(rebuilt $command)" ] || fail "cargo $command rebuilt after deleting replaced copies: $(rebuilt $command)"
 done
+
+# While a `builds cargo` build holds its checkout's guard (cargo test holds
+# no cargo lock while it runs the tests), nothing is deleted.
+age 1.1
+sed -i '' 's/^version = "0.1.2"/version = "0.1.3"/' dep/Cargo.toml
+build_all "$builds" cargo
+replaced_copies="$(fingerprints)"
+touch "$ws/.builds-cargo.lock"
+python3 - "$ws/.builds-cargo.lock" - "$ws/target" <<'PY'
+import fcntl, os, shlex, subprocess, sys
+fd = os.open(sys.argv[1], os.O_RDWR)
+fcntl.flock(fd, fcntl.LOCK_SH)
+result = subprocess.run(shlex.split(os.environ["UNITS_CMD"]) + ["prune", "3", "100000", "0", sys.argv[3]], capture_output=True, text=True)
+assert "a build is running in its checkout" in result.stderr, result.stderr
+PY
+[ "$(fingerprints)" = "$replaced_copies" ] || fail "pruning deleted while a build held the checkout's guard"
+
+# A process holding files in the folder (the current test binary, running)
+# doesn't keep the replaced copies; one holding a replaced copy's file keeps
+# that copy.
+current="$(recent)"
+replaced_now="$(comm -23 <(echo "$replaced_copies") <(echo "$current"))"
+[ -n "$replaced_now" ] || fail "the bump left no replaced copies"
+current_test="$(echo "$current" | while read -r dir; do
+    if [ -e "$dir/test-lib-app" ]; then echo "$profile/deps/app-${dir##*-}"; break; fi; done)"
+[ -x "$current_test" ] || fail "found no test binary of the current copy"
+# Held open, as a running test binary holds its file.
+exec 7< "$current_test"
+kept_unit="$(echo "$replaced_now" | while read -r dir; do
+    if [ -n "$(find "$profile/deps" -maxdepth 1 -name "*-${dir##*-}*" -type f)" ]; then echo "$dir"; break; fi; done)"
+kept_hash="${kept_unit##*-}"
+kept_files=("$profile"/deps/*-"$kept_hash"*)
+exec 8< "${kept_files[0]}"
+prune_out="$(units prune 3 100000 0 "$ws/target" 2>&1 >/dev/null)"
+exec 7<&- 8<&-
+case "$prune_out" in
+    *"a later build from other sources replaced"*) ;;
+    *) fail "pruning beside a held file deleted no replaced copy: $prune_out" ;;
+esac
+case "$prune_out" in
+    *"kept 1 build copy in"*"a process holds their files"*) ;;
+    *) fail "pruning did not keep the held copy: $prune_out" ;;
+esac
+[ "$(fingerprints)" = "$(sort <(echo "$current") <(echo "$kept_unit") | uniq)" ] \
+    || fail "pruning beside held files left $(comm -13 <(echo "$current") <(fingerprints)) and deleted $(comm -23 <(echo "$current") <(fingerprints))"
+[ -x "$current_test" ] || fail "pruning deleted the current test binary a process held"
+for command in "build --all-targets" "doc --no-deps" "test --no-run"; do
+    # shellcheck disable=SC2086
+    [ -z "$(rebuilt $command)" ] || fail "cargo $command rebuilt after pruning beside held files: $(rebuilt $command)"
+done
+
+# In a checkout whose builds run without incremental compilation (0 hours),
+# every incremental folder goes, and the builds stay up to date.
+[ -n "$(ls "$profile/incremental")" ] || fail "the builds wrote no incremental folders"
+units prune 3 0 0 "$ws/target" > /dev/null 2>&1
+[ -z "$(ls "$profile/incremental")" ] || fail "pruning for a checkout without incremental left $(ls "$profile/incremental")"
+for command in "build --all-targets" "doc --no-deps" "test --no-run"; do
+    # shellcheck disable=SC2086
+    [ -z "$(rebuilt $command)" ] || fail "cargo $command rebuilt after deleting the incremental folders: $(rebuilt $command)"
+done
+
+# Copies built from the same sources against other features of a
+# dependency (another package selection) stay side by side: builds use them
+# in turn.
+printf '\n[features]\nextra = []\n' >> dep/Cargo.toml
+build_all "$builds" cargo
+units prune 3 100000 0 "$ws/target" > /dev/null 2>&1
+"$builds" cargo build -q -p app --lib --features dep/extra
+"$builds" cargo build -q -p app --lib
+app_libs() { fingerprints | grep '/app-' | while read -r dir; do if [ -e "$dir/lib-app" ]; then echo "$dir"; fi; done; }
+[ "$(app_libs | wc -l)" -eq 2 ] || fail "the feature variant built no second copy of app's library: $(app_libs)"
+variants="$(fingerprints)"
+units prune 3 100000 0 "$ws/target" > /dev/null 2>&1
+[ "$(fingerprints)" = "$variants" ] \
+    || fail "pruning deleted a feature variant: $(comm -23 <(echo "$variants") <(fingerprints))"
+
+# In a checkout with a build root, `builds cargo` holds the checkout's guard
+# while cargo runs and, as it exits, starts the prune that deletes what its
+# build replaced; that prune holds a lock on its log until it ends.
+age 1.1
+volume="$scratch/volume"
+mkdir -p "$volume/ws/main"
+git -C "$ws" init -q
+echo "target 1G" > "$ws/.build-dirs"
+mv "$ws/target" "$volume/ws/main/target"
+ln -s "$volume/ws/main/target" "$ws/target"
+lib_dep() { fingerprints | while read -r dir; do if [ -e "$dir/lib-dep" ]; then echo "$dir"; fi; done; }
+sed -i '' 's/^version = "0.1.3"/version = "0.1.4"/' dep/Cargo.toml
+[ -z "$(recent)" ] || fail "aging left recent copies: $(recent)"
+BUILDS_ROOT="$volume" "$builds" cargo build -q --all-targets
+[ -f "$volume/ws/main/.builds-cargo.lock" ] || fail "builds cargo took no guard in the checkout's build root"
+lockf -k -t 60 "$volume/ws/main/.after-build.log" true || fail "the prune after the build ran for over a minute"
+bumped_libs="$(comm -12 <(lib_dep) <(recent))"
+[ -n "$bumped_libs" ] || fail "the bumped build left no library copy of dep"
+[ "$(lib_dep)" = "$(sort <(echo "$bumped_libs") <(comm -23 <(lib_dep) <(recent) | while read -r dir; do if grep -q extra "$dir/lib-dep.json"; then echo "$dir"; fi; done) | uniq)" ] \
+    || fail "the prune after the build left $(comm -13 <(echo "$bumped_libs") <(lib_dep)): $(cat "$volume/ws/main/.after-build.log")"
+case "$(cat "$volume/ws/main/.after-build.log")" in
+    *"a later build from other sources replaced"*) ;;
+    *) fail "the prune after the build said: $(cat "$volume/ws/main/.after-build.log")" ;;
+esac
+rm -f "$ws/target"
+mv "$volume/ws/main/target" "$ws/target"
 
 # Cargo's git checkouts no Cargo.lock pins go; pinned ones, and the git
 # databases, stay. A cargo holding the package cache keeps them all.
@@ -329,7 +426,7 @@ done
 touch "$idle_profile/incremental/deep-id/s-1-abc/data"
 idle_left() { ls "$idle_profile/incremental" | tr '\n' ' '; }
 release_left() { ls "$idle_target/release/incremental" | tr '\n' ' '; }
-dry_out="$(units prune 3 12 6 1 "$idle_target" 2>&1 >/dev/null)"
+dry_out="$(units prune 3 6 1 "$idle_target" 2>&1 >/dev/null)"
 [ "$(idle_left)" = "deep-id fresh-id held-id stale-id " ] || fail "a dry run deleted idle incremental folders: $(idle_left)"
 case "$dry_out" in
     *"would delete 2 incremental folders nothing wrote to in 6 hours from"*"debug"*) ;;
@@ -339,13 +436,13 @@ python3 - "$idle_profile/.cargo-lock" - "$idle_target" <<'PY'
 import fcntl, os, shlex, subprocess, sys
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
 fcntl.flock(fd, fcntl.LOCK_EX)
-result = subprocess.run(shlex.split(os.environ["UNITS_CMD"]) + ["prune", "3", "12", "6", "0", sys.argv[3]], capture_output=True, text=True)
-assert "kept 2 incremental folders nothing wrote to in 6 hours" in result.stderr, result.stderr
+result = subprocess.run(shlex.split(os.environ["UNITS_CMD"]) + ["prune", "3", "6", "0", sys.argv[3]], capture_output=True, text=True)
+assert "kept 2 incremental folders in" in result.stderr and "(nothing wrote to in 6 hours): a build holds its lock" in result.stderr, result.stderr
 PY
 [ "$(idle_left)" = "deep-id fresh-id held-id stale-id " ] || fail "deleted idle folders while a build held the lock: $(idle_left)"
 [ "$(release_left)" = "fresh-id " ] || fail "the release profile's idle folders survived: $(release_left)"
 exec 6< "$idle_profile/incremental/held-id/s-1-abc/data"
-live_out="$(units prune 3 12 6 0 "$idle_target" 2>&1 >/dev/null)"
+live_out="$(units prune 3 6 0 "$idle_target" 2>&1 >/dev/null)"
 exec 6<&-
 [ "$(idle_left)" = "deep-id fresh-id held-id " ] || fail "idle pruning left the wrong folders: $(idle_left)"
 case "$live_out" in

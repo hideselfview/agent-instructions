@@ -3,13 +3,16 @@
 //! A build in another process can start at any moment, so "in use" is
 //! decided while holding what a build holds. Cargo keeps an exclusive flock on
 //! <target>/<profile>/.cargo-lock (and <target>/<triple>/<profile>/.cargo-lock)
-//! for a whole build: those locks are taken without waiting, and a cargo
+//! while it compiles: those locks are taken without waiting, and a cargo
 //! already holding one makes the folder in use. While they are held, no cargo
 //! can start writing; a cargo that queues on one gets it after the rename and
 //! writes through the link into the new, empty folder. Folders without cargo
 //! locks (Xcode's DerivedData, Gradle, dotnet, lake) count as in use while any
 //! process holds a file or working directory inside them; that is checked
-//! last, immediately before the rename.
+//! last, immediately before the rename. A folder inside a checkout's build
+//! root is in use too while a `builds cargo` build holds that checkout's
+//! guard (`units::GUARD`): cargo lets go of its lock before `cargo test`
+//! runs the tests it built.
 
 use std::ffi::CString;
 use std::fs::File;
@@ -53,6 +56,10 @@ pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) 
     let parent = folder.parent().expect("a folder to delete has a parent").to_path_buf();
     let same_volume = device(&parent)? == device(&trash)?;
     let (slot_dir, prefix) = if same_volume { (trash, "evict.") } else { (parent, ".builds-deleting.") };
+    let _guard = match crate::units::lock_guard(&folder)? {
+        crate::units::Guard::Busy => return Ok(false),
+        guard => guard,
+    };
     let Some(_locks) = cargo_locks(&folder)? else { return Ok(false) };
     if held_by_a_process(&folder)? {
         return Ok(false);
@@ -121,6 +128,27 @@ pub fn try_lock_creating(path: &Path) -> Result<Option<File>> {
         .open(path)
         .context(|| format!("opening {}", path.display()))?;
     flock_now(file, path)
+}
+
+/// Takes a shared flock on <path>, creating it when missing, waiting while
+/// another process holds it exclusively.
+pub fn lock_shared_creating(path: &Path) -> Result<File> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .context(|| format!("opening {}", path.display()))?;
+    loop {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } == 0 {
+            return Ok(file);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            fail!("locking {}: {error}", path.display());
+        }
+    }
 }
 
 fn flock_now(file: File, path: &Path) -> Result<Option<File>> {

@@ -341,18 +341,29 @@ fn units_of(message: &Value, fingerprints: &mut Fingerprints, used: &HashSet<u64
     Ok((found, missing))
 }
 
-/// Sets <path>'s access and modification times to now.
-fn touch(path: &Path) -> std::io::Result<()> {
+/// Sets <path>'s access and modification times to <when>.
+fn touch(path: &Path, when: &libc::timeval) -> std::io::Result<()> {
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("a path holds no NUL");
-    if unsafe { libc::utimes(c.as_ptr(), std::ptr::null()) } == 0 {
+    let times = [*when, *when];
+    if unsafe { libc::utimes(c.as_ptr(), times.as_ptr()) } == 0 {
         Ok(())
     } else {
         Err(std::io::Error::last_os_error())
     }
 }
 
+/// The time now.
+fn now() -> libc::timeval {
+    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("the clock is after 1970");
+    libc::timeval { tv_sec: since.as_secs() as libc::time_t, tv_usec: since.subsec_micros() as libc::suseconds_t }
+}
+
 /// Reads cargo's output from <input>. Each of cargo's own messages marks the
-/// units it reports as used now; every other line (a `cargo run` program's
+/// units it reports as used, at the moment cargo's first message came, the
+/// same for every unit of the build: cargo reports nothing before it holds
+/// the profile folder's lock, so one build's units are marked after the
+/// previous build's. A prune tells two copies one build used (two versions
+/// of a crate) from a copy a later build replaced by it. Every other line (a `cargo run` program's
 /// output, a test run's) passes through to <output> unchanged. Returns 1 when
 /// a reported unit could not be recorded, else 0.
 pub fn record(mut input: impl BufRead, output: &mut impl Write) -> Result<i32> {
@@ -360,6 +371,7 @@ pub fn record(mut input: impl BufRead, output: &mut impl Write) -> Result<i32> {
     let mut used: HashSet<u64> = HashSet::new();
     let mut failures = Vec::new();
     let mut output_open = true;
+    let mut began: Option<libc::timeval> = None;
     let mut line = Vec::new();
     loop {
         line.clear();
@@ -380,9 +392,10 @@ pub fn record(mut input: impl BufRead, output: &mut impl Write) -> Result<i32> {
             }
             continue;
         };
+        let when = *began.get_or_insert_with(now);
         let (found, mut missing) = units_of(&message, &mut fingerprints, &used)?;
         for dir in found {
-            match touch(&dir) {
+            match touch(&dir, &when) {
                 Ok(()) => used.extend(fingerprint_values(&dir)),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     missing.push(dir.display().to_string())

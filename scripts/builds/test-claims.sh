@@ -296,7 +296,7 @@ server=""
 
 # A claimed worktree's cargo folder over its cap is trimmed of incremental
 # folders, not deleted whole or skipped; an unclaimed one is deleted whole; the
-# app checkout's is left alone. (A dry run: a real prune also deletes build
+# app checkout's is not trimmed. (A dry run: a real prune also deletes build
 # output in the machine's real temporary folders.)
 echo 'target 1M' > "$side3/.build-dirs"
 trim_profile="$BUILDS_ROOT/demo/side-3/target/debug"
@@ -316,8 +316,12 @@ grep -q "claimed, would trim: .*demo/side-3/target (.* left, under the cap)" <<<
 [ "$(find "$trim_profile" | sort)" = "$before" ] || fail "a dry run trimmed"
 "$builds" app-checkout "$side3" 2>/dev/null
 out="$("$builds" prune --dry-run 2>&1)"
-grep -q "claimed, kept: .*demo/side-3/target" <<<"$out" && ! grep -q "incremental" <<<"$out" \
+# Its builds run without incremental compilation, so every incremental folder
+# goes with the unused build copies, which leaves it under its cap.
+! grep -q "would trim\|incremental folders of\|would delete .*demo/side-3/target (" <<<"$out" \
     || fail "the app checkout's claimed folder was trimmed: $out"
+grep -q "would delete 4 incremental folders this checkout builds without incremental compilation from .*demo/side-3/target/debug" <<<"$out" \
+    || fail "the app checkout's incremental folders were kept: $out"
 rm "$BUILDS_ROOT/demo/app-checkout"
 "$builds" release "$side3" 2>/dev/null
 out="$("$builds" prune --dry-run 2>&1)"

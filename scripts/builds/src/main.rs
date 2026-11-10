@@ -95,7 +95,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "status" => status::cmd_status(&mut tool, args),
         "prune" => prune::cmd_prune(&tool, args),
         "install" => install::cmd_install(&tool, args),
-        "units" => units::cmd_units(args),
+        "units" => units::cmd_units(&tool, args),
         "du" => usage::cmd_du(args),
         "health" => health::cmd_health(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),

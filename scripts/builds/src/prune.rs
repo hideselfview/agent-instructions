@@ -6,11 +6,12 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::cargo_run::builds_incrementally;
 use crate::checkout::{Checkout, Root, git_text, git, is_app_checkout, keeps_warm};
 use crate::evict::{Recreate, Removal, background_rm, evict, make_temp_dir};
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::manifest::{SHARED_CACHES, build_dirs};
+use crate::manifest::{SHARED_CACHES, build_dirs, has_manifest};
 use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_MINUTES};
 use crate::temp_builds::temp_build_folders;
 use crate::text::{human, note};
@@ -41,12 +42,7 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
     if folders.is_empty() {
         return Ok(());
     }
-    let ages = units::prune::Ages::new(
-        tool.rules.unused_days,
-        tool.rules.superseded_hours,
-        tool.rules.incremental_hours,
-    );
-    let mut freed = units::prune::prune(&ages, run.dry(), &folders)?;
+    let mut freed = units::prune::prune(&cargo_ages(tool, checkout)?, run.dry(), &folders)?;
     freed.extend(prune_trees(tool, root, checkout, &folders, run)?);
     let claimed = checkout.claim_file().is_file();
     let app_checkout = is_app_checkout(&tool.places, root)?;
@@ -88,6 +84,32 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
         }
         delete_folder(tool, &folder, run, &reason, Recreate::Yes, "; the next build refills it")?;
     }
+    Ok(())
+}
+
+/// The rules for <checkout>'s build copies: its incremental folders go after
+/// the idle hours where its builds compile incrementally, and every one where
+/// they don't, since no build there reads them.
+fn cargo_ages(tool: &Tool, checkout: &Checkout) -> Result<units::prune::Ages> {
+    let idle = if builds_incrementally(&tool.places, checkout)? { tool.rules.incremental_hours } else { 0 };
+    Ok(units::prune::Ages::new(tool.rules.unused_days, idle))
+}
+
+/// `builds units after-build <checkout>`, which `builds cargo` starts as it
+/// exits: deletes the build copies in <checkout>'s folders that the build
+/// replaced, and the rest `units::prune` deletes, once nothing holds the
+/// checkout's guard or a profile folder's lock.
+pub fn prune_after_build(tool: &Tool, checkout: &Checkout) -> Result<()> {
+    if !has_manifest(&checkout.top) {
+        return Ok(());
+    }
+    let root = checkout.build_root(&tool.places);
+    let folders: Vec<PathBuf> = build_dirs(&checkout.top)?
+        .iter()
+        .map(|entry| root.join(&entry.path))
+        .filter(|folder| folder.is_dir())
+        .collect();
+    units::prune::prune(&cargo_ages(tool, checkout)?, false, &folders)?;
     Ok(())
 }
 

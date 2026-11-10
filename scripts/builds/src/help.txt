@@ -134,9 +134,12 @@ Commands:
                               rustdoc, test, bench, run, install, nextest
                               run|list|archive) and record the build copies
                               it used; the rest of its output, a program's or
-                              the tests', passes through. In the app checkout
-                              it builds without incremental compilation
-                              (--config build.incremental=false)
+                              the tests', passes through. It holds the
+                              checkout's guard while cargo runs, and as it
+                              exits starts `units after-build`, which deletes
+                              the build copies the build replaced. In the app
+                              checkout it builds without incremental
+                              compilation (--config build.incremental=false)
   builds lock <repo> <command> [<args>...]
                               run the command holding the repo's app lock
                               (/Volumes/Builds/<repo>/app.lock), waiting for
@@ -171,11 +174,15 @@ Commands:
                               .app-build names; for mac, copy the app to
                               ~/Applications/<repo>-test in place of the copy
                               there, quitting the one running. Opens nothing
-  builds units prune <days> <hours> <incremental hours> <dry 0|1> <folder>...
+  builds units prune <days> <incremental hours> <dry 0|1> <folder>...
   builds units trim <cap KiB> <size KiB> <dry 0|1> <folder>...
   builds units git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...
                               the steps setup and prune run on cargo's
-                              folders, on the folders named
+                              folders, on the folders named; 0 incremental
+                              hours deletes every incremental folder
+  builds units after-build <checkout>
+                              the prune `builds cargo` starts as it exits:
+                              the build copies of the checkout's folders
   builds du <path>...         the KiB each path takes, counting blocks APFS
                               clones and hard links share once
   builds install              copy `builds` onto PATH, create the shared caches
@@ -223,17 +230,38 @@ one profile, target and feature set) by a hash of everything that build
 depends on, dependency versions included: every dependency bump builds a new
 copy of each unit above it, and the old copies stay. `cargo` records each
 unit a build reports, whether it rebuilt it or found it up to date, by
-setting its fingerprint folder's modification time; a unit no recorded build
-has used counts as used when cargo last built it. `setup`
-and `prune` delete, in each cargo folder (target, target-macos, ...), every
-file of each unit nothing used for BUILDS_UNUSED_DAYS days (default 3), and
-of each unit a newer copy of the same thing replaced that nothing used for
-BUILDS_SUPERSEDED_HOURS hours (default 12), the incremental folders only
-those units used, and every incremental folder nothing wrote anywhere inside
-for BUILDS_INCREMENTAL_HOURS hours (default 6; in every checkout, main's and
-the app checkout's too), while holding cargo's locks on that folder and keeping any
-unit a process holds a file of. The repo's hooks and build scripts run cargo
-through `builds cargo`.
+setting its fingerprint folder's modification time to the moment that
+build's cargo began reporting; a unit no recorded build has used counts as
+used when cargo last built it. `setup` and `prune` delete, in each cargo
+folder (target, target-macos, ...), every file of each unit nothing used for
+BUILDS_UNUSED_DAYS days (default 3), and of each unit a newer copy replaced:
+a copy of the same thing (package and target, mode, features, profile)
+built from other sources (a dependency's version or git revision, or the
+compiler) was used by a build that began after the unit's last use, or the
+unit was built against something a unit of its package that such a build
+used was built against another copy of. Copies built from the same sources
+for another package selection (`-p x` against the workspace) stay side by
+side, and so does whatever a unit that stays was built against. They also
+delete the incremental folders only those units used, and every incremental
+folder nothing wrote anywhere inside for BUILDS_INCREMENTAL_HOURS hours
+(default 6) in a checkout whose builds compile incrementally, or every one
+in a checkout whose builds don't, which no build there reads; main's and
+the app checkout's too.
+
+They delete a unit's files only while holding the checkout's guard
+(<build root>/.builds-cargo.lock) and cargo's lock on that profile folder,
+both taken without waiting, and keep any unit a process holds a file of.
+`builds cargo` holds the guard, shared, from before it starts cargo until
+cargo has exited and its report is read: cargo holds its own lock only
+while it compiles, and `cargo test` runs the tests after letting go of it.
+Cargo decides which units are up to date for its whole build before it
+runs any of it, and nothing outside cargo can see which those are, so no
+unit is deleted while a build runs; a build that starts after a deletion
+finds the unit's fingerprint gone and builds it again. As it exits, `builds
+cargo` starts `builds units after-build`, which deletes the checkout's
+replaced copies the same way, so they go moments after the build that
+replaced them. The repo's hooks and build scripts run cargo through `builds
+cargo`.
 
 Under the same locks they delete, in units still in use and in every
 checkout, the object files no build or debugger reads. rustc leaves each
@@ -246,7 +274,7 @@ three hours.
 
 A folder still over its cap is deleted whole and recreated empty; the next
 build repopulates it, mostly from sccache. A folder that any process holds a
-file open in is never deleted.
+file open in, or whose checkout's guard a build holds, is never deleted.
 
 A claimed worktree's folder is not deleted whole, since its agent is at work
 in it, but an agent that builds all day would grow it without bound (one

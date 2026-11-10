@@ -192,11 +192,6 @@ pub struct Rules {
     /// Before it, main's target held 93 copies of bae-core, 13 GB, going back
     /// a week.
     pub unused_days: u64,
-    /// A build copy a newer copy of the same thing replaced is deleted once
-    /// no build used it for this many hours. Half a day keeps what a branch
-    /// checked out earlier the same day builds against; main never goes back
-    /// to an older pin.
-    pub superseded_hours: u64,
     /// An incremental folder nothing wrote anywhere inside for this many
     /// hours is deleted. Cargo never deletes a folder of an old hash, so they
     /// fill the cap: one coven checkout had 112 of 162 folders, most of 28 GB,
@@ -211,7 +206,6 @@ impl Rules {
             floor_kib: gib_from_env("BUILDS_FREE_FLOOR_GIB", 30)? * 1024 * 1024,
             hard_floor_kib: gib_from_env("BUILDS_HARD_FLOOR_GIB", 10)? * 1024 * 1024,
             unused_days: whole_from_env("BUILDS_UNUSED_DAYS", 3, "days")?,
-            superseded_hours: whole_from_env("BUILDS_SUPERSEDED_HOURS", 12, "hours")?,
             incremental_hours: whole_from_env("BUILDS_INCREMENTAL_HOURS", 6, "hours")?,
         })
     }

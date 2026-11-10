@@ -47,7 +47,6 @@ impl Scratch {
                 floor_kib: floor_gib * 1024 * 1024,
                 hard_floor_kib: 0,
                 unused_days: 3,
-                superseded_hours: 12,
                 incremental_hours: 6,
             },
         )

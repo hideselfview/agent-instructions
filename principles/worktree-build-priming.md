@@ -443,7 +443,8 @@ nextest), its stdout read by the tool as cargo writes it; without the tool (CI),
 or with a `builds` that has no `cargo` command, `scripts/cargo.sh` is cargo
 itself. Each `compiler-artifact` message, for an up-to-date unit too, and each
 `build-script-executed` names its unit's files; the recorder sets that unit's
-fingerprint folder's modification time to now and passes every other line
+fingerprint folder's modification time to the moment that build's cargo began
+reporting, the same for every unit of the build, and passes every other line
 through, so a `cargo run` program's output and test output still reach the
 caller. Doctests have no `--no-run`, and a `--profile test` build of the library
 makes a different unit than the doctests use, so reading cargo's stdout in place
@@ -502,32 +503,51 @@ checkout (main's and the app checkout's too), each incremental folder whose
 newest write anywhere inside it is more than six hours old
 (`BUILDS_INCREMENTAL_HOURS` overrides it), whether or not its unit is still in
 use. Losing one costs an incremental rebuild of its crate, mostly from sccache.
-It runs under the same guard as the rest of the prune: a profile whose cargo
-lock a build holds is skipped, and so is a folder a process holds a file in. The
-line it prints gives the count, the size freed (not counting `deps/` files the
-folder hard-links, which stay) and the three largest; a dry run
+In a checkout whose builds run without incremental compilation (the app
+checkout, below) no build reads one, so every incremental folder there goes. It
+runs under the same guard as the rest of the prune: a profile whose cargo lock a
+build holds is skipped, and so is a folder a process holds a file in. The line
+it prints gives the count, the size freed (not counting `deps/` files the folder
+hard-links, which stay) and the three largest; a dry run
 (`builds prune --dry-run`) prints what it would delete. Under the free-space
 floor the span is an hour (below).
 
 **Replaced build copies.** Three days is what keeps the copies a branch from the
 last few days builds against, and lowering it would delete what builds use
 cargo's report doesn't record (rust-analyzer, cargo typed by hand): at one day
-it would have deleted 7.6 GB of main's `target`. A copy a newer copy of the same
-thing replaced goes sooner: once nothing used it for 12 hours
-(`BUILDS_SUPERSEDED_HOURS`) and a copy with the same identity was used after it.
-The identity is the package and target, mode, features, profile settings,
-rustflags and target triple, in the same profile folder, over dependencies that
-are themselves the same thing, read from each unit's fingerprint JSON and its
-dependencies' fingerprints; copies with one identity differ only in their
-sources (a dependency's version or git revision, the compiler). Feature variants
-of a crate, which different package selections build and use side by side, have
-different identities and stay. A unit a remaining unit was built against stays
-too, so two versions of one crate in a single build (thiserror 1 and 2) both
-stay. A workspace crate is rebuilt in place, so a dependent built before the
-last rebuild names a fingerprint no unit has; such a dependency counts by its
-package and crate name in every dependent. A dry run in bae main, where the
-coven pin moves several times a day, found 2.7 GB of replaced copies in `target`
-and 1.2 GB in `target-macos`.
+it would have deleted 7.6 GB of main's `target`. A copy a newer copy replaced
+goes at once instead, at the next prune, which `builds cargo` starts as it
+exits. Before, it waited 12 hours, and with eight agents switching branches and
+pins, busy worktrees held about 15 GB of replaced copies each (bae side-24's and
+side-33's `target/debug` on 2026-11-10); a branch that goes back to an older pin
+rebuilds those copies, mostly from sccache.
+
+Copies of one thing are builds of the same package and target, mode, features,
+profile settings, rustflags and target triple, in the same profile folder, read
+from each unit's fingerprint JSON. A copy is replaced when a copy of the same
+thing built from other sources was used by a build that began after the copy's
+last use. Other sources are another compiler (the JSON's `rustc`), another
+source folder of a package both were built against (`path`: a registry version's
+folder, a git revision's checkout), or another copy of a unit both were built
+against a copy of, by identity: the thing over the identities of its
+dependencies, so copies with one identity differ only in their sources, which is
+how a workspace crate's new version, in the same folder, tells from its old one.
+Copies built from the same sources differ only in their dependencies' features,
+which the package selection decides (`-p x` against the workspace); builds use
+those in turn, so they stay side by side. A new pin can also change a
+dependency's features (a new coven asking zeroize for another feature), so the
+thing leaves dependencies out and the sources decide. A unit is also replaced
+when a unit of its own package, used by a build that began after its last use,
+was built against another copy, from other sources, of something it was built
+against: a test binary no build has rebuilt since the library beside it moved to
+a new pin. A unit that stays keeps what it was built against, so two versions of
+one crate in one build (thiserror 1 and 2) both stay; and since the recorder
+marks every unit of one build with the moment that build began, neither looks
+replaced by the other. A workspace crate is rebuilt in place, so a dependent
+built before the last rebuild names a fingerprint no unit has; such a dependency
+counts by its package and crate name in every dependent. A dry run on 2026-11-10
+found 15.2 GB of replaced copies in bae side-24's `target/debug` and 14.8 GB in
+side-33's.
 
 **Dead object files.** With `split-debuginfo` unpacked (macOS's default), rustc
 leaves each unit's object files in `deps/`, and a linked binary's debug map
@@ -546,32 +566,61 @@ never from `deps/`, and cargo's freshness never looks at them: after deleting
 them every unit stays fresh and a panic's backtrace keeps file and line, in the
 test and in an rlib it calls (`test-cargo-units.sh` checks both).
 
-Deleting holds every `.cargo-lock` of the folder's profile folders, taken
-without waiting (a profile folder whose lock a build holds waits for the next
-run), then lists open files once and keeps every unit a process holds a file of;
-rust-analyzer's proc-macro server holds its macro dylibs. Open files are matched
-by inode: lsof names a hard-linked file by whichever of its names it finds, and
-rustc hard-links `deps/` files into `incremental/`. A unit's fingerprint goes
-first: without it cargo rebuilds the unit before reading its outputs, so a
-deletion cut off halfway leaves only files the unit's next build overwrites.
+Deleting a unit's files is made impossible while a build can still read them.
+Cargo decides which units are up to date for its whole unit graph before it runs
+any job, and nothing outside cargo can see that graph on stable cargo
+(`--unit-graph` and `--build-plan` are unstable, and neither names the hashes),
+so a copy a build is about to use looks no different from one it will never use.
+Deleting therefore never overlaps a build: it holds the checkout's guard
+(`<build root>/.builds-cargo.lock`) and every `.cargo-lock` of the folder's
+profile folders, all taken without waiting (a folder whose guard, or a profile
+folder whose lock, a build holds waits for the next run). Cargo holds its lock
+only while it compiles: `cargo test` lets go of it before it runs the test
+binaries and rustdoc on the doctests (measured on cargo 1.95), and the recorder
+may still be reading cargo's report after cargo let go. So `builds cargo` holds
+the guard, shared, from before it starts cargo until cargo has exited and the
+report is read; a build waits on the guard only while a prune holds it, a few
+seconds. A build that starts after a deletion finds the unit's fingerprint gone
+and builds it again. Cargo typed by hand takes no guard, but it records nothing
+either, so what only it uses already goes on the days rule.
+
+Then it lists open files once and keeps every unit a process holds a file of;
+rust-analyzer's proc-macro server holds its macro dylibs, and a debugger the
+test binary it runs. Open files are matched by inode: lsof names a hard-linked
+file by whichever of its names it finds, and rustc hard-links `deps/` files into
+`incremental/`. A unit's fingerprint goes first: without it cargo rebuilds the
+unit before reading its outputs, so a deletion cut off halfway leaves only files
+the unit's next build overwrites.
+
+**Right after each build.** The prune at the start of a hook runs only then, and
+skips a profile folder a build holds: on 2026-11-10 a real prune of a busy
+worktree deleted none of the 10 GB of replaced copies its dry run found, because
+a build held the lock. So `builds cargo`, as it exits, starts
+`builds units after-build <checkout>` in a session of its own: the same deletion
+of build copies, incremental folders and object files over the checkout's cargo
+folders, under the same guard and locks. It writes what it did to
+`<build root>/.after-build.log`, holding an exclusive lock on that file while it
+runs, and a later build's prune waits for one still running. When builds
+overlap, each one's prune finds the guard held by the next and leaves the work
+to it, so the last build of a run of them does it.
 
 **Caps.** A folder still over its cap is deleted whole (renamed into
 `/Volumes/Builds/.trash`, removed in the background, recreated empty), unless a
 build is using it or its worktree is claimed: a claimed worktree's agent is
 mid-task, so the build reports the folder over its cap and keeps it. Hooks and
 build scripts in one checkout overlap, so "in use" is decided while holding what
-a build holds: every `.cargo-lock` flock in the folder, taken without waiting
-(cargo holds one for a whole build), then a fresh check that no process has a
-file or working directory inside it, then the rename, then the locks are
-released. A cargo build that starts meanwhile queues on the lock and writes into
-the new folder. Caps are about twice a fresh build of the folder; the next build
-refills it, mostly from sccache (a wipe and rebuild took 137 s and 8.9 GB).
-Sizes, for the caps and `builds status`, count each block once
-(`builds du <path>...` prints them): cargo uplifts a library out of `deps/` as
-an APFS clone, which shares its blocks, and `du` counts those blocks once per
-file, so it read bae's `target-macos` as 9.3 GB where it took 7.3 GB. A file
-with several hard links (rustc links `deps/` files into `incremental/`) counts
-once.
+a build holds: the checkout's guard and every `.cargo-lock` flock in the folder,
+taken without waiting (cargo holds one while it compiles, and `builds cargo` the
+guard until cargo exits), then a fresh check that no process has a file or
+working directory inside it, then the rename, then the locks are released. A
+cargo build that starts meanwhile queues on the lock and writes into the new
+folder. Caps are about twice a fresh build of the folder; the next build refills
+it, mostly from sccache (a wipe and rebuild took 137 s and 8.9 GB). Sizes, for
+the caps and `builds status`, count each block once (`builds du <path>...`
+prints them): cargo uplifts a library out of `deps/` as an APFS clone, which
+shares its blocks, and `du` counts those blocks once per file, so it read bae's
+`target-macos` as 9.3 GB where it took 7.3 GB. A file with several hard links
+(rustc links `deps/` files into `incremental/`) counts once.
 
 Caps bound folders, not the volume: a bae checkout with every platform built is
 45-52 GB, the build volume shares its APFS pool with the main disk, and with six
