@@ -405,7 +405,8 @@ pub struct Claimed {
 }
 
 /// A side worktree with no claim that holds commits missing from origin/main:
-/// work an agent left behind.
+/// work an agent left behind. Never the app checkout, which no one claims:
+/// what it has checked out is the branch an app build is building.
 pub struct Unclaimed {
     pub place: usize,
     pub git: SideGit,
@@ -548,6 +549,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         }
         match Claim::read(&checkout.claim_file())? {
             Some(claim) => claimed.push((at, checkout, claim)),
+            None if root.is_app_checkout(&tool.places)? => {}
             None => unclaimed.push((at, checkout)),
         }
     }

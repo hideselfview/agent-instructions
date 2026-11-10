@@ -419,7 +419,7 @@ impl Model {
             state.load.pop_front();
         }
         let claimed = claimed_of(&roots, &state.facts, &places)?;
-        let unclaimed = unclaimed_of(&roots, &state.facts, &places)?;
+        let unclaimed = unclaimed_of(&self.places, &roots, &state.facts, &places)?;
         let health = assess(
             now,
             free_kib,
@@ -583,11 +583,16 @@ fn claimed_of(roots: &[Root], facts: &HashMap<PathBuf, Facts>, places: &[Place])
     Ok(claimed)
 }
 
-fn unclaimed_of(roots: &[Root], facts: &HashMap<PathBuf, Facts>, places: &[Place]) -> crate::fail::Result<Vec<Unclaimed>> {
+fn unclaimed_of(
+    tool_places: &Places,
+    roots: &[Root],
+    facts: &HashMap<PathBuf, Facts>,
+    places: &[Place],
+) -> crate::fail::Result<Vec<Unclaimed>> {
     let mut unclaimed = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
-        if checkout.is_main() {
+        if checkout.is_main() || root.is_app_checkout(tool_places)? {
             continue;
         }
         let Some(git) = facts.get(&root.path).and_then(|facts| facts.git.as_ref()) else { continue };
