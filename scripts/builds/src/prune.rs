@@ -339,6 +339,117 @@ fn old_entries(
     Ok(found)
 }
 
+/// Claude Code sessions' scratch folders (/private/tmp/claude-<uid>/<project>/
+/// <session>/scratchpad) of sessions no longer running: an entry nothing
+/// anywhere inside has been written in for three days is a finished probe,
+/// build or log. A running session's scratchpad is never touched: its notes
+/// may be copies it refreshes in place, which leave the entry's own time
+/// alone. Anything worth keeping belongs in the repo or its plans/.
+pub fn prune_scratchpads(tool: &Tool, run: Run) -> Result<()> {
+    let base = tool.places.scratch_base();
+    let live = match live_sessions(&tool.places.claude_sessions()) {
+        Ok(live) => live,
+        Err(error) => {
+            note(format!(
+                "reading the running Claude Code sessions failed, so no scratch entry was deleted: {error}"
+            ));
+            return Ok(());
+        }
+    };
+    let mut folders = Vec::new();
+    for project in visible_names(&base) {
+        let project = base.join(project);
+        for session in visible_names(&project) {
+            if live.contains(&session) {
+                continue;
+            }
+            let scratchpad = project.join(session).join("scratchpad");
+            if scratchpad.is_dir() {
+                folders.push(scratchpad);
+            }
+        }
+    }
+    if folders.is_empty() {
+        return Ok(());
+    }
+    // An entry written in itself lately is not idle; the rest are measured,
+    // since a write deeper inside leaves the entry's own time alone.
+    let listing = match old_entries(&folders, 3, tool.places.uid, tool.now, |_, _| true) {
+        Ok(candidates) => {
+            let measures = tool.measure_all(&candidates)?;
+            Ok(candidates
+                .into_iter()
+                .zip(measures)
+                .filter(|(_, measured)| !tool.written_within(measured, 3 * 24 * 60))
+                .map(|(path, _)| path)
+                .collect())
+        }
+        Err(error) => Err(error),
+    };
+    prune_listed(
+        run,
+        &format!(
+            "scratch entries of ended sessions with no write inside for three days under {}",
+            base.display()
+        ),
+        listing,
+    );
+    Ok(())
+}
+
+/// The ids of the Claude Code sessions still running: each
+/// <sessions>/<pid>.json whose process is alive names its session. A pid a
+/// later process took keeps a session counted as running, which only keeps
+/// its scratchpad.
+fn live_sessions(
+    sessions: &Path,
+) -> std::result::Result<std::collections::HashSet<std::ffi::OsString>, String> {
+    #[derive(serde::Deserialize)]
+    struct Registered {
+        pid: i32,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    }
+    let mut live = std::collections::HashSet::new();
+    let entries = match std::fs::read_dir(sessions) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(live),
+        Err(error) => return Err(format!("{}: {error}", sessions.display())),
+    };
+    for entry in entries {
+        let path = entry
+            .map_err(|error| format!("{}: {error}", sessions.display()))?
+            .path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            // A session that ended between the listing and the read.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        };
+        let registered: Registered = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let alive = unsafe { libc::kill(registered.pid, 0) } == 0
+            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+        if alive {
+            live.insert(registered.session_id.into());
+        }
+    }
+    Ok(live)
+}
+
+/// The names a shell's `*` matches in <dir>; none when it can't be listed.
+fn visible_names(dir: &Path) -> Vec<std::ffi::OsString> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name())
+        .filter(|name| name.as_encoded_bytes().first() != Some(&b'.'))
+        .collect()
+}
+
 /// Tests' temporary folders (tempfile's `.tmp*` under $TMPDIR) that a test
 /// left behind: nothing reads one a day after it was last written. Newer ones
 /// may belong to a test still running.
@@ -448,6 +559,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     prune_caches(tool, run)?;
     prune_test_temps(tool, run)?;
     prune_temp_builds(tool, run)?;
+    prune_scratchpads(tool, run)?;
     prune_cargo_git(tool, &roots, run)?;
     if !run.dry() {
         empty_trash(tool)?;
