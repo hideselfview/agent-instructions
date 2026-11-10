@@ -16,7 +16,7 @@ use super::fsevents::Stream;
 use super::tracker::Tracker;
 use crate::checkout::{Root, absolute_link_target, all_roots, parallel_map};
 use crate::claim::Claim;
-use crate::health::{Claimed, Health, Machine, assess, locks_of, places_of, sample, sccache_reading};
+use crate::health::{Claimed, Health, Machine, Unclaimed, assess, locks_of, places_of, sample, sccache_reading};
 use crate::manifest::{BuildDir, build_dirs};
 use crate::places::{Places, Rules};
 use crate::procs::Place;
@@ -419,7 +419,17 @@ impl Model {
             state.load.pop_front();
         }
         let claimed = claimed_of(&roots, &state.facts, &places)?;
-        let health = assess(now, free_kib, self.rules.floor_kib, self.rules.hard_floor_kib, machine.clone(), &places, claimed);
+        let unclaimed = unclaimed_of(&roots, &state.facts, &places)?;
+        let health = assess(
+            now,
+            free_kib,
+            self.rules.floor_kib,
+            self.rules.hard_floor_kib,
+            machine.clone(),
+            &places,
+            claimed,
+            unclaimed,
+        );
         state.machine = Some(machine);
         state.health = Some(health.clone());
         state.version += 1;
@@ -571,6 +581,23 @@ fn claimed_of(roots: &[Root], facts: &HashMap<PathBuf, Facts>, places: &[Place])
         claimed.push(Claimed { place, claim: claim.clone(), branch: facts.branch.clone(), git: git.clone() });
     }
     Ok(claimed)
+}
+
+fn unclaimed_of(roots: &[Root], facts: &HashMap<PathBuf, Facts>, places: &[Place]) -> crate::fail::Result<Vec<Unclaimed>> {
+    let mut unclaimed = Vec::new();
+    for root in roots {
+        let Some(checkout) = &root.live else { continue };
+        if checkout.is_main() {
+            continue;
+        }
+        let Some(git) = facts.get(&root.path).and_then(|facts| facts.git.as_ref()) else { continue };
+        if Claim::read(&checkout.claim_file())?.is_some() {
+            continue;
+        }
+        let Some(place) = places.iter().position(|p| p.root == root.path) else { continue };
+        unclaimed.push(Unclaimed { place, git: git.clone() });
+    }
+    Ok(unclaimed)
 }
 
 /// The one state the page shows for a live side worktree, first match wins:

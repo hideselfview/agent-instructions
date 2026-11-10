@@ -404,6 +404,13 @@ pub struct Claimed {
     pub git: SideGit,
 }
 
+/// A side worktree with no claim that holds commits missing from origin/main:
+/// work an agent left behind.
+pub struct Unclaimed {
+    pub place: usize,
+    pub git: SideGit,
+}
+
 /// Judges what needs acting on.
 pub fn assess(
     now: i64,
@@ -413,6 +420,7 @@ pub fn assess(
     machine: Machine,
     places: &[Place],
     claimed: Vec<Claimed>,
+    unclaimed: Vec<Unclaimed>,
 ) -> Health {
     let mut findings = Vec::new();
     if free_kib < floor_kib {
@@ -442,6 +450,15 @@ pub fn assess(
             shell.minutes % 60,
             shell.command
         ));
+    }
+    for Unclaimed { place, git } in unclaimed {
+        if !git.ahead.is_empty() {
+            findings.push(format!(
+                "worktree: {} has no claim and {} waiting to land, so it is not retired",
+                places[place].label,
+                crate::text::counted(git.ahead.len(), "commit", "commits")
+            ));
+        }
     }
     let mut worktrees = Vec::new();
     for Claimed { place, claim, branch, git } in claimed {
@@ -523,21 +540,26 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let sccache = sccache_reading(&tool.places.home, now)?;
     let machine = sample(&places, &locks_of(&tool.places, &roots)?, tool.places.uid, now, sccache);
     let mut claimed = Vec::new();
+    let mut unclaimed = Vec::new();
     for (at, root) in live.iter().enumerate() {
         let checkout = root.live.as_ref().expect("live");
         if checkout.is_main() {
             continue;
         }
-        if let Some(claim) = Claim::read(&checkout.claim_file())? {
-            claimed.push((at, checkout, claim));
+        match Claim::read(&checkout.claim_file())? {
+            Some(claim) => claimed.push((at, checkout, claim)),
+            None => unclaimed.push((at, checkout)),
         }
     }
+    let unclaimed_gits = parallel_map(&unclaimed, |(_, checkout)| crate::side_git::read(&checkout.top));
+    let unclaimed: Vec<Unclaimed> =
+        unclaimed.into_iter().zip(unclaimed_gits).map(|((place, _), git)| Unclaimed { place, git }).collect();
     let gits = parallel_map(&claimed, |(_, checkout, _)| crate::side_git::read(&checkout.top));
     let mut judged = Vec::new();
     for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
         judged.push(Claimed { place, claim, branch: checkout.branch()?, git });
     }
-    Ok(assess(now, tool.free_kib()?, tool.rules.floor_kib, tool.rules.hard_floor_kib, machine, &places, judged))
+    Ok(assess(now, tool.free_kib()?, tool.rules.floor_kib, tool.rules.hard_floor_kib, machine, &places, judged, unclaimed))
 }
 
 fn root_repo(root: &Root) -> String {
@@ -691,6 +713,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::side_git::Commit;
 
     #[test]
     fn a_claude_shell_shows_its_command() {
@@ -745,9 +768,49 @@ mod tests {
             machine,
             &[place(1), place(2)],
             vec![claimed(1, None), claimed(2, Some("held"))],
+            Vec::new(),
         );
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
         assert!(health.findings[0].starts_with("worktree: demo/side-1 "), "{:?}", health.findings);
         assert_eq!(health.worktrees.len(), 2);
+    }
+
+    /// An unclaimed worktree holding commits missing from origin/main is
+    /// work left behind; one holding none is not a finding.
+    #[test]
+    fn an_unclaimed_worktree_with_unlanded_commits_needs_action() {
+        let now = 1_800_000_000;
+        let machine = Machine {
+            at: now,
+            load: [1.0; 3],
+            cores: 8,
+            builds: Vec::new(),
+            sccache: SccacheHealth { listening: true, executed: Some(1), compared: None, waiting: Vec::new() },
+            shells: Vec::new(),
+            locks: Vec::new(),
+        };
+        let place = |n: usize| Place {
+            label: format!("demo/side-{n}"),
+            top: PathBuf::from(format!("/demo-worktrees/side-{n}")),
+            root: PathBuf::from(format!("/volume/demo/side-{n}")),
+        };
+        let commit = Commit { sha: "abc".into(), full: "abc".into(), time: now, authored: now, subject: "Work".into() };
+        let git = |ahead: Vec<Commit>| SideGit { head: None, ahead, uncommitted: Some(0), last_write: None, error: None };
+        let health = assess(
+            now,
+            100 << 20,
+            30 << 20,
+            10 << 20,
+            machine,
+            &[place(1), place(2)],
+            Vec::new(),
+            vec![Unclaimed { place: 0, git: git(vec![commit]) }, Unclaimed { place: 1, git: git(Vec::new()) }],
+        );
+        assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
+        assert!(
+            health.findings[0].starts_with("worktree: demo/side-1 has no claim and 1 commit waiting to land"),
+            "{:?}",
+            health.findings
+        );
     }
 }

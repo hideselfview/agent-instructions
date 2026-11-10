@@ -317,11 +317,12 @@ the cause and fix it then.
   landed, or delete and recreate it — setup (fresh checkout, dependency install,
   first build) costs minutes and disk, and the warm build is lost.
 - More side worktrees when several agents work unrelated branches in the same
-  repo at once; create them with `builds new` (`side-2`, …). Keep them warm
-  while that wave of parallel work lasts, reusing them for each next branch;
-  don't retire one because its branch landed. Retire extras with `builds retire`
-  once the work has clearly moved on from the wave that needed them — a judgment
-  call, not a timer.
+  repo at once; get them with `builds new` (`side-2`, …), which hands out a free
+  one (no claim, clean, every commit on `origin/main` by patch) before adding
+  another. Keep them warm while that wave of parallel work lasts, reusing them
+  for each next branch. `builds prune` retires a free one nothing has used for a
+  day (no claim, write or build), so extras don't pile up; one holding unlanded
+  commits is never retired, and `builds health` lists it.
 - **App builds** (Xcode, Gradle, a bridge cross-compiled for a platform) stay
   warm in main and in one long-lived side worktree, the repo's app checkout;
   other side worktrees build host output only (Rust's `target`). Agents take

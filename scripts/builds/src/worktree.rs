@@ -15,6 +15,7 @@ use crate::claim::{Claim, require_one_line, write_claim};
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+use crate::free_worktrees::find_free;
 use crate::setup::setup;
 use crate::text::note;
 use crate::tool::Tool;
@@ -28,9 +29,10 @@ fn run_checked(command: &mut std::process::Command, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// `builds new [<repo>] [-b <branch>] [--for <who>]`: adds the next free
-/// side-N worktree from origin/main, links it, runs its post-checkout, and
-/// prints its path.
+/// `builds new [<repo>] [-b <branch>] [--for <who>]`: hands out a free side
+/// worktree (`find_free`) checked out afresh from origin/main, or adds the next
+/// side-N when none is free; links it, runs its post-checkout, and prints its
+/// path.
 pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     let mut repo_path = ".".to_string();
     let mut branch = None;
@@ -49,7 +51,40 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     }
     tool.places.require_volume()?;
     let main = Checkout::find(&repo_path)?.main;
-    let repo = crate::checkout::file_name(&main);
+    run_checked(git(&main).args(["fetch", "-q", "origin"]), "git fetch")?;
+    let (checkout, claimed) = match find_free(tool, &main)? {
+        Some(free) => {
+            // Claimed before anything else, so a second `new` doesn't take it
+            // too; the claim goes again if it can't be handed out.
+            if let Some(who) = &who {
+                write_claim(&free, who, tool.now, None, None)?;
+            }
+            if let Err(error) = reuse(&free, branch.as_deref()).and_then(|()| prepare(tool, &free)) {
+                if who.is_some() {
+                    let _ = std::fs::remove_file(free.claim_file());
+                }
+                return Err(error);
+            }
+            (free, who.is_some())
+        }
+        None => {
+            let dir = add_new(tool, &main, branch.as_deref())?;
+            let checkout = Checkout::find(&dir.display().to_string())?;
+            prepare(tool, &checkout)?;
+            (checkout, false)
+        }
+    };
+    if let (Some(who), false) = (&who, claimed) {
+        write_claim(&checkout, who, tool.now, None, None)?;
+    }
+    let dir = &checkout.top;
+    println!("{}", dir.display());
+    Ok(())
+}
+
+/// Adds the next side-N worktree of <main>'s repo, from origin/main.
+fn add_new(tool: &Tool, main: &Path, branch: Option<&str>) -> Result<std::path::PathBuf> {
+    let repo = crate::checkout::file_name(main);
     let parent = main.parent().expect("a main checkout has a folder").join(format!("{repo}-worktrees"));
     let mut n = 1;
     while parent.join(format!("side-{n}")).exists() || tool.places.root.join(&repo).join(format!("side-{n}")).exists() {
@@ -57,41 +92,55 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     }
     let dir = parent.join(format!("side-{n}"));
     std::fs::create_dir_all(&parent).context(|| format!("creating {}", parent.display()))?;
-    run_checked(git(&main).args(["fetch", "-q", "origin"]), "git fetch")?;
     // The hooks the common .git points at may belong to another checkout;
-    // this one's own post-checkout runs below, after its build paths are
-    // linked.
-    let mut add = git(&main);
+    // this one's own post-checkout runs in `prepare`, after its build paths
+    // are linked.
+    let mut add = git(main);
     add.args(["-c", "core.hooksPath=/dev/null", "worktree", "add", "-q"]);
-    match &branch {
+    match branch {
         Some(branch) => add.arg("-b").arg(branch),
         None => add.arg("--detach"),
     };
     add.arg(&dir).arg("origin/main");
     run_checked(&mut add, "git worktree add")?;
-    let checkout = Checkout::find(&dir.display().to_string())?;
-    setup(tool, &checkout)?;
+    Ok(dir)
+}
+
+/// Checks a fresh branch out of origin/main in the free worktree <free>, or
+/// detaches HEAD there when no branch is named. Nothing in it is lost: a free
+/// worktree is clean and holds no commit missing from origin/main.
+fn reuse(free: &Checkout, branch: Option<&str>) -> Result<()> {
+    let mut checkout = git(&free.top);
+    checkout.args(["-c", "core.hooksPath=/dev/null", "checkout", "-q"]);
+    match branch {
+        Some(branch) => checkout.arg("-b").arg(branch),
+        None => checkout.arg("--detach"),
+    };
+    checkout.arg("origin/main");
+    run_checked(&mut checkout, "git checkout")
+}
+
+/// Links the worktree's build paths and runs its own hooks.
+fn prepare(tool: &Tool, checkout: &Checkout) -> Result<()> {
+    let dir = &checkout.top;
+    setup(tool, checkout)?;
     let install_hooks = dir.join("scripts/install-hooks.sh");
     if is_executable(&install_hooks) {
         run_checked(
-            std::process::Command::new("./scripts/install-hooks.sh").current_dir(&dir).stdout(std::process::Stdio::null()),
+            std::process::Command::new("./scripts/install-hooks.sh").current_dir(dir).stdout(std::process::Stdio::null()),
             "scripts/install-hooks.sh",
         )?;
     }
     let hook = dir.join("scripts/hooks/post-checkout");
     if is_executable(&hook) {
-        let head = git_text(git(&dir).args(["rev-parse", "HEAD"]), "read HEAD")?;
+        let head = git_text(git(dir).args(["rev-parse", "HEAD"]), "read HEAD")?;
         run_checked(
             std::process::Command::new(&hook)
                 .args(["0000000000000000000000000000000000000000", head.trim(), "1"])
-                .current_dir(&dir),
+                .current_dir(dir),
             "scripts/hooks/post-checkout",
         )?;
     }
-    if let Some(who) = &who {
-        write_claim(&checkout, who, tool.now, None, None)?;
-    }
-    println!("{}", dir.display());
     Ok(())
 }
 
@@ -116,6 +165,12 @@ pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
             tool.places.app_checkout_file(&repo).display()
         );
     }
+    retire_checkout(tool, &checkout)
+}
+
+/// Removes the clean, unclaimed side worktree <checkout> and its build root.
+pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
+    let top = checkout.top.display();
     let root = checkout.build_root(&tool.places);
     if let Some(claim) = Claim::read(&checkout.claim_file())? {
         fail!("{top} is claimed by {}; builds release it first", claim.text());

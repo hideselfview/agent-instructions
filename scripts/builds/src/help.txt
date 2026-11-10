@@ -65,8 +65,11 @@ Commands:
                               sure the volume has the free-space floor.
                               The repo's hooks and build scripts run this.
   builds new [<repo>] [-b <branch>]
-                              add the next free side-N worktree from
-                              origin/main, link it, run its post-checkout
+                              hand out a free side worktree (no claim, clean
+                              tree, every commit on origin/main by patch)
+                              checked out afresh from origin/main, else add
+                              the next side-N from it; link it, run its
+                              post-checkout
                               [--for <who>]: claim it for <who> (below)
   builds claim <checkout> <who>
                               record that <who> works in the side worktree
@@ -107,8 +110,9 @@ Commands:
                               minutes since a change, build processes there
                               or under the app lock for it), each app lock's
                               holder (the build's top process when its
-                              `builds lock` is gone); exits 1 when something
-                              needs acting on. Asks the daemon when one runs
+                              `builds lock` is gone); an unclaimed worktree
+                              with commits waiting to land is a finding;
+                              exits 1 when something needs acting on. Asks the daemon when one runs
   builds dashboard [--port <port>]
                               run the daemon until killed: it follows the
                               volume and the checkouts through FSEvents,
@@ -125,7 +129,12 @@ Commands:
                               wrote to for a day, build output in the
                               temporary folders nothing wrote to for 30
                               minutes, and cargo's git checkouts no
-                              checkout's Cargo.lock pins. --idle also
+                              checkout's Cargo.lock pins; retire each free
+                              side worktree (no claim, clean tree, every
+                              commit on origin/main by patch) that nothing
+                              has written to or built in for a day, never
+                              main, the app checkout or one with commits
+                              waiting to land. --idle also
                               deletes every folder and DerivedData entry
                               nothing wrote to for that long, outside
                               main and the app checkout unless --include-warm

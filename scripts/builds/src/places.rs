@@ -20,6 +20,8 @@ pub const DERIVED_DATA_CAP_KIB: u64 = 15 * 1024 * 1024;
 /// `prune` deletes a DerivedData entry nothing wrote to for this long: a day
 /// of work keeps what that day's one-off runs resolved.
 pub const DERIVED_DATA_IDLE_MINUTES: u64 = 1440;
+/// A free side worktree nothing has used for this long is retired by `prune`.
+pub const FREE_WORKTREE_IDLE_MINUTES: u64 = 1440;
 /// The port `dashboard` serves on unless `--port` names another.
 pub const DASHBOARD_PORT: u16 = 7787;
 

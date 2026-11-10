@@ -51,9 +51,13 @@ a failed build leaves the installed one as it was; a commit on main that touches
   `scripts/build-layout.sh` calls it, and the hooks and every build script call
   that first. Without the tool (CI) the script does nothing and the tools write
   into real directories.
-- `builds new [<repo>] [-b <branch>] [--for <who>]` adds the next free `side-N`
-  from `origin/main`, links it, and runs its own `post-checkout`, which sets the
-  checkout up and builds nothing; `--for` claims it.
+- `builds new [<repo>] [-b <branch>] [--for <who>]` hands out a free side
+  worktree first: one with no claim, a clean tree and no commit missing from
+  `origin/main` (compared by patch with `git cherry`, since landing rebases),
+  never the app checkout. It checks a fresh branch (or a detached HEAD) out of
+  `origin/main` there. Only when none is free does it add the next `side-N` from
+  `origin/main`. Either way it links the checkout and runs its own
+  `post-checkout`, which sets it up and builds nothing; `--for` claims it.
 - `builds claim <checkout> <who>` and `builds release <checkout>` record and
   remove who works in a side worktree. Whoever hands a worktree out (a
   coordinator dispatching an agent, a person) claims it, and releases it when
@@ -82,7 +86,14 @@ a failed build leaves the installed one as it was; a commit on main that touches
   writing the next note. `status` prints it as `note (waiting on you): <text>`,
   and `status --json` as the claim's `note_state` (null without one).
 - `builds retire <checkout>` removes a clean, unclaimed side worktree and its
-  build root; it refuses the app checkout.
+  build root; it refuses the app checkout. `builds prune` retires a free side
+  worktree by itself once nothing has used it for a day: no claim, no write to
+  its git dir (a checkout, a released claim) or build folders, no build process
+  there, a clean tree, and every commit on `origin/main` by patch. It never
+  retires main, the app checkout or a worktree holding unlanded commits; those
+  show in `builds health`'s needs-action list. This keeps free worktrees from
+  piling up (28 free bae worktrees, none holding unlanded work, had to be
+  retired by hand on 2026-11-10).
 - `builds app-checkout <checkout>` records a side worktree as its repo's app
   checkout (below), in `/Volumes/Builds/<repo>/app-checkout`.
 - `builds status` lists every entry on the volume: each root's folders, each
@@ -193,8 +204,9 @@ a failed build leaves the installed one as it was; a commit on main that touches
   checkout is gone, DerivedData entries nothing wrote to for a day and build
   output in the temporary folders nothing wrote to for 30 minutes; `--idle` also
   deletes every folder and DerivedData entry nothing wrote to for that long,
-  except main's and the app checkout's folders, which `--include-warm` adds.
-  `--dry-run` deletes nothing and prints what it would.
+  except main's and the app checkout's folders, which `--include-warm` adds. It
+  also retires idle free side worktrees (above), first. `--dry-run` deletes
+  nothing and prints what it would.
 - `builds cargo <subcommand> [<args>...]` runs cargo and records the build
   copies it used (below); the repo's `scripts/cargo.sh` calls it, and the hooks
   and build scripts run cargo through that.

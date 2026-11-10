@@ -11,6 +11,7 @@ mod daemon;
 mod evict;
 mod fail;
 mod floor;
+mod free_worktrees;
 mod health;
 mod install;
 mod lock;

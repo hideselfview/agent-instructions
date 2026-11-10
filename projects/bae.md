@@ -235,13 +235,16 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   one and the note; `builds dashboard` shows the same, with each worktree's
   commits waiting to land, at http://127.0.0.1:7787/.
 
-- **New side worktree:** `builds new ~/dev/bae` creates the next free
-  `~/dev/bae-worktrees/side-N` from `origin/main` and runs its `post-checkout`,
-  which links the build folders, `CLAUDE.md`, the main checkout's `bae-ffmpeg`,
-  the signing/feature xcconfigs and `bae-android/local.properties`, and seeds
-  the macOS app's `Package.resolved` from main. It builds nothing.
-  `builds retire <worktree>` removes a side worktree and its folders once its
-  work has moved on.
+- **New side worktree:** `builds new ~/dev/bae` hands out a free
+  `~/dev/bae-worktrees/side-N` (no claim, clean, every commit on `origin/main`
+  by patch) checked out afresh from `origin/main`, or creates the next one when
+  none is free, and runs its `post-checkout`, which links the build folders,
+  `CLAUDE.md`, the main checkout's `bae-ffmpeg`, the signing/feature xcconfigs
+  and `bae-android/local.properties`, and seeds the macOS app's
+  `Package.resolved` from main. It builds nothing. `builds retire <worktree>`
+  removes a side worktree and its folders once its work has moved on;
+  `builds prune` retires a free one nothing has used for a day, never the app
+  checkout or one with unlanded commits.
 
   bae-audio links FFmpeg and finds it via `FFMPEG_DIR` (set to `bae-ffmpeg/dist`
   in `.cargo/config.toml`), so bae-audio and every crate above it build in any

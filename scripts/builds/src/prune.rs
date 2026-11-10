@@ -10,6 +10,7 @@ use crate::cargo_run::builds_incrementally;
 use crate::checkout::{Checkout, Root, git_text, git, is_app_checkout};
 use crate::evict::{Recreate, Removal, background_rm, evict, make_temp_dir};
 use crate::fail;
+use crate::free_worktrees::retire_idle;
 use crate::fail::{Context, Result};
 use crate::manifest::{SHARED_CACHES, build_dirs, has_manifest};
 use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_MINUTES};
@@ -433,7 +434,8 @@ pub fn prune_cargo_git(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     Ok(())
 }
 
-/// `builds prune [--dry-run] [--idle <minutes> [--include-warm]]`.
+/// `builds prune [--dry-run] [--idle <minutes> [--include-warm]]`. Also
+/// retires the free side worktrees nothing has used for a day.
 pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     let mut run = Run::Real;
     let mut idle: u64 = 0;
@@ -457,6 +459,8 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("prune: --include-warm needs --idle");
     }
     tool.places.require_volume()?;
+    // Before the roots are pruned: a worktree about to go has nothing to prune.
+    retire_idle(tool, &tool.roots()?, run)?;
     let roots = tool.roots()?;
     for root in &roots {
         let Some(checkout) = &root.live else {
