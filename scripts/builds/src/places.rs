@@ -158,6 +158,21 @@ fn darwin_user_temp_dir() -> Option<PathBuf> {
     Some(PathBuf::from(text.trim_end_matches('/')))
 }
 
+/// Under the free-space floor, an incremental folder nothing wrote anywhere
+/// inside for this long is deleted, in every checkout, claimed ones, main's
+/// and the app checkout's too, before any whole folder. It is far shorter
+/// than `Rules::incremental_hours`, which bounds a folder's growth while space
+/// is plentiful and so keeps a day's working state; under the floor the
+/// alternative is a whole folder's cold rebuild of every dependency, a
+/// warning, or a stopped build, and an incremental folder costs only an
+/// incremental rebuild of its crate. An hour is the gap the floor already
+/// grants an agent between builds while it reads and edits, so the crates of
+/// its current edit loop stay warm. On 2026-11-10, with eight agents
+/// building, the volume sat under the floor for hours while claimed worktrees
+/// held 18–25 GB each of incremental folders nothing had written for an hour;
+/// deleting those freed 37–48 GB at a time.
+pub const FLOOR_INCREMENTAL_IDLE_MINUTES: u64 = 60;
+
 /// What setup, prune and the floor go by.
 #[derive(Clone, Debug)]
 pub struct Rules {

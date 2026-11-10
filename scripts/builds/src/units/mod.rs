@@ -28,6 +28,7 @@
 //! last built it.
 
 pub mod git_checkouts;
+pub mod idle;
 pub mod objects;
 pub mod prune;
 pub mod record;

@@ -308,8 +308,9 @@ warm in two checkouts:
   beside its lock). Agents take turns in it, one command at a time, under its
   lock.
 
-The free-space floor (below) never deletes main's or the app checkout's folders:
-deleting them is what kept every app build cold. Their caps still apply.
+The free-space floor (below) never deletes main's or the app checkout's folders
+whole (only their idle incremental folders): deleting them is what kept every
+app build cold. Their caps still apply.
 
 Another checkout may hold a warm app build while a wave of work needs it — the
 person asks for an app build in a particular worktree, or parallel agents each
@@ -317,8 +318,8 @@ need one. Same judgment as extra worktrees: keep it while that work lasts, and
 clear it once the work has clearly moved on (retire the worktree, or delete the
 folders behind its app links while nothing builds there; the next `builds setup`
 recreates them empty). The caps bound whatever a checkout builds, and the floor
-bounds every checkout but main and the app checkout; they are the safety net,
-not the rule.
+bounds every checkout's idle incremental folders and the whole folders of every
+checkout but main and the app checkout; they are the safety net, not the rule.
 
 **The app checkout builds without incremental compilation.** `builds cargo`,
 which the repos' `scripts/cargo.sh` runs, passes
@@ -505,7 +506,8 @@ It runs under the same guard as the rest of the prune: a profile whose cargo
 lock a build holds is skipped, and so is a folder a process holds a file in. The
 line it prints gives the count, the size freed (not counting `deps/` files the
 folder hard-links, which stay) and the three largest; a dry run
-(`builds prune --dry-run`) prints what it would delete.
+(`builds prune --dry-run`) prints what it would delete. Under the free-space
+floor the span is an hour (below).
 
 **Replaced build copies.** Three days is what keeps the copies a branch from the
 last few days builds against, and lowering it would delete what builds use
@@ -578,13 +580,15 @@ bae and three coven checkouts building free space fell to 13-29 GB. So
 largest single platform build (target-ios 12.2 GB + bae-ios/.build 4.9 GB
 fresh), plus a macOS build in another checkout at the same time (7.4 + 5.2 GB).
 Under the floor it first finishes removing the trash, then deletes the build
-roots of checkouts that are gone, then DerivedData's entries, then whole folders
-of unclaimed side worktrees, least recently written first, each one only if
-nothing wrote to it in the last 30 minutes (a build between two of its steps
-holds no lock) and it passes the same in-use check as a cap eviction, waiting
-for each deletion so the next reading counts it. A claimed worktree's folders
-are never deleted here: the agent working in it can go an hour between builds
-while it reads and edits, and losing its folder costs it a cold rebuild of every
+roots of checkouts that are gone, then DerivedData's entries, then the
+incremental folders nothing wrote anywhere inside for an hour in every checkout
+(claimed ones, main's and the app checkout's too), then whole folders of
+unclaimed side worktrees, least recently written first, each one only if nothing
+wrote to it in the last 30 minutes (a build between two of its steps holds no
+lock) and it passes the same in-use check as a cap eviction, waiting for each
+deletion so the next reading counts it. A claimed worktree's folders are never
+deleted here: the agent working in it can go an hour between builds while it
+reads and edits, and losing its folder costs it a cold rebuild of every
 dependency in the middle of its task (bae side-5's 14.9 GB target was deleted
 that way on 2026-11-04, and its next checks took over two hours under load). It
 never deletes a shared cache. If the floor is still out of reach it warns,
@@ -595,8 +599,24 @@ warning in their reports, stops starting more and retires one at a clean point.
 Only under a hard floor of 10 GiB, about one platform build, does it fail, so
 the build stops before it starts instead of running out of space halfway, which
 would also break the person's apps on the shared pool. It never falls back to
-main's or the app checkout's folders: the person decides what to free there.
-`BUILDS_FREE_FLOOR_GIB` and `BUILDS_HARD_FLOOR_GIB` override the two floors.
+main's or the app checkout's folders whole: the person decides what to free
+there. `BUILDS_FREE_FLOOR_GIB` and `BUILDS_HARD_FLOOR_GIB` override the two
+floors.
+
+The floor's hour for incremental folders is far shorter than the six hours the
+prune keeps them (`FLOOR_INCREMENTAL_IDLE_MINUTES` in the tool). The six hours
+bounds a folder's growth while space is plentiful, so it keeps a day's working
+state; under the floor the alternative is a whole folder's cold rebuild of every
+dependency, a warning, or a stopped build, and an incremental folder costs only
+an incremental rebuild of its crate. An hour is the gap the floor already grants
+an agent between builds, so the crates of its current edit loop stay warm. On
+2026-11-10, with eight agents building, the volume sat under the floor for hours
+while claimed worktrees held 18–25 GB each of incremental folders nothing had
+written for an hour (bae side-7's landing checks alone 18 GB); deleting those
+freed 37–48 GB at a time. They go least recently written first, across every
+checkout, only until the floor is reached, each under its profile's cargo lock
+and kept when a build holds that lock, something wrote inside it since it was
+listed, or a process holds a file in it.
 
 Access times can't say what a build used: APFS refreshes a file's access time
 only when it is not newer than its modification time (8 of 1,325 fingerprint

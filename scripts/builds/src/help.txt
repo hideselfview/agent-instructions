@@ -206,7 +206,8 @@ keeps them warm in main and in one side worktree, its app checkout, which
 agents take turns in by holding /Volumes/Builds/<repo>/app.lock; see
 principles/worktree-build-priming.md. Nothing here enforces who builds what:
 the caps bound whatever a checkout builds, and the floor below bounds every
-checkout but main and the app checkout.
+checkout's idle incremental folders and the whole folders of every checkout
+but main and the app checkout.
 
 The app checkout's cargo builds run without incremental compilation:
 `builds cargo` passes `--config build.incremental=false` there. Agents move
@@ -281,9 +282,14 @@ libraries out of deps/ as clones.
 Caps bound each folder, not the volume: a checkout with every platform built
 is 45-52 GB, and the build volume shares its APFS pool with the main disk.
 So `setup` also keeps a free-space floor: under it, it deletes DerivedData's
-idle entries, then whole idle folders across every checkout but main and the
-app checkout, whose builds stay warm on purpose, least recently written
-first. If it still can't reach the floor it warns, naming the biggest
+idle entries, then the incremental folders nothing wrote anywhere inside for
+60 minutes in every checkout (claimed ones, main's and the app checkout's
+too; far shorter than the 6 hours above, since one costs only an
+incremental rebuild of its crate and the alternative is a whole folder's
+cold rebuild), under cargo's locks and keeping any a process holds a file
+in, then whole idle folders across every checkout but main and the app
+checkout, whose builds stay warm on purpose, and but claimed worktrees, each
+least recently written first. If it still can't reach the floor it warns, naming the biggest
 folders, and the build goes on: whoever runs the agents frees space or runs
 fewer of them. Only under the hard floor does it fail, rather than let the
 build run out of space halfway. It never deletes a shared cache.

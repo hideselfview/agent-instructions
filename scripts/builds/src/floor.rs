@@ -3,24 +3,29 @@
 //! Caps bound each folder, not the volume: a checkout with every platform
 //! built is 45-52 GB, and the build volume shares its APFS pool with the main
 //! disk. So `setup` also keeps a free-space floor: under it, it deletes
-//! DerivedData's idle entries, then whole idle folders across every checkout
-//! but main and the app checkout, whose builds stay warm on purpose, and but
-//! claimed worktrees, whose agents are mid-task, least recently written
-//! first. If it still can't reach the floor it warns, naming the biggest
-//! folders, and the build goes on: whoever runs the agents frees space or runs
-//! fewer of them. Only under the hard floor does it fail, rather than let the
-//! build run out of space halfway. It never deletes a shared cache.
+//! DerivedData's idle entries, then the incremental folders nothing wrote to
+//! for FLOOR_INCREMENTAL_IDLE_MINUTES in every checkout, then whole idle
+//! folders across every checkout but main and the app checkout, whose builds
+//! stay warm on purpose, and but claimed worktrees, whose agents are
+//! mid-task, least recently written first. If it still can't reach the floor
+//! it warns, naming the biggest folders, and the build goes on: whoever runs
+//! the agents frees space or runs fewer of them. Only under the hard floor
+//! does it fail, rather than let the build run out of space halfway. It never
+//! deletes a shared cache.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::checkout::Root;
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail::{Fail, Result};
 use crate::manifest::{SHARED_CACHES, build_dirs};
-use crate::places::FLOOR_IDLE_MINUTES;
+use crate::places::{FLOOR_IDLE_MINUTES, FLOOR_INCREMENTAL_IDLE_MINUTES};
 use crate::prune::derived_data;
-use crate::text::{human, local_minute, note};
+use crate::text::{counted, human, human_bytes, local_minute, note};
 use crate::tool::Tool;
+use crate::units::OpenFiles;
+use crate::units::idle::{Outcome, delete_idle, idle_increments};
 use crate::usage::Measure;
 
 /// A build folder the floor may delete, with what it takes.
@@ -57,13 +62,87 @@ fn floor_candidates(tool: &Tool, roots: &[Root]) -> Result<Vec<Candidate>> {
     Ok(candidates)
 }
 
+/// What became of one profile folder's idle incremental folders.
+#[derive(Default)]
+struct Tally {
+    deleted: usize,
+    bytes: u64,
+    locked: usize,
+    held: usize,
+}
+
+/// Deletes the incremental folders nothing wrote anywhere inside for
+/// FLOOR_INCREMENTAL_IDLE_MINUTES, in every live checkout's build folders,
+/// claimed ones, main's and the app checkout's too, least recently written
+/// first, until the volume has <floor> free; says what went from each
+/// profile folder and what stayed. Returns the free space after.
+fn delete_idle_increments(tool: &Tool, roots: &[Root], mut free: u64, floor: u64) -> Result<u64> {
+    let mut folders = Vec::new();
+    for root in roots {
+        let Some(checkout) = &root.live else { continue };
+        for entry in build_dirs(&checkout.top)? {
+            let folder = root.path.join(&entry.path);
+            if folder.is_dir() {
+                // lsof names files by their real path.
+                folders.push(std::fs::canonicalize(&folder).unwrap_or(folder));
+            }
+        }
+    }
+    let before = (tool.now - (FLOOR_INCREMENTAL_IDLE_MINUTES * 60) as i64) as f64;
+    let increments = idle_increments(&folders, before)?;
+    let mut open_files = OpenFiles::new(&folders);
+    let mut tallies: BTreeMap<PathBuf, Tally> = BTreeMap::new();
+    for increment in &increments {
+        if free >= floor {
+            break;
+        }
+        let outcome = delete_idle(increment, before, open_files.get()?)?;
+        let tally = tallies.entry(increment.profile.clone()).or_default();
+        match outcome {
+            Outcome::Deleted(bytes) => {
+                tally.deleted += 1;
+                tally.bytes += bytes;
+                free = tool.free_kib()?;
+            }
+            Outcome::Locked => tally.locked += 1,
+            Outcome::Held => tally.held += 1,
+            Outcome::Written => {}
+        }
+    }
+    for (profile, tally) in &tallies {
+        if tally.deleted > 0 {
+            note(format!(
+                "deleted {} nothing wrote to in {FLOOR_INCREMENTAL_IDLE_MINUTES}m from {} ({})",
+                counted(tally.deleted, "incremental folder", "incremental folders"),
+                profile.display(),
+                human_bytes(tally.bytes)
+            ));
+        }
+        if tally.locked > 0 {
+            note(format!(
+                "kept {} in {}: a build holds its lock",
+                counted(tally.locked, "idle incremental folder", "idle incremental folders"),
+                profile.display()
+            ));
+        }
+        if tally.held > 0 {
+            note(format!(
+                "kept {} in {}: a process holds their files",
+                counted(tally.held, "idle incremental folder", "idle incremental folders"),
+                profile.display()
+            ));
+        }
+    }
+    Ok(free)
+}
+
 /// Brings the volume's free space up to the floor, waiting for each deletion
 /// so the next free-space reading counts it: the trash, the roots of
-/// checkouts that are gone, DerivedData's entries, then whole folders of the
-/// other checkouts, each least recently written first and only when nothing
-/// is using it or wrote to it lately. When everything left is in use, freshly
-/// written or kept, it warns, naming the biggest folders, and fails only under
-/// the hard floor.
+/// checkouts that are gone, DerivedData's entries, every checkout's idle
+/// incremental folders, then whole folders of the other checkouts, each least
+/// recently written first and only when nothing is using it or wrote to it
+/// lately. When everything left is in use, freshly written or kept, it warns,
+/// naming the biggest folders, and fails only under the hard floor.
 pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
     let floor = tool.rules.floor_kib;
     let mut free = tool.free_kib()?;
@@ -71,7 +150,7 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
         return Ok(());
     }
     note(format!(
-        "the build volume has {} free, under the {} floor; deleting idle DerivedData entries, then idle build folders of unclaimed side worktrees, least recently written first",
+        "the build volume has {} free, under the {} floor; deleting idle DerivedData entries, then incremental folders nothing wrote to in {FLOOR_INCREMENTAL_IDLE_MINUTES}m, then idle build folders of unclaimed side worktrees, least recently written first",
         human(free),
         human(floor)
     ));
@@ -118,6 +197,9 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
             note(format!("in use, kept: {}", entry.path.display()));
         }
     }
+    if free < floor {
+        free = delete_idle_increments(tool, roots, free, floor)?;
+    }
     for candidate in floor_candidates(tool, roots)? {
         if free >= floor {
             break;
@@ -157,7 +239,7 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
         ));
     }
     lines.push(format!(
-        "Every build folder and DerivedData entry left is in use, was written in the last {FLOOR_IDLE_MINUTES}m, belongs to a claimed worktree, or is main's or an app checkout's, which stay warm. The biggest the floor may delete:"
+        "Every incremental folder left was written in the last {FLOOR_INCREMENTAL_IDLE_MINUTES}m or is in use, and every build folder and DerivedData entry left is in use, was written in the last {FLOOR_IDLE_MINUTES}m, belongs to a claimed worktree, or is main's or an app checkout's, which stay warm. The biggest the floor may delete:"
     ));
     let mut biggest = floor_candidates(tool, roots)?;
     biggest.sort_by(|a, b| b.measured.kib.cmp(&a.measured.kib).then_with(|| b.path.cmp(&a.path)));
