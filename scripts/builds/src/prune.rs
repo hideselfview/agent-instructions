@@ -339,40 +339,6 @@ fn old_entries(
     Ok(found)
 }
 
-/// Claude Code sessions' scratch folders (/private/tmp/claude-<uid>/<project>/
-/// <session>/scratchpad): an entry nothing has written for three days is a
-/// finished probe, build or log. Anything worth keeping belongs in the repo or
-/// its plans/.
-pub fn prune_scratchpads(tool: &Tool, run: Run) -> Result<()> {
-    let base = tool.places.scratch_base();
-    let mut folders = Vec::new();
-    for project in visible_names(&base) {
-        let project = base.join(project);
-        for session in visible_names(&project) {
-            let scratchpad = project.join(session).join("scratchpad");
-            if scratchpad.is_dir() {
-                folders.push(scratchpad);
-            }
-        }
-    }
-    if folders.is_empty() {
-        return Ok(());
-    }
-    let listing = old_entries(&folders, 3, tool.places.uid, tool.now, |_, _| true);
-    prune_listed(run, &format!("scratch entries older than three days under {}", base.display()), listing);
-    Ok(())
-}
-
-/// The names a shell's `*` matches in <dir>; none when it can't be listed.
-fn visible_names(dir: &Path) -> Vec<std::ffi::OsString> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
-    entries
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.file_name())
-        .filter(|name| name.as_encoded_bytes().first() != Some(&b'.'))
-        .collect()
-}
-
 /// Tests' temporary folders (tempfile's `.tmp*` under $TMPDIR) that a test
 /// left behind: nothing reads one a day after it was last written. Newer ones
 /// may belong to a test still running.
@@ -482,7 +448,6 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     prune_caches(tool, run)?;
     prune_test_temps(tool, run)?;
     prune_temp_builds(tool, run)?;
-    prune_scratchpads(tool, run)?;
     prune_cargo_git(tool, &roots, run)?;
     if !run.dry() {
         empty_trash(tool)?;

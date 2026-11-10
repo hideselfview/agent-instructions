@@ -117,11 +117,6 @@ impl Places {
         }
     }
 
-    /// Claude Code sessions' scratch folders: /private/tmp/claude-<uid>.
-    pub fn scratch_base(&self) -> PathBuf {
-        self.private_tmp.join(format!("claude-{}", self.uid))
-    }
-
     /// The daemon's own folder: its socket, and the marks it writes to know
     /// FSEvents has delivered everything before a question.
     pub fn daemon_dir(&self) -> PathBuf {

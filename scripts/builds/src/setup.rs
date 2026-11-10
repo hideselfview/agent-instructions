@@ -18,7 +18,7 @@ use crate::fail::{Context, Result};
 use crate::floor::keep_floor;
 use crate::manifest::{MANIFEST, build_dirs, has_manifest};
 use crate::prune::{
-    Run, prune_caches, prune_cargo_git, prune_derived_data, prune_root, prune_scratchpads, prune_temp_builds,
+    Run, prune_caches, prune_cargo_git, prune_derived_data, prune_root, prune_temp_builds,
     prune_test_temps,
 };
 use crate::text::note;
@@ -146,7 +146,6 @@ pub fn setup(tool: &Tool, checkout: &Checkout) -> Result<()> {
     prune_caches(tool, Run::Real)?;
     prune_test_temps(tool, Run::Real)?;
     prune_temp_builds(tool, Run::Real)?;
-    prune_scratchpads(tool, Run::Real)?;
     let roots = tool.roots()?;
     prune_cargo_git(tool, &roots, Run::Real)?;
     keep_floor(tool, &roots)

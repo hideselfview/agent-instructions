@@ -279,7 +279,7 @@ at its top), Xcode DerivedData folder (`info.plist` beside `Logs` and `Build` or
 `checkouts`, `repositories` or `artifacts`) found there, four levels deep at
 most, that nothing wrote to for 30 minutes and no process holds a file in
 (`status` shows them). They skip `/private/tmp`'s `claude-*` (Claude Code
-sessions' scratch, whose entries go after three days), `com.apple.*` (launchd's
+sessions' scratch, which nothing here deletes), `com.apple.*` (launchd's
 per-session socket folders) and `tmux-*` (the tmux server's socket: deleting it
 leaves the running server unreachable), and anything the user doesn't own.
 
