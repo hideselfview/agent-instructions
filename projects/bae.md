@@ -200,14 +200,16 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     step named it runs every one. `builds app-build bae --list` prints them:
     `macos` (build the app), `macos-tests` (compile its unit tests),
     `macos-tests-run` (run them, without rebuilding; the UI tests are not among
-    them), `android-bridge` and `android` (the bridge, then the Kotlin and both
-    test targets), `android-tests` (run the unit tests from that output). A
-    change to a bridge shape or to Swift code runs `macos`, `macos-tests` and
-    `macos-tests-run`; one to Kotlin runs `android-bridge`, `android` and
-    `android-tests`. A step is a program, not a shell string: one that needs a
-    shell is a script in the repo (`bae-android/compile-all.sh`). To build
-    something else there (`bae-ios/run.sh`, `bae-avalonia/smoke-test.sh`, a
-    screenshot script), add a `step` line.
+    them), `macos-tests-all` (build and run the unit and UI tests, signing the
+    UI test runner so Gatekeeper lets it launch), `android-bridge` and `android`
+    (the bridge, then the Kotlin and both test targets), `android-tests` (run
+    the unit tests from that output). A change to a bridge shape or to Swift
+    code runs `macos`, `macos-tests` and `macos-tests-run`; one to Kotlin runs
+    `android-bridge`, `android` and `android-tests`. A step is a program, not a
+    shell string: one that needs a shell is a script in the repo
+    (`bae-android/compile-all.sh`). To build something else there
+    (`bae-ios/run.sh`, `bae-avalonia/smoke-test.sh`, a screenshot script), add a
+    `step` line.
 
     Cargo builds there, as in every side worktree, run without incremental
     compilation (`builds cargo` passes `--config build.incremental=false`
