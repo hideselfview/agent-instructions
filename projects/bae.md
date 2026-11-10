@@ -199,13 +199,15 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     `.app-build`, in the order named, stopping at the first that fails; with no
     step named it runs every one. `builds app-build bae --list` prints them:
     `macos` (build the app), `macos-tests` (compile its unit tests),
-    `android-bridge` and `android` (the bridge, then the Kotlin and both test
-    targets). A change to a bridge shape or to Swift code needs `macos` and
-    `macos-tests`; one to Kotlin needs `android-bridge` and `android`. A step is
-    a program, not a shell string: one that needs a shell is a script in the
-    repo (`bae-android/compile-all.sh`). To build something else there
-    (`bae-ios/run.sh`, `bae-avalonia/smoke-test.sh`, a screenshot script), add a
-    `step` line.
+    `macos-tests-run` (run them, without rebuilding; the UI tests are not among
+    them), `android-bridge` and `android` (the bridge, then the Kotlin and both
+    test targets), `android-tests` (run the unit tests from that output). A
+    change to a bridge shape or to Swift code runs `macos`, `macos-tests` and
+    `macos-tests-run`; one to Kotlin runs `android-bridge`, `android` and
+    `android-tests`. A step is a program, not a shell string: one that needs a
+    shell is a script in the repo (`bae-android/compile-all.sh`). To build
+    something else there (`bae-ios/run.sh`, `bae-avalonia/smoke-test.sh`, a
+    screenshot script), add a `step` line.
 
     Cargo builds there run without incremental compilation (`builds cargo`
     passes `--config build.incremental=false` in the app checkout), so sccache
