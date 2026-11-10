@@ -137,9 +137,9 @@ Commands:
                               the tests', passes through. It holds the
                               checkout's guard while cargo runs, and as it
                               exits starts `units after-build`, which deletes
-                              the build copies the build replaced. In the app
-                              checkout it builds without incremental
-                              compilation (--config build.incremental=false)
+                              the build copies the build replaced. Outside
+                              main it builds without incremental compilation
+                              (--config build.incremental=false)
   builds lock <repo> <command> [<args>...]
                               run the command holding the repo's app lock
                               (/Volumes/Builds/<repo>/app.lock), waiting for
@@ -175,7 +175,6 @@ Commands:
                               ~/Applications/<repo>-test in place of the copy
                               there, quitting the one running. Opens nothing
   builds units prune <days> <incremental hours> <dry 0|1> <folder>...
-  builds units trim <cap KiB> <size KiB> <dry 0|1> <folder>...
   builds units git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...
                               the steps setup and prune run on cargo's
                               folders, on the folders named; 0 incremental
@@ -216,14 +215,15 @@ the caps bound whatever a checkout builds, and the floor below bounds every
 checkout's idle incremental folders and the whole folders of every checkout
 but main and the app checkout.
 
-The app checkout's cargo builds run without incremental compilation:
-`builds cargo` passes `--config build.incremental=false` there. Agents move
-it between their branches, so a crate's incremental state is rarely there
-for the next build, and sccache refuses every incremental compile; without
-it sccache keeps each workspace crate a branch built there, and a branch
-built there before builds from the cache. A full build takes less space
+Side worktrees' cargo builds, the app checkout's included, run without
+incremental compilation: `builds cargo` passes `--config
+build.incremental=false` in every checkout but main. sccache refuses every
+incremental compile; without it sccache keeps each workspace crate any
+worktree built, so a build of the same sources in another worktree, or in
+the app checkout, which agents move between their branches, comes from the
+cache, and no incremental folders pile up. A full build takes less space
 without it, so the app checkout's folders can take lower caps (`app <cap>`
-in .build-dirs). Main and the other side worktrees keep incremental.
+in .build-dirs). Main, the person's checkout, keeps incremental.
 
 Unused build copies. Cargo names each unit it builds (one crate target, for
 one profile, target and feature set) by a hash of everything that build
@@ -244,9 +244,8 @@ for another package selection (`-p x` against the workspace) stay side by
 side, and so does whatever a unit that stays was built against. They also
 delete the incremental folders only those units used, and every incremental
 folder nothing wrote anywhere inside for BUILDS_INCREMENTAL_HOURS hours
-(default 6) in a checkout whose builds compile incrementally, or every one
-in a checkout whose builds don't, which no build there reads; main's and
-the app checkout's too.
+(default 6) in main, whose builds compile incrementally, and every one in
+the other checkouts, whose builds don't, so no build there reads them.
 
 They delete a unit's files only while holding the checkout's guard
 (<build root>/.builds-cargo.lock) and cargo's lock on that profile folder,
@@ -277,16 +276,9 @@ build repopulates it, mostly from sccache. A folder that any process holds a
 file open in, or whose checkout's guard a build holds, is never deleted.
 
 A claimed worktree's folder is not deleted whole, since its agent is at work
-in it, but an agent that builds all day would grow it without bound (one
-coven checkout stood at 50 GB against a 45 GB cap, 37 GB of it incremental
-folders, about 25 per crate). So over its cap, `setup` and `prune` delete its
-incremental folders, least recently used first (judged by the newest write
-anywhere inside each one), until the folder is under its cap or none is left,
-under the same locks and keeping any folder a process holds a file in. An
-incremental folder is pure cache: deleting one costs a recompile of its unit.
-They say what they trimmed and what is left; a folder still over its cap
-after that is kept whole ("claimed, kept"). Main's and the app checkout's
-folders are never trimmed this way.
+in it: it is kept over its cap ("claimed, kept"). Its builds run without
+incremental compilation, so its incremental folders, which grew one coven
+checkout to 50 GB against a 45 GB cap, go with its unused build copies.
 
 Separate builds inside one folder. A folder is aged by its newest write, so a
 stale build beside a live one (an Xcode tree from last week beside today's)

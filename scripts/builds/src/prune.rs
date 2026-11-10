@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::cargo_run::builds_incrementally;
-use crate::checkout::{Checkout, Root, git_text, git, is_app_checkout, keeps_warm};
+use crate::checkout::{Checkout, Root, git_text, git, is_app_checkout};
 use crate::evict::{Recreate, Removal, background_rm, evict, make_temp_dir};
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -70,16 +70,10 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
         };
         // A claimed worktree's agent is mid-task; emptying its folder costs it
         // a cold rebuild of every dependency, as the floor's exemption says.
-        // Its incremental folders are pure cache, though, and an agent that
-        // builds all day would otherwise grow the folder without bound: over
-        // its cap, those go, least recently written first, until it fits.
-        // Main's and the app checkout's folders are left whole.
+        // Its builds run without incremental compilation, so the unit prune
+        // above already deleted every incremental folder in it.
         if claimed {
-            if kib > cap_kib && !keeps_warm(&tool.places, root)? {
-                trim_claimed(tool, &folder, kib, cap_kib, run, &reason)?;
-            } else {
-                note(format!("claimed, kept: {} ({reason})", folder.display()));
-            }
+            note(format!("claimed, kept: {} ({reason})", folder.display()));
             continue;
         }
         delete_folder(tool, &folder, run, &reason, Recreate::Yes, "; the next build refills it")?;
@@ -91,7 +85,7 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
 /// the idle hours where its builds compile incrementally, and every one where
 /// they don't, since no build there reads them.
 fn cargo_ages(tool: &Tool, checkout: &Checkout) -> Result<units::prune::Ages> {
-    let idle = if builds_incrementally(&tool.places, checkout)? { tool.rules.incremental_hours } else { 0 };
+    let idle = if builds_incrementally(checkout) { tool.rules.incremental_hours } else { 0 };
     Ok(units::prune::Ages::new(tool.rules.unused_days, idle))
 }
 
@@ -125,30 +119,6 @@ fn delete_folder(tool: &Tool, folder: &Path, run: Run, reason: &str, recreate: R
         note(format!("in use, kept: {} ({reason})", folder.display()));
         Ok(false)
     }
-}
-
-/// Trims the incremental folders of <folder>, a claimed worktree's cargo
-/// folder of <kib> over its <cap>, least recently written first, until it is
-/// under its cap or none is left; says what went and what is left.
-fn trim_claimed(tool: &Tool, folder: &Path, kib: u64, cap: u64, run: Run, reason: &str) -> Result<()> {
-    let freed = units::trim::trim(cap, kib, run.dry(), &[folder.to_path_buf()])?;
-    let left = if run.dry() { kib.saturating_sub(freed) } else { tool.measure(folder)?.kib };
-    if left > cap {
-        note(format!(
-            "claimed, kept: {} ({reason}; {} > {} after trimming its incremental folders)",
-            folder.display(),
-            human(left),
-            human(cap)
-        ));
-    } else {
-        note(format!(
-            "claimed, {}: {} ({reason}; {} left, under the cap)",
-            if run.dry() { "would trim" } else { "trimmed" },
-            folder.display(),
-            human(left)
-        ));
-    }
-    Ok(())
 }
 
 /// A DerivedData entry and what it takes.

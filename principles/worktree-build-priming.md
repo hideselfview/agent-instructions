@@ -321,21 +321,23 @@ recreates them empty). The caps bound whatever a checkout builds, and the floor
 bounds every checkout's idle incremental folders and the whole folders of every
 checkout but main and the app checkout; they are the safety net, not the rule.
 
-**The app checkout builds without incremental compilation.** `builds cargo`,
-which the repos' `scripts/cargo.sh` runs, passes
-`--config build.incremental=false` when the checkout it runs in is its repo's
-app checkout. Agents move that checkout between their branches, so a crate's
-incremental state is rarely there for the next build to reuse, and sccache
-refuses every incremental compile: with incremental off, sccache keeps each
-workspace crate a branch built there, and a branch built there before builds
-from the cache. Main and the other side worktrees stay on one branch for long
-stretches and keep incremental, which halves an edit-and-recheck loop's CPU
-there. It is a `--config` argument, not `CARGO_INCREMENTAL` or another `CARGO_*`
-variable: cargo hands its environment on to rustc and sccache keys every
-`CARGO_*` variable, so with a variable every dependency would get other cache
-entries than the same dependency built by cargo run by hand there. Every cargo
-build in a repo runs through `scripts/cargo.sh` for this and for recording use
-(above). A full build is smaller without incremental output, so the app
+**Side worktrees build without incremental compilation.** `builds cargo`, which
+the repos' `scripts/cargo.sh` runs, passes `--config build.incremental=false` in
+every checkout but main, the app checkout included. sccache refuses every
+incremental compile, so with incremental off it keeps each workspace crate any
+worktree built, and a build of the same sources in another worktree comes from
+the cache: agents branch from the same `main`, and agents move the app checkout
+between their branches all day. And no incremental folders pile up: on
+2026-11-10, deleting the 1,086 that nothing had written for ten minutes in five
+busy bae worktrees freed 38 GB. The person chose this on 2026-11-10, at the CPU
+an edit-and-recheck loop costs without incremental (measured below: two to three
+times as much). Main, the person's checkout, stays on one branch and keeps
+incremental. It is a `--config` argument, not `CARGO_INCREMENTAL` or another
+`CARGO_*` variable: cargo hands its environment on to rustc and sccache keys
+every `CARGO_*` variable, so with a variable every dependency would get other
+cache entries than the same dependency built by cargo run by hand there. Every
+cargo build in a repo runs through `scripts/cargo.sh` for this and for recording
+use (above). A full build is smaller without incremental output, so the app
 checkout's folders take lower caps: `<path> <cap> app <cap>` in `.build-dirs`.
 
 The app checkout's working tree belongs to whoever holds
@@ -503,9 +505,9 @@ checkout (main's and the app checkout's too), each incremental folder whose
 newest write anywhere inside it is more than six hours old
 (`BUILDS_INCREMENTAL_HOURS` overrides it), whether or not its unit is still in
 use. Losing one costs an incremental rebuild of its crate, mostly from sccache.
-In a checkout whose builds run without incremental compilation (the app
-checkout, below) no build reads one, so every incremental folder there goes. It
-runs under the same guard as the rest of the prune: a profile whose cargo lock a
+In a checkout whose builds run without incremental compilation (every one but
+main, below) no build reads one, so every incremental folder there goes. It runs
+under the same guard as the rest of the prune: a profile whose cargo lock a
 build holds is skipped, and so is a folder a process holds a file in. The line
 it prints gives the count, the size freed (not counting `deps/` files the folder
 hard-links, which stay) and the three largest; a dry run
@@ -714,10 +716,10 @@ fine after a toolchain upgrade.
   constant; `clippy --all-targets`): coven off 84 / 28 (edit in foundation / in
   sync), on 27 / 10; bae off 20 / 10 (edit in bae-db / bae-library), on 10 / 4.
   sccache never sees clippy's workspace crates, so incremental off buys a hit
-  only when a worktree returns to an earlier source state for build or test,
-  which is what the app checkout does all day, so it builds without incremental
-  (above). Do not set `CARGO_INCREMENTAL=1` in the environment: sccache then
-  refuses every compile; use `profile.dev.incremental` in Cargo.toml.
+  only when a worktree builds or tests source state that a worktree built
+  before; side worktrees build without incremental (above). Do not set
+  `CARGO_INCREMENTAL=1` in the environment: sccache then refuses every compile;
+  use `profile.dev.incremental` in Cargo.toml.
 - `[profile.<p>.package."*"]` beats `[profile.<p>.build-override]`: with the
   `"*"` override at opt-level 3, build scripts, proc-macros and their host
   dependencies still compile at opt-level 3 whatever `build-override` says

@@ -365,44 +365,6 @@ units git-checkouts "$home" 0 "$scratch/Cargo.lock" > /dev/null 2>&1
 [ "$(checkouts)" = "$(printf '%s\n' checkouts/coven-f7c984c541c70e3c/04561fe db/coven-f7c984c541c70e3c)" ] \
     || fail "pruning git checkouts left $(checkouts)"
 
-# A claimed worktree's folder over its cap loses incremental folders, least
-# recently written first, until it fits; a build holding the profile's lock,
-# or a process holding a file in one, keeps them.
-trim_target="$scratch/trim/target"
-trim_profile="$trim_target/debug"
-mkdir -p "$trim_profile/.fingerprint" "$trim_profile/deps"
-head -c 1048576 /dev/zero > "$trim_profile/deps/other"
-for n in 1 2 3 4 5; do
-    mkdir -p "$trim_profile/incremental/crate$n-id/s-1"
-    head -c 524288 /dev/urandom > "$trim_profile/incremental/crate$n-id/s-1/data"
-    touch -t "20260101000$n" "$trim_profile/incremental/crate$n-id/s-1/data" \
-        "$trim_profile/incremental/crate$n-id/s-1" "$trim_profile/incremental/crate$n-id"
-done
-# crate1's file was rewritten last, deep inside a folder whose own time is old.
-touch -t 202609010000 "$trim_profile/incremental/crate1-id/s-1/data"
-incrementals() { ls "$trim_profile/incremental" | tr '\n' ' '; }
-# 3700 KiB against a 2400 KiB cap: three folders of 512 KiB go.
-units trim 2400 3700 1 "$trim_target" > /dev/null 2>&1
-[ "$(incrementals)" = "crate1-id crate2-id crate3-id crate4-id crate5-id " ] || fail "a dry run trimmed: $(incrementals)"
-python3 - "$trim_profile/.cargo-lock" - "$trim_target" <<'PY'
-import fcntl, os, shlex, subprocess, sys
-fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT)
-fcntl.flock(fd, fcntl.LOCK_EX)
-result = subprocess.run(shlex.split(os.environ["UNITS_CMD"]) + ["trim", "2400", "3700", "0", sys.argv[3]], capture_output=True, text=True)
-assert "a build holds its lock" in result.stderr, result.stderr
-PY
-[ "$(incrementals)" = "crate1-id crate2-id crate3-id crate4-id crate5-id " ] || fail "trimming deleted while a build held the lock: $(incrementals)"
-exec 4< "$trim_profile/incremental/crate2-id/s-1/data"
-freed="$(units trim 2400 3700 0 "$trim_target" 2>/dev/null)"
-exec 4<&-
-[ "$(incrementals)" = "crate1-id crate2-id " ] \
-    || fail "trimming kept the wrong folders (crate2 is held, crate1 was written last): $(incrementals)"
-[ "$freed" -ge 1000 ] || fail "trimming reported $freed KiB freed"
-# Still over the cap with none left to delete: every unheld one goes.
-units trim 10 3700 0 "$trim_target" > /dev/null 2>&1
-[ -z "$(incrementals)" ] || fail "trimming over a cap it cannot reach left $(incrementals)"
-[ -f "$trim_profile/deps/other" ] || fail "trimming deleted something that is no incremental folder"
-
 # Incremental folders nothing wrote anywhere inside for the idle hours go, in
 # every profile folder; one with a single fresh file deep inside, one a process
 # holds a file of, and everything while a build holds the profile's lock stay.

@@ -209,11 +209,11 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     something else there (`bae-ios/run.sh`, `bae-avalonia/smoke-test.sh`, a
     screenshot script), add a `step` line.
 
-    Cargo builds there run without incremental compilation (`builds cargo`
-    passes `--config build.incremental=false` in the app checkout), so sccache
-    caches every crate a branch built there, and its folders take the lower
-    `app` caps in `.build-dirs`. Run every cargo build through
-    `scripts/cargo.sh` so the setting reaches it.
+    Cargo builds there, as in every side worktree, run without incremental
+    compilation (`builds cargo` passes `--config build.incremental=false`
+    everywhere but main), so sccache caches every crate a branch built, and its
+    folders take the lower `app` caps in `.build-dirs`. Run every cargo build
+    through `scripts/cargo.sh` so the setting reaches it.
 
   Another warm app build is fine while a wave of work needs it, such as when the
   person asks for one in a particular worktree; clear it once that work has
@@ -273,8 +273,8 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   copy cargo uses and holds the checkout's guard while cargo runs. Run cargo
   through it in a new script too. **Incremental folders nothing wrote to for six
   hours are deleted** at the same moment, in every checkout including main's,
-  and every incremental folder in the app checkout, which builds without them; a
-  build holding the target keeps them, and losing one costs an incremental
+  and every incremental folder in the other checkouts, which build without them;
+  a build holding the target keeps them, and losing one costs an incremental
   rebuild of its crate. Under the free-space floor, incremental folders nothing
   wrote to for an hour go first, in every checkout, claimed ones and main's and
   the app checkout's included, before any whole folder. **Folders are deleted

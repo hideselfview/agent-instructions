@@ -7,28 +7,30 @@ use std::io::BufReader;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::checkout::{Checkout, is_app_checkout};
+use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::places::Places;
 use crate::units::GUARD;
 use crate::units::record::record;
 
-/// Does <checkout> build with incremental compilation? Not the app
-/// checkout; `role_config` says why.
-pub fn builds_incrementally(places: &Places, checkout: &Checkout) -> Result<bool> {
-    Ok(!is_app_checkout(places, &checkout.build_root(places))?)
+/// Does <checkout> build with incremental compilation? Only main;
+/// `role_config` says why.
+pub fn builds_incrementally(checkout: &Checkout) -> bool {
+    checkout.is_main()
 }
 
 /// The cargo settings a build in <checkout> takes from the checkout's role,
 /// as `--config` arguments.
 ///
-/// The app checkout builds without incremental compilation. Agents take turns
-/// in it, each moving it to their own branch, so a crate's incremental state
-/// is rarely there for the next build to reuse, and sccache refuses every
-/// incremental compile: with it off, sccache keeps each workspace crate a
-/// branch built there, and the next build of that source comes from the
-/// cache. Main and the other side worktrees keep incremental, which halves an
+/// Every side worktree builds without incremental compilation. sccache
+/// refuses every incremental compile, so with it off sccache keeps each
+/// workspace crate any worktree built, and a build of the same sources in
+/// another worktree, or in the app checkout, where agents take turns on
+/// their own branches, comes from the cache; and no incremental folders
+/// pile up (on 2026-11-10, deleting those nothing had written for ten
+/// minutes in five busy bae worktrees freed 38 GB).
+/// Main, the person's checkout, keeps incremental, which halves an
 /// edit-and-recheck loop's CPU in a checkout that stays on one branch.
 ///
 /// A `--config` argument, not a `CARGO_*` variable: cargo hands its
@@ -36,9 +38,11 @@ pub fn builds_incrementally(places: &Places, checkout: &Checkout) -> Result<bool
 /// with a variable every dependency built through this command would get
 /// other cache entries than the same dependency built by cargo run by hand
 /// in the same checkout. The argument changes only what it sets.
-fn role_config(places: &Places, checkout: Option<&Checkout>) -> Result<&'static [&'static str]> {
-    let Some(checkout) = checkout else { return Ok(&[]) };
-    if builds_incrementally(places, checkout)? { Ok(&[]) } else { Ok(&["--config", "build.incremental=false"]) }
+fn role_config(checkout: Option<&Checkout>) -> &'static [&'static str] {
+    match checkout {
+        Some(checkout) if !builds_incrementally(checkout) => &["--config", "build.incremental=false"],
+        _ => &[],
+    }
 }
 
 /// Starts `builds units after-build <checkout>` in a session of its own, so
@@ -105,7 +109,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let places = Places::from_env()?;
     let checkout = Checkout::at_keeping_env(&dir)?;
-    let config = role_config(&places, checkout.as_ref())?;
+    let config = role_config(checkout.as_ref());
     // Held until cargo has exited and the recorder has read its last line.
     let root = checkout.as_ref().map(|checkout| checkout.build_root(&places)).filter(|root| root.is_dir());
     let guard = match &root {
@@ -151,12 +155,12 @@ mod tests {
     use super::*;
     use crate::testing::{Scratch, git, repo};
 
-    fn role(places: &Places, dir: &Path) -> &'static [&'static str] {
-        role_config(places, Checkout::at(dir).unwrap().as_ref()).unwrap()
+    fn role(dir: &Path) -> &'static [&'static str] {
+        role_config(Checkout::at(dir).unwrap().as_ref())
     }
 
     #[test]
-    fn only_the_app_checkout_builds_without_incremental() {
+    fn only_main_builds_incrementally() {
         let scratch = Scratch::new("cargo-role");
         let places = scratch.places();
         let main = scratch.dir.join("demo");
@@ -167,16 +171,15 @@ mod tests {
         }
         let side_1 = scratch.dir.join("demo-worktrees/side-1");
         std::fs::create_dir_all(side_1.join("crate/src")).unwrap();
-        let none: &[&str] = &[];
-        assert_eq!(role(&places, &side_1), none, "no app checkout is recorded yet");
-
         std::fs::create_dir_all(places.root.join("demo")).unwrap();
         std::fs::write(places.app_checkout_file("demo"), "side-1\n").unwrap();
+        let none: &[&str] = &[];
         let off: &[&str] = &["--config", "build.incremental=false"];
-        assert_eq!(role(&places, &side_1), off);
-        assert_eq!(role(&places, &side_1.join("crate/src")), off);
-        assert_eq!(role(&places, &main), none);
-        assert_eq!(role(&places, &scratch.dir.join("demo-worktrees/side-2")), none);
-        assert_eq!(role(&places, &scratch.dir), none, "outside any checkout");
+        assert_eq!(role(&side_1), off, "the app checkout");
+        assert_eq!(role(&side_1.join("crate/src")), off);
+        assert_eq!(role(&scratch.dir.join("demo-worktrees/side-2")), off, "another side worktree");
+        assert_eq!(role(&main), none);
+        assert_eq!(role(&main.join("crate")), none);
+        assert_eq!(role(&scratch.dir), none, "outside any checkout");
     }
 }

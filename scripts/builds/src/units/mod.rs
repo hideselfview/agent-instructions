@@ -43,7 +43,6 @@ pub mod idle;
 pub mod objects;
 pub mod prune;
 pub mod record;
-pub mod trim;
 
 use std::collections::HashSet;
 use std::fs::File;
@@ -322,12 +321,12 @@ pub fn remove(path: &Path) -> Result<()> {
     }
 }
 
-/// `builds units prune|trim|git-checkouts|after-build ...`: the steps setup
+/// `builds units prune|git-checkouts|after-build ...`: the steps setup
 /// and prune run, on the folders named; the shell tests drive them this way.
 /// `after-build` is what `builds cargo` starts as it exits.
 pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
     let usage = "usage: builds units prune <days> <incremental hours, 0 for all> <dry 0|1> <folder>... | \
-                 trim <cap KiB> <size KiB> <dry 0|1> <folder>... | git-checkouts <cargo home> <dry 0|1> <Cargo.lock>... | \
+                 git-checkouts <cargo home> <dry 0|1> <Cargo.lock>... | \
                  after-build <checkout>";
     let number = |text: &String| -> Result<u64> {
         match text.parse() {
@@ -342,12 +341,6 @@ pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
             for (folder, freed_kib) in prune::prune(&rules, args[3] == "1", &folders)? {
                 println!("{freed_kib}\t{}", folder.display());
             }
-            Ok(())
-        }
-        Some("trim") if args.len() >= 4 => {
-            let folders: Vec<PathBuf> = args[4..].iter().map(PathBuf::from).collect();
-            let freed = trim::trim(number(&args[1])?, number(&args[2])?, args[3] == "1", &folders)?;
-            println!("{freed}");
             Ok(())
         }
         Some("git-checkouts") if args.len() >= 3 => {
