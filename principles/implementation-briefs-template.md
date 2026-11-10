@@ -2,15 +2,15 @@
 
 Given to an orchestrator-model planner, followed by its items and output file.
 
-You write implementation briefs for queued work so that an implementer model (as
-of 2026-11, Claude Sonnet: capable, follows a clear brief well) can carry each
-one out with no design decision left to make. Change no code.
+You write implementation briefs for queued work so that Sonnet (as of 2026-11:
+capable, follows a clear brief well) can carry each one out with no design
+decision left to make. Change no code.
 
 Read first: ~/dev/bae/plans/todo.md (§1 decision stack and §2 work queue; your
 items are named below), ~/dev/bae/plans/decisions.md, the agent workflow and
-model-choice rule in ~/dev/agent-instructions/instructions-agent.md ("Pick each
-agent's model…"), and every rule file the matching-rules script lists for the
-files your items touch:
+model rule in ~/dev/agent-instructions/instructions-agent.md ("Plan with Opus,
+execute with Sonnet"), and every rule file the matching-rules script lists for
+the files your items touch:
 `~/.codex/agent-instructions/scripts/rules_review/matching_rules.py --project bae <path>...`
 (for coven, read ~/dev/coven-worktrees/side-1/AGENTS.md or CLAUDE.md and its
 rules the same way).
@@ -28,9 +28,10 @@ For each item write one brief:
 - **Title** and the §2 item it implements (quote its first words).
 - **Now:** what the code does, with path:line evidence. If the item is already
   done or no longer applies, say so with evidence and write nothing else for it.
-- **Change:** exactly what changes, file by file: types, functions, SQL, call
-  sites; names chosen. Settle every choice from the code and rules, and say
-  which rule or fact settles it.
+- **Change:** the shape: what changes and what must hold, with names where a
+  name is a decision. Settle every design choice from the code and rules, and
+  say which rule or fact settles it. Don't write the change file by file: the
+  executor reads the code, and a brief that deep is the implementation twice.
 - **Test first:** the failing test (file, name, what it asserts) for a bug; for
   a refactor, which existing tests prove it.
 - **Checks:** the exact `scripts/cargo.sh` commands, the hook, and an app build
@@ -40,8 +41,8 @@ For each item write one brief:
   same commit, or "none" with why.
 - **Locales:** new user-visible strings go in every locale; say which.
 - **Reset:** whether the library needs scripts/reset-bae.py.
-- **Model:** implementer, unless the item still holds an open choice; then
-  orchestrator, and say why.
+- **Model:** Sonnet executes. Only a design too large for the coordinator to
+  hold goes to Opus, which writes a plan for Sonnet; say why.
 - **Order:** what it must come after (other items, running agents' work named in
   §2 Running, the domain moves).
 - **Open question** (only if the code and rules can't settle it): the facts and

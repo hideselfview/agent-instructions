@@ -18,20 +18,16 @@ project's lists, worktrees and landing worktree.
 
 ## Plan, then brief, then implement
 
-1. **Plan** (orchestrator model): for work whose shape is still open, a plan in
-   `plans/<name>.md`; its open questions go on the decision stack.
-2. **Brief** (orchestrator model): each queued item gets a brief in
-   `plans/briefs/<area>.md`, written from the code, that leaves the implementer
-   no design decision: what the code does now (path:line), the change file by
-   file, the failing test, the checks, the spec sections, locales, whether a
-   reset is needed, the model, and what it must follow. The template is
-   `implementation-briefs-template.md`.
-3. **Implement**: the implementer model (as of 2026-11, Claude Sonnet) takes
-   briefed items; the orchestrator model (as of 2026-11, Claude Opus) keeps
-   design, concurrency, schema, open shapes, audits and reviews ("Pick each
-   agent's model by how settled the work is").
-4. **Review a sample** before landing: about one implementer commit in five,
-   plus every tricky one ("Sample the implementer's work").
+1. **Plan** (Opus, the coordinator): for work whose shape is still open, a plan
+   in `plans/<name>.md`; its open questions go on the decision stack.
+2. **Brief** (the coordinator): each queued item gets a brief that states the
+   goal, the shape, the facts gathered so far (measurements, logs, leads), what
+   must hold, and the checks. It leaves the executor no design decision, but it
+   doesn't write the change file by file: the executor reads the code. The
+   template is `implementation-briefs-template.md`.
+3. **Execute** (Sonnet, as of 2026-11): every dispatched agent ("Plan with Opus,
+   execute with Sonnet").
+4. **Review** every commit before landing ("Review every executor's work").
 
 ## What an implementing agent does
 
@@ -55,11 +51,10 @@ another's message, written to the same file name.
 
 ## Dispatch
 
-- Who implements: the coordinator settles the shape and writes the brief; the
-  implementer model builds it. The orchestrator model implements only when the
-  coordinator can't plan the work out, and the brief says why the coordinator
-  can't: what it read, and what stays unknown until the code is being written.
-  "The shape is open" is not a reason while reading the code would settle it.
+- Who executes: the coordinator settles the shape and writes the brief; Sonnet
+  executes it. A dispatched agent runs Opus only for a design too large for the
+  coordinator to hold, and the brief says why: what the coordinator read, and
+  what stays unknown. That agent writes a plan; Sonnet executes it.
 - One task per agent (a commit or a short chain); later items go to the same
   agent while its context is small, to a successor from its handoff once it
   passes about 550k tokens.

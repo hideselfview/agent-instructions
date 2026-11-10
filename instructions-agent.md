@@ -223,26 +223,23 @@ next clean point it writes a handoff file (what's committed, what's uncommitted
 and its state, what's left in order, decisions, traps, commands), and a fresh
 agent continues from that file and the branch.
 
-**Pick each agent's model by how settled the work is.** Two roles: the
-*orchestrator* model, the strongest one (as of 2026-11, Claude Opus), and the
-*implementer* model, a faster and cheaper one that follows a clear brief well
-(as of 2026-11, Claude Sonnet). The implementer takes work whose shape is
-already stated: a fix whose cause and change are named, a test that follows a
-named pattern, a move or split with its target named, a rename or a deletion.
-That is more than renames. The orchestrator takes design, concurrency, schema
-changes, anything whose shape is still open, and every audit or read-only
-review: a wrong verdict there costs more than the run. When a brief can't name
-the change, the work isn't settled enough for the implementer.
+**Plan with Opus, execute with Sonnet.** The coordinator runs the strongest
+model (as of 2026-11, Claude Opus) and plans: it decides each change's shape, or
+writes a design when the shape is open, and reviews what comes back. Every agent
+it dispatches runs the faster, cheaper model (as of 2026-11, Claude Sonnet) and
+executes: builds a stated change, finds a named bug's cause from the facts so
+far, fixes tests, moves, renames, deletes. The brief states the goal, the shape,
+the facts gathered so far and what must hold. It doesn't name each file and line
+to change: a brief that deep is the implementation written twice, and the
+executor reads the code itself. A dispatched agent runs Opus only for a design
+too large for the coordinator to hold, and that agent writes a plan for Sonnet
+to execute; it doesn't execute the plan itself.
 
 *Running several agents at once: `principles/coordinating-agents.md`.*
 
-**Sample the implementer's work.** The orchestrator reviews about one in five of
-the implementer's commits before landing them, chosen without warning, plus
-every commit that touches something tricky: concurrency, a schema or sync shape,
-an error or panic path, a public API, or a diff that strays from its brief. A
-review reads the diff against the brief and the rules that apply. A finding goes
-back to the implementer to fix, and two findings from one agent mean its next
-commits are all reviewed until it lands one clean.
+**Review every executor's work.** The coordinator reads each commit's diff
+against its brief and the rules that apply before landing it. A finding goes
+back to the agent that made it.
 
 **Code review: one manual pass.** The agent holding the implementation context
 reviews the diff itself against the requirements and applicable coding rules.

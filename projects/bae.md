@@ -78,7 +78,7 @@ A §2 item that an agent is working on says so at its start ("Running: <agent>,
 after a compact. An agent's brief names the §2 items it takes. When an item
 lands, it leaves §2. §2 is grouped by area; an item with an implementation brief
 points at it in `plans/briefs/<area>.md`. How the coordinator plans, briefs,
-dispatches (implementer model by default), samples reviews and lands
+dispatches (Sonnet executes), reviews and lands
 (`~/dev/agent-instructions/scripts/land/land.sh` from bae side-7 and coven
 side-1) is `principles/coordinating-agents.md`.
 
