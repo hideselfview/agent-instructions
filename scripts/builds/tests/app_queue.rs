@@ -87,6 +87,11 @@ impl Volume {
     /// two (scripts that log like `BUILD` and wait for `go-one`, `go-two`),
     /// and its app checkout recorded.
     fn app_repo(&self) {
+        self.app_repo_with("mac build ./one.sh\nmac app out.app\nmac bundle demo.test\nstep one ./one.sh\nstep two ./two.sh\n");
+    }
+
+    /// `app_repo` with <config> as its `.app-build`.
+    fn app_repo_with(&self, config: &str) {
         let top = self.dir.join("checkout");
         let git = |args: &[&str]| {
             let status = Command::new("git").arg("-C").arg(&top).args(args).output().unwrap();
@@ -106,11 +111,7 @@ impl Volume {
             std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
             std::fs::set_permissions(&path, mode).unwrap();
         }
-        std::fs::write(
-            top.join(".app-build"),
-            "mac build ./one.sh\nmac app out.app\nmac bundle demo.test\nstep one ./one.sh\nstep two ./two.sh\n",
-        )
-        .unwrap();
+        std::fs::write(top.join(".app-build"), config).unwrap();
         git(&["add", "."]);
         git(&["commit", "-q", "-m", "Start"]);
         let origin = self.dir.join("origin.git");
@@ -403,4 +404,31 @@ fn app_build_runs_the_steps_named_and_lists_them() {
     let unknown = volume.run(&["app-build", "demo", "main", "three"]);
     assert!(!unknown.status.success());
     assert!(String::from_utf8_lossy(&unknown.stderr).contains("no step three"));
+}
+
+#[test]
+fn a_step_past_its_limit_fails_the_build_and_the_lock_goes_to_the_next_in_line() {
+    let mut volume = Volume::new("limit");
+    volume.app_repo_with("step one ./one.sh\nlimit one 1s\n");
+    let mut build = volume
+        .builds()
+        .args(["app-build", "demo", "main"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    volume.until_logged("start one");
+    volume.lock("W");
+    volume.until_queued(2);
+    volume.open_gate("W");
+    // The step never gets its gate: only the limit ends it.
+    volume.until_logged("end W");
+    let log = volume.log();
+    assert_eq!(log, lines(&["start one", "stop one", "start W", "end W"]));
+    let mut said = String::new();
+    std::io::Read::read_to_string(build.stderr.as_mut().unwrap(), &mut said).unwrap();
+    let status = build.wait().unwrap();
+    assert!(!status.success(), "the build fails");
+    assert!(said.contains("step one") && said.contains("limit of 1s"), "{said}");
 }

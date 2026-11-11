@@ -174,7 +174,11 @@ Commands:
                               its .app-build names (step lines), in the order
                               given, all of them in the order written when none
                               is named, stopping at the first failure; a
-                              takeover reruns it from the checkout
+                              takeover reruns it from the checkout. A step
+                              that runs past its limit (45 minutes, or its
+                              `limit <step> <time>` line in .app-build) has its
+                              process group killed and fails the build, which
+                              gives the lock up
   builds app-build <repo> --list
                               print the app checkout's steps
   builds build-app <repo> mac|android [<ref>]

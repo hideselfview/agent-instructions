@@ -13,7 +13,7 @@ use std::time::Duration;
 use crate::app_config::{CONFIG, Config, MacApp, app_checkout_top, check_out, run_command};
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lock;
+use crate::lock::{self, Within};
 use crate::places::Places;
 use crate::text::note;
 use crate::tool::Tool;
@@ -144,12 +144,13 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
     // build that took over.
     let config = loop {
         let config = check_out(&top, commit)?;
-        match run_command(&top, platform.build(&config)?)? {
-            lock::Ran::Finished => break config,
-            lock::Ran::TakenOver => {
+        match run_command(&top, platform.build(&config)?, None)? {
+            Within::Ran(lock::Ran::Finished) => break config,
+            Within::Ran(lock::Ran::TakenOver) => {
                 note(format!("the build was stopped for a takeover; building {commit} again after it"));
                 held = held.requeue()?;
             }
+            Within::TimedOut => unreachable!("build-app sets no time limit"),
         }
     };
     let Some(mac) = config.mac.as_ref().filter(|_| platform == Platform::Mac) else {

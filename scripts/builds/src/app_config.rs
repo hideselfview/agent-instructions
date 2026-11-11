@@ -9,18 +9,32 @@
 //! mac bundle fm.bae.desktop
 //! android build ./bae-android/run.sh
 //! step macos ./bae-macos/run.sh --no-open
+//! limit macos 90m
 //! ```
+//!
+//! A step runs for at most `DEFAULT_STEP_LIMIT`, or the time a `limit <step>
+//! <duration>` line gives it (`90s`, `30m`, `2h`).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use crate::checkout::{git, git_text};
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lock;
+use crate::lock::{self, Within};
 use crate::places::Places;
 
 pub const CONFIG: &str = ".app-build";
+
+/// How long a step may run unless its `limit` line says otherwise. Past it the
+/// step is killed and the build fails, so the lock goes on to the next in
+/// line. A hung macOS test once held the lock for 33 minutes with five builds
+/// waiting. Steps measured on this machine ran well under ten minutes warm
+/// (an Xcode build, a Gradle compile); a cold bridge build for a platform,
+/// not measured, is the longest a step legitimately runs, and this leaves it
+/// room.
+pub const DEFAULT_STEP_LIMIT: Duration = Duration::from_secs(45 * 60);
 
 /// A repo's `.app-build`.
 #[derive(Debug, PartialEq, Eq)]
@@ -58,6 +72,38 @@ pub struct AndroidApp {
 pub struct Step {
     pub name: String,
     pub command: Vec<String>,
+    /// From the step's `limit` line; `DEFAULT_STEP_LIMIT` without one.
+    pub limit: Option<Duration>,
+}
+
+impl Step {
+    pub fn limit(&self) -> Duration {
+        self.limit.unwrap_or(DEFAULT_STEP_LIMIT)
+    }
+}
+
+/// <text> (`90s`, `30m`, `2h`) as a time.
+fn parse_duration(text: &str) -> Option<Duration> {
+    let (digits, unit) = text.split_at(text.len().saturating_sub(1));
+    let n: u64 = digits.parse().ok().filter(|n| *n > 0)?;
+    let seconds = match unit {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        _ => return None,
+    };
+    Some(Duration::from_secs(n * seconds))
+}
+
+/// <limit> as `.app-build` writes it and a message should: whole hours,
+/// minutes or seconds.
+pub fn show_duration(limit: Duration) -> String {
+    let seconds = limit.as_secs();
+    match seconds {
+        s if s % 3600 == 0 => format!("{}h", s / 3600),
+        s if s % 60 == 0 => format!("{}m", s / 60),
+        s => format!("{s}s"),
+    }
 }
 
 fn words(value: &str) -> Vec<String> {
@@ -68,6 +114,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let (mut mac_build, mut mac_app, mut bundle) = (None, None, None);
     let mut android = None;
     let mut steps: Vec<Step> = Vec::new();
+    let mut limits: Vec<(String, Duration)> = Vec::new();
     for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
         let (platform, field) = line.split_once(' ').unwrap_or((line, ""));
         let (name, value) = field.trim().split_once(' ').unwrap_or((field.trim(), ""));
@@ -88,9 +135,24 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 if steps.iter().any(|step| step.name == name) {
                     fail!("{CONFIG}: step {name} is named twice");
                 }
-                steps.push(Step { name, command });
+                steps.push(Step { name, command, limit: None });
+            }
+            ("limit", _) => {
+                let Some(limit) = parse_duration(value) else {
+                    fail!("{CONFIG}: {line:?} needs a step and a time like 90s, 30m or 2h");
+                };
+                if limits.iter().any(|(step, _)| step == name) {
+                    fail!("{CONFIG}: step {name} has two limits");
+                }
+                limits.push((name.to_string(), limit));
             }
             _ => fail!("{CONFIG}: no field in {line:?}"),
+        }
+    }
+    for (name, limit) in limits {
+        match steps.iter_mut().find(|step| step.name == name) {
+            Some(step) => step.limit = Some(limit),
+            None => fail!("{CONFIG}: limit for step {name}, which {CONFIG} does not name"),
         }
     }
     let mac = match (mac_build, mac_app, bundle) {
@@ -119,15 +181,16 @@ pub fn check_out(top: &Path, commit: &str) -> Result<Config> {
     parse_config(&std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?)
 }
 
-/// Runs <command> in the checkout <top>, in a process group of its own.
-pub fn run_command(top: &Path, command: &[String]) -> Result<lock::Ran> {
+/// Runs <command> in the checkout <top>, in a process group of its own, killed
+/// once <limit> has passed.
+pub fn run_command(top: &Path, command: &[String], limit: Option<Duration>) -> Result<Within> {
     let Some((program, args)) = command.split_first() else {
         fail!("{CONFIG}: a command names no program");
     };
     let path = if program.contains('/') { top.join(program) } else { PathBuf::from(program) };
     let mut start = Command::new(path);
     start.args(args).current_dir(top);
-    lock::run_in_group(start, program)
+    lock::run_in_group_within(start, program, limit)
 }
 
 /// The folder of <repo>'s app checkout.

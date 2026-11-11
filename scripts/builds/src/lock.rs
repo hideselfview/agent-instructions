@@ -24,6 +24,12 @@
 //! The holder is the process that has the file open: `health` and the
 //! dashboard read holder and waiters that way.
 //!
+//! A command run with a time limit (`run_in_group_within`) is stopped when the
+//! limit passes: its whole group gets SIGTERM, SIGKILL after `KILL_GRACE` if
+//! the leader still runs, and SIGKILL once more for what the leader left
+//! behind. It says `Within::TimedOut` and the caller fails the build, so the lock
+//! goes to the next in line instead of staying with a build that hangs.
+//!
 //! Waiters go in the order of queue.rs. A takeover sends the holder SIGUSR2:
 //! it stops its build's group and, once the build has exited, `run_in_group`
 //! says `Ran::TakenOver`; the caller then takes a new place in the queue
@@ -32,6 +38,9 @@
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::mpsc::{RecvTimeoutError, channel};
+use std::sync::Arc;
+use std::time::Duration;
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -171,6 +180,10 @@ impl Drop for TerminalReturn {
     }
 }
 
+/// How long a command that ignores SIGTERM gets, past its time limit, before
+/// SIGKILL.
+const KILL_GRACE: Duration = Duration::from_secs(10);
+
 /// How a command run by `run_in_group` ended, when it didn't fail.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Ran {
@@ -179,10 +192,27 @@ pub enum Ran {
     TakenOver,
 }
 
+/// How a command run by `run_in_group_within` ended, when it didn't fail.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Within {
+    Ran(Ran),
+    /// It ran past its time limit and was killed.
+    TimedOut,
+}
+
 /// Runs <start> in a process group of its own, passing SIGTERM, SIGINT and
 /// SIGHUP on to the whole group, and fails with its exit status, unless a
 /// takeover stopped it.
-pub fn run_in_group(mut start: Command, command: &str) -> Result<Ran> {
+pub fn run_in_group(start: Command, command: &str) -> Result<Ran> {
+    match run_in_group_within(start, command, None)? {
+        Within::Ran(ran) => Ok(ran),
+        Within::TimedOut => unreachable!("a command with no time limit cannot pass it"),
+    }
+}
+
+/// `run_in_group`, killing the group once <limit> has passed (when there is
+/// one) and saying `Within::TimedOut`.
+pub fn run_in_group_within(mut start: Command, command: &str, limit: Option<Duration>) -> Result<Within> {
     // The signals stay blocked until the group is known, so one sent while
     // the command starts is passed on rather than lost; the command starts
     // with them unblocked.
@@ -224,14 +254,41 @@ pub fn run_in_group(mut start: Command, command: &str) -> Result<Ran> {
     if TAKEN_OVER.load(Ordering::SeqCst) {
         unsafe { libc::kill(-group, libc::SIGTERM) };
     }
+    // Dropping `ended` tells the watcher the command is over.
+    let (ended, over) = channel::<()>();
+    let timed_out = Arc::new(AtomicBool::new(false));
+    let watcher = limit.map(|limit| {
+        let timed_out = timed_out.clone();
+        std::thread::spawn(move || {
+            if over.recv_timeout(limit) != Err(RecvTimeoutError::Timeout) {
+                return;
+            }
+            timed_out.store(true, Ordering::SeqCst);
+            unsafe { libc::kill(-group, libc::SIGTERM) };
+            if over.recv_timeout(KILL_GRACE) == Err(RecvTimeoutError::Timeout) {
+                unsafe { libc::kill(-group, libc::SIGKILL) };
+            }
+        })
+    });
     unsafe { libc::sigprocmask(libc::SIG_UNBLOCK, &passed, std::ptr::null_mut()) };
-    let status = child.wait().context(|| format!("waiting for {command}"))?;
+    let waited = child.wait();
+    drop(ended);
+    if let Some(watcher) = watcher {
+        let _ = watcher.join();
+    }
+    if timed_out.load(Ordering::SeqCst) {
+        // What the leader left behind. The group id is its pid, which stays
+        // in use while any member of the group does.
+        unsafe { libc::kill(-group, libc::SIGKILL) };
+    }
+    let status = waited.context(|| format!("waiting for {command}"))?;
     // The group is gone with its leader's pid free to be reused: no later
     // signal may go to it.
     GROUP.store(0, Ordering::SeqCst);
     match (status.code(), status.signal()) {
-        (Some(0), _) => Ok(Ran::Finished),
-        _ if TAKEN_OVER.load(Ordering::SeqCst) => Ok(Ran::TakenOver),
+        _ if timed_out.load(Ordering::SeqCst) => Ok(Within::TimedOut),
+        (Some(0), _) => Ok(Within::Ran(Ran::Finished)),
+        _ if TAKEN_OVER.load(Ordering::SeqCst) => Ok(Within::Ran(Ran::TakenOver)),
         (Some(code), _) => Err(Fail::Exit(code)),
         (None, signal) => Err(Fail::Exit(128 + signal.unwrap_or(0))),
     }

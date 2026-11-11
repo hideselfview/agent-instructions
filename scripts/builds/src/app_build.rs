@@ -4,6 +4,9 @@
 //! (every step, in the order written, when none is named), stopping at the
 //! first one that fails. `builds app-build <repo> --list` prints the steps.
 //!
+//! A step that runs past its limit (app_config.rs) has its process group
+//! killed and fails the build, which gives up the lock.
+//!
 //! A takeover stops the step running; the build then runs again from the
 //! checkout, behind the build that took over.
 
@@ -11,9 +14,9 @@ use std::path::Path;
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::lock::{self, Ran};
+use crate::lock::{self, Ran, Within};
 use crate::places::Places;
-use crate::app_config::{CONFIG, Config, Step, app_checkout_top, check_out, parse_config, run_command};
+use crate::app_config::{CONFIG, Config, Step, app_checkout_top, check_out, parse_config, run_command, show_duration};
 use crate::text::note;
 
 const USAGE: &str = "usage: builds app-build <repo> <ref> [<step>...] | builds app-build <repo> --list";
@@ -40,9 +43,17 @@ fn chosen(config: &Config, names: &[String]) -> Result<Vec<Step>> {
 fn run_steps(top: &Path, steps: &[Step]) -> Result<Ran> {
     for step in steps {
         note(format!("step {}", step.name));
-        match run_command(top, &step.command) {
-            Ok(Ran::Finished) => {}
-            Ok(Ran::TakenOver) => return Ok(Ran::TakenOver),
+        match run_command(top, &step.command, Some(step.limit())) {
+            Ok(Within::Ran(Ran::Finished)) => {}
+            Ok(Within::Ran(Ran::TakenOver)) => return Ok(Ran::TakenOver),
+            Ok(Within::TimedOut) => {
+                fail!(
+                    "step {} ran past its limit of {} and its process group was killed; the lock goes to the next build (a `limit {} <time>` line in {CONFIG} sets another)",
+                    step.name,
+                    show_duration(step.limit()),
+                    step.name
+                );
+            }
             Err(Fail::Exit(code)) => {
                 note(format!("step {} failed (exit {code})", step.name));
                 return Err(Fail::Exit(code));

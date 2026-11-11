@@ -50,7 +50,7 @@ fn the_commit_named_is_checked_out_and_built_in_the_checkout() {
     let config = check_out(&top, commit.trim()).unwrap();
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap(), commit);
     assert!(run_git(&top, &["symbolic-ref", "-q", "HEAD"]).is_err(), "the checkout is detached");
-    run_command(&top, &config.mac.unwrap().build).unwrap();
+    run_command(&top, &config.mac.unwrap().build, None).unwrap();
     assert!(top.join("out.app").is_dir());
 }
 
@@ -65,8 +65,28 @@ fn a_checkout_with_changes_builds_nothing() {
 #[test]
 fn step_lines_name_a_command_each_in_the_order_written() {
     let config = parse_config(&format!("{CONFIG_TEXT}step first ./a.sh --x\nstep second b\n")).unwrap();
-    let step = |name: &str, command: &str| Step { name: name.to_string(), command: words(command) };
+    let step = |name: &str, command: &str| Step { name: name.to_string(), command: words(command), limit: None };
     assert_eq!(config.steps, vec![step("first", "./a.sh --x"), step("second", "b")]);
     assert!(parse_config(&format!("{CONFIG_TEXT}step lonely\n")).is_err(), "a step without a command");
     assert!(parse_config(&format!("{CONFIG_TEXT}step a x\nstep a y\n")).is_err(), "a name twice");
+}
+
+#[test]
+fn a_limit_line_gives_its_step_a_time_and_the_others_the_default() {
+    let config = parse_config("step slow ./a\nstep quick ./b\nlimit slow 90m\n").unwrap();
+    assert_eq!(config.steps[0].limit(), Duration::from_secs(90 * 60));
+    assert_eq!(config.steps[1].limit(), DEFAULT_STEP_LIMIT);
+    assert_eq!(parse_config("limit s 30s\nstep s ./a\n").unwrap().steps[0].limit(), Duration::from_secs(30));
+    assert_eq!(show_duration(Duration::from_secs(2 * 3600)), "2h");
+    assert_eq!(show_duration(Duration::from_secs(90 * 60)), "90m");
+    assert_eq!(show_duration(Duration::from_secs(45)), "45s");
+}
+
+#[test]
+fn a_limit_must_name_a_step_once_and_a_time() {
+    assert!(parse_config("step s ./a\nlimit t 5m\n").is_err(), "a step the file lacks");
+    assert!(parse_config("step s ./a\nlimit s 5m\nlimit s 6m\n").is_err(), "two limits");
+    for bad in ["limit s", "limit s 5", "limit s 0m", "limit s fast", "limit s 5d"] {
+        assert!(parse_config(&format!("step s ./a\n{bad}\n")).is_err(), "{bad}");
+    }
 }

@@ -374,7 +374,18 @@ clean) and runs the named steps of the repo's `.app-build`, one
 in the order written, with none named), stopping at the first that fails.
 `builds app-build <repo> --list` prints them. A step is a program, not a shell
 string: a step that needs a shell is a script in the repo. A takeover reruns the
-build from the checkout. `builds lock` stays for a command that is no repo's
+build from the checkout.
+
+A step has a time limit: 45 minutes, or what its `limit <step> <time>` line in
+`.app-build` says (`90s`, `30m`, `2h`). Past it the step's whole process group
+gets SIGTERM, SIGKILL ten seconds later if the leader still runs, and SIGKILL
+once more for what the leader left behind (only the group the tool started,
+never a process found by name); the step fails, naming the step and its limit,
+and the lock goes on to the next in line. A hung macOS test once held the lock
+for 33 minutes with five builds waiting. The warm steps measured on this machine
+(an Xcode build, a Gradle compile) take well under ten minutes; a cold bridge
+build was not measured, and the default leaves it room. `builds build-app` and
+`builds lock` set no limit; `builds lock` stays for a command that is no repo's
 build.
 
 - `builds lock <repo> <command>` waits until `/Volumes/Builds/<repo>/app.lock`
