@@ -108,7 +108,7 @@ impl Volume {
         }
         std::fs::write(
             top.join(".app-build"),
-            "build ./one.sh\napp out.app\nbundle demo.test\nstep one ./one.sh\nstep two ./two.sh\n",
+            "mac build ./one.sh\nmac app out.app\nmac bundle demo.test\nstep one ./one.sh\nstep two ./two.sh\n",
         )
         .unwrap();
         git(&["add", "."]);
