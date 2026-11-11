@@ -22,6 +22,7 @@ use crate::procs::{
 };
 use crate::side_git::SideGit;
 use crate::text::{human, local_minute};
+use crate::places::DiskSpace;
 use crate::tool::Tool;
 
 /// A Claude Code shell older than this is a stale watcher or loop.
@@ -38,9 +39,8 @@ pub struct Health {
     pub generated_at: i64,
     pub load: [f64; 3],
     pub cores: usize,
-    pub free_kib: u64,
-    pub floor_kib: u64,
-    pub hard_floor_kib: u64,
+    #[serde(flatten)]
+    pub disk: DiskSpace,
     pub sccache: SccacheHealth,
     pub shells: Vec<Shell>,
     pub worktrees: Vec<WorktreeHealth>,
@@ -409,17 +409,15 @@ pub struct Unclaimed {
 /// Judges what needs acting on.
 pub fn assess(
     now: i64,
-    free_kib: u64,
-    floor_kib: u64,
-    hard_floor_kib: u64,
+    disk: DiskSpace,
     machine: Machine,
     places: &[Place],
     claimed: Vec<Claimed>,
     unclaimed: Vec<Unclaimed>,
 ) -> Health {
     let mut findings = Vec::new();
-    if free_kib < floor_kib {
-        findings.push(format!("disk: {} free, under the {} floor", human(free_kib), human(floor_kib)));
+    if disk.free_kib < disk.floor_kib {
+        findings.push(format!("disk: {} free, under the {} floor", human(disk.free_kib), human(disk.floor_kib)));
     }
     let s = &machine.sccache;
     if let Some(oldest) = s.waiting.first().map(|c| c.minutes) {
@@ -486,9 +484,7 @@ pub fn assess(
         generated_at: now,
         load: machine.load,
         cores: machine.cores,
-        free_kib,
-        floor_kib,
-        hard_floor_kib,
+        disk,
         sccache: machine.sccache,
         shells: machine.shells,
         worktrees,
@@ -555,7 +551,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
     for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
         judged.push(Claimed { place, claim, branch: checkout.branch()?, git });
     }
-    Ok(assess(now, tool.free_kib()?, tool.rules.floor_kib, tool.rules.hard_floor_kib, machine, &places, judged, unclaimed))
+    Ok(assess(now, tool.disk_space()?, machine, &places, judged, unclaimed))
 }
 
 fn root_repo(root: &Root) -> String {
@@ -585,9 +581,9 @@ pub fn lines(health: &Health) -> Vec<String> {
     out.push(format!("load: {one:.1} {five:.1} {fifteen:.1} on {} cores", health.cores));
     out.push(format!(
         "disk: {} free; warns under {}, stops under {}",
-        human(health.free_kib),
-        human(health.floor_kib),
-        human(health.hard_floor_kib)
+        human(health.disk.free_kib),
+        human(health.disk.floor_kib),
+        human(health.disk.hard_floor_kib)
     ));
     let s = &health.sccache;
     let mut line = match (s.listening, s.executed) {
@@ -758,9 +754,7 @@ mod tests {
         };
         let health = assess(
             now,
-            100 << 20,
-            30 << 20,
-            10 << 20,
+            DiskSpace { free_kib: 100 << 20, floor_kib: 30 << 20, hard_floor_kib: 10 << 20 },
             machine,
             &[place(1), place(2)],
             vec![claimed(1, None), claimed(2, Some("held"))],
@@ -794,9 +788,7 @@ mod tests {
         let git = |ahead: Vec<Commit>| SideGit { head: None, ahead, uncommitted: Some(0), last_write: None, error: None };
         let health = assess(
             now,
-            100 << 20,
-            30 << 20,
-            10 << 20,
+            DiskSpace { free_kib: 100 << 20, floor_kib: 30 << 20, hard_floor_kib: 10 << 20 },
             machine,
             &[place(1), place(2)],
             Vec::new(),

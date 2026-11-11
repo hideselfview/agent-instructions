@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use crate::checkout::{Root, all_roots};
 use crate::daemon::client;
 use crate::fail::Result;
-use crate::places::{Places, Rules};
+use crate::places::{DiskSpace, Places, Rules};
 use crate::usage::{Measure, measure_many};
 
 pub struct Tool {
@@ -89,6 +89,11 @@ impl Tool {
     /// The volume's free space in KiB, as `df -k` gives Available.
     pub fn free_kib(&self) -> Result<u64> {
         Ok(volume_space(&self.places.root)?.free_kib)
+    }
+
+    /// The volume's free space against the rules' floors.
+    pub fn disk_space(&self) -> Result<DiskSpace> {
+        Ok(self.rules.disk_space(self.free_kib()?))
     }
 }
 

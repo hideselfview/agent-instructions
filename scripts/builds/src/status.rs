@@ -13,7 +13,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::install::sccache_config_holds;
 use crate::manifest::{SHARED_CACHES, build_dirs, kept_builds};
-use crate::places::{DERIVED_DATA_CAP_KIB, FLOOR_IDLE_MINUTES, MACOS_ENTRIES, Places};
+use crate::places::{DERIVED_DATA_CAP_KIB, FLOOR_IDLE_MINUTES, MACOS_ENTRIES, DiskSpace, Places};
 use crate::prune::derived_data;
 use crate::temp_builds::temp_build_folders;
 use crate::text::{glob_names, human, last_write, tilde};
@@ -471,10 +471,9 @@ pub struct StatusJson {
 
 #[derive(Serialize)]
 pub struct VolumeJson {
-    pub free_kib: u64,
+    #[serde(flatten)]
+    pub disk: DiskSpace,
     pub size_kib: u64,
-    pub floor_kib: u64,
-    pub hard_floor_kib: u64,
 }
 
 #[derive(Serialize)]
@@ -640,10 +639,8 @@ pub fn status_json(tool: &mut Tool, with_folders: bool) -> Result<StatusJson> {
     Ok(StatusJson {
         root: tool.places.root.display().to_string(),
         volume: VolumeJson {
-            free_kib: space.free_kib,
+            disk: tool.rules.disk_space(space.free_kib),
             size_kib: space.size_kib,
-            floor_kib: tool.rules.floor_kib,
-            hard_floor_kib: tool.rules.hard_floor_kib,
         },
         repos: list,
     })

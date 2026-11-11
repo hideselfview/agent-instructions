@@ -3,6 +3,8 @@
 
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 use crate::fail::Result;
 use crate::fail;
 
@@ -181,6 +183,14 @@ fn darwin_user_temp_dir() -> Option<PathBuf> {
 /// deleting those freed 37–48 GB at a time.
 pub const FLOOR_INCREMENTAL_IDLE_MINUTES: u64 = 60;
 
+/// The volume's free space against the two floors under it.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct DiskSpace {
+    pub free_kib: u64,
+    pub floor_kib: u64,
+    pub hard_floor_kib: u64,
+}
+
 /// What setup, prune and the floor go by.
 #[derive(Clone, Debug)]
 pub struct Rules {
@@ -211,6 +221,11 @@ pub struct Rules {
 }
 
 impl Rules {
+    /// <free_kib> of free space against these rules' floors.
+    pub fn disk_space(&self, free_kib: u64) -> DiskSpace {
+        DiskSpace { free_kib, floor_kib: self.floor_kib, hard_floor_kib: self.hard_floor_kib }
+    }
+
     pub fn from_env() -> Result<Rules> {
         Ok(Rules {
             floor_kib: gib_from_env("BUILDS_FREE_FLOOR_GIB", 30)? * 1024 * 1024,

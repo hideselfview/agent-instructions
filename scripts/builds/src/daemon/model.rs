@@ -18,7 +18,7 @@ use crate::checkout::{Root, absolute_link_target, all_roots, parallel_map};
 use crate::claim::Claim;
 use crate::health::{Claimed, Health, Machine, Unclaimed, assess, locks_of, places_of, sample, sccache_reading};
 use crate::manifest::{BuildDir, build_dirs};
-use crate::places::{Places, Rules};
+use crate::places::{DiskSpace, Places, Rules};
 use crate::procs::Place;
 use crate::side_git::SideGit;
 use crate::tool::volume_space;
@@ -422,9 +422,7 @@ impl Model {
         let unclaimed = unclaimed_of(&self.places, &roots, &state.facts, &places)?;
         let health = assess(
             now,
-            free_kib,
-            self.rules.floor_kib,
-            self.rules.hard_floor_kib,
+            self.rules.disk_space(free_kib),
             machine.clone(),
             &places,
             claimed,
@@ -530,10 +528,8 @@ impl Model {
             generated_at: now_seconds(),
             root: self.places.root.display().to_string(),
             volume: VolumePage {
-                free_kib: space.free_kib,
+                disk: self.rules.disk_space(space.free_kib),
                 size_kib: space.size_kib,
-                floor_kib: self.rules.floor_kib,
-                hard_floor_kib: self.rules.hard_floor_kib,
             },
             load: state.machine.as_ref().map(|m| LoadPage {
                 now: m.load,
@@ -656,10 +652,9 @@ pub struct Page {
 
 #[derive(Serialize)]
 pub struct VolumePage {
-    pub free_kib: u64,
+    #[serde(flatten)]
+    pub disk: DiskSpace,
     pub size_kib: u64,
-    pub floor_kib: u64,
-    pub hard_floor_kib: u64,
 }
 
 #[derive(Serialize)]
