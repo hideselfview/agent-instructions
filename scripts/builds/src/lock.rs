@@ -13,6 +13,14 @@
 //! SIGHUP sent to this process are passed on to that whole group, so killing
 //! the holder stops its build; the lock goes once the build has exited.
 //!
+//! A group of its own is a background group of the terminal, which the kernel
+//! stops (SIGTTOU, SIGTTIN) when it sets terminal modes or reads, as Gradle's
+//! console does, leaving `wait` waiting for a build that never runs again. So
+//! when this process is its terminal's foreground process, the build's group
+//! takes the terminal for its run and this process takes it back when the
+//! build ends, however it ends. Ctrl-C then reaches the build's group directly.
+//! With no terminal on stdin nothing changes.
+//!
 //! The holder is the process that has the file open: `health` and the
 //! dashboard read holder and waiters that way.
 //!
@@ -131,6 +139,38 @@ pub fn take(places: &Places, repo: &str) -> Result<Held> {
     Ok(Held { lock: queue::open_locked(&lock_path)?, ticket, queue, lock_path })
 }
 
+/// Whether stdin is a terminal this process is the foreground process of.
+fn is_terminal_foreground() -> bool {
+    unsafe { libc::isatty(0) == 1 && libc::tcgetpgrp(0) == libc::getpgrp() }
+}
+
+/// Makes <group> the terminal's foreground group. Called from a background
+/// group, `tcsetpgrp` sends SIGTTOU unless it is blocked, so it is blocked
+/// around the call.
+fn give_terminal_to(group: libc::pid_t) {
+    unsafe {
+        let mut blocked = std::mem::zeroed::<libc::sigset_t>();
+        let mut before = std::mem::zeroed::<libc::sigset_t>();
+        libc::sigemptyset(&mut blocked);
+        libc::sigaddset(&mut blocked, libc::SIGTTOU);
+        libc::sigprocmask(libc::SIG_BLOCK, &blocked, &mut before);
+        libc::tcsetpgrp(0, group);
+        libc::sigprocmask(libc::SIG_SETMASK, &before, std::ptr::null_mut());
+    }
+}
+
+/// Gives the terminal back to this process's group when dropped, if it was
+/// handed to a build.
+struct TerminalReturn(bool);
+
+impl Drop for TerminalReturn {
+    fn drop(&mut self) {
+        if self.0 {
+            give_terminal_to(unsafe { libc::getpgrp() });
+        }
+    }
+}
+
 /// How a command run by `run_in_group` ended, when it didn't fail.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Ran {
@@ -155,9 +195,16 @@ pub fn run_in_group(mut start: Command, command: &str) -> Result<Ran> {
         }
         libc::sigprocmask(libc::SIG_BLOCK, &passed, std::ptr::null_mut());
     }
+    let foreground = is_terminal_foreground();
     start.process_group(0);
     unsafe {
         start.pre_exec(move || {
+            // The group exists by now (std makes it before this runs). The
+            // terminal goes to it with SIGTTOU blocked, which a background
+            // process needs for tcsetpgrp not to stop it.
+            if foreground {
+                give_terminal_to(libc::getpgrp());
+            }
             libc::sigprocmask(libc::SIG_UNBLOCK, &passed, std::ptr::null_mut());
             // The queue's signal is for the waiter, not the build.
             let mut repoint = std::mem::zeroed::<libc::sigset_t>();
@@ -168,6 +215,8 @@ pub fn run_in_group(mut start: Command, command: &str) -> Result<Ran> {
             Ok(())
         });
     }
+    // Taken back on every way out of here, a failed spawn included.
+    let _terminal = TerminalReturn(foreground);
     let mut child = start.spawn().context(|| format!("running {command}"))?;
     let group = child.id() as i32;
     GROUP.store(group, Ordering::SeqCst);

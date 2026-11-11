@@ -387,7 +387,11 @@ build.
   checkout. The command runs in a process group of its own; SIGTERM, SIGINT or
   SIGHUP to `builds lock` goes to that whole group, so killing the holder stops
   its build, and the next waiter starts once it has exited. `test-lock.sh`
-  checks both.
+  checks both. When `builds` is its terminal's foreground process, the build's
+  group holds the terminal while it runs and `builds` takes it back when the
+  build ends: the kernel stops a background group the moment it sets terminal
+  modes (Gradle's console does), which hung `builds build-app` after a finished
+  build. `tests/terminal.rs` checks it on a pseudo-terminal.
 - Waiters go in the order they came. `/Volumes/Builds/<repo>/app.queue/order`
   lists one ticket per line, next first, the holder's at the head; each ticket
   is a file `<pid>-<n>` its process holds locked for its whole life, children
