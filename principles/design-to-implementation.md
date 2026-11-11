@@ -41,6 +41,16 @@ Two kinds of shot, like unit and integration tests:
   used and nested wherever it sits, is `<Component>Container`
   (`MacNowPlayingBarContainer`); a screen's view reads only what no container
   below it reads.
+- Containers sit low because whatever reads a piece of state is what redraws
+  when it changes (`rules/read-at-the-leaf-not-the-parent.md`). In SwiftUI an
+  `@Observable` property read in a view's body re-runs that body alone; in
+  Compose the composable that reads a `State` is the scope that recomposes. A
+  container nested just above its component keeps a ticking value (a playback
+  position) from redrawing the screen around it, as reading it in the screen and
+  passing it down would. Pass a value down only when it rarely changes; in
+  Compose pass a lambda (`{ position }`) so the read happens where it is used.
+  The component under the container takes plain values, which is also what lets
+  its shot draw it from a preview state with no app running.
 
 Shots confirm the build, and follow the boards:
 
