@@ -36,9 +36,11 @@ Two kinds of shot, like unit and integration tests:
   board in the canvas index says whether it gets a shot: the person picks which
   boards are covered.
 - Every name follows from a component, a preview state or a board; none is
-  chosen twice. A view that only reads app state to feed one component has no
-  reason to exist: the screen reads the state and places the component. Where
-  one must exist, it is `<Component>Container`.
+  chosen twice. The view that draws a component takes values and has the
+  component's name. The view that reads app state for it, close to where it is
+  used and nested wherever it sits, is `<Component>Container`
+  (`MacNowPlayingBarContainer`); a screen's view reads only what no container
+  below it reads.
 
 Shots confirm the build, and follow the boards:
 
