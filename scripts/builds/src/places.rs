@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::fail::Result;
 use crate::fail;
+use crate::lane::Lane;
 
 /// A file in a build folder written this recently may belong to a build
 /// between two of its steps, holding no lock or open file: the floor, the
@@ -102,21 +103,41 @@ impl Places {
         self.root.join("caches")
     }
 
-    /// The file naming <repo>'s app checkout, the one side worktree that keeps
-    /// app builds warm beside main; `builds app-checkout` writes it. It sits
-    /// beside the app checkout's lock, <root>/<repo>/app.lock.
-    pub fn app_checkout_file(&self, repo: &str) -> PathBuf {
-        self.root.join(repo).join("app-checkout")
+    /// The file naming <repo>'s app checkout in <lane>, the side worktree
+    /// that keeps that lane's app builds warm beside main;
+    /// `builds app-checkout` writes it. It sits beside the lane's lock.
+    pub fn app_checkout_file(&self, repo: &str, lane: Lane) -> PathBuf {
+        self.root.join(repo).join(lane.checkout_file_name())
     }
 
-    /// <repo>'s app checkout name (side-N), when one is recorded.
-    pub fn app_checkout_of(&self, repo: &str) -> Result<Option<String>> {
-        let file = self.app_checkout_file(repo);
+    /// <lane>'s lock for <repo>: <root>/<repo>/app.lock for the mac lane.
+    pub fn app_lock_file(&self, repo: &str, lane: Lane) -> PathBuf {
+        self.root.join(repo).join(lane.lock_file_name())
+    }
+
+    /// <lane>'s queue folder for <repo>.
+    pub fn app_queue_dir(&self, repo: &str, lane: Lane) -> PathBuf {
+        self.root.join(repo).join(lane.queue_dir_name())
+    }
+
+    /// <repo>'s app checkout name (side-N) in <lane>, when one is recorded.
+    pub fn app_checkout_of(&self, repo: &str, lane: Lane) -> Result<Option<String>> {
+        let file = self.app_checkout_file(repo, lane);
         match std::fs::read_to_string(&file) {
             Ok(text) => Ok(Some(text.trim_end_matches('\n').to_string())),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => fail!("reading {}: {error}", file.display()),
         }
+    }
+
+    /// The lane <checkout> is <repo>'s app checkout of, if it is one.
+    pub fn app_lane_of(&self, repo: &str, checkout: &str) -> Result<Option<Lane>> {
+        for lane in Lane::ALL {
+            if self.app_checkout_of(repo, lane)?.as_deref() == Some(checkout) {
+                return Ok(Some(lane));
+            }
+        }
+        Ok(None)
     }
 
     /// Claude Code sessions' scratch folders: /private/tmp/claude-<uid>.

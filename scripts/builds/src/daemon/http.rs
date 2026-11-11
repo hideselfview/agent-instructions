@@ -119,7 +119,7 @@ fn queue_action(model: &Model, body: &[u8]) -> crate::fail::Result<()> {
     };
     match request.action.as_str() {
         "top" => crate::queue::top(&model.places, &request.repo, request.pid)?,
-        "takeover" => crate::queue::takeover(&model.places, &request.repo, Some(request.pid))?,
+        "takeover" => crate::queue::takeover(&model.places, &request.repo, Some(request.pid), None)?,
         other => crate::fail!("no action {other:?}"),
     }
     model.sample_now().map(|_| ())

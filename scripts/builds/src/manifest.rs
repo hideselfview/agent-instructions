@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::fail;
 use crate::fail::Result;
+use crate::lane::Lane;
 
 pub const MANIFEST: &str = ".build-dirs";
 
@@ -19,13 +20,25 @@ pub struct BuildDir {
     /// field): its cargo builds run without incremental compilation (see
     /// `cargo_run`), so a full build there takes less.
     app_cap_kib: Option<u64>,
+    /// The app lane that builds into the folder (a `lane <lane>` field): only
+    /// that lane's app checkout keeps it warm and takes the app cap. None for
+    /// a folder every lane's builds write to (host `target`).
+    pub lane: Option<Lane>,
 }
 
 impl BuildDir {
-    /// The folder's cap in the app checkout (<app_checkout>) or in any other
-    /// checkout.
-    pub fn cap_kib(&self, app_checkout: bool) -> u64 {
-        match (app_checkout, self.app_cap_kib) {
+    /// Is the folder an app checkout's, one that stays warm: in <checkout_lane>,
+    /// the lane the checkout is the app checkout of (None for any other
+    /// checkout)? A folder of the other lane is not: nothing builds into it
+    /// there.
+    pub fn is_app_in(&self, checkout_lane: Option<Lane>) -> bool {
+        checkout_lane.is_some_and(|lane| self.lane.is_none_or(|own| own == lane))
+    }
+
+    /// The folder's cap in an app checkout (<app>, from `is_app_in`) or in any
+    /// other checkout.
+    pub fn cap_kib(&self, app: bool) -> u64 {
+        match (app, self.app_cap_kib) {
             (true, Some(cap)) => cap,
             _ => self.cap_kib,
         }
@@ -77,11 +90,17 @@ fn parse(top: &Path) -> Result<(Vec<BuildDir>, Vec<String>)> {
             continue;
         }
         let cap = fields.next().unwrap_or("");
-        let app_cap = match (fields.next(), fields.next(), fields.next()) {
-            (None, _, _) => None,
-            (Some("app"), Some(app_cap), None) => Some(app_cap),
-            _ => fail!("{}: '{line}' takes a path, a cap and at most 'app <cap>'", file.display()),
-        };
+        let (mut app_cap, mut lane) = (None, None);
+        while let Some(field) = fields.next() {
+            match (field, fields.next()) {
+                ("app", Some(cap)) if app_cap.is_none() => app_cap = Some(cap),
+                ("lane", Some(word)) if lane.is_none() => match Lane::parse(word) {
+                    Some(parsed) => lane = Some(parsed),
+                    None => fail!("{}: '{line}' names the lane '{word}', which is not mac or android", file.display()),
+                },
+                _ => fail!("{}: '{line}' takes a path, a cap and at most 'app <cap>' and 'lane <lane>'", file.display()),
+            }
+        }
         if path.starts_with('/')
             || path == ".."
             || path.starts_with("../")
@@ -93,7 +112,7 @@ fn parse(top: &Path) -> Result<(Vec<BuildDir>, Vec<String>)> {
         let what = format!("{}: '{path}'", file.display());
         let cap_kib = cap_kib(cap, &what)?;
         let app_cap_kib = app_cap.map(|cap| self::cap_kib(cap, &format!("{what} (app)"))).transpose()?;
-        entries.push(BuildDir { path: path.to_string(), cap_kib, app_cap_kib });
+        entries.push(BuildDir { path: path.to_string(), cap_kib, app_cap_kib, lane });
     }
     Ok((entries, kept))
 }
@@ -197,18 +216,18 @@ mod tests {
         assert_eq!(
             entries,
             vec![
-                BuildDir { path: "target".into(), cap_kib: 30 * GIB, app_cap_kib: Some(12 * GIB) },
-                BuildDir { path: "bae/.build".into(), cap_kib: 2 * GIB, app_cap_kib: None },
-                BuildDir { path: "last".into(), cap_kib: 1024, app_cap_kib: None },
+                BuildDir { path: "target".into(), cap_kib: 30 * GIB, app_cap_kib: Some(12 * GIB), lane: None },
+                BuildDir { path: "bae/.build".into(), cap_kib: 2 * GIB, app_cap_kib: None, lane: None },
+                BuildDir { path: "last".into(), cap_kib: 1024, app_cap_kib: None, lane: None },
             ]
         );
         assert_eq!(entries[0].cap_kib(false), 30 * GIB);
         assert_eq!(entries[0].cap_kib(true), 12 * GIB);
         assert_eq!(entries[1].cap_kib(true), 2 * GIB);
         for (bad, says) in [
-            ("target 1G extra\n", "takes a path, a cap and at most 'app <cap>'"),
-            ("target 1G app\n", "takes a path, a cap and at most 'app <cap>'"),
-            ("target 1G app 1G more\n", "takes a path, a cap and at most 'app <cap>'"),
+            ("target 1G extra\n", "takes a path, a cap and at most 'app <cap>' and 'lane <lane>'"),
+            ("target 1G app\n", "takes a path, a cap and at most 'app <cap>' and 'lane <lane>'"),
+            ("target 1G app 1G more\n", "takes a path, a cap and at most 'app <cap>' and 'lane <lane>'"),
             ("target 1G app 1X\n", "'target' (app) needs a cap like 20G or 500M, got '1X'"),
             ("../out 1G\n", "must be inside the checkout"),
             ("/abs 1G\n", "must be inside the checkout"),
@@ -225,11 +244,32 @@ mod tests {
     }
 
     #[test]
+    fn a_lane_field_names_the_lane_whose_app_checkout_keeps_the_folder_warm() {
+        let dir = std::env::temp_dir().join(format!("builds-manifest-lane-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(MANIFEST), "target 30G app 12G\nxcode 2G app 1G lane mac\ngradle 2G lane android app 1G\n").unwrap();
+        let entries = build_dirs(&dir).unwrap();
+        let lanes: Vec<Option<Lane>> = entries.iter().map(|entry| entry.lane).collect();
+        assert_eq!(lanes, vec![None, Some(Lane::Mac), Some(Lane::Android)]);
+        assert_eq!(entries[2].cap_kib(true), GIB);
+        // The host folder is every app checkout's; a lane's folder its lane's.
+        assert!(entries[0].is_app_in(Some(Lane::Mac)) && entries[0].is_app_in(Some(Lane::Android)));
+        assert!(entries[1].is_app_in(Some(Lane::Mac)) && !entries[1].is_app_in(Some(Lane::Android)));
+        assert!(!entries[2].is_app_in(Some(Lane::Mac)) && entries[2].is_app_in(Some(Lane::Android)));
+        assert!(!entries[0].is_app_in(None), "another checkout has no app folders");
+        for bad in ["x 1G lane ios\n", "x 1G lane\n", "x 1G lane mac lane android\n", "x 1G app 1G app 2G\n"] {
+            std::fs::write(dir.join(MANIFEST), bad).unwrap();
+            assert!(build_dirs(&dir).is_err(), "{bad} passed");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn keep_lines() {
         let dir = std::env::temp_dir().join(format!("builds-manifest-keep-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(MANIFEST), "bae/.build 2G\nkeep bae/.build/run\n").unwrap();
-        assert_eq!(build_dirs(&dir).unwrap(), vec![BuildDir { path: "bae/.build".into(), cap_kib: 2 * GIB, app_cap_kib: None }]);
+        assert_eq!(build_dirs(&dir).unwrap(), vec![BuildDir { path: "bae/.build".into(), cap_kib: 2 * GIB, app_cap_kib: None, lane: None }]);
         assert_eq!(kept_builds(&dir).unwrap(), vec!["bae/.build/run".to_string()]);
         for bad in ["keep\n", "keep a b\n", "keep ../x\n"] {
             std::fs::write(dir.join(MANIFEST), bad).unwrap();

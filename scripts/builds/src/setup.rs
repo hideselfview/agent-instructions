@@ -141,7 +141,7 @@ pub fn setup(tool: &Tool, checkout: &Checkout) -> Result<()> {
                 ));
             }
     }
-    prune_root(tool, &root, checkout, Run::Real, 0)?;
+    prune_root(tool, &root, checkout, Run::Real, 0, 0)?;
     prune_derived_data(tool, Run::Real, 0)?;
     prune_caches(tool, Run::Real)?;
     prune_test_temps(tool, Run::Real)?;

@@ -60,9 +60,16 @@ impl Volume {
 
     /// Starts `builds lock demo` running the build as <label>; its pid.
     fn lock(&mut self, label: &str) -> i32 {
+        self.lock_in(&[], label)
+    }
+
+    /// `lock` with <lane_args> (`--lane android`) after the repo.
+    fn lock_in(&mut self, lane_args: &[&str], label: &str) -> i32 {
         let child = self
             .builds()
-            .args(["lock", "demo", "sh", "-c", BUILD, label])
+            .args(["lock", "demo"])
+            .args(lane_args)
+            .args(["sh", "-c", BUILD, label])
             .arg(&self.dir)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -83,14 +90,17 @@ impl Volume {
         pid
     }
 
-    /// A repo `demo` with an origin and a `.app-build` of the steps one and
+    /// A repo `demo` with an origin and a `.app-build` of the mac steps one and
     /// two (scripts that log like `BUILD` and wait for `go-one`, `go-two`),
-    /// and its app checkout recorded.
+    /// and its mac app checkout recorded.
     fn app_repo(&self) {
-        self.app_repo_with("mac build ./one.sh\nmac app out.app\nmac bundle demo.test\nstep one ./one.sh\nstep two ./two.sh\n");
+        self.app_repo_with("mac build ./one.sh\nmac app out.app\nmac bundle demo.test\nstep mac one ./one.sh\nstep mac two ./two.sh\n");
     }
 
-    /// `app_repo` with <config> as its `.app-build`.
+    /// `app_repo` with <config> as its `.app-build`; besides `one.sh` and
+    /// `two.sh`, `droid.sh` (a script like them) and `bad.sh` (which logs and
+    /// exits 3), for the steps of <config> to name. The android lane's app
+    /// checkout is recorded too, a clone of the same origin.
     fn app_repo_with(&self, config: &str) {
         let top = self.dir.join("checkout");
         let git = |args: &[&str]| {
@@ -101,7 +111,12 @@ impl Volume {
         git(&["init", "-q", "-b", "main"]);
         git(&["config", "user.email", "test@example.com"]);
         git(&["config", "user.name", "test"]);
-        for name in ["one", "two"] {
+        let bad = top.join("bad.sh");
+        std::fs::write(&bad, "#!/bin/sh\necho \"start bad\" >> \"$QUEUE_TEST_DIR/log\"\necho \"end bad\" >> \"$QUEUE_TEST_DIR/log\"\nexit 3\n").unwrap();
+        let mut mode = std::fs::metadata(&bad).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+        std::fs::set_permissions(&bad, mode).unwrap();
+        for name in ["one", "two", "droid"] {
             let script = format!(
                 "#!/bin/sh\ntrap 'echo \"stop {name}\" >> \"$QUEUE_TEST_DIR/log\"; exit 1' TERM\necho \"start {name}\" >> \"$QUEUE_TEST_DIR/log\"\nwhile [ ! -e \"$QUEUE_TEST_DIR/go-{name}\" ]; do sleep 0.05; done\necho \"end {name}\" >> \"$QUEUE_TEST_DIR/log\"\n"
             );
@@ -121,10 +136,22 @@ impl Volume {
         git(&["push", "-q", "origin", "main"]);
         std::fs::create_dir_all(self.dir.join("volume/demo/side-1")).unwrap();
         std::fs::write(self.dir.join("volume/demo/side-1/.checkout"), top.to_str().unwrap()).unwrap();
+        let android = self.dir.join("checkout-android");
+        let cloned = Command::new("git").args(["clone", "-q"]).arg(&origin).arg(&android).output().unwrap();
+        assert!(cloned.status.success(), "{}", String::from_utf8_lossy(&cloned.stderr));
+        std::fs::create_dir_all(self.dir.join("volume/demo/side-2")).unwrap();
+        std::fs::write(self.dir.join("volume/demo/side-2/.checkout"), android.to_str().unwrap()).unwrap();
+        std::fs::write(self.dir.join("volume/demo/app-android-checkout"), "side-2\n").unwrap();
     }
 
     fn order(&self) -> Vec<String> {
         std::fs::read_to_string(self.dir.join("volume/demo/app.queue/order"))
+            .map(|text| text.lines().map(str::to_string).collect())
+            .unwrap_or_default()
+    }
+
+    fn android_order(&self) -> Vec<String> {
+        std::fs::read_to_string(self.dir.join("volume/demo/app-android.queue/order"))
             .map(|text| text.lines().map(str::to_string).collect())
             .unwrap_or_default()
     }
@@ -396,7 +423,7 @@ fn app_build_runs_the_steps_named_and_lists_them() {
     let volume = Volume::new("app-build-steps");
     volume.app_repo();
     let listed = volume.run(&["app-build", "demo", "--list"]);
-    assert_eq!(String::from_utf8_lossy(&listed.stdout), "one ./one.sh\ntwo ./two.sh\n");
+    assert_eq!(String::from_utf8_lossy(&listed.stdout), "mac one ./one.sh\nmac two ./two.sh\n");
     std::fs::write(volume.dir.join("go-two"), "").unwrap();
     let built = volume.run(&["app-build", "demo", "main", "two"]);
     assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
@@ -409,7 +436,7 @@ fn app_build_runs_the_steps_named_and_lists_them() {
 #[test]
 fn a_step_past_its_limit_fails_the_build_and_the_lock_goes_to_the_next_in_line() {
     let mut volume = Volume::new("limit");
-    volume.app_repo_with("step one ./one.sh\nlimit one 1s\n");
+    volume.app_repo_with("step mac one ./one.sh\nlimit one 1s\n");
     let mut build = volume
         .builds()
         .args(["app-build", "demo", "main"])
@@ -431,4 +458,128 @@ fn a_step_past_its_limit_fails_the_build_and_the_lock_goes_to_the_next_in_line()
     let status = build.wait().unwrap();
     assert!(!status.success(), "the build fails");
     assert!(said.contains("step one") && said.contains("limit of 1s"), "{said}");
+}
+
+const LANES: &str = "step mac one ./one.sh\nstep mac two ./two.sh\nstep android droid ./droid.sh\n";
+
+/// Starts `builds app-build demo main <steps>`, its output piped.
+fn start_app_build(volume: &Volume, steps: &[&str]) -> Child {
+    volume
+        .builds()
+        .args(["app-build", "demo", "main"])
+        .args(steps)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+/// What the build said, its exit status after.
+fn finish(mut build: Child) -> (std::process::ExitStatus, String) {
+    let mut said = String::new();
+    std::io::Read::read_to_string(build.stdout.as_mut().unwrap(), &mut said).unwrap();
+    let mut errors = String::new();
+    std::io::Read::read_to_string(build.stderr.as_mut().unwrap(), &mut errors).unwrap();
+    let status = build.wait().unwrap();
+    (status, said + &errors)
+}
+
+#[test]
+fn an_app_build_runs_the_lanes_at_the_same_time_each_in_its_own_checkout() {
+    let volume = Volume::new("two-lanes");
+    volume.app_repo_with(LANES);
+    let build = start_app_build(&volume, &[]);
+    // Both lanes' first steps run before either is let go.
+    volume.until_logged("start one");
+    volume.until_logged("start droid");
+    assert_eq!(volume.log().len(), 2, "{:?}", volume.log());
+    for gate in ["one", "two", "droid"] {
+        volume.open_gate(gate);
+    }
+    let (status, said) = finish(build);
+    assert!(status.success(), "{said}");
+    let log = volume.log();
+    let at = |line: &str| log.iter().position(|l| l == line).unwrap_or_else(|| panic!("{line} not in {log:?}"));
+    assert!(at("end one") < at("start two"), "a lane's steps run in order: {log:?}");
+    assert!(at("start droid") < at("end one"), "the lanes ran at once: {log:?}");
+    assert!(said.contains("[mac] builds: step one") && said.contains("[android] builds: step droid"), "{said}");
+    // Each lane's steps ran in its own checkout.
+    let head = |dir: &str| {
+        let out = Command::new("git").arg("-C").arg(volume.dir.join(dir)).args(["rev-parse", "HEAD"]).output().unwrap();
+        String::from_utf8(out.stdout).unwrap()
+    };
+    assert_eq!(head("checkout"), head("checkout-android"));
+}
+
+#[test]
+fn a_lane_waits_for_its_own_lock_only() {
+    let mut volume = Volume::new("lane-locks");
+    volume.app_repo_with(LANES);
+    // The mac lane is held and stays held.
+    volume.lock("H");
+    volume.until_logged("start H");
+    volume.open_gate("droid");
+    let (status, said) = finish(start_app_build(&volume, &["droid"]));
+    assert!(status.success(), "{said}");
+    assert_eq!(volume.log(), lines(&["start H", "start droid", "end droid"]), "the android build did not wait for the mac lane");
+    // A waiter in the mac lane's line is not in the android lane's.
+    let waiter = volume.lock("A");
+    volume.until_queued(2);
+    let in_android = |volume: &Volume| -> Vec<String> {
+        volume.android_order().iter().map(|name| name.split('-').next().unwrap().to_string()).collect()
+    };
+    assert!(!in_android(&volume).contains(&waiter.to_string()), "A waits in the mac lane's line only");
+    // `--lane android` takes the other lock, free now.
+    let other = volume.lock_in(&["--lane", "android"], "B");
+    volume.until_logged("start B");
+    assert_eq!(in_android(&volume), vec![other.to_string()]);
+    assert_eq!(volume.order().len(), 2, "the mac lane's line is as it was");
+}
+
+#[test]
+fn a_build_failing_in_one_lane_fails_the_build_naming_the_lane_and_the_other_lane_finishes() {
+    let volume = Volume::new("lane-fails");
+    volume.app_repo_with("step mac bad ./bad.sh\nstep android droid ./droid.sh\n");
+    let build = start_app_build(&volume, &[]);
+    volume.until_logged("end bad");
+    volume.until_logged("start droid");
+    volume.open_gate("droid");
+    let (status, said) = finish(build);
+    assert_eq!(status.code(), Some(1), "{said}");
+    assert!(said.contains("app-build failed in the mac lane (exit 3)"), "{said}");
+    assert!(!said.contains("android lane (exit"), "{said}");
+    assert!(volume.log().contains(&"end droid".to_string()), "the android lane ran to its end: {:?}", volume.log());
+}
+
+#[test]
+fn a_step_is_refused_by_the_lane_it_is_not_in() {
+    let volume = Volume::new("lane-refuses");
+    volume.app_repo_with(LANES);
+    let refused = volume.run(&["app-build", "demo", "--lane", "mac", "main", "droid"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("step droid is in the android lane, not the mac lane"));
+    assert!(volume.log().is_empty());
+}
+
+#[test]
+fn a_pid_names_its_lane_for_a_takeover_and_queue_shows_both_lanes() {
+    let mut volume = Volume::new("lane-takeover");
+    volume.app_repo();
+    volume.lock_in(&["--lane", "android"], "H");
+    volume.until_logged("start H");
+    let waiter = volume.lock_in(&["--lane", "android"], "A");
+    until("A in the android lane's line", || volume.android_order().len() == 2);
+    volume.open_gate("A");
+    let shown = String::from_utf8(volume.run(&["queue", "demo"]).stdout).unwrap();
+    assert!(shown.contains("android: holder") && shown.contains(&format!("android: 1. {waiter}")), "{shown}");
+    assert!(shown.contains("mac: nobody waits"), "{shown}");
+    // No --lane: the pid says which lane's holder to stop.
+    let taken = volume.run(&["takeover", "demo", &waiter.to_string()]);
+    assert!(taken.status.success(), "{}", String::from_utf8_lossy(&taken.stderr));
+    volume.until_logged("end A");
+    volume.until_logged("stop H");
+    volume.open_gate("H");
+    let log = volume.log_of(6);
+    assert_eq!(log, lines(&["start H", "stop H", "start A", "end A", "start H", "end H"]));
 }

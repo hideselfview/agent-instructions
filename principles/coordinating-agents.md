@@ -38,10 +38,10 @@ project's lists, worktrees and landing worktree.
 4. **One manual review** of its own diff against the brief and the matching rule
    bodies.
 5. **Local checks: only what the change touches**: the hook, builds of touched
-   platforms (app builds in the app checkout under its lock), tests covering the
-   changed code. Never a whole app test suite (it launches the app on the
-   person's screen) or the full CI script: CI runs those. A project with no
-   pre-commit hook gets one.
+   platforms (app builds in the app checkouts, a mac and an android one, each
+   under its lane's lock), tests covering the changed code. Never a whole app
+   test suite (it launches the app on the person's screen) or the full CI
+   script: CI runs those. A project with no pre-commit hook gets one.
 6. **Commit and report** the SHA, base and checks; the coordinator lands it.
 
 Every agent the coordinator starts shares its session's scratchpad directory, so
@@ -153,8 +153,11 @@ a schedule can do: nothing else wakes a session), the coordinator runs
   `builds note <worktree> --state held "<why, and until when>"`, which health
   doesn't flag.
 - **Disk under the floor:** hold the queue (Dispatch).
-- **An app lock held long, or with agents waiting:** check its holder is
-  building, not stuck.
+- **An app lock held long, or with agents waiting:** each lane (mac, android)
+  has its own lock and queue, shown separately; check the holder is building,
+  not stuck. A step past its time limit (45 minutes, or its `limit` line in
+  `.app-build`) is killed and fails the build, which passes the lock on, so a
+  hung step ends by itself; a build that is slow but alive is not killed.
 
 In quick mode each check also runs `scripts/agent-runs/check.py`, which lists
 running cargo builds and tests outside quick mode (a feature set other than the

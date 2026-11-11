@@ -2,11 +2,17 @@ builds: owns this machine's build volume, /Volumes/Builds, and everything
 on it:
 
   <repo>/<checkout>/    one build root per checkout; checkout = main | side-N
-  <repo>/app-checkout   the name of the repo's app checkout (side-N)
-  <repo>/app.lock       the lock agents hold to build in the app checkout
+  <repo>/app-checkout   the name of the repo's mac lane app checkout (side-N)
+  <repo>/app.lock       the lock agents hold to build in it
   <repo>/app.queue/     who waits for it: `order` (one ticket per line, next
                         first, the holder's at the head) and a ticket file
                         per waiting process
+  <repo>/app-android-checkout, app-android.lock, app-android.queue/
+                        the same for the android lane. The lanes build
+                        output that is not shared (Xcode and the macOS
+                        bridge; Gradle and the Android bridge), so each has
+                        its own app checkout, lock and queue and the two
+                        never wait on each other
   mode                  the pre-commit hooks' mode, quick or strict
   DerivedData/          Xcode's default DerivedData location
   caches/<name>/        download caches every checkout shares, each linked
@@ -19,8 +25,11 @@ UNKNOWN; it leaves out macOS's own volume metadata (.Spotlight-V100,
 
 Build roots. The repo lists its build-output paths and their size caps in
 `.build-dirs` at its root, one `<path> <cap>` per line; `<path> <cap> app
-<cap>` gives the folder a cap of its own in the repo's app checkout. Each
-listed path is a symlink in the checkout to the same path under the
+<cap>` gives the folder a cap of its own in the repo's app checkouts, and a
+`lane mac|android` field says that only that lane's app checkout builds into
+it, keeps it warm and takes its app cap (a folder with no lane is every app
+checkout's); in the other lane's checkout it is an ordinary side worktree's
+folder. Each listed path is a symlink in the checkout to the same path under the
 checkout's build root (target -> /Volumes/Builds/bae/main/target).
 
 The path a tool sees never changes: cargo, xcodebuild, Gradle, dotnet and
@@ -83,9 +92,11 @@ Commands:
                               without it has no state
   builds release <checkout>   remove its claim
   builds retire <checkout>    remove a side worktree and its build root
-  builds app-checkout <checkout>
+  builds app-checkout mac|android <checkout>
                               record the side worktree as its repo's app
-                              checkout, in /Volumes/Builds/<repo>/app-checkout
+                              checkout for the lane, in
+                              /Volumes/Builds/<repo>/app-checkout (mac) or
+                              app-android-checkout
   builds mode [quick|strict]  set the mode the pre-commit hooks run in, for
                               every repo on the machine, in
                               /Volumes/Builds/mode; with no argument, print
@@ -109,8 +120,8 @@ Commands:
                               2h, each claimed worktree (claim, branch,
                               uncommitted files, commits waiting to land,
                               minutes since a change, build processes there
-                              or under the app lock for it), each app lock's
-                              holder (the build's top process when its
+                              or under an app lock for it), each lane's app
+                              lock's holder (the build's top process when its
                               `builds lock` is gone); an unclaimed worktree
                               with commits waiting to land is a finding;
                               exits 1 when something needs acting on. Asks the daemon when one runs
@@ -150,41 +161,52 @@ Commands:
                               the build copies the build replaced. Outside
                               main it builds without incremental compilation
                               (--config build.incremental=false)
-  builds lock <repo> <command> [<args>...]
-                              run the command holding the repo's app lock
-                              (/Volumes/Builds/<repo>/app.lock), waiting for
+  builds lock <repo> [--lane mac|android] <command> [<args>...]
+                              run the command holding the repo's app lock for
+                              the lane (the mac lane's unless named:
+                              /Volumes/Builds/<repo>/app.lock), waiting for
                               it; the lock lives until the last process of the
                               command exits, and SIGTERM, SIGINT and SIGHUP go
                               to the command's whole process group; waiters go
                               in the order they came, a dead one never lets
                               anyone past the holder
-  builds queue <repo>         show the holder and who waits, next first
+  builds queue <repo> [--lane mac|android]
+                              show each lane's holder and who waits, next first
   builds queue <repo> top <pid>
-                              move that waiter to right behind the holder
-  builds takeover <repo> [<pid>]
+                              move that waiter to right behind the holder, in
+                              the lane it waits in
+  builds takeover <repo> [--lane mac|android] [<pid>]
                               stop the holder's build (SIGTERM to its whole
                               process group), run the waiter <pid> (default
                               the first) next, and run the stopped command
                               again straight after it, by itself; with
-                              nothing holding the lock, the same as `top`.
+                              nothing holding the lock, the same as `top`; a
+                              pid names its lane, and with none and builds
+                              waiting in both lanes, --lane does.
                               The dashboard's queue has both as buttons
   builds app-build <repo> <ref> [<step>...]
-                              on the app lock, check out <ref> in the app
-                              checkout, which must be clean, and run the steps
-                              its .app-build names (step lines), in the order
-                              given, all of them in the order written when none
-                              is named, stopping at the first failure; a
-                              takeover reruns it from the checkout. A step
-                              that runs past its limit (45 minutes, or its
-                              `limit <step> <time>` line in .app-build) has its
-                              process group killed and fails the build, which
-                              gives the lock up
+                              check out <ref> in the app checkout of each lane
+                              the steps are in (every step's lane when none is
+                              named), on that lane's app lock, and run the
+                              lane's steps its .app-build names (`step <lane>
+                              <name> <command>` lines), in the order given,
+                              all of them in the order written when none is
+                              named, stopping at the first failure. The lanes
+                              build at the same time, each line of output
+                              behind [<lane>], and the build fails if either
+                              lane does, saying which; a takeover reruns that
+                              lane from its checkout. A step that runs past its
+                              limit (45 minutes, or its `limit <step> <time>`
+                              line in .app-build) has its process group killed
+                              and fails the build, which gives the lock up
   builds app-build <repo> --list
-                              print the app checkout's steps
+                              print the steps: lane, name, command
+  builds app-build <repo> --lane mac|android <ref> [<step>...]
+                              one lane's part of the above, in this process
   builds build-app <repo> mac|android [<ref>]
-                              on the app lock, check out <ref> (default the
-                              main branch) in the app checkout, which must be
-                              clean, and run that platform's build its
+                              on that lane's app lock, check out <ref> (default
+                              the main branch) in the lane's app checkout,
+                              which must be clean, and run that platform's build its
                               .app-build names; for mac, copy the app to
                               ~/Applications/<repo>-test in place of the copy
                               there, quitting the one running. Opens nothing
@@ -211,7 +233,7 @@ does; `status` shows it, and `retire` refuses a claimed worktree. A claim is
 not a lock: agents are a series of separate commands, so nothing could hold
 one, and a session that ends without releasing leaves its claim behind
 (status shows its age). Short exclusive use, one build at a time, stays a
-real lock, like the app checkout's app.lock. A claim may carry a one-line
+real lock, like the app lanes' locks (app.lock). A claim may carry a one-line
 note of where its work stands ("waiting on Linux CI"), which `note` sets and
 status and the dashboard show, and the note may carry a state the dashboard
 can't read from git: waiting-on-you (a question or step only the person can
@@ -222,12 +244,14 @@ whose <who> ends in "(landing)" is the worktree its coordinator lands
 commits from.
 
 By default a side worktree builds host Rust only, and a repo with app builds
-keeps them warm in main and in one side worktree, its app checkout, which
-agents take turns in by holding /Volumes/Builds/<repo>/app.lock; see
+keeps them warm in main and in one side worktree per app lane, its app
+checkouts, which agents take turns in by holding the lane's lock
+(/Volumes/Builds/<repo>/app.lock for the mac lane); see
 principles/worktree-build-priming.md. Nothing here enforces who builds what:
 the caps bound whatever a checkout builds, and the floor below bounds every
 checkout's idle incremental folders and the whole folders of every checkout
-but main and the app checkout.
+but main and the folders an app checkout's lane builds into (a `lane
+<lane>` field in .build-dirs says which lane builds into a folder).
 
 Side worktrees' cargo builds, the app checkout's included, run without
 incremental compilation: `builds cargo` passes `--config

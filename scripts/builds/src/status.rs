@@ -12,6 +12,7 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
 use crate::install::sccache_config_holds;
+use crate::lane::{Lane, is_lane_file};
 use crate::manifest::{SHARED_CACHES, build_dirs, kept_builds};
 use crate::places::{DERIVED_DATA_CAP_KIB, FLOOR_IDLE_MINUTES, MACOS_ENTRIES, DiskSpace, Places};
 use crate::prune::derived_data;
@@ -45,7 +46,7 @@ fn is_repo_dir(dir: &Path) -> Result<bool> {
     if !dir.is_dir() || dir.is_symlink() {
         return Ok(false);
     }
-    if dir.join("app-checkout").is_file() || dir.join("app.lock").is_file() {
+    if Lane::ALL.into_iter().any(|lane| dir.join(lane.checkout_file_name()).is_file() || dir.join(lane.lock_file_name()).is_file()) {
         return Ok(true);
     }
     let names = match glob_names(dir) {
@@ -87,7 +88,7 @@ pub fn repos(places: &Places) -> Result<Vec<Repo>> {
         let mut paths = Vec::new();
         for entry in glob_names(&dir)? {
             let path = dir.join(&entry);
-            if (entry == "app-checkout" || entry == "app.lock") && path.is_file() {
+            if is_lane_file(&entry.to_string_lossy()) && path.is_file() {
                 continue;
             }
             if is_root_dir(&path) {
@@ -172,8 +173,8 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
         return Ok(());
     };
     let mut state = checkout.branch()?.unwrap_or_else(|| "detached".to_string());
-    if root.is_app_checkout(&tool.places)? {
-        state += ", app checkout";
+    if let Some(lane) = root.app_lane(&tool.places)? {
+        state += &format!(", {} app checkout", lane.word());
     }
     let claim = Claim::read(&checkout.claim_file())?;
     if let Some(claim) = &claim {
@@ -197,9 +198,9 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
     } else {
         Vec::new()
     };
-    let app_checkout = root.is_app_checkout(&tool.places)?;
+    let lane = root.app_lane(&tool.places)?;
     for entry in build_dirs(&root.top)? {
-        let (path, cap_kib) = (&entry.path, entry.cap_kib(app_checkout));
+        let (path, cap_kib) = (&entry.path, entry.cap_kib(entry.is_app_in(lane)));
         let folder = root.path.join(path);
         if !folder.is_dir() {
             out.push(format!("    {path:<34} {:>8} / {:<6}  (no folder)", "-", human(cap_kib)));
@@ -479,9 +480,16 @@ pub struct VolumeJson {
 #[derive(Serialize)]
 pub struct RepoJson {
     pub name: String,
+    /// Each app lane that has a checkout recorded or a lock.
+    pub lanes: Vec<LaneJson>,
+    pub checkouts: Vec<CheckoutJson>,
+}
+
+#[derive(Serialize)]
+pub struct LaneJson {
+    pub lane: &'static str,
     pub app_checkout: Option<String>,
     pub app_lock: Option<String>,
-    pub checkouts: Vec<CheckoutJson>,
 }
 
 #[derive(Serialize)]
@@ -495,6 +503,8 @@ pub enum CheckoutJson {
         main: bool,
         branch: Option<String>,
         app_checkout: bool,
+        /// The lane it is the app checkout of.
+        app_lane: Option<&'static str>,
         claim: Option<Claim>,
         folders: Option<Vec<FolderJson>>,
         total_kib: Option<u64>,
@@ -551,9 +561,9 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
     if with_folders {
         let mut list = Vec::new();
         let mut total = 0;
-        let app_checkout = root.is_app_checkout(&tool.places)?;
+        let lane = root.app_lane(&tool.places)?;
         for entry in build_dirs(&root.top)? {
-            let cap_kib = entry.cap_kib(app_checkout);
+            let cap_kib = entry.cap_kib(entry.is_app_in(lane));
             let path = entry.path;
             let folder = root.path.join(&path);
             if !folder.is_dir() {
@@ -601,10 +611,23 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
         main: name == "main",
         branch: checkout.branch()?,
         app_checkout: root.is_app_checkout(&tool.places)?,
+        app_lane: root.app_lane(&tool.places)?.map(Lane::word),
         claim: Claim::read(&checkout.claim_file())?,
         folders,
         total_kib,
     })
+}
+
+/// <repo>'s lanes that have an app checkout recorded or a lock.
+pub fn lanes_of(places: &Places, repo: &str) -> Result<Vec<LaneJson>> {
+    let mut lanes = Vec::new();
+    for lane in Lane::ALL {
+        let (app_checkout, lock) = (places.app_checkout_of(repo, lane)?, places.app_lock_file(repo, lane));
+        if app_checkout.is_some() || lock.is_file() {
+            lanes.push(LaneJson { lane: lane.word(), app_checkout, app_lock: lock.is_file().then(|| lock.display().to_string()) });
+        }
+    }
+    Ok(lanes)
 }
 
 /// The repos on the volume, each with its checkouts in the order status
@@ -619,7 +642,6 @@ pub fn status_json(tool: &mut Tool, with_folders: bool) -> Result<StatusJson> {
     let space = volume_space(&tool.places.root)?;
     let mut list = Vec::new();
     for repo in &repos {
-        let lock = repo.dir.join("app.lock");
         let roots: Vec<&Root> = repo
             .entries
             .iter()
@@ -631,8 +653,7 @@ pub fn status_json(tool: &mut Tool, with_folders: bool) -> Result<StatusJson> {
         let checkouts = parallel_map(&roots, |root| checkout_json(tool, root, with_folders));
         list.push(RepoJson {
             name: repo.name.clone(),
-            app_checkout: tool.places.app_checkout_of(&repo.name)?,
-            app_lock: if lock.is_file() { Some(lock.display().to_string()) } else { None },
+            lanes: lanes_of(&tool.places, &repo.name)?,
             checkouts: checkouts.into_iter().collect::<Result<_>>()?,
         });
     }

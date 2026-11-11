@@ -11,6 +11,7 @@ use std::process::{Command, Stdio};
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::lane::Lane;
 use crate::places::Places;
 use crate::text::sort_collated;
 
@@ -216,34 +217,40 @@ impl Root {
         file_name(&self.path)
     }
 
-    /// Is this main's or the app checkout's root? Their builds stay warm on
+    /// Is this main's or an app checkout's root? Their builds stay warm on
     /// purpose: the person installs from main and tests agents' app builds in
-    /// the app checkout. The free-space floor never deletes their folders; the
-    /// caps still apply to them.
+    /// the app checkouts. The free-space floor never deletes their folders (an
+    /// app checkout's folders of the other lane excepted, see
+    /// `BuildDir::is_app_in`); the caps still apply to them.
     pub fn keeps_warm(&self, places: &Places) -> Result<bool> {
         keeps_warm(places, &self.path)
     }
 
-    /// Is this its repo's app checkout (main keeps its builds warm too, but
-    /// is not one)?
+    /// The lane this is its repo's app checkout of (main keeps its builds warm
+    /// too, but is not one).
+    pub fn app_lane(&self, places: &Places) -> Result<Option<Lane>> {
+        app_lane(places, &self.path)
+    }
+
+    /// Is this an app checkout of either lane?
     pub fn is_app_checkout(&self, places: &Places) -> Result<bool> {
-        is_app_checkout(places, &self.path)
+        Ok(self.app_lane(places)?.is_some())
     }
 }
 
-/// See `Root::is_app_checkout`; for a root path.
-pub fn is_app_checkout(places: &Places, root: &Path) -> Result<bool> {
-    Ok(file_name(root) != "main" && keeps_warm(places, root)?)
+/// See `Root::app_lane`; for a root path.
+pub fn app_lane(places: &Places, root: &Path) -> Result<Option<Lane>> {
+    let checkout = file_name(root);
+    if checkout == "main" {
+        return Ok(None);
+    }
+    let repo = root.parent().map(file_name).unwrap_or_default();
+    places.app_lane_of(&repo, &checkout)
 }
 
 /// See `Root::keeps_warm`; for a root path.
 pub fn keeps_warm(places: &Places, root: &Path) -> Result<bool> {
-    let checkout = file_name(root);
-    if checkout == "main" {
-        return Ok(true);
-    }
-    let repo = root.parent().map(file_name).unwrap_or_default();
-    Ok(places.app_checkout_of(&repo)?.as_deref() == Some(checkout.as_str()))
+    Ok(file_name(root) == "main" || app_lane(places, root)?.is_some())
 }
 
 /// Every build root on the volume (<root>/*/*/.checkout), in glob order.

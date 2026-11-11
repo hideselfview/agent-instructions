@@ -41,7 +41,7 @@ pub fn find_free(tool: &Tool, main: &Path) -> Result<Option<Checkout>> {
         if checkout.is_main() || checkout.top != top {
             continue;
         }
-        if tool.places.app_checkout_of(&checkout.repo())?.as_deref() == Some(checkout.name().as_str()) {
+        if tool.places.app_lane_of(&checkout.repo(), &checkout.name())?.is_some() {
             continue;
         }
         if is_free(&checkout, &side_git::read(&checkout.top))? {

@@ -16,6 +16,7 @@ CASES = [
     (True, f"FOO=1 scripts/{C}"),
     (True, f"lockf -k /tmp/l scripts/{C}"),
     (True, f"builds lock bae scripts/{C}"),
+    (True, f"builds lock bae --lane android scripts/{C}"),
     (True, f"builds lock bae sh -c 'cd x && scripts/{C}'"),
     (True, "builds lock bae scripts/cargo.sh test -p x"),
     (False, f"builds lock bae grep deny scripts/{C}"),

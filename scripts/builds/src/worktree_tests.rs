@@ -1,4 +1,5 @@
 use super::*;
+use crate::lane::Lane;
 use crate::claim::cmd_release;
 use crate::testing::{Scratch, git, repo};
 
@@ -31,9 +32,9 @@ fn new_claims_a_worktree_and_retire_removes_it() {
     let side_arg = side.display().to_string();
     assert!(refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg))).contains("is claimed by agent A since"));
     cmd_release(std::slice::from_ref(&side_arg)).unwrap();
-    cmd_app_checkout(&tool, std::slice::from_ref(&side_arg)).unwrap();
-    assert!(refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg))).contains("is demo's app checkout"));
-    std::fs::remove_file(tool.places.app_checkout_file("demo")).unwrap();
+    cmd_app_checkout(&tool, &["mac".to_string(), side_arg.clone()]).unwrap();
+    assert!(refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg))).contains("is demo's mac app checkout"));
+    std::fs::remove_file(tool.places.app_checkout_file("demo", Lane::Mac)).unwrap();
     std::fs::write(side.join("stray"), "x").unwrap();
     assert!(refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg))).contains("has uncommitted or untracked files"));
     std::fs::remove_file(side.join("stray")).unwrap();
@@ -41,4 +42,22 @@ fn new_claims_a_worktree_and_retire_removes_it() {
     assert!(!side.exists());
     assert!(!tool.places.root.join("demo/side-2").exists());
     assert!(refusal(cmd_retire(&tool, &[main.display().to_string()])).contains("only side worktrees retire"));
+}
+
+#[test]
+fn a_checkout_is_the_app_checkout_of_one_lane_only() {
+    let scratch = Scratch::new("app-checkout-lanes");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    repo(&main, "target 1G\n");
+    let side = scratch.dir.join("demo-worktrees/side-1");
+    git(&main, &["worktree", "add", "-q", "--detach", &side.display().to_string()]);
+    let arg = side.display().to_string();
+    cmd_app_checkout(&tool, &["android".to_string(), arg.clone()]).unwrap();
+    assert_eq!(tool.places.app_lane_of("demo", "side-1").unwrap(), Some(Lane::Android));
+    assert!(tool.places.app_checkout_file("demo", Lane::Mac).parent().unwrap().join("app-android-checkout").is_file());
+    assert!(!tool.places.app_checkout_file("demo", Lane::Mac).exists());
+    assert!(refusal(cmd_app_checkout(&tool, &["mac".to_string(), arg.clone()])).contains("android app checkout already"));
+    assert!(refusal(cmd_app_checkout(&tool, &["ios".to_string(), arg])).contains("usage"));
+    assert!(refusal(cmd_retire(&tool, &[side.display().to_string()])).contains("android app checkout"));
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::lane::Lane;
 use crate::testing::Scratch;
 use std::sync::mpsc::channel;
 use std::time::Duration;
@@ -6,7 +7,7 @@ use std::time::Duration;
 const SETTLE: Duration = Duration::from_millis(300);
 
 fn queue(scratch: &Scratch) -> Queue {
-    Queue { dir: scratch.dir.join("app.queue") }
+    Queue { dir: scratch.dir.join(Lane::Mac.queue_dir_name()) }
 }
 
 /// Plants a ticket that nothing holds, last in line, as one left by a process

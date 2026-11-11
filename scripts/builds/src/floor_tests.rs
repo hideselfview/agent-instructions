@@ -1,6 +1,7 @@
 use super::*;
 use crate::checkout::{Checkout, all_roots};
 use crate::claim::write_claim;
+use crate::lane::Lane;
 use crate::testing::{Scratch, age_all, fill, git, repo};
 
 /// main, a claimed side-1 and an unclaimed side-2, each with 2 MiB in a
@@ -105,4 +106,34 @@ fn under_the_floor_idle_incremental_folders_go_in_every_checkout() {
     assert!(held.exists(), "an incremental folder a process works in was deleted");
     assert!(locked.exists(), "an incremental folder whose profile a build holds was deleted");
     assert!(root.join("side-1/target/blob").exists(), "a claimed worktree's folder was deleted");
+}
+
+#[test]
+fn an_app_checkout_keeps_warm_only_the_folders_its_lane_builds_into() {
+    let scratch = Scratch::new("floor-lanes");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    repo(&main, "target 1G\nxcode 1G lane mac\ngradle 1G lane android\n");
+    std::fs::create_dir_all(tool.places.root.join("demo")).unwrap();
+    for (side, lane) in [("side-1", Lane::Mac), ("side-2", Lane::Android)] {
+        let dir = scratch.dir.join("demo-worktrees").join(side);
+        git(&main, &["worktree", "add", "-q", "--detach", &dir.display().to_string()]);
+        std::fs::write(tool.places.app_checkout_file("demo", lane), format!("{side}\n")).unwrap();
+        let checkout = Checkout::find(&dir.display().to_string()).unwrap();
+        crate::setup::setup(&tool, &checkout).unwrap();
+        for folder in ["target", "xcode", "gradle"] {
+            let path = checkout.build_root(&tool.places).join(folder);
+            fill(&path.join("blob"), 2048);
+            age_all(&path, 2);
+        }
+    }
+    let tool = scratch.tool(1 << 30);
+    let roots = all_roots(&tool.places).unwrap();
+    keep_floor(&tool, &roots).unwrap();
+    let root = tool.places.root.join("demo");
+    for (side, own, other) in [("side-1", "xcode", "gradle"), ("side-2", "gradle", "xcode")] {
+        assert!(root.join(side).join(own).join("blob").exists(), "{side}: its lane's folder was deleted");
+        assert!(root.join(side).join("target/blob").exists(), "{side}: the host folder was deleted");
+        assert!(!root.join(side).join(other).join("blob").exists(), "{side}: the other lane's idle folder was kept");
+    }
 }

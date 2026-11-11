@@ -64,19 +64,19 @@ fn a_checkout_with_changes_builds_nothing() {
 
 #[test]
 fn step_lines_name_a_command_each_in_the_order_written() {
-    let config = parse_config(&format!("{CONFIG_TEXT}step first ./a.sh --x\nstep second b\n")).unwrap();
-    let step = |name: &str, command: &str| Step { name: name.to_string(), command: words(command), limit: None };
+    let config = parse_config(&format!("{CONFIG_TEXT}step mac first ./a.sh --x\nstep mac second b\n")).unwrap();
+    let step = |name: &str, command: &str| Step { name: name.to_string(), lane: Lane::Mac, command: words(command), limit: None };
     assert_eq!(config.steps, vec![step("first", "./a.sh --x"), step("second", "b")]);
-    assert!(parse_config(&format!("{CONFIG_TEXT}step lonely\n")).is_err(), "a step without a command");
-    assert!(parse_config(&format!("{CONFIG_TEXT}step a x\nstep a y\n")).is_err(), "a name twice");
+    assert!(parse_config(&format!("{CONFIG_TEXT}step mac lonely\n")).is_err(), "a step without a command");
+    assert!(parse_config(&format!("{CONFIG_TEXT}step mac a x\nstep mac a y\n")).is_err(), "a name twice");
 }
 
 #[test]
 fn a_limit_line_gives_its_step_a_time_and_the_others_the_default() {
-    let config = parse_config("step slow ./a\nstep quick ./b\nlimit slow 90m\n").unwrap();
+    let config = parse_config("step mac slow ./a\nstep mac quick ./b\nlimit slow 90m\n").unwrap();
     assert_eq!(config.steps[0].limit(), Duration::from_secs(90 * 60));
     assert_eq!(config.steps[1].limit(), DEFAULT_STEP_LIMIT);
-    assert_eq!(parse_config("limit s 30s\nstep s ./a\n").unwrap().steps[0].limit(), Duration::from_secs(30));
+    assert_eq!(parse_config("limit s 30s\nstep mac s ./a\n").unwrap().steps[0].limit(), Duration::from_secs(30));
     assert_eq!(show_duration(Duration::from_secs(2 * 3600)), "2h");
     assert_eq!(show_duration(Duration::from_secs(90 * 60)), "90m");
     assert_eq!(show_duration(Duration::from_secs(45)), "45s");
@@ -84,9 +84,19 @@ fn a_limit_line_gives_its_step_a_time_and_the_others_the_default() {
 
 #[test]
 fn a_limit_must_name_a_step_once_and_a_time() {
-    assert!(parse_config("step s ./a\nlimit t 5m\n").is_err(), "a step the file lacks");
-    assert!(parse_config("step s ./a\nlimit s 5m\nlimit s 6m\n").is_err(), "two limits");
+    assert!(parse_config("step mac s ./a\nlimit t 5m\n").is_err(), "a step the file lacks");
+    assert!(parse_config("step mac s ./a\nlimit s 5m\nlimit s 6m\n").is_err(), "two limits");
     for bad in ["limit s", "limit s 5", "limit s 0m", "limit s fast", "limit s 5d"] {
-        assert!(parse_config(&format!("step s ./a\n{bad}\n")).is_err(), "{bad}");
+        assert!(parse_config(&format!("step mac s ./a\n{bad}\n")).is_err(), "{bad}");
     }
+}
+
+#[test]
+fn a_step_names_its_lane_first() {
+    let config = parse_config("step mac a ./a\nstep android b ./b --x\n").unwrap();
+    assert_eq!((config.steps[0].lane, config.steps[1].lane), (Lane::Mac, Lane::Android));
+    assert_eq!(config.steps[1].command, words("./b --x"));
+    assert!(parse_config("step macos ./a\n").is_err(), "a name where the lane goes");
+    assert!(parse_config("step ios a ./a\n").is_err(), "a lane there is none of");
+    assert!(parse_config("step android\n").is_err(), "no name");
 }

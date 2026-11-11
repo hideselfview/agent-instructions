@@ -14,6 +14,7 @@ mod floor;
 mod free_worktrees;
 mod health;
 mod install;
+mod lane;
 mod lock;
 mod manifest;
 mod mode;

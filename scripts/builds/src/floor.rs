@@ -35,7 +35,8 @@ struct Candidate {
 }
 
 /// The build folders the floor may delete, least recently written first:
-/// every live checkout's but main's, the app checkout's and a claimed one's.
+/// every live checkout's but main's, a claimed one's and the folders an app
+/// checkout's lane builds into.
 /// A claimed worktree has an agent at work in it, who may go quiet for an
 /// hour between builds; deleting its folders costs that agent a cold rebuild
 /// of every dependency.
@@ -43,10 +44,16 @@ fn floor_candidates(tool: &Tool, roots: &[Root]) -> Result<Vec<Candidate>> {
     let mut paths = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
-        if root.keeps_warm(&tool.places)? || checkout.claim_file().is_file() {
+        if checkout.is_main() || checkout.claim_file().is_file() {
             continue;
         }
+        let lane = root.app_lane(&tool.places)?;
         for entry in build_dirs(&checkout.top)? {
+            // An app checkout's folders of the other lane are not warm: nothing
+            // builds into them there.
+            if entry.is_app_in(lane) {
+                continue;
+            }
             let folder = root.path.join(&entry.path);
             if folder.is_dir() {
                 paths.push(folder);
@@ -239,7 +246,7 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
         ));
     }
     lines.push(format!(
-        "Every incremental folder left was written in the last {FLOOR_INCREMENTAL_IDLE_MINUTES}m or is in use, and every build folder and DerivedData entry left is in use, was written in the last {FLOOR_IDLE_MINUTES}m, belongs to a claimed worktree, or is main's or an app checkout's, which stay warm. The biggest the floor may delete:"
+        "Every incremental folder left was written in the last {FLOOR_INCREMENTAL_IDLE_MINUTES}m or is in use, and every build folder and DerivedData entry left is in use, was written in the last {FLOOR_IDLE_MINUTES}m, belongs to a claimed worktree, or is main's or an app checkout's own lane's, which stay warm. The biggest the floor may delete:"
     ));
     let mut biggest = floor_candidates(tool, roots)?;
     biggest.sort_by(|a, b| b.measured.kib.cmp(&a.measured.kib).then_with(|| b.path.cmp(&a.path)));

@@ -1,4 +1,6 @@
-//! The line for a repo's app lock: <root>/<repo>/app.queue.
+//! The line for a repo's app lock in a lane: <root>/<repo>/app.queue for the
+//! mac lane, app-android.queue for the android lane (lane.rs). Each lane has
+//! its own lock and its own line.
 //!
 //! `order` names one ticket per line, next first; the holder's is at the head.
 //! Every change to it happens under a short guard lock, `.next`. A ticket is a
@@ -18,9 +20,10 @@
 //! starts a thread on the new predecessor; a thread left on the old one gives
 //! any ticket it gets back at once, and ends when that ticket frees.
 //!
-//! `builds queue <repo>` shows the line, `builds queue <repo> top <pid>` moves
-//! a waiter to right behind the holder, and `builds takeover <repo> [<pid>]`
-//! stops the holder's build and puts a waiter ahead of it (lock.rs).
+//! `builds queue <repo>` shows each lane's line, `builds queue <repo> top <pid>`
+//! moves a waiter to right behind the holder, and `builds takeover <repo>
+//! [<pid>]` stops the holder's build and puts a waiter ahead of it (lock.rs);
+//! a pid names its lane, and `--lane` names it when there is no pid.
 
 use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt;
@@ -30,6 +33,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::lane::Lane;
 use crate::places::Places;
 use crate::procs::{self, Processes};
 
@@ -110,12 +114,12 @@ impl Drop for Guard {
 }
 
 impl Queue {
-    pub fn of(places: &Places, repo: &str) -> Queue {
-        Queue { dir: places.root.join(repo).join("app.queue") }
+    pub fn of(places: &Places, repo: &str, lane: Lane) -> Queue {
+        Queue { dir: places.app_queue_dir(repo, lane) }
     }
 
-    pub fn in_repo_dir(repo_dir: &Path) -> Queue {
-        Queue { dir: repo_dir.join("app.queue") }
+    pub fn in_repo_dir(repo_dir: &Path, lane: Lane) -> Queue {
+        Queue { dir: repo_dir.join(lane.queue_dir_name()) }
     }
 
     fn ticket_path(&self, name: &str) -> PathBuf {
@@ -435,33 +439,73 @@ fn pids_in(order: &[String]) -> Vec<i32> {
     order.iter().filter_map(|name| pid_of(name)).collect()
 }
 
-fn check_repo(places: &Places, repo: &str) -> Result<()> {
+fn check_repo(places: &Places, repo: &str, lane: Lane) -> Result<()> {
     if repo.is_empty() || repo.starts_with('.') || repo.contains('/') {
         fail!("{repo:?} is not a repo's name");
     }
-    if !places.app_checkout_file(repo).is_file() {
-        fail!("{repo} has no app checkout recorded; builds app-checkout records one");
+    if !places.app_checkout_file(repo, lane).is_file() {
+        fail!("{repo} has no {} app checkout recorded; builds app-checkout records one", lane.word());
     }
     Ok(())
 }
 
-/// Moves the waiter <pid> to right behind the holder and tells every ticket's
-/// process to read the order again.
+/// The lanes of <repo> that have an app checkout recorded.
+fn lanes_of(places: &Places, repo: &str) -> Result<Vec<Lane>> {
+    if repo.is_empty() || repo.starts_with('.') || repo.contains('/') {
+        fail!("{repo:?} is not a repo's name");
+    }
+    let lanes: Vec<Lane> = Lane::ALL.into_iter().filter(|lane| places.app_checkout_file(repo, *lane).is_file()).collect();
+    if lanes.is_empty() {
+        fail!("{repo} has no app checkout recorded; builds app-checkout records one");
+    }
+    Ok(lanes)
+}
+
+/// The lane whose line holds a ticket of <pid>.
+fn lane_of_waiter(places: &Places, repo: &str, pid: i32) -> Result<Lane> {
+    for lane in lanes_of(places, repo)? {
+        if pids_in(&Queue::of(places, repo, lane).order()).contains(&pid) {
+            return Ok(lane);
+        }
+    }
+    fail!("{pid} is not in {repo}'s queue")
+}
+
+/// Moves the waiter <pid> to right behind the holder, in the lane it waits
+/// in, and tells every ticket's process to read the order again.
 pub fn top(places: &Places, repo: &str, pid: i32) -> Result<()> {
-    check_repo(places, repo)?;
-    let queue = Queue::of(places, repo);
+    let lane = lane_of_waiter(places, repo, pid)?;
+    let queue = Queue::of(places, repo, lane);
     queue.move_to_top(pid)?;
     signal_all(&pids_in(&queue.order()), libc::SIGUSR1);
     Ok(())
 }
 
-/// Puts the waiter <pid> (default the first) ahead of the holder, stops the
-/// holder's build, and tells every waiter to read the order again. The
-/// stopped build goes straight behind the waiter and runs again by itself.
-/// With nothing holding the lock, the same as `top`.
-pub fn takeover(places: &Places, repo: &str, pid: Option<i32>) -> Result<()> {
-    check_repo(places, repo)?;
-    let queue = Queue::of(places, repo);
+/// Puts the waiter <pid> (default the first of <lane>, or of the one lane
+/// with waiters) ahead of the holder, stops the holder's build, and tells
+/// every waiter to read the order again. The stopped build goes straight
+/// behind the waiter and runs again by itself. With nothing holding the lock,
+/// the same as `top`.
+pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane>) -> Result<()> {
+    let lane = match (pid, lane) {
+        (Some(pid), None) => lane_of_waiter(places, repo, pid)?,
+        (_, Some(lane)) => {
+            check_repo(places, repo, lane)?;
+            lane
+        }
+        (None, None) => {
+            let waiting: Vec<Lane> = lanes_of(places, repo)?
+                .into_iter()
+                .filter(|lane| Queue::of(places, repo, *lane).order().len() > 1)
+                .collect();
+            match waiting[..] {
+                [lane] => lane,
+                [] => fail!("nobody waits in {repo}'s queues"),
+                _ => fail!("builds wait in both of {repo}'s lanes; name one with --lane or a pid"),
+            }
+        }
+    };
+    let queue = Queue::of(places, repo, lane);
     let holder = {
         let _guard = queue.guard()?;
         let mut order = queue.order();
@@ -472,13 +516,13 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>) -> Result<()> {
         let Some(taker) = taker else {
             match pid {
                 Some(pid) => fail!("{pid} is not in the queue"),
-                None => fail!("nobody waits in {repo}'s queue"),
+                None => fail!("nobody waits in {repo}'s {} queue", lane.word()),
             }
         };
         if taker == 0 {
             fail!("{} is first in the queue: it holds the lock or is about to", pid.unwrap_or_default());
         }
-        let holding = is_held(&places.root.join(repo).join("app.lock"))?;
+        let holding = is_held(&places.app_lock_file(repo, lane))?;
         let name = order.remove(taker);
         if !holding {
             order.insert(1.min(order.len()), name);
@@ -503,28 +547,53 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>) -> Result<()> {
     Ok(())
 }
 
-/// `builds queue <repo> [top <pid>]`.
+/// Splits `--lane <lane>` out of <args>.
+fn split_lane(args: &[String]) -> Result<(Vec<String>, Option<Lane>)> {
+    let mut rest = Vec::new();
+    let mut lane = None;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        if arg == "--lane" {
+            let Some(word) = args.next() else { fail!("--lane takes mac or android") };
+            lane = Some(Lane::parse_or_fail(word)?);
+        } else {
+            rest.push(arg.clone());
+        }
+    }
+    Ok((rest, lane))
+}
+
+/// `builds queue <repo> [--lane <lane>] [top <pid>]`.
 pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds queue <repo> [top <pid>]";
-    match args {
+    const USAGE: &str = "usage: builds queue <repo> [--lane mac|android] | builds queue <repo> top <pid>";
+    let (args, lane) = split_lane(args)?;
+    match &args[..] {
         [repo] => {
-            check_repo(places, repo)?;
-            let queue = Queue::of(places, repo);
-            let order = queue.order();
-            let holding = is_held(&places.root.join(repo).join("app.lock"))?;
-            if let (true, Some(head)) = (holding, order.first().and_then(|name| pid_of(name))) {
-                println!("holder {head} {}", command_of(head));
-            }
-            let waiting = queue.waiting();
-            if waiting.is_empty() {
-                println!("nobody waits");
-            }
-            for (at, pid) in waiting.iter().enumerate() {
-                println!("{}. {pid} {}", at + 1, command_of(*pid));
+            let lanes = match lane {
+                Some(lane) => {
+                    check_repo(places, repo, lane)?;
+                    vec![lane]
+                }
+                None => lanes_of(places, repo)?,
+            };
+            for lane in lanes {
+                let queue = Queue::of(places, repo, lane);
+                let order = queue.order();
+                let holding = is_held(&places.app_lock_file(repo, lane))?;
+                if let (true, Some(head)) = (holding, order.first().and_then(|name| pid_of(name))) {
+                    println!("{}: holder {head} {}", lane.word(), command_of(head));
+                }
+                let waiting = queue.waiting();
+                if waiting.is_empty() {
+                    println!("{}: nobody waits", lane.word());
+                }
+                for (at, pid) in waiting.iter().enumerate() {
+                    println!("{}: {}. {pid} {}", lane.word(), at + 1, command_of(*pid));
+                }
             }
             Ok(())
         }
-        [repo, word, pid] if word == "top" => match pid.parse() {
+        [repo, word, pid] if word == "top" && lane.is_none() => match pid.parse() {
             Ok(pid) => top(places, repo, pid),
             Err(_) => fail!("{USAGE}"),
         },
@@ -532,13 +601,14 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
     }
 }
 
-/// `builds takeover <repo> [<pid>]`.
+/// `builds takeover <repo> [--lane <lane>] [<pid>]`.
 pub fn cmd_takeover(places: &Places, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds takeover <repo> [<pid>]";
-    match args {
-        [repo] => takeover(places, repo, None),
+    const USAGE: &str = "usage: builds takeover <repo> [--lane mac|android] [<pid>]";
+    let (args, lane) = split_lane(args)?;
+    match &args[..] {
+        [repo] => takeover(places, repo, None, lane),
         [repo, pid] => match pid.parse() {
-            Ok(pid) => takeover(places, repo, Some(pid)),
+            Ok(pid) => takeover(places, repo, Some(pid), lane),
             Err(_) => fail!("{USAGE}"),
         },
         _ => fail!("{USAGE}"),

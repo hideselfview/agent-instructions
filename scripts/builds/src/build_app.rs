@@ -1,6 +1,6 @@
 //! `builds build-app <repo> mac|android [<ref>]`: builds the person's test app
-//! in the repo's app checkout, whose build stays warm, taking turns on its app
-//! lock. Nothing is opened. The Mac app is copied out to
+//! in the app checkout of the platform's lane (lane.rs), whose build stays
+//! warm, taking turns on that lane's app lock. Nothing is opened. The Mac app is copied out to
 //! `~/Applications/<repo>-test`, since the next build there replaces it, in
 //! place of the copy there, the running one quit first. The Android build is
 //! the repo's own script, which installs the app where it should go.
@@ -13,6 +13,7 @@ use std::time::Duration;
 use crate::app_config::{CONFIG, Config, MacApp, app_checkout_top, check_out, run_command};
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::lane::Lane;
 use crate::lock::{self, Within};
 use crate::places::Places;
 use crate::text::note;
@@ -34,6 +35,13 @@ impl Platform {
             "mac" => Ok(Platform::Mac),
             "android" => Ok(Platform::Android),
             _ => fail!("{USAGE}"),
+        }
+    }
+
+    fn lane(self) -> Lane {
+        match self {
+            Platform::Mac => Lane::Mac,
+            Platform::Android => Lane::Android,
         }
     }
 
@@ -136,10 +144,10 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
         _ => fail!("{USAGE}"),
     };
     let places = &tool.places;
-    let top = app_checkout_top(places, repo)?;
+    let top = app_checkout_top(places, repo, platform.lane())?;
 
-    note(format!("waiting for {repo}'s app lock, then building {commit}'s {} app", platform.word()));
-    let mut held = lock::take(places, repo)?;
+    note(format!("waiting for {repo}'s {} app lock, then building {commit}'s {} app", platform.word(), platform.word()));
+    let mut held = lock::take(places, repo, platform.lane())?;
     // A takeover stops the build; it runs again from the checkout, behind the
     // build that took over.
     let config = loop {

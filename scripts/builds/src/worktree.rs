@@ -2,11 +2,12 @@
 //! checkout.
 //!
 //! By default a side worktree builds host Rust only, and a repo with app
-//! builds keeps them warm in main and in one side worktree, its app checkout,
-//! which agents take turns in by holding <root>/<repo>/app.lock; see
+//! builds keeps them warm in main and in one side worktree per lane (mac,
+//! android), its app checkout, which agents take turns in by holding the
+//! lane's lock, <root>/<repo>/app.lock for the mac lane; see
 //! principles/worktree-build-priming.md. Nothing here enforces who builds
 //! what: the caps bound whatever a checkout builds, and the floor bounds every
-//! checkout but main and the app checkout.
+//! checkout but main and the folders an app checkout's lane builds into.
 
 use std::path::Path;
 
@@ -16,6 +17,7 @@ use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::free_worktrees::find_free;
+use crate::lane::Lane;
 use crate::setup::setup;
 use crate::text::note;
 use crate::tool::Tool;
@@ -173,10 +175,11 @@ pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("{top} is the main checkout; only side worktrees retire");
     }
     let repo = checkout.repo();
-    if tool.places.app_checkout_of(&repo)?.as_deref() == Some(checkout.name().as_str()) {
+    if let Some(lane) = tool.places.app_lane_of(&repo, &checkout.name())? {
         fail!(
-            "{top} is {repo}'s app checkout; record another with builds app-checkout, or delete {}, first",
-            tool.places.app_checkout_file(&repo).display()
+            "{top} is {repo}'s {} app checkout; record another with builds app-checkout, or delete {}, first",
+            lane.word(),
+            tool.places.app_checkout_file(&repo, lane).display()
         );
     }
     retire_checkout(tool, &checkout)
@@ -204,27 +207,37 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
     Ok(())
 }
 
-/// `builds app-checkout <checkout>`: records the side worktree as its repo's
-/// app checkout, replacing the one recorded before.
+/// `builds app-checkout mac|android <checkout>`: records the side worktree as
+/// its repo's app checkout for the lane, replacing the one recorded before.
 pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
-    let [arg] = args else { fail!("usage: builds app-checkout <checkout>") };
+    const USAGE: &str = "usage: builds app-checkout mac|android <checkout>";
+    let [lane, arg] = args else { fail!("{USAGE}") };
+    let Some(lane) = Lane::parse(lane) else { fail!("{USAGE}") };
     let checkout = Checkout::find(arg)?;
     if checkout.is_main() {
         fail!(
-            "{} is the main checkout, which keeps its builds warm already; the app checkout is a side worktree",
+            "{} is the main checkout, which keeps its builds warm already; an app checkout is a side worktree",
             checkout.top.display()
         );
     }
     tool.places.require_volume()?;
     checkout.require_repo_name(&tool.places)?;
     let repo = checkout.repo();
-    let file = tool.places.app_checkout_file(&repo);
+    if let Some(other) = tool.places.app_lane_of(&repo, &checkout.name())?.filter(|other| *other != lane) {
+        fail!(
+            "{} is {repo}'s {} app checkout already; the lanes exist so that their builds share no checkout",
+            checkout.top.display(),
+            other.word()
+        );
+    }
+    let file = tool.places.app_checkout_file(&repo, lane);
     let dir = tool.places.root.join(&repo);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     std::fs::write(&file, format!("{}\n", checkout.name())).context(|| format!("writing {}", file.display()))?;
     note(format!(
-        "recorded {} as {repo}'s app checkout in {}; the free-space floor keeps its folders",
+        "recorded {} as {repo}'s {} app checkout in {}; the free-space floor keeps the folders its lane builds into",
         checkout.top.display(),
+        lane.word(),
         file.display()
     ));
     Ok(())

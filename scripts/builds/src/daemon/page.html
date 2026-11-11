@@ -306,8 +306,9 @@ function built(c) {
 
 function pill(text, cls) { return h("span", {class: "pill " + cls}, text); }
 function stateOf(c) { return STATES[c.state] || {label: c.state, cls: "s-free"}; }
-function lockOf(repo) {
-  const lock = repo.lock;
+// A lock is per app lane (mac, android): each has its own holder and queue.
+function lockOf(repo, appLane) {
+  const lock = repo.locks.find(l => l.lane === appLane);
   return {repo: lock ? lock.repo : null, held: !!(lock && lock.holder), waiting: lock ? lock.waiting : 0, holder: lock ? lock.holder : null,
     queue: lock ? lock.queue : []};
 }
@@ -343,14 +344,15 @@ function activityLine(c) {
     "Building: " + names + " · " + Math.round(a.cpu) + "% CPU · " + bytes(a.memory));
 }
 
-// Each repo's pinned checkouts (main, then the App build), its other live
+// Each repo's pinned checkouts (main, then an App build per app lane), its other live
 // side worktrees, and the build roots whose checkout is gone.
 function split(repo) {
   const main = repo.checkouts.find(c => c.live && c.main);
-  const app = repo.checkouts.find(c => c.live && c.app_checkout);
+  // One App build per app lane, mac first.
+  const apps = repo.checkouts.filter(c => c.live && c.app_checkout).sort((a, b) => a.app_lane < b.app_lane ? 1 : -1);
   const sides = repo.checkouts.filter(c => c.live && !c.main && !c.app_checkout);
   sides.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || byActivity(a, b));
-  return {main, app, sides, gone: repo.checkouts.filter(c => !c.live)};
+  return {main, apps, sides, gone: repo.checkouts.filter(c => !c.live)};
 }
 // The side worktrees a view lists: all, or with the Free ones left out.
 function shown(sides) { return hideFree ? sides.filter(c => c.state !== "free") : sides; }
@@ -403,13 +405,13 @@ function chips(b) {
 function mainLine(repo) {
   return "Your checkout. No agent works or builds here.";
 }
-function appLine(lock, b) {
+function appLine(lock, b, appLane) {
   if (lock.held) {
-    return "An agent is building here under the app lock" +
+    return "An agent is building here under the " + appLane + " app lock" +
       (lock.holder.minutes ? " (held " + lock.holder.minutes + "m)" : "") +
       (lock.waiting ? "; " + plural(lock.waiting, "more waits", "more wait") + " for it." : ".");
   }
-  return "Where agents build the apps, one at a time under the app lock." +
+  return "Where agents build the " + appLane + " app, one at a time under the " + appLane + " app lock." +
     (b && b.newest ? " Last build " + when(new Date(b.newest * 1000)) + "." : "");
 }
 
@@ -460,13 +462,13 @@ function pinnedMain(repo, c) {
     totalBlock(b), chips(b));
 }
 function pinnedApp(repo, c) {
-  const b = built(c), lock = lockOf(repo);
+  const b = built(c), lock = lockOf(repo, c.app_lane);
   return h("article", {class: "pinned"},
     h("div", {class: "row1"},
-      h("div", {class: "ident"}, h("span", {class: "name"}, "App build"),
+      h("div", {class: "ident"}, h("span", {class: "name"}, "App build · " + c.app_lane),
         h("span", {class: "where"}, c.name + " · " + detachedAt(c))),
       lock.held ? pill("Lock held", "s-working") : pill("Lock free", "s-free")),
-    h("span", {class: "line"}, appLine(lock, b)),
+    h("span", {class: "line"}, appLine(lock, b, c.app_lane)),
     lock.held ? commands(lock) : null,
     queueBox(lock),
     activityLine(c),
@@ -563,13 +565,13 @@ function reposView(root) {
     const section = slot(root, item.key, () => h("section", {class: "repo"},
       h("div", {class: "repo-head"}, h("h2", {}, repo.name), h("span", {})),
       h("div", {class: "pinned-grid"}), h("div", {class: "cards"})));
-    const {main, app, sides, gone} = split(repo);
+    const {main, apps, sides, gone} = split(repo);
     const agents = sides.filter(c => c.claim && c.state !== "landing").length;
     section.querySelector(".repo-head span").textContent =
       summary([agents ? plural(agents, "agent", "agents") : null, ...stateCounts(sides), goneLine(gone)]) || "no side worktrees";
     const pinned = [];
-    if (main) pinned.push({key: "main", data: [repo.app_checkout, main], make: () => pinnedMain(repo, main)});
-    if (app) pinned.push({key: "app", data: [repo.lock, app], make: () => pinnedApp(repo, app)});
+    if (main) pinned.push({key: "main", data: [repo.lanes, main], make: () => pinnedMain(repo, main)});
+    for (const app of apps) pinned.push({key: "app " + app.app_lane, data: [repo.locks, app], make: () => pinnedApp(repo, app)});
     patch(section.querySelector(".pinned-grid"), pinned);
     patch(section.querySelector(".cards"), shown(sides).map(c => ({key: c.name, data: c, make: () => card(c)})));
     return section;
@@ -586,12 +588,12 @@ function compactMain(repo, c) {
     activityLine(c));
 }
 function compactApp(repo, c) {
-  const b = built(c), lock = lockOf(repo);
+  const b = built(c), lock = lockOf(repo, c.app_lane);
   const line = lock.held
     ? "Lock held: an agent is building here" + (lock.waiting ? ", " + lock.waiting + " waiting." : ".")
     : "Lock free. Agents build the apps here, one at a time.";
   return h("article", {class: "pinned compact"},
-    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " App build · " + c.name), h("span", {class: "big"}, b && b.total !== null ? size(b.total) : "measuring…")),
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " App build · " + c.app_lane + " · " + c.name), h("span", {class: "big"}, b && b.total !== null ? size(b.total) : "measuring…")),
     h("span", {class: "line"}, line),
     lock.held ? commands(lock) : null,
     activityLine(c));
@@ -620,7 +622,7 @@ function lanesView(root) {
   for (const repo of state.repos) {
     const s = split(repo);
     if (s.main) pinned.push({key: repo.name + " main", data: [s.main], make: () => compactMain(repo, s.main)});
-    if (s.app) pinned.push({key: repo.name + " app", data: [repo.lock, s.app], make: () => compactApp(repo, s.app)});
+    for (const app of s.apps) pinned.push({key: repo.name + " app " + app.app_lane, data: [repo.locks, app], make: () => compactApp(repo, app)});
     for (const c of s.sides) all.push([repo, c]);
     for (const c of s.gone) gone.push(c);
   }

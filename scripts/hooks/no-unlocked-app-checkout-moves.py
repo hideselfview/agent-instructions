@@ -2,16 +2,18 @@
 """PreToolUse hook on Bash: refuse a command that moves a repo's app checkout
 outside its app lock.
 
-The app checkout (`builds app-checkout`, one per repo) is where agents build
-Gradle, Xcode and bridge output, one at a time, under the repo's app lock. A
-`git checkout` there that does not hold the lock switches the tree under
-another agent's build mid-run. The lock is taken by running the command under
-`builds lock <repo>`; a git command that changes HEAD or the tree in the app
+The app checkouts (`builds app-checkout`, one per repo and lane, mac and
+android) are where agents build Gradle, Xcode and bridge output, one at a time
+per lane, under the lane's app lock. A `git checkout` there that does not hold
+the lock switches the tree under another agent's build mid-run. The lock is
+taken by running the command under `builds lock <repo> [--lane <lane>]` (the
+mac lane's unless named); a git command that changes HEAD or the tree in an app
 checkout (cd into it, `git -C <it>`, or a working directory inside it) is
-refused unless it is inside that `builds lock`. Read-only git is not affected.
+refused unless it is inside the `builds lock` of that checkout's lane.
+Read-only git is not affected.
 
-The checkouts and their repos come from `builds status --json`, which records
-them, so any repo with an app checkout recorded is covered. When `builds`
+The checkouts, their repos and lanes come from `builds status --json`, which
+records them, so any repo with an app checkout recorded is covered. When `builds`
 fails the command is allowed, with a warning on stderr (exit 1, which Claude
 Code shows without blocking).
 
@@ -49,14 +51,14 @@ SHELLS = {"sh", "bash", "zsh", "dash"}
 CD = {"cd", "pushd"}
 
 
-def app_checkouts() -> list[tuple[str, str]]:
-    """(app checkout path, repo name) for each repo with an app checkout recorded.
+def app_checkouts() -> list[tuple[str, str, str]]:
+    """(app checkout path, repo name, lane) for each app checkout recorded.
     Raises OSError, ValueError, KeyError or SubprocessError when `builds` cannot say."""
     result = subprocess.run(["builds", "status", "--json", "--no-folders"], capture_output=True, text=True,
                             timeout=8, check=True)
     repos = json.loads(result.stdout)["repos"]
     return [
-        (c["path"], repo["name"])
+        (c["path"], repo["name"], c["app_lane"])
         for repo in repos
         for c in repo.get("checkouts", [])
         if c.get("app_checkout")
@@ -111,7 +113,7 @@ def inner_script(words: list[str]):
     return None
 
 
-def blocked(command: str, cwd: str, checkouts: list[tuple[str, str]]) -> bool:
+def blocked(command: str, cwd: str, checkouts: list[tuple[str, str, str]]) -> bool:
     cwd = resolve(".", cwd)
     for words, _ in shell_words.commands(command):
         if not words:
@@ -119,16 +121,24 @@ def blocked(command: str, cwd: str, checkouts: list[tuple[str, str]]) -> bool:
         if words[0] in CD and len(words) > 1:
             cwd = resolve(words[1], cwd)
             continue
+        active = checkouts
         if (os.path.basename(words[0]) == "builds" and words[1:2] == ["lock"]
-                and words[2:3] and words[2] in {repo for _, repo in checkouts}):
-            continue  # everything this runs holds the repo's app lock
+                and words[2:3] and words[2] in {repo for _, repo, _ in checkouts}):
+            # Everything this runs holds the repo's app lock of one lane.
+            repo, lane, rest = words[2], "mac", words[3:]
+            if rest[:1] == ["--lane"] and len(rest) >= 2:
+                lane, rest = rest[1], rest[2:]
+            active = [c for c in checkouts if (c[1], c[2]) != (repo, lane)]
+            words = rest
+            if not words:
+                continue
         script = inner_script(words)
         if script is not None:
-            if blocked(script, cwd, checkouts):
+            if blocked(script, cwd, active):
                 return True
             continue
         where = git_change(words, cwd)
-        if where is not None and any(within(where, path) for path, _ in checkouts):
+        if where is not None and any(within(where, path) for path, _, _ in active):
             return True
     return False
 

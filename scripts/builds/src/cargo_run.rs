@@ -153,6 +153,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lane::Lane;
     use crate::testing::{Scratch, git, repo};
 
     fn role(dir: &Path) -> &'static [&'static str] {
@@ -172,7 +173,7 @@ mod tests {
         let side_1 = scratch.dir.join("demo-worktrees/side-1");
         std::fs::create_dir_all(side_1.join("crate/src")).unwrap();
         std::fs::create_dir_all(places.root.join("demo")).unwrap();
-        std::fs::write(places.app_checkout_file("demo"), "side-1\n").unwrap();
+        std::fs::write(places.app_checkout_file("demo", Lane::Mac), "side-1\n").unwrap();
         let none: &[&str] = &[];
         let off: &[&str] = &["--config", "build.incremental=false"];
         assert_eq!(role(&side_1), off, "the app checkout");

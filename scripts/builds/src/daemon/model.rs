@@ -170,7 +170,7 @@ impl Model {
                 }
                 if parts.len() <= 2
                     || parts.get(2).is_some_and(|p| p == ".checkout")
-                    || parts.get(1).is_some_and(|p| p == "app-checkout" || p == "app.lock")
+                    || parts.get(1).is_some_and(|p| crate::lane::is_lane_file(p))
                 {
                     dirty.layout = true;
                 }
@@ -317,14 +317,14 @@ impl Model {
             let manifest = self.state.lock().expect("no panic holding it").facts.get(&root.path).map(|f| f.manifest.clone());
             let (folders, gone_kib) = match (&root.live, manifest) {
                 (Some(checkout), Some(manifest)) => {
-                    let app_checkout = root.is_app_checkout(&self.places)?;
+                    let lane = root.app_lane(&self.places)?;
                     let paths: Vec<PathBuf> = manifest.iter().map(|e| root.path.join(&e.path)).collect();
                     let answers = self.tracker.measure(&paths, false);
                     let folders = manifest
                         .iter()
                         .zip(paths.iter().zip(answers))
                         .map(|(entry, (folder, answer))| {
-                            folder_facts(entry, app_checkout, folder, &checkout.top.join(&entry.path), answer)
+                            folder_facts(entry, entry.is_app_in(lane), folder, &checkout.top.join(&entry.path), answer)
                         })
                         .collect();
                     (folders, None)
@@ -454,14 +454,13 @@ impl Model {
         for root in &state.roots {
             let repo_name = root.path.parent().map(crate::checkout::file_name).unwrap_or_default();
             if !repos.iter().any(|r| r.name == repo_name) {
-                let lock = self.places.root.join(&repo_name).join("app.lock");
                 repos.push(RepoPage {
-                    app_checkout: self.places.app_checkout_of(&repo_name)?,
-                    app_lock: lock.is_file().then(|| lock.display().to_string()),
-                    lock: state
+                    lanes: crate::status::lanes_of(&self.places, &repo_name)?,
+                    locks: state
                         .machine
                         .as_ref()
-                        .and_then(|m| m.locks.iter().find(|l| l.repo == repo_name).cloned()),
+                        .map(|m| m.locks.iter().filter(|l| l.repo == repo_name).cloned().collect())
+                        .unwrap_or_default(),
                     name: repo_name.clone(),
                     checkouts: Vec::new(),
                 });
@@ -493,6 +492,7 @@ impl Model {
                         main: live.is_main(),
                         branch: facts.branch.clone(),
                         app_checkout: root.is_app_checkout(&self.places)?,
+                        app_lane: root.app_lane(&self.places)?.map(crate::lane::Lane::word),
                         state: (!live.is_main()).then(|| worktree_state(facts.claim.as_ref(), facts.git.as_ref())),
                         claim: facts.claim.clone(),
                         git: facts.git.clone(),
@@ -513,6 +513,7 @@ impl Model {
                     main: false,
                     branch: None,
                     app_checkout: false,
+                    app_lane: None,
                     state: None,
                     claim: None,
                     git: None,
@@ -543,7 +544,7 @@ impl Model {
     }
 }
 
-fn folder_facts(entry: &BuildDir, app_checkout: bool, folder: &Path, link: &Path, answer: Option<Measure>) -> FolderFacts {
+fn folder_facts(entry: &BuildDir, app: bool, folder: &Path, link: &Path, answer: Option<Measure>) -> FolderFacts {
     let exists = folder.is_dir();
     let link_state = if link.is_symlink() {
         if absolute_link_target(link).is_ok_and(|target| target == folder) { "linked" } else { "elsewhere" }
@@ -552,7 +553,7 @@ fn folder_facts(entry: &BuildDir, app_checkout: bool, folder: &Path, link: &Path
     };
     FolderFacts {
         path: entry.path.clone(),
-        cap_kib: entry.cap_kib(app_checkout),
+        cap_kib: entry.cap_kib(app),
         exists,
         kib: if exists { answer.map(|m| m.kib) } else { Some(0) },
         last_write: answer.and_then(|m| m.newest),
@@ -674,9 +675,9 @@ pub struct DaemonPage {
 #[derive(Serialize)]
 pub struct RepoPage {
     pub name: String,
-    pub app_checkout: Option<String>,
-    pub app_lock: Option<String>,
-    pub lock: Option<crate::health::LockHealth>,
+    pub lanes: Vec<crate::status::LaneJson>,
+    /// Each lane's lock: its holder and queue.
+    pub locks: Vec<crate::health::LockHealth>,
     pub checkouts: Vec<CheckoutPage>,
 }
 
@@ -689,6 +690,7 @@ pub struct CheckoutPage {
     pub main: bool,
     pub branch: Option<String>,
     pub app_checkout: bool,
+    pub app_lane: Option<&'static str>,
     pub claim: Option<Claim>,
     pub git: Option<SideGit>,
     pub state: Option<&'static str>,

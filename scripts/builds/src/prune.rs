@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::cargo_run::builds_incrementally;
-use crate::checkout::{Checkout, Root, git_text, git, is_app_checkout};
+use crate::checkout::{Checkout, Root, git_text, git, app_lane};
 use crate::evict::{Recreate, Removal, background_rm, evict, make_temp_dir};
 use crate::fail;
 use crate::free_worktrees::retire_idle;
@@ -35,8 +35,10 @@ impl Run {
 
 /// Deletes the unused build copies in the folders of <checkout>'s manifest in
 /// <root>, then applies the manifest's caps to them; with <idle> minutes > 0,
-/// also deletes folders nothing wrote to for that long.
-pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle: u64) -> Result<()> {
+/// also deletes folders nothing wrote to for that long, and with <warm_idle>
+/// above 0 the same for the folders that stay warm in <root> (main's, an app
+/// checkout's own lane's).
+pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle: u64, warm_idle: u64) -> Result<()> {
     let manifest = build_dirs(&checkout.top)?;
     let folders: Vec<PathBuf> =
         manifest.iter().map(|entry| root.join(&entry.path)).filter(|folder| folder.is_dir()).collect();
@@ -46,7 +48,7 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
     let mut freed = units::prune::prune(&cargo_ages(tool, checkout)?, run.dry(), &folders)?;
     freed.extend(prune_trees(tool, root, checkout, &folders, run)?);
     let claimed = checkout.claim_file().is_file();
-    let app_checkout = is_app_checkout(&tool.places, root)?;
+    let lane = app_lane(&tool.places, root)?;
     // Measured together, after the pruning: deleting one folder changes no
     // other's size.
     let measures = tool.measure_all(&folders)?;
@@ -61,7 +63,9 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
             let pruned: u64 = freed.iter().filter(|(f, _)| *f == folder).map(|(_, kib)| *kib).sum();
             kib = kib.saturating_sub(pruned);
         }
-        let cap_kib = entry.cap_kib(app_checkout);
+        let app = entry.is_app_in(lane);
+        let cap_kib = entry.cap_kib(app);
+        let idle = if checkout.is_main() || app { warm_idle } else { idle };
         let reason = if kib > cap_kib {
             format!("{} > {}", human(kib), human(cap_kib))
         } else if idle > 0 && kib > 1024 && !tool.written_within(&measured, idle) {
@@ -551,8 +555,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
             }
             continue;
         };
-        let idle_here = if !warm && root.keeps_warm(&tool.places)? { 0 } else { idle };
-        prune_root(tool, &root.path, checkout, run, idle_here)?;
+        prune_root(tool, &root.path, checkout, run, idle, if warm { idle } else { 0 })?;
     }
     let derived_idle = if idle > 0 && idle < DERIVED_DATA_IDLE_MINUTES { idle } else { DERIVED_DATA_IDLE_MINUTES };
     prune_derived_data(tool, run, derived_idle)?;

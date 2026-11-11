@@ -1,5 +1,6 @@
-//! `builds lock <repo> <command> [<args>...]`: runs a command holding the
-//! repo's app lock, <root>/<repo>/app.lock.
+//! `builds lock <repo> [--lane <lane>] <command> [<args>...]`: runs a command
+//! holding the repo's app lock for a lane (the mac lane's unless named),
+//! <root>/<repo>/app.lock for the mac lane (lane.rs).
 //!
 //! The lock lives as long as any process of the build does, so no other
 //! command can start in the app checkout while one of them still runs. `lockf`
@@ -44,6 +45,7 @@ use std::time::Duration;
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+use crate::lane::Lane;
 use crate::places::Places;
 use crate::queue::{self, Queue, Ticket};
 use crate::text::note;
@@ -75,10 +77,15 @@ extern "C" fn take_over(_: libc::c_int) {
 }
 
 pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
-    let [repo, command, rest @ ..] = args else {
-        fail!("usage: builds lock <repo> <command> [<args>...]");
+    const USAGE: &str = "usage: builds lock <repo> [--lane mac|android] <command> [<args>...]";
+    let (lane, args) = match args {
+        [repo, flag, word, rest @ ..] if flag == "--lane" => (Lane::parse_or_fail(word)?, [std::slice::from_ref(repo), rest].concat()),
+        _ => (Lane::Mac, args.to_vec()),
     };
-    let mut held = take(places, repo)?;
+    let [repo, command, rest @ ..] = &args[..] else {
+        fail!("{USAGE}");
+    };
+    let mut held = take(places, repo, lane)?;
     loop {
         let mut start = Command::new(command);
         start.args(rest);
@@ -92,7 +99,7 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
     }
 }
 
-/// <repo>'s app lock, held for the life of this process and every process it
+/// <repo>'s app lock for a lane, held for the life of this process and every process it
 /// starts, unless released first.
 pub struct Held {
     lock: libc::c_int,
@@ -127,24 +134,24 @@ impl Held {
     }
 }
 
-/// Joins <repo>'s queue and waits its turn for the app lock. Fails for a repo
-/// with no app checkout.
-pub fn take(places: &Places, repo: &str) -> Result<Held> {
-    let dir = places.root.join(repo);
-    if !places.app_checkout_file(repo).is_file() {
-        fail!("{repo} has no app checkout recorded in {}; builds app-checkout records one", dir.display());
+/// Joins <repo>'s queue for <lane> and waits its turn for the lane's app lock.
+/// Fails for a repo with no app checkout in the lane.
+pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
+    let file = places.app_checkout_file(repo, lane);
+    if !file.is_file() {
+        fail!("{repo} has no {} app checkout recorded in {}; builds app-checkout records one", lane.word(), file.display());
     }
     queue::route_repoint_signal();
     unsafe { libc::signal(libc::SIGUSR2, take_over as *const () as libc::sighandler_t) };
     TAKEN_OVER.store(false, Ordering::SeqCst);
     QUEUED.store(true, Ordering::SeqCst);
-    let queue = Queue::of(places, repo);
+    let queue = Queue::of(places, repo, lane);
     let (ticket, ahead) = queue.join()?;
     if ahead > 0 {
-        note(format!("{ahead} ahead in {repo}'s app queue"));
+        note(format!("{ahead} ahead in {repo}'s {} app queue", lane.word()));
     }
     queue.wait_for_turn(&ticket.name)?;
-    let lock_path = dir.join("app.lock");
+    let lock_path = places.app_lock_file(repo, lane);
     Ok(Held { lock: queue::open_locked(&lock_path)?, ticket, queue, lock_path })
 }
 

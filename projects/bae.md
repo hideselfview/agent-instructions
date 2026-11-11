@@ -169,47 +169,60 @@ Each checkout builds into its own folders on the build volume:
 `.build-dirs` lists (`target`, `target-macos`, `target-ios`, `target-android`,
 the Xcode `.build` dirs, `BaeKit/Frameworks`, `bae-android/debug-symbols`,
 Gradle's, Avalonia's `obj`/`bin`). The `builds` tool manages them; the layout,
-the app checkout's lock, the measurements behind it, sccache and SwiftPM
+the app checkouts' locks, the measurements behind them, sccache and SwiftPM
 recovery are in `principles/worktree-build-priming.md`. The bae specifics:
 
 - **Side worktrees build host Rust only** (`target`: tests, clippy, the
   pre-commit hook). App builds — the bridge for macOS, iOS or Android, the Xcode
-  apps, BaeKit, Gradle, Avalonia — stay warm in two checkouts:
+  apps, BaeKit, Gradle, Avalonia — stay warm in main and in one app checkout per
+  lane, the mac lane (Xcode, `target-macos`) and the android lane (Gradle,
+  `target-android`), which share no build output and so each have a checkout,
+  lock and queue of their own:
 
   - **main**, the person's checkout. Notarized macOS releases come only from
     main (`scripts/release-macos.sh` runs the `release-macos.yml` workflow on
     it, so they build on CI, not here). The person builds their test apps with
-    `builds build-app bae mac|android [<ref>]`, in the app checkout on its lock:
-    `mac` copies the app to `~/Applications/bae-test/bae.app`, `android`
-    installs it on the connected phone (`bae-android/run.sh`). Neither opens the
-    app.
+    `builds build-app bae mac|android [<ref>]`, in that lane's app checkout on
+    its lock: `mac` copies the app to `~/Applications/bae-test/bae.app`,
+    `android` installs it on the connected phone (`bae-android/run.sh`). Neither
+    opens the app.
 
-  - **`~/dev/bae-worktrees/side-1`, the app checkout** (recorded for the tool
-    with `builds app-checkout ~/dev/bae-worktrees/side-1`), for every agent
-    whose change needs an app build (Swift, Kotlin, C#, or a bridge shape the
-    apps compile against). Commit on your branch in your own worktree, then run,
-    as a background task:
+  - **The app checkouts**, for every agent whose change needs an app build
+    (Swift, Kotlin, C#, or a bridge shape the apps compile against):
+    `~/dev/bae-worktrees/side-1` is the mac lane's (recorded for the tool with
+    `builds app-checkout mac ~/dev/bae-worktrees/side-1`), and the android
+    lane's is another side worktree recorded with
+    `builds app-checkout android <worktree>`; `builds status` shows which.
+    Commit on your branch in your own worktree, then run, as a background task:
 
     ```sh
     builds app-build bae <branch> [<step>...]
     ```
 
-    It takes the queue for `/Volumes/Builds/bae/app.lock`, checks the branch out
-    in the app checkout (which must be clean) and runs the steps of the repo's
-    `.app-build`, in the order named, stopping at the first that fails; with no
-    step named it runs every one. `builds app-build bae --list` prints them:
-    `macos` (build the app), `macos-tests` (compile its unit tests),
-    `macos-tests-run` (run them, without rebuilding; the UI tests are not among
-    them), `macos-tests-all` (build and run the unit and UI tests, signing the
-    UI test runner so Gatekeeper lets it launch), `android-bridge` and `android`
-    (the bridge, then the Kotlin and both test targets), `android-tests` (run
-    the unit tests from that output). A change to a bridge shape or to Swift
-    code runs `macos`, `macos-tests` and `macos-tests-run`; one to Kotlin runs
-    `android-bridge`, `android` and `android-tests`. A step is a program, not a
-    shell string: one that needs a shell is a script in the repo
-    (`bae-android/compile-all.sh`). To build something else there
+    It takes the queue for the lock of each lane the steps are in
+    (`/Volumes/Builds/bae/app.lock` for the mac lane, `app-android.lock` for the
+    android), checks the branch out in that lane's app checkout (which must be
+    clean) and runs the lane's steps of the repo's `.app-build`, in the order
+    named, stopping at the first that fails; with no step named it runs every
+    one. The lanes build at the same time, each output line behind `[mac]` or
+    `[android]`, and the command fails if either lane does, saying which; a
+    mac-only build and an android-only build don't wait on each other.
+    `builds app-build bae --list` prints the steps with their lanes: `macos`
+    (build the app), `macos-tests` (compile its unit tests), `macos-tests-run`
+    (run them, without rebuilding; the UI tests are not among them),
+    `macos-tests-all` (build and run the unit and UI tests, signing the UI test
+    runner so Gatekeeper lets it launch) in the mac lane; `android-bridge` and
+    `android` (the bridge, then the Kotlin and both test targets),
+    `android-tests` (run the unit tests from that output) in the android lane. A
+    change to a bridge shape or to Swift code runs `macos`, `macos-tests` and
+    `macos-tests-run`; one to Kotlin runs `android-bridge`, `android` and
+    `android-tests`; a bridge shape runs both sets, in one command. A step is a
+    program, not a shell string: one that needs a shell is a script in the repo
+    (`bae-android/compile-all.sh`). A step that runs past its time limit (45
+    minutes, or its `limit <step> <time>` line in `.app-build`) is killed and
+    fails the build, which gives the lock up. To build something else there
     (`bae-ios/run.sh`, `bae-avalonia/smoke-test.sh`, a screenshot script), add a
-    `step` line.
+    `step <lane> <name> <command>` line.
 
     Cargo builds there, as in every side worktree, run without incremental
     compilation (`builds cargo` passes `--config build.incremental=false`
@@ -243,7 +256,7 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   and `bae-android/local.properties`, and seeds the macOS app's
   `Package.resolved` from main. It builds nothing. `builds retire <worktree>`
   removes a side worktree and its folders once its work has moved on;
-  `builds prune` retires a free one nothing has used for a day, never the app
+  `builds prune` retires a free one nothing has used for a day, never an app
   checkout or one with unlanded commits.
 
   bae-audio links FFmpeg and finds it via `FFMPEG_DIR` (set to `bae-ffmpeg/dist`
@@ -282,11 +295,11 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   a build holding the target keeps them, and losing one costs an incremental
   rebuild of its crate. Under the free-space floor, incremental folders nothing
   wrote to for an hour go first, in every checkout, claimed ones and main's and
-  the app checkout's included, before any whole folder. **Folders are deleted
+  the app checkouts' included, before any whole folder. **Folders are deleted
   whole when they still pass their cap** in `.build-dirs`, and refilled by that
-  build. Leave main's and the app checkout's otherwise: the person installs from
-  main and tests from the app checkout. The free-space floor never deletes
-  theirs whole. `builds status` shows each checkout's sizes.
+  build. Leave main's and the app checkouts' own lane's otherwise: the person
+  installs from main and tests from the app checkouts. The free-space floor
+  never deletes theirs whole. `builds status` shows each checkout's sizes.
 
 - **Sparkle is the SwiftPM dep that corrupts** (xcodebuild fails with "Couldn't
   check out revision" or "file not found" on Sparkle). Every xcodebuild of the

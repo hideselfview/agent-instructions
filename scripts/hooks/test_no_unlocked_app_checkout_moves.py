@@ -12,7 +12,8 @@ hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
 
 APP = "/Users/dima/dev/bae-worktrees/side-1"
-CHECKOUTS = [(APP, "bae")]
+ANDROID_APP = "/Users/dima/dev/bae-worktrees/side-9"
+CHECKOUTS = [(APP, "bae", "mac"), (ANDROID_APP, "bae", "android")]
 ELSEWHERE = "/Users/dima/dev/bae-worktrees/side-2"
 
 RECIPE = f"""builds lock bae sh -c '
@@ -55,6 +56,14 @@ CASES = [
     (False, ELSEWHERE, f"cd {APP} && git symbolic-ref HEAD && git worktree list"),
     (False, ELSEWHERE, f"cd {APP} && git commit --dry-run && git add -n ."),
     (False, ELSEWHERE, f"builds lock bae sh -c 'cd {APP} && git commit -m x'"),
+    # A lane's lock covers its own checkout only.
+    (True, ELSEWHERE, f"builds lock bae sh -c 'cd {ANDROID_APP} && git checkout x'"),
+    (True, ELSEWHERE, f"builds lock bae --lane mac sh -c 'cd {ANDROID_APP} && git checkout x'"),
+    (True, ELSEWHERE, f"builds lock bae --lane android sh -c 'cd {APP} && git checkout x'"),
+    (True, ELSEWHERE, f"git -C {ANDROID_APP} checkout x"),
+    (False, ELSEWHERE, f"builds lock bae --lane android sh -c 'cd {ANDROID_APP} && git checkout x'"),
+    (False, ELSEWHERE, f"builds lock bae --lane android git -C {ANDROID_APP} checkout x"),
+    (False, ELSEWHERE, f"builds lock bae sh -c 'cd {APP} && git checkout x'"),
     # Read-only git stays allowed in the app checkout.
     (False, APP, "git status --short"),
     (False, ELSEWHERE, f"git -C {APP} log --oneline -3"),
@@ -82,10 +91,11 @@ except Exception as error:  # noqa: BLE001
     live = []
     print("builds failed:", error)
 if live:
-    path, repo = live[0]
+    path, repo, lane = live[0]
+    lock = f"builds lock {repo}" + ("" if lane == "mac" else f" --lane {lane}")
     for want, cmd in [
         (True, f"cd {path} && git checkout -q --detach origin/main"),
-        (False, f"builds lock {repo} sh -c 'cd {path} && git checkout -q --detach x'"),
+        (False, f"{lock} sh -c 'cd {path} && git checkout -q --detach x'"),
         (False, f"git -C {path} status"),
     ]:
         out = subprocess.run([sys.executable, "-I", str(HOOK)],

@@ -1,4 +1,5 @@
 use super::*;
+use crate::lane::Lane;
 use crate::checkout::Checkout;
 use crate::prune::prune_root;
 use crate::setup::setup;
@@ -94,9 +95,9 @@ fn a_tree_used_within_three_days_stays_and_a_dry_run_deletes_nothing() {
     age_all(&build.join("recent"), 24 * 3 - 1);
     age_all(&build.join("old"), 24 * 4);
 
-    prune_root(&tool, &root, &checkout, Run::Dry, 0).unwrap();
+    prune_root(&tool, &root, &checkout, Run::Dry, 0, 0).unwrap();
     assert!(build.join("old").exists(), "a dry run deleted a tree");
-    prune_root(&tool, &root, &checkout, Run::Real, 0).unwrap();
+    prune_root(&tool, &root, &checkout, Run::Real, 0, 0).unwrap();
     assert!(build.join("recent").exists());
     assert!(!build.join("old").exists());
 }
@@ -129,7 +130,7 @@ fn a_kept_tree_stays_in_main_and_the_app_checkout_but_not_in_another_worktree() 
     let other = scratch.dir.join("demo-worktrees/side-2");
     crate::testing::git(&main, &["worktree", "add", "-q", "--detach", &other.display().to_string()]);
     std::fs::create_dir_all(tool.places.root.join("demo")).unwrap();
-    std::fs::write(tool.places.app_checkout_file("demo"), "side-1\n").unwrap();
+    std::fs::write(tool.places.app_checkout_file("demo", Lane::Mac), "side-1\n").unwrap();
 
     for (top, name, kept) in [(&main, "main", true), (&side, "side-1", true), (&other, "side-2", false)] {
         let checkout = Checkout::find(&top.display().to_string()).unwrap();

@@ -42,7 +42,7 @@ for top in "$main" "$app" "$side"; do
     mkdir -p "$BUILDS_ROOT/demo/$name"
     echo "$top" > "$BUILDS_ROOT/demo/$name/.checkout"
 done
-"$builds" app-checkout "$app" > /dev/null 2>&1
+"$builds" app-checkout mac "$app" > /dev/null 2>&1
 "$builds" claim "$side" "agent B" > /dev/null 2>&1
 
 fail() { echo "FAIL: $*" >&2; exit 1; }

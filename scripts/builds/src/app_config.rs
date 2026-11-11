@@ -8,9 +8,13 @@
 //! mac app bae-macos/bae/.build/runApp/Build/Products/Debug/bae.app
 //! mac bundle fm.bae.desktop
 //! android build ./bae-android/run.sh
-//! step macos ./bae-macos/run.sh --no-open
+//! step mac macos ./bae-macos/run.sh --no-open
+//! step android android ./bae-android/compile-all.sh
 //! limit macos 90m
 //! ```
+//!
+//! A step belongs to a lane (`mac` or `android`, lane.rs), named first: the
+//! lane's app checkout and lock are where it runs.
 //!
 //! A step runs for at most `DEFAULT_STEP_LIMIT`, or the time a `limit <step>
 //! <duration>` line gives it (`90s`, `30m`, `2h`).
@@ -22,6 +26,7 @@ use std::time::Duration;
 use crate::checkout::{git, git_text};
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::lane::Lane;
 use crate::lock::{self, Within};
 use crate::places::Places;
 
@@ -65,12 +70,13 @@ pub struct AndroidApp {
     pub build: Vec<String>,
 }
 
-/// A `step <name> <program> [<args>...]` line: a program, relative to the
-/// checkout when it names a path. No shell reads it: a step that needs one is
+/// A `step <lane> <name> <program> [<args>...]` line: a program, relative to
+/// the checkout when it names a path. No shell reads it: a step that needs one is
 /// a script in the repo.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Step {
     pub name: String,
+    pub lane: Lane,
     pub command: Vec<String>,
     /// From the step's `limit` line; `DEFAULT_STEP_LIMIT` without one.
     pub limit: Option<Duration>,
@@ -126,8 +132,12 @@ pub fn parse_config(text: &str) -> Result<Config> {
             ("android", "build") => android = Some(AndroidApp { build: words(value) }),
             ("step", _) => {
                 let mut words = field.split_whitespace().map(str::to_string);
-                let (Some(name), command) = (words.next(), words.collect::<Vec<_>>()) else {
-                    fail!("{CONFIG}: a step needs a name and a command");
+                let (Some(lane), Some(name)) = (words.next(), words.next()) else {
+                    fail!("{CONFIG}: a step needs a lane, a name and a command");
+                };
+                let command = words.collect::<Vec<_>>();
+                let Some(lane) = Lane::parse(&lane) else {
+                    fail!("{CONFIG}: {line:?}: a step starts with its lane, mac or android, not {lane:?}");
                 };
                 if command.is_empty() {
                     fail!("{CONFIG}: step {name} names no command");
@@ -135,7 +145,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 if steps.iter().any(|step| step.name == name) {
                     fail!("{CONFIG}: step {name} is named twice");
                 }
-                steps.push(Step { name, command, limit: None });
+                steps.push(Step { name, lane, command, limit: None });
             }
             ("limit", _) => {
                 let Some(limit) = parse_duration(value) else {
@@ -193,10 +203,10 @@ pub fn run_command(top: &Path, command: &[String], limit: Option<Duration>) -> R
     lock::run_in_group_within(start, program, limit)
 }
 
-/// The folder of <repo>'s app checkout.
-pub fn app_checkout_top(places: &Places, repo: &str) -> Result<PathBuf> {
-    let Some(name) = places.app_checkout_of(repo)? else {
-        fail!("{repo} has no app checkout; builds app-checkout records one");
+/// The folder of <repo>'s app checkout in <lane>.
+pub fn app_checkout_top(places: &Places, repo: &str, lane: Lane) -> Result<PathBuf> {
+    let Some(name) = places.app_checkout_of(repo, lane)? else {
+        fail!("{repo} has no {} app checkout; builds app-checkout records one", lane.word());
     };
     let marker = places.root.join(repo).join(&name).join(".checkout");
     let text = std::fs::read_to_string(&marker).context(|| format!("reading {}", marker.display()))?;

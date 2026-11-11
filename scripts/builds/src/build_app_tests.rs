@@ -28,3 +28,9 @@ fn a_platform_the_config_lacks_is_refused() {
     assert!(Platform::Mac.build(&config).is_err());
     assert!(Platform::parse("ios").is_err());
 }
+
+#[test]
+fn a_platform_builds_in_its_lane() {
+    assert_eq!(Platform::Mac.lane(), Lane::Mac);
+    assert_eq!(Platform::Android.lane(), Lane::Android);
+}
