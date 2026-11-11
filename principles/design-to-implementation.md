@@ -16,22 +16,29 @@ The board is the preview; the code's picture of it is a shot. No IDE previews
 (`#Preview`, Compose `@Preview`): they are slow, and a second picture of a
 screen besides its board.
 
-One name for each screen and each part:
+Two kinds of shot, like unit and integration tests:
 
-- A board is named `<platform>.<area>.<screen>[.<state>]`, each part lower-case
-  words joined by `-`: `mac.settings.subsonic.port-taken`,
-  `android.welcome.join.name`. The platform comes first (`mac`, `android`,
-  `ios`, `windows`, `linux`, `web`, or `brand` for what belongs to none); the
-  area is where the screen lives in the product, not the canvas page it sits on;
-  the state is left off for a screen's usual state.
-- The shot of a board carries the board's name, as its id and its file name.
-  Where code must name it with an identifier, that is the same words in
-  PascalCase (`AndroidWelcomeJoinName`). Nothing is named twice: the name is
-  derived, never chosen again.
-- A design-system component and the code view that implements it have the same
-  name (`MacFileNameField` in the design system and in the Swift code). A
-  component's README names its view; a view no component names is either a
-  component the design system is missing or code that should use one.
+- **Component shots** draw each design-system component in each state its
+  preview shows. The design system names a component `<Platform><Thing>`
+  (`MacRow`, `AndroidSection`), the same `<Thing>` on every platform that has
+  it. The code view that draws it has exactly that name and takes values the way
+  the component takes props. Each named state in the component's preview is a
+  shot: `<platform>.component.<thing>.<state>`, lower-case words joined by `-`
+  (`MacRow`'s "Nested, off" is `mac.component.row.nested-off`).
+- **Screen shots** draw whole screens, composed of components, as boards on the
+  canvas draw them. A board is named `<platform>.<area>.<screen>[.<state>]`
+  (`mac.settings.subsonic.port-taken`): platform first (`mac`, `android`, `ios`,
+  `windows`, `linux`, `web`, or `brand` for what belongs to none), the area
+  where the screen lives in the product, the state left off for its usual state.
+  The screen's view is that name without the state, in PascalCase
+  (`MacSettingsSubsonic`); its shot carries the full board name. Where two
+  platforms have the same screen, `<area>.<screen>` is the same on both. Each
+  board in the canvas index says whether it gets a shot: the person picks which
+  boards are covered.
+- Every name follows from a component, a preview state or a board; none is
+  chosen twice. A view that only reads app state to feed one component has no
+  reason to exist: the screen reads the state and places the component. Where
+  one must exist, it is `<Component>Container`.
 
 Shots confirm the build, and follow the boards:
 
