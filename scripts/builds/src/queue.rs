@@ -116,9 +116,12 @@ pub struct Ticket {
 
 /// <repo>'s queue folder for a lane, and the file naming the lane's app
 /// checkouts, which says how many hold the lane's locks at once.
+#[derive(Clone)]
 pub struct Queue {
     dir: PathBuf,
     checkouts_file: PathBuf,
+    /// The lane's locks, one file per app checkout.
+    locks_dir: PathBuf,
 }
 
 /// The guard lock, held until dropped. It is not passed to processes this one
@@ -137,7 +140,28 @@ impl Queue {
     }
 
     pub fn in_repo_dir(repo_dir: &Path, lane: Lane) -> Queue {
-        Queue { dir: repo_dir.join(lane.queue_dir_name()), checkouts_file: repo_dir.join(lane.checkouts_file_name()) }
+        Queue {
+            dir: repo_dir.join(lane.queue_dir_name()),
+            checkouts_file: repo_dir.join(lane.checkouts_file_name()),
+            locks_dir: repo_dir.join(lane.locks_dir_name()),
+        }
+    }
+
+    fn lock_path(&self, checkout: &str) -> PathBuf {
+        self.locks_dir.join(checkout)
+    }
+
+    /// Where a waiter moved to the top goes: right behind the builds that
+    /// hold a lock (at least the first, at most `slots`), so with a lock free
+    /// it is among those that may take it.
+    fn behind_holders(&self) -> usize {
+        let text = std::fs::read_to_string(&self.checkouts_file).unwrap_or_default();
+        let held = text
+            .lines()
+            .filter(|line| !line.is_empty())
+            .filter(|checkout| is_held(&self.lock_path(checkout)).unwrap_or(false))
+            .count();
+        held.clamp(1, self.slots())
     }
 
     /// How many builds the lane holds locks for at once: its app checkouts,
@@ -333,7 +357,7 @@ impl Queue {
             fail!("{pid} is among the first {slots} in the queue: it holds a lock or is about to");
         }
         let name = order.remove(at);
-        order.insert(slots.min(order.len()), name);
+        order.insert(self.behind_holders().min(order.len()), name);
         self.write_order(&order)
     }
 }
@@ -579,7 +603,7 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
         }
         let name = order.remove(taker);
         if !holding {
-            order.insert(slots.min(order.len()), name);
+            order.insert(queue.behind_holders().min(order.len()), name);
             queue.write_order(&order)?;
             None
         } else {
