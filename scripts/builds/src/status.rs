@@ -46,7 +46,7 @@ fn is_repo_dir(dir: &Path) -> Result<bool> {
     if !dir.is_dir() || dir.is_symlink() {
         return Ok(false);
     }
-    if Lane::ALL.into_iter().any(|lane| dir.join(lane.checkout_file_name()).is_file() || dir.join(lane.lock_file_name()).is_file()) {
+    if Lane::ALL.into_iter().any(|lane| dir.join(lane.checkouts_file_name()).is_file() || dir.join(lane.locks_dir_name()).is_dir()) {
         return Ok(true);
     }
     let names = match glob_names(dir) {
@@ -88,7 +88,7 @@ pub fn repos(places: &Places) -> Result<Vec<Repo>> {
         let mut paths = Vec::new();
         for entry in glob_names(&dir)? {
             let path = dir.join(&entry);
-            if is_lane_file(&entry.to_string_lossy()) && path.is_file() {
+            if is_lane_file(&entry.to_string_lossy()) {
                 continue;
             }
             if is_root_dir(&path) {
@@ -488,8 +488,10 @@ pub struct RepoJson {
 #[derive(Serialize)]
 pub struct LaneJson {
     pub lane: &'static str,
-    pub app_checkout: Option<String>,
-    pub app_lock: Option<String>,
+    /// The lane's app checkouts (side-N), in the order recorded.
+    pub app_checkouts: Vec<String>,
+    /// The lane's locks that exist, one per app checkout.
+    pub app_locks: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -622,9 +624,15 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
 pub fn lanes_of(places: &Places, repo: &str) -> Result<Vec<LaneJson>> {
     let mut lanes = Vec::new();
     for lane in Lane::ALL {
-        let (app_checkout, lock) = (places.app_checkout_of(repo, lane)?, places.app_lock_file(repo, lane));
-        if app_checkout.is_some() || lock.is_file() {
-            lanes.push(LaneJson { lane: lane.word(), app_checkout, app_lock: lock.is_file().then(|| lock.display().to_string()) });
+        let app_checkouts = places.app_checkouts_of(repo, lane)?;
+        let app_locks: Vec<String> = app_checkouts
+            .iter()
+            .map(|checkout| places.app_lock_file(repo, lane, checkout))
+            .filter(|lock| lock.is_file())
+            .map(|lock| lock.display().to_string())
+            .collect();
+        if !app_checkouts.is_empty() || !app_locks.is_empty() {
+            lanes.push(LaneJson { lane: lane.word(), app_checkouts, app_locks });
         }
     }
     Ok(lanes)

@@ -203,12 +203,9 @@ pub fn run_command(top: &Path, command: &[String], limit: Option<Duration>) -> R
     lock::run_in_group_within(start, program, limit)
 }
 
-/// The folder of <repo>'s app checkout in <lane>.
-pub fn app_checkout_top(places: &Places, repo: &str, lane: Lane) -> Result<PathBuf> {
-    let Some(name) = places.app_checkout_of(repo, lane)? else {
-        fail!("{repo} has no {} app checkout; builds app-checkout records one", lane.word());
-    };
-    let marker = places.root.join(repo).join(&name).join(".checkout");
+/// The folder of <repo>'s app checkout <name>.
+pub fn app_checkout_top(places: &Places, repo: &str, name: &str) -> Result<PathBuf> {
+    let marker = places.root.join(repo).join(name).join(".checkout");
     let text = std::fs::read_to_string(&marker).context(|| format!("reading {}", marker.display()))?;
     Ok(PathBuf::from(text.trim()))
 }

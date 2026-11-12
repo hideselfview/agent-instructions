@@ -118,7 +118,7 @@ fn an_app_checkout_keeps_warm_only_the_folders_its_lane_builds_into() {
     for (side, lane) in [("side-1", Lane::Mac), ("side-2", Lane::Android)] {
         let dir = scratch.dir.join("demo-worktrees").join(side);
         git(&main, &["worktree", "add", "-q", "--detach", &dir.display().to_string()]);
-        std::fs::write(tool.places.app_checkout_file("demo", lane), format!("{side}\n")).unwrap();
+        std::fs::write(tool.places.app_checkouts_file("demo", lane), format!("{side}\n")).unwrap();
         let checkout = Checkout::find(&dir.display().to_string()).unwrap();
         crate::setup::setup(&tool, &checkout).unwrap();
         for folder in ["target", "xcode", "gradle"] {

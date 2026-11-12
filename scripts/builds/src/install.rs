@@ -274,6 +274,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("usage: builds install");
     }
     let home = &tool.places.home;
+    crate::migrate::migrate_app_files(&tool.places)?;
     let replaced = put_on_path(home)?;
     tool.places.require_volume()?;
     let caches = tool.places.caches();

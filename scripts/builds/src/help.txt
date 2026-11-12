@@ -2,17 +2,22 @@ builds: owns this machine's build volume, /Volumes/Builds, and everything
 on it:
 
   <repo>/<checkout>/    one build root per checkout; checkout = main | side-N
-  <repo>/app-checkout   the name of the repo's mac lane app checkout (side-N)
-  <repo>/app.lock       the lock agents hold to build in it
-  <repo>/app.queue/     who waits for it: `order` (one ticket per line, next
-                        first, the holder's at the head) and a ticket file
-                        per waiting process
-  <repo>/app-android-checkout, app-android.lock, app-android.queue/
+  <repo>/app-checkouts  the names of the repo's mac lane app checkouts
+                        (side-N), one per line
+  <repo>/app.locks/     one lock per app checkout (app.locks/side-N), the
+                        lock agents hold to build in it
+  <repo>/app.queue/     who waits for the lane's locks: `order` (one ticket
+                        per line, next first, the holders' at the head: one
+                        per app checkout) and a ticket file per waiting
+                        process
+  <repo>/app-android-checkouts, app-android.locks/, app-android.queue/
                         the same for the android lane. The lanes build
                         output that is not shared (Xcode and the macOS
                         bridge; Gradle and the Android bridge), so each has
-                        its own app checkout, lock and queue and the two
-                        never wait on each other
+                        its own app checkouts, locks and queue and the two
+                        never wait on each other. A lane with several app
+                        checkouts builds in as many at once; the queue gives
+                        a free lock to the next in line
   mode                  the pre-commit hooks' mode, quick or strict
   DerivedData/          Xcode's default DerivedData location
   caches/<name>/        download caches every checkout shares, each linked
@@ -93,10 +98,13 @@ Commands:
   builds release <checkout>   remove its claim
   builds retire <checkout>    remove a side worktree and its build root
   builds app-checkout mac|android <checkout>
-                              record the side worktree as its repo's app
-                              checkout for the lane, in
-                              /Volumes/Builds/<repo>/app-checkout (mac) or
-                              app-android-checkout
+                              add the side worktree to its repo's app
+                              checkouts for the lane, in
+                              /Volumes/Builds/<repo>/app-checkouts (mac) or
+                              app-android-checkouts; a lane may have several
+  builds app-checkout remove mac|android <checkout>
+                              take it out again (it refuses while a build
+                              holds the checkout's lock)
   builds mode [quick|strict]  set the mode the pre-commit hooks run in, for
                               every repo on the machine, in
                               /Volumes/Builds/mode; with no argument, print
@@ -162,38 +170,42 @@ Commands:
                               main it builds without incremental compilation
                               (--config build.incremental=false)
   builds lock <repo> [--lane mac|android] <command> [<args>...]
-                              run the command holding the repo's app lock for
-                              the lane (the mac lane's unless named:
-                              /Volumes/Builds/<repo>/app.lock), waiting for
-                              it; the lock lives until the last process of the
+                              run the command holding one of the repo's app
+                              locks for the lane (the mac lane's unless
+                              named: /Volumes/Builds/<repo>/app.locks/<checkout>,
+                              one per app checkout; the command finds its
+                              checkout in BUILDS_APP_CHECKOUT), waiting for
+                              one to be free; the lock lives until the last process of the
                               command exits, and SIGTERM, SIGINT and SIGHUP go
                               to the command's whole process group; waiters go
                               in the order they came, a dead one never lets
-                              anyone past the holder
+                              anyone past the holders
   builds queue <repo> [--lane mac|android]
-                              show each lane's holder and who waits, next first
+                              show each lane's holders and who waits, next first
   builds queue <repo> top <pid>
-                              move that waiter to right behind the holder, in
+                              move that waiter to right behind the holders, in
                               the lane it waits in
   builds takeover <repo> [--lane mac|android] [<pid>]
-                              stop the holder's build (SIGTERM to its whole
-                              process group), run the waiter <pid> (default
-                              the first) next, and run the stopped command
-                              again straight after it, by itself; with
-                              nothing holding the lock, the same as `top`; a
+                              with every lock of the lane held, stop the
+                              build that joined last of the holders (SIGTERM
+                              to its whole process group), run the waiter
+                              <pid> (default the first) next, and run the
+                              stopped command again straight after it, by
+                              itself; with a lock free, the same as `top`; a
                               pid names its lane, and with none and builds
                               waiting in both lanes, --lane does.
                               The dashboard's queue has both as buttons
   builds app-build <repo> <ref> [<step>...]
-                              check out <ref> in the app checkout of each lane
-                              the steps are in (every step's lane when none is
-                              named), on that lane's app lock, and run the
+                              check out <ref> in a free app checkout of each
+                              lane the steps are in (every step's lane when
+                              none is named), on that checkout's app lock, and run the
                               lane's steps its .app-build names (`step <lane>
                               <name> <command>` lines), in the order given,
                               all of them in the order written when none is
                               named, stopping at the first failure. The lanes
                               build at the same time, each line of output
-                              behind [<lane>], and the build fails if either
+                              behind [<lane> <checkout>] ([<lane>] until a
+                              lock is held), and the build fails if either
                               lane does, saying which; a takeover reruns that
                               lane from its checkout. A step that runs past its
                               limit (45 minutes, or its `limit <step> <time>`
@@ -204,8 +216,8 @@ Commands:
   builds app-build <repo> --lane mac|android <ref> [<step>...]
                               one lane's part of the above, in this process
   builds build-app <repo> mac|android [<ref>]
-                              on that lane's app lock, check out <ref> (default
-                              the main branch) in the lane's app checkout,
+                              on one of that lane's app locks, check out <ref>
+                              (default the main branch) in that app checkout,
                               which must be clean, and run that platform's build its
                               .app-build names; for mac, copy the app to
                               ~/Applications/<repo>-test in place of the copy
@@ -235,7 +247,7 @@ does; `status` shows it, and `retire` refuses a claimed worktree. A claim is
 not a lock: agents are a series of separate commands, so nothing could hold
 one, and a session that ends without releasing leaves its claim behind
 (status shows its age). Short exclusive use, one build at a time, stays a
-real lock, like the app lanes' locks (app.lock). A claim may carry a one-line
+real lock, like the app lanes' locks (app.locks). A claim may carry a one-line
 note of where its work stands ("waiting on Linux CI"), which `note` sets and
 status and the dashboard show, and the note may carry a state the dashboard
 can't read from git: waiting-on-you (a question or step only the person can
@@ -246,9 +258,9 @@ whose <who> ends in "(landing)" is the worktree its coordinator lands
 commits from.
 
 By default a side worktree builds host Rust only, and a repo with app builds
-keeps them warm in main and in one side worktree per app lane, its app
-checkouts, which agents take turns in by holding the lane's lock
-(/Volumes/Builds/<repo>/app.lock for the mac lane); see
+keeps them warm in main and in one or more side worktrees per app lane, its
+app checkouts, which agents take turns in by holding a checkout's lock
+(/Volumes/Builds/<repo>/app.locks/<checkout> for the mac lane); see
 principles/worktree-build-priming.md. Nothing here enforces who builds what:
 the caps bound whatever a checkout builds, and the floor below bounds every
 checkout's idle incremental folders and the whole folders of every checkout

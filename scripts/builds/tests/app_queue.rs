@@ -45,7 +45,7 @@ impl Volume {
         let dir = PathBuf::from(format!("/private/tmp/bq-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("volume/demo")).unwrap();
-        std::fs::write(dir.join("volume/demo/app-checkout"), "side-1\n").unwrap();
+        std::fs::write(dir.join("volume/demo/app-checkouts"), "side-1\n").unwrap();
         Volume { dir, started: Vec::new() }
     }
 
@@ -141,7 +141,7 @@ impl Volume {
         assert!(cloned.status.success(), "{}", String::from_utf8_lossy(&cloned.stderr));
         std::fs::create_dir_all(self.dir.join("volume/demo/side-2")).unwrap();
         std::fs::write(self.dir.join("volume/demo/side-2/.checkout"), android.to_str().unwrap()).unwrap();
-        std::fs::write(self.dir.join("volume/demo/app-android-checkout"), "side-2\n").unwrap();
+        std::fs::write(self.dir.join("volume/demo/app-android-checkouts"), "side-2\n").unwrap();
     }
 
     fn order(&self) -> Vec<String> {
@@ -503,7 +503,7 @@ fn an_app_build_runs_the_lanes_at_the_same_time_each_in_its_own_checkout() {
     let at = |line: &str| log.iter().position(|l| l == line).unwrap_or_else(|| panic!("{line} not in {log:?}"));
     assert!(at("end one") < at("start two"), "a lane's steps run in order: {log:?}");
     assert!(at("start droid") < at("end one"), "the lanes ran at once: {log:?}");
-    assert!(said.contains("[mac] builds: step one") && said.contains("[android] builds: step droid"), "{said}");
+    assert!(said.contains("[mac side-1] builds: step one") && said.contains("[android side-2] builds: step droid"), "{said}");
     // Each lane's steps ran in its own checkout.
     let head = |dir: &str| {
         let out = Command::new("git").arg("-C").arg(volume.dir.join(dir)).args(["rev-parse", "HEAD"]).output().unwrap();
@@ -572,7 +572,7 @@ fn a_pid_names_its_lane_for_a_takeover_and_queue_shows_both_lanes() {
     until("A in the android lane's line", || volume.android_order().len() == 2);
     volume.open_gate("A");
     let shown = String::from_utf8(volume.run(&["queue", "demo"]).stdout).unwrap();
-    assert!(shown.contains("android: holder") && shown.contains(&format!("android: 1. {waiter}")), "{shown}");
+    assert!(shown.contains("android side-2: holder") && shown.contains(&format!("android: 1. {waiter}")), "{shown}");
     assert!(shown.contains("mac: nobody waits"), "{shown}");
     // No --lane: the pid says which lane's holder to stop.
     let taken = volume.run(&["takeover", "demo", &waiter.to_string()]);
@@ -582,4 +582,56 @@ fn a_pid_names_its_lane_for_a_takeover_and_queue_shows_both_lanes() {
     volume.open_gate("H");
     let log = volume.log_of(6);
     assert_eq!(log, lines(&["start H", "stop H", "start A", "end A", "start H", "end H"]));
+}
+
+#[test]
+fn a_lane_with_two_checkouts_builds_in_both_at_once_and_the_next_in_line_waits_for_either() {
+    let mut volume = Volume::new("lane-set");
+    volume.app_repo();
+    std::fs::write(volume.dir.join("volume/demo/app-android-checkouts"), "side-2\nside-3\n").unwrap();
+    volume.lock_in(&["--lane", "android"], "A");
+    volume.lock_in(&["--lane", "android"], "B");
+    volume.until_logged("start A");
+    volume.until_logged("start B");
+    let third = volume.lock_in(&["--lane", "android"], "C");
+    until("C in the android lane's line", || volume.android_order().len() == 3);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(volume.log().len(), 2, "both locks are held: {:?}", volume.log());
+
+    let shown = String::from_utf8(volume.run(&["queue", "demo", "--lane", "android"]).stdout).unwrap();
+    assert!(shown.contains("android side-2: holder") && shown.contains("android side-3: holder"), "{shown}");
+    assert!(shown.contains(&format!("android: 1. {third}")), "only C waits: {shown}");
+
+    // B, the later holder, ends: C takes the lock B had, while A still runs.
+    volume.open_gate("B");
+    volume.until_logged("end B");
+    volume.until_logged("start C");
+    assert!(!volume.log().contains(&"end A".to_string()));
+    volume.open_gate("A");
+    volume.open_gate("C");
+    volume.until_logged("end C");
+}
+
+#[test]
+fn a_takeover_with_every_lock_held_stops_the_last_holder_and_a_free_lock_just_moves_the_waiter() {
+    let mut volume = Volume::new("lane-set-takeover");
+    volume.app_repo();
+    std::fs::write(volume.dir.join("volume/demo/app-android-checkouts"), "side-2\nside-3\n").unwrap();
+    volume.lock_in(&["--lane", "android"], "A");
+    volume.until_logged("start A");
+    volume.lock_in(&["--lane", "android"], "B");
+    volume.until_logged("start B");
+    let waiter = volume.lock_in(&["--lane", "android"], "X");
+    until("X in the line", || volume.android_order().len() == 3);
+    volume.open_gate("X");
+    let taken = volume.run(&["takeover", "demo", "--lane", "android", &waiter.to_string()]);
+    assert!(taken.status.success(), "{}", String::from_utf8_lossy(&taken.stderr));
+    // B joined last of the holders: it stops, X runs, B runs again after X.
+    volume.until_logged("stop B");
+    volume.until_logged("end X");
+    assert!(!volume.log().contains(&"stop A".to_string()), "A kept running: {:?}", volume.log());
+    until("B started again", || volume.log().iter().filter(|l| *l == "start B").count() == 2);
+    volume.open_gate("A");
+    volume.open_gate("B");
+    volume.until_logged("end B");
 }

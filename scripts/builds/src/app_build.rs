@@ -7,12 +7,15 @@
 //! The command starts one `builds app-build <repo> --lane <lane> <ref>
 //! [<step>...]` process per lane, each with its queue ticket (so a takeover or
 //! `top` names that process) and no stdin, and prefixes every line of their
-//! output with `[<lane>] `. Without a step named it runs every step, in the
+//! output with `[<lane>] `, which becomes `[<lane> <checkout>] ` once the
+//! lane's process holds a lock and so knows the checkout it builds in (it says
+//! so in a marker line the parent reads and does not print). Without a step named it runs every step, in the
 //! order written; with steps named, each lane runs its own in the order
 //! named. It exits 1 if either lane fails, saying which.
 //!
-//! A lane's process, on its lane's lock, checks <ref> out in the lane's app
-//! checkout (which must be clean) and runs the lane's steps each through
+//! A lane's process takes the first free lock among the lane's app checkouts
+//! (queue.rs: first come, first served across the set), checks <ref> out in
+//! that checkout (which must be clean) and runs the lane's steps each through
 //! `run_in_group`, stopping at the first one that fails. A step has a time
 //! limit (app_config.rs): past it the step's process group is killed and the
 //! build fails, which gives up the lock.
@@ -25,6 +28,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
@@ -39,6 +43,21 @@ use crate::places::Places;
 use crate::text::note;
 
 const USAGE: &str = "usage: builds app-build <repo> <ref> [<step>...] | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...]";
+
+/// Set by the parent in each lane's process: print the marker line below once
+/// the checkout is known.
+const PREFIXED: &str = "BUILDS_APP_BUILD_PREFIXED";
+/// A line of a lane's output that names the checkout it builds in; the parent
+/// changes the prefix and prints nothing.
+const CHECKOUT_MARKER: &str = "\u{1}builds-app-checkout ";
+
+/// The prefix for <lane>'s lines once <line> is the marker naming a checkout;
+/// None for any other line.
+fn prefix_from_marker(lane: &str, line: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(line).ok()?;
+    let name = text.strip_prefix(CHECKOUT_MARKER)?.trim_end();
+    Some(format!("[{lane} {name}] "))
+}
 
 /// How long the parent waits, after a lane's process has ended, for the end of
 /// its output: a step may leave a process behind (a build server) that holds
@@ -99,12 +118,15 @@ fn run_steps(top: &Path, steps: &[Step]) -> Result<Ran> {
     Ok(Ran::Finished)
 }
 
-/// The first lane of <repo> with an app checkout recorded, and its folder.
+/// The first app checkout recorded for <repo>, in the first lane that has
+/// one, and its folder.
 fn any_checkout(places: &Places, repo: &str) -> Result<std::path::PathBuf> {
-    match Lane::ALL.into_iter().find_map(|lane| app_checkout_top(places, repo, lane).ok()) {
-        Some(top) => Ok(top),
-        None => fail!("{repo} has no app checkout; builds app-checkout records one"),
+    for lane in Lane::ALL {
+        if let Some(name) = places.app_checkouts_of(repo, lane)?.first() {
+            return app_checkout_top(places, repo, name);
+        }
     }
+    fail!("{repo} has no app checkout; builds app-checkout records one")
 }
 
 /// The repo's `.app-build` at <commit>, read without touching a checkout's
@@ -119,10 +141,17 @@ fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
 /// Builds <commit> in <lane>'s app checkout on the lane's lock: <names> are
 /// the lane's steps to run, or all of them when none.
 fn run_lane(places: &Places, repo: &str, lane: Lane, commit: &str, names: &[String]) -> Result<()> {
-    let top = app_checkout_top(places, repo, lane)?;
     note(format!("waiting for {repo}'s {} app lock, then building {commit}", lane.word()));
     let mut held = lock::take(places, repo, lane)?;
     loop {
+        let top = app_checkout_top(places, repo, &held.checkout)?;
+        note(format!("building in {}", held.checkout));
+        if std::env::var_os(PREFIXED).is_some() {
+            // On both streams: each is read by a thread of its own, and a line
+            // after the marker in a stream must find the new prefix.
+            println!("{CHECKOUT_MARKER}{}", held.checkout);
+            eprintln!("{CHECKOUT_MARKER}{}", held.checkout);
+        }
         let config = check_out(&top, commit)?;
         let steps = chosen(&config, lane, names)?;
         if steps.is_empty() {
@@ -152,14 +181,25 @@ extern "C" fn pass_to_lanes(signal: libc::c_int) {
 
 /// Copies <from> to <to>, each line behind <prefix>; sends on <done> at the
 /// end.
-fn copy_lines(from: impl Read, mut to: impl Write, prefix: String, done: std::sync::mpsc::Sender<()>) {
+fn copy_lines(
+    from: impl Read,
+    mut to: impl Write,
+    lane: &'static str,
+    prefix: Arc<Mutex<String>>,
+    done: std::sync::mpsc::Sender<()>,
+) {
     let mut from = BufReader::new(from);
     let mut line = Vec::new();
     while let Ok(read) = from.read_until(b'\n', &mut line) {
         if read == 0 {
             break;
         }
-        let mut out = prefix.clone().into_bytes();
+        if let Some(named) = prefix_from_marker(lane, &line) {
+            *prefix.lock().expect("no panic holding it") = named;
+            line.clear();
+            continue;
+        }
+        let mut out = prefix.lock().expect("no panic holding it").clone().into_bytes();
         out.extend_from_slice(&line);
         if !line.ends_with(b"\n") {
             out.push(b'\n');
@@ -185,19 +225,22 @@ fn run_lanes(repo: &str, commit: &str, lanes: &[(Lane, Vec<String>)]) -> Result<
         command
             .args(["app-build", repo, "--lane", lane.word(), commit])
             .args(names)
+            .env(PREFIXED, "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let mut child = command.spawn().context(|| format!("starting the {} lane's build", lane.word()))?;
         LANE_PIDS[at].store(child.id() as i32, Ordering::SeqCst);
         let (done, ended) = channel();
-        let prefix = format!("[{}] ", lane.word());
+        // Both streams share it: it changes once the lane's process says which
+        // checkout it builds in.
+        let prefix = Arc::new(Mutex::new(format!("[{}] ", lane.word())));
         let stdout = child.stdout.take().expect("piped");
         let stderr = child.stderr.take().expect("piped");
         let (out_done, err_done) = (done.clone(), done);
-        let out_prefix = prefix.clone();
-        std::thread::spawn(move || copy_lines(stdout, std::io::stdout(), out_prefix, out_done));
-        std::thread::spawn(move || copy_lines(stderr, std::io::stderr(), prefix, err_done));
+        let (word, out_prefix) = (lane.word(), prefix.clone());
+        std::thread::spawn(move || copy_lines(stdout, std::io::stdout(), word, out_prefix, out_done));
+        std::thread::spawn(move || copy_lines(stderr, std::io::stderr(), word, prefix, err_done));
         running.push((*lane, child, ended));
     }
     let mut failed = Vec::new();

@@ -130,7 +130,7 @@ fn a_kept_tree_stays_in_main_and_the_app_checkout_but_not_in_another_worktree() 
     let other = scratch.dir.join("demo-worktrees/side-2");
     crate::testing::git(&main, &["worktree", "add", "-q", "--detach", &other.display().to_string()]);
     std::fs::create_dir_all(tool.places.root.join("demo")).unwrap();
-    std::fs::write(tool.places.app_checkout_file("demo", Lane::Mac), "side-1\n").unwrap();
+    std::fs::write(tool.places.app_checkouts_file("demo", Lane::Mac), "side-1\n").unwrap();
 
     for (top, name, kept) in [(&main, "main", true), (&side, "side-1", true), (&other, "side-2", false)] {
         let checkout = Checkout::find(&top.display().to_string()).unwrap();

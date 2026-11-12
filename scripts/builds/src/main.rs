@@ -17,6 +17,7 @@ mod install;
 mod lane;
 mod lock;
 mod manifest;
+mod migrate;
 mod mode;
 mod places;
 mod procs;

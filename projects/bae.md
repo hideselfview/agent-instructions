@@ -174,10 +174,10 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
 
 - **Side worktrees build host Rust only** (`target`: tests, clippy, the
   pre-commit hook). App builds — the bridge for macOS, iOS or Android, the Xcode
-  apps, BaeKit, Gradle, Avalonia — stay warm in main and in one app checkout per
-  lane, the mac lane (Xcode, `target-macos`) and the android lane (Gradle,
-  `target-android`), which share no build output and so each have a checkout,
-  lock and queue of their own:
+  apps, BaeKit, Gradle, Avalonia — stay warm in main and in the app checkouts of
+  each lane, the mac lane (Xcode, `target-macos`) and the android lane (Gradle,
+  `target-android`), which share no build output and so each have checkouts,
+  locks and a queue of their own:
 
   - **main**, the person's checkout. Notarized macOS releases come only from
     main (`scripts/release-macos.sh` runs the `release-macos.yml` workflow on
@@ -191,22 +191,26 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     (Swift, Kotlin, C#, or a bridge shape the apps compile against):
     `~/dev/bae-worktrees/side-1` is the mac lane's (recorded for the tool with
     `builds app-checkout mac ~/dev/bae-worktrees/side-1`), and the android
-    lane's is another side worktree recorded with
-    `builds app-checkout android <worktree>`; `builds status` shows which.
-    Commit on your branch in your own worktree, then run, as a background task:
+    lane's are other side worktrees recorded with
+    `builds app-checkout android <worktree>` (a lane may have several, each with
+    a lock of its own; `builds app-checkout remove` takes one out);
+    `builds status` shows which. Commit on your branch in your own worktree,
+    then run, as a background task:
 
     ```sh
     builds app-build bae <branch> [<step>...]
     ```
 
-    It takes the queue for the lock of each lane the steps are in
-    (`/Volumes/Builds/bae/app.lock` for the mac lane, `app-android.lock` for the
-    android), checks the branch out in that lane's app checkout (which must be
-    clean) and runs the lane's steps of the repo's `.app-build`, in the order
-    named, stopping at the first that fails; with no step named it runs every
-    one. The lanes build at the same time, each output line behind `[mac]` or
-    `[android]`, and the command fails if either lane does, saying which; a
-    mac-only build and an android-only build don't wait on each other.
+    It takes the queue for the locks of each lane the steps are in
+    (`/Volumes/Builds/bae/app.locks/<checkout>` for the mac lane,
+    `app-android.locks/<checkout>` for the android; the next in line takes
+    whichever checkout of the lane is free), checks the branch out in that app
+    checkout (which must be clean) and runs the lane's steps of the repo's
+    `.app-build`, in the order named, stopping at the first that fails; with no
+    step named it runs every one. The lanes build at the same time, each output
+    line behind `[mac side-N]` or `[android side-N]` (the checkout it builds
+    in), and the command fails if either lane does, saying which; a mac-only
+    build and an android-only build don't wait on each other.
     `builds app-build bae --list` prints the steps with their lanes: `macos`
     (build the app), `macos-tests` (compile its unit tests), `macos-tests-run`
     (run them, without rebuilding; the UI tests are not among them),

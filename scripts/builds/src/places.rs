@@ -103,37 +103,57 @@ impl Places {
         self.root.join("caches")
     }
 
-    /// The file naming <repo>'s app checkout in <lane>, the side worktree
-    /// that keeps that lane's app builds warm beside main;
-    /// `builds app-checkout` writes it. It sits beside the lane's lock.
-    pub fn app_checkout_file(&self, repo: &str, lane: Lane) -> PathBuf {
-        self.root.join(repo).join(lane.checkout_file_name())
+    /// The file naming <repo>'s app checkouts in <lane>, one side worktree
+    /// name per line: the side worktrees that keep that lane's app builds warm
+    /// beside main. `builds app-checkout` writes it.
+    pub fn app_checkouts_file(&self, repo: &str, lane: Lane) -> PathBuf {
+        self.root.join(repo).join(lane.checkouts_file_name())
     }
 
-    /// <lane>'s lock for <repo>: <root>/<repo>/app.lock for the mac lane.
-    pub fn app_lock_file(&self, repo: &str, lane: Lane) -> PathBuf {
-        self.root.join(repo).join(lane.lock_file_name())
+    /// <lane>'s locks for <repo>: <root>/<repo>/app.locks for the mac lane.
+    pub fn app_locks_dir(&self, repo: &str, lane: Lane) -> PathBuf {
+        self.root.join(repo).join(lane.locks_dir_name())
     }
 
-    /// <lane>'s queue folder for <repo>.
-    pub fn app_queue_dir(&self, repo: &str, lane: Lane) -> PathBuf {
-        self.root.join(repo).join(lane.queue_dir_name())
+    /// The lock of <repo>'s app checkout <checkout> in <lane>.
+    pub fn app_lock_file(&self, repo: &str, lane: Lane, checkout: &str) -> PathBuf {
+        self.app_locks_dir(repo, lane).join(checkout)
     }
 
-    /// <repo>'s app checkout name (side-N) in <lane>, when one is recorded.
-    pub fn app_checkout_of(&self, repo: &str, lane: Lane) -> Result<Option<String>> {
-        let file = self.app_checkout_file(repo, lane);
+    /// <repo>'s app checkouts (side-N) in <lane>, in the order recorded;
+    /// empty when none is.
+    pub fn app_checkouts_of(&self, repo: &str, lane: Lane) -> Result<Vec<String>> {
+        let file = self.app_checkouts_file(repo, lane);
         match std::fs::read_to_string(&file) {
-            Ok(text) => Ok(Some(text.trim_end_matches('\n').to_string())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Ok(text) => Ok(text.lines().filter(|line| !line.is_empty()).map(str::to_string).collect()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(error) => fail!("reading {}: {error}", file.display()),
         }
     }
 
-    /// The lane <checkout> is <repo>'s app checkout of, if it is one.
+    /// Replaces <lane>'s set of app checkouts with <checkouts>, in one rename;
+    /// an empty set removes the file.
+    pub fn write_app_checkouts(&self, repo: &str, lane: Lane, checkouts: &[String]) -> Result<()> {
+        use crate::fail::Context;
+        let file = self.app_checkouts_file(repo, lane);
+        if checkouts.is_empty() {
+            return match std::fs::remove_file(&file) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => fail!("removing {}: {error}", file.display()),
+                _ => Ok(()),
+            };
+        }
+        let dir = self.root.join(repo);
+        std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+        let part = dir.join(format!("{}.part", lane.checkouts_file_name()));
+        let text: String = checkouts.iter().map(|name| format!("{name}\n")).collect();
+        std::fs::write(&part, text).context(|| format!("writing {}", part.display()))?;
+        std::fs::rename(&part, &file).context(|| format!("replacing {}", file.display()))
+    }
+
+    /// The lane <checkout> is one of <repo>'s app checkouts of, if it is one.
     pub fn app_lane_of(&self, repo: &str, checkout: &str) -> Result<Option<Lane>> {
         for lane in Lane::ALL {
-            if self.app_checkout_of(repo, lane)?.as_deref() == Some(checkout) {
+            if self.app_checkouts_of(repo, lane)?.iter().any(|name| name == checkout) {
                 return Ok(Some(lane));
             }
         }

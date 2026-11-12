@@ -1,17 +1,21 @@
-//! The line for a repo's app lock in a lane: <root>/<repo>/app.queue for the
+//! The line for a repo's app locks in a lane: <root>/<repo>/app.queue for the
 //! mac lane, app-android.queue for the android lane (lane.rs). Each lane has
-//! its own lock and its own line.
+//! its own locks, one per app checkout, and one line for all of them.
 //!
-//! `order` names one ticket per line, next first; the holder's is at the head.
+//! `order` names one ticket per line, next first; the holders' are at the
+//! head: as many as the lane has app checkouts (its `slots`). A ticket among
+//! the first `slots` may take a free lock; one further back waits.
 //! Every change to it happens under a short guard lock, `.next`. A ticket is a
 //! file named `<pid>-<n>` (n counts that process's tickets), held locked for
 //! the life of its process and of every process that process starts, and
 //! holding nothing else: the name carries the pid.
 //!
-//! A waiter blocks, in a thread inside `open` (O_EXLOCK), on the ticket of the
-//! entry before it. Getting that lock means the ticket's owner is gone, so the
-//! waiter takes the entry out of the order and looks again: a waiter that dies
-//! in line never lets anyone past the holder. SIGUSR1 means the order changed:
+//! A waiter blocks, in a thread inside `open` (O_EXLOCK) for each, on the
+//! ticket of the entry before it and on the tickets of the first `slots`
+//! entries (one of those leaving is what lets it forward). Getting that lock
+//! means the ticket's owner is gone, so the waiter takes the entry out of the
+//! order and looks again: a waiter that dies in line never lets anyone past
+//! the holders. SIGUSR1 means the order changed:
 //! the waiter's own thread waits in a kqueue for that signal and for its
 //! blocked threads, registered before it first reads the order, so a signal
 //! is counted whether or not the waiter is blocked at that moment (a lost
@@ -74,9 +78,21 @@ pub fn open_locked(path: &Path) -> Result<libc::c_int> {
     open_with(path, libc::O_CREAT).context(|| format!("locking {}", path.display()))
 }
 
+/// The lock on the file at <path> (made if missing), or None when a process
+/// holds it. Left open without close-on-exec, as `open_locked`.
+pub fn try_lock(path: &Path) -> Result<Option<libc::c_int>> {
+    match open_with(path, libc::O_CREAT | libc::O_NONBLOCK) {
+        Ok(fd) => Ok(Some(fd)),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+        Err(error) => fail!("locking {}: {error}", path.display()),
+    }
+}
+
 /// Whether a process holds the lock on the file at <path>.
-fn is_held(path: &Path) -> Result<bool> {
-    match open_with(path, libc::O_NONBLOCK) {
+pub fn is_held(path: &Path) -> Result<bool> {
+    // Close-on-exec: this descriptor only probes, and a process started while
+    // it is open must not keep the lock.
+    match open_with(path, libc::O_NONBLOCK | libc::O_CLOEXEC) {
         Ok(fd) => {
             unsafe { libc::close(fd) };
             Ok(false)
@@ -98,9 +114,11 @@ pub struct Ticket {
     pub fd: libc::c_int,
 }
 
-/// <repo>'s queue folder.
+/// <repo>'s queue folder for a lane, and the file naming the lane's app
+/// checkouts, which says how many hold the lane's locks at once.
 pub struct Queue {
     dir: PathBuf,
+    checkouts_file: PathBuf,
 }
 
 /// The guard lock, held until dropped. It is not passed to processes this one
@@ -115,11 +133,18 @@ impl Drop for Guard {
 
 impl Queue {
     pub fn of(places: &Places, repo: &str, lane: Lane) -> Queue {
-        Queue { dir: places.app_queue_dir(repo, lane) }
+        Queue::in_repo_dir(&places.root.join(repo), lane)
     }
 
     pub fn in_repo_dir(repo_dir: &Path, lane: Lane) -> Queue {
-        Queue { dir: repo_dir.join(lane.queue_dir_name()) }
+        Queue { dir: repo_dir.join(lane.queue_dir_name()), checkouts_file: repo_dir.join(lane.checkouts_file_name()) }
+    }
+
+    /// How many builds the lane holds locks for at once: its app checkouts,
+    /// read now, at least one.
+    pub fn slots(&self) -> usize {
+        let text = std::fs::read_to_string(&self.checkouts_file).unwrap_or_default();
+        text.lines().filter(|line| !line.is_empty()).count().max(1)
     }
 
     fn ticket_path(&self, name: &str) -> PathBuf {
@@ -148,9 +173,10 @@ impl Queue {
         std::fs::rename(&part, &order_file).context(|| format!("replacing {}", order_file.display()))
     }
 
-    /// The pid of each ticket in line after the head, next first.
+    /// The pid of each ticket in line after the holders' (the first `slots`),
+    /// next first.
     pub fn waiting(&self) -> Vec<i32> {
-        self.order().iter().skip(1).filter_map(|name| pid_of(name)).collect()
+        self.order().iter().skip(self.slots()).filter_map(|name| pid_of(name)).collect()
     }
 
     /// Makes this process's next ticket, locked, and puts it last in line;
@@ -209,42 +235,58 @@ impl Queue {
         self.unlink(name)
     }
 
-    /// Waits until <mine> is first in the order.
+    /// Waits until <mine> is among the first `slots` of the order.
     pub fn wait_for_turn(&self, mine: &str) -> Result<()> {
         self.wait_for_turn_with(mine, || {})
     }
 
     /// `wait_for_turn`, calling <after_read> once the order is read and the
-    /// wait on its predecessor started, before the process waits for an
+    /// waits on the tickets ahead started, before the process waits for an
     /// event: where a signal must not be lost.
     fn wait_for_turn_with(&self, mine: &str, mut after_read: impl FnMut()) -> Result<()> {
         route_repoint_signal();
         // Before the first read: a signal sent for a change this read
         // misses is counted from here on.
         let wake = Wake::new()?;
-        let shared = Arc::new(Mutex::new(Shared { current: 0, open: true }));
+        let shared = Arc::new(Mutex::new(Shared { current: std::collections::HashSet::new(), open: true }));
         let mut generation = 0;
-        let mut waiting: Option<(u64, String)> = None;
+        // The tickets being waited on, each with the wait that started on it.
+        let mut waiting: Vec<(u64, String)> = Vec::new();
         let result = (|| -> Result<()> {
             loop {
                 let order = self.order();
                 let Some(at) = order.iter().position(|name| name == mine) else {
                     fail!("{mine} is no longer in {}", self.dir.join("order").display());
                 };
-                if at == 0 {
+                let slots = self.slots();
+                if at < slots {
                     return Ok(());
                 }
-                let before = &order[at - 1];
-                if waiting.as_ref().is_none_or(|(_, name)| name != before) {
-                    generation += 1;
-                    shared.lock().expect("no panic holding it").current = generation;
-                    wake.block_on(self.ticket_path(before), generation, shared.clone())?;
-                    waiting = Some((generation, before.clone()));
+                // The holders': one leaving moves this forward. And the entry
+                // before it: a waiter that died there is taken out at once.
+                let mut ahead: Vec<&String> = order[..slots].iter().collect();
+                if !ahead.contains(&&order[at - 1]) {
+                    ahead.push(&order[at - 1]);
+                }
+                waiting.retain(|(started, name)| {
+                    let keep = ahead.contains(&name);
+                    if !keep {
+                        shared.lock().expect("no panic holding it").current.remove(started);
+                    }
+                    keep
+                });
+                for name in ahead {
+                    if waiting.iter().all(|(_, waited)| waited != name) {
+                        generation += 1;
+                        shared.lock().expect("no panic holding it").current.insert(generation);
+                        wake.block_on(self.ticket_path(name), generation, shared.clone())?;
+                        waiting.push((generation, name.clone()));
+                    }
                 }
                 after_read();
                 if wake.wait()?.ready {
                     while let Some((from, code)) = wake.message() {
-                        let Some(name) = waiting.as_ref().filter(|(current, _)| *current == from).map(|(_, name)| name.clone()) else {
+                        let Some(found) = waiting.iter().position(|(started, _)| *started == from) else {
                             // A wait on a ticket since given up: it holds a
                             // ticket for this instant only.
                             if code >= 0 {
@@ -252,6 +294,8 @@ impl Queue {
                             }
                             continue;
                         };
+                        let (started, name) = waiting.remove(found);
+                        shared.lock().expect("no panic holding it").current.remove(&started);
                         if code >= 0 {
                             let dropped = self.drop_ticket(&name);
                             unsafe { libc::close(code) };
@@ -261,7 +305,6 @@ impl Queue {
                         } else {
                             fail!("waiting on {}: {}", self.ticket_path(&name).display(), std::io::Error::from_raw_os_error(-code));
                         }
-                        waiting = None;
                     }
                 }
             }
@@ -277,27 +320,29 @@ impl Queue {
         result
     }
 
-    /// Moves the ticket of <pid> to right behind the holder, which is first.
+    /// Moves the ticket of <pid> to right behind the holders, which are the
+    /// first `slots`.
     fn move_to_top(&self, pid: i32) -> Result<()> {
         let _guard = self.guard()?;
+        let slots = self.slots();
         let mut order = self.order();
         let Some(at) = order.iter().position(|name| pid_of(name) == Some(pid)) else {
             fail!("{pid} is not in the queue");
         };
-        if at == 0 {
-            fail!("{pid} is first in the queue: it holds the lock or is about to");
+        if at < slots {
+            fail!("{pid} is among the first {slots} in the queue: it holds a lock or is about to");
         }
         let name = order.remove(at);
-        order.insert(1.min(order.len()), name);
+        order.insert(slots.min(order.len()), name);
         self.write_order(&order)
     }
 }
 
 /// What the threads blocked in `open` and the wait agree on.
 struct Shared {
-    /// The wait whose result is wanted; a thread of another one lets its
+    /// The waits whose results are wanted; a thread of another one lets its
     /// ticket go.
-    current: u64,
+    current: std::collections::HashSet<u64>,
     /// False once the wait has ended.
     open: bool,
 }
@@ -364,7 +409,7 @@ impl Wake {
             };
             let sent = {
                 let shared = shared.lock().expect("no panic holding it");
-                if shared.open && shared.current == generation {
+                if shared.open && shared.current.contains(&generation) {
                     let mut message = [0u8; MESSAGE];
                     message[..8].copy_from_slice(&generation.to_le_bytes());
                     message[8..12].copy_from_slice(&code.to_le_bytes());
@@ -443,7 +488,7 @@ fn check_repo(places: &Places, repo: &str, lane: Lane) -> Result<()> {
     if repo.is_empty() || repo.starts_with('.') || repo.contains('/') {
         fail!("{repo:?} is not a repo's name");
     }
-    if !places.app_checkout_file(repo, lane).is_file() {
+    if places.app_checkouts_of(repo, lane)?.is_empty() {
         fail!("{repo} has no {} app checkout recorded; builds app-checkout records one", lane.word());
     }
     Ok(())
@@ -454,7 +499,12 @@ fn lanes_of(places: &Places, repo: &str) -> Result<Vec<Lane>> {
     if repo.is_empty() || repo.starts_with('.') || repo.contains('/') {
         fail!("{repo:?} is not a repo's name");
     }
-    let lanes: Vec<Lane> = Lane::ALL.into_iter().filter(|lane| places.app_checkout_file(repo, *lane).is_file()).collect();
+    let mut lanes = Vec::new();
+    for lane in Lane::ALL {
+        if !places.app_checkouts_of(repo, lane)?.is_empty() {
+            lanes.push(lane);
+        }
+    }
     if lanes.is_empty() {
         fail!("{repo} has no app checkout recorded; builds app-checkout records one");
     }
@@ -508,10 +558,11 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
     let queue = Queue::of(places, repo, lane);
     let holder = {
         let _guard = queue.guard()?;
+        let slots = queue.slots();
         let mut order = queue.order();
         let taker = match pid {
             Some(pid) => order.iter().position(|name| pid_of(name) == Some(pid)),
-            None => (order.len() > 1).then_some(1),
+            None => (order.len() > slots).then_some(slots),
         };
         let Some(taker) = taker else {
             match pid {
@@ -519,17 +570,22 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
                 None => fail!("nobody waits in {repo}'s {} queue", lane.word()),
             }
         };
-        if taker == 0 {
-            fail!("{} is first in the queue: it holds the lock or is about to", pid.unwrap_or_default());
+        if taker < slots {
+            fail!("{} is among the first {slots} in the queue: it holds a lock or is about to", pid.unwrap_or_default());
         }
-        let holding = is_held(&places.app_lock_file(repo, lane))?;
+        let mut holding = true;
+        for checkout in places.app_checkouts_of(repo, lane)? {
+            holding &= is_held(&places.app_lock_file(repo, lane, &checkout))?;
+        }
         let name = order.remove(taker);
         if !holding {
-            order.insert(1.min(order.len()), name);
+            order.insert(slots.min(order.len()), name);
             queue.write_order(&order)?;
             None
         } else {
-            let holder = order[0].clone();
+            // Every lock is held: the build that joined last of the holders
+            // is the one stopped.
+            let holder = order[slots - 1].clone();
             let Some(holder_pid) = pid_of(&holder).filter(|pid| is_builds(&Processes::read(), *pid)) else {
                 fail!("the holder's `builds` is gone, so its build can't be told to stop; kill its processes by pid");
             };
@@ -545,6 +601,12 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
         signal_all(&[holder], libc::SIGUSR2);
     }
     Ok(())
+}
+
+/// Tells every ticket's process in <lane>'s line to read the order again: its
+/// set of app checkouts changed.
+pub fn repoint(places: &Places, repo: &str, lane: Lane) {
+    signal_all(&pids_in(&Queue::of(places, repo, lane).order()), libc::SIGUSR1);
 }
 
 /// Splits `--lane <lane>` out of <args>.
@@ -579,9 +641,18 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
             for lane in lanes {
                 let queue = Queue::of(places, repo, lane);
                 let order = queue.order();
-                let holding = is_held(&places.app_lock_file(repo, lane))?;
-                if let (true, Some(head)) = (holding, order.first().and_then(|name| pid_of(name))) {
-                    println!("{}: holder {head} {}", lane.word(), command_of(head));
+                let first: Vec<i32> = order.iter().take(queue.slots()).filter_map(|name| pid_of(name)).collect();
+                for checkout in places.app_checkouts_of(repo, lane)? {
+                    let lock = places.app_lock_file(repo, lane, &checkout);
+                    if !is_held(&lock)? {
+                        continue;
+                    }
+                    let real = std::fs::canonicalize(&lock).unwrap_or(lock.clone());
+                    let holder = first.iter().find(|pid| procs::open_files(**pid).iter().any(|open| *open == real || *open == lock));
+                    match holder {
+                        Some(pid) => println!("{} {checkout}: holder {pid} {}", lane.word(), command_of(*pid)),
+                        None => println!("{} {checkout}: held", lane.word()),
+                    }
                 }
                 let waiting = queue.waiting();
                 if waiting.is_empty() {

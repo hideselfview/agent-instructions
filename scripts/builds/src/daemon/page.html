@@ -306,11 +306,14 @@ function built(c) {
 
 function pill(text, cls) { return h("span", {class: "pill " + cls}, text); }
 function stateOf(c) { return STATES[c.state] || {label: c.state, cls: "s-free"}; }
-// A lock is per app lane (mac, android): each has its own holder and queue.
-function lockOf(repo, appLane) {
-  const lock = repo.locks.find(l => l.lane === appLane);
+// A lock is per app checkout of an app lane (mac, android): each has its own
+// holder. A lane has one queue for its locks, shown on its first checkout's
+// card only (every lock of the lane carries the same one).
+function lockOf(repo, c) {
+  const lock = repo.locks.find(l => l.lane === c.app_lane && l.checkout === c.name);
+  const first = repo.checkouts.filter(o => o.live && o.app_lane === c.app_lane).map(o => o.name).sort()[0] === c.name;
   return {repo: lock ? lock.repo : null, held: !!(lock && lock.holder), waiting: lock ? lock.waiting : 0, holder: lock ? lock.holder : null,
-    queue: lock ? lock.queue : []};
+    queue: lock && first ? lock.queue : []};
 }
 // What holds the app lock, each command as its script's file name with the
 // whole command in the tooltip.
@@ -349,7 +352,7 @@ function activityLine(c) {
 function split(repo) {
   const main = repo.checkouts.find(c => c.live && c.main);
   // One App build per app lane, mac first.
-  const apps = repo.checkouts.filter(c => c.live && c.app_checkout).sort((a, b) => a.app_lane < b.app_lane ? 1 : -1);
+  const apps = repo.checkouts.filter(c => c.live && c.app_checkout).sort((a, b) => a.app_lane < b.app_lane ? 1 : a.app_lane > b.app_lane ? -1 : a.name < b.name ? -1 : 1);
   const sides = repo.checkouts.filter(c => c.live && !c.main && !c.app_checkout);
   sides.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || byActivity(a, b));
   return {main, apps, sides, gone: repo.checkouts.filter(c => !c.live)};
@@ -462,7 +465,7 @@ function pinnedMain(repo, c) {
     totalBlock(b), chips(b));
 }
 function pinnedApp(repo, c) {
-  const b = built(c), lock = lockOf(repo, c.app_lane);
+  const b = built(c), lock = lockOf(repo, c);
   return h("article", {class: "pinned"},
     h("div", {class: "row1"},
       h("div", {class: "ident"}, h("span", {class: "name"}, "App build · " + c.app_lane),
@@ -571,7 +574,7 @@ function reposView(root) {
       summary([agents ? plural(agents, "agent", "agents") : null, ...stateCounts(sides), goneLine(gone)]) || "no side worktrees";
     const pinned = [];
     if (main) pinned.push({key: "main", data: [repo.lanes, main], make: () => pinnedMain(repo, main)});
-    for (const app of apps) pinned.push({key: "app " + app.app_lane, data: [repo.locks, app], make: () => pinnedApp(repo, app)});
+    for (const app of apps) pinned.push({key: "app " + app.app_lane + " " + app.name, data: [repo.locks, app], make: () => pinnedApp(repo, app)});
     patch(section.querySelector(".pinned-grid"), pinned);
     patch(section.querySelector(".cards"), shown(sides).map(c => ({key: c.name, data: c, make: () => card(c)})));
     return section;
@@ -588,7 +591,7 @@ function compactMain(repo, c) {
     activityLine(c));
 }
 function compactApp(repo, c) {
-  const b = built(c), lock = lockOf(repo, c.app_lane);
+  const b = built(c), lock = lockOf(repo, c);
   const line = lock.held
     ? "Lock held: an agent is building here" + (lock.waiting ? ", " + lock.waiting + " waiting." : ".")
     : "Lock free. Agents build the apps here, one at a time.";
@@ -622,7 +625,7 @@ function lanesView(root) {
   for (const repo of state.repos) {
     const s = split(repo);
     if (s.main) pinned.push({key: repo.name + " main", data: [s.main], make: () => compactMain(repo, s.main)});
-    for (const app of s.apps) pinned.push({key: repo.name + " app " + app.app_lane, data: [repo.locks, app], make: () => compactApp(repo, app)});
+    for (const app of s.apps) pinned.push({key: repo.name + " app " + app.app_lane + " " + app.name, data: [repo.locks, app], make: () => compactApp(repo, app)});
     for (const c of s.sides) all.push([repo, c]);
     for (const c of s.gone) gone.push(c);
   }

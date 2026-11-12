@@ -55,7 +55,7 @@ fn the_app_checkout_takes_its_own_cap() {
         setup(&tool, &checkout).unwrap();
         roots.push((checkout, tool.places.root.join("demo").join(name)));
     }
-    std::fs::write(tool.places.app_checkout_file("demo", Lane::Mac), "side-1\n").unwrap();
+    std::fs::write(tool.places.app_checkouts_file("demo", Lane::Mac), "side-1\n").unwrap();
     for (checkout, root) in &roots {
         fill(&root.join("target/blob"), 2048);
         setup(&tool, checkout).unwrap();
@@ -102,7 +102,7 @@ fn a_lane_checkout_takes_the_app_cap_only_on_the_folders_its_lane_builds_into() 
         git(&main, &["worktree", "add", "-q", "--detach", &side.display().to_string()]);
         let checkout = Checkout::find(&side.display().to_string()).unwrap();
         setup(&tool, &checkout).unwrap();
-        std::fs::write(tool.places.app_checkout_file("demo", lane), format!("{name}\n")).unwrap();
+        std::fs::write(tool.places.app_checkouts_file("demo", lane), format!("{name}\n")).unwrap();
         roots.push((checkout, tool.places.root.join("demo").join(name)));
     }
     for (checkout, root) in &roots {

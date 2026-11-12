@@ -325,15 +325,15 @@ the cause and fix it then.
   clean, every commit on `origin/main` by patch) and adds another only when none
   is free; it always claims what it hands out. `builds prune` retires an extra
   after a day idle (no claim, write or build) with everything landed. It never
-  retires main, `side-1`, the app checkout, a claimed worktree (the landing
+  retires main, `side-1`, an app checkout, a claimed worktree (the landing
   worktree's claim holds it) or one with unlanded commits, which `builds health`
   lists.
 - **App builds** (Xcode, Gradle, a bridge cross-compiled for a platform) stay
-  warm in main and in one long-lived side worktree, the repo's app checkout;
-  other side worktrees build host output only (Rust's `target`). Agents take
-  turns in the app checkout under its lock file. Another warm app build is fine
-  while a wave of work needs it, and is cleared once that work has moved on, by
-  the same judgment as extra worktrees.
+  warm in main and in long-lived side worktrees, the repo's app checkouts (one
+  or more per lane); other side worktrees build host output only (Rust's
+  `target`). Agents take turns in an app checkout under its lock file. Another
+  warm app build is fine while a wave of work needs it, and is cleared once that
+  work has moved on, by the same judgment as extra worktrees.
 
 Each checkout builds into its own folders on the build volume
 (`/Volumes/Builds/<repo>/<checkout>/`), linked from the paths the repo's

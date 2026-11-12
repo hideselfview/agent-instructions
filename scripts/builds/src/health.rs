@@ -104,6 +104,9 @@ pub struct LockHealth {
     pub repo: String,
     /// The app lane the lock is for (`mac`, `android`).
     pub lane: String,
+    /// The app checkout (side-N) the lock is for. The lane's queue is one for
+    /// all its locks, so each lock shows the same `queue`.
+    pub checkout: String,
     pub path: String,
     pub holder: Option<Holder>,
     pub waiting: usize,
@@ -145,12 +148,14 @@ impl Holder {
     }
 }
 
-/// A repo's app lock for a lane and the lane's app checkout.
+/// A repo's app lock for one of a lane's app checkouts, and that checkout.
 pub struct AppLock {
     pub repo: String,
     pub lane: Lane,
+    /// The app checkout (side-N) the lock is for.
+    pub checkout: String,
     pub path: PathBuf,
-    /// The lane's app checkout's top, when it is a live checkout.
+    /// The app checkout's top, when it is a live checkout.
     pub app_top: Option<PathBuf>,
 }
 
@@ -295,7 +300,7 @@ pub fn sample(
         }
     }
     let mut held = Vec::new();
-    for AppLock { repo, lane, path, app_top } in locks {
+    for AppLock { repo, lane, checkout, path, app_top } in locks {
         let shown = path.display().to_string();
         let real = std::fs::canonicalize(path).unwrap_or(path.clone());
         let opened = |pid: i32| open_files(pid).iter().any(|open| *open == real || open == path);
@@ -324,7 +329,7 @@ pub fn sample(
             app_head: app_top.as_deref().and_then(head_of),
         });
         let holder_pid = holder.as_ref().map(|h| h.pid);
-        let in_line = path.parent().map(|repo_dir| crate::queue::Queue::in_repo_dir(repo_dir, *lane).waiting()).unwrap_or_default();
+        let in_line = path.parent().and_then(|locks_dir| locks_dir.parent()).map(|repo_dir| crate::queue::Queue::in_repo_dir(repo_dir, *lane).waiting()).unwrap_or_default();
         let queue = in_line
             .into_iter()
             .filter(|pid| Some(*pid) != holder_pid)
@@ -337,7 +342,7 @@ pub fn sample(
             })
             .collect::<Vec<_>>();
         let waiting = queue.len();
-        held.push(LockHealth { repo: repo.clone(), lane: lane.word().to_string(), path: shown, holder, waiting, queue });
+        held.push(LockHealth { repo: repo.clone(), lane: lane.word().to_string(), checkout: checkout.clone(), path: shown, holder, waiting, queue });
     }
     Machine {
         at: now,
@@ -514,16 +519,17 @@ pub fn locks_of(places: &crate::places::Places, roots: &[Root]) -> Result<Vec<Ap
     let mut locks = Vec::new();
     for repo in repos {
         for lane in Lane::ALL {
-            let path = places.app_lock_file(&repo, lane);
-            if !path.is_file() {
-                continue;
+            for app in places.app_checkouts_of(&repo, lane)? {
+                let path = places.app_lock_file(&repo, lane, &app);
+                if !path.is_file() {
+                    continue;
+                }
+                let app_top = roots
+                    .iter()
+                    .find(|root| root_repo(root) == repo && root.name() == app && root.live.is_some())
+                    .map(|root| root.top.clone());
+                locks.push(AppLock { repo: repo.clone(), lane, checkout: app, path, app_top });
             }
-            let app = places.app_checkout_of(&repo, lane)?;
-            let app_top = roots
-                .iter()
-                .find(|root| root_repo(root) == repo && Some(root.name()) == app && root.live.is_some())
-                .map(|root| root.top.clone());
-            locks.push(AppLock { repo: repo.clone(), lane, path, app_top });
         }
     }
     Ok(locks)
@@ -665,16 +671,17 @@ pub fn lines(health: &Health) -> Vec<String> {
     for lock in &health.locks {
         match &lock.holder {
             Some(holder) => out.push(format!(
-                "app lock {} ({}): held {}m by pid {} ({}), {} waiting{}",
+                "app lock {} ({} {}): held {}m by pid {} ({}), {} waiting{}",
                 lock.repo,
                 lock.lane,
+                lock.checkout,
                 holder.minutes,
                 holder.pid,
                 holder.command,
                 lock.waiting,
                 if holder.running.is_empty() { String::new() } else { format!("; running {}", holder.running.join("; ")) }
             )),
-            None => out.push(format!("app lock {} ({}): free, {} waiting", lock.repo, lock.lane, lock.waiting)),
+            None => out.push(format!("app lock {} ({} {}): free, {} waiting", lock.repo, lock.lane, lock.checkout, lock.waiting)),
         }
     }
     if health.findings.is_empty() {

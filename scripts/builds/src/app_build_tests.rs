@@ -42,6 +42,14 @@ fn a_step_the_config_lacks_is_refused_with_the_ones_it_has() {
 }
 
 #[test]
+fn a_marker_line_names_the_checkout_in_the_prefix_and_other_lines_do_not() {
+    let marker = format!("{CHECKOUT_MARKER}side-9\n");
+    assert_eq!(prefix_from_marker("android", marker.as_bytes()).as_deref(), Some("[android side-9] "));
+    assert_eq!(prefix_from_marker("android", b"step android-bridge\n"), None);
+    assert_eq!(prefix_from_marker("mac", &[0xff, 0xfe]), None);
+}
+
+#[test]
 fn steps_stop_at_the_first_failure() {
     let scratch = crate::testing::Scratch::new("app-build-steps");
     let step = |name: &str, command: &[&str]| Step { name: name.to_string(), lane: Lane::Mac, command: command.iter().map(|w| w.to_string()).collect(), limit: None };

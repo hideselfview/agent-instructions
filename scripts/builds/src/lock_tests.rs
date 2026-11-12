@@ -9,7 +9,7 @@ const SETTLE: Duration = Duration::from_millis(200);
 fn places(scratch: &Scratch) -> Places {
     let places = scratch.places();
     std::fs::create_dir_all(places.root.join("demo")).unwrap();
-    std::fs::write(places.app_checkout_file("demo", Lane::Mac), "side-1\n").unwrap();
+    std::fs::write(places.app_checkouts_file("demo", Lane::Mac), "side-1\n").unwrap();
     places
 }
 
@@ -69,4 +69,33 @@ fn a_build_in_a_group_finishes_or_fails_with_its_exit_status() {
     assert_eq!(run_in_group(Command::new("true"), "true").unwrap(), Ran::Finished);
     assert!(matches!(run_in_group(Command::new("false"), "false"), Err(Fail::Exit(1))));
     held.release();
+}
+
+/// Records <count> app checkouts in the mac lane.
+fn set_of(places: &Places, count: usize) {
+    let text: String = (1..=count).map(|n| format!("side-{n}\n")).collect();
+    std::fs::write(places.app_checkouts_file("demo", Lane::Mac), text).unwrap();
+}
+
+#[test]
+fn builds_take_different_checkouts_at_once_and_wait_when_every_lock_is_held() {
+    let scratch = Scratch::new("lock-set");
+    let places = places(&scratch);
+    set_of(&places, 2);
+    let first = take(&places, "demo", Lane::Mac).unwrap();
+    let second = take(&places, "demo", Lane::Mac).unwrap();
+    let mut held = [first.checkout.clone(), second.checkout.clone()];
+    held.sort();
+    assert_eq!(held, ["side-1", "side-2"], "each build has a checkout of its own");
+
+    let (said, heard) = channel();
+    let free_third = take_on_thread(&places, "third", said);
+    assert!(heard.recv_timeout(SETTLE).is_err(), "no lock is free");
+    // The second to join leaves: the third has its checkout.
+    let freed = second.checkout.clone();
+    second.release();
+    assert_eq!(heard.recv().unwrap(), "third");
+    assert!(places.app_lock_file("demo", Lane::Mac, &freed).is_file());
+    free_third.send(()).unwrap();
+    first.release();
 }

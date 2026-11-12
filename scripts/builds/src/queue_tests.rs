@@ -7,7 +7,7 @@ use std::time::Duration;
 const SETTLE: Duration = Duration::from_millis(300);
 
 fn queue(scratch: &Scratch) -> Queue {
-    Queue { dir: scratch.dir.join(Lane::Mac.queue_dir_name()) }
+    Queue::in_repo_dir(&scratch.dir, Lane::Mac)
 }
 
 /// Plants a ticket that nothing holds, last in line, as one left by a process
@@ -75,7 +75,7 @@ fn a_dead_ticket_in_line_lets_no_one_past_the_holder() {
     plant_dead(&queue, "1-1");
     let (last, _) = queue.join().unwrap();
     let (done, finished) = channel();
-    let waiting = Queue { dir: queue.dir.clone() };
+    let waiting = Queue { dir: queue.dir.clone(), checkouts_file: queue.checkouts_file.clone() };
     let name = last.name.clone();
     std::thread::spawn(move || {
         waiting.wait_for_turn(&name).unwrap();
@@ -97,7 +97,7 @@ fn a_signal_between_reading_the_order_and_waiting_is_not_lost() {
     let (first, _) = queue.join().unwrap();
     let (second, _) = queue.join().unwrap();
     let (last, _) = queue.join().unwrap();
-    let waiting = Queue { dir: queue.dir.clone() };
+    let waiting = Queue { dir: queue.dir.clone(), checkouts_file: queue.checkouts_file.clone() };
     let (done, finished) = channel();
     let name = last.name.clone();
     let reorder = vec![first.name.clone(), last.name.clone(), second.name.clone()];
@@ -123,4 +123,64 @@ fn a_signal_between_reading_the_order_and_waiting_is_not_lost() {
     finished.recv_timeout(Duration::from_secs(10)).expect("the wait was re-pointed to the first ticket");
     close(&second);
     close(&last);
+}
+
+/// Records <count> app checkouts for the queue's lane, so it has that many
+/// slots.
+fn set_slots(queue: &Queue, count: usize) {
+    let text: String = (1..=count).map(|n| format!("side-{n}\n")).collect();
+    std::fs::write(&queue.checkouts_file, text).unwrap();
+}
+
+#[test]
+fn a_queue_has_a_slot_for_each_app_checkout_and_at_least_one() {
+    let scratch = Scratch::new("queue-slots");
+    let queue = queue(&scratch);
+    assert_eq!(queue.slots(), 1);
+    set_slots(&queue, 3);
+    assert_eq!(queue.slots(), 3);
+    let tickets: Vec<_> = (0..5).map(|_| queue.join().unwrap().0).collect();
+    assert_eq!(queue.waiting().len(), 2, "the first three hold or may take a lock");
+    for ticket in &tickets {
+        close(ticket);
+    }
+}
+
+#[test]
+fn as_many_waiters_as_slots_go_at_once_and_the_next_goes_when_any_of_them_leaves() {
+    let scratch = Scratch::new("queue-two-slots");
+    let queue = queue(&scratch);
+    set_slots(&queue, 2);
+    let (first, _) = queue.join().unwrap();
+    let (second, _) = queue.join().unwrap();
+    let (third, _) = queue.join().unwrap();
+    queue.wait_for_turn(&first.name).unwrap();
+    queue.wait_for_turn(&second.name).unwrap();
+    let (done, finished) = channel();
+    let waiting = Queue { dir: queue.dir.clone(), checkouts_file: queue.checkouts_file.clone() };
+    let name = third.name.clone();
+    std::thread::spawn(move || {
+        waiting.wait_for_turn(&name).unwrap();
+        done.send(()).unwrap();
+    });
+    assert!(finished.recv_timeout(SETTLE).is_err(), "both slots are taken");
+    // The first leaves, not the third's predecessor.
+    close(&first);
+    finished.recv_timeout(Duration::from_secs(10)).expect("the third took the slot the first left");
+    assert_eq!(queue.order(), vec![second.name.clone(), third.name.clone()]);
+    close(&second);
+    close(&third);
+}
+
+#[test]
+fn a_waiter_moves_to_right_behind_the_holders() {
+    let scratch = Scratch::new("queue-top-slots");
+    let queue = queue(&scratch);
+    set_slots(&queue, 2);
+    for name in ["10-1", "20-1", "30-1", "40-1"] {
+        plant_dead(&queue, name);
+    }
+    queue.move_to_top(40).unwrap();
+    assert_eq!(queue.order(), vec!["10-1", "20-1", "40-1", "30-1"]);
+    assert!(queue.move_to_top(20).is_err(), "a holder is already among the first");
 }

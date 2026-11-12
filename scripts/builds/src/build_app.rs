@@ -144,16 +144,17 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
         _ => fail!("{USAGE}"),
     };
     let places = &tool.places;
-    let top = app_checkout_top(places, repo, platform.lane())?;
 
     note(format!("waiting for {repo}'s {} app lock, then building {commit}'s {} app", platform.word(), platform.word()));
     let mut held = lock::take(places, repo, platform.lane())?;
-    // A takeover stops the build; it runs again from the checkout, behind the
+    // A takeover stops the build; it runs again from a checkout, behind the
     // build that took over.
-    let config = loop {
+    let (config, top) = loop {
+        let top = app_checkout_top(places, repo, &held.checkout)?;
+        note(format!("building in {}", held.checkout));
         let config = check_out(&top, commit)?;
         match run_command(&top, platform.build(&config)?, None)? {
-            Within::Ran(lock::Ran::Finished) => break config,
+            Within::Ran(lock::Ran::Finished) => break (config, top),
             Within::Ran(lock::Ran::TakenOver) => {
                 note(format!("the build was stopped for a takeover; building {commit} again after it"));
                 held = held.requeue()?;

@@ -178,9 +178,9 @@ pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
     let repo = checkout.repo();
     if let Some(lane) = tool.places.app_lane_of(&repo, &checkout.name())? {
         fail!(
-            "{top} is {repo}'s {} app checkout; record another with builds app-checkout, or delete {}, first",
+            "{top} is one of {repo}'s {} app checkouts; builds app-checkout remove {} {top} first",
             lane.word(),
-            tool.places.app_checkout_file(&repo, lane).display()
+            lane.word()
         );
     }
     retire_checkout(tool, &checkout)
@@ -208,11 +208,16 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
     Ok(())
 }
 
-/// `builds app-checkout mac|android <checkout>`: records the side worktree as
-/// its repo's app checkout for the lane, replacing the one recorded before.
+/// `builds app-checkout mac|android <checkout>`: adds the side worktree to its
+/// repo's app checkouts for the lane; `builds app-checkout remove mac|android
+/// <checkout>` takes it out again, while no build holds its lock.
 pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds app-checkout mac|android <checkout>";
-    let [lane, arg] = args else { fail!("{USAGE}") };
+    const USAGE: &str = "usage: builds app-checkout mac|android <checkout> | builds app-checkout remove mac|android <checkout>";
+    let (removing, lane, arg) = match args {
+        [word, lane, arg] if word == "remove" => (true, lane, arg),
+        [lane, arg] => (false, lane, arg),
+        _ => fail!("{USAGE}"),
+    };
     let Some(lane) = Lane::parse(lane) else { fail!("{USAGE}") };
     let checkout = Checkout::find(arg)?;
     if checkout.is_main() {
@@ -227,22 +232,46 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
     tool.places.require_volume()?;
     checkout.require_repo_name(&tool.places)?;
     let repo = checkout.repo();
-    if let Some(other) = tool.places.app_lane_of(&repo, &checkout.name())?.filter(|other| *other != lane) {
+    let name = checkout.name();
+    let mut set = tool.places.app_checkouts_of(&repo, lane)?;
+    if removing {
+        if !set.contains(&name) {
+            fail!("{} is not one of {repo}'s {} app checkouts", checkout.top.display(), lane.word());
+        }
+        let lock = tool.places.app_lock_file(&repo, lane, &name);
+        if crate::queue::is_held(&lock)? {
+            fail!("a build holds {}'s lock; remove it once that build ends", checkout.top.display());
+        }
+        set.retain(|other| *other != name);
+        tool.places.write_app_checkouts(&repo, lane, &set)?;
+        match std::fs::remove_file(&lock) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                fail!("removing {}: {error}", lock.display())
+            }
+            _ => {}
+        }
+        crate::queue::repoint(&tool.places, &repo, lane);
+        note(format!("removed {} from {repo}'s {} app checkouts", checkout.top.display(), lane.word()));
+        return Ok(());
+    }
+    if let Some(other) = tool.places.app_lane_of(&repo, &name)?.filter(|other| *other != lane) {
         fail!(
             "{} is {repo}'s {} app checkout already; the lanes exist so that their builds share no checkout",
             checkout.top.display(),
             other.word()
         );
     }
-    let file = tool.places.app_checkout_file(&repo, lane);
-    let dir = tool.places.root.join(&repo);
-    std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
-    std::fs::write(&file, format!("{}\n", checkout.name())).context(|| format!("writing {}", file.display()))?;
+    if !set.contains(&name) {
+        set.push(name);
+        tool.places.write_app_checkouts(&repo, lane, &set)?;
+        crate::queue::repoint(&tool.places, &repo, lane);
+    }
     note(format!(
-        "recorded {} as {repo}'s {} app checkout in {}; the free-space floor keeps the folders its lane builds into",
+        "{} is one of {repo}'s {} app checkouts ({} in all, in {}); the free-space floor keeps the folders its lane builds into",
         checkout.top.display(),
         lane.word(),
-        file.display()
+        set.len(),
+        tool.places.app_checkouts_file(&repo, lane).display()
     ));
     Ok(())
 }

@@ -1,6 +1,9 @@
 //! `builds lock <repo> [--lane <lane>] <command> [<args>...]`: runs a command
-//! holding the repo's app lock for a lane (the mac lane's unless named),
-//! <root>/<repo>/app.lock for the mac lane (lane.rs).
+//! holding one of the repo's app locks for a lane (the mac lane's unless
+//! named): <root>/<repo>/app.locks/<checkout> for the mac lane, one per app
+//! checkout of the lane (lane.rs). The lane's queue gives the free lock to the
+//! next in line; the command gets the checkout whose lock it holds in
+//! BUILDS_APP_CHECKOUT.
 //!
 //! The lock lives as long as any process of the build does, so no other
 //! command can start in the app checkout while one of them still runs. `lockf`
@@ -88,7 +91,7 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
     let mut held = take(places, repo, lane)?;
     loop {
         let mut start = Command::new(command);
-        start.args(rest);
+        start.args(rest).env("BUILDS_APP_CHECKOUT", &held.checkout);
         match run_in_group(start, command)? {
             Ran::Finished => return Ok(()),
             Ran::TakenOver => {
@@ -99,13 +102,17 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
     }
 }
 
-/// <repo>'s app lock for a lane, held for the life of this process and every process it
-/// starts, unless released first.
+/// One of <repo>'s app locks for a lane, held for the life of this process and
+/// every process it starts, unless released first.
 pub struct Held {
     lock: libc::c_int,
     ticket: Ticket,
     queue: Queue,
-    lock_path: std::path::PathBuf,
+    /// The app checkout (side-N) whose lock this is.
+    pub checkout: String,
+    places: Places,
+    repo: String,
+    lane: Lane,
 }
 
 impl Held {
@@ -121,7 +128,8 @@ impl Held {
     }
 
     /// After a takeover: gives the lock and the place up, takes a new place
-    /// where the old one stood, and waits for the lock again.
+    /// where the old one stood, and waits for a lock again (the one just
+    /// freed, or another's).
     pub fn requeue(self) -> Result<Held> {
         TAKEN_OVER.store(false, Ordering::SeqCst);
         let ticket = self.queue.reissue(&self.ticket)?;
@@ -130,16 +138,41 @@ impl Held {
             libc::close(self.ticket.fd);
         }
         self.queue.wait_for_turn(&ticket.name)?;
-        Ok(Held { lock: queue::open_locked(&self.lock_path)?, ticket, queue: self.queue, lock_path: self.lock_path })
+        let (lock, checkout) = take_free_lock(&self.places, &self.repo, self.lane)?;
+        Ok(Held { lock, ticket, queue: self.queue, checkout, places: self.places, repo: self.repo, lane: self.lane })
     }
 }
 
-/// Joins <repo>'s queue for <lane> and waits its turn for the lane's app lock.
-/// Fails for a repo with no app checkout in the lane.
+/// Takes the first free lock among the lane's app checkouts, waiting for one
+/// to free when the builds ahead have not yet taken theirs or a stopped build
+/// is still going down; returns it with the checkout's name. The lane's queue
+/// lets in as many as there are locks, so a lock is free within moments.
+fn take_free_lock(places: &Places, repo: &str, lane: Lane) -> Result<(libc::c_int, String)> {
+    let dir = places.app_locks_dir(repo, lane);
+    std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+    loop {
+        let checkouts = places.app_checkouts_of(repo, lane)?;
+        if checkouts.is_empty() {
+            fail!("{repo} has no {} app checkout recorded; builds app-checkout records one", lane.word());
+        }
+        for checkout in checkouts {
+            if let Some(lock) = queue::try_lock(&places.app_lock_file(repo, lane, &checkout))? {
+                return Ok((lock, checkout));
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Joins <repo>'s queue for <lane> and waits its turn for one of the lane's app
+/// locks. Fails for a repo with no app checkout in the lane.
 pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
-    let file = places.app_checkout_file(repo, lane);
-    if !file.is_file() {
-        fail!("{repo} has no {} app checkout recorded in {}; builds app-checkout records one", lane.word(), file.display());
+    if places.app_checkouts_of(repo, lane)?.is_empty() {
+        fail!(
+            "{repo} has no {} app checkout recorded in {}; builds app-checkout records one",
+            lane.word(),
+            places.app_checkouts_file(repo, lane).display()
+        );
     }
     queue::route_repoint_signal();
     unsafe { libc::signal(libc::SIGUSR2, take_over as *const () as libc::sighandler_t) };
@@ -147,12 +180,12 @@ pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
     QUEUED.store(true, Ordering::SeqCst);
     let queue = Queue::of(places, repo, lane);
     let (ticket, ahead) = queue.join()?;
-    if ahead > 0 {
+    if ahead >= queue.slots() {
         note(format!("{ahead} ahead in {repo}'s {} app queue", lane.word()));
     }
     queue.wait_for_turn(&ticket.name)?;
-    let lock_path = places.app_lock_file(repo, lane);
-    Ok(Held { lock: queue::open_locked(&lock_path)?, ticket, queue, lock_path })
+    let (lock, checkout) = take_free_lock(places, repo, lane)?;
+    Ok(Held { lock, ticket, queue, checkout, places: places.clone(), repo: repo.to_string(), lane })
 }
 
 /// Whether stdin is a terminal this process is the foreground process of.
