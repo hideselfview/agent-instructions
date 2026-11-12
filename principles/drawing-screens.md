@@ -67,6 +67,16 @@ draws them with its own parts.
   the design calls for and say so; the app's version is not the answer by
   default.
 
+## Colours come from one place
+
+- On a platform, every colour an app shows comes from the design system: the
+  accent the person chose, the surfaces, the text. None is left to the system's
+  own colour (the Mac's accent, Material's dynamic colour) beside them. A mix
+  clashes inside one screen, and two accents at once is never a design.
+- When the platform draws a part in its own colour and offers no way to change
+  it, the app draws that part itself or sets its colour; one that can't is a
+  question for the person, never left native by default.
+
 ## The repo is the canvas's source
 
 - The boards and canvas.json in the repo are the source; the published canvas
