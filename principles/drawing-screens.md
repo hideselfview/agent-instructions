@@ -42,3 +42,13 @@ draws them with its own parts.
   the pixels match.
 - Before adding a part, look for the one the system already has (a sheet's
   button row, a spinner with a label) and use or extend it.
+
+## The review page
+
+- While the person and the design session work on screens together, the session
+  keeps one local page, the review page, showing the boards under discussion
+  rendered live (both themes or platforms as the question needs), each captioned
+  with what changed. It says which page to reload and when; it holds only what
+  is being asked about now, not everything that landed.
+- Working on its own (landing a queue of fixes, answering another session), the
+  session doesn't keep the page; the published canvas is the record.
