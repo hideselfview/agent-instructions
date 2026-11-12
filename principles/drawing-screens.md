@@ -53,6 +53,20 @@ draws them with its own parts.
 - Working on its own (landing a queue of fixes, answering another session), the
   session doesn't keep the page; the published canvas is the record.
 
+## The boards are the target; the app follows them
+
+- Where a board and the app differ, the app changes. A board's words, sizes,
+  names (accessible names included), punctuation and layout are never copied
+  from the app, its strings, its shots or a test harness's sample, not even to
+  make a shot check pass or two platforms agree: the difference goes to the
+  app's work queue.
+- A board changes only when the person decides it, or when it breaks a written
+  rule (the words check, the design system); the commit names which. Even then
+  the new wording is designed, not taken from the app.
+- Where a board has nothing (a placeholder, a control with no name), draw what
+  the design calls for and say so; the app's version is not the answer by
+  default.
+
 ## The repo is the canvas's source
 
 - The boards and canvas.json in the repo are the source; the published canvas
