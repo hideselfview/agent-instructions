@@ -4,8 +4,8 @@
 //! whether the server finished any since.
 //!
 //! It exits 1 when something needs acting on: clients waiting on an sccache
-//! server that finished nothing since the last readings, a Claude shell over
-//! two hours old, a claimed worktree with no change and no build for an hour
+//! server that finished nothing since the last readings, agent shells that are
+//! junk (shells.rs), a claimed worktree with no change and no build for an hour
 //! (its own, or one it holds the app lock for), or the volume under its
 //! free-space floor.
 
@@ -19,15 +19,14 @@ use crate::lane::Lane;
 use crate::fail::{Context, Fail, Result};
 use crate::procs::{
     BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, cwd, load_average, open_files,
-    usage,
+    place_of, usage,
 };
+use crate::shells::Shells;
 use crate::side_git::SideGit;
 use crate::text::{human, local_minute};
 use crate::places::DiskSpace;
 use crate::tool::Tool;
 
-/// A Claude Code shell older than this is a stale watcher or loop.
-const SHELL_MINUTES: i64 = 120;
 /// An sccache client waiting this long is worth a look.
 const CLIENT_MINUTES: i64 = 10;
 /// A claimed worktree with no change and no build this long has stalled.
@@ -43,7 +42,7 @@ pub struct Health {
     #[serde(flatten)]
     pub disk: DiskSpace,
     pub sccache: SccacheHealth,
-    pub shells: Vec<Shell>,
+    pub shells: Shells,
     pub worktrees: Vec<WorktreeHealth>,
     pub locks: Vec<LockHealth>,
     /// Each lane's one queue.
@@ -76,13 +75,6 @@ pub struct Client {
     pub minutes: i64,
     pub cpu_seconds: f64,
     pub checkout: Option<String>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Shell {
-    pub pid: i32,
-    pub minutes: i64,
-    pub command: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -192,28 +184,6 @@ fn minutes_since(now: i64, then: i64) -> i64 {
     (now - then).max(0) / 60
 }
 
-/// The command a Claude Code shell runs: what its `eval '...'` holds.
-fn shell_command(argv: &[String]) -> String {
-    let line = argv.join(" ");
-    let inner = match line.find("eval '") {
-        Some(at) => {
-            let rest = &line[at + "eval '".len()..];
-            let end = rest.rfind("' && pwd -P").or_else(|| rest.rfind("' < /dev/null")).unwrap_or(rest.len());
-            rest[..end].replace("'\"'\"'", "'")
-        }
-        None => line,
-    };
-    let flat: String = inner.split_whitespace().collect::<Vec<_>>().join(" ");
-    if flat.chars().count() > 200 { format!("{}…", flat.chars().take(200).collect::<String>()) } else { flat }
-}
-
-/// Is <command> `builds dashboard`, which runs until it is stopped on
-/// purpose?
-fn runs_the_dashboard(command: &str) -> bool {
-    let words: Vec<&str> = command.split_whitespace().collect();
-    words.windows(2).next().is_some_and(|pair| (pair[0] == "builds" || pair[0].ends_with("/builds")) && pair[1] == "dashboard")
-}
-
 fn command_line(pid: i32) -> String {
     let line = args(pid).unwrap_or_default().join(" ");
     if line.chars().count() > 200 { format!("{}…", line.chars().take(200).collect::<String>()) } else { line }
@@ -230,7 +200,7 @@ pub struct Machine {
     /// with.
     pub builds: Vec<BuildProcess>,
     pub sccache: SccacheHealth,
-    pub shells: Vec<Shell>,
+    pub shells: Shells,
     pub locks: Vec<LockHealth>,
     pub queues: Vec<LaneQueue>,
 }
@@ -259,12 +229,13 @@ pub fn sccache_reading(home: &Path, now: i64) -> Result<(bool, Option<u64>, Opti
 }
 
 /// Reads the processes now: build processes placed in <places>, sccache's
-/// waiting clients, Claude shells, and the holders of <locks> (each repo's
+/// waiting clients, agent shells, and the holders of <locks> (each repo's
 /// app.lock). <sccache> is a `sccache_reading`.
 pub fn sample(
     places: &[Place],
     locks: &[AppLock],
     uid: u32,
+    home: &Path,
     now: i64,
     sccache: (bool, Option<u64>, Option<Reading>),
 ) -> Machine {
@@ -289,24 +260,6 @@ pub fn sample(
         });
     }
     waiting.sort_by_key(|c| std::cmp::Reverse(c.minutes));
-    let mut shells = Vec::new();
-    for process in &processes.list {
-        if !matches!(process.name.as_str(), "zsh" | "bash" | "sh") || process.uid != uid {
-            continue;
-        }
-        let minutes = minutes_since(now, process.started);
-        if minutes < SHELL_MINUTES {
-            continue;
-        }
-        let Some(argv) = args(process.pid) else { continue };
-        if !argv.iter().any(|arg| arg.contains("shell-snapshots")) {
-            continue;
-        }
-        let command = shell_command(&argv);
-        if !runs_the_dashboard(&command) {
-            shells.push(Shell { pid: process.pid, minutes, command });
-        }
-    }
     let mut held = Vec::new();
     for AppLock { repo, lane, checkout, path, app_top } in locks {
         let shown = path.display().to_string();
@@ -357,6 +310,8 @@ pub fn sample(
             .collect();
         queues.push(LaneQueue { repo: repo.clone(), lane: lane.word().to_string(), queue });
     }
+    let queued: std::collections::HashSet<i32> = queues.iter().flat_map(|q| q.queue.iter().map(|w| w.pid)).collect();
+    let shells = crate::shells::judge(&crate::shells::gather(&processes, uid), now, home, places, &queued);
     Machine {
         at: now,
         load: load_average(),
@@ -391,11 +346,6 @@ fn topmost(processes: &Processes, uid: u32, holds: impl Fn(i32) -> bool) -> Opti
         .filter(|p| !holding.iter().any(|q| q.pid == p.ppid))
         .min_by_key(|p| p.started)
         .copied()
-}
-
-/// The place <dir> is in, the deepest when several hold it.
-fn place_of(places: &[Place], dir: &Path) -> Option<usize> {
-    (0..places.len()).filter(|at| dir.starts_with(&places[*at].top)).max_by_key(|at| places[*at].top.as_os_str().len())
 }
 
 /// The full sha of <top>'s HEAD.
@@ -458,13 +408,10 @@ pub fn assess(
             _ => {}
         }
     }
-    for shell in &machine.shells {
+    if !machine.shells.junk.is_empty() {
         findings.push(format!(
-            "shell: pid {} has run {}h{:02}m: {}",
-            shell.pid,
-            shell.minutes / 60,
-            shell.minutes % 60,
-            shell.command
+            "shells: {} junk, listed under shells; stop them by pid",
+            machine.shells.junk.len()
         ));
     }
     for Unclaimed { place, git } in unclaimed {
@@ -557,7 +504,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let live: Vec<&Root> = roots.iter().filter(|root| root.live.is_some()).collect();
     let places = places_of(&roots);
     let sccache = sccache_reading(&tool.places.home, now)?;
-    let machine = sample(&places, &locks_of(&tool.places, &roots)?, tool.places.uid, now, sccache);
+    let machine = sample(&places, &locks_of(&tool.places, &roots)?, tool.places.uid, &tool.places.home, now, sccache);
     let mut claimed = Vec::new();
     let mut unclaimed = Vec::new();
     for (at, root) in live.iter().enumerate() {
@@ -642,14 +589,7 @@ pub fn lines(health: &Health) -> Vec<String> {
             client.checkout.as_ref().map(|c| format!(", {c}")).unwrap_or_default()
         ));
     }
-    out.push(format!(
-        "shells: {} older than {}h",
-        crate::text::counted(health.shells.len(), "Claude shell", "Claude shells"),
-        SHELL_MINUTES / 60
-    ));
-    for shell in &health.shells {
-        out.push(format!("    pid {} {}h{:02}m: {}", shell.pid, shell.minutes / 60, shell.minutes % 60, shell.command));
-    }
+    out.extend(crate::shells::lines(&health.shells));
     out.push(format!("claimed worktrees: {}", health.worktrees.len()));
     for w in &health.worktrees {
         let git = match &w.git.error {
@@ -739,21 +679,6 @@ mod tests {
     use super::*;
     use crate::side_git::Commit;
 
-    #[test]
-    fn a_claude_shell_shows_its_command() {
-        let argv: Vec<String> = [
-            "/bin/zsh",
-            "-c",
-            "source /Users/x/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval 'until ! pgrep -f '\"'\"'cargo test'\"'\"'; do sleep 5; done' < /dev/null && pwd -P >| /tmp/claude-1-cwd",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        assert_eq!(shell_command(&argv), "until ! pgrep -f 'cargo test'; do sleep 5; done");
-        assert!(runs_the_dashboard("/Users/x/.local/bin/builds dashboard --port 7787"));
-        assert!(!runs_the_dashboard("builds status"));
-    }
-
     /// A claim with no change for hours and no build is idle, unless its
     /// note says it is held.
     #[test]
@@ -765,7 +690,7 @@ mod tests {
             cores: 8,
             builds: Vec::new(),
             sccache: SccacheHealth { listening: true, executed: Some(1), compared: None, waiting: Vec::new() },
-            shells: Vec::new(),
+            shells: Shells::default(),
             locks: Vec::new(),
             queues: Vec::new(),
         };
@@ -809,7 +734,7 @@ mod tests {
             cores: 8,
             builds: Vec::new(),
             sccache: SccacheHealth { listening: true, executed: Some(1), compared: None, waiting: Vec::new() },
-            shells: Vec::new(),
+            shells: Shells::default(),
             locks: Vec::new(),
             queues: Vec::new(),
         };

@@ -26,6 +26,7 @@ mod queue;
 mod sccache;
 mod side_git;
 mod setup;
+mod shells;
 mod status;
 mod temp_builds;
 #[cfg(test)]

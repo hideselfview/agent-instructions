@@ -397,7 +397,7 @@ impl Model {
             self.state.lock().expect("no panic holding it").sccache.clone().expect("read before")
         };
         let places = places_of(&roots);
-        let machine = sample(&places, &locks_of(&self.places, &roots)?, self.places.uid, now, sccache);
+        let machine = sample(&places, &locks_of(&self.places, &roots)?, self.places.uid, &self.places.home, now, sccache);
         let read_at = Instant::now();
         let free_kib = volume_space(&self.places.root)?.free_kib;
         let mut state = self.state.lock().expect("no panic holding it");

@@ -128,7 +128,11 @@ a failed build leaves the installed one as it was; a commit on main that touches
   measured after a deletion counts it.
 - `builds health [--json]` says what is stuck or needs acting on: load, free
   space against both floors, whether sccache finished compiles since the last
-  readings while clients wait 10+ minutes, Claude shells older than 2 hours,
+  readings while clients wait 10+ minutes, how many agent shells run and which
+  are junk (a wait loop, a `find`/`du` over `/` or `~`, a copy of an older
+  shell's command in the same worktree, a shell older than 20 minutes whose
+  process tree used under 2% of a core; a `builds app-build` waiting in the
+  queue is not idle; listed with pid, age, worktree and reason, never killed),
   each claimed worktree (claim, branch, uncommitted files, commits waiting to
   land, minutes since a change, build processes there) and each lane's app
   lock's holder; it exits 1 when something needs acting on, such as a claimed

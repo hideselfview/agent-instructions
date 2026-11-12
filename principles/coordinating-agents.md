@@ -145,8 +145,10 @@ a schedule can do: nothing else wakes a session), the coordinator runs
 - **sccache finished no compiles while clients wait:** the server is stuck;
   restart it (`launchctl kickstart -k gui/$(id -u)/local.sccache-server`).
   Compiles in flight fail once and rerun.
-- **A Claude shell older than 2 hours:** read what it runs; stop it by PID when
-  it waits on something that is over or never comes.
+- **Junk shells:** `builds health` lists the agent shells that wait (sleep,
+  `until`/`while` loops, `caffeinate -t`), search the whole disk, copy a command
+  already running in the same worktree, or sit idle; it kills nothing, so the
+  coordinator stops each by PID.
 - **A claimed worktree with no change and no build for an hour:** ask its agent
   what it waits on, or land and release it if the work is done. A claim kept on
   purpose with nothing running gets
@@ -178,6 +180,5 @@ its next dispatch.
 
 ## Background shells
 
-Notify, don't poll; one watcher with a hard timeout. A coordinator checks now
-and then for shells its agents left behind (`ps` children of the session) and
-stops stale ones by PID.
+Notify, don't poll; one watcher with a hard timeout. `builds health` lists the
+junk shells its agents left behind, and the coordinator stops them by PID.

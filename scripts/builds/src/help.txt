@@ -124,8 +124,12 @@ Commands:
   builds health [--json]      what is stuck or needs acting on: load, free
                               space against the floor, whether sccache
                               finished compiles since the last readings
-                              while clients wait 10+ min, Claude shells over
-                              2h, each claimed worktree (claim, branch,
+                              while clients wait 10+ min, the agent shells
+                              running and which are junk (pid, age,
+                              worktree, reason, command: waits, whole-disk
+                              searches, duplicates of an older shell's
+                              command in a worktree, idle for 20+ min; it
+                              kills nothing), each claimed worktree (claim, branch,
                               uncommitted files, commits waiting to land,
                               minutes since a change, build processes there
                               or under an app lock for it), each lane's app

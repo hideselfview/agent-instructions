@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::ffi::CStr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Names of the processes that build: compilers, linkers and build tools.
 pub const BUILD_NAMES: [&str; 17] = [
@@ -174,6 +174,21 @@ pub fn usage(pid: i32) -> Option<(f64, u64)> {
     Some((ticks as f64 * timebase() / 1e9, info.ri_phys_footprint))
 }
 
+/// CPU time <pid> and every child it has waited for have used, in seconds:
+/// a finished child's time counts in its parent's, so the sum over a live
+/// tree is all the CPU the tree has used.
+pub fn tree_cpu(pid: i32) -> Option<f64> {
+    let mut info: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
+    let rc = unsafe {
+        libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V2, (&mut info as *mut libc::rusage_info_v2).cast())
+    };
+    if rc != 0 {
+        return None;
+    }
+    let ticks = info.ri_user_time + info.ri_system_time + info.ri_child_user_time + info.ri_child_system_time;
+    Some(ticks as f64 * timebase() / 1e9)
+}
+
 /// <mach/mach_time.h>'s struct mach_timebase_info.
 #[repr(C)]
 struct MachTimebaseInfo {
@@ -265,6 +280,11 @@ pub struct Place {
     pub label: String,
     pub top: PathBuf,
     pub root: PathBuf,
+}
+
+/// The place <dir> is in, the deepest when several hold it.
+pub fn place_of(places: &[Place], dir: &Path) -> Option<usize> {
+    (0..places.len()).filter(|at| dir.starts_with(&places[*at].top)).max_by_key(|at| places[*at].top.as_os_str().len())
 }
 
 /// A build process at work in a checkout.
