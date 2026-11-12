@@ -221,6 +221,9 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
             checkout.top.display()
         );
     }
+    if !checkout.is_side() {
+        fail!("{} is not one of the repo's side worktrees; an app checkout is one", checkout.top.display());
+    }
     tool.places.require_volume()?;
     checkout.require_repo_name(&tool.places)?;
     let repo = checkout.repo();

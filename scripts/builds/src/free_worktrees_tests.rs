@@ -219,6 +219,16 @@ fn a_harness_worktree_is_never_retired() {
 }
 
 #[test]
+fn a_harness_worktree_is_never_recorded_as_an_app_checkout() {
+    let scratch = Scratch::new("free-harness-app");
+    let (tool, main) = demo(&scratch);
+    let harness = harness_worktree(&tool, &main);
+    let result = crate::worktree::cmd_app_checkout(&tool, &["mac".to_string(), harness.display().to_string()]);
+    assert!(result.is_err(), "a harness worktree was recorded as the app checkout");
+    assert!(tool.places.app_lane_of("demo", "agent-abc123").unwrap().is_none());
+}
+
+#[test]
 fn health_does_not_list_a_harness_worktree() {
     let scratch = Scratch::new("free-harness-health");
     let (tool, main) = demo(&scratch);
