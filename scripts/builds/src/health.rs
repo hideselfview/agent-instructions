@@ -541,7 +541,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let mut unclaimed = Vec::new();
     for (at, root) in live.iter().enumerate() {
         let checkout = root.live.as_ref().expect("live");
-        if checkout.is_main() {
+        if !checkout.is_side() {
             continue;
         }
         match Claim::read(&checkout.claim_file())? {

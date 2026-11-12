@@ -171,8 +171,9 @@ pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
     let [arg] = args else { fail!("usage: builds retire <checkout>") };
     let checkout = Checkout::find(arg)?;
     let top = checkout.top.display();
-    if checkout.is_main() {
-        fail!("{top} is the main checkout; only side worktrees retire");
+    if !checkout.is_side() {
+        let what = if checkout.is_main() { "the main checkout" } else { "not one of the repo's side worktrees" };
+        fail!("{top} is {what}; only side worktrees retire");
     }
     let repo = checkout.repo();
     if let Some(lane) = tool.places.app_lane_of(&repo, &checkout.name())? {

@@ -179,3 +179,54 @@ fn new_without_for_still_claims() {
     let checkout = Checkout::find(&side(&scratch, 1).display().to_string()).unwrap();
     assert_eq!(Claim::read(&checkout.claim_file()).unwrap().unwrap().who, "builds new");
 }
+
+/// A worktree Claude Code's harness made inside the main checkout, set up the
+/// way a build tool would find it: with a build root.
+fn harness_worktree(tool: &Tool, main: &Path) -> std::path::PathBuf {
+    let top = main.join(".claude/worktrees/agent-abc123");
+    git(main, &["worktree", "add", "-q", "--detach", &top.display().to_string(), "origin/main"]);
+    let checkout = Checkout::find(&top.display().to_string()).unwrap();
+    crate::setup::setup(tool, &checkout).unwrap();
+    // Nothing has touched it for days.
+    age_all(&checkout.build_root(&tool.places), 48);
+    for name in ["index", "HEAD", ""] {
+        age(&checkout.git_dir.join(name), 48);
+    }
+    top
+}
+
+#[test]
+fn a_harness_worktree_is_never_handed_out() {
+    let scratch = Scratch::new("free-harness-new");
+    let (tool, main) = demo(&scratch);
+    let harness = harness_worktree(&tool, &main);
+    new(&tool, &main, &["--for", "agent"]);
+    assert!(side(&scratch, 1).join(".git").exists(), "new did not add its own side-1");
+    let checkout = Checkout::find(&harness.display().to_string()).unwrap();
+    assert!(Claim::read(&checkout.claim_file()).unwrap().is_none(), "a harness worktree was claimed");
+    assert!(find_free(&tool, &main).unwrap().is_none(), "a harness worktree counted as free");
+}
+
+#[test]
+fn a_harness_worktree_is_never_retired() {
+    let scratch = Scratch::new("free-harness-retire");
+    let (tool, main) = demo(&scratch);
+    let harness = harness_worktree(&tool, &main);
+    retire_idle(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
+    assert!(harness.exists(), "prune retired a harness worktree");
+    let error = crate::worktree::cmd_retire(&tool, &[harness.display().to_string()]).unwrap_err();
+    assert!(harness.exists(), "retire removed a harness worktree: {error:?}");
+}
+
+#[test]
+fn health_does_not_list_a_harness_worktree() {
+    let scratch = Scratch::new("free-harness-health");
+    let (tool, main) = demo(&scratch);
+    let harness = harness_worktree(&tool, &main);
+    std::fs::write(harness.join("stray"), "x").unwrap();
+    let health = crate::health::health(&tool).unwrap();
+    assert!(
+        health.worktrees.iter().all(|worktree| !worktree.path.contains("agent-abc123")),
+        "health listed a harness worktree"
+    );
+}

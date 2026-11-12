@@ -135,6 +135,20 @@ impl Checkout {
         self.top == self.main
     }
 
+    /// Is this one of the repo's own side worktrees,
+    /// <main's folder>/../<repo>-worktrees/side-N? The one definition of what
+    /// `builds` hands out, retires, claims and judges; a worktree anything
+    /// else made (Claude Code's harness puts agents' under
+    /// <main>/.claude/worktrees) is not one, and no command treats it as one.
+    pub fn is_side(&self) -> bool {
+        let Some(parent) = self.main.parent() else { return false };
+        let folder = parent.join(format!("{}-worktrees", self.repo()));
+        self.top.parent() == Some(folder.as_path())
+            && file_name(&self.top)
+                .strip_prefix("side-")
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    }
+
     /// `main`, or the worktree's folder name.
     pub fn name(&self) -> String {
         if self.is_main() { "main".to_string() } else { file_name(&self.top) }

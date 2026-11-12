@@ -44,7 +44,7 @@ fn floor_candidates(tool: &Tool, roots: &[Root]) -> Result<Vec<Candidate>> {
     let mut paths = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
-        if checkout.is_main() || checkout.claim_file().is_file() {
+        if !checkout.is_side() || checkout.claim_file().is_file() {
             continue;
         }
         let lane = root.app_lane(&tool.places)?;

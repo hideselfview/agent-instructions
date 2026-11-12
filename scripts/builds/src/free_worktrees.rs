@@ -38,7 +38,7 @@ pub fn find_free(tool: &Tool, main: &Path) -> Result<Option<Checkout>> {
     tops.sort();
     for top in tops {
         let Some(checkout) = Checkout::at(&top)? else { continue };
-        if checkout.is_main() || checkout.top != top {
+        if !checkout.is_side() || checkout.top != top {
             continue;
         }
         if tool.places.app_lane_of(&checkout.repo(), &checkout.name())?.is_some() {
@@ -74,7 +74,7 @@ pub fn retire_idle(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     let builds = build_processes(&processes, &places, &BUILD_NAMES);
     for root in roots {
         let Some(checkout) = &root.live else { continue };
-        if checkout.is_main() || root.keeps_warm(&tool.places)? {
+        if !checkout.is_side() || root.keeps_warm(&tool.places)? {
             continue;
         }
         if !is_free(checkout, &side_git::read(&checkout.top))? {

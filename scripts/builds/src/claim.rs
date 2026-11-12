@@ -95,8 +95,9 @@ pub fn cmd_claim(args: &[String], now: i64) -> Result<()> {
         fail!("usage: builds claim <checkout> <who>");
     }
     require_one_line("<who>", who)?;
-    if checkout.is_main() {
-        fail!("{} is the main checkout; only side worktrees are claimed", checkout.top.display());
+    if !checkout.is_side() {
+        let what = if checkout.is_main() { "the main checkout" } else { "not one of the repo's side worktrees" };
+        fail!("{} is {what}; only side worktrees are claimed", checkout.top.display());
     }
     let (kept_note, kept_state) = match Claim::read(&checkout.claim_file())? {
         Some(claim) if claim.who != *who => fail!(
