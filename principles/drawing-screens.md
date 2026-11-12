@@ -52,3 +52,10 @@ draws them with its own parts.
   is being asked about now, not everything that landed.
 - Working on its own (landing a queue of fixes, answering another session), the
   session doesn't keep the page; the published canvas is the record.
+
+## The repo is the canvas's source
+
+- The boards and canvas.json in the repo are the source; the published canvas
+  and design system are copies. Edits made on the canvas page on claude.ai are
+  accidents: a publish that finds the canvas saved from its page since the last
+  one overwrites it with the repo's version and merges nothing from it.
