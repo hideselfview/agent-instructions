@@ -38,7 +38,7 @@ characters on a phone.
 
 - Where it sits names its subject: a notice under a library's row doesn't repeat
   the library's name.
-- The title is what happened, in a word or two ("Couldn’t open").
+- The title is what happened, in a word or two ("Could not open").
 - The line is what's wrong, in words any user understands. No mechanism, and no
   claim the code doesn't back.
 - The button is the fix, named for what it does. Never point the reader at a
@@ -47,6 +47,7 @@ characters on a phone.
   person commits: in the confirm the button opens, not again here.
 - The technical cause is behind Details.
 - No quotes around names or the names of controls.
+- No contractions: write the words out (Could not, does not, cannot).
 
 Worked example, a library on the Mac's Welcome list that fails to open because
 its tables don't match the app's:
@@ -61,6 +62,6 @@ its tables don't match the app's:
   library is safe in the cloud." (a claim nobody checked, in an advert's voice);
   "Load it again" (a name the app doesn't use); "Open another library" (true,
   and no help); "Edits that haven’t synced are lost." (the confirm says it).
-- Final, joined under the row: "Couldn’t open / Something is wrong with this
+- Final, joined under the row: "Could not open / Something is wrong with this
   library’s data." with Details and Reset from cloud…, whose confirm warns about
   unsynced edits.
