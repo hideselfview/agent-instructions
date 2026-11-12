@@ -218,10 +218,14 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     runner so Gatekeeper lets it launch) in the mac lane; `android-bridge` and
     `android` (the bridge, then the Kotlin and both test targets),
     `android-tests` (run the unit tests from that output) in the android lane. A
-    change to a bridge shape or to Swift code runs `macos`, `macos-tests` and
-    `macos-tests-run`; one to Kotlin runs `android-bridge`, `android` and
-    `android-tests`; a bridge shape runs both sets, in one command. A step is a
-    program, not a shell string: one that needs a shell is a script in the repo
+    change to a bridge shape or to Swift code runs `macos` and `macos-tests`;
+    one to Kotlin runs `android-bridge` and `android`; a bridge shape runs both
+    sets, in one command. Then only the test class that proves the change, from
+    a filtered step (`step mac <name> bae-macos/test.sh --run-only <TestClass>`,
+    or a Gradle `--tests` filter): never `macos-tests-run`, `macos-tests-all` or
+    `android-tests` as a check, since they run every test and put windows on the
+    person's screen. CI runs the suites. A step is a program, not a shell
+    string: one that needs a shell is a script in the repo
     (`bae-android/compile-all.sh`). A step that runs past its time limit (45
     minutes, or its `limit <step> <time>` line in `.app-build`) is killed and
     fails the build, which gives the lock up. To build something else there
