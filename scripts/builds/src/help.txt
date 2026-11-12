@@ -183,8 +183,8 @@ Commands:
   builds queue <repo> [--lane mac|android]
                               show each lane's holders and who waits, next first
   builds queue <repo> top <pid>
-                              move that waiter to right behind the holders, in
-                              the lane it waits in
+                              move that waiter to right behind the builds that
+                              hold a lock, in the lane it waits in
   builds takeover <repo> [--lane mac|android] [<pid>]
                               with every lock of the lane held, stop the
                               build that joined last of the holders (SIGTERM

@@ -457,15 +457,16 @@ build.
   that dies in line frees its ticket, and the one behind takes the entry away,
   so nobody passes the holders. `builds queue <repo>` shows each lane's line
   (the dashboard does too, with buttons); `builds queue <repo> top <pid>` moves
-  a waiter to right behind the holders, in the lane it waits in (the pid names
-  the lane); `builds takeover <repo> [--lane L] [<pid>]`, with every lock of the
-  lane held, stops the build that joined last of the holders (SIGTERM to its
-  process group), runs that waiter (default the first) next, and puts the
-  stopped command straight behind it to run again by itself: `builds lock`
-  reruns its command, `builds build-app` reruns from the checkout. A holder past
-  its build (build-app's copy) ignores a takeover. `tests/app_queue.rs` checks
-  the order, `top`, a killed waiter and a takeover with real processes, two
-  lanes at once, one lane failing and a step past its limit among them.
+  a waiter to right behind the builds that hold a lock, in the lane it waits in
+  (the pid names the lane; with a lock free it lands among those who may take
+  it); `builds takeover <repo> [--lane L] [<pid>]`, with every lock of the lane
+  held, stops the build that joined last of the holders (SIGTERM to its process
+  group), runs that waiter (default the first) next, and puts the stopped
+  command straight behind it to run again by itself: `builds lock` reruns its
+  command, `builds build-app` reruns from the checkout. A holder past its build
+  (build-app's copy) ignores a takeover. `tests/app_queue.rs` checks the order,
+  `top`, a killed waiter and a takeover with real processes, two lanes at once,
+  one lane failing and a step past its limit among them.
 - `--detach` checks out your branch's commit: the branch itself stays checked
   out in your worktree, and git checks out a branch in one worktree only.
 - To change something, edit and commit (or amend) in your worktree, then run the
