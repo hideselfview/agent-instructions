@@ -283,7 +283,7 @@ fn derived_data_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
     let xcode = xcode_derived_data();
     if xcode.as_deref() != Some(dir.to_string_lossy().as_ref()) {
         out.push(format!(
-            "    Xcode's default DerivedData is {}, not this: run builds install",
+            "    Xcode's default DerivedData is {}, not this: run agent-instructions' install.sh",
             xcode.unwrap_or_else(|| "~/Library/Developer/Xcode/DerivedData".to_string())
         ));
     }
@@ -298,7 +298,7 @@ fn caches_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
         let dir = caches.join(cache.name);
         if !dir.is_dir() {
             out.push(format!(
-                "    {:<34} {:>8} / {:<6}  (no folder: run builds install)",
+                "    {:<34} {:>8} / {:<6}  (no folder: run agent-instructions' install.sh)",
                 cache.name,
                 "-",
                 human(cache.cap_kib)
@@ -307,7 +307,7 @@ fn caches_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
             let measured = tool.measure(&dir)?;
             let state = if cache.name == "sccache" && !sccache_config_holds(home, cache.cap_kib)? {
                 format!(
-                    "CONFIG DIFFERS: {} does not hold this cap; run builds install",
+                    "CONFIG DIFFERS: {} does not hold this cap; run agent-instructions' install.sh",
                     tilde(&crate::install::sccache_config_path(home), home)
                 )
             } else if cache.name == "sccache" {
@@ -335,9 +335,9 @@ fn caches_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
                 ));
             }
         } else if link.exists() {
-            out.push(format!("      {shown} is a real directory, not a link here: run builds install"));
+            out.push(format!("      {shown} is a real directory, not a link here: run agent-instructions' install.sh"));
         } else {
-            out.push(format!("      {shown} is missing: run builds install"));
+            out.push(format!("      {shown} is missing: run agent-instructions' install.sh"));
         }
     }
     for name in glob_names(&caches)? {
@@ -448,10 +448,10 @@ pub fn cmd_status(tool: &mut Tool, args: &[String]) -> Result<()> {
         ));
     }
     if !tool.places.derived_data().is_dir() {
-        out.push("DerivedData  (no folder: run builds install)".to_string());
+        out.push("DerivedData  (no folder: run agent-instructions' install.sh)".to_string());
     }
     if !tool.places.caches().is_dir() {
-        out.push("caches  (no folder: run builds install)".to_string());
+        out.push("caches  (no folder: run agent-instructions' install.sh)".to_string());
     }
     sccache_lines(&mut out);
     out.push(volume_line(&tool.places.root)?);

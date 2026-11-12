@@ -1,7 +1,8 @@
 //! `builds install`: puts `builds` on PATH, creates the shared caches and the
 //! links to them, writes the sccache config, runs the sccache server under
-//! launchd, and points Xcode's default DerivedData at the volume. Run it again
-//! any time: it changes only what differs.
+//! launchd, and points Xcode's default DerivedData at the volume. It runs from
+//! a fresh build, never from the installed binary (that fails: it would copy
+//! itself onto itself); it changes only what differs.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -127,7 +128,7 @@ fn link_cache(dir: &Path, link: &Path, home: &Path) -> Result<()> {
     if link.is_symlink() {
         if absolute_link_target(link)? != dir {
             fail!(
-                "{shown} points at {}, not {}; move what it holds into {}, remove the link, and run builds install again",
+                "{shown} points at {}, not {}; move what it holds into {}, remove the link, and run agent-instructions' install.sh again",
                 std::fs::read_link(link).map(|t| t.display().to_string()).unwrap_or_default(),
                 dir.display(),
                 dir.display()
@@ -138,7 +139,7 @@ fn link_cache(dir: &Path, link: &Path, home: &Path) -> Result<()> {
     if link.exists() {
         if dir.exists() {
             fail!(
-                "both {shown} and {} exist; move what you need from {shown} into {}, remove {shown}, and run builds install again",
+                "both {shown} and {} exist; move what you need from {shown} into {}, remove {shown}, and run agent-instructions' install.sh again",
                 dir.display(),
                 dir.display()
             );
@@ -169,19 +170,31 @@ fn on_path(name: &str) -> Option<PathBuf> {
     })
 }
 
+/// Fails when <me> is the installed binary <dest>: copying it onto itself
+/// installs nothing, and the caller would think the tool just updated.
+fn require_new_build(me: &Path, dest: &Path) -> Result<()> {
+    if std::fs::canonicalize(dest).ok() == std::fs::canonicalize(me).ok() {
+        fail!(
+            "this is the installed binary ({}), so installing it changes nothing; build scripts/builds \
+             (cargo build --release in agent-instructions) and run that build's `install`, or run \
+             agent-instructions' install.sh, which does both",
+            dest.display()
+        );
+    }
+    Ok(())
+}
+
 /// Copies this binary to ~/.local/bin/builds in one rename, so no hook ever
 /// finds the path missing or half written while it is replaced, and a process
 /// running the old file keeps that file: writing over it in place invalidates
 /// its code signature and the kernel kills it. Returns whether it replaced the
-/// binary.
+/// binary (always, now: running from the installed binary fails).
 fn put_on_path(home: &Path) -> Result<bool> {
     let bin = home.join(".local/bin");
     std::fs::create_dir_all(&bin).context(|| format!("creating {}", bin.display()))?;
     let me = std::env::current_exe().context(|| "finding this binary".to_string())?;
     let dest = bin.join("builds");
-    if std::fs::canonicalize(&dest).ok() == std::fs::canonicalize(&me).ok() {
-        return Ok(false);
-    }
+    require_new_build(&me, &dest)?;
     let staged = bin.join(format!(".builds.{}", std::process::id()));
     std::fs::copy(&me, &staged).context(|| format!("copying {} to {}", me.display(), staged.display()))?;
     std::fs::rename(&staged, &dest).context(|| format!("replacing {}", dest.display()))?;
@@ -346,5 +359,25 @@ mod tests {
         let old = "# Written by builds install (/Users/x/dev/agent-instructions/scripts/builds/builds).\n[cache.disk]\nsize = 32212254720\n";
         assert_eq!(settings(old), settings(&sccache_config(30 * 1024 * 1024)));
         assert_ne!(settings(old), settings(&sccache_config(20 * 1024 * 1024)));
+    }
+
+    #[test]
+    fn installing_from_the_installed_binary_fails_loudly() {
+        let dir = std::env::temp_dir().join(format!("builds-install-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let installed = dir.join("builds");
+        std::fs::write(&installed, "x").unwrap();
+        let other = dir.join("fresh");
+        std::fs::write(&other, "y").unwrap();
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&installed, &link).unwrap();
+        let refusal = |me: &Path| match require_new_build(me, &installed) {
+            Err(crate::fail::Fail::Message(message)) => message,
+            other => panic!("expected a refusal, got {other:?}"),
+        };
+        assert!(refusal(&installed).contains("scripts/builds"));
+        assert!(refusal(&link).contains("install"), "a link to the installed binary is the installed binary");
+        require_new_build(&other, &installed).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
