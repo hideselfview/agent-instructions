@@ -46,6 +46,8 @@ pub struct Health {
     pub shells: Vec<Shell>,
     pub worktrees: Vec<WorktreeHealth>,
     pub locks: Vec<LockHealth>,
+    /// Each lane's one queue.
+    pub queues: Vec<LaneQueue>,
     /// What needs acting on, one line each; empty when nothing does.
     pub findings: Vec<String>,
 }
@@ -104,13 +106,18 @@ pub struct LockHealth {
     pub repo: String,
     /// The app lane the lock is for (`mac`, `android`).
     pub lane: String,
-    /// The app checkout (side-N) the lock is for. The lane's queue is one for
-    /// all its locks, so each lock shows the same `queue`.
+    /// The app checkout (side-N) the lock is for.
     pub checkout: String,
     pub path: String,
     pub holder: Option<Holder>,
-    pub waiting: usize,
-    /// Those waiting, next first.
+}
+
+/// The one queue of a repo's lane: those waiting for whichever of the lane's
+/// locks frees first, next first.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LaneQueue {
+    pub repo: String,
+    pub lane: String,
     pub queue: Vec<Queued>,
 }
 
@@ -225,6 +232,7 @@ pub struct Machine {
     pub sccache: SccacheHealth,
     pub shells: Vec<Shell>,
     pub locks: Vec<LockHealth>,
+    pub queues: Vec<LaneQueue>,
 }
 
 /// sccache's count of finished compiles now, against the newest reading at
@@ -328,11 +336,17 @@ pub fn sample(
             started_from: cwd(process.pid).and_then(|dir| place_of(places, &dir)).map(|at| places[at].label.clone()),
             app_head: app_top.as_deref().and_then(head_of),
         });
-        let holder_pid = holder.as_ref().map(|h| h.pid);
+        held.push(LockHealth { repo: repo.clone(), lane: lane.word().to_string(), checkout: checkout.clone(), path: shown, holder });
+    }
+    let mut queues: Vec<LaneQueue> = Vec::new();
+    for AppLock { repo, lane, path, .. } in locks {
+        if queues.iter().any(|q| q.repo == *repo && q.lane == lane.word()) {
+            continue;
+        }
+        // `Queue::waiting` is those after the lane's holders.
         let in_line = path.parent().and_then(|locks_dir| locks_dir.parent()).map(|repo_dir| crate::queue::Queue::in_repo_dir(repo_dir, *lane).waiting()).unwrap_or_default();
         let queue = in_line
             .into_iter()
-            .filter(|pid| Some(*pid) != holder_pid)
             .filter_map(|pid| processes.list.iter().find(|p| p.pid == pid && p.name == "builds"))
             .map(|process| Queued {
                 pid: process.pid,
@@ -340,9 +354,8 @@ pub fn sample(
                 command: command_line(process.pid),
                 started_from: cwd(process.pid).and_then(|dir| place_of(places, &dir)).map(|at| places[at].label.clone()),
             })
-            .collect::<Vec<_>>();
-        let waiting = queue.len();
-        held.push(LockHealth { repo: repo.clone(), lane: lane.word().to_string(), checkout: checkout.clone(), path: shown, holder, waiting, queue });
+            .collect();
+        queues.push(LaneQueue { repo: repo.clone(), lane: lane.word().to_string(), queue });
     }
     Machine {
         at: now,
@@ -352,6 +365,7 @@ pub fn sample(
         sccache: SccacheHealth { listening, executed, compared, waiting },
         shells,
         locks: held,
+        queues,
     }
 }
 
@@ -498,6 +512,7 @@ pub fn assess(
         shells: machine.shells,
         worktrees,
         locks: machine.locks,
+        queues: machine.queues,
         findings,
     }
 }
@@ -671,18 +686,20 @@ pub fn lines(health: &Health) -> Vec<String> {
     for lock in &health.locks {
         match &lock.holder {
             Some(holder) => out.push(format!(
-                "app lock {} ({} {}): held {}m by pid {} ({}), {} waiting{}",
+                "app lock {} ({} {}): held {}m by pid {} ({}){}",
                 lock.repo,
                 lock.lane,
                 lock.checkout,
                 holder.minutes,
                 holder.pid,
                 holder.command,
-                lock.waiting,
                 if holder.running.is_empty() { String::new() } else { format!("; running {}", holder.running.join("; ")) }
             )),
-            None => out.push(format!("app lock {} ({} {}): free, {} waiting", lock.repo, lock.lane, lock.checkout, lock.waiting)),
+            None => out.push(format!("app lock {} ({} {}): free", lock.repo, lock.lane, lock.checkout)),
         }
+    }
+    for q in &health.queues {
+        out.push(format!("app queue {} ({}): {} waiting", q.repo, q.lane, q.queue.len()));
     }
     if health.findings.is_empty() {
         out.push("needs action: nothing".to_string());
@@ -750,6 +767,7 @@ mod tests {
             sccache: SccacheHealth { listening: true, executed: Some(1), compared: None, waiting: Vec::new() },
             shells: Vec::new(),
             locks: Vec::new(),
+            queues: Vec::new(),
         };
         let place = |n: usize| Place {
             label: format!("demo/side-{n}"),
@@ -793,6 +811,7 @@ mod tests {
             sccache: SccacheHealth { listening: true, executed: Some(1), compared: None, waiting: Vec::new() },
             shells: Vec::new(),
             locks: Vec::new(),
+            queues: Vec::new(),
         };
         let place = |n: usize| Place {
             label: format!("demo/side-{n}"),

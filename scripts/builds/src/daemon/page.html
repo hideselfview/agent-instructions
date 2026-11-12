@@ -127,6 +127,7 @@ article { min-width: 0; display: flex; flex-direction: column; }
 .warn { color: var(--warn); font-weight: 600; }
 
 .pinned-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px; align-items: start; }
+.pinned.lane-queue { grid-column: 1 / -1; }
 .pinned.compact { padding: 12px 14px; gap: 6px; }
 .compact .row1 { align-items: baseline; }
 .compact .name { font-size: 14px; white-space: normal; }
@@ -307,13 +308,16 @@ function built(c) {
 function pill(text, cls) { return h("span", {class: "pill " + cls}, text); }
 function stateOf(c) { return STATES[c.state] || {label: c.state, cls: "s-free"}; }
 // A lock is per app checkout of an app lane (mac, android): each has its own
-// holder. A lane has one queue for its locks, shown on its first checkout's
-// card only (every lock of the lane carries the same one).
+// holder. A lane has one queue for all its locks, drawn once for the lane
+// (laneQueue), not on a checkout.
+function queueOf(repo, lane) {
+  const q = repo.queues.find(x => x.lane === lane);
+  return q ? q.queue : [];
+}
 function lockOf(repo, c) {
   const lock = repo.locks.find(l => l.lane === c.app_lane && l.checkout === c.name);
-  const first = repo.checkouts.filter(o => o.live && o.app_lane === c.app_lane).map(o => o.name).sort()[0] === c.name;
-  return {repo: lock ? lock.repo : null, held: !!(lock && lock.holder), waiting: lock ? lock.waiting : 0, holder: lock ? lock.holder : null,
-    queue: lock && first ? lock.queue : []};
+  return {repo: lock ? lock.repo : repo.name, held: !!(lock && lock.holder), waiting: queueOf(repo, c.app_lane).length,
+    holder: lock ? lock.holder : null};
 }
 // What holds the app lock, each command as its script's file name with the
 // whole command in the tooltip.
@@ -412,7 +416,7 @@ function appLine(lock, b, appLane) {
   if (lock.held) {
     return "An agent is building here under the " + appLane + " app lock" +
       (lock.holder.minutes ? " (held " + lock.holder.minutes + "m)" : "") +
-      (lock.waiting ? "; " + plural(lock.waiting, "more waits", "more wait") + " for it." : ".");
+      (lock.waiting ? "; " + lock.waiting + " waiting for whichever " + appLane + " checkout frees first." : ".");
   }
   return "Where agents build the " + appLane + " app, one at a time under the " + appLane + " app lock." +
     (b && b.newest ? " Last build " + when(new Date(b.newest * 1000)) + "." : "");
@@ -436,21 +440,31 @@ async function queueAction(action, lock, q) {
   }
   render();
 }
-function takeOver(lock, q) {
-  const stopped = lock.holder ? shortCommand(lock.holder.command).name : "the build";
-  if (lock.holder && !confirm("Stop " + stopped + " (held " + lock.holder.minutes + "m) so " + queuedName(q) +
-    " builds now? " + stopped + " goes straight behind it and runs again by itself.")) return;
+// With every lock of the lane held, a takeover stops the build that joined
+// last of the holders (queue.rs); with a lock free it only moves the waiter up.
+function takeOver(holders, free, lock, q) {
+  if (!free) {
+    const names = holders.map(l => shortCommand(l.holder.command).name + " (held " + l.holder.minutes + "m)").join(", ");
+    if (!confirm("Every lock is held (" + names + "). Stop the one that started last so " + queuedName(q) +
+      " builds now? The stopped build goes straight behind it and runs again by itself.")) return;
+  }
   queueAction("takeover", lock, q);
 }
-function queueBox(lock) {
-  if (!lock.queue.length) return null;
-  return h("div", {class: "waiting"},
-    h("span", {class: "label"}, "Queue"),
-    lock.queue.map((q, i) => h("div", {class: "qrow"},
+// The lane's one queue, with the buttons that move each waiter.
+function laneQueue(repo, lane, queue) {
+  const lock = {repo: repo.name, holder: null};
+  const locks = repo.locks.filter(l => l.lane === lane);
+  const holders = locks.filter(l => l.holder);
+  const free = holders.length < locks.length;
+  return h("article", {class: "pinned lane-queue"},
+    h("div", {class: "row1"},
+      h("div", {class: "ident"}, h("span", {class: "name"}, "Queue · " + lane + " app"),
+        h("span", {class: "where"}, "waiting for whichever " + lane + " checkout frees first"))),
+    queue.map((q, i) => h("div", {class: "qrow"},
       h("span", {class: "queued", title: q.command},
         (i + 1) + ". " + queuedName(q) + (q.minutes ? " · " + q.minutes + "m" : "")),
       i > 0 ? h("button", {type: "button", class: "qbtn", onclick: () => queueAction("top", lock, q)}, "Move to top") : null,
-      h("button", {type: "button", class: "qbtn danger", onclick: () => takeOver(lock, q)}, "Take over"))));
+      h("button", {type: "button", class: "qbtn danger", onclick: () => takeOver(holders, free, lock, q)}, "Take over"))));
 }
 
 function pinnedMain(repo, c) {
@@ -473,7 +487,6 @@ function pinnedApp(repo, c) {
       lock.held ? pill("Lock held", "s-working") : pill("Lock free", "s-free")),
     h("span", {class: "line"}, appLine(lock, b, c.app_lane)),
     lock.held ? commands(lock) : null,
-    queueBox(lock),
     activityLine(c),
     c.claim ? h("div", {class: "who-block"}, h("span", {class: "who"}, c.claim.who),
       c.claim.note ? h("span", {class: "note"}, c.claim.note) : null) : null,
@@ -574,7 +587,11 @@ function reposView(root) {
       summary([agents ? plural(agents, "agent", "agents") : null, ...stateCounts(sides), goneLine(gone)]) || "no side worktrees";
     const pinned = [];
     if (main) pinned.push({key: "main", data: [repo.lanes, main], make: () => pinnedMain(repo, main)});
-    for (const app of apps) pinned.push({key: "app " + app.app_lane + " " + app.name, data: [repo.locks, app], make: () => pinnedApp(repo, app)});
+    for (const app of apps) pinned.push({key: "app " + app.app_lane + " " + app.name, data: [repo.locks, repo.queues, app], make: () => pinnedApp(repo, app)});
+    for (const lane of [...new Set(apps.map(a => a.app_lane))]) {
+      const queue = queueOf(repo, lane);
+      if (queue.length) pinned.push({key: "queue " + lane, data: queue, make: () => laneQueue(repo, lane, queue)});
+    }
     patch(section.querySelector(".pinned-grid"), pinned);
     patch(section.querySelector(".cards"), shown(sides).map(c => ({key: c.name, data: c, make: () => card(c)})));
     return section;
@@ -593,7 +610,7 @@ function compactMain(repo, c) {
 function compactApp(repo, c) {
   const b = built(c), lock = lockOf(repo, c);
   const line = lock.held
-    ? "Lock held: an agent is building here" + (lock.waiting ? ", " + lock.waiting + " waiting." : ".")
+    ? "Lock held: an agent is building here" + (lock.waiting ? "; " + lock.waiting + " waiting for whichever " + c.app_lane + " checkout frees first." : ".")
     : "Lock free. Agents build the apps here, one at a time.";
   return h("article", {class: "pinned compact"},
     h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " App build · " + c.app_lane + " · " + c.name), h("span", {class: "big"}, b && b.total !== null ? size(b.total) : "measuring…")),
@@ -625,7 +642,7 @@ function lanesView(root) {
   for (const repo of state.repos) {
     const s = split(repo);
     if (s.main) pinned.push({key: repo.name + " main", data: [s.main], make: () => compactMain(repo, s.main)});
-    for (const app of s.apps) pinned.push({key: repo.name + " app " + app.app_lane + " " + app.name, data: [repo.locks, app], make: () => compactApp(repo, app)});
+    for (const app of s.apps) pinned.push({key: repo.name + " app " + app.app_lane + " " + app.name, data: [repo.locks, repo.queues, app], make: () => compactApp(repo, app)});
     for (const c of s.sides) all.push([repo, c]);
     for (const c of s.gone) gone.push(c);
   }

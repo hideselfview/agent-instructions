@@ -461,6 +461,11 @@ impl Model {
                         .as_ref()
                         .map(|m| m.locks.iter().filter(|l| l.repo == repo_name).cloned().collect())
                         .unwrap_or_default(),
+                    queues: state
+                        .machine
+                        .as_ref()
+                        .map(|m| m.queues.iter().filter(|q| q.repo == repo_name).cloned().collect())
+                        .unwrap_or_default(),
                     name: repo_name.clone(),
                     checkouts: Vec::new(),
                 });
@@ -676,8 +681,10 @@ pub struct DaemonPage {
 pub struct RepoPage {
     pub name: String,
     pub lanes: Vec<crate::status::LaneJson>,
-    /// Each lane's lock: its holder and queue.
+    /// Each app checkout's lock: its holder.
     pub locks: Vec<crate::health::LockHealth>,
+    /// Each lane's one queue, for whichever of its locks frees first.
+    pub queues: Vec<crate::health::LaneQueue>,
     pub checkouts: Vec<CheckoutPage>,
 }
 
