@@ -33,4 +33,4 @@ grammar requires, such as the dash Ukrainian writes for an omitted "is" ("Тек
 це рип із CD"); that dash is the grammar, not an aside.
 
 Not covered: text no person reads in the app. That includes code comments, docs,
-preview names (`#Preview("Album Detail — Single Disc")`) and fixture data.
+test and shot scene names and fixture data.
