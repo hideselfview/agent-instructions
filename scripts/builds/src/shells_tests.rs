@@ -220,3 +220,17 @@ fn the_lines_say_the_count_and_each_junk_shell() {
     assert_eq!(lines.len(), 2);
     assert_eq!(judge_all(&[shell(9, 5, Path::new("/tmp"), "ls")]).junk.len(), 0);
 }
+
+#[test]
+fn a_cargo_with_a_compile_in_flight_is_not_idle() {
+    // The compile runs in the sccache server's tree; the client under cargo
+    // uses no CPU.
+    let compiling = shell(1, 40, &side(1), "scripts/cargo.sh check -p a");
+    let cargo = child(11, &compiling, 1.0, &["cargo", "check"]);
+    let client = child(12, &cargo, 0.0, &["sccache", "/toolchain/bin/rustc", "--crate-name", "a"]);
+    // The same cargo blocked on another's build-directory lock: no child.
+    let blocked = shell(2, 40, &side(2), "scripts/cargo.sh check -p a");
+    let blocked_cargo = child(21, &blocked, 1.0, &["cargo", "check"]);
+    let found = judge_all(&[compiling, cargo, client, blocked, blocked_cargo]);
+    assert_eq!(found.junk.iter().map(|j| j.pid).collect::<Vec<_>>(), vec![2]);
+}

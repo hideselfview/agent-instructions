@@ -381,6 +381,9 @@ struct Candidate {
     junk: Option<Reason>,
     cpu_seconds: f64,
     queued: bool,
+    /// A compiler runs under it: the compile may be in the sccache server's
+    /// tree, so the shell's own CPU says nothing.
+    compiling: bool,
 }
 
 /// Judges every agent shell in <entries> at <now>: which are junk, and why.
@@ -433,6 +436,7 @@ pub fn judge(entries: &[Entry], now: i64, home: &Path, places: &[Place], queued:
             junk,
             cpu_seconds: tree.iter().map(|e| e.cpu_seconds).sum(),
             queued: tree.iter().any(|e| queued.contains(&e.pid)),
+            compiling: members.iter().any(|e| e.argv.first().is_some_and(|a| matches!(basename(a), "sccache" | "rustc"))),
         });
     }
     let running = tops.len();
@@ -449,7 +453,7 @@ pub fn judge(entries: &[Entry], now: i64, home: &Path, places: &[Place], queued:
         let age = now - this.started;
         let junk = if oldest.pid != this.pid && age >= COPY_SECONDS {
             Some(Reason::Duplicate { of: oldest.pid })
-        } else if age >= IDLE_MINUTES * 60 && !this.queued && this.cpu_seconds / (age as f64) < IDLE_SHARE {
+        } else if age >= IDLE_MINUTES * 60 && !this.queued && !this.compiling && this.cpu_seconds / (age as f64) < IDLE_SHARE {
             Some(Reason::Idle { percent: this.cpu_seconds / (age as f64) * 100.0 })
         } else {
             None
