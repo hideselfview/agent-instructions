@@ -71,6 +71,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     fn dispatch_queue_create(label: *const c_char, attributes: *const c_void) -> DispatchQueue;
     fn dispatch_release(object: *mut c_void);
+    fn dispatch_async_f(queue: DispatchQueue, context: *mut c_void, work: extern "C" fn(*mut c_void));
 }
 
 /// What an event says about its path.
@@ -121,6 +122,10 @@ extern "C" fn deliver(
         events.push(Event { path, flags: unsafe { *flags.add(i) } });
     }
     handler(events);
+}
+
+extern "C" fn free_handler(handler: *mut c_void) {
+    drop(unsafe { Box::from_raw(handler as *mut Handler) });
 }
 
 /// A CFArray of <paths> as CFStrings; the caller releases it.
@@ -206,9 +211,69 @@ impl Drop for Stream {
             FSEventStreamStop(self.stream);
             FSEventStreamInvalidate(self.stream);
             FSEventStreamRelease(self.stream);
+            // A batch may be running on the queue right now, or waiting in it,
+            // and holds the handler. Stopping the stream does not wait for
+            // either, so the handler is freed from the queue itself, after
+            // them (the queue runs one block at a time). Waiting here instead
+            // would deadlock when the handler's own last reference drops the
+            // stream on the queue.
+            dispatch_async_f(self.queue, self.handler.cast(), free_handler);
             dispatch_release(self.queue);
-            drop(Box::from_raw(self.handler));
         }
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, mpsc};
+    use std::time::Duration;
+
+    struct Sentinel(Arc<AtomicBool>);
+
+    impl Drop for Sentinel {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn dropping_the_stream_leaves_the_handler_alone_until_its_running_batch_ends() {
+        let scratch = crate::testing::Scratch::new("fsevents-drop");
+        let root = scratch.dir.clone();
+        let freed = Arc::new(AtomicBool::new(false));
+        let sentinel = Sentinel(freed.clone());
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let seen_freed = Arc::new(AtomicBool::new(false));
+        let seen = seen_freed.clone();
+        let stream = Stream::start(
+            &[root.as_path()],
+            &[],
+            0.0,
+            Box::new(move |_| {
+                let _ = entered_tx.send(());
+                std::thread::sleep(Duration::from_millis(500));
+                // What a freed handler would have lost.
+                seen.store(sentinel.0.load(Ordering::SeqCst), Ordering::SeqCst);
+                let _ = finished_tx.send(());
+            }),
+        )
+        .expect("a stream");
+        std::fs::write(root.join("a"), b"x").expect("a write");
+        entered_rx.recv_timeout(Duration::from_secs(10)).expect("a batch");
+        drop(stream);
+        assert!(!freed.load(Ordering::SeqCst), "the handler was freed while its batch ran");
+        finished_rx.recv_timeout(Duration::from_secs(10)).expect("the batch ends");
+        assert!(!seen_freed.load(Ordering::SeqCst));
+        for _ in 0..200 {
+            if freed.load(Ordering::SeqCst) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("the handler was never freed");
+    }
+}
