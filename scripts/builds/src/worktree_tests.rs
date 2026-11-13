@@ -31,7 +31,7 @@ fn new_claims_a_worktree_and_retire_removes_it() {
 
     let side_arg = side.display().to_string();
     assert!(refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg))).contains("is claimed by agent A since"));
-    cmd_release(std::slice::from_ref(&side_arg)).unwrap();
+    cmd_release(&scratch.places(), std::slice::from_ref(&side_arg)).unwrap();
     cmd_app_checkout(&tool, &["mac".to_string(), side_arg.clone()]).unwrap();
     assert!(refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg))).contains("one of demo's mac app checkouts"));
     cmd_app_checkout(&tool, &["remove".to_string(), "mac".to_string(), side_arg.clone()]).unwrap();

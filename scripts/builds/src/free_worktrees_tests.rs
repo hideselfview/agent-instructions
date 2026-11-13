@@ -20,7 +20,7 @@ fn side(scratch: &Scratch, n: usize) -> std::path::PathBuf {
 }
 
 fn release(scratch: &Scratch, n: usize) {
-    cmd_release(&[side(scratch, n).display().to_string()]).unwrap();
+    cmd_release(&scratch.places(), &[side(scratch, n).display().to_string()]).unwrap();
 }
 
 fn new(tool: &Tool, main: &Path, extra: &[&str]) {
@@ -77,8 +77,8 @@ fn new_adds_a_worktree_when_none_is_free() {
     assert_eq!(Claim::read(&checkout.claim_file()).unwrap().unwrap().who, "agent B");
 
     // A dirty one and the app checkout are not free either.
-    cmd_release(&[side(&scratch, 1).display().to_string()]).unwrap();
-    cmd_release(&[side(&scratch, 2).display().to_string()]).unwrap();
+    cmd_release(&scratch.places(), &[side(&scratch, 1).display().to_string()]).unwrap();
+    cmd_release(&scratch.places(), &[side(&scratch, 2).display().to_string()]).unwrap();
     std::fs::write(side(&scratch, 1).join("stray"), "x").unwrap();
     crate::worktree::cmd_app_checkout(&tool, &["mac".to_string(), side(&scratch, 2).display().to_string()]).unwrap();
     new(&tool, &main, &[]);

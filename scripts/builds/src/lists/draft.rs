@@ -60,6 +60,20 @@ pub enum Blocked {
 /// For each item that waits on a question, what its answer does to it.
 pub type BlockedMap = BTreeMap<Id, Blocked>;
 
+/// Where a relative brief path is looked for. Briefs are plans' files, which
+/// no commit carries (`plans/` is ignored), so it is the main checkout of the
+/// repo the command runs in; an absolute path is itself. A command with a
+/// brief and no checkout is refused.
+pub fn brief_base(cwd: &Path) -> Result<std::path::PathBuf> {
+    match crate::checkout::Checkout::at(cwd)? {
+        Some(checkout) => Ok(checkout.main),
+        None => fail!(
+            "{} is in no git checkout, so a relative brief path has nothing to be relative to; give the brief as an absolute path",
+            cwd.display()
+        ),
+    }
+}
+
 /// A brief path, `path` or `path#section`: the file must exist. A relative
 /// path is looked for under <base>. This reads the file system, so a command
 /// runs it before it takes the lock.

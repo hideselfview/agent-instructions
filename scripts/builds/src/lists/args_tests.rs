@@ -50,3 +50,12 @@ fn exactly_counts_positionals() {
     assert!(args.exactly(2, "u").is_ok());
     assert!(args.exactly(1, "u").is_err());
 }
+
+#[test]
+fn a_choice_is_a_variant_by_its_serde_spelling() {
+    let args = Args::parse(&words("--for design-session --level sideways"), &["for", "level"], &[]).unwrap();
+    assert_eq!(args.choice::<crate::lists::Audience>("for").unwrap(), Some(crate::lists::Audience::DesignSession));
+    assert_eq!(args.choice::<crate::lists::Audience>("missing").unwrap(), None);
+    let crate::fail::Fail::Message(message) = args.choice::<crate::lists::Level>("level").unwrap_err() else { panic!() };
+    assert!(message.starts_with("--level: unknown variant `sideways`"), "{message}");
+}

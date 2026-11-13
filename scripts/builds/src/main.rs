@@ -98,7 +98,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "retire" => worktree::cmd_retire(&tool, args),
         "claim" => claim::cmd_claim(args, tool.now),
         "note" => claim::cmd_note(args),
-        "release" => claim::cmd_release(args),
+        "release" => claim::cmd_release(&tool.places, args),
         "app-checkout" => worktree::cmd_app_checkout(&tool, args),
         "build-app" => build_app::cmd_build_app(&tool, args),
         "mode" => mode::cmd_mode(&tool, args),
@@ -112,9 +112,12 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "decision" => lists::cmd_decision(&tool, args),
         "design" => lists::cmd_design(&tool, args),
         "question" => lists::question::cmd_question(&tool, args),
+        "item" => lists::cmd_item(&tool, args),
+        "next" => lists::cmd_next(&tool, args),
+        "area" => lists::cmd_area(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
         other => fail!(
-            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | lists | decision | design | question | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install)"
+            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | lists | decision | design | question | item | next | area | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install)"
         ),
     }
 }

@@ -14,7 +14,7 @@ pub fn kind_words(kind: QuestionKind) -> &'static str {
     }
 }
 
-fn wait_words(lists: &Lists, wait: &Wait) -> String {
+pub fn wait_words(lists: &Lists, wait: &Wait) -> String {
     let named = |kind: &str, id: crate::lists::Id| {
         let title = lists.locate(id).map(|found| found.title).unwrap_or("?");
         format!("{kind} {id} \"{title}\"")
@@ -27,7 +27,7 @@ fn wait_words(lists: &Lists, wait: &Wait) -> String {
     }
 }
 
-fn item_line(lists: &Lists, item: &Item) -> String {
+pub fn item_line(lists: &Lists, item: &Item) -> String {
     let state = derive::item_state(lists, item);
     let mut line = format!("  {} [{}] {}", item.id, state.label(), item.title);
     if item.r#for == Audience::DesignSession && state != ItemState::Running {

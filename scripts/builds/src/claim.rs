@@ -19,6 +19,7 @@ use std::path::Path;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::Result;
+use crate::places::Places;
 use crate::text::{local_minute, note};
 
 /// The states a note may carry.
@@ -159,10 +160,12 @@ pub fn cmd_note(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// `builds release <checkout>`.
-pub fn cmd_release(args: &[String]) -> Result<()> {
+/// `builds release <checkout>`, refused while an item of the lists runs in
+/// the worktree: the claim names the item's agent.
+pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
     let [checkout] = args else { fail!("usage: builds release <checkout>") };
     let checkout = Checkout::find(checkout)?;
+    crate::lists::running::require_release_allowed(places, &checkout)?;
     let file = checkout.claim_file();
     let Some(claim) = Claim::read(&file)? else {
         note(format!("{} has no claim", checkout.top.display()));

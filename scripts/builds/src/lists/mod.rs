@@ -8,6 +8,7 @@
 //! operations the nouns share, `decision` the decision log's commands, `args`
 //! the flag parsing every command uses.
 
+mod area;
 pub mod args;
 pub mod check;
 mod command;
@@ -21,14 +22,23 @@ pub mod draft;
 #[cfg(test)]
 pub mod fixtures;
 pub mod issue;
+mod item;
+#[cfg(test)]
+mod item_fixtures;
+mod item_show;
+mod landing;
 pub mod question;
+pub mod running;
 pub mod show;
 pub mod store;
+mod take;
 pub mod view;
 
+pub use area::cmd_area;
 pub use command::cmd_lists;
 pub use decision::cmd_decision;
 pub use design_command::cmd_design;
+pub use item::{cmd_item, cmd_next};
 
 use std::collections::BTreeMap;
 use std::fmt;

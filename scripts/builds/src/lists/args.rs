@@ -97,6 +97,14 @@ impl Args {
         self.flags.iter().any(|(flag, value)| flag == name && value.is_none())
     }
 
+    /// The value of <name> as a variant of <T> (its serde spelling), if given.
+    pub fn choice<T: DeserializeOwned>(&self, name: &str) -> Result<Option<T>> {
+        let Some(text) = self.value(name)? else { return Ok(None) };
+        serde_json::from_value(serde_json::Value::String(text.to_string()))
+            .map(Some)
+            .map_err(|error| crate::fail::Fail::Message(format!("--{name}: {error}")))
+    }
+
     /// The id given as flag <name>, if any.
     pub fn id(&self, name: &str) -> Result<Option<Id>> {
         self.value(name)?.map(Id::parse).transpose()
