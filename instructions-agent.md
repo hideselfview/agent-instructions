@@ -82,7 +82,10 @@ copy, scaffolding, a probe) stays out of the repo and its hooks. Before adding a
 file or a hook step, ask whether it is the product or a by-product of making it.
 The person (bae, 2026-11-13): "we need to do a better job of figuring out what
 is ephemera -- products of development that we can in an instant recreate -- and
-what is NOT, what is the product."
+what is NOT, what is the product." Be extremely thoughtful about adding a hook
+step: it runs on every commit for everyone, so add one only when every commit it
+runs on needs it, gated on the paths it reads. (Full rule in
+`rules/the-repo-holds-the-product-not-development-s-ephemera.md`.)
 
 **Never declare clean.** Don't conclude with "clean," "done," "no more X," "now
 correct." The false confidence masks incomplete state; every time you say it,
