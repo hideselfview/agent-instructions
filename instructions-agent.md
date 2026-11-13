@@ -239,15 +239,22 @@ agent continues from that file and the branch.
 
 **Plan with Opus, execute with Sonnet.** The coordinator runs the strongest
 model (as of 2026-11, Claude Opus) and plans: it decides each change's shape, or
-writes a design when the shape is open, and reviews what comes back. Every agent
-it dispatches runs the faster, cheaper model (as of 2026-11, Claude Sonnet) and
-executes: builds a stated change, finds a named bug's cause from the facts so
-far, fixes tests, moves, renames, deletes. The brief states the goal, the shape,
-the facts gathered so far and what must hold. It doesn't name each file and line
-to change: a brief that deep is the implementation written twice, and the
-executor reads the code itself. A dispatched agent runs Opus only for a design
-too large for the coordinator to hold, and that agent writes a plan for Sonnet
-to execute; it doesn't execute the plan itself.
+writes a software plan when the shape is open, and reviews what comes back.
+Every agent it dispatches runs the faster, cheaper model (as of 2026-11, Claude
+Sonnet) and executes: builds a stated change, finds a named bug's cause from the
+facts so far, fixes tests, moves, renames, deletes. The brief states the goal,
+the shape, the facts gathered so far and what must hold. It doesn't name each
+file and line to change: a brief that deep is the implementation written twice,
+and the executor reads the code itself. A dispatched agent runs Opus only for a
+software plan too large for the coordinator to hold, and that agent writes a
+plan for Sonnet to execute; it doesn't execute the plan itself.
+
+**Say which design.** "Design" alone is ambiguous: product design (screens,
+boards, how something looks and reads, the design session's work) and software
+design (the shape of code, data and steps, written as a plan) are different work
+done by different sessions. Name it every time: "board" or "product design" for
+the first, "software plan" for the second, in queue items, briefs, plans and
+chat.
 
 *Running several agents at once: `principles/coordinating-agents.md`.*
 
