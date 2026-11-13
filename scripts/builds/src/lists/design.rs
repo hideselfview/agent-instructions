@@ -384,6 +384,35 @@ fn join(set: &BTreeSet<String>) -> String {
     set.iter().map(String::as_str).collect::<Vec<_>>().join(", ")
 }
 
+/// What a design change starts as: no places, boards or review yet.
+pub struct NewDesign {
+    pub title: String,
+    pub details: String,
+    pub repo: String,
+    pub worktree: String,
+    pub no_app_place: Option<String>,
+}
+
+/// Opens a design change as <new>, made by <stamp>; returns its id.
+pub fn open_change(lists: &mut Lists, new: NewDesign, stamp: &Stamp) -> Id {
+    let id = lists.alloc_id();
+    lists.designs.push(DesignChange {
+        id,
+        title: new.title,
+        details: new.details,
+        repo: new.repo,
+        worktree: new.worktree,
+        places: BTreeMap::new(),
+        boards: BTreeMap::new(),
+        review: Vec::new(),
+        no_app_place: new.no_app_place,
+        approved: None,
+        opened: stamp.clone(),
+        landed: Vec::new(),
+    });
+    id
+}
+
 /// Records a new design change of <repo> for <changes>.
 pub fn record(
     lists: &mut Lists,
@@ -402,21 +431,11 @@ pub fn record(
     if request.review.is_none() {
         fail!("a design change needs its `review`: the headings, words and boards of the page the person reviews it on");
     }
-    let design = lists.alloc_id();
-    lists.designs.push(DesignChange {
-        id: design,
-        title,
-        details,
-        repo: repo.to_string(),
-        worktree: worktree.to_string(),
-        places: BTreeMap::new(),
-        boards: BTreeMap::new(),
-        review: Vec::new(),
-        no_app_place: None,
-        approved: None,
-        opened: stamp.clone(),
-        landed: Vec::new(),
-    });
+    let design = open_change(
+        lists,
+        NewDesign { title, details, repo: repo.to_string(), worktree: worktree.to_string(), no_app_place: None },
+        stamp,
+    );
     let new_items = resolve(lists, design, request, worktree, changes, affected, stamp)?;
     Ok(Recorded { design, new_items })
 }
@@ -654,6 +673,61 @@ pub fn list(lists: &Lists) -> String {
         );
     }
     out
+}
+
+#[cfg(test)]
+fn planted(lists: &mut Lists, id: Id) -> &mut DesignChange {
+    lists.design_mut(id).expect("an open design change")
+}
+
+/// Sets design change <id>'s title, with no check of it.
+#[cfg(test)]
+pub fn plant_title(lists: &mut Lists, id: Id, title: &str) {
+    planted(lists, id).title = title.to_string();
+}
+
+/// Sets design change <id>'s repo, whether or not the project has it.
+#[cfg(test)]
+pub fn plant_repo(lists: &mut Lists, id: Id, repo: &str) {
+    planted(lists, id).repo = repo.to_string();
+}
+
+/// Sets the worktree design change <id> is drawn in, with no check of it.
+#[cfg(test)]
+pub fn plant_worktree(lists: &mut Lists, id: Id, worktree: &str) {
+    planted(lists, id).worktree = worktree.to_string();
+}
+
+/// Sets how place <path> of design change <id> is resolved, whether or not
+/// the change touches it.
+#[cfg(test)]
+pub fn plant_place(lists: &mut Lists, id: Id, path: &str, resolution: Resolution) {
+    planted(lists, id).places.insert(path.to_string(), resolution);
+}
+
+/// Sets the canvas link of board <path> of design change <id>, whether or
+/// not <path> is a place of it.
+#[cfg(test)]
+pub fn plant_board(lists: &mut Lists, id: Id, path: &str, board: Board) {
+    planted(lists, id).boards.insert(path.to_string(), board);
+}
+
+/// Sets how the review page of design change <id> reads.
+#[cfg(test)]
+pub fn plant_review(lists: &mut Lists, id: Id, review: Vec<ReviewSection>) {
+    planted(lists, id).review = review;
+}
+
+/// Sets why design change <id> has no drawing, whatever it says.
+#[cfg(test)]
+pub fn plant_no_app_place(lists: &mut Lists, id: Id, why: &str) {
+    planted(lists, id).no_app_place = Some(why.to_string());
+}
+
+/// Adds <landing> to design change <id>, whatever it holds.
+#[cfg(test)]
+pub fn plant_landing(lists: &mut Lists, id: Id, landing: DesignLanding) {
+    planted(lists, id).landed.push(landing);
 }
 
 #[cfg(test)]

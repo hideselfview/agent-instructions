@@ -1,7 +1,8 @@
 use super::*;
 use crate::fail::Fail;
 use crate::lists::design_command::run_to_text;
-use crate::lists::fixtures::{NOON, lists, stamp};
+use crate::lists::fixtures::{NOON, stamp, unwritten};
+use crate::lists::project;
 use crate::lists::store::Store;
 use crate::testing::{Scratch, git, repo};
 use crate::tool::Tool;
@@ -29,15 +30,14 @@ fn world(name: &str) -> World {
     repo(&dir, "target 1\n");
     git(&dir, &["tag", "base"]);
     let tool = scratch.tool(0);
-    let mut state = lists();
-    state.design_places.insert("bae".into(), vec!["design/mocks/*.dc.html".into(), "design/system/components/*/".into()]);
-    state.design_sources.insert(
-        "bae".into(),
+    let mut state = unwritten();
+    project::plant_design_places(&mut state, "bae", vec!["design/mocks/*.dc.html".into(), "design/system/components/*/".into()]);
+    project::plant_design_sources(
+        &mut state,
+        "bae",
         vec!["design/system/components/src/".into(), "design/system/tokens.json".into(), "design/system/tokens.css".into()],
     );
-    state.spec_files.insert("bae".into(), vec!["spec/*.md".into()]);
-    state.version = 0;
-    state.log.clear();
+    project::plant_spec_files(&mut state, "bae", vec!["spec/*.md".into()]);
     let store = Store::named(&tool.places, "demo").unwrap();
     store.create(state, &stamp(NOON), "lists init demo").unwrap();
     World { scratch, tool, dir, store }

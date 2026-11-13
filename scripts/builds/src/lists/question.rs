@@ -83,9 +83,31 @@ pub enum Blocked {
 /// For each item that waits on a question, what its answer does to it.
 pub type BlockedMap = BTreeMap<Id, Blocked>;
 
-/// Adds <question> to the stack.
-pub fn add(lists: &mut Lists, question: Question) {
-    lists.questions.push(question);
+/// A question as it is asked: everything but its id and who asked.
+pub struct NewQuestion {
+    pub title: String,
+    pub details: String,
+    pub kind: QuestionKind,
+    /// Why it is asked though nothing waits on it.
+    pub blocks_nothing: Option<String>,
+    pub placed: Option<Placement>,
+    pub plan: Option<PlanRef>,
+}
+
+/// Asks <new> on the stack, opened by <stamp>; returns its id.
+pub fn ask(lists: &mut Lists, new: NewQuestion, stamp: &Stamp) -> Id {
+    let id = lists.alloc_id();
+    lists.questions.push(Question {
+        id,
+        title: new.title,
+        details: new.details,
+        kind: new.kind,
+        blocks_nothing: new.blocks_nothing,
+        placed: new.placed,
+        plan: new.plan,
+        opened: stamp.clone(),
+    });
+    id
 }
 
 /// Sets, or with None clears, open question <id>'s placement.
@@ -165,6 +187,18 @@ pub fn apply_blocked(lists: &mut Lists, question: Id, blocked: &BlockedMap, stam
         }
     }
     Ok(())
+}
+
+/// Sets the plan open question <id> belongs to.
+#[cfg(test)]
+pub fn plant_plan(lists: &mut Lists, id: Id, plan: PlanRef) {
+    lists.questions.iter_mut().find(|q| q.id == id).expect("an open question").plan = Some(plan);
+}
+
+/// Sets what open question <id> is.
+#[cfg(test)]
+pub fn plant_kind(lists: &mut Lists, id: Id, kind: QuestionKind) {
+    lists.questions.iter_mut().find(|q| q.id == id).expect("an open question").kind = kind;
 }
 
 #[cfg(test)]

@@ -7,11 +7,12 @@ use crate::lists::{How, Placement, Priority};
 fn the_text_lists_the_stack_then_the_queue() {
     let mut lists = lists();
     let q = question(&mut lists);
-    lists.questions[0].blocks_nothing = None;
-    lists.questions[0].placed = Some(Placement { at: Position::Last, why: "later".into(), by_person: true });
+    let first = lists.questions[0].id;
+    crate::lists::fixtures::blocks_something(&mut lists, first);
+    crate::lists::question::place(&mut lists, q, Some(Placement { at: Position::Last, why: "later".into(), by_person: true })).unwrap();
     let blocked = item(&mut lists, vec![Wait::Question(q), Wait::Condition("quiet".into())]);
     let first = item(&mut lists, vec![]);
-    lists.item_mut(first).unwrap().priority = Some(Priority { level: Level::First, why: "w".into() });
+    crate::lists::item::set_priority(&mut lists, first, Some(Priority { level: Level::First, why: "w".into() })).unwrap();
     let gone = item(&mut lists, vec![]);
     close(&mut lists, gone, How::Dropped("x".into()), &stamp(NOON)).unwrap();
     let text = render(&lists);

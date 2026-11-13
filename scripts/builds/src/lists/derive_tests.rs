@@ -6,12 +6,11 @@ use crate::lists::{Audience, How, Placement, Priority, Running, Stamp};
 const DAY: i64 = 86400;
 
 fn place(lists: &mut Lists, question: Id, at: Position) {
-    lists.questions.iter_mut().find(|q| q.id == question).unwrap().placed =
-        Some(Placement { at, why: "why".into(), by_person: true });
+    crate::lists::question::place(lists, question, Some(Placement { at, why: "why".into(), by_person: true })).unwrap();
 }
 
 fn priority(lists: &mut Lists, item: Id, level: Level) {
-    lists.item_mut(item).unwrap().priority = Some(Priority { level, why: "why".into() });
+    crate::lists::item::set_priority(lists, item, Some(Priority { level, why: "why".into() })).unwrap();
 }
 
 #[test]
@@ -60,14 +59,14 @@ fn an_items_state() {
     let waiting = item(&mut lists, vec![Wait::Question(q)]);
     let condition = item(&mut lists, vec![Wait::Condition("quiet".into())]);
     let design_session = item(&mut lists, vec![]);
-    lists.item_mut(design_session).unwrap().r#for = Audience::DesignSession;
+    crate::lists::item::plant_audience(&mut lists, design_session, Audience::DesignSession);
     let running = item(&mut lists, vec![Wait::Question(q)]);
-    lists.item_mut(running).unwrap().running = vec![Running {
+    crate::lists::running::start(&mut lists, &[running], &[Running {
         worktree: "/d/bae-worktrees/side-1".into(),
         branch: "b".into(),
         brief: "p".into(),
         since: stamp(NOON),
-    }];
+    }]).unwrap();
     let state = |id| item_state(&lists, lists.item(id).unwrap());
     assert_eq!(state(ready), ItemState::Ready);
     assert_eq!(state(waiting), ItemState::Waiting);
@@ -93,7 +92,7 @@ fn a_last_item_waits_while_other_coordinator_work_is_open() {
     assert_eq!(state(&lists, other_last), ItemState::Ready);
     // The design session's open items do not hold a last item.
     let design_session = item(&mut lists, vec![]);
-    lists.item_mut(design_session).unwrap().r#for = Audience::DesignSession;
+    crate::lists::item::plant_audience(&mut lists, design_session, Audience::DesignSession);
     assert_eq!(state(&lists, last), ItemState::Ready);
     // Other coordinator work does, even work that is itself waiting.
     let q = question(&mut lists);
@@ -110,7 +109,8 @@ fn order(lists: &Lists) -> Vec<(u32, usize)> {
 
 fn blocked_question(lists: &mut Lists, blocks: usize) -> Id {
     let q = question(lists);
-    lists.questions.last_mut().unwrap().blocks_nothing = None;
+    let last = lists.questions.last().unwrap().id;
+    crate::lists::fixtures::blocks_something(lists, last);
     for _ in 0..blocks {
         item(lists, vec![Wait::Question(q)]);
     }
@@ -164,20 +164,20 @@ fn dispatch_order_is_first_then_area_and_age_then_last() {
     let mut lists = lists();
     let q = question(&mut lists);
     let beta_old = item(&mut lists, vec![]);
-    lists.item_mut(beta_old).unwrap().area = "Beta".into();
+    crate::lists::item::plant_area(&mut lists, beta_old, "Beta");
     let alpha_new = item(&mut lists, vec![]);
     let alpha_old = item(&mut lists, vec![]);
-    lists.item_mut(alpha_old).unwrap().opened.at = NOON - 100;
+    crate::lists::item::plant_opened_at(&mut lists, alpha_old, NOON - 100);
     let first_late = item(&mut lists, vec![]);
     priority(&mut lists, first_late, Level::First);
-    lists.item_mut(first_late).unwrap().opened.at = NOON + 500;
+    crate::lists::item::plant_opened_at(&mut lists, first_late, NOON + 500);
     let first_early = item(&mut lists, vec![]);
     priority(&mut lists, first_early, Level::First);
-    lists.item_mut(first_early).unwrap().opened.at = NOON + 400;
+    crate::lists::item::plant_opened_at(&mut lists, first_early, NOON + 400);
     let waiting = item(&mut lists, vec![Wait::Question(q)]);
     priority(&mut lists, waiting, Level::First);
     let design_session = item(&mut lists, vec![]);
-    lists.item_mut(design_session).unwrap().r#for = Audience::DesignSession;
+    crate::lists::item::plant_audience(&mut lists, design_session, Audience::DesignSession);
     let ids: Vec<Id> = dispatch_order(&lists).iter().map(|i| i.id).collect();
     assert_eq!(ids, vec![first_early, first_late, alpha_old, alpha_new, beta_old]);
     // A last item is ready only once the others are gone, and then comes out.
@@ -195,15 +195,15 @@ fn flow_counts_the_last_fourteen_days_by_who_opened_and_how_closed() {
     let mut lists = lists();
     let now = NOON;
     let today_item = item(&mut lists, vec![]);
-    lists.item_mut(today_item).unwrap().opened = Stamp { at: now, by: "design-session".into() };
+    crate::lists::item::plant_opened(&mut lists, today_item, Stamp { at: now, by: "design-session".into() });
     item(&mut lists, vec![]); // coordinator, today
     let older = item(&mut lists, vec![]);
-    lists.item_mut(older).unwrap().opened.at = now - 3 * DAY;
+    crate::lists::item::plant_opened_at(&mut lists, older, now - 3 * DAY);
     let ancient = item(&mut lists, vec![]);
-    lists.item_mut(ancient).unwrap().opened.at = now - 40 * DAY;
+    crate::lists::item::plant_opened_at(&mut lists, ancient, now - 40 * DAY);
     question(&mut lists);
     let landed = item(&mut lists, vec![]);
-    lists.item_mut(landed).unwrap().opened.at = now - 2 * DAY;
+    crate::lists::item::plant_opened_at(&mut lists, landed, now - 2 * DAY);
     close(&mut lists, landed, How::Landed(vec!["a".into()]), &stamp(now)).unwrap();
     let dropped = item(&mut lists, vec![]);
     close(&mut lists, dropped, How::Dropped("x".into()), &stamp(now - DAY)).unwrap();

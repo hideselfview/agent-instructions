@@ -7,6 +7,7 @@ use crate::checkout::git_text;
 use crate::claim::write_claim;
 use crate::checkout::{Checkout, git};
 use crate::fail::{Fail, Result};
+use crate::lists::area::add_area;
 use crate::lists::fixtures::{NOON, stamp};
 use crate::lists::store::Store;
 use crate::lists::Lists;
@@ -46,7 +47,8 @@ pub fn demo_over(name: &str, repos: &[&str]) -> Demo {
     }
     let store = Store::named(&tool.places, "demo").unwrap();
     let mut state = Lists::empty("demo", repos.iter().map(|r| r.to_string()).collect(), BTreeMap::new());
-    state.areas = vec!["Alpha".into(), "Beta".into()];
+    add_area(&mut state, "Alpha", None).unwrap();
+    add_area(&mut state, "Beta", None).unwrap();
     store.create(state, &stamp(NOON), "lists init demo").unwrap();
     Demo { scratch, tool, main, store }
 }

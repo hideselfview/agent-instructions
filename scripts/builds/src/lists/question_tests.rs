@@ -14,7 +14,8 @@ fn refusal<T: std::fmt::Debug>(result: Result<T>) -> String {
 fn waiting_lists() -> (Lists, Id, Id, Id) {
     let mut lists = lists();
     let q = question(&mut lists);
-    lists.questions[0].blocks_nothing = None;
+    let first = lists.questions[0].id;
+    crate::lists::fixtures::blocks_something(&mut lists, first);
     let a = item(&mut lists, vec![Wait::Question(q)]);
     let b = item(&mut lists, vec![Wait::Question(q)]);
     (lists, q, a, b)

@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 fn fresh(scratch: &Scratch) -> Store {
     let store = Store::named(&scratch.places(), "demo").unwrap();
     let mut state = Lists::empty("demo", vec!["bae".into(), "coven".into()], BTreeMap::new());
-    state.areas = vec!["Alpha".into()];
+    crate::lists::area::add_area(&mut state, "Alpha", None).unwrap();
     store.create(state, &stamp(NOON), "lists init demo").unwrap();
     store
 }
@@ -65,7 +65,7 @@ fn a_write_applies_logs_and_bumps_the_version() {
     let store = fresh(&scratch);
     let area = store
         .with_write(&stamp(NOON + 5), "area add Beta", |lists| {
-            lists.areas.push("Beta".into());
+            crate::lists::area::add_area(lists, "Beta", None)?;
             Ok(lists.areas.len())
         })
         .unwrap();
@@ -84,7 +84,7 @@ fn a_refused_command_leaves_the_file_byte_for_byte() {
     let before = bytes(&store);
     // The command changes the state, then refuses.
     let result: Result<()> = store.with_write(&stamp(NOON + 1), "words", |lists| {
-        lists.areas.push("Half".into());
+        crate::lists::area::add_area(lists, "Half", None)?;
         fail!("refused after a change")
     });
     assert!(message(result).contains("refused after a change"));
@@ -98,7 +98,7 @@ fn a_write_that_fails_the_whole_state_check_changes_nothing() {
     let store = fresh(&scratch);
     let before = bytes(&store);
     let result = store.with_write(&stamp(NOON + 1), "words", |lists| {
-        lists.areas.push("Alpha".into());
+        crate::lists::area::plant_area_listed_again(lists, "Alpha");
         Ok(())
     });
     assert!(message(result).contains("'Alpha' is listed twice"));
@@ -130,8 +130,8 @@ fn a_store_failing_the_check_makes_load_fail_naming_the_fault() {
     let scratch = Scratch::new("lists-corrupt");
     let store = fresh(&scratch);
     let mut state = lists();
-    crate::lists::fixtures::question(&mut state);
-    state.questions[0].blocks_nothing = None;
+    let q = crate::lists::fixtures::question(&mut state);
+    crate::lists::fixtures::blocks_something(&mut state, q);
     std::fs::write(store.state_path(), serde_json::to_string_pretty(&state).unwrap()).unwrap();
     let text = message(store.load());
     assert!(text.contains("fail their check") && text.contains("blocks no open item"), "{text}");
@@ -147,8 +147,7 @@ fn unreadable_or_foreign_state_is_refused() {
     let store = fresh(&scratch);
     std::fs::write(store.state_path(), "{ not json").unwrap();
     assert!(message(store.load()).contains("is not valid lists"));
-    let mut state = Lists::empty("other", vec!["bae".into()], BTreeMap::new());
-    state.version = 0;
+    let state = Lists::empty("other", vec!["bae".into()], BTreeMap::new());
     std::fs::write(store.state_path(), serde_json::to_string(&state).unwrap()).unwrap();
     assert!(message(store.load()).contains("holds the lists of project other, not demo"));
     let mut extra: serde_json::Value = serde_json::to_value(lists()).unwrap();
@@ -181,7 +180,7 @@ fn the_store_touches_only_its_own_folder() {
     let places = scratch.places();
     let store = fresh(&scratch);
     store.with_write(&stamp(NOON), "w", |lists| {
-        lists.areas.push("Beta".into());
+        crate::lists::area::add_area(lists, "Beta", None)?;
         Ok(())
     })
     .unwrap();
@@ -215,8 +214,8 @@ fn two_process_child() {
     for i in 0..WRITES {
         store
             .with_write(&stamp(NOON + i as i64), &format!("area add {who}-{i}"), |lists| {
-                lists.areas.push(format!("{who}-{i}"));
-                Ok(())
+                crate::lists::area::add_area(lists, &format!("{who}-{i}"), None)
+
             })
             .unwrap();
     }

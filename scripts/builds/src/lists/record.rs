@@ -229,6 +229,11 @@ pub fn close(lists: &mut Lists, id: Id, how: How, stamp: &Stamp) -> Result<()> {
     if !how.fits(kind) {
         fail!("a {} cannot be closed as {}", kind.name(), how.label());
     }
+    move_to_closed(lists, id, kind, how, stamp)
+}
+
+/// Takes open record <id>, a <kind>, out of its list into `closed`.
+fn move_to_closed(lists: &mut Lists, id: Id, kind: Kind, how: How, stamp: &Stamp) -> Result<()> {
     let record = match kind {
         Kind::Question => {
             let at = lists.questions.iter().position(|q| q.id == id).expect("located open");
@@ -246,6 +251,28 @@ pub fn close(lists: &mut Lists, id: Id, how: How, stamp: &Stamp) -> Result<()> {
     };
     lists.closed.push(Closed { record, how, closed: stamp.clone() });
     Ok(())
+}
+
+/// Sets the next id to hand out, whatever the ids already used.
+#[cfg(test)]
+pub fn plant_next_id(lists: &mut Lists, next: Id) {
+    lists.next_id = next;
+}
+
+/// Closes open record <id> as <how> whether or not a record of its kind can
+/// leave that way.
+#[cfg(test)]
+pub fn plant_closing(lists: &mut Lists, id: Id, how: How, stamp: &Stamp) {
+    let kind = lists.locate(id).expect("a record").kind;
+    move_to_closed(lists, id, kind, how, stamp).expect("an open record");
+}
+
+/// Changes how closed record <id> left, whether or not its kind can leave
+/// that way.
+#[cfg(test)]
+pub fn plant_how(lists: &mut Lists, id: Id, how: How) {
+    let closed = lists.closed.iter_mut().find(|c| c.record.id() == id).expect("a closed record");
+    closed.how = how;
 }
 
 #[cfg(test)]

@@ -71,3 +71,27 @@ pub fn add_repo(lists: &mut Lists, repo: &str) -> Result<()> {
     lists.repos.push(repo.to_string());
     Ok(())
 }
+
+/// Replaces the repos of the project, whatever they are called.
+#[cfg(test)]
+pub fn plant_repos(lists: &mut Lists, repos: Vec<String>) {
+    lists.repos = repos;
+}
+
+/// Sets <repo>'s design place globs, whatever <repo> is.
+#[cfg(test)]
+pub fn plant_design_places(lists: &mut Lists, repo: &str, globs: Vec<String>) {
+    lists.design_places.insert(repo.to_string(), globs);
+}
+
+/// Sets <repo>'s design source globs, whatever <repo> is.
+#[cfg(test)]
+pub fn plant_design_sources(lists: &mut Lists, repo: &str, globs: Vec<String>) {
+    lists.design_sources.insert(repo.to_string(), globs);
+}
+
+/// Sets <repo>'s spec file globs, whatever <repo> is.
+#[cfg(test)]
+pub fn plant_spec_files(lists: &mut Lists, repo: &str, globs: Vec<String>) {
+    lists.spec_files.insert(repo.to_string(), globs);
+}

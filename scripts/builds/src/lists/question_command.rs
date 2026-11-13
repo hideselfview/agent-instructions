@@ -16,7 +16,7 @@ use crate::lists::record::close;
 use crate::lists::decision::{NewDecision, add_decision};
 use crate::lists::draft::{require_draft_briefs, work_or_why};
 use crate::lists::item::{ItemDraft, add_item, add_wait, move_waits};
-use crate::lists::question::{self, Blocked, BlockedMap, apply_blocked};
+use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, apply_blocked};
 use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
 use crate::lists::show::{blocks_text, kind_words, stack_entry};
 use crate::lists::store::Store;
@@ -132,7 +132,15 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let id = store.with_write(&stamp, words, |lists| {
-        let id = lists.alloc_id();
+        let new = NewQuestion {
+            title: title.clone(),
+            details: details.clone(),
+            kind,
+            blocks_nothing: blocks_nothing.clone(),
+            placed: placed.clone(),
+            plan: plan.clone(),
+        };
+        let id = question::ask(lists, new, &stamp);
         for blocked in &blocks {
             if Some(*blocked) == from_item {
                 fail!("--blocks names {blocked}, the item --from-item closes");
@@ -168,16 +176,6 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
         for blocked in &waiting {
             add_wait(lists, *blocked, Wait::Question(id))?;
         }
-        question::add(lists, Question {
-            id,
-            title,
-            details,
-            kind,
-            blocks_nothing,
-            placed,
-            plan,
-            opened: stamp.clone(),
-        });
         if let Some(from) = from_item {
             close(lists, from, How::MovedToStack(id), &stamp)?;
         }

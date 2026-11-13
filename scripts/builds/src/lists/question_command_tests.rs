@@ -1,6 +1,6 @@
 use super::*;
 use crate::fail::Fail;
-use crate::lists::fixtures::{NOON, item, lists, question, stamp};
+use crate::lists::fixtures::{NOON, item, question, stamp, unwritten};
 use crate::lists::{Closed, Record};
 use crate::testing::Scratch;
 use std::cell::RefCell;
@@ -11,9 +11,7 @@ const AS: &str = "--project demo --by tester";
 fn setup<T>(name: &str, build: impl FnOnce(&mut Lists) -> T) -> (Scratch, Tool, Store, T) {
     let scratch = Scratch::new(name);
     let tool = scratch.tool(0);
-    let mut state = lists();
-    state.version = 0;
-    state.log.clear();
+    let mut state = unwritten();
     let made = build(&mut state);
     let store = Store::named(&tool.places, "demo").unwrap();
     store.create(state, &stamp(NOON), "lists init demo").unwrap();
@@ -66,7 +64,8 @@ fn closed_as(lists: &Lists, id: Id) -> &How {
 
 fn blocking(lists: &mut Lists) -> Id {
     let id = question(lists);
-    lists.questions.last_mut().unwrap().blocks_nothing = None;
+    let last = lists.questions.last().unwrap().id;
+    crate::lists::fixtures::blocks_something(lists, last);
     id
 }
 
@@ -135,7 +134,8 @@ fn ask_first_places_the_question_on_top() {
     let (scratch, tool, store, (a, other)) = setup("q-ask-first", |l| {
         let a = item(l, vec![]);
         let other = blocking(l);
-        l.items.last_mut().unwrap().waits.push(Wait::Question(other));
+        let last = l.items.last().unwrap().id;
+        crate::lists::item::add_wait(l, last, Wait::Question(other)).unwrap();
         (a, other)
     });
     let d = details(&scratch);
@@ -180,12 +180,13 @@ fn ask_from_an_item_needs_waiters_or_a_reason_and_refuses_a_running_item() {
     let (scratch, tool, store, (lonely, running)) = setup("q-ask-from-refused", |l| {
         let lonely = item(l, vec![]);
         let running = item(l, vec![]);
-        l.items.last_mut().unwrap().running = vec![crate::lists::Running {
+        let last = l.items.last().unwrap().id;
+        crate::lists::running::start(l, &[last], &[crate::lists::Running {
             worktree: "/x/bae-worktrees/side-1".into(),
             branch: "b".into(),
             brief: "p".into(),
             since: stamp(NOON),
-        }];
+        }]).unwrap();
         (lonely, running)
     });
     let d = details(&scratch);
@@ -208,7 +209,8 @@ fn answer_request(extra: &str) -> String {
 fn answer_writes_the_decision_the_work_the_fates_and_the_close_in_one_step() {
     let (scratch, tool, store, (q, proceeds, edited, dropped, ready_later)) = setup("q-answer", |l| {
         let q = blocking(l);
-        l.questions.last_mut().unwrap().plan = Some(PlanRef { path: "plans/x.md".into(), number: "Q1".into() });
+        let last = l.questions.last().unwrap().id;
+        crate::lists::question::plant_plan(l, last, PlanRef { path: "plans/x.md".into(), number: "Q1".into() });
         let proceeds = item(l, vec![Wait::Question(q)]);
         let edited = item(l, vec![Wait::Question(q)]);
         let dropped = item(l, vec![Wait::Question(q)]);
@@ -280,7 +282,8 @@ fn answer_refuses_what_it_is_not_given_correctly() {
         let a = item(l, vec![Wait::Question(q)]);
         let stranger = item(l, vec![]);
         let yours = question(l);
-        l.questions.last_mut().unwrap().kind = QuestionKind::YourStep;
+        let last = l.questions.last().unwrap().id;
+        crate::lists::question::plant_kind(l, last, QuestionKind::YourStep);
         (q, a, stranger, yours)
     });
     let ok_blocked = format!(r#""blocked": {{"{a}": "proceeds"}}"#);
@@ -315,8 +318,9 @@ fn answer_that_drops_an_items_last_open_question_blocker_is_refused_whole() {
         let q = blocking(l);
         let a = item(l, vec![Wait::Question(q)]);
         let other = blocking(l);
-        l.items.iter_mut().find(|i| i.id == a).unwrap().waits.push(Wait::Question(other));
-        l.questions.last_mut().unwrap().blocks_nothing = None;
+        crate::lists::item::add_wait(l, a, Wait::Question(other)).unwrap();
+        let last = l.questions.last().unwrap().id;
+        crate::lists::fixtures::blocks_something(l, last);
         (q, a)
     });
     // Dropping `a` leaves `other` waited on by nothing: the check refuses the whole write.
@@ -350,9 +354,11 @@ fn done_closes_your_step_and_held_but_not_a_question() {
     let (scratch, tool, store, (step, held, plain, waiting)) = setup("q-done", |l| {
         let step = blocking(l);
         let waiting = item(l, vec![Wait::Question(step)]);
-        l.questions.last_mut().unwrap().kind = QuestionKind::YourStep;
+        let last = l.questions.last().unwrap().id;
+        crate::lists::question::plant_kind(l, last, QuestionKind::YourStep);
         let held = question(l);
-        l.questions.last_mut().unwrap().kind = QuestionKind::Held;
+        let last = l.questions.last().unwrap().id;
+        crate::lists::question::plant_kind(l, last, QuestionKind::Held);
         (step, held, question(l), waiting)
     });
     let r = file(&scratch, "d.json", r#"{"blocked": {}, "no_work": "nothing follows"}"#);
@@ -379,8 +385,9 @@ fn drop_refuses_while_items_wait_and_names_the_command_that_frees_them() {
     refuses(&scratch, &tool, &store, &format!("drop {q}"), "--why is required");
     refuses(&scratch, &tool, &store, &format!("drop {q} --why  "), "");
     store.with_write(&stamp(NOON), "free", |l| {
-        l.item_mut(a).unwrap().waits.clear();
-        l.questions[0].blocks_nothing = Some("asked anyway".into());
+        crate::lists::item::plant_no_waits(l, a);
+        let first = l.questions[0].id;
+        crate::lists::fixtures::blocks_nothing_because(l, first, "asked anyway");
         Ok(())
     }).unwrap();
     let out = go(&scratch, &tool, &format!("drop {q} --why not_asked_any_more")).unwrap();

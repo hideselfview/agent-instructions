@@ -43,19 +43,60 @@ fn require_new_name(lists: &Lists, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Adds area <name> after <after>, or at the end.
+pub fn add_area(lists: &mut Lists, name: &str, after: Option<&str>) -> Result<()> {
+    require_new_name(lists, name)?;
+    let at = match after {
+        Some(after) => position(lists, after)? + 1,
+        None => lists.areas.len(),
+    };
+    lists.areas.insert(at, name.to_string());
+    Ok(())
+}
+
+/// Renames area <old> to <new>, on every item in it.
+pub fn rename_area(lists: &mut Lists, old: &str, new: &str) -> Result<()> {
+    let at = position(lists, old)?;
+    require_new_name(lists, new)?;
+    lists.areas[at] = new.to_string();
+    item::rename_area(lists, old, new);
+    Ok(())
+}
+
+/// Moves area <name> to just after <after>.
+pub fn move_area(lists: &mut Lists, name: &str, after: &str) -> Result<()> {
+    let from = position(lists, name)?;
+    position(lists, after)?;
+    let area = lists.areas.remove(from);
+    let to = position(lists, after)? + 1;
+    lists.areas.insert(to, area);
+    Ok(())
+}
+
+/// Removes area <name>, which no item is in.
+pub fn remove_area(lists: &mut Lists, name: &str) -> Result<()> {
+    let at = position(lists, name)?;
+    let inside: Vec<String> = lists.items.iter().filter(|item| item.area == name).map(|i| i.id.to_string()).collect();
+    if !inside.is_empty() {
+        fail!("area '{name}' still holds {}; move each with `builds item edit N --area AREA`", inside.join(", "));
+    }
+    lists.areas.remove(at);
+    Ok(())
+}
+
+/// Lists area <name> again at the end, whether or not it is there already.
+#[cfg(test)]
+pub fn plant_area_listed_again(lists: &mut Lists, name: &str) {
+    lists.areas.push(name.to_string());
+}
+
 fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["after"], &[])?;
     let [name] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.with_write(&stamp, &format!("area add {name}"), |lists| {
-        require_new_name(lists, name)?;
-        let at = match args.value("after")? {
-            Some(after) => position(lists, after)? + 1,
-            None => lists.areas.len(),
-        };
-        lists.areas.insert(at, name.clone());
-        Ok(())
+        add_area(lists, name, args.value("after")?)
     })?;
     note(format!("added area {name}"));
     Ok(())
@@ -67,11 +108,7 @@ fn rename(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.with_write(&stamp, &format!("area rename {old}"), |lists| {
-        let at = position(lists, old)?;
-        require_new_name(lists, new)?;
-        lists.areas[at] = new.clone();
-        item::rename_area(lists, old, new);
-        Ok(())
+        rename_area(lists, old, new)
     })?;
     note(format!("renamed area {old} to {new}"));
     Ok(())
@@ -87,12 +124,7 @@ fn move_after(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.with_write(&stamp, &format!("area move {name}"), |lists| {
-        let from = position(lists, name)?;
-        position(lists, after)?;
-        let area = lists.areas.remove(from);
-        let to = position(lists, after)? + 1;
-        lists.areas.insert(to, area);
-        Ok(())
+        move_area(lists, name, after)
     })?;
     note(format!("moved area {name} after {after}"));
     Ok(())
@@ -104,13 +136,7 @@ fn remove(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.with_write(&stamp, &format!("area remove {name}"), |lists| {
-        let at = position(lists, name)?;
-        let inside: Vec<String> = lists.items.iter().filter(|item| item.area == *name).map(|i| i.id.to_string()).collect();
-        if !inside.is_empty() {
-            fail!("area '{name}' still holds {}; move each with `builds item edit N --area AREA`", inside.join(", "));
-        }
-        lists.areas.remove(at);
-        Ok(())
+        remove_area(lists, name)
     })?;
     note(format!("removed area {name}"));
     Ok(())

@@ -206,9 +206,21 @@ impl Store {
 }
 
 /// One more version, and its line in the log.
-fn advance(lists: &mut Lists, stamp: &Stamp, words: &str) {
+pub(crate) fn advance(lists: &mut Lists, stamp: &Stamp, words: &str) {
     lists.version += 1;
     lists.log.push(LogLine { version: lists.version, at: stamp.at, by: stamp.by.clone(), words: words.to_string() });
+}
+
+/// Sets the version, whatever the log says.
+#[cfg(test)]
+pub fn plant_version(lists: &mut Lists, version: u64) {
+    lists.version = version;
+}
+
+/// Adds <line> to the log, whatever version it carries.
+#[cfg(test)]
+pub fn plant_log_line(lists: &mut Lists, line: LogLine) {
+    lists.log.push(line);
 }
 
 /// The stores that exist under `Places::lists`, by project name.

@@ -318,6 +318,66 @@ impl Lists {
     }
 }
 
+/// Puts <item> in the open list as it is, whatever its id and fields.
+#[cfg(test)]
+pub fn plant_item(lists: &mut Lists, item: Item) {
+    lists.items.push(item);
+}
+
+/// Sets open item <id>'s title, with no check of it.
+#[cfg(test)]
+pub fn plant_title(lists: &mut Lists, id: Id, title: &str) {
+    lists.item_mut(id).expect("an open item").title = title.to_string();
+}
+
+/// Sets open item <id>'s area, whether or not it exists.
+#[cfg(test)]
+pub fn plant_area(lists: &mut Lists, id: Id, area: &str) {
+    lists.item_mut(id).expect("an open item").area = area.to_string();
+}
+
+/// Sets open item <id>'s origin, whatever it names.
+#[cfg(test)]
+pub fn plant_origin(lists: &mut Lists, id: Id, from: Option<Id>) {
+    lists.item_mut(id).expect("an open item").from = from;
+}
+
+/// Sets when and by whom open item <id> was opened.
+#[cfg(test)]
+pub fn plant_opened(lists: &mut Lists, id: Id, opened: Stamp) {
+    lists.item_mut(id).expect("an open item").opened = opened;
+}
+
+/// Sets when open item <id> was opened.
+#[cfg(test)]
+pub fn plant_opened_at(lists: &mut Lists, id: Id, at: i64) {
+    lists.item_mut(id).expect("an open item").opened.at = at;
+}
+
+/// Sets who opened open item <id>, whatever it says.
+#[cfg(test)]
+pub fn plant_opened_by(lists: &mut Lists, id: Id, by: &str) {
+    lists.item_mut(id).expect("an open item").opened.by = by.to_string();
+}
+
+/// Sets open item <id>'s brief, with no check of it.
+#[cfg(test)]
+pub fn plant_brief(lists: &mut Lists, id: Id, brief: &str) {
+    lists.item_mut(id).expect("an open item").brief = Some(brief.to_string());
+}
+
+/// Sets whose work open item <id> is.
+#[cfg(test)]
+pub fn plant_audience(lists: &mut Lists, id: Id, audience: Audience) {
+    lists.item_mut(id).expect("an open item").r#for = audience;
+}
+
+/// Ends every wait of open item <id>.
+#[cfg(test)]
+pub fn plant_no_waits(lists: &mut Lists, id: Id) {
+    lists.item_mut(id).expect("an open item").waits.clear();
+}
+
 #[cfg(test)]
 #[path = "item_tests.rs"]
 mod tests;

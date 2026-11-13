@@ -92,17 +92,16 @@ fn a_lane_never_locked_gets_its_old_lock_made_before_it_is_linked() {
 fn old_design_store(places: &Places) -> crate::lists::store::Store {
     use crate::lists::record::close;
     use crate::lists::fixtures::{NOON, design, lists, stamp};
-    use crate::lists::design::Board;
+    use crate::lists::design::{Board, plant_board, plant_place, plant_title};
     use crate::lists::How;
     let mut state = lists();
     for _ in 0..2 {
         let id = design(&mut state);
-        let change = state.design_mut(id).unwrap();
-        change.title = format!("Cover grid {}", id.0);
-        change.boards.insert("design/mocks/mac.library.grid.dc.html".into(), Board { link: "https://canvas.example/#grid".into() });
-        change.boards.insert("design/mocks/mac.library.empty.dc.html".into(), Board { link: "https://canvas.example/#empty".into() });
-        change.places.insert("design/mocks/mac.library.grid.dc.html".into(), crate::lists::Resolution::Matches("x".into()));
-        change.places.insert("design/mocks/mac.library.empty.dc.html".into(), crate::lists::Resolution::Matches("x".into()));
+        plant_title(&mut state, id, &format!("Cover grid {}", id.0));
+        plant_board(&mut state, id, "design/mocks/mac.library.grid.dc.html", Board { link: "https://canvas.example/#grid".into() });
+        plant_board(&mut state, id, "design/mocks/mac.library.empty.dc.html", Board { link: "https://canvas.example/#empty".into() });
+        plant_place(&mut state, id, "design/mocks/mac.library.grid.dc.html", crate::lists::Resolution::Matches("x".into()));
+        plant_place(&mut state, id, "design/mocks/mac.library.empty.dc.html", crate::lists::Resolution::Matches("x".into()));
     }
     let landed = state.designs[1].id;
     close(&mut state, landed, How::Landed(vec!["abc".into()]), &stamp(NOON)).unwrap();
@@ -188,12 +187,12 @@ fn old_running_store(places: &Places) -> crate::lists::store::Store {
     let mut state = lists();
     let running = item(&mut state, vec![]);
     let landed = item(&mut state, vec![]);
-    state.item_mut(running).unwrap().running = vec![Running {
+    crate::lists::running::start(&mut state, &[running], &[Running {
         worktree: "/d/bae-worktrees/side-2".into(),
         branch: "import-tags".into(),
         brief: "plans/briefs/x.md".into(),
         since: stamp(NOON),
-    }];
+    }]).unwrap();
     close(&mut state, landed, How::Landed(vec!["abc".into()]), &stamp(NOON)).unwrap();
     let store = crate::lists::store::Store::named(places, "demo").unwrap();
     store.create(state, &stamp(NOON), "lists init demo").unwrap();

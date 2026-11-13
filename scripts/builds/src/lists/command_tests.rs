@@ -76,8 +76,8 @@ fn init_from_a_file_loads_checks_and_advances_the_state() {
     let scratch = Scratch::new("lists-cmd-from");
     let tool = scratch.tool(0);
     let mut state = Lists::empty("bae", vec!["bae".into(), "coven".into()], BTreeMap::new());
-    state.next_id = Id(660);
-    state.areas = vec!["Alpha".into()];
+    crate::lists::record::plant_next_id(&mut state, Id(660));
+    crate::lists::area::add_area(&mut state, "Alpha", None).unwrap();
     let file = scratch.dir.join("bae.json");
     std::fs::write(&file, serde_json::to_string(&state).unwrap()).unwrap();
     let from = file.display().to_string();
@@ -98,7 +98,8 @@ fn init_from_a_state_failing_the_check_makes_no_store() {
     let scratch = Scratch::new("lists-cmd-from-bad");
     let tool = scratch.tool(0);
     let mut state = Lists::empty("bae", vec!["bae".into()], BTreeMap::new());
-    state.areas = vec!["A".into(), "A".into()];
+    crate::lists::area::add_area(&mut state, "A", None).unwrap();
+    crate::lists::area::plant_area_listed_again(&mut state, "A");
     let file = scratch.dir.join("bad.json");
     std::fs::write(&file, serde_json::to_string(&state).unwrap()).unwrap();
     let message = refusal(run(&tool, &format!("init bae --from {} --by me", file.display())));
@@ -114,7 +115,8 @@ fn show_of_a_store_failing_the_check_fails_naming_the_fault() {
     run(&tool, "init bae --repos bae --by me").unwrap();
     let file = tool.places.lists.join("bae/lists.json");
     let mut state: Lists = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-    state.areas = vec!["Dup".into(), "Dup".into()];
+    crate::lists::area::plant_area_listed_again(&mut state, "Dup");
+    crate::lists::area::plant_area_listed_again(&mut state, "Dup");
     std::fs::write(&file, serde_json::to_string(&state).unwrap()).unwrap();
     for command in ["show --project bae", "show --json --project bae"] {
         let message = refusal(run(&tool, command));

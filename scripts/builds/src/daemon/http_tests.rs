@@ -126,7 +126,7 @@ impl Server {
 /// review page has two boards, `A` and one that is no file.
 fn design_store(scratch: &Scratch, places: &crate::places::Places) {
     use crate::lists::fixtures::{NOON, design, lists, stamp};
-    use crate::lists::design::ReviewSection;
+    use crate::lists::design::{ReviewSection, plant_review, plant_worktree};
     use crate::lists::{ReviewBoard, Theme};
     let wt = scratch.dir.join("wt");
     std::fs::create_dir_all(wt.join("design/mocks")).unwrap();
@@ -138,16 +138,15 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
     std::fs::write(wt.join("design/mocks/canvas.json"), r#"{"boards": {"A.dc.html": {"w": 300, "h": 200}}}"#).unwrap();
     let mut state = lists();
     let id = design(&mut state);
-    let change = state.design_mut(id).unwrap();
-    change.worktree = wt.display().to_string();
-    change.review = vec![ReviewSection {
+    plant_worktree(&mut state, id, &wt.display().to_string());
+    plant_review(&mut state, id, vec![ReviewSection {
         heading: "The change".into(),
         words: "what it shows".into(),
         boards: vec![
             ReviewBoard { board: "design/mocks/A.dc.html".into(), caption: "A".into(), theme: Theme::Light },
             ReviewBoard { board: "design/mocks/Gone.dc.html".into(), caption: "Gone".into(), theme: Theme::Dark },
         ],
-    }];
+    }]);
     crate::lists::store::Store::named(places, "demo").unwrap().create(state, &stamp(NOON), "lists init demo").unwrap();
 }
 

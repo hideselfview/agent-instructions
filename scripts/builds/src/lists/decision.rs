@@ -115,5 +115,46 @@ pub fn edit(lists: &mut Lists, id: Id, title: Option<String>, body: Option<Strin
 }
 
 #[cfg(test)]
+fn planted(lists: &mut Lists, id: Id) -> &mut Decision {
+    lists.decisions.iter_mut().find(|d| d.id == id).expect("a decision")
+}
+
+/// Sets decision <id>'s date, whatever it says.
+#[cfg(test)]
+pub fn plant_date(lists: &mut Lists, id: Id, date: &str) {
+    planted(lists, id).date = date.to_string();
+}
+
+/// Sets who decided <id>, whatever it says.
+#[cfg(test)]
+pub fn plant_decided_by(lists: &mut Lists, id: Id, by: &str) {
+    planted(lists, id).by = by.to_string();
+}
+
+/// Sets decision <id>'s body, whatever it says.
+#[cfg(test)]
+pub fn plant_body(lists: &mut Lists, id: Id, body: &str) {
+    planted(lists, id).body = body.to_string();
+}
+
+/// Sets the decision <id> revises, whatever it names.
+#[cfg(test)]
+pub fn plant_replaces(lists: &mut Lists, id: Id, replaces: Id) {
+    planted(lists, id).replaces = Some(replaces);
+}
+
+/// Sets the question <id> answered, whatever it names.
+#[cfg(test)]
+pub fn plant_question(lists: &mut Lists, id: Id, question: Id) {
+    planted(lists, id).question = Some(question);
+}
+
+/// Sets the items <id> made, whatever they name.
+#[cfg(test)]
+pub fn plant_work(lists: &mut Lists, id: Id, work: Vec<Id>) {
+    planted(lists, id).work = work;
+}
+
+#[cfg(test)]
 #[path = "decision_tests.rs"]
 mod tests;

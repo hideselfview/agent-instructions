@@ -41,12 +41,12 @@ fn a_running_item_carries_its_claim_facts_and_nothing_else_does() {
     let running = item(&mut state, vec![]);
     let idle = item(&mut state, vec![]);
     let worktree = "/d/bae-worktrees/side-2";
-    state.item_mut(running).unwrap().running = vec![Running {
+    crate::lists::running::start(&mut state, &[running], &[Running {
         worktree: worktree.into(),
         branch: "import-tags".into(),
         brief: "plans/briefs/x.md".into(),
         since: stamp(NOON),
-    }];
+    }]).unwrap();
     let snapshot: Snapshot = Ok(vec![loaded("demo", Ok(state))]);
     assert_eq!(running_worktrees(&snapshot), vec![worktree.to_string()]);
     let facts = ClaimFacts {

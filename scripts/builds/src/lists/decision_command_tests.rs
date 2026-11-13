@@ -1,5 +1,6 @@
 use super::*;
 use crate::fail::Fail;
+use crate::lists::decision::NewDecision;
 use crate::lists::fixtures::{NOON, item, lists, stamp};
 use crate::lists::{Lists, PlanRef, Wait};
 use crate::testing::Scratch;
@@ -200,20 +201,17 @@ fn edit_changes_title_or_body_and_refuses_the_rest() {
 }
 
 fn decide(lists: &mut Lists, date: &str, title: &str, body: &str, plan: Option<&str>) -> Id {
-    let id = lists.alloc_id();
-    lists.decisions.push(Decision {
-        id,
-        date: date.into(),
+    let number = format!("Q{}", lists.next_id.0);
+    let new = NewDecision {
         title: title.into(),
         by: "person".into(),
         body: body.into(),
         question: None,
-        work: vec![],
         replaces: None,
-        plan: plan.map(|path| PlanRef { path: path.into(), number: format!("Q{}", id.0) }),
-        recorded: stamp(NOON),
-    });
-    id
+        plan: plan.map(|path| PlanRef { path: path.into(), number }),
+    };
+    let noon_that_day = crate::text::local_start_of(date).expect("a real day") + 12 * 3600;
+    add_decision(lists, &new, &[], &stamp(noon_that_day)).unwrap().decision
 }
 
 fn words(text: &str) -> Vec<String> {
@@ -262,7 +260,7 @@ fn list_refuses_a_date_that_is_not_one_and_show_reads_one_decision() {
     let mut seed = lists();
     let made = item(&mut seed, vec![]);
     let id = decide(&mut seed, "2026-11-05", "Pick one", "The body.", None);
-    seed.decisions[0].work = vec![made];
+    crate::lists::decision::plant_work(&mut seed, id, vec![made]);
     let tool = tool_with(&scratch, seed);
     assert!(refusal(run(&tool, "list --since 2026-13-01 --project demo")).contains("not a date"));
     assert!(refusal(run(&tool, "list --since yesterday --project demo")).contains("YYYY-MM-DD"));

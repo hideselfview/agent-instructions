@@ -1,7 +1,7 @@
 use super::*;
 use crate::lists::fixtures::{design, lists};
 use crate::lists::view::design_view;
-use crate::lists::design::{Board, ReviewSection};
+use crate::lists::design::{Board, ReviewSection, plant_board, plant_review, plant_worktree};
 use crate::testing::Scratch;
 
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
@@ -80,10 +80,9 @@ fn a_part_holding_a_marker_is_not_filled_again() {
 fn review_of(dir: &Path) -> (DesignChange, DesignView) {
     let mut state = lists();
     let id = design(&mut state);
-    let change = state.design_mut(id).unwrap();
-    change.worktree = dir.display().to_string();
-    change.boards.insert("design/mocks/A.dc.html".into(), Board { link: "https://canvas.example/#A".into() });
-    change.review = vec![
+    plant_worktree(&mut state, id, &dir.display().to_string());
+    plant_board(&mut state, id, "design/mocks/A.dc.html", Board { link: "https://canvas.example/#A".into() });
+    plant_review(&mut state, id, vec![
         ReviewSection {
             heading: "A </script> heading".into(),
             words: "words".into(),
@@ -94,7 +93,7 @@ fn review_of(dir: &Path) -> (DesignChange, DesignView) {
             ],
         },
         ReviewSection { heading: "Second".into(), words: String::new(), boards: vec![] },
-    ];
+    ]);
     let change = state.design(id).unwrap().clone();
     let view = design_view(&state, &change, None);
     (change, view)

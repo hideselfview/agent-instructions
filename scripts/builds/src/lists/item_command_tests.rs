@@ -235,8 +235,9 @@ fn drop_refuses_the_last_item_a_question_blocks_and_a_running_item() {
     let mut lists = demo.store.load().unwrap();
     let blocked = crate::lists::fixtures::item(&mut lists, vec![]);
     let q = crate::lists::fixtures::question(&mut lists);
-    lists.questions[0].blocks_nothing = None;
-    lists.item_mut(blocked).unwrap().waits.push(Wait::Question(q));
+    let first = lists.questions[0].id;
+    crate::lists::fixtures::blocks_something(&mut lists, first);
+    crate::lists::item::add_wait(&mut lists, blocked, Wait::Question(q)).unwrap();
     // Written through the store so the file stays valid.
     demo.store.with_write(&crate::lists::fixtures::stamp(1), "seed", |on_disk| { *on_disk = Lists { version: on_disk.version, log: on_disk.log.clone(), ..lists.clone() }; Ok(()) }).unwrap();
     let refused = refusal(item(&demo, &["drop", "1", "--why", "no"]));
