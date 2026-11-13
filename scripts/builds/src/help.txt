@@ -23,6 +23,9 @@ on it:
   caches/<name>/        download caches every checkout shares, each linked
                         from where its tool looks (~/.gradle -> caches/gradle)
   .trash/               folders being deleted in the background
+  .trash.lock           held shared by a deletion into .trash, and exclusive
+                        by the floor and prune only to rename .trash to
+                        .trash-emptying.<random>/, which they then empty
 
 `builds status` lists each of these and flags anything else on the volume as
 UNKNOWN; it leaves out macOS's own volume metadata (.Spotlight-V100,

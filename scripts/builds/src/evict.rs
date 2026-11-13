@@ -45,17 +45,14 @@ pub enum Recreate {
 }
 
 /// Deletes <dir> whole unless a build is using it: renames it into the trash
-/// (instant) and removes it as <removal> says. The trash is <root>/.trash on
-/// the build volume, and for a folder on another volume a new folder beside
-/// it, since a rename can't cross volumes. Returns false, deleting nothing,
+/// (instant; see `trash`) and removes it as <removal> says. The trash is
+/// <root>/.trash on the build volume, and for a folder on another volume a new
+/// folder beside it, since a rename can't cross volumes. Returns false, deleting nothing,
 /// when the folder is in use.
 pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) -> Result<bool> {
-    let trash = places.trash();
-    std::fs::create_dir_all(&trash).context(|| format!("creating {}", trash.display()))?;
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
     let parent = folder.parent().expect("a folder to delete has a parent").to_path_buf();
-    let same_volume = device(&parent)? == device(&trash)?;
-    let (slot_dir, prefix) = if same_volume { (trash, "evict.") } else { (parent, ".builds-deleting.") };
+    let same_volume = device(&parent)? == device(&places.root)?;
     let _guard = match crate::units::lock_guard(&folder)? {
         crate::units::Guard::Busy => return Ok(false),
         guard => guard,
@@ -64,15 +61,34 @@ pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) 
     if held_by_a_process(&folder)? {
         return Ok(false);
     }
-    let slot = make_temp_dir(&slot_dir, prefix)?;
     let name = folder.file_name().expect("a folder to delete has a name");
-    std::fs::rename(&folder, slot.join(name))
+    if !same_volume {
+        let slot = make_temp_dir(&parent, ".builds-deleting.")?;
+        move_in(&folder, &slot, name, recreate)?;
+        drop(_locks);
+        return remove(&slot, removal);
+    }
+    // The shared trash lock keeps an emptier from renaming the trash away
+    // between making the slot and the folder reaching it, or from emptying
+    // the slot while it is being removed.
+    let _trash_lock = crate::trash::lock_shared(places)?;
+    let slot = crate::trash::Slot::make(places)?;
+    move_in(&folder, &slot.path, name, recreate)?;
+    drop(_locks);
+    match removal {
+        Removal::Now => slot.remove_now()?,
+        Removal::Background => slot.remove_background()?,
+    }
+    Ok(true)
+}
+
+fn move_in(folder: &Path, slot: &Path, name: &std::ffi::OsStr, recreate: Recreate) -> Result<()> {
+    std::fs::rename(folder, slot.join(name))
         .context(|| format!("moving {} into {}", folder.display(), slot.display()))?;
     if recreate == Recreate::Yes {
-        std::fs::create_dir(&folder).context(|| format!("recreating {}", folder.display()))?;
+        std::fs::create_dir(folder).context(|| format!("recreating {}", folder.display()))?;
     }
-    drop(_locks);
-    remove(&slot, removal)
+    Ok(())
 }
 
 fn device(path: &Path) -> Result<u64> {

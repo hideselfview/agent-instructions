@@ -8,7 +8,7 @@ use std::process::Command;
 
 use crate::cargo_run::builds_incrementally;
 use crate::checkout::{Checkout, Root, git_text, git, app_lane};
-use crate::evict::{Recreate, Removal, background_rm, evict, make_temp_dir};
+use crate::evict::{Recreate, Removal, evict, make_temp_dir};
 use crate::fail;
 use crate::free_worktrees::retire_idle;
 use crate::fail::{Context, Result};
@@ -572,11 +572,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
 
 /// Starts removing everything in the trash in the background.
 pub fn empty_trash(tool: &Tool) -> Result<()> {
-    let trash = tool.places.trash();
-    if trash.is_dir() {
-        background_rm(&trash)?;
-    }
-    Ok(())
+    crate::trash::empty_background(&tool.places)
 }
 
 #[cfg(test)]

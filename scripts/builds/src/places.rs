@@ -42,11 +42,20 @@ pub const MACOS_ENTRIES: [&str; 8] = [
 ];
 
 /// Is <name>, an entry at the volume's root, one the daemon doesn't follow?
-/// macOS's own entries, and the trash, which holds only folders being
-/// deleted: following it would apply each of their files' deletions, 100k
+/// macOS's own entries, and the trash with its lock and the folders it is
+/// emptied through, which hold only folders being deleted: following it would apply each of their files' deletions, 100k
 /// for one cargo folder, to answer questions nobody asks.
 pub fn unfollowed(name: &str) -> bool {
-    MACOS_ENTRIES.contains(&name) || name == ".trash"
+    MACOS_ENTRIES.contains(&name) || is_trash_entry(name)
+}
+
+/// The start of a folder the trash is renamed to while it is emptied.
+pub const EMPTYING_PREFIX: &str = ".trash-emptying.";
+
+/// The trash, its lock, and a folder being emptied: entries at the volume's
+/// root that are the tool's own, not a repo's.
+pub fn is_trash_entry(name: &str) -> bool {
+    name == ".trash" || name == ".trash.lock" || name.starts_with(EMPTYING_PREFIX)
 }
 
 #[derive(Clone, Debug)]
@@ -93,6 +102,11 @@ impl Places {
 
     pub fn trash(&self) -> PathBuf {
         self.root.join(".trash")
+    }
+
+    /// The lock beside the trash (see `trash`).
+    pub fn trash_lock(&self) -> PathBuf {
+        self.root.join(".trash.lock")
     }
 
     pub fn derived_data(&self) -> PathBuf {

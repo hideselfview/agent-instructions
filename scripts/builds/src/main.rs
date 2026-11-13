@@ -32,6 +32,7 @@ mod temp_builds;
 #[cfg(test)]
 mod testing;
 mod text;
+mod trash;
 mod tool;
 mod trees;
 mod units;

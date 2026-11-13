@@ -20,6 +20,8 @@ The `builds` tool owns everything on the build volume:
 /Volumes/Builds/DerivedData/         Xcode's default DerivedData location
 /Volumes/Builds/caches/<name>/       download caches every checkout shares
 /Volumes/Builds/.trash/              folders being deleted in the background
+/Volumes/Builds/.trash.lock          held shared by a deletion into .trash; exclusive only to
+                                     rename .trash to .trash-emptying.<random>/, which is then emptied
 ```
 
 `builds status` lists each of these and flags anything else on the volume as

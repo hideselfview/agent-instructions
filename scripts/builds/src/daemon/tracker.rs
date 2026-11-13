@@ -17,7 +17,8 @@
 //!   under its new name (a rename, such as an eviction into .trash, moves
 //!   100k entries without a walk).
 //! - The root's macOS entries and its trash are not followed (see
-//!   `places::unfollowed`); a question about them gets no answer.
+//!   `places::unfollowed`, which also names the trash's lock and the
+//!   `.trash-emptying.*` folders it is renamed to); a question about them gets no answer.
 //! - Lost events: MUST_SCAN_SUBDIRS names the folder under which FSEvents
 //!   lost them (with USER_DROPPED or KERNEL_DROPPED when it dropped a batch),
 //!   and that folder is walked again into an index of its own, grafted in

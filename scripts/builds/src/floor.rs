@@ -163,13 +163,8 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
     ));
     // Folders already renamed into the trash still hold their space until
     // the background removal finishes.
-    let trash = tool.places.trash();
-    if trash.is_dir() {
-        if let Err(error) = std::fs::remove_dir_all(&trash) {
-            note(format!("emptying {} failed partway: {error}", trash.display()));
-        }
-        free = tool.free_kib()?;
-    }
+    crate::trash::empty_now(&tool.places)?;
+    free = tool.free_kib()?;
     let gone: Vec<&Root> = roots.iter().filter(|root| root.live.is_none()).collect();
     let gone_paths: Vec<PathBuf> = gone.iter().map(|root| root.path.clone()).collect();
     let gone_measures = if free >= floor { Vec::new() } else { tool.measure_all(&gone_paths)? };

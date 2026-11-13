@@ -24,7 +24,12 @@ use crate::trees::{Tree, trees_in, unused};
 /// What status leaves out at the volume's root: macOS's own entries and
 /// the daemon's folder.
 fn left_out(name: &str) -> bool {
-    MACOS_ENTRIES.contains(&name) || name == ".builds-daemon"
+    MACOS_ENTRIES.contains(&name) || name == ".builds-daemon" || name == ".trash.lock"
+}
+
+/// Is <path> a folder the trash is being emptied through?
+fn is_emptying(path: &std::path::Path) -> bool {
+    path.file_name().is_some_and(|name| name.to_string_lossy().starts_with(crate::places::EMPTYING_PREFIX))
 }
 
 /// What a repo's folder on the volume holds, in glob order.
@@ -79,7 +84,7 @@ pub fn repos(places: &Places) -> Result<Vec<Repo>> {
         if left_out(&name.to_string_lossy()) {
             continue;
         }
-        if dir == places.trash() || dir == places.derived_data() || dir == places.caches() {
+        if dir == places.trash() || is_emptying(&dir) || dir == places.derived_data() || dir == places.caches() {
             continue;
         }
         if !is_repo_dir(&dir)? {
@@ -407,14 +412,17 @@ pub fn cmd_status(tool: &mut Tool, args: &[String]) -> Result<()> {
         if left_out(&name.to_string_lossy()) {
             continue;
         }
-        if entry == tool.places.trash() && entry.is_dir() {
-            let holds_any = std::fs::read_dir(&entry)
-                .map_err(|error| fail::Fail::Message(format!("listing {}: {error}", entry.display())))?
-                .next()
-                .is_some();
+        if (entry == tool.places.trash() || is_emptying(&entry)) && entry.is_dir() {
+            // An emptier may remove the folder between the listing and here.
+            let holds_any = match std::fs::read_dir(&entry) {
+                Ok(mut listing) => listing.next().is_some(),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                Err(error) => fail!("listing {}: {error}", entry.display()),
+            };
             if holds_any {
                 out.push(format!(
-                    ".trash  {}  (deletions finishing in the background)",
+                    "{}  {}  (deletions finishing in the background)",
+                    name.to_string_lossy(),
                     human(tool.measure(&entry)?.kib)
                 ));
             }
