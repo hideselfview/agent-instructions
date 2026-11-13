@@ -1,6 +1,6 @@
 #!/bin/bash
 # land.sh <worktree> <sha>...: put the commits on origin/main (fast-forward when they sit on it, else cherry-pick), retrying the whole step on a refused push.
-# A cherry-picked result is a tree no hook has seen, so before pushing it the repo's whole-tree checks run: the commands in the repo's `.land-checks` (one per line, blank lines and lines starting with # skipped, each run with `sh -c` from the repo root). A failing check is named with its output, nothing is pushed, and the worktree goes back to origin/main (exit 1, no retry). Then the repo's `.land-compile`, if present, runs (`bash .land-compile` from the repo root, reading what the commits changed from `git diff origin/main HEAD`): the compile check of the result, which the static checks can't do, since two commits that each compile can break each other. It fails the same way. A fast-forward is the tree the hook already ran on, so it skips both.
+# A cherry-picked result is a tree no hook has seen, so before pushing it the repo's whole-tree checks run: the commands in the repo's `.land-checks` (one per line, blank lines and lines starting with # skipped, each run with `sh -c` from the repo root). A failing check is named with its output, nothing is pushed, and the worktree goes back to origin/main (exit 1, no retry). Then the repo's `.land-compile`, if present, runs (`bash .land-compile` from the repo root, reading what the commits changed from `git diff origin/main HEAD`): the compile check of the result, which the static checks can't do, since two commits that each compile can break each other. It fails the same way. A fast-forward runs both too: a branch rebased after its hook ran is a tree no hook has seen.
 # Two landings in one worktree move each other's HEAD: one pushed the other's and called it landed. Each waits for the worktree to itself.
 if [ -z "$LAND_LOCKED" ]; then
   git_dir=$(git -C "$1" rev-parse --absolute-git-dir) || exit 1
@@ -32,24 +32,26 @@ for attempt in 1 2 3 4 5; do
       exit 0
     fi
     if ! git cherry-pick "${todo[@]}" >/dev/null 2>&1; then git cherry-pick --abort; echo CONFLICT; exit 1; fi
-    if [ -f .land-checks ]; then
-      while IFS= read -r check || [ -n "$check" ]; do
-        case "$check" in ''|'#'*) continue ;; esac
-        if ! out=$(sh -c "$check" </dev/null 2>&1); then
-          git reset -q --hard origin/main
-          echo "CHECK FAILED on the cherry-picked result, nothing pushed: $check"
-          echo "$out"
-          exit 1
-        fi
-      done < .land-checks
-    fi
-    if [ -f .land-compile ]; then
-      if ! out=$(bash .land-compile </dev/null 2>&1); then
+  fi
+  # A fast-forward runs them too: an agent that rebased after its hook ran
+  # hands over a tree no hook has seen.
+  if [ -f .land-checks ]; then
+    while IFS= read -r check || [ -n "$check" ]; do
+      case "$check" in ''|'#'*) continue ;; esac
+      if ! out=$(sh -c "$check" </dev/null 2>&1); then
         git reset -q --hard origin/main
-        echo "COMPILE CHECK FAILED on the cherry-picked result, nothing pushed: .land-compile"
+        echo "CHECK FAILED on the result, nothing pushed: $check"
         echo "$out"
         exit 1
       fi
+    done < .land-checks
+  fi
+  if [ -f .land-compile ]; then
+    if ! out=$(bash .land-compile </dev/null 2>&1); then
+      git reset -q --hard origin/main
+      echo "COMPILE CHECK FAILED on the result, nothing pushed: .land-compile"
+      echo "$out"
+      exit 1
     fi
   fi
   if out=$(git push -q origin HEAD:main 2>&1); then git fetch -q origin; git log --oneline -"$#" origin/main; exit 0; fi
