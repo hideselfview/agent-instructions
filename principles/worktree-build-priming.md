@@ -438,7 +438,13 @@ One test class needs no step of its own: the repo declares once per lane, in a
 how its lane runs a filtered class, and `--test <lane> <Class>` (any number,
 after the steps) runs that line for the class after the lane's steps, each run
 limited to 10 minutes. With `--test` and no step named, only the classes run,
-not every step. The class is one argument, never read by a shell.
+not every step; such a run tests what the app checkout holds, so it refuses,
+naming what was built, unless that checkout's last build (the commit and steps,
+in `<root>/<repo>/<checkout>/.last-app-build`, written when a run's steps all
+finish and removed when a run with steps starts) is of the commit named and the
+checkout is still on it. A class-only run may land on another checkout of the
+lane than the one that built; it is then refused too. The class is one argument,
+never read by a shell.
 
 A step has a time limit: 45 minutes, or what its `limit <step> <time>` line in
 `.app-build` says (`90s`, `30m`, `2h`). Past it the step's whole process group

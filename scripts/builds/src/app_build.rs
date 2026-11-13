@@ -26,6 +26,12 @@
 //! it, one run per class, each with `TEST_CLASS_LIMIT`. With `--test` and no
 //! step named, only the classes run, not every step.
 //!
+//! A class run with no step named tests what the checkout holds, so it
+//! refuses unless the checkout's last build (`Built`, kept beside the lock's
+//! checkout folder, written when a run's steps all finish and removed when a
+//! run with steps starts) is of the commit it names and the checkout is still
+//! on that commit; it names what was built instead.
+//!
 //! A takeover stops the step running; the lane's build then runs again from
 //! the checkout, behind the build that took over.
 
@@ -148,6 +154,70 @@ fn names_in(config: &Config, lane: Lane, names: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// What an app checkout last built: the commit (full id) and the steps that
+/// finished on it, in the order run. Kept in `Places::app_built_file`.
+#[derive(Debug, PartialEq, Eq)]
+struct Built {
+    commit: String,
+    steps: Vec<String>,
+}
+
+impl Built {
+    fn read(file: &Path) -> Result<Option<Built>> {
+        let text = match std::fs::read_to_string(file) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => fail!("reading {}: {error}", file.display()),
+        };
+        let mut lines = text.lines();
+        let Some(commit) = lines.next().filter(|line| !line.is_empty()) else {
+            fail!("{} names no commit", file.display());
+        };
+        let steps = lines.next().unwrap_or("").split_whitespace().map(str::to_string).collect();
+        Ok(Some(Built { commit: commit.to_string(), steps }))
+    }
+
+    /// Written in one rename, so a reader never sees half of it.
+    fn write(&self, file: &Path) -> Result<()> {
+        let part = file.with_extension("part");
+        std::fs::write(&part, format!("{}\n{}\n", self.commit, self.steps.join(" ")))
+            .context(|| format!("writing {}", part.display()))?;
+        std::fs::rename(&part, file).context(|| format!("replacing {}", file.display()))
+    }
+
+    fn clear(file: &Path) -> Result<()> {
+        match std::fs::remove_file(file) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => fail!("removing {}: {error}", file.display()),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether a class run of <wanted> (named <asked> by the caller) may go
+    /// ahead in <checkout>, which is on <head> and last built <built>.
+    fn allows_class_run(built: Option<&Built>, checkout: &str, asked: &str, wanted: &str, head: &str) -> Result<()> {
+        let hint = "name the steps that build it (a class-only run tests what the checkout holds)";
+        let Some(built) = built else {
+            fail!("{checkout} has no finished build to test {asked} ({wanted}) against: {hint}");
+        };
+        if built.commit != wanted {
+            fail!(
+                "{checkout} last built {} (steps: {}), not {asked} ({wanted}): {hint}",
+                built.commit,
+                built.steps.join(" ")
+            );
+        }
+        if head != wanted {
+            fail!("{checkout} built {wanted} but is now on {head}: {hint}");
+        }
+        Ok(())
+    }
+}
+
+/// The full id of <rev> in the checkout <top>.
+fn resolve(top: &Path, rev: &str) -> Result<String> {
+    Ok(run_git(top, &["rev-parse", "--verify", &format!("{rev}^{{commit}}")])?.trim().to_string())
+}
+
 /// Runs <steps> in the checkout <top> in order, stopping at the first that
 /// fails; `TakenOver` when a takeover stopped one.
 fn run_steps(top: &Path, steps: &[Step]) -> Result<Ran> {
@@ -219,12 +289,31 @@ fn run_lane(
             println!("{CHECKOUT_MARKER}{}", held.checkout);
             eprintln!("{CHECKOUT_MARKER}{}", held.checkout);
         }
+        let built_file = places.app_built_file(repo, &held.checkout);
+        if names.is_empty() && !classes.is_empty() {
+            run_git(&top, &["fetch", "-q", "origin"])?;
+            let (wanted, head) = (resolve(&top, commit)?, resolve(&top, "HEAD")?);
+            Built::allows_class_run(Built::read(&built_file)?.as_ref(), &held.checkout, commit, &wanted, &head)?;
+        } else {
+            // The switch and the steps change what the checkout holds.
+            Built::clear(&built_file)?;
+        }
         let config = check_out(&top, commit)?;
         let steps = lane_steps(&config, lane, names, classes)?;
         if steps.is_empty() {
             fail!("{CONFIG} names no step in the {} lane", lane.word());
         }
-        match run_steps(&top, &steps)? {
+        let (tests, builds): (Vec<Step>, Vec<Step>) =
+            steps.into_iter().partition(|step| step.name.starts_with(TEST_STEP_PREFIX));
+        let mut ran = run_steps(&top, &builds)?;
+        if ran == Ran::Finished && !builds.is_empty() {
+            let steps = builds.iter().map(|step| step.name.clone()).collect();
+            Built { commit: resolve(&top, "HEAD")?, steps }.write(&built_file)?;
+        }
+        if ran == Ran::Finished {
+            ran = run_steps(&top, &tests)?;
+        }
+        match ran {
             Ran::Finished => return Ok(()),
             Ran::TakenOver => {
                 note(format!("the build was stopped for a takeover; building {commit} again after it"));

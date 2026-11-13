@@ -635,3 +635,36 @@ fn a_takeover_with_every_lock_held_stops_the_last_holder_and_a_free_lock_just_mo
     volume.open_gate("B");
     volume.until_logged("end B");
 }
+
+#[test]
+fn a_class_only_run_tests_the_commit_the_checkout_last_built() {
+    let volume = Volume::new("class-built");
+    volume.app_repo_with("step mac one ./one.sh\nstep mac two ./two.sh\ntest mac ./one.sh {class}\n");
+    let said = |output: &std::process::Output| String::from_utf8_lossy(&output.stderr).into_owned();
+    // Nothing built yet.
+    let none = volume.run(&["app-build", "demo", "main", "--test", "mac", "Foo"]);
+    assert!(!none.status.success() && said(&none).contains("no finished build"), "{}", said(&none));
+    assert!(volume.log().is_empty(), "the class ran: {:?}", volume.log());
+    // Build, then test the same commit.
+    std::fs::write(volume.dir.join("go-two"), "").unwrap();
+    let built = volume.run(&["app-build", "demo", "main", "two"]);
+    assert!(built.status.success(), "{}", said(&built));
+    std::fs::write(volume.dir.join("go-one"), "").unwrap();
+    let tested = volume.run(&["app-build", "demo", "main", "--test", "mac", "Foo"]);
+    assert!(tested.status.success(), "{}", said(&tested));
+    assert_eq!(volume.log(), lines(&["start two", "end two", "start one", "end one"]));
+    // Another commit than the one built is refused, naming what was built.
+    let top = volume.dir.join("checkout");
+    let git = |args: &[&str]| {
+        let out = Command::new("git").arg("-C").arg(&top).args(args).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let built_commit = git(&["rev-parse", "HEAD"]);
+    let other = git(&["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "Other"]);
+    git(&["push", "-q", "origin", &format!("{other}:refs/heads/other")]);
+    let refused = volume.run(&["app-build", "demo", "origin/other", "--test", "mac", "Foo"]);
+    let text = said(&refused);
+    assert!(!refused.status.success() && text.contains(&built_commit) && text.contains("two"), "{text}");
+    assert_eq!(volume.log().len(), 4, "the class ran against the stale build");
+}

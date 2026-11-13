@@ -120,3 +120,43 @@ fn a_lane_without_a_test_line_refuses_a_class() {
     let Err(Fail::Message(message)) = lane_steps(&config, Lane::Mac, &[], &[(Lane::Mac, "A".to_string())]) else { panic!("refused") };
     assert!(message.contains("no `test mac ...` line"), "{message}");
 }
+
+fn built(commit: &str, steps: &[&str]) -> Built {
+    Built { commit: commit.to_string(), steps: steps.iter().map(|step| step.to_string()).collect() }
+}
+
+#[test]
+fn a_class_run_of_the_commit_just_built_passes() {
+    let last = built("abc123", &["macos", "macos-tests"]);
+    Built::allows_class_run(Some(&last), "side-1", "my-branch", "abc123", "abc123").unwrap();
+}
+
+#[test]
+fn a_class_run_of_another_commit_is_refused_naming_what_was_built() {
+    let last = built("abc123", &["macos", "macos-tests"]);
+    let error = Built::allows_class_run(Some(&last), "side-1", "my-branch", "def456", "abc123").unwrap_err();
+    let text = format!("{error:?}");
+    assert!(text.contains("abc123") && text.contains("macos macos-tests") && text.contains("my-branch"), "{text}");
+}
+
+#[test]
+fn a_class_run_with_no_finished_build_or_a_moved_checkout_is_refused() {
+    assert!(Built::allows_class_run(None, "side-1", "b", "abc123", "abc123").is_err());
+    let last = built("abc123", &["macos"]);
+    assert!(Built::allows_class_run(Some(&last), "side-1", "b", "abc123", "def456").is_err());
+}
+
+#[test]
+fn what_was_built_is_kept_in_a_file_and_cleared_by_the_next_run() {
+    let scratch = crate::testing::Scratch::new("app-built");
+    let places = scratch.places();
+    let file = places.app_built_file("demo", "side-1");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    assert_eq!(Built::read(&file).unwrap(), None);
+    let last = built("abc123", &["macos", "macos-tests"]);
+    last.write(&file).unwrap();
+    assert_eq!(Built::read(&file).unwrap(), Some(last));
+    Built::clear(&file).unwrap();
+    assert_eq!(Built::read(&file).unwrap(), None);
+    Built::clear(&file).unwrap();
+}

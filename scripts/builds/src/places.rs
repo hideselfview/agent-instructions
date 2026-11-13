@@ -142,6 +142,11 @@ impl Places {
         self.app_locks_dir(repo, lane).join(checkout)
     }
 
+    /// What <repo>'s app checkout <checkout> last built (app_build.rs `Built`).
+    pub fn app_built_file(&self, repo: &str, checkout: &str) -> PathBuf {
+        self.root.join(repo).join(checkout).join(".last-app-build")
+    }
+
     /// <repo>'s app checkouts (side-N) in <lane>, in the order recorded;
     /// empty when none is.
     pub fn app_checkouts_of(&self, repo: &str, lane: Lane) -> Result<Vec<String>> {

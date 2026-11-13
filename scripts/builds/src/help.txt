@@ -238,9 +238,11 @@ Commands:
                               line of .app-build with the class in its
                               {class}, after the lane's steps, one run per
                               class, each limited to 10 minutes; with no step
-                              named, only the classes run. The line is
-                              required, and one class is one argument, never
-                              read by a shell
+                              named, only the classes run, and only when
+                              the app checkout's last build finished and is
+                              of <ref> (else it refuses, naming what was
+                              built). The line is required, and one class is
+                              one argument, never read by a shell
   builds app-build <repo> --list
                               print the steps (lane, name, command) and each
                               lane's test line
