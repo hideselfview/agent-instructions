@@ -86,7 +86,7 @@ fn a_boards_link_and_a_design_changes_approval_are_checked() {
     let mut lists = lists();
     let id = crate::lists::fixtures::design(&mut lists);
     let design = lists.design_mut(id).unwrap();
-    design.boards.insert("design/mocks/A.dc.html".into(), crate::lists::Board { link: " ".into(), render: None });
+    design.boards.insert("design/mocks/A.dc.html".into(), crate::lists::Board { link: " ".into() });
     assert_fault(&lists, "board design/mocks/A.dc.html is no place of it");
     assert_fault(&lists, "empty canvas link");
     let design = lists.design_mut(id).unwrap();

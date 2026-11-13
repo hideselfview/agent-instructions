@@ -71,10 +71,15 @@ Commands in this part:
 Design changes (a product design change: a board or a design-system
 component, not a software plan). A design change is recorded when its boards
 are drawn and waits on the person's review: it shows in the sidebar's Waiting
-on you tab with what changed, each board linked to the canvas and its render,
-until the person approves it. land.sh --design N refuses it before that;
-landing closes it, so it leaves the tab. The design session lands through
-land.sh like everyone else, from bae's landing worktree (side-7).
+on you tab as a light card (its title, the items it blocks, who recorded it)
+with a Details toggle that opens its review page in a modal over the dashboard,
+until the person approves it. The review page is the change's words under
+their headings, with every board of the change drawn live from the change's
+worktree in a frame the person can zoom (never an image); the dashboard serves
+it at /design/N and draws each board again on every request, so a redraw shows
+on reload. land.sh --design N refuses it before approval; landing closes it, so
+it leaves the tab. The design session lands through land.sh like everyone else,
+from bae's landing worktree (side-7).
 
 A repo's design files are the globs given to `lists init`. --design-places:
 a board file (`design/mocks/*.dc.html`) is a place, and so is a component
@@ -105,7 +110,10 @@ rebased, since places are compared by path.
   builds design record --request FILE       (`-` for standard input)
       FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
       "places": {PLACE: {"item": N} | {"new": ITEM_DRAFT} | {"matches": HOW}},
-      "boards": {BOARD: {"link": CANVAS_URL, "render": IMAGE_PATH}},
+      "boards": {BOARD: {"link": CANVAS_URL}},
+      "review": [{"heading": H, "words": WORDS,
+                  "boards": [{"board": BOARD_PATH, "caption": C,
+                              "theme": "light" | "dark"}]}],
       "no_app_place": WHY}. `places` answers every design place the range
       changes (a board, a component folder, a spec section): an open item
       that does the app work, a new item (which waits on this design change,
@@ -117,18 +125,32 @@ rebased, since places are compared by path.
       the source), and is refused beside a listed component or a changed board
       or component. Shared files that are no source (a README, a build
       script) change no drawing: only `no_app_place`, unless a place is
-      resolved. `boards` gives every board place its canvas link; `render` is
-      an optional absolute path to a png, jpg, webp or gif the daemon shows
-      the page while the file is there. Refused, naming each, when a changed
-      place is left unresolved, an answer names a place the range does not
-      change, `matches` has no how, an item is closed or missing, a board has
-      no link or a render is no image file, or the range changes no design
-      files.
+      resolved. `boards` gives every board place its canvas link. `review` is
+      how the review page reads, in order: each section is a heading, the
+      words under it (optional; `code`, **bold**, paragraphs and `-` lists)
+      and its boards (optional), each a board file of the repo's design places
+      that exists in `worktree`, with its caption and the theme it is drawn in
+      (a board may be on the page twice, once per theme, and a board the
+      change did not touch may be there to compare). Every board place of the
+      change must be on the page. `worktree` is stored with the change: the
+      dashboard draws every board of the page from it, each request, so it
+      must hold the boards while the change is open. Boards need the design
+      system's generated files (design/system/tokens.css and
+      design/system/components/bundle.css and bundle.js) in that worktree, and
+      each board's size in design/mocks/canvas.json. Refused, naming each,
+      when a changed place is left unresolved, an answer names a place the
+      range does not change, `matches` has no how, an item is closed or
+      missing, a board has no link, `review` is missing, empty or has a
+      heading with no text, a board of it is no file or no board place or
+      has no caption, a board of the change is not on it, or the range
+      changes no design files.
 
   builds design amend N --request FILE
       The same over a new range; the answers merge into N's places and
-      boards, and `title` and `details` are optional. The person's approval is
-      cleared: they approved what was drawn before.
+      boards, and `title` and `details` are optional; `worktree` replaces the
+      one stored, and `review`, when given, replaces the whole page (left out,
+      the page stays, and must still hold every board of the change). The
+      person's approval is cleared: they approved what was drawn before.
 
   builds design approve N --by-person
       Records the person's approval, which only they give (say "--by-person"
@@ -148,6 +170,18 @@ rebased, since places are compared by path.
 
   builds design show N | builds design list
       One design change, open or landed; the open ones, one line each.
+
+  builds design render DIR BOARD [--theme light|dark]
+      Prints board BOARD of worktree DIR as one page of HTML (dark unless
+      asked), the way the design canvas draws it: BOARD is the name
+      (`mac.welcome.open-failed`) or the path
+      (`design/mocks/mac.welcome.open-failed.dc.html`). It follows the boards
+      the board mounts (`dc-import`), applies each board's own values
+      (`renderVals`), `sc-if` and `sc-for`, and uses DIR's design system
+      (design/system/components/bundle.js and bundle.css,
+      design/system/tokens.css), which must be built there. Redirect it to a
+      file and open that; it loads React and Roboto from the net. This is
+      the page the review page's frames load. Reads no store.
 
 What is derived, never stored: a wait is met when its question was answered,
 settled or done, or its item or design change landed (a condition only when

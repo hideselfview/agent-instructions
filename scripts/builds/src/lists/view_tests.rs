@@ -49,7 +49,7 @@ fn the_json_has_the_pages_shape() {
     assert_eq!(item_place["item"]["state"], json!("waiting"));
     let matches_place = places.iter().find(|p| p["matches"] == json!("diffed")).unwrap();
     assert_eq!(matches_place["item"], Value::Null);
-    assert_eq!((&design_json["approved"], &design_json["boards"]), (&Value::Null, &json!([])));
+    assert_eq!((&design_json["approved"], &design_json["blocks"]), (&Value::Null, &json!([])));
     // Decisions: newest first (same day: higher id first), linked both ways.
     assert_eq!(json["decisions"][0]["id"], json!(second.decision.0));
     assert_eq!(json["decisions"][0]["replaces"], json!(first.decision.0));
@@ -89,17 +89,15 @@ fn a_failed_store_shows_its_error_and_nothing_else() {
 }
 
 #[test]
-fn a_design_change_shows_its_boards_with_links_and_renders_and_its_approval() {
+fn a_design_change_shows_the_items_waiting_on_it_and_its_approval() {
     let mut lists = lists();
     let id = design(&mut lists);
-    let change = lists.design_mut(id).unwrap();
-    change.places.insert("design/mocks/A.dc.html".into(), Resolution::Matches("x".into()));
-    change.boards.insert(
-        "design/mocks/A.dc.html".into(),
-        crate::lists::Board { link: "https://canvas.example/#A".into(), render: Some("/r/A.png".into()) },
-    );
-    change.approved = Some(stamp(NOON));
+    let waiting = item(&mut lists, vec![Wait::Design(id)]);
+    let free = item(&mut lists, vec![]);
+    let _ = free;
+    lists.design_mut(id).unwrap().approved = Some(stamp(NOON));
     let json = view_json(&lists);
-    assert_eq!(json["designs"][0]["boards"], json!([{"path": "design/mocks/A.dc.html", "link": "https://canvas.example/#A", "render": "/r/A.png"}]));
+    assert_eq!(json["designs"][0]["blocks"], json!([{"id": waiting.0, "title": lists.item(waiting).unwrap().title}]));
     assert_eq!(json["designs"][0]["approved"]["at"], json!(NOON));
+    assert_eq!(json["designs"][0].get("boards"), None, "no render, no image of a board, in the lists");
 }

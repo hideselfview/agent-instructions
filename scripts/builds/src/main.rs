@@ -10,6 +10,7 @@ mod checks;
 mod checks_run;
 mod claim;
 mod daemon;
+mod design_render;
 mod evict;
 mod fail;
 mod floor;

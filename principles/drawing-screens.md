@@ -45,11 +45,17 @@ draws them with its own parts.
 
 ## The person reviews in the sidebar
 
+- While drawing, `builds design render DIR BOARD [--theme light|dark]` prints a
+  board of the worktree as one page of HTML, drawn with the worktree's design
+  system; open it to see the board without publishing the canvas.
 - When the boards are drawn, the design session records the design change
-  (`builds design record`: what changed, each board's canvas link and render).
-  It shows in the builds dashboard sidebar's Waiting on you tab, waiting on the
-  person's review; that tab replaces the review page the session used to keep.
-  The session keeps no page of its own.
+  (`builds design record`: what changed, each board's canvas link, and how the
+  review page reads: its headings, words and the boards under each, with the
+  theme of each). It shows in the builds dashboard sidebar's Waiting on you tab
+  as a light card, waiting on the person's review; its Details opens the review
+  page in a modal. Every board on that page is drawn live from the design
+  session's worktree, in a frame the person can zoom, and drawn again on each
+  load, so a redraw shows on reload. The session keeps no page of its own.
 - Once the person says to land it, the session approves it
   (`builds design approve N --by-person`) and lands with `land.sh --design N`.
   The change closes and leaves the tab. Changing the boards again

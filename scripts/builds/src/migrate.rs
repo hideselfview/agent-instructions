@@ -1,4 +1,7 @@
-//! The move from a lane's one app checkout to a set of them, done in place by
+//! Moves from an older shape of what the tool stores, done in place by
+//! `builds install`.
+//!
+//! The first is the move from a lane's one app checkout to a set of them, done in place by
 //! `builds install`: each repo's `app-checkout` file becomes `app-checkouts`
 //! and its `app.lock` becomes `app.locks/<checkout>` (a hard link to the same
 //! file, so the new path and the old are one lock), likewise for the android
@@ -14,9 +17,13 @@
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
+use serde_json::{Value, json};
+
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
+use crate::lists::Stamp;
+use crate::lists::store::stores;
 use crate::places::Places;
 use crate::queue::is_held;
 
@@ -114,6 +121,79 @@ fn waiting_in(queue: &Path) -> Result<bool> {
         }
     }
     Ok(false)
+}
+
+/// The second move: design changes recorded with an image of each board
+/// (`render`) and no worktree or review page. Each, open or landed, gains its
+/// worktree and a review page, and its boards lose the image.
+///
+/// A record never said which worktree its boards were drawn in, so it gets
+/// the main checkout of its repo, `~/dev/<repo>`. Boards that are not there
+/// show their review page's board as that problem until `design amend N`
+/// from the worktree that holds them records the right one. The review page is
+/// one section headed by the change's title, with every board of the change in
+/// the dark, captioned with its file name.
+pub fn migrate_design_changes(places: &Places, now: i64) -> Result<()> {
+    for store in stores(places)? {
+        let stamp = Stamp { at: now, by: "builds install".to_string() };
+        let moved = store.migrate(&stamp, "migrate design changes to review pages", |state| {
+            let mut moved = false;
+            let dev = places.home.join("dev");
+            if let Some(open) = state.get_mut("designs").and_then(Value::as_array_mut) {
+                for design in open {
+                    moved |= migrate_design(design, &dev)?;
+                }
+            }
+            if let Some(closed) = state.get_mut("closed").and_then(Value::as_array_mut) {
+                for design in closed.iter_mut().filter_map(|c| c.pointer_mut("/record/design")) {
+                    moved |= migrate_design(design, &dev)?;
+                }
+            }
+            Ok(moved)
+        })?;
+        if moved {
+            crate::text::note(format!("moved project {}'s design changes to review pages", store.project));
+        }
+    }
+    Ok(())
+}
+
+/// Moves one design change's JSON to the current shape; false when it
+/// already is. <dev> holds the repos' main checkouts.
+fn migrate_design(design: &mut Value, dev: &Path) -> Result<bool> {
+    let Some(record) = design.as_object_mut() else { fail!("a design change is not an object") };
+    let mut moved = false;
+    if let Some(boards) = record.get_mut("boards").and_then(Value::as_object_mut) {
+        for board in boards.values_mut().filter_map(Value::as_object_mut) {
+            moved |= board.remove("render").is_some();
+        }
+    }
+    if !record.contains_key("worktree") {
+        let Some(repo) = record.get("repo").and_then(Value::as_str) else { fail!("a design change has no repo") };
+        let worktree = dev.join(repo).display().to_string();
+        record.insert("worktree".to_string(), json!(worktree));
+        moved = true;
+    }
+    if !record.contains_key("review") {
+        let title = record.get("title").and_then(Value::as_str).unwrap_or("Boards").to_string();
+        let boards: Vec<Value> = record
+            .get("boards")
+            .and_then(Value::as_object)
+            .map(|boards| {
+                boards
+                    .keys()
+                    .map(|path| {
+                        let file = path.rsplit('/').next().unwrap_or(path);
+                        let name = file.strip_suffix(".dc.html").unwrap_or(file);
+                        json!({ "board": path, "caption": name, "theme": "dark" })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        record.insert("review".to_string(), json!([{ "heading": title, "words": "", "boards": boards }]));
+        moved = true;
+    }
+    Ok(moved)
 }
 
 #[cfg(test)]

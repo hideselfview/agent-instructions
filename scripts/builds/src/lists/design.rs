@@ -15,7 +15,10 @@ use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::design_paths::{Changes, PlaceKind};
 use crate::lists::draft::{ItemDraft, add_item};
-use crate::lists::{Board, DesignChange, DesignLanding, How, Id, Kind, Lists, Located, Record, Resolution, Stamp, Standing, Wait};
+use crate::lists::{
+    Board, DesignChange, DesignLanding, How, Id, Kind, Lists, Located, Record, Resolution, ReviewSection, Stamp, Standing,
+    Wait,
+};
 use crate::text::local_minute;
 
 /// How one changed place is resolved in a request.
@@ -45,9 +48,14 @@ pub struct DesignRequest {
     /// changed shared source changes the drawing of.
     #[serde(default)]
     pub places: BTreeMap<String, PlaceAnswer>,
-    /// Each board place's canvas link, and a picture of it for the review.
+    /// Each board place's canvas link.
     #[serde(default)]
     pub boards: BTreeMap<String, Board>,
+    /// How the review page reads: headings, the words under each, and its
+    /// boards, which the dashboard renders live from the worktree. Required
+    /// to record; an amend that gives it replaces the page, one that doesn't
+    /// keeps it. Every board place of the change must be on it.
+    pub review: Option<Vec<ReviewSection>>,
     /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
 }
@@ -89,6 +97,7 @@ fn resolve(
     lists: &mut Lists,
     id: Id,
     request: &DesignRequest,
+    worktree: &str,
     changes: &Changes,
     affected: &BTreeSet<String>,
     stamp: &Stamp,
@@ -152,9 +161,16 @@ fn resolve(
             fail!("board {path} has an empty canvas link");
         }
     }
+    if let Some(review) = &request.review {
+        check_review(review)?;
+    }
     let Some(design) = lists.design_mut(id) else { fail!("{id} is not an open design change") };
+    design.worktree = worktree.to_string();
     design.places.extend(resolutions);
     design.boards.extend(request.boards.clone());
+    if let Some(review) = &request.review {
+        design.review = review.clone();
+    }
     let unresolved: Vec<&str> =
         changed.iter().filter(|p| !design.places.contains_key(**p)).map(|p| p.as_str()).collect();
     if !unresolved.is_empty() {
@@ -171,12 +187,25 @@ fn resolve(
         .collect();
     if !unlinked.is_empty() {
         fail!(
-            "boards without a canvas link: {}; give each under `boards` as {{\"link\": URL, \"render\": PATH_TO_AN_IMAGE}} (the render is optional)",
+            "boards without a canvas link: {}; give each under `boards` as {{\"link\": CANVAS_URL}}",
             unlinked.join(", ")
         );
     }
     if let Some(path) = design.boards.keys().find(|p| !design.places.contains_key(*p)) {
         fail!("`boards` names {path}, which is no place of this design change");
+    }
+    let on_page: BTreeSet<&str> = design.review.iter().flat_map(|s| &s.boards).map(|b| b.board.as_str()).collect();
+    let missing: Vec<&str> = design
+        .places
+        .keys()
+        .filter(|p| PlaceKind::of(p) == PlaceKind::Board && !on_page.contains(p.as_str()))
+        .map(String::as_str)
+        .collect();
+    if !missing.is_empty() {
+        fail!(
+            "boards of the change missing from the review page: {}; the person reviews every board of a change on its page, so give each under `review`",
+            missing.join(", ")
+        );
     }
     if let Some(why) = &request.no_app_place {
         if why.trim().is_empty() {
@@ -192,6 +221,29 @@ fn resolve(
     }
     needs_answer(design, changes, "the range")?;
     Ok(new_items)
+}
+
+/// A review page's own rules: every section has a heading, and every board on
+/// it is a board file. (That a board is one of the repo's board places and
+/// exists in the worktree is the command's, which reads git and the files.)
+fn check_review(review: &[ReviewSection]) -> Result<()> {
+    if review.is_empty() {
+        fail!("`review` has no section; a review page has at least one heading");
+    }
+    for section in review {
+        if section.heading.trim().is_empty() {
+            fail!("a section of `review` has an empty heading");
+        }
+        for board in &section.boards {
+            if PlaceKind::of(&board.board) != PlaceKind::Board {
+                fail!("`review` names {}, which is no board file", board.board);
+            }
+            if board.caption.trim().is_empty() {
+                fail!("the board {} on the review page has an empty caption", board.board);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Shared design files and sources change no place by themselves: the change
@@ -227,6 +279,7 @@ fn join(set: &BTreeSet<String>) -> String {
 pub fn record(
     lists: &mut Lists,
     repo: &str,
+    worktree: &str,
     request: &DesignRequest,
     changes: &Changes,
     affected: &BTreeSet<String>,
@@ -237,20 +290,25 @@ pub fn record(
         fail!("{fault}");
     }
     let details = require_text("details", request.details.as_ref())?;
+    if request.review.is_none() {
+        fail!("a design change needs its `review`: the headings, words and boards of the page the person reviews it on");
+    }
     let design = lists.alloc_id();
     lists.designs.push(DesignChange {
         id: design,
         title,
         details,
         repo: repo.to_string(),
+        worktree: worktree.to_string(),
         places: BTreeMap::new(),
         boards: BTreeMap::new(),
+        review: Vec::new(),
         no_app_place: None,
         approved: None,
         opened: stamp.clone(),
         landed: Vec::new(),
     });
-    let new_items = resolve(lists, design, request, changes, affected, stamp)?;
+    let new_items = resolve(lists, design, request, worktree, changes, affected, stamp)?;
     Ok(Recorded { design, new_items })
 }
 
@@ -280,6 +338,7 @@ pub fn amend(
     lists: &mut Lists,
     id: Id,
     repo: &str,
+    worktree: &str,
     request: &DesignRequest,
     changes: &Changes,
     affected: &BTreeSet<String>,
@@ -300,7 +359,7 @@ pub fn amend(
     if let Some(details) = &request.details {
         design.details = require_text("details", Some(details))?;
     }
-    let new_items = resolve(lists, id, request, changes, affected, stamp)?;
+    let new_items = resolve(lists, id, request, worktree, changes, affected, stamp)?;
     Ok(Recorded { design: id, new_items })
 }
 
@@ -437,8 +496,12 @@ fn describe(lists: &Lists, design: &DesignChange, landed: Option<&crate::lists::
     }
     for (path, board) in &design.boards {
         let _ = writeln!(out, "  board {path}  {}", board.link);
-        if let Some(render) = &board.render {
-            let _ = writeln!(out, "    render {render}");
+    }
+    let _ = writeln!(out, "  worktree {}", design.worktree);
+    for section in &design.review {
+        let _ = writeln!(out, "  review: {}", section.heading);
+        for board in &section.boards {
+            let _ = writeln!(out, "    {} ({}) {}", board.board, board.theme.word(), board.caption);
         }
     }
     if let Some(why) = &design.no_app_place {

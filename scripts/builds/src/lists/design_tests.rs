@@ -106,7 +106,14 @@ fn draft(title: &str) -> serde_json::Value {
     json!({ "title": title, "area": "Alpha", "details": "do it", "for": "coordinator", "waits": [] })
 }
 
-/// A request for `base..HEAD` answering <places>, with a canvas link for each board among them.
+/// A review page with one section holding <boards>, each in the dark.
+fn review_of(boards: &[&str]) -> serde_json::Value {
+    let boards: Vec<serde_json::Value> =
+        boards.iter().map(|b| json!({ "board": b, "caption": format!("the {b}"), "theme": "dark" })).collect();
+    json!([{ "heading": "What changed", "words": "the words under it", "boards": boards }])
+}
+
+/// A request for `base..HEAD` answering <places>, with a canvas link and a place on the review page for each board among them.
 fn base_request(world: &World, places: serde_json::Value) -> serde_json::Value {
     let boards: serde_json::Map<String, serde_json::Value> = places
         .as_object()
@@ -115,8 +122,9 @@ fn base_request(world: &World, places: serde_json::Value) -> serde_json::Value {
         .filter(|path| !path.ends_with('/') && !path.contains('#'))
         .map(|path| (path.clone(), json!({ "link": format!("https://canvas.example/#{path}") })))
         .collect();
+    let review = review_of(&boards.keys().map(String::as_str).collect::<Vec<_>>());
     json!({ "title": "New cover grid", "details": "the boards", "worktree": world.worktree(), "range": "base..HEAD",
-            "places": places, "boards": boards })
+            "places": places, "boards": boards, "review": review })
 }
 
 #[test]
@@ -218,7 +226,10 @@ fn record_refuses_bad_answers_and_changes_nothing() {
         (json!({ board: { "new": draft("too short") } }), "words"),
     ];
     for (places, expect) in cases {
-        let refused = message(w.request(base_request(&w, places)));
+        let mut request = base_request(&w, places);
+        // The review page names only the board that is a file: a stray place is refused by its own rule.
+        request["review"] = review_of(&[board]);
+        let refused = message(w.request(request));
         assert!(refused.contains(expect), "{refused}");
         assert_eq!(w.bytes(), before);
     }
@@ -287,7 +298,8 @@ fn amend_merges_places_over_a_new_range() {
     let before = w.bytes();
     let mut request = json!({ "worktree": w.worktree(), "range": format!("{first}..HEAD"),
                               "places": { "design/mocks/B.dc.html": { "new": draft("Build the grid the board shows") } },
-                              "boards": { "design/mocks/B.dc.html": { "link": "https://canvas.example/#B" } } });
+                              "boards": { "design/mocks/B.dc.html": { "link": "https://canvas.example/#B" } },
+                              "review": review_of(&["design/mocks/A.dc.html", "design/mocks/B.dc.html"]) });
     let refused = message(w.amend(1, request.clone()));
     assert!(refused.contains("design/system/components/Sym/"), "{refused}");
     assert_eq!(w.bytes(), before);
@@ -448,7 +460,7 @@ fn an_amend_clears_the_approval_and_says_so() {
 }
 
 #[test]
-fn every_board_needs_a_canvas_link_and_a_render_is_an_image_file_that_exists() {
+fn every_board_needs_a_canvas_link() {
     let w = world("design-boards");
     w.commit(&["design/mocks/A.dc.html"]);
     let before = w.bytes();
@@ -466,22 +478,67 @@ fn every_board_needs_a_canvas_link_and_a_render_is_an_image_file_that_exists() {
     let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
     request["boards"] = json!({ board: { "link": "https://c/#A" }, "design/system/components/MacRow/": { "link": "https://c/#R" } });
     assert!(message(w.request(request)).contains("is no board file"));
-    for (render, expect) in [("relative.png", "absolute path"), ("/tmp/x.txt", "absolute path"), ("/nonexistent/x.png", "is not a file")] {
-        let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
-        request["boards"] = json!({ board: { "link": "https://c/#A", "render": render } });
-        assert!(message(w.request(request)).contains(expect), "{render}");
-    }
+    // A render, an image of the board, is gone: the board is drawn from the worktree.
+    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
+    request["boards"] = json!({ board: { "link": "https://c/#A", "render": "/tmp/A.png" } });
+    assert!(message(w.request(request)).contains("unknown field `render`"));
     assert_eq!(w.bytes(), before);
 
-    let png = w.scratch.dir.join("A.png");
-    std::fs::write(&png, b"png").unwrap();
-    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
-    request["boards"] = json!({ board: { "link": "https://c/#A", "render": png.display().to_string() } });
-    w.request(request).unwrap();
-    let state = w.state();
-    assert_eq!(state.designs[0].boards[board].link, "https://c/#A");
-    assert_eq!(state.designs[0].boards[board].render.as_deref(), Some(png.to_str().unwrap()));
-    assert!(w.run("show 1").unwrap().contains("render"));
+    w.request(base_request(&w, json!({ board: { "matches": "x" } }))).unwrap();
+    assert_eq!(w.state().designs[0].boards[board].link, "https://canvas.example/#design/mocks/A.dc.html");
+}
+
+#[test]
+fn a_design_change_needs_a_review_page_with_every_board_of_the_change_on_it() {
+    let w = world("design-review");
+    w.commit(&["design/mocks/A.dc.html", "design/mocks/B.dc.html"]);
+    let before = w.bytes();
+    let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+    let places = json!({ a: { "matches": "x" }, b: { "matches": "y" } });
+    let with = |review: serde_json::Value| {
+        let mut request = base_request(&w, places.clone());
+        request["review"] = review;
+        request
+    };
+    let mut request = base_request(&w, places.clone());
+    request.as_object_mut().unwrap().remove("review");
+    assert!(message(w.request(request)).contains("needs its `review`"));
+    assert!(message(w.request(with(json!([])))).contains("has no section"));
+    assert!(message(w.request(with(json!([{ "heading": " ", "boards": [] }])))).contains("empty heading"));
+    let refused = message(w.request(with(review_of(&[a]))));
+    assert!(refused.contains("missing from the review page") && refused.contains(b) && !refused.contains(&format!("{a},")), "{refused}");
+    assert!(message(w.request(with(review_of(&[a, b, "design/mocks/Gone.dc.html"])))).contains("is no file in"));
+    assert!(message(w.request(with(review_of(&[a, b, "docs/x.html"])))).contains("no board place of the repo's design places"));
+    assert!(message(w.request(with(review_of(&[a, b, "design/system/components/MacRow/"])))).contains("is no board file"));
+    let mut bare = review_of(&[a, b]);
+    bare[0]["boards"][0]["caption"] = json!(" ");
+    assert!(message(w.request(with(bare))).contains("empty caption"));
+    let mut bad_theme = review_of(&[a, b]);
+    bad_theme[0]["boards"][0]["theme"] = json!("sepia");
+    assert!(message(w.request(with(bad_theme))).contains("sepia"));
+    assert_eq!(w.bytes(), before);
+
+    // Sections keep their order; the record keeps the worktree the boards render from.
+    let review = json!([
+        { "heading": "Words only", "words": "just words" },
+        { "heading": "The boards", "boards": [{ "board": b, "caption": "B", "theme": "light" }, { "board": a, "caption": "A", "theme": "dark" }] },
+    ]);
+    w.request(with(review)).unwrap();
+    let design = &w.state().designs[0];
+    assert_eq!(design.review.len(), 2);
+    assert_eq!((design.review[0].heading.as_str(), design.review[0].boards.len()), ("Words only", 0));
+    assert_eq!(design.review[1].boards[0].board, b);
+    assert!(std::path::Path::new(&design.worktree).join("design/mocks/A.dc.html").is_file());
+    let shown = w.run("show 1").unwrap();
+    assert!(shown.contains("review: The boards") && shown.contains("(light) B"), "{shown}");
+
+    // An amend that gives a review replaces the page; one that doesn't keeps it.
+    let kept = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} });
+    w.amend(1, kept).unwrap();
+    assert_eq!(w.state().designs[0].review.len(), 2);
+    let replaced = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {}, "review": review_of(&[a, b]) });
+    w.amend(1, replaced).unwrap();
+    assert_eq!(w.state().designs[0].review.len(), 1);
 }
 
 #[test]
@@ -596,4 +653,24 @@ fn only_succeeds_for_commits_that_are_all_design_and_names_the_rest() {
     let spec = w.commit(&["spec/words.md"]);
     assert!(message(w.run(&format!("only {wt} {spec}"))).contains("no design files"));
     assert!(message(w.run(&format!("only {wt}"))).contains("usage"));
+}
+
+#[test]
+fn render_prints_a_board_of_a_worktree_as_one_page_in_the_theme_asked() {
+    let w = world("design-render");
+    let system = w.dir.join("design/system");
+    std::fs::create_dir_all(system.join("components")).unwrap();
+    std::fs::create_dir_all(w.dir.join("design/mocks")).unwrap();
+    std::fs::write(system.join("tokens.css"), ":root{}").unwrap();
+    std::fs::write(system.join("components/bundle.css"), "").unwrap();
+    std::fs::write(system.join("components/bundle.js"), "window.Bae = {};").unwrap();
+    std::fs::write(w.dir.join("design/mocks/mac.a.dc.html"), "<x-dc><p>hi</p></x-dc>").unwrap();
+    let wt = w.worktree();
+    let dark = w.run(&format!("render {wt} mac.a")).unwrap();
+    assert!(dark.contains("data-theme=\"dark\"") && dark.contains("<p>hi</p>"), "{dark}");
+    let light = w.run(&format!("render {wt} design/mocks/mac.a.dc.html --theme light")).unwrap();
+    assert!(light.contains("data-theme=\"light\""));
+    assert!(message(w.run(&format!("render {wt} mac.a --theme sepia"))).contains("light or dark"));
+    assert!(message(w.run(&format!("render {wt} mac.none"))).contains("mac.none.dc.html is not there"));
+    assert!(message(w.run(&format!("render {wt}"))).contains("usage"));
 }

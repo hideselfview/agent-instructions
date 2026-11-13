@@ -1,0 +1,99 @@
+<!doctype html>
+<html data-theme="@@THEME@@">
+<head>
+<meta charset="utf-8">
+<style>@@TOKENS_CSS@@</style>
+<style>@@BUNDLE_CSS@@</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script>@@BUNDLE_JS@@</script>
+<style>@@STYLES@@</style>
+</head>
+<body>
+<div id="r"></div>
+@@TEMPLATES@@
+<script>
+// A board is a tree of elements with {{name}} values, <sc-if>, <sc-for>,
+// <dc-import> (another board, mounted here) and <x-import> (a design-system
+// component from window.Bae). Each board's own script is a class whose
+// renderVals() gives the values its template reads.
+class DCLogic { constructor(p) { this.props = p || {}; this.state = {}; } setState() {} }
+var C = {};
+@@CLASSES@@
+var h = React.createElement;
+function camel(s) { return s.replace(/-([a-z])/g, function (_, c) { return c.toUpperCase(); }); }
+function look(sc, path) { return path.split('.').reduce(function (o, k) { return o == null ? undefined : o[k]; }, sc); }
+function val(v, sc) {
+  var m = /^\{\{\s*(.*?)\s*\}\}$/.exec(v);
+  if (m) {
+    if (m[1] === 'true') return true;
+    if (m[1] === 'false') return false;
+    return look(sc, m[1]);
+  }
+  return v.replace(/\{\{\s*([\w.$]+)\s*\}\}/g, function (_, k) { var x = look(sc, k); return x == null ? '' : x; });
+}
+function vals(name, props) {
+  var c = new C[name](props);
+  var v = c.renderVals() || {};
+  if (!('yes' in v)) v.yes = true;
+  return v;
+}
+function render(name, props, key) {
+  var sc = vals(name, props);
+  var t = document.getElementById('t-' + name).content;
+  return h(React.Fragment, { key: key }, Array.prototype.map.call(t.childNodes, function (n, i) { return conv(n, i, sc); }));
+}
+function conv(n, key, sc) {
+  if (n.nodeType === 3) return val(n.textContent, sc);
+  if (n.nodeType !== 1) return null;
+  var tag = n.tagName.toLowerCase();
+  var kids = function () { return Array.prototype.map.call(n.childNodes, function (c, i) { return conv(c, i, sc); }); };
+  if (tag === 'sc-if') return val(n.getAttribute('value'), sc) ? h(React.Fragment, { key: key }, kids()) : null;
+  if (tag === 'sc-for') {
+    var list = val(n.getAttribute('list'), sc) || [];
+    var as = n.getAttribute('as');
+    return h(React.Fragment, { key: key }, list.map(function (it, i) {
+      var sc2 = Object.assign({}, sc);
+      sc2[as] = it;
+      sc2.$index = i;
+      return h(React.Fragment, { key: i }, Array.prototype.map.call(n.childNodes, function (c, j) { return conv(c, j, sc2); }));
+    }));
+  }
+  if (tag === 'dc-import') {
+    var p = {};
+    Array.prototype.forEach.call(n.attributes, function (a) {
+      if (a.name === 'name' || a.name === 'hint-size') return;
+      p[camel(a.name)] = val(a.value, sc);
+    });
+    return h(React.Fragment, { key: key }, render(n.getAttribute('name'), p));
+  }
+  var props = { key: key };
+  if (tag === 'x-import') {
+    Array.prototype.forEach.call(n.attributes, function (a) {
+      if (a.name === 'component-from-global-scope') return;
+      props[camel(a.name)] = val(a.value, sc);
+    });
+    var Cm = window.Bae[n.getAttribute('component-from-global-scope').replace('Bae.', '')];
+    if (!Cm) throw new Error('no ' + n.getAttribute('component-from-global-scope'));
+    var ck = props.key;
+    delete props.key;
+    return h('div', { key: ck, className: 'sc-host-x', style: { display: 'contents' } }, h.apply(null, [Cm, props].concat(kids())));
+  }
+  Array.prototype.forEach.call(n.attributes, function (a) {
+    if (a.name === 'class') props.className = val(a.value, sc);
+    else if (a.name === 'style') {
+      var o = {};
+      a.value.split(';').forEach(function (d) {
+        var i = d.indexOf(':');
+        if (i > 0) o[camel(d.slice(0, i).trim())] = d.slice(i + 1).trim();
+      });
+      props.style = o;
+    } else props[a.name] = val(a.value, sc);
+  });
+  return h.apply(null, [tag, props].concat(kids()));
+}
+ReactDOM.createRoot(document.getElementById('r')).render(render('__main__', {}));
+</script>
+</body>
+</html>

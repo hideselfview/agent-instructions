@@ -315,6 +315,19 @@ fn design_change(lists: &Lists, design: &crate::lists::DesignChange, faults: &mu
             faults.push(format!("{from}'s board {path} has an empty canvas link"));
         }
     }
+    if !std::path::Path::new(&design.worktree).is_absolute() {
+        faults.push(format!("{from}'s worktree {:?} is not an absolute path", design.worktree));
+    }
+    for section in &design.review {
+        if section.heading.trim().is_empty() {
+            faults.push(format!("{from}'s review has a section with an empty heading"));
+        }
+        for board in &section.boards {
+            if crate::lists::design_paths::PlaceKind::of(&board.board) != crate::lists::design_paths::PlaceKind::Board {
+                faults.push(format!("{from}'s review names {}, which is no board file", board.board));
+            }
+        }
+    }
     if let Some(approved) = &design.approved {
         stamp(&approved.by, &format!("{from}'s approval"), faults);
     }

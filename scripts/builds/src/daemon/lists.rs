@@ -14,7 +14,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use super::fsevents::Stream;
 use super::model::SETTLE;
 use crate::lists::store::{Loaded, load_all};
-use crate::lists::view::{ClaimFacts, View};
+use crate::lists::DesignChange;
+use crate::lists::view::{ClaimFacts, DesignView, View, design_view};
 use crate::places::Places;
 
 type Snapshot = Result<Vec<Loaded>, String>;
@@ -124,22 +125,12 @@ pub fn running_worktrees(snapshot: &Snapshot) -> Vec<String> {
     }
 }
 
-/// The image file of the <n>th board (by path) of open design change <id> of
-/// the one project there is, with its content type; None when no such board
-/// has a render, or the file's type is not one of the image types a render
-/// may be.
-pub fn design_render(snapshot: &Snapshot, id: u32, n: usize) -> Option<(String, &'static str)> {
+/// Open design change <id> of the one project there is, as the lists JSON
+/// shows it; None when no open design change has that id.
+pub fn open_design(snapshot: &Snapshot, id: u32) -> Option<(DesignChange, DesignView)> {
     let Ok([Loaded { lists: Ok(lists), .. }]) = snapshot.as_deref() else { return None };
     let design = lists.designs.iter().find(|d| d.id.0 == id)?;
-    let render = design.boards.values().nth(n)?.render.clone()?;
-    let kind = match std::path::Path::new(&render).extension()?.to_str()?.to_ascii_lowercase().as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        "gif" => "image/gif",
-        _ => return None,
-    };
-    Some((render, kind))
+    Some((design.clone(), design_view(lists, design, None)))
 }
 
 /// The view the page reads, for the one project there is. No project, or

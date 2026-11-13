@@ -287,16 +287,51 @@ pub struct DesignLanding {
     pub at: i64,
 }
 
-/// How the person is shown a board: its place on the published canvas, and
-/// a picture of it drawn for the review.
+/// A board place's link on the published canvas.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Board {
     /// The board's link on the canvas.
     pub link: String,
-    /// The absolute path of an image (png, jpg, webp or gif) of the board;
-    /// the daemon serves it to the page while the file is there.
-    pub render: Option<String>,
+}
+
+/// The theme a board is drawn in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    Light,
+    Dark,
+}
+
+impl Theme {
+    pub fn word(self) -> &'static str {
+        match self {
+            Theme::Light => "light",
+            Theme::Dark => "dark",
+        }
+    }
+}
+
+/// A board on a review page: the board file (a place of the repo's design
+/// places, `design/mocks/<name>.dc.html`), what the caption under it says,
+/// and the theme it is drawn in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewBoard {
+    pub board: String,
+    pub caption: String,
+    pub theme: Theme,
+}
+
+/// One heading of a review page, the words under it, and the boards.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewSection {
+    pub heading: String,
+    #[serde(default)]
+    pub words: String,
+    #[serde(default)]
+    pub boards: Vec<ReviewBoard>,
 }
 
 /// A change to the design files, recorded when its boards are drawn. It
@@ -308,11 +343,16 @@ pub struct DesignChange {
     pub title: String,
     pub details: String,
     pub repo: String,
+    /// The worktree (absolute path) the boards are drawn in: the review page
+    /// renders every board from it, live, on each request.
+    pub worktree: String,
     /// Each design place the change touches, or a component a shared source
     /// changes the drawing of, and how it is resolved.
     pub places: BTreeMap<String, Resolution>,
-    /// Each board place's canvas link and render, by the board's path.
+    /// Each board place's canvas link, by the board's path.
     pub boards: BTreeMap<String, Board>,
+    /// How the review page reads: its headings, words and boards, in order.
+    pub review: Vec<ReviewSection>,
     /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
     /// The person's review: set by `design approve`, cleared by an amend,

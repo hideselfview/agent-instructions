@@ -161,6 +161,33 @@ impl Store {
         Ok(result)
     }
 
+    /// Moves the stored state from an older shape to the current one:
+    /// <migrate> rewrites the state as raw JSON under the lock and says
+    /// whether it changed anything. A change is read as the current shape,
+    /// checked, and written as one more version with a log line for <words>,
+    /// all or nothing; no change writes nothing.
+    pub fn migrate(
+        &self,
+        stamp: &Stamp,
+        words: &str,
+        migrate: impl FnOnce(&mut serde_json::Value) -> Result<bool>,
+    ) -> Result<bool> {
+        let _lock = Locked::take(&self.lock_path())?;
+        let path = self.state_path();
+        let text = std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
+        let mut raw: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|error| Fail::Message(format!("{} is not valid JSON: {error}", path.display())))?;
+        if !migrate(&mut raw)? {
+            return Ok(false);
+        }
+        let mut lists: Lists = serde_json::from_value(raw)
+            .map_err(|error| Fail::Message(format!("{} migrated is not valid lists: {error}", path.display())))?;
+        advance(&mut lists, stamp, words);
+        self.verify(&lists)?;
+        self.replace(&lists)?;
+        Ok(true)
+    }
+
     /// Writes <lists> to a temporary file beside the state, syncs it, renames
     /// it over the state and syncs the folder.
     fn replace(&self, lists: &Lists) -> Result<()> {
@@ -185,7 +212,7 @@ fn advance(lists: &mut Lists, stamp: &Stamp, words: &str) {
 }
 
 /// The stores that exist under `Places::lists`, by project name.
-fn stores(places: &Places) -> Result<Vec<Store>> {
+pub fn stores(places: &Places) -> Result<Vec<Store>> {
     let entries = match std::fs::read_dir(&places.lists) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),

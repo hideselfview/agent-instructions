@@ -138,6 +138,12 @@ Commands:
   builds lists ...            the decision stack, work queue, design changes
                               and decision log of a project, in a store
                               outside every repo: `builds help lists`
+  builds design render DIR BOARD [--theme light|dark]
+                              a board of worktree DIR as one page of HTML,
+                              drawn with DIR's design system, to open and
+                              look at while drawing; the dashboard serves a
+                              design change's boards the same way:
+                              `builds help lists`
   builds dashboard [--port <port>]
                               run the daemon until killed: it follows the
                               volume and the checkouts through FSEvents,

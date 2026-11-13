@@ -1,5 +1,5 @@
 //! `builds design places | only | record | amend | approve | check | landed |
-//! show | list`.
+//! show | list | render`.
 //!
 //! The commands that read git (`places`, `record`, `amend`, `check`,
 //! `landed`) find the project from the repo of the worktree they are given,
@@ -19,7 +19,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR SHA...\n       builds design only DIR SHA...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N DIR SHA...\n       builds design landed N DIR SHA...\n       builds design show N\n       builds design list";
+const USAGE: &str = "usage: builds design places DIR SHA...\n       builds design only DIR SHA...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N DIR SHA...\n       builds design landed N DIR SHA...\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark]";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -40,6 +40,7 @@ pub fn run_to_text(tool: &Tool, args: &[String]) -> Result<String> {
         "landed" => landed(tool, rest, &cwd),
         "show" => show(tool, rest, &cwd),
         "list" => list(tool, rest, &cwd),
+        "render" => render(rest),
         other => fail!("unknown design command {other}\n{USAGE}"),
     }
 }
@@ -149,19 +150,20 @@ fn affected_components(scope: &Scope, request: &DesignRequest) -> Result<BTreeSe
     Ok(affected)
 }
 
-/// A board's render is an image file the daemon serves to the page.
-const RENDER_TYPES: [&str; 5] = ["png", "jpg", "jpeg", "webp", "gif"];
-
-fn require_renders(request: &DesignRequest) -> Result<()> {
-    for (path, board) in &request.boards {
-        let Some(render) = &board.render else { continue };
-        let file = Path::new(render);
-        let kind = file.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
-        if !file.is_absolute() || !RENDER_TYPES.contains(&kind.as_str()) {
-            fail!("board {path}'s render {render} is not an absolute path to a {} image", RENDER_TYPES.join(", "));
-        }
-        if !file.is_file() {
-            fail!("board {path}'s render {render} is not a file");
+/// Every board on the request's review page is one of the repo's board
+/// places and a file in the worktree, where the dashboard renders it from.
+fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
+    for section in request.review.iter().flatten() {
+        for board in &section.boards {
+            if PlaceKind::of(&board.board) != PlaceKind::Board {
+                fail!("`review` names {}, which is no board file", board.board);
+            }
+            if !scope.globs.names_place(&board.board) {
+                fail!("`review` names {}, which is no board place of the repo's design places", board.board);
+            }
+            if !scope.checkout.top.join(&board.board).is_file() {
+                fail!("`review` names {}, which is no file in {}", board.board, scope.checkout.top.display());
+            }
         }
     }
     Ok(())
@@ -198,13 +200,14 @@ fn record(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let request: DesignRequest = read_request(args.require("request")?)?;
     let scope = request_scope(tool, &args, &request)?;
     require_briefs(&scope, &request)?;
-    require_renders(&request)?;
+    require_review_boards(&scope, &request)?;
     let affected = affected_components(&scope, &request)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let repo = scope.checkout.repo();
+    let worktree = scope.checkout.top.display().to_string();
     let words = format!("design record {}", request.title.as_deref().unwrap_or(""));
     let (recorded, title) = scope.store.with_write(&stamp, &words, |lists| {
-        let recorded = design::record(lists, &repo, &request, &scope.changes, &affected, &stamp)?;
+        let recorded = design::record(lists, &repo, &worktree, &request, &scope.changes, &affected, &stamp)?;
         let title = lists.design(recorded.design).expect("just recorded").title.clone();
         Ok((recorded, title))
     })?;
@@ -218,13 +221,14 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let request: DesignRequest = read_request(args.require("request")?)?;
     let scope = request_scope(tool, &args, &request)?;
     require_briefs(&scope, &request)?;
-    require_renders(&request)?;
+    require_review_boards(&scope, &request)?;
     let affected = affected_components(&scope, &request)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let repo = scope.checkout.repo();
+    let worktree = scope.checkout.top.display().to_string();
     let (recorded, title, cleared) = scope.store.with_write(&stamp, &format!("design amend {id}"), |lists| {
         let was_approved = lists.design(id).is_some_and(|d| d.approved.is_some());
-        let recorded = design::amend(lists, id, &repo, &request, &scope.changes, &affected, &stamp)?;
+        let recorded = design::amend(lists, id, &repo, &worktree, &request, &scope.changes, &affected, &stamp)?;
         let title = lists.design(id).expect("open").title.clone();
         Ok((recorded, title, was_approved))
     })?;
@@ -316,4 +320,18 @@ fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     args.exactly(0, USAGE)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     Ok(design::list(&store.load()?))
+}
+
+/// `render DIR BOARD [--theme light|dark]`: the board of worktree DIR as one
+/// page of HTML, drawn with DIR's design system. BOARD is the board's name
+/// (`mac.welcome.open-failed`) or its path (`design/mocks/<name>.dc.html`).
+fn render(args: &[String]) -> Result<String> {
+    let args = Args::parse(args, &["theme"], &[])?;
+    let [dir, board] = args.exactly(2, USAGE)? else { unreachable!("exactly two") };
+    let theme = match args.value("theme")? {
+        None | Some("dark") => crate::lists::Theme::Dark,
+        Some("light") => crate::lists::Theme::Light,
+        Some(other) => fail!("--theme is light or dark, not {other:?}"),
+    };
+    crate::design_render::render_board(Path::new(dir), board, theme)
 }

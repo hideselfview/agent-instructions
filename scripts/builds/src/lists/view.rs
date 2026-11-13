@@ -113,16 +113,6 @@ pub struct PlaceView {
     pub matches: Option<String>,
 }
 
-/// A board of a design change as the person is shown it. The page draws the
-/// render from `/api/design-render/<design id>/<n>`, n being this board's
-/// place in the design's `boards` (the order of their paths).
-#[derive(Clone, Debug, Serialize)]
-pub struct BoardView {
-    pub path: String,
-    pub link: String,
-    pub render: Option<String>,
-}
-
 #[derive(Clone, Debug, Serialize)]
 pub struct DesignView {
     pub id: Id,
@@ -130,7 +120,8 @@ pub struct DesignView {
     pub details: String,
     pub repo: String,
     pub places: Vec<PlaceView>,
-    pub boards: Vec<BoardView>,
+    /// The open items that wait on it.
+    pub blocks: Vec<Named>,
     pub no_app_place: Option<String>,
     /// The person's review: None while it waits on them.
     pub approved: Option<Stamp>,
@@ -263,7 +254,7 @@ fn place_item(lists: &Lists, id: Id) -> PlaceItem {
     }
 }
 
-fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) -> DesignView {
+pub fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) -> DesignView {
     DesignView {
         id: design.id,
         title: design.title.clone(),
@@ -277,10 +268,11 @@ fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) -> D
                 Resolution::Matches(how) => PlaceView { path: path.clone(), item: None, matches: Some(how.clone()) },
             })
             .collect(),
-        boards: design
-            .boards
+        blocks: lists
+            .items
             .iter()
-            .map(|(path, board)| BoardView { path: path.clone(), link: board.link.clone(), render: board.render.clone() })
+            .filter(|item| item.waits.contains(&Wait::Design(design.id)))
+            .map(|item| Named { id: item.id, title: item.title.clone() })
             .collect(),
         no_app_place: design.no_app_place.clone(),
         approved: design.approved.clone(),

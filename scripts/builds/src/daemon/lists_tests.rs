@@ -96,36 +96,13 @@ fn a_write_to_the_store_moves_the_version_the_feed_reports() {
     assert!(fault.contains("is not valid lists"), "{fault}");
 }
 
-fn design_with_render(state: &mut crate::lists::Lists, renders: &[(&str, Option<&str>)]) -> crate::lists::Id {
-    let id = crate::lists::fixtures::design(state);
-    let change = state.design_mut(id).unwrap();
-    for (path, render) in renders {
-        change.boards.insert(
-            path.to_string(),
-            crate::lists::Board { link: "https://canvas.example".into(), render: render.map(str::to_string) },
-        );
-    }
-    id
-}
-
 #[test]
-fn a_render_is_found_by_design_and_board_position_and_only_for_image_types() {
+fn an_open_design_change_is_found_by_id_with_its_view_and_a_landed_or_missing_one_is_not() {
     let mut state = lists();
-    let id = design_with_render(
-        &mut state,
-        &[
-            ("design/mocks/A.dc.html", Some("/r/A.PNG")),
-            ("design/mocks/B.dc.html", None),
-            ("design/mocks/C.dc.html", Some("/r/C.svg")),
-            ("design/mocks/D.dc.html", Some("/r/D.jpeg")),
-        ],
-    );
+    let id = crate::lists::fixtures::design(&mut state);
     let snapshot: Snapshot = Ok(vec![loaded("demo", Ok(state))]);
-    assert_eq!(design_render(&snapshot, id.0, 0), Some(("/r/A.PNG".to_string(), "image/png")));
-    assert_eq!(design_render(&snapshot, id.0, 1), None, "a board with no render");
-    assert_eq!(design_render(&snapshot, id.0, 2), None, "svg is no render type");
-    assert_eq!(design_render(&snapshot, id.0, 3), Some(("/r/D.jpeg".to_string(), "image/jpeg")));
-    assert_eq!(design_render(&snapshot, id.0, 9), None);
-    assert_eq!(design_render(&snapshot, id.0 + 1, 0), None);
-    assert_eq!(design_render(&Ok(vec![]), id.0, 0), None);
+    let (design, view) = open_design(&snapshot, id.0).expect("open");
+    assert_eq!((design.id, design.worktree.as_str(), view.id), (id, "/d/bae-worktrees/side-2", id));
+    assert!(open_design(&snapshot, id.0 + 1).is_none());
+    assert!(open_design(&Ok(vec![]), id.0).is_none());
 }

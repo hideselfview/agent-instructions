@@ -496,13 +496,21 @@ impl Model {
         Ok(json)
     }
 
-    /// The render of the <n>th board of design change <id>: its content type
-    /// and bytes. None when the change has no such render or the file is
-    /// gone (the page then shows the board without it).
-    pub fn design_render(&self, id: u32, n: usize) -> Option<(&'static str, Vec<u8>)> {
+    /// The review page of open design change <id>, drawn now; None when no
+    /// open design change has that id.
+    pub fn design_page(&self, id: u32) -> Option<crate::fail::Result<String>> {
         let (_, snapshot) = self.lists.current();
-        let (path, kind) = super::lists::design_render(&snapshot, id, n)?;
-        std::fs::read(path).ok().map(|bytes| (kind, bytes))
+        let (design, view) = super::lists::open_design(&snapshot, id)?;
+        Some(crate::design_render::review_page(&design, &view))
+    }
+
+    /// The <n>th board of open design change <id>'s review page, drawn from
+    /// the change's worktree now; None when there is no such change or board.
+    pub fn design_board(&self, id: u32, n: usize) -> Option<crate::fail::Result<String>> {
+        let (_, snapshot) = self.lists.current();
+        let (design, _) = super::lists::open_design(&snapshot, id)?;
+        let board = crate::design_render::review_board(&design, n)?;
+        Some(crate::design_render::render_board(std::path::Path::new(&design.worktree), &board.board, board.theme))
     }
 
     /// The claim and git facts of the worktree at <worktree>; no agent and no

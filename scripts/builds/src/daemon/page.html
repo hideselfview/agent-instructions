@@ -246,10 +246,17 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .l-empty { font-size: 13px; color: var(--muted); padding: 4px 2px; }
 .l-sep { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; width: 100%; }
 @keyframes l-flash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 3px transparent; } }
-.l-boards { display: flex; flex-direction: column; gap: 8px; }
-.l-board { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-a.l-link { color: var(--accent); font-size: 13px; overflow-wrap: anywhere; }
-.l-render { max-width: 100%; max-height: 420px; object-fit: contain; align-self: flex-start; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.l-details { align-self: flex-start; font: 13px var(--sans); color: var(--muted); background: transparent; border: 0; padding: 0; cursor: pointer; display: flex; align-items: baseline; gap: 8px; }
+.l-details::before { content: "▸"; color: var(--muted-2); font-size: 11px; width: 10px; flex: none; }
+.l-details:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.review { padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); width: min(1500px, 96vw); height: 94vh; max-width: none; max-height: none; }
+.review[open] { display: flex; flex-direction: column; }
+.review::backdrop { background: rgba(0, 0, 0, 0.55); }
+.rv-head { display: flex; align-items: baseline; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.rv-head .rv-title { font-weight: 600; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.rv-head a { color: var(--accent); }
+.rv-head button { font: 13px var(--sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 12px; cursor: pointer; }
+.rv-frame { flex: 1; border: 0; width: 100%; min-height: 0; background: var(--surface); }
 .l-flash { animation: l-flash 1.6s ease-out; }
 </style>
 </head>
@@ -293,6 +300,10 @@ a.l-link { color: var(--accent); font-size: 13px; overflow-wrap: anywhere; }
   <div class="l-body" id="l-body"><div class="l-empty">Reading the lists</div></div>
 </aside>
 </div>
+<dialog class="review" id="review" aria-label="Design change review">
+  <div class="rv-head"><span class="rv-title" id="rv-title"></span><a id="rv-open" target="_blank" rel="noopener">Open in its own tab</a><button type="button" id="rv-close">Close</button></div>
+  <iframe class="rv-frame" id="rv-frame" title="Design change review"></iframe>
+</dialog>
 <script>
 "use strict";
 const SUBTITLE = "Worktrees, and the agents working and building in them";
@@ -1086,14 +1097,14 @@ function stackCard(q, n, top) {
     opened(q, "Asked"),
     fold("q:" + q.id, q.id, "Details", () => md(q.details)));
 }
-// Design changes whose boards wait on your review: recorded, not approved, not landed.
+// Design changes that wait on your review: recorded, not approved, not landed.
 function reviews() { return lists.designs.filter(g => !g.closed && !g.approved); }
 function stackItems() {
   const own = lists.stack, review = reviews();
   if (!own.length && !review.length) return [empty("Nothing waits on you.")];
   const out = [];
   if (review.length) out.push({key: "reviews", data: review, make: () => section("Design changes to review", review.length,
-    h("div", {class: "l-rows"}, review.map(g => designCard(g, true))))});
+    h("div", {class: "l-rows"}, review.map(designCard)))});
   const cards = own.map((q, i) => ({key: "q:" + q.id, data: [q, i], make: () => stackCard(q, i + 1, i === 0)}));
   if (!review.length) return cards;
   if (cards.length) out.push({key: "questions", data: own, make: () => section("Questions", own.length,
@@ -1193,34 +1204,36 @@ function workItems() {
 }
 
 // ---- Design
-function placeLine(p) {
-  return h("li", {}, mono(p.path), " ",
-    p.item ? [pill(p.item.state, p.item.state === "ready" ? "s-ready" : "s-winding"), " ", recLink(p.item.id, p.item.title)]
-      : ["matches: " + p.matches]);
-}
-// A board: its link on the canvas, and its render when the daemon has the image.
-function boardBlock(g, b, n) {
-  const name = b.path.split("/").pop();
-  return h("div", {class: "l-board"},
-    h("a", {class: "l-link", href: b.link, target: "_blank", rel: "noopener"}, name, " on the canvas"),
-    b.render ? h("img", {class: "l-render", src: "/api/design-render/" + g.id + "/" + n, alt: "Render of " + name, loading: "lazy",
-      onerror: e => e.target.remove()}) : null);
-}
-// A design change. <review> shows what the person decides on: the details
-// in the open and the boards' renders.
-function designCard(g, review) {
+// A design change is a light card, like a question's: what it blocks, who
+// recorded it and when. Details opens its review page over the dashboard; one
+// that landed has no page, only its words.
+function designCard(g) {
   const state = g.closed ? null : g.approved ? pill("approved", "s-ready") : pill("waiting on your review", "s-you");
-  return h("article", review ? {class: "l-card", "data-rec": String(g.id)} : {class: "l-card"},
+  const direct = g.blocks.length;
+  return h("article", {class: "l-card", "data-rec": String(g.id)},
     h("div", {class: "l-row1"}, h("span", {class: "l-title"}, g.title), h("span", {class: "l-id"}, "#" + g.id), pill(g.repo, "s-free"), state),
-    review ? md(g.details) : null,
-    g.places.length ? h("ul", {class: "l-list"}, g.places.map(placeLine)) : null,
-    g.boards.length ? h("div", {class: "l-boards"}, g.boards.map((b, n) => boardBlock(g, b, n))) : null,
-    g.no_app_place ? fact("No drawing changes:", g.no_app_place) : null,
+    direct ? h("div", {class: "l-facts"},
+      fact("Blocks", plural(direct, "item", "items") + ":"),
+      h("ul", {class: "l-list"}, g.blocks.map(b => h("li", {}, recLink(b.id, b.title))))) : fact("Blocks nothing."),
     g.landed.length ? fact("Landed:", g.landed.map(l => l.commits.join(" ") + " " + stamp(l.at)).join("; ")) : null,
     g.approved ? fact("Approved:", stamp(g.approved.at)) : null,
     opened(g, "Recorded"),
-    review ? null : fold("g:" + g.id, g.id, "Details", () => md(g.details)));
+    g.closed ? fold("g:" + g.id, g.id, "Details", () => md(g.details))
+      : h("button", {type: "button", class: "l-details", onclick: () => openReview(g)}, "Details"));
 }
+const reviewDialog = document.getElementById("review"), reviewFrame = document.getElementById("rv-frame");
+// The review page of an open design change, drawn by the daemon from the
+// change's worktree each time it loads.
+function openReview(g) {
+  const url = "/design/" + g.id;
+  document.getElementById("rv-title").textContent = g.title + " (#" + g.id + ")";
+  document.getElementById("rv-open").href = url;
+  reviewFrame.src = url;
+  reviewDialog.showModal();
+}
+document.getElementById("rv-close").addEventListener("click", () => reviewDialog.close());
+reviewDialog.addEventListener("click", e => { if (e.target === reviewDialog) reviewDialog.close(); });
+reviewDialog.addEventListener("close", () => { reviewFrame.src = "about:blank"; });
 function designItems() {
   // The daemon sends `closed` only for a change that landed in the last 14 days.
   const open = lists.designs.filter(g => !g.closed);

@@ -20,9 +20,11 @@
 //!                   events, with their output
 //!     /api/lists    the lists JSON (lists/view.rs, plus each running item's
 //!                   claim facts), as the `lists` event carries it
-//!     /api/design-render/<design id>/<n>
-//!                   the image of the <n>th board of an open design change,
-//!                   as the lists JSON points at it
+//!     /design/<design id>
+//!                   the review page of an open design change, drawn now
+//!     /design/<design id>/board/<n>
+//!                   the <n>th board of that page, drawn now from the
+//!                   change's worktree; the page's frames load these
 //!     /events       `state` events: the whole state on connect and each time
 //!                   it changes, at most four a second; `lists` events: the
 //!                   lists JSON on connect and each time it changes, never
@@ -125,18 +127,39 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
             Err(error) => json(&mut stream, Err(error)),
         },
         "/events" => events(stream, model),
-        _ if path.starts_with("/api/design-render/") => {
-            let rest = &path["/api/design-render/".len()..];
-            let render = rest
-                .split_once('/')
-                .and_then(|(id, n)| Some((id.parse::<u32>().ok()?, n.parse::<usize>().ok()?)))
-                .and_then(|(id, n)| model.design_render(id, n));
-            match render {
-                Some((kind, bytes)) => respond(&mut stream, "200 OK", kind, &bytes),
-                None => respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"no such render\n"),
+        _ if path.starts_with("/design/") => {
+            let drawn = design_route(&path["/design/".len()..]).and_then(|route| match route {
+                DesignRoute::Page(id) => model.design_page(id),
+                DesignRoute::Board(id, n) => model.design_board(id, n),
+            });
+            match drawn {
+                Some(Ok(page)) => respond(&mut stream, "200 OK", "text/html; charset=utf-8", page.as_bytes()),
+                Some(Err(error)) => {
+                    respond(&mut stream, "500 Internal Server Error", "text/plain; charset=utf-8", format!("{}\n", error.text()).as_bytes())
+                }
+                None => respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"no such open design change or board\n"),
             }
         }
         _ => respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"not found\n"),
+    }
+}
+
+/// What a `/design/...` path asks for.
+#[derive(Debug, PartialEq, Eq)]
+enum DesignRoute {
+    /// The review page of design change <id>.
+    Page(u32),
+    /// The <n>th board of its review page.
+    Board(u32, usize),
+}
+
+/// <rest> is the path after `/design/`: `<id>` or `<id>/board/<n>`.
+fn design_route(rest: &str) -> Option<DesignRoute> {
+    let parts: Vec<&str> = rest.split('/').collect();
+    match parts.as_slice() {
+        [id] => Some(DesignRoute::Page(id.parse().ok()?)),
+        [id, "board", n] => Some(DesignRoute::Board(id.parse().ok()?, n.parse().ok()?)),
+        _ => None,
     }
 }
 
