@@ -92,10 +92,11 @@ dispatches it, and app work that waits on its board waits until the board lands
 The design session shows the person its boards on its review page (a local page
 of board renders, newest on top) before they land. For the design session,
 "land" means committing the boards, design system and spec lines to git and
-pushing them to `main`; it never means the apps being built to match (that is
-the work items' job). When boards land, their entries come off the review page
-in the same step, so the page holds only what still waits on the person (the
-person, 2026-11-10 and 2026-11-13).
+pushing them to `main`. The apps being built to match is the work items' job,
+and landing a board puts every piece of app work it needs into §2 in the same
+step. When boards land, their entries also come off the review page, so the page
+holds only what still waits on the person (the person, 2026-11-10 and
+2026-11-13).
 
 Each §2 item opens with a bold title of five to seven plain words on a line of
 its own, for the person (the person, 2026-11-13: "this will be the human
