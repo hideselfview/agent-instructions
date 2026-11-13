@@ -122,10 +122,11 @@ and read every listed file. This file holds the always-on project facts.
 
 ## Local verification
 
-Normal changes use the dependency-aware pre-commit hook plus tests for the
-components they affect. Commit and push after those checks pass; CI validates
-macOS, iOS, Android, Linux, and Windows concurrently. Reproduce an individual CI
-gate locally when it fails.
+Normal changes use the pre-commit hook (the `.checks` lines the staged files
+reach: formatters and static checks only) plus tests for the components they
+affect. Commit and push after those checks pass; CI validates macOS, iOS,
+Android, Linux, and Windows concurrently. Reproduce an individual CI gate
+locally when it fails.
 
 Test a crate with the feature set the hook builds it with, so the test reuses
 the hook's build instead of making another copy of every crate:
