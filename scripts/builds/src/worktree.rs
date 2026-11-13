@@ -210,12 +210,15 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
 /// <checkout>` takes it out again, while no build holds its lock; `builds
 /// app-checkout reset <repo> <checkout>` puts one on origin's main (app_reset.rs).
 pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds app-checkout mac|android <checkout> | builds app-checkout remove mac|android <checkout> | builds app-checkout reset <repo> <checkout>";
-    if let [word, repo, name] = args
-        && word == "reset"
-    {
+    const USAGE: &str = "usage: builds app-checkout mac|android <checkout> | builds app-checkout remove mac|android <checkout> | builds app-checkout reset <repo> <checkout> [--matching <rev>]";
+    let reset = match args {
+        [word, repo, name] if word == "reset" => Some((repo, name, None)),
+        [word, repo, name, flag, rev] if word == "reset" && flag == "--matching" => Some((repo, name, Some(rev.as_str()))),
+        _ => None,
+    };
+    if let Some((repo, name, matching)) = reset {
         tool.places.require_volume()?;
-        return crate::app_reset::cmd_reset(&tool.places, repo, name);
+        return crate::app_reset::cmd_reset(&tool.places, repo, name, matching);
     }
     let (removing, lane, arg) = match args {
         [word, lane, arg] if word == "remove" => (true, lane, arg),

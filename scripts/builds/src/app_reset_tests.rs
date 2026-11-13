@@ -44,7 +44,7 @@ fn halfway(scratch: &Scratch) -> (Places, PathBuf, String, String) {
 fn a_checkout_left_halfway_goes_to_origins_main() {
     let scratch = Scratch::new("app-reset-halfway");
     let (places, top, _, new) = halfway(&scratch);
-    cmd_reset(&places, "demo", "side-1").unwrap();
+    cmd_reset(&places, "demo", "side-1", None).unwrap();
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(), new);
     assert_eq!(run_git(&top, &["status", "--porcelain"]).unwrap(), "");
     assert_eq!(std::fs::read_to_string(top.join("kept")).unwrap(), "new\n");
@@ -57,7 +57,7 @@ fn a_real_local_change_stops_the_reset_and_is_named() {
     let (places, top, old, _) = halfway(&scratch);
     std::fs::write(top.join("kept"), "mine\n").unwrap();
     std::fs::write(top.join("notes"), "mine\n").unwrap();
-    let Err(crate::fail::Fail::Message(message)) = cmd_reset(&places, "demo", "side-1") else { panic!("refused") };
+    let Err(crate::fail::Fail::Message(message)) = cmd_reset(&places, "demo", "side-1", None) else { panic!("refused") };
     assert!(message.contains("kept") && message.contains("notes"), "{message}");
     assert!(!message.contains("added"), "a path a commit holds is not named: {message}");
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(), old, "HEAD did not move");
@@ -70,7 +70,7 @@ fn a_clean_checkout_is_put_on_origins_main_too() {
     let scratch = Scratch::new("app-reset-clean");
     let (places, top, old, new) = halfway(&scratch);
     git(&top, &["checkout", "-q", "--force", "--detach", &old]);
-    cmd_reset(&places, "demo", "side-1").unwrap();
+    cmd_reset(&places, "demo", "side-1", None).unwrap();
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(), new);
 }
 
@@ -81,7 +81,7 @@ fn the_reset_waits_for_the_checkouts_lock() {
     let held = lock::take_checkout(&places, "demo", Lane::Mac, "side-1").unwrap();
     let resetting = std::thread::spawn({
         let places = places.clone();
-        move || cmd_reset(&places, "demo", "side-1")
+        move || cmd_reset(&places, "demo", "side-1", None)
     });
     std::thread::sleep(std::time::Duration::from_millis(500));
     assert!(!resetting.is_finished(), "the reset waits while the lock is held");
@@ -95,5 +95,35 @@ fn the_reset_waits_for_the_checkouts_lock() {
 fn a_name_that_is_no_app_checkout_is_refused() {
     let scratch = Scratch::new("app-reset-unknown");
     let (places, _, _, _) = halfway(&scratch);
-    assert!(cmd_reset(&places, "demo", "side-9").is_err());
+    assert!(cmd_reset(&places, "demo", "side-9", None).is_err());
+}
+
+#[test]
+fn a_tree_of_an_older_target_resets_only_with_matching_naming_it() {
+    let scratch = Scratch::new("app-reset-matching");
+    let (places, top, old, new) = halfway(&scratch);
+    // The switch was heading to a commit between the checkout's and today's
+    // main; origin's main has moved on since.
+    git(&top, &["checkout", "-q", "--force", "--detach", &old]);
+    std::fs::write(top.join("kept"), "middle\n").unwrap();
+    git(&top, &["commit", "-q", "-am", "Middle"]);
+    let middle = run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+    git(&top, &["checkout", "-q", "--detach", &old]);
+    git(&top, &["checkout", "-q", &middle, "--", "."]);
+    git(&top, &["reset", "-q", &old]);
+    let Err(crate::fail::Fail::Message(message)) = cmd_reset(&places, "demo", "side-1", None) else { panic!("refused") };
+    assert!(message.contains("kept"), "{message}");
+    cmd_reset(&places, "demo", "side-1", Some(&middle)).unwrap();
+    assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(), new, "it still ends on origin/main");
+    assert_eq!(std::fs::read_to_string(top.join("kept")).unwrap(), "new\n");
+}
+
+#[test]
+fn matching_does_not_excuse_a_change_no_commit_holds() {
+    let scratch = Scratch::new("app-reset-matching-real");
+    let (places, top, old, _) = halfway(&scratch);
+    std::fs::write(top.join("kept"), "mine\n").unwrap();
+    let Err(crate::fail::Fail::Message(message)) = cmd_reset(&places, "demo", "side-1", Some(&old)) else { panic!("refused") };
+    assert!(message.contains("kept"), "{message}");
+    assert_eq!(std::fs::read_to_string(top.join("kept")).unwrap(), "mine\n");
 }

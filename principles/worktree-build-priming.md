@@ -118,9 +118,10 @@ a failed build leaves the installed one as it was; a commit on main that touches
   in a group of its own with the stopping signals blocked, so a Ctrl-C, a
   SIGTERM or a takeover leaves the old commit's tree or the new one's; only
   SIGKILL leaves the new files under the old HEAD, and reset is the way out. It
-  refuses unless every dirty path is exactly what origin/main or HEAD holds
-  there (git compares them), names the paths that are not, and never throws away
-  work.
+  refuses unless every dirty path is exactly what origin/main, HEAD or the
+  commit `--matching <rev>` names holds there (a halfway tree matches the commit
+  the switch was heading to, which main may have left behind; git compares
+  them), names the paths that are not, and never throws away work.
 - `builds status` lists every entry on the volume: each root's folders, each
   DerivedData entry and each shared cache, with size against cap, last write,
   and whether the links are in place, and under each folder the builds inside it

@@ -65,23 +65,28 @@ fn dirty(top: &Path) -> Result<BTreeSet<String>> {
     Ok(status.split('\0').filter(|entry| entry.len() > 3).map(|entry| entry[3..].to_string()).collect())
 }
 
-/// The dirty paths of <top> that neither <target> nor HEAD holds exactly.
-fn foreign_changes(top: &Path, target: &str) -> Result<Vec<String>> {
-    let dirty = dirty(top)?;
-    if dirty.is_empty() {
-        return Ok(Vec::new());
+/// The dirty paths of <top> that none of <commits> holds exactly.
+fn foreign_changes(top: &Path, commits: &[&str]) -> Result<Vec<String>> {
+    let mut foreign = dirty(top)?;
+    for commit in commits {
+        if foreign.is_empty() {
+            break;
+        }
+        let differs = differing(top, commit)?;
+        foreign.retain(|path| differs.contains(path));
     }
-    let (from_target, from_head) = (differing(top, target)?, differing(top, "HEAD")?);
-    Ok(dirty.into_iter().filter(|path| from_target.contains(path) && from_head.contains(path)).collect())
+    Ok(foreign.into_iter().collect())
 }
 
-pub fn cmd_reset(places: &Places, repo: &str, checkout: &str) -> Result<()> {
+/// <matching>: a commit the dirty paths may match as well, the one a halfway
+/// switch was heading to when it is not origin's main today.
+pub fn cmd_reset(places: &Places, repo: &str, checkout: &str, matching: Option<&str>) -> Result<()> {
     let Some(lane) = places.app_lane_of(repo, checkout)? else {
         fail!("{checkout} is not one of {repo}'s app checkouts (builds status lists them)");
     };
     let top = app_checkout_top(places, repo, checkout)?;
     let lock = lock::take_checkout(places, repo, lane, checkout)?;
-    let reset = reset_under_lock(&top);
+    let reset = reset_under_lock(&top, matching);
     unsafe { libc::close(lock) };
     reset?;
     note(format!("{} is on {TARGET}", top.display()));
@@ -89,13 +94,18 @@ pub fn cmd_reset(places: &Places, repo: &str, checkout: &str) -> Result<()> {
 }
 
 /// The reset, with the checkout's lock held.
-fn reset_under_lock(top: &Path) -> Result<()> {
+fn reset_under_lock(top: &Path, matching: Option<&str>) -> Result<()> {
     run_git(top, &["fetch", "-q", "origin"])?;
-    let target = run_git(top, &["rev-parse", "--verify", &format!("{TARGET}^{{commit}}")])?.trim().to_string();
-    let foreign = foreign_changes(top, &target)?;
+    let resolve = |rev: &str| run_git(top, &["rev-parse", "--verify", &format!("{rev}^{{commit}}")]).map(|id| id.trim().to_string());
+    let target = resolve(TARGET)?;
+    let matching = matching.map(resolve).transpose()?;
+    let mut commits = vec![target.as_str(), "HEAD"];
+    commits.extend(matching.as_deref());
+    let foreign = foreign_changes(top, &commits)?;
     if !foreign.is_empty() {
+        let also = matching.map(|rev| format!(" nor {rev}'s")).unwrap_or_default();
         fail!(
-            "{} has changes that are neither {TARGET}'s ({target}) nor HEAD's, so nothing was changed; find whose they are:\n  {}",
+            "{} has changes that are neither {TARGET}'s ({target}) nor HEAD's{also}, so nothing was changed; find whose they are:\n  {}",
             top.display(),
             foreign.join("\n  ")
         );
