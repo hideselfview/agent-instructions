@@ -31,9 +31,8 @@ Apple account, and a probe library's restore code once showed up on their
 welcome screen. Read the person's keychain only when they ask for it, for that
 task.
 
-Never read, print or edit `~/.config/bae-dev/profile.toml`: it holds the
-person's storage and service credentials. Never launch the app with
-`--dev-reset`; the person runs `scripts/reset-bae.py` themselves.
+Never launch the app with `--dev-reset`; the person runs `scripts/reset-bae.py`
+themselves.
 
 Move bae's coven pin as soon as coven has landed what bae needs, even when the
 new coven needs the library recreated. Never hold a bump back to save them a
