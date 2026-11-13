@@ -14,6 +14,9 @@ mod command;
 pub mod day;
 mod decision;
 pub mod derive;
+mod design;
+mod design_command;
+mod design_paths;
 pub mod draft;
 #[cfg(test)]
 pub mod fixtures;
@@ -23,6 +26,7 @@ pub mod view;
 
 pub use command::cmd_lists;
 pub use decision::cmd_decision;
+pub use design_command::cmd_design;
 
 use std::collections::BTreeMap;
 use std::fmt;

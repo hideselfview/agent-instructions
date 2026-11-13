@@ -57,6 +57,48 @@ Commands in this part:
       Prints the project DIR's repo belongs to, or nothing. Refused when the
       repo is in two projects.
 
+Design changes (a product design change: a board or a design-system
+component, not a software plan). A repo's design places are the globs given
+to `lists init`: a board file (`design/mocks/*.dc.html`) is a place, and so is
+a component folder (`design/system/components/*/`), counted once however many
+files in it change. Other changed files under `design/` are shared design
+files. Commands that read git take a worktree DIR and find the project from
+its repo (or --project); commits may be rebased, since places are compared by
+path.
+
+  builds design places DIR SHA...
+      Prints the design places the commits change, one per line (a folder with
+      a trailing /); nothing when there are none.
+
+  builds design record --request FILE       (`-` for standard input)
+      FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
+      "places": {PLACE: {"item": N} | {"new": ITEM_DRAFT} | {"matches": HOW}},
+      "no_app_place": WHY}. `places` answers every design place the range
+      changes: an open item that does the app work, a new item (which waits on
+      this design change, so it can't be taken before the board lands), or
+      how it was checked that the app already matches. `no_app_place` is for a
+      range that changes shared design files and no place, and only then.
+      Refused, naming each, when a changed place is left unresolved, an
+      answer names a place the range does not change, `matches` has no how,
+      an item is closed or missing, or the range changes no design files.
+
+  builds design amend N --request FILE
+      The same over a new range; the answers merge into N's places, and
+      `title` and `details` are optional.
+
+  builds design check N DIR SHA...
+      Every place the commits change is resolved in open change N (and, for
+      shared files only, `no_app_place` is said); names what is not.
+
+  builds design landed N DIR SHA...
+      As land.sh calls it after the push, with SHAs on origin/main: records
+      them and closes N, which frees the items waiting on it. The same
+      commits again record once; other commits for a landed change are
+      refused.
+
+  builds design show N | builds design list
+      One design change, open or landed; the open ones, one line each.
+
 What is derived, never stored: a wait is met when its question was answered,
 settled or done, or its item or design change landed (a condition only when
 removed); an item is running, the design session's (shown apart, never
