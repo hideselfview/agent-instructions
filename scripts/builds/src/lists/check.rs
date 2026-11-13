@@ -116,6 +116,11 @@ fn stamp(by: &str, what: &str, faults: &mut Vec<String>) {
     }
 }
 
+/// Why <repo> is no repo directory name, if it isn't.
+pub fn repo_name_fault(repo: &str) -> Option<String> {
+    (repo.is_empty() || repo.contains('/')).then(|| format!("repo '{repo}' is not a repo directory name"))
+}
+
 fn header(lists: &Lists, faults: &mut Vec<String>) {
     faults.extend(project_name_fault(&lists.project));
     if lists.repos.is_empty() {
@@ -123,9 +128,7 @@ fn header(lists: &Lists, faults: &mut Vec<String>) {
     }
     let mut seen = BTreeSet::new();
     for repo in &lists.repos {
-        if repo.is_empty() || repo.contains('/') {
-            faults.push(format!("repo '{repo}' is not a repo directory name"));
-        }
+        faults.extend(repo_name_fault(repo));
         if !seen.insert(repo) {
             faults.push(format!("repo {repo} is listed twice"));
         }

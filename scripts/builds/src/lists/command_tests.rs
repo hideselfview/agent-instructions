@@ -149,3 +149,35 @@ fn an_unknown_command_is_refused() {
     assert!(refusal(run(&tool, "frobnicate")).contains("unknown lists command frobnicate"));
     assert!(refusal(cmd_lists(&tool, &[])).contains("usage"));
 }
+
+#[test]
+fn add_repo_lets_a_repo_whose_work_a_project_carries_resolve_to_it() {
+    let scratch = Scratch::new("lists-cmd-add-repo");
+    let tool = scratch.tool(0);
+    run(&tool, "init bae --repos bae,coven --by tester").unwrap();
+    let carried = scratch.dir.join("agent-instructions");
+    repo(&carried, "target 1\n");
+    let checkout = Checkout::at(&carried).unwrap().unwrap();
+    assert_eq!(project_of(&tool.places, &checkout).unwrap(), None);
+    run(&tool, "add-repo bae agent-instructions --by tester").unwrap();
+    let lists = Store::named(&tool.places, "bae").unwrap().load().unwrap();
+    assert_eq!(lists.repos, ["bae", "coven", "agent-instructions"]);
+    assert_eq!(lists.log.last().unwrap().words, "lists add-repo bae agent-instructions");
+    assert_eq!(project_of(&tool.places, &checkout).unwrap(), Some("bae".to_string()));
+    let none = Args::parse(&[], &[], &[]).unwrap();
+    assert_eq!(Store::resolve(&tool.places, &none, &carried).unwrap().project, "bae");
+}
+
+#[test]
+fn add_repo_refuses_a_repo_already_in_a_project_and_a_missing_project() {
+    let scratch = Scratch::new("lists-cmd-add-repo-refuse");
+    let tool = scratch.tool(0);
+    run(&tool, "init bae --repos bae,coven --by tester").unwrap();
+    run(&tool, "init other --repos web --by tester").unwrap();
+    assert!(refusal(run(&tool, "add-repo bae coven --by tester")).contains("already one of project bae's"));
+    assert!(refusal(run(&tool, "add-repo bae web --by tester")).contains("already in project other"));
+    assert!(refusal(run(&tool, "add-repo nope web2 --by tester")).contains("no lists for project nope"));
+    assert!(refusal(run(&tool, "add-repo bae a/b --by tester")).contains("not a repo directory name"));
+    assert!(refusal(run(&tool, "add-repo bae --by tester")).contains("usage"));
+    assert_eq!(Store::named(&tool.places, "bae").unwrap().load().unwrap().repos, ["bae", "coven"]);
+}

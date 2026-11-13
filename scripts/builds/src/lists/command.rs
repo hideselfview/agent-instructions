@@ -1,4 +1,4 @@
-//! `builds lists init | show | project-of`.
+//! `builds lists init | add-repo | show | project-of`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -7,20 +7,22 @@ use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::args::{Args, read_input};
-use crate::lists::store::{Store, project_of};
+use crate::lists::check::repo_name_fault;
+use crate::lists::store::{Store, project_of, projects_holding};
 use crate::lists::view::View;
 use crate::lists::{Lists, Stamp, show};
 use crate::mode;
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--from FILE] [--by WHO]\n       builds lists show [--json] [--project P]\n       builds lists project-of DIR";
+const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--from FILE] [--by WHO]\n       builds lists add-repo PROJECT REPO [--by WHO]\n       builds lists show [--json] [--project P]\n       builds lists project-of DIR";
 
 pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
     let Some((command, rest)) = args.split_first() else { fail!("{USAGE}") };
     match command.as_str() {
         "init" => init(tool, rest, &cwd),
+        "add-repo" => add_repo(tool, rest, &cwd),
         "show" => show(tool, rest, &cwd),
         "project-of" => project_of_command(tool, rest),
         other => fail!("unknown lists command {other}\n{USAGE}"),
@@ -85,6 +87,30 @@ fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     };
     store.create(lists, &stamp, &words)?;
     note(format!("made the lists of project {project} in {}", store.dir.display()));
+    Ok(())
+}
+
+/// `lists add-repo PROJECT REPO`: the project carries the work of one more
+/// repo. A repo is in one project, so one another project holds is refused.
+fn add_repo(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+    let args = Args::parse(args, &[], &[])?;
+    let [project, repo] = args.exactly(2, USAGE)? else { unreachable!("exactly two") };
+    if let Some(fault) = repo_name_fault(repo) {
+        fail!("{fault}");
+    }
+    let store = Store::named(&tool.places, project)?;
+    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    store.with_write(&stamp, &format!("lists add-repo {project} {repo}"), |lists| {
+        if lists.repos.contains(repo) {
+            fail!("repo {repo} is already one of project {project}'s");
+        }
+        if let Some(other) = projects_holding(&tool.places, repo)?.into_iter().find(|held| held != project) {
+            fail!("repo {repo} is already in project {other}; a repo is in one project");
+        }
+        lists.repos.push(repo.clone());
+        Ok(())
+    })?;
+    note(format!("project {project} now carries repo {repo}"));
     Ok(())
 }
 

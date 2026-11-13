@@ -220,16 +220,22 @@ pub fn load_all(places: &Places) -> std::result::Result<Vec<Loaded>, String> {
         .collect())
 }
 
+/// The projects whose repos include <repo>, in name order.
+pub fn projects_holding(places: &Places, repo: &str) -> Result<Vec<String>> {
+    let mut found = Vec::new();
+    for store in stores(places)? {
+        if store.load()?.repos.iter().any(|held| held == repo) {
+            found.push(store.project);
+        }
+    }
+    Ok(found)
+}
+
 /// The project <checkout>'s repo belongs to, or None. A repo in two projects
 /// is refused.
 pub fn project_of(places: &Places, checkout: &Checkout) -> Result<Option<String>> {
     let repo = checkout.repo();
-    let mut found = Vec::new();
-    for store in stores(places)? {
-        if store.load()?.repos.contains(&repo) {
-            found.push(store.project);
-        }
-    }
+    let mut found = projects_holding(places, &repo)?;
     match found.len() {
         0 => Ok(None),
         1 => Ok(found.pop()),

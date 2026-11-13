@@ -50,6 +50,13 @@ Commands in this part:
       one, and runs the whole-state check on it; --repos and the glob flags
       must then match what the file holds. Refused when the store exists.
 
+  builds lists add-repo PROJECT REPO [--by WHO]
+      The project carries the work of one more repo, so its worktrees run
+      items, land commits and resolve to the project from their directory
+      (agent-instructions is added to bae this way: its work is tracked on
+      bae's lists). Refused when the project already has the repo or another
+      project holds it.
+
   builds lists show [--json] [--project P]
       The stack in the order it is asked, then the queue, as text; with
       --json the whole state with its derived fields (state of each item,
