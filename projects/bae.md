@@ -127,7 +127,7 @@ migration, assembled by bae-library (`SCHEMA`) from each crate's parts in crate
 order. A domain's SQL files sit in its home beside a same-stem `.rs`, with their
 trigger tests in `<stem>_tests.rs`. A schema change edits its domain's SQL file;
 it never adds a second migration. No library has to advance from an older
-schema: the person resets development data with `scripts/reset-bae.py`.
+schema: development data is reset with `scripts/reset-bae.py`.
 
 Only a domain's homes write its tables, as the `[database]` rows of
 `owner-construction-check.toml` list them; the checker's `database-boundary`

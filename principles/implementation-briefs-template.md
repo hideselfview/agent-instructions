@@ -40,7 +40,6 @@ For each item write one brief:
 - **Spec:** the spec sections (bae spec/bae.md, coven spec/\*.md) to edit in the
   same commit, or "none" with why.
 - **Locales:** new user-visible strings go in every locale; say which.
-- **Reset:** whether the library needs scripts/reset-bae.py.
 - **Model:** Sonnet executes. Only a design too large for the coordinator to
   hold goes to Opus, which writes a plan for Sonnet; say why.
 - **Order:** what it must come after (other items, running agents' work named in

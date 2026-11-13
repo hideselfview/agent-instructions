@@ -65,9 +65,9 @@ another's message, written to the same file name.
   when no finished agent under the handoff size knows the area, or when the item
   needs the other model.
 - Each brief to an agent names its worktree, its items, the rules it must read,
-  the project's hard limits (main checkouts, credentials, keychain, devices,
-  cargo through the wrapper, no `git add -A`/stash, and no `--no-verify`), the
-  mode, the model's commit trailer, and "report each commit; don't push main". A
+  the project's hard limits (main checkouts, keychain, devices, cargo through
+  the wrapper, no `git add -A`/stash, and no `--no-verify`), the mode, the
+  model's commit trailer, and "report each commit; don't push main". A
   quick-mode brief names the one test that proves the change and the clippy
   command with the feature sets the hook builds; it never says "the tests of
   what you touched". An agent given that line on 2026-11-06 ran eight crates'
