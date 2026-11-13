@@ -107,11 +107,26 @@ fn places_prints_each_place_once_and_nothing_when_there_are_none() {
     let a = w.commit(&["design/mocks/A.dc.html", "design/system/components/MacRow/a.html", "src/x.rs"]);
     let b = w.commit(&["design/system/components/MacRow/b.html", "design/theme.toml"]);
     let out = w.run(&format!("places {} {a} {b}", w.worktree())).unwrap();
-    assert_eq!(out, "design/mocks/A.dc.html\ndesign/system/components/MacRow/\n");
+    assert_eq!(
+        out,
+        "place design/mocks/A.dc.html\nplace design/system/components/MacRow/\nshared design/theme.toml\n"
+    );
     let c = w.commit(&["src/y.rs"]);
     assert_eq!(w.run(&format!("places {} {c}", w.worktree())).unwrap(), "");
+}
+
+#[test]
+fn a_shared_only_commit_is_listed_by_places_then_recorded_with_no_app_place() {
+    let w = world("design-places-shared");
     let shared = w.commit(&["design/theme.toml"]);
-    assert_eq!(w.run(&format!("places {} {shared}", w.worktree())).unwrap(), "");
+    let wt = w.worktree();
+    assert_eq!(w.run(&format!("places {wt} {shared}")).unwrap(), "shared design/theme.toml\n");
+    let mut request = base_request(&w, json!({}));
+    request["no_app_place"] = json!("a palette tweak the boards do not show");
+    w.request(request).unwrap();
+    assert!(w.run(&format!("check 1 {wt} {shared}")).is_ok());
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    assert!(w.run(&format!("landed 1 {wt} {shared}")).unwrap().contains("landed"));
 }
 
 #[test]

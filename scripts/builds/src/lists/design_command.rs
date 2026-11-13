@@ -76,7 +76,8 @@ fn lines(paths: impl IntoIterator<Item = String>) -> String {
     paths.into_iter().map(|p| format!("{p}\n")).collect()
 }
 
-/// The design places the commits change, one per line; nothing when none.
+/// Every design path the commits change, one per line: `place <path>` (a
+/// component folder once) or `shared <path>`; nothing when none.
 fn places(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let [dir, shas @ ..] = args.positional() else { fail!("{USAGE}") };
@@ -84,7 +85,9 @@ fn places(tool: &Tool, args: &[String]) -> Result<String> {
         fail!("{USAGE}");
     }
     let scope = scope(tool, &args, dir, shas.to_vec())?;
-    Ok(lines(scope.changes.places))
+    let places = scope.changes.places.into_iter().map(|p| format!("place {p}"));
+    let shared = scope.changes.shared.into_iter().map(|p| format!("shared {p}"));
+    Ok(lines(places.chain(shared)))
 }
 
 /// A design request's design change repo, commits and changes.

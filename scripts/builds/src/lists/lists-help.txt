@@ -67,8 +67,9 @@ its repo (or --project); commits may be rebased, since places are compared by
 path.
 
   builds design places DIR SHA...
-      Prints the design places the commits change, one per line (a folder with
-      a trailing /); nothing when there are none.
+      Prints every design path the commits change, one per line: `place PATH`
+      (a component folder once, with a trailing /) or `shared PATH`; nothing
+      when none. land.sh requires --design N whenever this prints anything.
 
   builds design record --request FILE       (`-` for standard input)
       FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
