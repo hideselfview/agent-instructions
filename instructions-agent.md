@@ -82,10 +82,17 @@ copy, scaffolding, a probe) stays out of the repo and its hooks. Before adding a
 file or a hook step, ask whether it is the product or a by-product of making it.
 The person (bae, 2026-11-13): "we need to do a better job of figuring out what
 is ephemera -- products of development that we can in an instant recreate -- and
-what is NOT, what is the product." Be extremely thoughtful about adding a hook
-step: it runs on every commit for everyone, so add one only when every commit it
-runs on needs it, gated on the paths it reads. (Full rule in
+what is NOT, what is the product." (Full rule in
 `rules/the-repo-holds-the-product-not-development-s-ephemera.md`.)
+
+**A commit hook formats and statically checks what changed, nothing else.** A
+pre-commit hook runs formatting and static analysis (lints, compile checks, the
+repo's structural checkers), only on the staged files or their crates, and
+finishes within 45 seconds. Never tests of any kind in a hook, the repo's own
+tools' and checkers' tests included, and never checks of the developer's
+machine. The person (bae, 2026-11-13): "static analysis, formatting. THAT's IT".
+(Full rule in
+`rules/a-commit-hook-formats-and-statically-checks-what-changed.md`.)
 
 **Never declare clean.** Don't conclude with "clean," "done," "no more X," "now
 correct." The false confidence masks incomplete state; every time you say it,

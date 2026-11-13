@@ -1,5 +1,5 @@
 ---
-digest: The repo holds the product; anything development produces that could be recreated in an instant (a script, a check, a generated copy, scaffolding, a probe) stays out of it and its hooks, and a hook step is added only when every commit needs it.
+digest: The repo holds the product; anything development produces that could be recreated in an instant (a script, a check, a generated copy, scaffolding, a probe) stays out of it and its hooks, and a hook never runs one.
 paths:
   - '**/*.rs'
   - '**/*.swift'
@@ -27,10 +27,10 @@ parts, the probe that measured something, the generator of a file that is now
 edited by hand, a check that the generator could still regenerate it. Keep what
 the by-product made, where the product uses it; drop the by-product.
 
-**Be extremely thoughtful about adding a hook step.** A hook runs on every
-commit for everyone, so its cost multiplies by every commit that follows. Add a
-step only when every commit it runs on needs it, gate it on the staged paths it
-actually reads, and never add one to keep a by-product working.
+**What a hook may run** is its own rule: formatting and static analysis of what
+changed, within 45 seconds
+(`a-commit-hook-formats-and-statically-checks-what-changed.md`). Never add a
+hook step to keep a by-product working.
 
 Example (bae, 2026-11-13): the animated sheep's parts were cut from the logo by
 `design/system/split-sheep.py`, and a hook step checked on every commit that the
