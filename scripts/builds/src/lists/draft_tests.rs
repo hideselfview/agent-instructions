@@ -120,20 +120,6 @@ fn an_edit_changes_named_fields_by_the_drafts_rules() {
     );
 }
 
-#[test]
-fn close_moves_the_record_and_refuses_what_does_not_fit() {
-    let mut lists = lists();
-    let q = question(&mut lists);
-    let i = item(&mut lists, vec![]);
-    assert!(refusal(close(&mut lists, i, How::Done, &stamp(NOON))).contains("item cannot be closed as done"));
-    assert!(refusal(close(&mut lists, Id(99), How::Done, &stamp(NOON))).contains("not a record"));
-    close(&mut lists, q, How::Done, &stamp(NOON + 5)).unwrap();
-    assert!(lists.question(q).is_none());
-    let closed = lists.closed_record(q).unwrap();
-    assert_eq!((closed.how.clone(), closed.closed.clone()), (How::Done, stamp(NOON + 5)));
-    assert!(refusal(close(&mut lists, q, How::Done, &stamp(NOON))).contains("already closed (done)"));
-}
-
 fn new_decision(title: &str) -> NewDecision {
     NewDecision { title: title.into(), by: "person".into(), body: "why".into(), question: None, replaces: None, plan: None }
 }

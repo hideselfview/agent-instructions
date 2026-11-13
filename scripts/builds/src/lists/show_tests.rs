@@ -1,5 +1,5 @@
 use super::*;
-use crate::lists::draft::close;
+use crate::lists::record::close;
 use crate::lists::fixtures::{NOON, item, lists, question, stamp};
 use crate::lists::{How, Placement, Priority};
 

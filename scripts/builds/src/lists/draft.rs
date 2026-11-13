@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::check::{item_title_fault, title_fault};
+use crate::lists::record::close;
 use crate::lists::{
-    Audience, Closed, Decision, How, Id, Item, Kind, Lists, Located, PlanRef, Priority, Record, Stamp, Standing,
-    Wait,
+    Audience, Decision, How, Id, Item, Kind, Lists, Located, PlanRef, Priority, Stamp, Standing, Wait,
 };
 use crate::text::local_day;
 
@@ -249,38 +249,6 @@ impl ItemEdit {
         }
         Ok(())
     }
-}
-
-/// Closes open record <id> the way <how> says. Whether anything still waits
-/// on it is the whole-state check's to refuse when the write ends.
-pub fn close(lists: &mut Lists, id: Id, how: How, stamp: &Stamp) -> Result<()> {
-    let kind = match lists.locate(id) {
-        None => fail!("{id} is not a record"),
-        Some(Located { standing: Standing::Closed(closed), .. }) => {
-            fail!("{id} is already closed ({})", closed.how.label())
-        }
-        Some(Located { kind, .. }) => kind,
-    };
-    if !how.fits(kind) {
-        fail!("a {} cannot be closed as {}", kind.name(), how.label());
-    }
-    let record = match kind {
-        Kind::Question => {
-            let at = lists.questions.iter().position(|q| q.id == id).expect("located open");
-            Record::Question(lists.questions.remove(at))
-        }
-        Kind::Item => {
-            let at = lists.items.iter().position(|i| i.id == id).expect("located open");
-            Record::Item(lists.items.remove(at))
-        }
-        Kind::Design => {
-            let at = lists.designs.iter().position(|d| d.id == id).expect("located open");
-            Record::Design(lists.designs.remove(at))
-        }
-        Kind::Decision => fail!("decisions are never closed"),
-    };
-    lists.closed.push(Closed { record, how, closed: stamp.clone() });
-    Ok(())
 }
 
 /// A decision's own fields; its date and recorder come from the write.

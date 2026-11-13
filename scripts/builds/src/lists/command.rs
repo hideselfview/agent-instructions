@@ -1,6 +1,5 @@
 //! `builds lists init | add-repo | show | project-of`.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::checkout::Checkout;
@@ -10,6 +9,7 @@ use crate::lists::args::{Args, read_input};
 use crate::lists::check::repo_name_fault;
 use crate::lists::store::{Store, project_of, projects_holding};
 use crate::lists::view::View;
+use crate::lists::project::{self, parse_globs};
 use crate::lists::{Lists, Stamp, show};
 use crate::text::note;
 use crate::tool::Tool;
@@ -28,18 +28,6 @@ pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
     }
 }
 
-/// `R:GLOB,R:GLOB` as each repo's globs, for the flag <flag>.
-fn parse_globs(flag: &str, text: &str) -> Result<BTreeMap<String, Vec<String>>> {
-    let mut places: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for part in text.split(',') {
-        let Some((repo, glob)) = part.split_once(':') else {
-            fail!("--{flag} takes REPO:GLOB entries, got '{part}'");
-        };
-        places.entry(repo.to_string()).or_default().push(glob.to_string());
-    }
-    Ok(places)
-}
-
 fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["repos", "design-places", "design-sources", "spec-files", "from"], &[])?;
     let [project] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
@@ -51,10 +39,13 @@ fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let lists = match args.value("from")? {
         None => {
             let Some(repos) = repos else { fail!("init needs --repos R,R: the repos the project's lists cover") };
-            let mut lists = Lists::empty(project, repos, design_places.unwrap_or_default());
-            lists.design_sources = design_sources.unwrap_or_default();
-            lists.spec_files = spec_files.unwrap_or_default();
-            lists
+            project::init(
+                project,
+                repos,
+                design_places.unwrap_or_default(),
+                design_sources.unwrap_or_default(),
+                spec_files.unwrap_or_default(),
+            )
         }
         Some(from) => {
             let text = read_input(from)?;
@@ -100,14 +91,10 @@ fn add_repo(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let store = Store::named(&tool.places, project)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.with_write(&stamp, &format!("lists add-repo {project} {repo}"), |lists| {
-        if lists.repos.contains(repo) {
-            fail!("repo {repo} is already one of project {project}'s");
-        }
         if let Some(other) = projects_holding(&tool.places, repo)?.into_iter().find(|held| held != project) {
             fail!("repo {repo} is already in project {other}; a repo is in one project");
         }
-        lists.repos.push(repo.clone());
-        Ok(())
+        project::add_repo(lists, repo)
     })?;
     note(format!("project {project} now carries repo {repo}"));
     Ok(())

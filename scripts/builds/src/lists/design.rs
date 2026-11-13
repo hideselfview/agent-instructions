@@ -460,7 +460,7 @@ pub fn landed(lists: &mut Lists, id: Id, repo: &str, commits: &[String], stamp: 
         .expect("open")
         .landed
         .push(DesignLanding { commits: commits.to_vec(), at: stamp.at });
-    crate::lists::draft::close(lists, id, How::Landed(commits.to_vec()), stamp)?;
+    crate::lists::record::close(lists, id, How::Landed(commits.to_vec()), stamp)?;
     let ready = lists
         .items
         .iter()

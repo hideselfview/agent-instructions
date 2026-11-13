@@ -113,7 +113,7 @@ fn ids_are_unique_across_open_and_closed() {
     let mut lists = lists();
     let a = item(&mut lists, vec![]);
     let copy = lists.item(a).unwrap().clone();
-    crate::lists::draft::close(&mut lists, a, How::Dropped("x".into()), &stamp(NOON)).unwrap();
+    crate::lists::record::close(&mut lists, a, How::Dropped("x".into()), &stamp(NOON)).unwrap();
     lists.items.push(copy);
     assert_fault(&lists, "is the id of two records");
 }
@@ -150,7 +150,7 @@ fn a_reference_to_a_closed_record_holds() {
     let mut lists = lists();
     let a = item(&mut lists, vec![]);
     let b = item(&mut lists, vec![Wait::Item(a)]);
-    crate::lists::draft::close(&mut lists, a, How::Landed(vec!["abc".into()]), &stamp(NOON)).unwrap();
+    crate::lists::record::close(&mut lists, a, How::Landed(vec!["abc".into()]), &stamp(NOON)).unwrap();
     assert_eq!(faults(&lists), Vec::<String>::new(), "{b}");
 }
 
@@ -159,7 +159,7 @@ fn an_open_item_waiting_on_a_record_closed_unmeetably_is_a_fault() {
     let mut lists = lists();
     let a = item(&mut lists, vec![]);
     item(&mut lists, vec![Wait::Item(a)]);
-    crate::lists::draft::close(&mut lists, a, How::Dropped("not needed".into()), &stamp(NOON)).unwrap();
+    crate::lists::record::close(&mut lists, a, How::Dropped("not needed".into()), &stamp(NOON)).unwrap();
     assert_fault(&lists, "can no longer be met");
 }
 
@@ -202,7 +202,7 @@ fn a_question_waited_on_only_by_a_closed_item_needs_a_reason() {
     let q = question(&mut lists);
     lists.questions[0].blocks_nothing = None;
     let i = item(&mut lists, vec![Wait::Question(q)]);
-    crate::lists::draft::close(&mut lists, i, How::Dropped("x".into()), &stamp(NOON)).unwrap();
+    crate::lists::record::close(&mut lists, i, How::Dropped("x".into()), &stamp(NOON)).unwrap();
     assert_fault(&lists, "blocks no open item");
 }
 
@@ -230,7 +230,7 @@ fn every_area_an_open_item_names_exists_but_a_closed_item_may_name_a_removed_one
     let i = item(&mut lists, vec![]);
     lists.item_mut(i).unwrap().area = "Gone".into();
     assert_fault(&lists, "area 'Gone', which does not exist");
-    crate::lists::draft::close(&mut lists, i, How::Dropped("x".into()), &stamp(NOON)).unwrap();
+    crate::lists::record::close(&mut lists, i, How::Dropped("x".into()), &stamp(NOON)).unwrap();
     assert_eq!(faults(&lists), Vec::<String>::new());
 }
 

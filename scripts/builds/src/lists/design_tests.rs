@@ -248,7 +248,7 @@ fn record_refuses_an_item_that_is_closed() {
     let id = {
         let mut state = w.state();
         let id = crate::lists::fixtures::item(&mut state, vec![]);
-        crate::lists::draft::close(&mut state, id, How::Dropped("gone".into()), &stamp(NOON)).unwrap();
+        crate::lists::record::close(&mut state, id, How::Dropped("gone".into()), &stamp(NOON)).unwrap();
         std::fs::write(w.store.state_path(), serde_json::to_string(&state).unwrap()).unwrap();
         id
     };

@@ -11,7 +11,8 @@ use crate::fail::{Context, Result};
 use crate::lists::args::{Args, parse_named, read_input};
 use crate::lists::check::faults;
 use crate::lists::derive::{item_state, unmet_waits, waits_for_others};
-use crate::lists::draft::{ItemDraft, ItemEdit, add_item, close, require_brief_from, require_draft_briefs, require_open_wait};
+use crate::lists::record::close;
+use crate::lists::draft::{ItemDraft, ItemEdit, add_item, require_brief_from, require_draft_briefs, require_open_wait};
 use crate::lists::store::Store;
 use crate::lists::show::wait_words;
 use crate::lists::{

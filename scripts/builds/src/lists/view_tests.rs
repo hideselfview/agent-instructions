@@ -1,5 +1,6 @@
 use super::*;
-use crate::lists::draft::{NewDecision, add_decision, close};
+use crate::lists::record::close;
+use crate::lists::draft::{NewDecision, add_decision};
 use crate::lists::fixtures::{NOON, design, draft, item, lists, question, stamp};
 use crate::lists::{How, Resolution, Running, Wait};
 use serde_json::{Value, json};

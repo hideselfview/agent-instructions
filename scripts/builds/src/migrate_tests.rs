@@ -90,7 +90,7 @@ fn a_lane_never_locked_gets_its_old_lock_made_before_it_is_linked() {
 /// landed, then rewritten in the shape before review pages: boards with a
 /// `render`, no worktree, no review.
 fn old_design_store(places: &Places) -> crate::lists::store::Store {
-    use crate::lists::draft::close;
+    use crate::lists::record::close;
     use crate::lists::fixtures::{NOON, design, lists, stamp};
     use crate::lists::{Board, How};
     let mut state = lists();
@@ -181,7 +181,7 @@ fn a_state_that_cannot_be_read_as_the_current_shape_after_the_move_is_not_writte
 /// in the shape before `running` was a list: an object on the open item, null
 /// on the closed one.
 fn old_running_store(places: &Places) -> crate::lists::store::Store {
-    use crate::lists::draft::close;
+    use crate::lists::record::close;
     use crate::lists::fixtures::{NOON, item, lists, stamp};
     use crate::lists::{How, Running};
     let mut state = lists();

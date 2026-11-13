@@ -22,7 +22,7 @@ use crate::checkout::{Checkout, git};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::Args;
-use crate::lists::draft::close;
+use crate::lists::record::close;
 use crate::lists::item::open_item;
 use crate::lists::store::Store;
 use crate::lists::{Closed, How, Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, side_worktree_parts};
