@@ -5,11 +5,10 @@ use std::path::Path;
 
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::args::Args;
+use crate::lists::args::{Args, current_dir};
 use crate::lists::check::title_fault;
-use crate::lists::item::current_dir;
 use crate::lists::store::Store;
-use crate::lists::{Lists, Stamp};
+use crate::lists::{Lists, Stamp, item};
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -71,9 +70,7 @@ fn rename(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         let at = position(lists, old)?;
         require_new_name(lists, new)?;
         lists.areas[at] = new.clone();
-        for item in lists.items.iter_mut().filter(|item| item.area == *old) {
-            item.area = new.clone();
-        }
+        item::rename_area(lists, old, new);
         Ok(())
     })?;
     note(format!("renamed area {old} to {new}"));

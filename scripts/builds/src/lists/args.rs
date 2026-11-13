@@ -152,3 +152,8 @@ pub fn read_request<T: DeserializeOwned>(spec: &str) -> Result<T> {
 #[cfg(test)]
 #[path = "args_tests.rs"]
 mod tests;
+
+/// The directory the command runs in.
+pub fn current_dir() -> Result<std::path::PathBuf> {
+    std::env::current_dir().context(|| "reading the current directory".to_string())
+}

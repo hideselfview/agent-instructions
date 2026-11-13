@@ -22,7 +22,8 @@ pub mod draft;
 #[cfg(test)]
 pub mod fixtures;
 pub mod issue;
-mod item;
+pub mod item;
+mod item_command;
 #[cfg(test)]
 mod item_fixtures;
 mod item_show;
@@ -40,8 +41,11 @@ pub use area::cmd_area;
 pub use command::cmd_lists;
 pub use decision::cmd_decision;
 pub use design_command::cmd_design;
-pub use item::{cmd_item, cmd_next};
+pub use item::{Audience, Item, Level, Note, Priority, Wait};
+pub use item_command::{cmd_item, cmd_next};
+pub use landing::LandedPart;
 pub use record::{Closed, How, Id, Kind, Located, Record, Stamp, Standing};
+pub use running::{Running, side_worktree_parts};
 
 use std::collections::BTreeMap;
 
@@ -139,96 +143,6 @@ pub struct Question {
     pub blocks_nothing: Option<String>,
     pub placed: Option<Placement>,
     pub plan: Option<PlanRef>,
-    pub opened: Stamp,
-}
-
-/// Whose work an item is. The coordinator dispatches `Coordinator` items;
-/// `DesignSession` items are shown apart and never listed as dispatchable.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Audience {
-    Coordinator,
-    DesignSession,
-}
-
-/// What an item waits on. A condition is met only when removed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Wait {
-    Item(Id),
-    Question(Id),
-    Design(Id),
-    Condition(String),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Level {
-    First,
-    Last,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Priority {
-    pub level: Level,
-    pub why: String,
-}
-
-/// An item an agent is working on, in one worktree of one repo (an item that
-/// spans repos has one of these per repo). The agent is the worktree's claim, so the
-/// claim and this marker can't disagree; the repo is the worktree's.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Running {
-    /// The absolute path of a side worktree of a project repo.
-    pub worktree: String,
-    pub branch: String,
-    pub brief: String,
-    pub since: Stamp,
-}
-
-/// Part of an item already on main.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LandedPart {
-    pub repo: String,
-    pub commits: Vec<String>,
-    pub at: i64,
-}
-
-/// A progress line on an item.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Note {
-    pub at: i64,
-    pub by: String,
-    pub text: String,
-}
-
-/// An entry of the work queue.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Item {
-    pub id: Id,
-    /// Five to seven words.
-    pub title: String,
-    pub area: String,
-    pub details: String,
-    #[serde(rename = "for")]
-    pub r#for: Audience,
-    pub waits: Vec<Wait>,
-    pub priority: Option<Priority>,
-    /// The implementation brief: path, then `#section` when it names one.
-    pub brief: Option<String>,
-    /// Where an agent works on it: one worktree per repo the work spans, none
-    /// when it is not running.
-    pub running: Vec<Running>,
-    pub landed: Vec<LandedPart>,
-    /// Newest last.
-    pub notes: Vec<Note>,
-    /// The decision or design change that made it.
-    pub from: Option<Id>,
     pub opened: Stamp,
 }
 
@@ -345,57 +259,19 @@ pub struct Decision {
     pub recorded: Stamp,
 }
 
-/// The repo and checkout name of a side worktree path,
-/// `<parent>/<repo>-worktrees/side-N`, by its shape alone. The checks that
-/// run on every load can't ask git; whether the folder is a live worktree is
-/// asked where a command takes the item.
-pub fn side_worktree_parts(path: &str) -> Option<(String, String)> {
-    let path = std::path::Path::new(path);
-    if !path.is_absolute() {
-        return None;
-    }
-    let checkout = path.file_name()?.to_str()?;
-    let digits = checkout.strip_prefix("side-")?;
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let folder = path.parent()?.file_name()?.to_str()?;
-    let repo = folder.strip_suffix("-worktrees")?;
-    if repo.is_empty() {
-        return None;
-    }
-    Some((repo.to_string(), checkout.to_string()))
-}
-
 impl Lists {
     pub fn question(&self, id: Id) -> Option<&Question> {
         self.questions.iter().find(|q| q.id == id)
-    }
-
-    pub fn item(&self, id: Id) -> Option<&Item> {
-        self.items.iter().find(|i| i.id == id)
-    }
-
-    pub fn item_mut(&mut self, id: Id) -> Option<&mut Item> {
-        self.items.iter_mut().find(|i| i.id == id)
     }
 
     pub fn design(&self, id: Id) -> Option<&DesignChange> {
         self.designs.iter().find(|d| d.id == id)
     }
 
-    pub fn design_mut(&mut self, id: Id) -> Option<&mut DesignChange> {
-        self.designs.iter_mut().find(|d| d.id == id)
-    }
-
     pub fn decision(&self, id: Id) -> Option<&Decision> {
         self.decisions.iter().find(|d| d.id == id)
     }
 
-    /// The open items whose waits name <wait>.
-    pub fn open_items_waiting_on<'a>(&'a self, wait: &'a Wait) -> impl Iterator<Item = &'a Item> + 'a {
-        self.items.iter().filter(move |item| item.waits.contains(wait))
-    }
 }
 
 #[cfg(test)]

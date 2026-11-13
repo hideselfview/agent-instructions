@@ -1,5 +1,5 @@
 use super::*;
-use crate::lists::item::cmd_item;
+use crate::lists::item_command::cmd_item;
 use crate::lists::item_fixtures::{demo, refusal, words};
 
 fn add(demo: &crate::lists::item_fixtures::Demo, title: &str, area: &str, extra: &[&str]) {

@@ -1,5 +1,5 @@
 use super::*;
-use crate::lists::item::cmd_item;
+use crate::lists::item_command::cmd_item;
 use crate::lists::item_fixtures::{Demo, demo, refusal, words};
 use crate::testing::git as run_git;
 

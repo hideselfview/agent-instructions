@@ -18,18 +18,37 @@
 use std::path::Path;
 use std::process::Stdio;
 
+use serde::{Deserialize, Serialize};
+
 use crate::checkout::{Checkout, git};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::Args;
 use crate::lists::record::close;
-use crate::lists::item::open_item;
 use crate::lists::store::Store;
-use crate::lists::{Closed, How, Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, side_worktree_parts};
+use crate::lists::item::open_item;
+use crate::lists::running::{Running, side_worktree_parts};
+use crate::lists::{Closed, How, Id, Kind, Lists, Located, Stamp, Standing};
 use crate::text::note;
 use crate::tool::Tool;
 
 const USAGE: &str = "builds item check-landing|landed DIR [--done N]... [--part N]... SHA...";
+
+/// Part of an item already on main.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LandedPart {
+    pub repo: String,
+    pub commits: Vec<String>,
+    pub at: i64,
+}
+
+/// Records on open item <id> that <part> of it is on main.
+pub fn add_part(lists: &mut Lists, id: Id, part: LandedPart) -> Result<()> {
+    let Some(item) = lists.item_mut(id) else { fail!("{id} is not an open item") };
+    item.landed.push(part);
+    Ok(())
+}
 
 /// An item a landing names, and whether the landing finishes it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,11 +202,7 @@ fn record(lists: &mut Lists, items: &[Named], repo: &str, commits: &[String], st
                 } else if item.landed.iter().any(|part| part.repo == repo && same_set(&part.commits, commits)) {
                     did.push(format!("{id} already had this part"));
                 } else {
-                    lists.item_mut(id).expect("open").landed.push(LandedPart {
-                        repo: repo.to_string(),
-                        commits: commits.to_vec(),
-                        at: stamp.at,
-                    });
+                    add_part(lists, id, LandedPart { repo: repo.to_string(), commits: commits.to_vec(), at: stamp.at })?;
                     did.push(format!("{id} gained a landed part"));
                 }
             }

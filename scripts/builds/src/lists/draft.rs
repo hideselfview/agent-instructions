@@ -11,40 +11,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::check::{item_title_fault, title_fault};
+use crate::lists::check::title_fault;
+use crate::lists::item::{ItemDraft, ItemEdit, add_item};
 use crate::lists::record::close;
-use crate::lists::{
-    Audience, Decision, How, Id, Item, Kind, Lists, Located, PlanRef, Priority, Stamp, Standing, Wait,
-};
+use crate::lists::{Decision, How, Id, Kind, Lists, PlanRef, Stamp, Wait};
 use crate::text::local_day;
-
-/// An item as a request writes it. Every field but `brief` and `priority`
-/// is required: a draft says what the item waits on, even when nothing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ItemDraft {
-    /// Five to seven plain words.
-    pub title: String,
-    pub area: String,
-    pub details: String,
-    #[serde(rename = "for")]
-    pub r#for: Audience,
-    pub waits: Vec<Wait>,
-    pub brief: Option<String>,
-    pub priority: Option<Priority>,
-}
-
-/// The fields of an item an edit may change; at least one is set.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ItemEdit {
-    pub title: Option<String>,
-    pub area: Option<String>,
-    pub details: Option<String>,
-    pub brief: Option<String>,
-    #[serde(rename = "for")]
-    pub r#for: Option<Audience>,
-}
 
 /// What an answer does to one item that waited on the question.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,143 +82,6 @@ impl ItemDraft {
             Some(brief) => require_brief(base, brief),
             None => Ok(()),
         }
-    }
-}
-
-/// Is <wait> one an item can take on now: an open record of the kind it
-/// names? Names what is wrong and what to do.
-pub fn require_open_wait(lists: &Lists, wait: &Wait) -> Result<()> {
-    let (id, kind) = match wait {
-        Wait::Item(id) => (*id, Kind::Item),
-        Wait::Question(id) => (*id, Kind::Question),
-        Wait::Design(id) => (*id, Kind::Design),
-        Wait::Condition(text) if text.trim().is_empty() => fail!("a wait on a condition needs the condition's text"),
-        Wait::Condition(_) => return Ok(()),
-    };
-    match lists.locate(id) {
-        None => fail!("a wait names {id}, which no record has"),
-        Some(Located { kind: found, .. }) if found != kind => {
-            fail!("a wait names {id} as a {}, but it is a {}", kind.name(), found.name())
-        }
-        Some(Located { standing: Standing::Closed(closed), .. }) => fail!(
-            "a wait names {id}, which is closed ({}); a wait on a closed record never holds anything",
-            closed.how.label()
-        ),
-        Some(_) => Ok(()),
-    }
-}
-
-fn require_area(lists: &Lists, area: &str) -> Result<()> {
-    if lists.areas.iter().any(|known| known == area) {
-        return Ok(());
-    }
-    let known = if lists.areas.is_empty() {
-        "there are none yet".to_string()
-    } else {
-        format!("the areas are: {}", lists.areas.join("; "))
-    };
-    fail!("area '{area}' does not exist ({known}); `builds area add` makes one")
-}
-
-fn require_details(details: &str) -> Result<()> {
-    if details.trim().is_empty() {
-        fail!("details are empty; say what the work is");
-    }
-    Ok(())
-}
-
-impl ItemDraft {
-    /// The draft's own rules, against the state it lands in: title words, a
-    /// known area, details, and every wait on an open record.
-    pub fn validate(&self, lists: &Lists) -> Result<()> {
-        if let Some(fault) = item_title_fault(&self.title) {
-            fail!("{fault}");
-        }
-        require_area(lists, &self.area)?;
-        require_details(&self.details)?;
-        for wait in &self.waits {
-            require_open_wait(lists, wait)?;
-        }
-        if self.brief.as_deref().is_some_and(|b| b.trim().is_empty()) {
-            fail!("brief is empty");
-        }
-        if let Some(priority) = &self.priority
-            && priority.why.trim().is_empty()
-        {
-            fail!("a priority needs its why");
-        }
-        Ok(())
-    }
-}
-
-/// Adds the item <draft> describes, made by <from> (a decision or a design
-/// change) when it was; returns its id.
-pub fn add_item(lists: &mut Lists, draft: &ItemDraft, from: Option<Id>, stamp: &Stamp) -> Result<Id> {
-    draft.validate(lists)?;
-    let id = lists.alloc_id();
-    lists.items.push(Item {
-        id,
-        title: draft.title.clone(),
-        area: draft.area.clone(),
-        details: draft.details.clone(),
-        r#for: draft.r#for,
-        waits: draft.waits.clone(),
-        priority: draft.priority.clone(),
-        brief: draft.brief.clone(),
-        running: Vec::new(),
-        landed: Vec::new(),
-        notes: Vec::new(),
-        from,
-        opened: stamp.clone(),
-    });
-    Ok(id)
-}
-
-impl ItemEdit {
-    fn is_empty(&self) -> bool {
-        self.title.is_none()
-            && self.area.is_none()
-            && self.details.is_none()
-            && self.brief.is_none()
-            && self.r#for.is_none()
-    }
-
-    /// Changes item <id> as the edit says, by the draft's rules.
-    pub fn apply(&self, lists: &mut Lists, id: Id) -> Result<()> {
-        if self.is_empty() {
-            fail!("the edit of {id} changes nothing: it names no field");
-        }
-        if let Some(title) = &self.title
-            && let Some(fault) = item_title_fault(title)
-        {
-            fail!("{fault}");
-        }
-        if let Some(area) = &self.area {
-            require_area(lists, area)?;
-        }
-        if let Some(details) = &self.details {
-            require_details(details)?;
-        }
-        if self.brief.as_deref().is_some_and(|b| b.trim().is_empty()) {
-            fail!("brief is empty");
-        }
-        let Some(item) = lists.item_mut(id) else { fail!("{id} is not an open item") };
-        if let Some(title) = &self.title {
-            item.title = title.clone();
-        }
-        if let Some(area) = &self.area {
-            item.area = area.clone();
-        }
-        if let Some(details) = &self.details {
-            item.details = details.clone();
-        }
-        if let Some(brief) = &self.brief {
-            item.brief = Some(brief.clone());
-        }
-        if let Some(audience) = self.r#for {
-            item.r#for = audience;
-        }
-        Ok(())
     }
 }
 

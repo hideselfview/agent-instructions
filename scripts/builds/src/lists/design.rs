@@ -14,12 +14,18 @@ use crate::fail;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::design_paths::{Changes, PlaceKind};
-use crate::lists::draft::{ItemDraft, add_item};
+use crate::lists::item::{ItemDraft, add_item};
 use crate::lists::{
     Board, DesignChange, DesignLanding, How, Id, Kind, Lists, Located, Record, Resolution, ReviewSection, Stamp, Standing,
     Wait,
 };
 use crate::text::local_minute;
+
+impl Lists {
+    pub fn design_mut(&mut self, id: Id) -> Option<&mut DesignChange> {
+        self.designs.iter_mut().find(|d| d.id == id)
+    }
+}
 
 /// How one changed place is resolved in a request.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

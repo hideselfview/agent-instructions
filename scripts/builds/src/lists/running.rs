@@ -5,13 +5,83 @@
 
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use crate::checkout::{Checkout, Root};
 use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::store::{Loaded, Store, project_of};
-use crate::lists::{Item, Lists, Running, side_worktree_parts};
+use crate::lists::item::Item;
+use crate::lists::{Id, Lists, Stamp};
 use crate::places::Places;
+
+/// An item an agent is working on, in one worktree of one repo (an item that
+/// spans repos has one of these per repo). The agent is the worktree's claim, so the
+/// claim and this marker can't disagree; the repo is the worktree's.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Running {
+    /// The absolute path of a side worktree of a project repo.
+    pub worktree: String,
+    pub branch: String,
+    pub brief: String,
+    pub since: Stamp,
+}
+
+/// The repo and checkout name of a side worktree path,
+/// `<parent>/<repo>-worktrees/side-N`, by its shape alone. The checks that
+/// run on every load can't ask git; whether the folder is a live worktree is
+/// asked where a command takes the item.
+pub fn side_worktree_parts(path: &str) -> Option<(String, String)> {
+    let path = std::path::Path::new(path);
+    if !path.is_absolute() {
+        return None;
+    }
+    let checkout = path.file_name()?.to_str()?;
+    let digits = checkout.strip_prefix("side-")?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let folder = path.parent()?.file_name()?.to_str()?;
+    let repo = folder.strip_suffix("-worktrees")?;
+    if repo.is_empty() {
+        return None;
+    }
+    Some((repo.to_string(), checkout.to_string()))
+}
+
+/// Starts open items <ids> running in <places>: the same places for each.
+pub fn start(lists: &mut Lists, ids: &[Id], places: &[Running]) -> Result<()> {
+    for id in ids {
+        let Some(item) = lists.item_mut(*id) else { fail!("{id} is not an open item") };
+        item.running = places.to_vec();
+    }
+    Ok(())
+}
+
+/// Gives every place open item <id> runs in <brief>. Refused when it does
+/// not run.
+pub fn handoff(lists: &mut Lists, id: Id, brief: &str) -> Result<()> {
+    let Some(item) = lists.item_mut(id) else { fail!("{id} is not an open item") };
+    if item.running.is_empty() {
+        fail!("{id} is not running; a handoff gives a running item's next agent its brief (`item take` starts one)");
+    }
+    for running in &mut item.running {
+        running.brief = brief.to_string();
+    }
+    Ok(())
+}
+
+/// Ends open item <id>'s running, everywhere. Refused when it does not run.
+pub fn stop(lists: &mut Lists, id: Id) -> Result<()> {
+    let Some(item) = lists.item_mut(id) else { fail!("{id} is not an open item") };
+    if item.running.is_empty() {
+        fail!("{id} is not running");
+    }
+    item.running.clear();
+    Ok(())
+}
 
 /// Who holds the worktree an item runs in.
 #[derive(Clone, Debug, PartialEq, Eq)]

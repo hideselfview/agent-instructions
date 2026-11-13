@@ -14,10 +14,11 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::Args;
 use crate::lists::draft::require_brief_from;
-use crate::lists::item::{blocking_words, open_item};
-use crate::lists::running::running_in;
+use crate::lists::item::open_item;
+use crate::lists::item_command::blocking_words;
+use crate::lists::running::{Running, running_in, start};
 use crate::lists::store::Store;
-use crate::lists::{Audience, Id, Running, Stamp};
+use crate::lists::{Audience, Id, Stamp};
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -126,18 +127,16 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 fail!("{id} waits on {}; it can be taken once they are met", blocking.join("; "));
             }
         }
-        for id in &ids {
-            lists.item_mut(*id).expect("open").running = places
-                .iter()
-                .map(|place| Running {
-                    worktree: place.top.clone(),
-                    branch: place.branch.clone(),
-                    brief: brief.clone(),
-                    since: stamp.clone(),
-                })
-                .collect();
-        }
-        Ok(())
+        let running: Vec<Running> = places
+            .iter()
+            .map(|place| Running {
+                worktree: place.top.clone(),
+                branch: place.branch.clone(),
+                brief: brief.clone(),
+                since: stamp.clone(),
+            })
+            .collect();
+        start(lists, &ids, &running)
     })?;
     let named: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
     let wheres: Vec<String> = places.iter().map(|p| format!("{} on {} for {}", p.top, p.branch, p.agent)).collect();

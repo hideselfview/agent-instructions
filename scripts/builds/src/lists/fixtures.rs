@@ -1,6 +1,6 @@
 //! Lists for tests: a small valid state and the pieces to add to it.
 
-use crate::lists::draft::ItemDraft;
+use crate::lists::item::ItemDraft;
 use crate::lists::{
     Audience, DesignChange, Id, Item, Lists, LogLine, Question, QuestionKind, Stamp, Wait,
 };
