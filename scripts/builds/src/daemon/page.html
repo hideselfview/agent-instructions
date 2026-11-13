@@ -44,7 +44,8 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
-.page { padding: 24px 28px 48px; display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+.page { padding: 24px 28px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; min-height: 100vh; align-content: start; }
+.left { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .mono { font-family: var(--mono); }
 
 header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
@@ -179,10 +180,71 @@ article { min-width: 0; display: flex; flex-direction: column; }
 .findings { background: var(--you-bg); color: var(--you); border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
 .findings .label { font-weight: 700; }
 .activity { font-size: 12px; color: var(--working); background: var(--working-bg); border-radius: 6px; padding: 4px 8px; overflow-wrap: anywhere; }
+
+/* The lists sidebar: wide and sticky from 1200px, above the checkouts below it. */
+.lists { order: -1; min-width: 0; background: var(--pinned); border: 1px solid var(--pinned-line); border-radius: 14px; padding: 0 12px 12px; max-height: 70vh; overflow: auto; }
+@media (min-width: 1200px) {
+  .page { grid-template-columns: minmax(0, 1fr) minmax(440px, 40%); gap: 28px; align-items: start; }
+  .lists { order: 0; position: sticky; top: 24px; max-height: calc(100vh - 48px); }
+}
+.l-top { position: sticky; top: 0; z-index: 2; background: var(--pinned); padding: 12px 0 10px; display: flex; flex-direction: column; gap: 10px; }
+.l-head { display: flex; align-items: baseline; gap: 10px; }
+.l-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.l-meta { font-size: 12px; color: var(--muted-2); }
+.l-tabs { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.6fr) minmax(0, 0.8fr) minmax(0, 1fr); gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.l-tabs[hidden] { display: none; }
+.l-tabs button { display: flex; flex-direction: column; align-items: center; gap: 1px; font: 600 13px var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 5px 4px; cursor: pointer; min-width: 0; }
+.l-tabs button[aria-selected="true"] { background: var(--on); color: var(--on-text); }
+.l-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.l-tabs .l-count { font: 500 10px var(--mono); white-space: nowrap; opacity: 0.85; }
+.l-filter input { width: 100%; font: 13px var(--sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+.l-filter input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.l-body { display: flex; flex-direction: column; gap: 16px; }
+.l-section { display: flex; flex-direction: column; gap: 8px; }
+.l-section > h3 { margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; display: flex; gap: 8px; align-items: baseline; }
+.l-section > h3 .l-n { font: 500 12px var(--mono); text-transform: none; letter-spacing: 0; }
+.l-rows { display: flex; flex-direction: column; gap: 6px; }
+.l-card, .l-fold.l-row { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.l-plain { display: flex; flex-direction: column; gap: 8px; }
+.l-card { display: flex; flex-direction: column; gap: 8px; }
+.l-row1 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.l-num { font: 500 13px var(--mono); color: var(--muted-2); }
+.l-title { font-size: 14px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
+.l-id { font: 12px var(--mono); color: var(--muted-2); }
+.l-sub { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.l-fact { font-size: 13px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.l-facts { display: flex; flex-direction: column; gap: 3px; }
+.l-fact .k { color: var(--muted); }
+.l-fact .mono { font-size: 12px; }
+.l-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.4; color: var(--text-2); display: flex; flex-direction: column; gap: 2px; }
+.l-fold > summary { font-size: 13px; color: var(--muted); cursor: pointer; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; list-style: none; }
+.l-fold > summary::-webkit-details-marker { display: none; }
+.l-fold > summary::before { content: "▸"; color: var(--muted-2); font-size: 11px; width: 10px; flex: none; }
+.l-fold[open] > summary::before { content: "▾"; }
+.l-fold > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.l-fold > summary .l-sub { flex-basis: 100%; padding-left: 18px; }
+.l-fold > :not(summary) { margin-top: 8px; }
+.l-card > .l-fold { padding: 0; border: 0; background: transparent; }
+.l-md { display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.45; color: var(--text-2); overflow-wrap: anywhere; }
+.l-md p, .l-md h4 { margin: 0; }
+.l-md h4 { font-size: 13px; font-weight: 700; color: var(--text); }
+.l-md ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+.l-md code, .l-fact code, .l-sub code { font: 12px var(--mono); background: var(--line-soft); border-radius: 4px; padding: 0 4px; }
+.l-md strong { color: var(--text); }
+a.l-ref { color: var(--accent); text-decoration: underline dotted; text-underline-offset: 2px; cursor: pointer; }
+a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.l-note { background: var(--waiting-bg); border-radius: 8px; padding: 6px 10px; font-size: 13px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.l-flow { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--text-2); }
+.l-flow .k { color: var(--muted); }
+.l-empty { font-size: 13px; color: var(--muted); padding: 4px 2px; }
+.l-sep { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; width: 100%; }
+@keyframes l-flash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 3px transparent; } }
+.l-flash { animation: l-flash 1.6s ease-out; }
 </style>
 </head>
 <body>
 <div class="page">
+<div class="left">
 <header>
   <div class="title">
     <h1>Builds</h1>
@@ -204,6 +266,20 @@ article { min-width: 0; display: flex; flex-direction: column; }
 <div id="findings"></div>
 <div id="errors"></div>
 <main id="view"><div class="loading">Reading the checkouts</div></main>
+</div>
+<aside class="lists" id="lists" aria-label="Lists">
+  <div class="l-top">
+    <div class="l-head"><h2>Lists</h2><span class="l-meta" id="l-meta"></span></div>
+    <div class="l-tabs" id="l-tabs" role="tablist" hidden>
+      <button type="button" role="tab" data-tab="stack"><span class="l-name">Waiting on you</span><span class="l-count"></span></button>
+      <button type="button" role="tab" data-tab="work"><span class="l-name">Work</span><span class="l-count"></span></button>
+      <button type="button" role="tab" data-tab="design"><span class="l-name">Design</span><span class="l-count"></span></button>
+      <button type="button" role="tab" data-tab="decisions"><span class="l-name">Decisions</span><span class="l-count"></span></button>
+    </div>
+    <div class="l-filter" id="l-filter" hidden><input type="search" id="l-filter-input" placeholder="Filter decisions by title and body" aria-label="Filter decisions"></div>
+  </div>
+  <div class="l-body" id="l-body"><div class="l-empty">Reading the lists</div></div>
+</aside>
 </div>
 <script>
 "use strict";
@@ -809,6 +885,361 @@ events.addEventListener("state", e => {
   render();
 });
 events.addEventListener("failure", e => { streamError = "state: " + JSON.parse(e.data).error; render(); });
+
+// ---- The lists sidebar. It only shows what the daemon sends (the `lists`
+// event, and /api/lists on load); every change to the lists goes through the
+// `builds` commands. ----
+const TAB_KEY = "builds-dashboard-lists-tab";
+const OPEN_KEY = "builds-dashboard-lists-open";
+const TABS = ["stack", "work", "design", "decisions"];
+const RECENT_DAYS = 14;
+let lists = null;              // the last lists JSON
+let listsNote = "Reading the lists";   // what the sidebar says while there are none
+let tab = "stack", filter = "";
+let index = new Map();         // record id -> {tab, key, title}
+const openRecs = new Set();    // keys of the open folds; they outlive a redraw
+try {
+  const saved = localStorage.getItem(TAB_KEY);
+  if (TABS.includes(saved)) tab = saved;
+} catch (e) { /* no storage: the first tab */ }
+try {
+  for (const k of JSON.parse(sessionStorage.getItem(OPEN_KEY) || "[]")) openRecs.add(k);
+} catch (e) { /* no storage: nothing open */ }
+function saveOpen() { try { sessionStorage.setItem(OPEN_KEY, JSON.stringify([...openRecs])); } catch (e) { /* kept for this page only */ } }
+
+// A link to a record in the sidebar; text only when the record is not there (closed).
+function recLink(id, label) {
+  const rec = index.get(id);
+  const text = label || "#" + id;
+  if (!rec) return document.createTextNode(text);
+  return h("a", {class: "l-ref", href: "#" + id, "data-ref": String(id), title: "#" + id + " " + rec.title}, text);
+}
+// `code`, **bold** and #N, in text.
+function inline(text) {
+  const out = [];
+  const re = /`([^`]+)`|\*\*(.+?)\*\*|(?<![\w&])#(\d+)\b/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m[1] !== undefined) out.push(h("code", {}, m[1]));
+    else if (m[2] !== undefined) out.push(h("strong", {}, inline(m[2])));
+    else out.push(recLink(Number(m[3])));
+    last = re.lastIndex;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+// Paragraphs, `-` lists, and `###` headings.
+function md(text) {
+  const root = h("div", {class: "l-md"});
+  let para = [], list = null;
+  const endPara = () => { if (para.length) { root.append(h("p", {}, inline(para.join(" ")))); para = []; } };
+  const endList = () => { if (list) { root.append(h("ul", {}, list.map(li => h("li", {}, inline(li.join(" ")))))); list = null; } };
+  for (const raw of String(text).split("\n")) {
+    const line = raw.trimEnd();
+    const bullet = /^\s*[-*]\s+(.*)$/.exec(line), head = /^###\s+(.*)$/.exec(line);
+    if (!line.trim()) { endPara(); endList(); }
+    else if (head) { endPara(); endList(); root.append(h("h4", {}, inline(head[1]))); }
+    else if (bullet) { endPara(); (list = list || []).push([bullet[1]]); }
+    else if (list && /^\s/.test(line)) list[list.length - 1].push(line.trim());
+    else { endList(); para.push(line.trim()); }
+  }
+  endPara(); endList();
+  return root;
+}
+// A disclosure whose body is made when first opened. <key> keeps it open
+// across redraws.
+function fold(key, id, summaryKids, body, cls) {
+  const el = h("details", {class: "l-fold" + (cls ? " " + cls : ""), "data-rec": String(id)}, h("summary", {}, summaryKids));
+  let made = false;
+  const fill = () => { if (!made) { made = true; el.append(body()); } };
+  if (openRecs.has(key)) { el.open = true; fill(); }
+  el.addEventListener("toggle", () => {
+    if (el.open) { openRecs.add(key); fill(); } else openRecs.delete(key);
+    saveOpen();
+  });
+  return el;
+}
+const mono = text => h("span", {class: "mono"}, text);
+function fact(label, ...kids) { return h("div", {class: "l-fact"}, h("span", {class: "k"}, label + " "), kids.flat(Infinity)); }
+function stamp(at) { return when(new Date(at * 1000)); }
+function opened(rec, verb) { return h("span", {class: "l-sub"}, agoSpan(rec.opened.at, verb + " ", " ago by " + rec.opened.by)); }
+function section(title, n, ...kids) {
+  return h("section", {class: "l-section"}, h("h3", {}, title, n === null ? null : h("span", {class: "l-n"}, String(n))), kids);
+}
+function empty(text) { return {key: "none", data: text, make: () => h("div", {class: "l-empty"}, text)}; }
+
+// ---- Waiting on you
+const KINDS = {
+  "question": "Question",
+  "your-step": "For you to do",
+  "held": "Held until you start it",
+};
+function stackCard(q, n, top) {
+  const direct = q.blocks.length;
+  return h("article", {class: "l-card", "data-rec": String(q.id)},
+    h("div", {class: "l-row1"},
+      h("span", {class: "l-num"}, n + "."), h("span", {class: "l-title"}, q.title), h("span", {class: "l-id"}, "#" + q.id),
+      pill(KINDS[q.kind] || q.kind, "s-free"), top ? pill("Asking now", "s-you") : null),
+    direct ? h("div", {class: "l-facts"},
+      fact("Blocks", plural(Math.max(q.blocked_count, direct), "item", "items") +
+        (q.blocked_count > direct ? ", " + direct + " directly:" : ":")),
+      h("ul", {class: "l-list"}, q.blocks.map(b => h("li", {}, recLink(b.id, b.title))))) : null,
+    q.blocks_nothing ? fact("Blocks nothing:", q.blocks_nothing) : null,
+    q.placed ? fact("Placed " + q.placed.at + (q.placed.by_person ? " by you:" : ":"), q.placed.why) : null,
+    q.plan ? fact("Plan", mono(q.plan.path), " " + q.plan.number) : null,
+    opened(q, "Asked"),
+    fold("q:" + q.id, q.id, "Details", () => md(q.details)));
+}
+function stackItems() {
+  const own = lists.stack;
+  if (!own.length) return [empty("Nothing waits on you.")];
+  return own.map((q, i) => ({key: "q:" + q.id, data: [q, i], make: () => stackCard(q, i + 1, i === 0)}));
+}
+
+// ---- Work
+function isRunning(it) { return !!it.running; }
+function isReady(it) { return !it.running && it.for === "coordinator" && it.state === "ready"; }
+function unmet(it) { return it.waits.filter(w => !w.met); }
+function waitName(w) { return w.kind === "condition" ? w.text : w.title + " #" + w.id; }
+function waitLink(w) { return w.kind === "condition" ? document.createTextNode(w.text) : recLink(w.id, w.title + " #" + w.id); }
+function itemPill(it) {
+  if (it.running) return pill("running", "s-working");
+  if (it.for === "design-session") return pill("design session’s", "s-free");
+  if (it.state === "waiting") return pill("waiting", "s-winding");
+  return pill("ready", "s-ready");
+}
+function itemSub(it) {
+  const waits = unmet(it);
+  if (waits.length) return "waits on " + waits.map(waitName).join("; ");
+  if (it.priority) return "priority " + it.priority.level + ": " + it.priority.why;
+  return null;
+}
+function itemBody(it) {
+  const facts = [];
+  if (it.waits.length) facts.push(h("div", {class: "l-fact"}, h("span", {class: "k"}, "Waits"),
+    h("ul", {class: "l-list"}, it.waits.map(w => h("li", {}, waitLink(w), w.met ? " (met)" : "")))));
+  if (it.priority) facts.push(fact("Priority " + it.priority.level + ":", it.priority.why));
+  if (it.brief) facts.push(fact("Brief", mono(it.brief)));
+  if (it.from !== null && it.from !== undefined) facts.push(fact("Made by", recLink(it.from)));
+  for (const l of it.landed) facts.push(fact("Landed in " + l.repo + ":", mono(l.commits.join(" ")), " " + stamp(l.at)));
+  const notes = it.notes.length ? h("div", {class: "l-facts"}, it.notes.map(n =>
+    h("div", {class: "l-fact"}, h("span", {class: "k"}, stamp(n.at) + " " + n.by + ":"), " ", inline(n.text)))) : null;
+  return h("div", {class: "l-plain"},
+    md(it.details), facts.length ? h("div", {class: "l-facts"}, facts) : null, notes, opened(it, "Added"));
+}
+function itemRow(it) {
+  const sub = itemSub(it);
+  return fold("i:" + it.id, it.id,
+    [h("span", {class: "l-title"}, it.title), h("span", {class: "l-id"}, "#" + it.id), itemPill(it),
+      sub ? h("span", {class: "l-sub"}, sub) : null],
+    () => itemBody(it), "l-row");
+}
+function runningCard(it) {
+  const r = it.running;
+  return h("article", {class: "l-card"},
+    h("div", {class: "l-row1"}, h("span", {class: "l-title"}, it.title), h("span", {class: "l-id"}, "#" + it.id), itemPill(it)),
+    h("div", {class: "l-facts"},
+      fact("Agent", h("strong", {}, r.agent || "unclaimed")),
+      fact("Worktree", mono(r.repo + " " + r.checkout), " on ", mono(r.branch)),
+      r.brief ? fact("Brief", mono(r.brief)) : null,
+      fact("Since", stamp(r.since.at) + " by " + r.since.by),
+      r.waiting_to_land ? fact("Waiting to land:", plural(r.waiting_to_land, "commit", "commits")) : null,
+      it.landed.length ? fact("Already landed:", it.landed.map(l => l.repo + " " + l.commits.join(" ")).join("; ")) : null,
+      unmet(it).length ? fact("Held on", unmet(it).map(waitLink).flatMap((el, i) => i ? ["; ", el] : [el])) : null),
+    r.note ? h("div", {class: "l-note"}, r.note, r.note_state ? " " : null, r.note_state ? pill(r.note_state, "s-winding") : null) : null,
+    fold("i:" + it.id, it.id, "Details and notes", () => itemBody(it)));
+}
+function sum(obj) { return Object.values(obj || {}).reduce((a, b) => a + b, 0); }
+function split2(obj) { const parts = Object.entries(obj || {}).map(([k, v]) => k + " " + v); return parts.length ? " (" + parts.join(", ") + ")" : ""; }
+function localDay(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function flowLine(label, days) {
+  const opened = {}, closed = {};
+  for (const d of days) {
+    for (const [k, v] of Object.entries(d.opened || {})) opened[k] = (opened[k] || 0) + v;
+    for (const [k, v] of Object.entries(d.closed || {})) closed[k] = (closed[k] || 0) + v;
+  }
+  return h("div", {class: "l-fact"}, h("span", {class: "k"}, label), " opened ", String(sum(opened)), split2(opened),
+    ", closed ", String(sum(closed)), split2(closed));
+}
+function workHead() {
+  const today = localDay(new Date());
+  const recent = lists.flow.slice(-RECENT_DAYS);
+  return h("div", {class: "l-flow"},
+    lists.mode ? h("div", {class: "l-fact"}, h("span", {class: "k"}, "Mode"), " ", pill(lists.mode, "s-ready")) : null,
+    flowLine("Today:", recent.filter(d => d.day === today)),
+    flowLine("Last " + RECENT_DAYS + " days:", recent));
+}
+function rows(its, one) { return h("div", {class: "l-rows"}, its.map(one || itemRow)); }
+function workItems() {
+  const all = lists.items;
+  const out = [{key: "head", data: [lists.mode, lists.flow], make: workHead}];
+  const running = all.filter(isRunning).sort((a, b) => a.running.since.at - b.running.since.at);
+  const design = all.filter(it => !isRunning(it) && it.for === "design-session");
+  const mine = all.filter(it => !isRunning(it) && it.for !== "design-session");
+  const first = mine.filter(it => it.priority && it.priority.level === "first").sort((a, b) => a.opened.at - b.opened.at);
+  const rest = mine.filter(it => !first.includes(it));
+  const part = (key, title, its, one) => {
+    if (its.length) out.push({key, data: its, make: () => section(title, its.length, rows(its, one))});
+  };
+  part("running", "Running", running, runningCard);
+  part("first", "First", first);
+  for (const area of lists.areas) part("area:" + area, area, rest.filter(it => it.area === area));
+  part("design-session", "Design session’s", design);
+  if (out.length === 1) out.push(empty("The work queue is empty."));
+  return out;
+}
+
+// ---- Design
+function placeLine(p) {
+  return h("li", {}, mono(p.path), " ",
+    p.item ? [pill(p.item.state, p.item.state === "ready" ? "s-ready" : "s-winding"), " ", recLink(p.item.id, p.item.title)]
+      : ["matches: " + p.matches]);
+}
+function closedAt(g) {
+  const c = g.closed;
+  if (c) return c.at !== undefined ? c.at : c.closed ? c.closed.at : 0;
+  return g.landed.length ? g.landed[g.landed.length - 1].at : 0;
+}
+function designCard(g) {
+  return h("article", {class: "l-card"},
+    h("div", {class: "l-row1"}, h("span", {class: "l-title"}, g.title), h("span", {class: "l-id"}, "#" + g.id), pill(g.repo, "s-free")),
+    g.places.length ? h("ul", {class: "l-list"}, g.places.map(placeLine)) : null,
+    g.no_app_place ? fact("No app place:", g.no_app_place) : null,
+    g.landed.length ? fact("Landed:", g.landed.map(l => l.commits.join(" ") + " " + stamp(l.at)).join("; ")) : null,
+    opened(g, "Recorded"),
+    fold("g:" + g.id, g.id, "Details", () => md(g.details)));
+}
+function designItems() {
+  const now = Date.now() / 1000;
+  const open = lists.designs.filter(g => !g.closed);
+  const landed = lists.designs.filter(g => g.closed && now - closedAt(g) <= RECENT_DAYS * 86400).sort((a, b) => closedAt(b) - closedAt(a));
+  const out = [];
+  if (open.length) out.push({key: "open", data: open, make: () => section("Open", open.length, h("div", {class: "l-rows"}, open.map(designCard)))});
+  if (landed.length) out.push({key: "landed", data: landed, make: () => section("Landed in the last " + RECENT_DAYS + " days", landed.length,
+    h("div", {class: "l-rows"}, landed.map(designCard)))});
+  return out.length ? out : [empty("No design change is waiting to land.")];
+}
+
+// ---- Decisions
+function decisionMatches(d, words) {
+  const text = (d.title + "\n" + d.body).toLowerCase();
+  return words.every(w => text.includes(w));
+}
+function sortedDecisions() { return lists.decisions.slice().sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id); }
+function decisionRow(d) {
+  const links = [];
+  if (d.question !== null && d.question !== undefined) links.push(fact("Answers", recLink(d.question)));
+  if (d.work.length) links.push(fact("Made", d.work.flatMap((w, i) => [i ? ", " : "", recLink(w.id, w.title + " #" + w.id), w.open ? "" : " (closed)"])));
+  if (d.replaces !== null && d.replaces !== undefined) links.push(fact("Replaces", recLink(d.replaces)));
+  if (d.replaced_by !== null && d.replaced_by !== undefined) links.push(fact("Replaced by", recLink(d.replaced_by)));
+  if (d.plan) links.push(fact("Plan", mono(d.plan.path), " " + d.plan.number));
+  return fold("d:" + d.id, d.id,
+    [h("span", {class: "l-id"}, d.date), h("span", {class: "l-title"}, d.title), h("span", {class: "l-sub", style: "flex-basis: auto; padding: 0"}, d.by)],
+    () => h("div", {class: "l-plain"}, md(d.body), links.length ? h("div", {class: "l-facts"}, links) : null),
+    "l-row");
+}
+function decisionItems() {
+  const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
+  const all = sortedDecisions();
+  const shownDecisions = all.filter(d => decisionMatches(d, words));
+  if (!shownDecisions.length) return [empty(all.length ? "No decision matches." : "No decisions yet.")];
+  return shownDecisions.map(d => ({key: "d:" + d.id, data: d, make: () => decisionRow(d)}));
+}
+
+// ---- The sidebar
+function indexLists() {
+  index = new Map();
+  for (const q of lists.stack) index.set(q.id, {tab: "stack", key: "q:" + q.id, title: q.title});
+  for (const it of lists.items) index.set(it.id, {tab: "work", key: "i:" + it.id, title: it.title});
+  for (const g of lists.designs) index.set(g.id, {tab: "design", key: "g:" + g.id, title: g.title});
+  for (const d of lists.decisions) index.set(d.id, {tab: "decisions", key: "d:" + d.id, title: d.title});
+}
+function setLists(next) {
+  lists = next;
+  if (!lists.error) indexLists();
+  renderLists();
+}
+function tabCounts() {
+  return {
+    stack: String(lists.stack.length),
+    work: lists.items.filter(isReady).length + " ready · " + lists.items.filter(isRunning).length + " running",
+    design: lists.designs.filter(g => !g.closed).length + " open",
+    decisions: String(lists.decisions.length),
+  };
+}
+function renderLists() {
+  const tabs = document.getElementById("l-tabs"), body = document.getElementById("l-body");
+  const box = document.getElementById("l-filter"), meta = document.getElementById("l-meta");
+  if (!lists || lists.error) {
+    tabs.hidden = true; box.hidden = true;
+    meta.textContent = lists ? lists.project : "";
+    body.dataset.tab = "";
+    body.replaceChildren(lists ? h("div", {class: "error"}, "The lists store failed its check: " + lists.error)
+      : h("div", {class: "l-empty"}, listsNote));
+    return;
+  }
+  meta.textContent = lists.project + " · version " + lists.version;
+  tabs.hidden = false;
+  const counts = tabCounts();
+  for (const b of tabs.querySelectorAll("button")) {
+    b.setAttribute("aria-selected", String(b.dataset.tab === tab));
+    b.querySelector(".l-count").textContent = counts[b.dataset.tab];
+  }
+  box.hidden = tab !== "decisions";
+  if (body.dataset.tab !== tab) { body.replaceChildren(); body.dataset.tab = tab; }
+  const items = {stack: stackItems, work: workItems, design: designItems, decisions: decisionItems}[tab]();
+  patch(body, items);
+  tick();
+}
+function showRecord(id) {
+  const rec = index.get(id);
+  if (!rec) return;
+  tab = rec.tab;
+  try { localStorage.setItem(TAB_KEY, tab); } catch (e) { /* kept for this page only */ }
+  if (tab === "decisions" && filter) {
+    const d = lists.decisions.find(x => x.id === id);
+    if (!decisionMatches(d, filter.toLowerCase().split(/\s+/).filter(Boolean))) {
+      filter = ""; document.getElementById("l-filter-input").value = "";
+    }
+  }
+  openRecs.add(rec.key); saveOpen();
+  renderLists();
+  const el = document.getElementById("l-body").querySelector('[data-rec="' + id + '"]');
+  if (!el) return;
+  const fold = el.tagName === "DETAILS" ? el : el.querySelector("details");
+  if (fold) fold.open = true;
+  el.scrollIntoView({block: "center"});
+  el.classList.remove("l-flash"); void el.offsetWidth; el.classList.add("l-flash");
+}
+document.getElementById("l-tabs").addEventListener("click", e => {
+  const b = e.target.closest("button[data-tab]");
+  if (!b) return;
+  tab = b.dataset.tab;
+  try { localStorage.setItem(TAB_KEY, tab); } catch (err) { /* kept for this page only */ }
+  renderLists();
+});
+document.getElementById("l-body").addEventListener("click", e => {
+  const a = e.target.closest("a[data-ref]");
+  if (!a) return;
+  e.preventDefault();
+  showRecord(Number(a.dataset.ref));
+});
+document.getElementById("l-filter-input").addEventListener("input", e => { filter = e.target.value; renderLists(); });
+renderLists();
+events.addEventListener("lists", e => setLists(JSON.parse(e.data)));
+// The first read; the `lists` event takes over once it arrives. A daemon that
+// doesn't serve the lists answers 404.
+fetch("/api/lists").then(async reply => {
+  if (reply.status === 404) throw new Error("This daemon doesn’t serve them yet.");
+  if (!reply.ok) throw new Error("the daemon answered " + reply.status);
+  const body = await reply.json();
+  if (!lists) setLists(body);
+}).catch(e => {
+  if (lists) return;
+  listsNote = "The lists aren’t available. " + e.message;
+  renderLists();
+});
 setInterval(tick, 1000);
 render();
 </script>
