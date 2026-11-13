@@ -136,16 +136,13 @@ fn reuse(free: &Checkout, branch: Option<&str>) -> Result<()> {
     run_checked(&mut checkout, "git checkout")
 }
 
-/// Links the worktree's build paths and runs its own hooks.
+/// Links the worktree's build paths, installs the repo's hooks when it has
+/// `.checks`, and runs its own post-checkout.
 fn prepare(tool: &Tool, checkout: &Checkout) -> Result<()> {
     let dir = &checkout.top;
     setup(tool, checkout)?;
-    let install_hooks = dir.join("scripts/install-hooks.sh");
-    if is_executable(&install_hooks) {
-        run_checked(
-            std::process::Command::new("./scripts/install-hooks.sh").current_dir(dir).stdout(std::process::Stdio::null()),
-            "scripts/install-hooks.sh",
-        )?;
+    if dir.join(crate::checks::CONFIG).is_file() {
+        crate::install_hook::install(dir)?;
     }
     let hook = dir.join("scripts/hooks/post-checkout");
     if is_executable(&hook) {
