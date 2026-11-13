@@ -31,6 +31,14 @@ Apple account, and a probe library's restore code once showed up on their
 welcome screen. Read the person's keychain only when they ask for it, for that
 task.
 
+bae writes as if it were the only device: plain local SQL, with nothing in its
+schema, triggers or code about other devices, writes arriving later, devices
+apart or the order remote rows apply. Concurrent writes, deleted parents and
+conflicts are coven's: it merges, takes rows out and keeps lost values. If a bae
+write cannot be written as local, coven is missing something: fix coven, never
+work around it in bae (the person, 2026-11-13: "the rule of coven is you write
+as local; if you can't do that, something is not right about coven").
+
 Move bae's coven pin as soon as coven has landed what bae needs, even when the
 new coven needs the library recreated. Never hold a bump back to save them a
 reset. While coven is landing a planned series of commits, move the pin once,
