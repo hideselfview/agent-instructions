@@ -84,6 +84,11 @@ for a later stage): open a GitHub issue for it and take it off the list (the
 person, 2026-11-13: "if there are TODOs that are NOT relevant right now just
 make a GH for each one and REMOVE THEM").
 
+A §2 item tagged "design session" (its boards, `design/mocks`, `design/system`,
+the canvas) is the design session's: the coordinator never picks it up or
+dispatches it, and app work that waits on its board waits until the board lands
+(the person, 2026-11-13).
+
 Each §2 item opens with a bold title of five to seven plain words on a line of
 its own, for the person (the person, 2026-11-13: "this will be the human
 title"); the details after it stay as agents write them. A §2 item that an agent
