@@ -47,9 +47,35 @@ def fixture(root, checks, compile_check=None):
     return origin, agent, land
 
 
-def run_land(land, *shas):
-    p = subprocess.run(["bash", LAND, land, *shas], env=ENV, capture_output=True, text=True)
+# A stand-in `builds` first on PATH for every landing, so no test reaches the real one.
+# It appends each call to $STUB_LOG and answers by cue: STUB_PROJECT is what
+# `lists project-of` prints (nothing when unset), STUB_PLACES what `design places`
+# prints, STUB_REFUSE the "<group> <command>" it exits 1 on.
+STUB = """#!/bin/bash
+echo "$*" >> "$STUB_LOG"
+[ "$STUB_REFUSE" = "$1 $2" ] && { echo "stub refuses $1 $2"; exit 1; }
+case "$1 $2" in
+  "lists project-of") echo "$STUB_PROJECT" ;;
+  "design places") echo "$STUB_PLACES" ;;
+esac
+exit 0
+"""
+
+
+def run_land(land, *args, **cues):
+    stubdir = Path(land).parent / "stub"
+    stubdir.mkdir(exist_ok=True)
+    (stubdir / "builds").write_text(STUB)
+    (stubdir / "builds").chmod(0o755)
+    log = stubdir / "calls.log"
+    env = {**ENV, "PATH": f"{stubdir}:{ENV['PATH']}", "STUB_LOG": str(log), **cues}
+    p = subprocess.run(["bash", LAND, land, *args], env=env, capture_output=True, text=True)
     return p.returncode, p.stdout + p.stderr
+
+
+def calls(land):
+    log = Path(land).parent / "stub" / "calls.log"
+    return log.read_text().splitlines() if log.exists() else []
 
 
 def publish(agent, name, sha):
@@ -81,9 +107,9 @@ def expect(name, ok):
 with tempfile.TemporaryDirectory() as root:
     origin, agent, land = fixture(root, "# comment\n\n" + CHECK)
     a, b = two_sibling_commits(agent, land)
-    # a lands by fast-forward (base is origin/main); the checks do not run.
+    # a lands by fast-forward (base is origin/main); a alone passes the check.
     code, out = run_land(land, a)
-    expect("fast-forward lands without checks", code == 0 and git(origin, "rev-parse", "main") == a)
+    expect("fast-forward of a passing tree lands", code == 0 and git(origin, "rev-parse", "main") == a)
     # b's base is behind origin/main, so it is cherry-picked; a+b together fail the check.
     code, out = run_land(land, b)
     expect("cherry-picked result failing a check is refused", code == 1 and "CHECK FAILED" in out and "a.txt and b.txt together" in out)
@@ -102,12 +128,13 @@ with tempfile.TemporaryDirectory() as root:
 with tempfile.TemporaryDirectory() as root:
     origin, agent, land = fixture(root, CHECK)
     a, b = two_sibling_commits(agent, land)
-    # Both at once, based on origin/main: a fast-forward chain, so the failing check never runs.
+    # Both at once, based on origin/main: a fast-forward chain, which runs the checks too.
     git(agent, "checkout", "-q", "--detach", a)
     c = commit_file(agent, "b.txt", "b\n", "add b on a")
     publish(agent, "c", c)
     code, out = run_land(land, a, c)
-    expect("fast-forward of a failing tree skips the checks", code == 0 and git(origin, "rev-parse", "main") == c)
+    expect("fast-forward of a failing tree is refused by the checks",
+           code == 1 and "CHECK FAILED" in out and git(origin, "rev-parse", "main") != c)
 
 COMPILE = "#!/bin/bash\n! { test -e a.txt && test -e b.txt; } || { echo 'a.txt and b.txt do not compile together'; exit 1; }\n"
 
@@ -137,6 +164,69 @@ with tempfile.TemporaryDirectory() as root:
     c = commit_file(agent, "b.txt", "b\n", "add b on a")
     publish(agent, "c", c)
     code, out = run_land(land, a, c)
-    expect("fast-forward skips the compile check", code == 0 and git(origin, "rev-parse", "main") == c)
+    expect("fast-forward runs the compile check",
+           code == 1 and "COMPILE CHECK FAILED" in out and git(origin, "rev-parse", "main") != c)
+
+# The lists: a repo in a project names its work items; one in no project lands as before.
+with tempfile.TemporaryDirectory() as root:
+    origin, agent, land = fixture(root, "true\n")
+    a, b = two_sibling_commits(agent, land)
+    code, out = run_land(land, a)
+    expect("repo in no project lands with only the project lookup",
+           code == 0 and git(origin, "rev-parse", "main") == a and calls(land) == [f"lists project-of {land}"])
+    code, out = run_land(land, "--done", "5", b)
+    expect("repo in no project refuses --done", code == 1 and "no project" in out and git(origin, "rev-parse", "main") == a)
+
+with tempfile.TemporaryDirectory() as root:
+    origin, agent, land = fixture(root, "true\n")
+    a, b = two_sibling_commits(agent, land)
+    code, out = run_land(land, a, STUB_PROJECT="bae")
+    expect("project repo without --done or --part is refused before anything moves",
+           code == 1 and "--done" in out and git(origin, "rev-parse", "main") != a and calls(land) == [f"lists project-of {land}"])
+    code, out = run_land(land, "--done", "7", a, STUB_PROJECT="bae", STUB_REFUSE="item check-landing")
+    expect("refused check-landing: nothing fetched, picked or pushed",
+           code == 1 and "stub refuses" in out and git(origin, "rev-parse", "main") != a
+           and git(land, "rev-parse", "HEAD") == git(agent, "rev-parse", "origin/main"))
+    code, out = run_land(land, "--done", "7", "--part", "8", a, STUB_PROJECT="bae")
+    expect("project repo lands and records main's commits",
+           code == 0 and git(origin, "rev-parse", "main") == a
+           and calls(land)[-1] == f"item landed {land} --done 7 --part 8 {a}"
+           and not any(c.startswith("design landed") for c in calls(land)))
+
+with tempfile.TemporaryDirectory() as root:
+    origin, agent, land = fixture(root, "true\n")
+    a, b = two_sibling_commits(agent, land)
+    run_land(land, a)
+    code, out = run_land(land, "--done", "7", b, STUB_PROJECT="bae")
+    new = git(origin, "rev-parse", "main")
+    expect("a cherry-picked landing records the new commit's SHA on main, not the original",
+           code == 0 and new != b and calls(land)[-1] == f"item landed {land} --done 7 {new}")
+
+with tempfile.TemporaryDirectory() as root:
+    origin, agent, land = fixture(root, "true\n")
+    a, b = two_sibling_commits(agent, land)
+    code, out = run_land(land, "--done", "7", a, STUB_PROJECT="bae", STUB_PLACES="design/system/button")
+    expect("design places without --design are refused before anything moves",
+           code == 1 and "--design" in out and git(origin, "rev-parse", "main") != a)
+    code, out = run_land(land, "--done", "7", "--design", "3", a, STUB_PROJECT="bae")
+    expect("--design with no design places is refused", code == 1 and "no design place" in out)
+    code, out = run_land(land, "--done", "7", "--design", "3", a, STUB_PROJECT="bae",
+                         STUB_PLACES="design/system/button", STUB_REFUSE="design check")
+    expect("refused design check: nothing pushed", code == 1 and git(origin, "rev-parse", "main") != a)
+    code, out = run_land(land, "--done", "7", "--design", "3", a, STUB_PROJECT="bae", STUB_PLACES="design/system/button")
+    expect("design landing records the item and the design change",
+           code == 0 and f"design check 3 {land} {a}" in calls(land)
+           and calls(land)[-2:] == [f"item landed {land} --done 7 {a}", f"design landed 3 {land} {a}"])
+
+with tempfile.TemporaryDirectory() as root:
+    origin, agent, land = fixture(root, "true\n")
+    a, b = two_sibling_commits(agent, land)
+    code, out = run_land(land, "--done", "7", a, STUB_PROJECT="bae", STUB_REFUSE="item landed")
+    expect("failed record after the push exits 1 with the rerun",
+           code == 1 and git(origin, "rev-parse", "main") == a and "LANDED, NOT RECORDED:" in out
+           and f"rerun: builds item landed {land} --done 7 {a}" in out)
+    code, out = run_land(land, "--done", "7", a, STUB_PROJECT="bae")
+    expect("rerunning the landing after a failed record records it (already on main)",
+           code == 0 and calls(land)[-1] == f"item landed {land} --done 7 {a}")
 
 sys.exit(bad)
