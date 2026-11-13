@@ -164,6 +164,28 @@ fn take_free_lock(places: &Places, repo: &str, lane: Lane) -> Result<(libc::c_in
     }
 }
 
+/// <checkout>'s own lock among <repo>'s app locks for <lane>, waiting until
+/// no build holds it; never another checkout's. It skips the queue: a build
+/// the queue let in for a lock takes another free one, or waits for one. The
+/// descriptor holds the lock until closed, and every process started meanwhile
+/// holds it too.
+pub fn take_checkout(places: &Places, repo: &str, lane: Lane, checkout: &str) -> Result<libc::c_int> {
+    let dir = places.app_locks_dir(repo, lane);
+    std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+    let file = places.app_lock_file(repo, lane, checkout);
+    let mut waiting = false;
+    loop {
+        if let Some(lock) = queue::try_lock(&file)? {
+            return Ok(lock);
+        }
+        if !waiting {
+            note(format!("waiting for the build holding {checkout}'s lock to end"));
+            waiting = true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// Joins <repo>'s queue for <lane> and waits its turn for one of the lane's app
 /// locks. Fails for a repo with no app checkout in the lane.
 pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {

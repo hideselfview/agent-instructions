@@ -112,6 +112,15 @@ a failed build leaves the installed one as it was; a commit on main that touches
   name per line. `builds app-checkout remove mac|android <checkout>` takes one
   out (refused while a build holds its lock; `retire` refuses an app checkout
   until then). One checkout is one lane's, never both.
+  `builds app-checkout reset <repo> <checkout>` puts an app checkout on
+  origin/main under its own lock (it waits for the build holding it). The switch
+  a build makes (`git checkout`, which moves HEAD after writing the files) runs
+  in a group of its own with the stopping signals blocked, so a Ctrl-C, a
+  SIGTERM or a takeover leaves the old commit's tree or the new one's; only
+  SIGKILL leaves the new files under the old HEAD, and reset is the way out. It
+  refuses unless every dirty path is exactly what origin/main or HEAD holds
+  there (git compares them), names the paths that are not, and never throws away
+  work.
 - `builds status` lists every entry on the volume: each root's folders, each
   DerivedData entry and each shared cache, with size against cap, last write,
   and whether the links are in place, and under each folder the builds inside it

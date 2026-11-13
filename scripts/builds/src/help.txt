@@ -107,6 +107,14 @@ Commands:
   builds app-checkout remove mac|android <checkout>
                               take it out again (it refuses while a build
                               holds the checkout's lock)
+  builds app-checkout reset <repo> <checkout>
+                              put an app checkout on origin/main, under its
+                              own lock (waits for the build holding it), for
+                              one a checkout left halfway (new files, old
+                              HEAD). It refuses unless every dirty path is
+                              exactly what origin/main or HEAD holds there,
+                              and names the paths that are not; it never
+                              throws away work
   builds status               every entry on the volume: size per folder vs
                               cap, last write, links; and build output in
                               the temporary folders

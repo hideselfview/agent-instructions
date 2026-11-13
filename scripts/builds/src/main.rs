@@ -2,6 +2,7 @@
 //! on it. `builds help` says what it does; src/help.txt is that text.
 
 mod app_build;
+mod app_reset;
 mod app_config;
 mod build_app;
 mod cargo_run;

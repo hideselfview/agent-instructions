@@ -26,6 +26,7 @@
 //! A step runs for at most `DEFAULT_STEP_LIMIT`, or the time a `limit <step>
 //! <duration>` line gives it (`90s`, `30m`, `2h`).
 
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -229,15 +230,51 @@ pub fn run_git(top: &Path, args: &[&str]) -> Result<String> {
     git_text(git(top).args(args), &format!("git {}", args.join(" ")))
 }
 
+/// Detaches the app checkout <top> at <commit> (`force`: over local changes),
+/// so that the tree is the old commit's or the new one's however the build
+/// that asks is stopped. `git checkout` writes the files first and moves HEAD
+/// last, so a checkout killed in between leaves the new commit's files under
+/// the old HEAD, a tree every later build refuses as dirty. So git runs in a
+/// process group of its own, with the stopping signals blocked (a Ctrl-C or a
+/// SIGTERM to the build's group, a takeover's SIGUSR2) and SIGPIPE ignored (the
+/// build may be gone when git writes). It holds the checkout's lock too: the
+/// lock's descriptor is inherited, so the next build waits for git, not for the
+/// build that started it. Only SIGKILL stops it, and `builds app-checkout reset`
+/// puts a checkout that was killed that way right.
+pub fn switch_to(top: &Path, commit: &str, force: bool) -> Result<()> {
+    let mut args = vec!["checkout", "-q", "--detach"];
+    if force {
+        args.push("--force");
+    }
+    args.push(commit);
+    let mut command = git(top);
+    command.args(&args).process_group(0);
+    unsafe {
+        command.pre_exec(|| {
+            let mut stopping = std::mem::zeroed::<libc::sigset_t>();
+            libc::sigemptyset(&mut stopping);
+            for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP, libc::SIGQUIT, libc::SIGUSR1, libc::SIGUSR2] {
+                libc::sigaddset(&mut stopping, signal);
+            }
+            libc::sigprocmask(libc::SIG_BLOCK, &stopping, std::ptr::null_mut());
+            libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+            Ok(())
+        });
+    }
+    git_text(&mut command, &format!("git {}", args.join(" "))).map(|_| ())
+}
+
 /// The ref checked out in the app checkout <top>, which must be clean, and its
 /// `.app-build`.
 pub fn check_out(top: &Path, commit: &str) -> Result<Config> {
     let changes = run_git(top, &["status", "--porcelain"])?;
     if !changes.trim().is_empty() {
-        fail!("the app checkout has changes, so nothing was built:\n{changes}");
+        fail!(
+            "the app checkout has changes, so nothing was built (if a switch was cut short, `builds app-checkout reset <repo> <checkout>` clears it when every change is a commit's):\n{changes}"
+        );
     }
     run_git(top, &["fetch", "-q", "origin"])?;
-    run_git(top, &["checkout", "-q", "--detach", commit])?;
+    switch_to(top, commit, false)?;
     let file = top.join(CONFIG);
     parse_config(&std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?)
 }

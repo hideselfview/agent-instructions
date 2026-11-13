@@ -207,9 +207,16 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
 
 /// `builds app-checkout mac|android <checkout>`: adds the side worktree to its
 /// repo's app checkouts for the lane; `builds app-checkout remove mac|android
-/// <checkout>` takes it out again, while no build holds its lock.
+/// <checkout>` takes it out again, while no build holds its lock; `builds
+/// app-checkout reset <repo> <checkout>` puts one on origin's main (app_reset.rs).
 pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds app-checkout mac|android <checkout> | builds app-checkout remove mac|android <checkout>";
+    const USAGE: &str = "usage: builds app-checkout mac|android <checkout> | builds app-checkout remove mac|android <checkout> | builds app-checkout reset <repo> <checkout>";
+    if let [word, repo, name] = args
+        && word == "reset"
+    {
+        tool.places.require_volume()?;
+        return crate::app_reset::cmd_reset(&tool.places, repo, name);
+    }
     let (removing, lane, arg) = match args {
         [word, lane, arg] if word == "remove" => (true, lane, arg),
         [lane, arg] => (false, lane, arg),

@@ -129,3 +129,48 @@ fn the_class_fills_each_word_it_stands_in() {
     let test = ClassTest { lane: Lane::Mac, command: words("./g.sh --tests *{class}") };
     assert_eq!(test.command_for("FooTest"), words("./g.sh --tests *FooTest"));
 }
+
+/// A checkout on the commit before a new one that holds a file under a filter
+/// whose smudge step sleeps and records its process group: switching to the new
+/// commit stops in the middle of writing the tree. Returns the checkout, the
+/// new commit and the file that holds the group.
+fn checkout_mid_switch(scratch: &Scratch) -> (PathBuf, String, PathBuf) {
+    let top = checkout(scratch, "demo");
+    let group_file = scratch.dir.join("group");
+    std::fs::write(top.join(".gitattributes"), "*.slow filter=slow\n").unwrap();
+    git(&top, &["add", ".gitattributes"]);
+    git(&top, &["commit", "-q", "-m", "Attributes"]);
+    std::fs::write(top.join("a.slow"), "new\n").unwrap();
+    git(&top, &["add", "a.slow"]);
+    git(&top, &["commit", "-q", "-m", "Slow file"]);
+    let new = run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim().to_string();
+    git(&top, &["checkout", "-q", "--detach", "HEAD~1"]);
+    let smudge = format!("ps -o pgid= -p $$ > {}; sleep 1; cat", group_file.display());
+    git(&top, &["config", "filter.slow.smudge", &smudge]);
+    (top, new, group_file)
+}
+
+#[test]
+fn a_switch_stopped_by_a_signal_to_its_group_still_ends_on_the_new_commit() {
+    let scratch = Scratch::new("app-config-switch-signal");
+    let (top, new, group_file) = checkout_mid_switch(&scratch);
+    let switching = std::thread::spawn({
+        let (top, new) = (top.clone(), new.clone());
+        move || switch_to(&top, &new, false)
+    });
+    let group = loop {
+        if let Ok(text) = std::fs::read_to_string(&group_file) {
+            if let Ok(group) = text.trim().parse::<i32>() {
+                break group;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGUSR2] {
+        unsafe { libc::killpg(group, signal) };
+    }
+    switching.join().unwrap().unwrap();
+    assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(), new);
+    assert_eq!(run_git(&top, &["status", "--porcelain"]).unwrap(), "", "the tree is the new commit's whole");
+    assert_eq!(std::fs::read_to_string(top.join("a.slow")).unwrap(), "new\n");
+}
