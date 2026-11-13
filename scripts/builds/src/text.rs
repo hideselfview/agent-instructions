@@ -42,6 +42,11 @@ pub fn local_minute(epoch: i64) -> String {
     strftime(epoch, c"%Y-%m-%d %H:%M")
 }
 
+/// <epoch> as local `%Y-%m-%d`.
+pub fn local_day(epoch: i64) -> String {
+    strftime(epoch, c"%Y-%m-%d")
+}
+
 fn strftime(epoch: i64, format: &std::ffi::CStr) -> String {
     let time: libc::time_t = epoch;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };

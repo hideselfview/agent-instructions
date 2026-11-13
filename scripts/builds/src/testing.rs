@@ -37,6 +37,7 @@ impl Scratch {
             user_temp: None,
             tmpdir: None,
             uid: unsafe { libc::getuid() },
+            lists: self.dir.join("lists"),
         }
     }
 

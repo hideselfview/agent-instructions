@@ -72,6 +72,9 @@ pub struct Places {
     /// This session's TMPDIR.
     pub tmpdir: Option<PathBuf>,
     pub uid: u32,
+    /// The folder holding one store folder per project of the lists
+    /// (BUILDS_LISTS, else ~/Library/Application Support/builds/lists).
+    pub lists: PathBuf,
 }
 
 impl Places {
@@ -89,6 +92,10 @@ impl Places {
         let tmpdir = std::env::var_os("TMPDIR")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
+        let lists = std::env::var_os("BUILDS_LISTS")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("Library/Application Support/builds/lists"));
         Ok(Places {
             root,
             home,
@@ -97,6 +104,7 @@ impl Places {
             user_temp: darwin_user_temp_dir(),
             tmpdir,
             uid: unsafe { libc::getuid() },
+            lists,
         })
     }
 

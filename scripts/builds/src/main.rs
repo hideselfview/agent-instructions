@@ -15,6 +15,7 @@ mod free_worktrees;
 mod health;
 mod install;
 mod lane;
+mod lists;
 mod lock;
 mod manifest;
 mod migrate;
@@ -46,6 +47,7 @@ use places::{Places, Rules};
 use tool::Tool;
 
 const HELP: &str = include_str!("help.txt");
+const LISTS_HELP: &str = include_str!("lists/lists-help.txt");
 
 fn main() -> ExitCode {
     let args: Vec<String> = match std::env::args_os().skip(1).map(|arg| arg.into_string()).collect() {
@@ -79,7 +81,10 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),
         "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
         "-h" | "--help" | "help" => {
-            print!("{HELP}");
+            match args {
+                [topic] if topic == "lists" => print!("{LISTS_HELP}"),
+                _ => print!("{HELP}"),
+            }
             return Ok(());
         }
         _ => {}
@@ -103,9 +108,10 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "units" => units::cmd_units(&tool, args),
         "du" => usage::cmd_du(args),
         "health" => health::cmd_health(&tool, args),
+        "lists" => lists::cmd_lists(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
         other => fail!(
-            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install)"
+            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | lists | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install)"
         ),
     }
 }

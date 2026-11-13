@@ -1,0 +1,67 @@
+builds lists: the lists of a project, kept in a store of their own.
+
+A project is a set of repos that share lists (`bae` holds bae and coven). Its
+store is ~/Library/Application Support/builds/lists/<project>/, or
+$BUILDS_LISTS/<project>/: lists.json (the whole state) and lists.lock. It is
+outside every repo, so no commit can carry it. Nothing edits it by hand:
+every change is a command, and every command refuses a step that lacks what
+it needs.
+
+Every record has an id from one counter per project, printed #N. Commands
+take ids as bare numbers (`builds item take 12`): an unquoted #12 is a
+comment in the shell.
+
+Every write records who wrote it: `--by WHO` when given, else the claim of the
+worktree the command runs in, else the command is refused ("say who you are
+with --by"). The project comes from `--project P`, else from the repo of the
+directory the command runs in (a repo in no project, or in two, is refused).
+
+Writes take an exclusive lock, read the state, apply the command, run the
+whole-state check, and replace lists.json by an atomic rename: a write lands
+whole or not at all, and a refused command leaves the file byte for byte as it
+was. Two commands at once both land, one after the other.
+
+The whole-state check runs on every load and before every write. It holds
+that: ids are unique and below the counter; every reference (waits, an item's
+origin, a decision's question, work and replaced decision, a design change's
+places, how a record left) names a record of the right kind that exists, open
+or closed; no item waits on itself through a chain of items; no open item
+waits on a record that closed in a way that never meets a wait (dropped,
+deferred, moved to the stack); every open question has an open item waiting
+on it or says why it is asked anyway; titles are one line and item titles are
+five to seven words; every open item's area exists; a running item's worktree
+is a side worktree (<parent>/<repo>-worktrees/side-N) of a project repo; a
+record left only the ways its kind can; decisions have a YYYY-MM-DD date, a
+decider and a body; the version is the log's last line. A store that fails it
+makes every command fail naming each fault. Nothing repairs it.
+
+Commands in this part:
+
+  builds lists init PROJECT --repos R,R [--design-places R:GLOB,...]
+                    [--from FILE] [--by WHO]
+      Makes the project's store. --repos names the repo directories the
+      project covers (as `Checkout` names them: the main checkout's folder).
+      --design-places gives each repo's design globs, one REPO:GLOB each; a
+      path a commit changes that matches one is a design place. --from loads
+      a whole state from FILE (`-` for standard input) instead of an empty
+      one, and runs the whole-state check on it; --repos and --design-places
+      must then match what the file holds. Refused when the store exists.
+
+  builds lists show [--json] [--project P]
+      The stack in the order it is asked, then the queue, as text; with
+      --json the whole state with its derived fields (state of each item,
+      what each question blocks, the flow of the last 14 days), the JSON the
+      dashboard reads.
+
+  builds lists project-of DIR
+      Prints the project DIR's repo belongs to, or nothing. Refused when the
+      repo is in two projects.
+
+What is derived, never stored: a wait is met when its question was answered,
+settled or done, or its item or design change landed (a condition only when
+removed); an item is running, the design session's (shown apart, never
+dispatchable), waiting (a wait not met, or priority last while any other
+open coordinator item that is not itself last exists) or ready; the stack
+asks `placed first` questions (newest first), then those that unblock the most
+open items directly or through chains of open items (ties oldest first), then
+`placed last`.
