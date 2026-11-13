@@ -75,3 +75,17 @@ fn a_build_holding_the_checkouts_guard_keeps_the_folder() {
     assert!(folder.join("debug/deps/test-binary").exists());
     assert!(evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap());
 }
+
+#[test]
+fn a_folder_another_process_renamed_away_first_is_not_this_eviction_s() {
+    // Two processes can pick the same DerivedData entry; the one whose rename
+    // finds it gone deleted nothing, and says so.
+    let scratch = Scratch::new("evict-lost-rename");
+    let places = scratch.places();
+    let slot = places.root.join("slot");
+    std::fs::create_dir_all(&slot).unwrap();
+    let gone = places.root.join("DerivedData/entry");
+    let moved = move_in(&gone, &slot, std::ffi::OsStr::new("entry"), Recreate::No).unwrap();
+    assert!(!moved, "a rename that found the folder gone counted as a deletion");
+    assert!(!gone.exists());
+}

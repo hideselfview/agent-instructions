@@ -64,31 +64,40 @@ pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) 
     let name = folder.file_name().expect("a folder to delete has a name");
     if !same_volume {
         let slot = make_temp_dir(&parent, ".builds-deleting.")?;
-        move_in(&folder, &slot, name, recreate)?;
+        let moved = move_in(&folder, &slot, name, recreate)?;
         drop(_locks);
-        return remove(&slot, removal);
+        remove(&slot, removal)?;
+        return Ok(moved);
     }
     // The shared trash lock keeps an emptier from renaming the trash away
     // between making the slot and the folder reaching it, or from emptying
     // the slot while it is being removed.
     let _trash_lock = crate::trash::lock_shared(places)?;
     let slot = crate::trash::Slot::make(places)?;
-    move_in(&folder, &slot.path, name, recreate)?;
+    let moved = move_in(&folder, &slot.path, name, recreate)?;
     drop(_locks);
     match removal {
         Removal::Now => slot.remove_now()?,
         Removal::Background => slot.remove_background()?,
     }
-    Ok(true)
+    Ok(moved)
 }
 
-fn move_in(folder: &Path, slot: &Path, name: &std::ffi::OsStr, recreate: Recreate) -> Result<()> {
-    std::fs::rename(folder, slot.join(name))
-        .context(|| format!("moving {} into {}", folder.display(), slot.display()))?;
+/// Renames <folder> into <slot>: false, moving nothing, when another process
+/// renamed it away first. Two processes can pick the same folder (a DerivedData
+/// entry has no lock of its own), and the rename decides which one deletes it.
+pub(crate) fn move_in(folder: &Path, slot: &Path, name: &std::ffi::OsStr, recreate: Recreate) -> Result<bool> {
+    match std::fs::rename(folder, slot.join(name)) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && !folder.exists() && slot.is_dir() => {
+            return Ok(false);
+        }
+        Err(error) => fail!("moving {} into {}: {error}", folder.display(), slot.display()),
+    }
     if recreate == Recreate::Yes {
         std::fs::create_dir(folder).context(|| format!("recreating {}", folder.display()))?;
     }
-    Ok(())
+    Ok(true)
 }
 
 fn device(path: &Path) -> Result<u64> {
