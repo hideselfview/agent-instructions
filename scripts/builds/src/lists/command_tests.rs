@@ -25,10 +25,25 @@ fn init_makes_the_store_with_repos_and_design_places() {
     let lists = Store::named(&tool.places, "bae").unwrap().load().unwrap();
     assert_eq!(lists.repos, ["bae", "coven"]);
     assert_eq!(lists.design_places["bae"], ["design/mocks/*.dc.html", "design/system/components/*/"]);
+    assert!(lists.design_sources.is_empty() && lists.spec_files.is_empty());
     assert_eq!((lists.version, lists.log[0].by.as_str()), (1, "tester"));
     assert_eq!(lists.next_id, Id(1));
     run(&tool, "show --project bae").unwrap();
     run(&tool, "show --json --project bae").unwrap();
+}
+
+#[test]
+fn init_takes_design_sources_and_spec_files() {
+    let scratch = Scratch::new("lists-cmd-init-sources");
+    let tool = scratch.tool(0);
+    run(
+        &tool,
+        "init bae --repos bae --design-sources bae:design/system/components/src/,bae:design/system/tokens.json --spec-files bae:spec/*.md --by tester",
+    )
+    .unwrap();
+    let lists = Store::named(&tool.places, "bae").unwrap().load().unwrap();
+    assert_eq!(lists.design_sources["bae"], ["design/system/components/src/", "design/system/tokens.json"]);
+    assert_eq!(lists.spec_files["bae"], ["spec/*.md"]);
 }
 
 #[test]
@@ -67,7 +82,7 @@ fn init_from_a_file_loads_checks_and_advances_the_state() {
     let from = file.display().to_string();
 
     assert!(refusal(run(&tool, &format!("init bae --repos bae --from {from} --by me"))).contains("does not match the repos"));
-    assert!(refusal(run(&tool, &format!("init bae --repos bae,coven --design-places bae:x --from {from} --by me"))).contains("design places"));
+    assert!(refusal(run(&tool, &format!("init bae --repos bae,coven --design-places bae:x --from {from} --by me"))).contains("--design-places does not match"));
     assert!(refusal(run(&tool, &format!("init other --from {from} --by me"))).contains("holds the lists of project bae"));
     assert!(!tool.places.lists.join("bae").exists());
 

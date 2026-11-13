@@ -114,6 +114,16 @@ pub struct PlaceView {
     pub matches: Option<String>,
 }
 
+/// A board of a design change as the person is shown it. The page draws the
+/// render from `/api/design-render/<design id>/<n>`, n being this board's
+/// place in the design's `boards` (the order of their paths).
+#[derive(Clone, Debug, Serialize)]
+pub struct BoardView {
+    pub path: String,
+    pub link: String,
+    pub render: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct DesignView {
     pub id: Id,
@@ -121,7 +131,10 @@ pub struct DesignView {
     pub details: String,
     pub repo: String,
     pub places: Vec<PlaceView>,
+    pub boards: Vec<BoardView>,
     pub no_app_place: Option<String>,
+    /// The person's review: None while it waits on them.
+    pub approved: Option<Stamp>,
     pub opened: Stamp,
     pub landed: Vec<crate::lists::DesignLanding>,
     /// When it landed, for one that did in the last `FLOW_DAYS` days.
@@ -267,7 +280,13 @@ fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) -> D
                 Resolution::Matches(how) => PlaceView { path: path.clone(), item: None, matches: Some(how.clone()) },
             })
             .collect(),
+        boards: design
+            .boards
+            .iter()
+            .map(|(path, board)| BoardView { path: path.clone(), link: board.link.clone(), render: board.render.clone() })
+            .collect(),
         no_app_place: design.no_app_place.clone(),
+        approved: design.approved.clone(),
         opened: design.opened.clone(),
         landed: design.landed.clone(),
         closed,

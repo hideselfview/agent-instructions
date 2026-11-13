@@ -14,7 +14,7 @@ use crate::mode;
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--design-places R:GLOB,...] [--from FILE] [--by WHO]\n       builds lists show [--json] [--project P]\n       builds lists project-of DIR";
+const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--from FILE] [--by WHO]\n       builds lists show [--json] [--project P]\n       builds lists project-of DIR";
 
 pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
@@ -27,12 +27,12 @@ pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
     }
 }
 
-/// `R:GLOB,R:GLOB` as each repo's globs.
-fn parse_design_places(text: &str) -> Result<BTreeMap<String, Vec<String>>> {
+/// `R:GLOB,R:GLOB` as each repo's globs, for the flag <flag>.
+fn parse_globs(flag: &str, text: &str) -> Result<BTreeMap<String, Vec<String>>> {
     let mut places: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for part in text.split(',') {
         let Some((repo, glob)) = part.split_once(':') else {
-            fail!("--design-places takes REPO:GLOB entries, got '{part}'");
+            fail!("--{flag} takes REPO:GLOB entries, got '{part}'");
         };
         places.entry(repo.to_string()).or_default().push(glob.to_string());
     }
@@ -40,14 +40,20 @@ fn parse_design_places(text: &str) -> Result<BTreeMap<String, Vec<String>>> {
 }
 
 fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["repos", "design-places", "from"], &[])?;
+    let args = Args::parse(args, &["repos", "design-places", "design-sources", "spec-files", "from"], &[])?;
     let [project] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
     let repos: Option<Vec<String>> = args.value("repos")?.map(|r| r.split(',').map(str::to_string).collect());
-    let design_places = args.value("design-places")?.map(parse_design_places).transpose()?;
+    let globs = |flag| args.value(flag).and_then(|text| text.map(|t| parse_globs(flag, t)).transpose());
+    let design_places = globs("design-places")?;
+    let design_sources = globs("design-sources")?;
+    let spec_files = globs("spec-files")?;
     let lists = match args.value("from")? {
         None => {
             let Some(repos) = repos else { fail!("init needs --repos R,R: the repos the project's lists cover") };
-            Lists::empty(project, repos, design_places.unwrap_or_default())
+            let mut lists = Lists::empty(project, repos, design_places.unwrap_or_default());
+            lists.design_sources = design_sources.unwrap_or_default();
+            lists.spec_files = spec_files.unwrap_or_default();
+            lists
         }
         Some(from) => {
             let text = read_input(from)?;
@@ -59,8 +65,14 @@ fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             if repos.as_ref().is_some_and(|given| *given != lists.repos) {
                 fail!("--repos does not match the repos {from} holds ({})", lists.repos.join(","));
             }
-            if design_places.as_ref().is_some_and(|given| *given != lists.design_places) {
-                fail!("--design-places does not match the design places {from} holds");
+            for (flag, given, held) in [
+                ("design-places", &design_places, &lists.design_places),
+                ("design-sources", &design_sources, &lists.design_sources),
+                ("spec-files", &spec_files, &lists.spec_files),
+            ] {
+                if given.as_ref().is_some_and(|given| given != held) {
+                    fail!("--{flag} does not match the globs {from} holds");
+                }
             }
             lists
         }

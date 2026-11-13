@@ -70,7 +70,9 @@ pub fn design(lists: &mut Lists) -> Id {
         details: "details".into(),
         repo: "bae".into(),
         places: BTreeMap::new(),
+        boards: BTreeMap::new(),
         no_app_place: Some("shared files only".into()),
+        approved: None,
         opened: stamp(NOON),
         landed: Vec::new(),
     });

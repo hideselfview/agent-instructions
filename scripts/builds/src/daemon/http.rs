@@ -12,6 +12,9 @@
 //!                   `builds takeover <repo> <pid>`
 //!     /api/lists    the lists JSON (lists/view.rs, plus each running item's
 //!                   claim facts), as the `lists` event carries it
+//!     /api/design-render/<design id>/<n>
+//!                   the image of the <n>th board of an open design change,
+//!                   as the lists JSON points at it
 //!     /events       `state` events: the whole state on connect and each time
 //!                   it changes, at most four a second; `lists` events: the
 //!                   lists JSON on connect and each time it changes, never
@@ -107,6 +110,17 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
             Err(error) => json(&mut stream, Err(error)),
         },
         "/events" => events(stream, model),
+        _ if path.starts_with("/api/design-render/") => {
+            let rest = &path["/api/design-render/".len()..];
+            let render = rest
+                .split_once('/')
+                .and_then(|(id, n)| Some((id.parse::<u32>().ok()?, n.parse::<usize>().ok()?)))
+                .and_then(|(id, n)| model.design_render(id, n));
+            match render {
+                Some((kind, bytes)) => respond(&mut stream, "200 OK", kind, &bytes),
+                None => respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"no such render\n"),
+            }
+        }
         _ => respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"not found\n"),
     }
 }

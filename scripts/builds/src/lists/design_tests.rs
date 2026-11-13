@@ -31,6 +31,11 @@ fn world(name: &str) -> World {
     let tool = scratch.tool(0);
     let mut state = lists();
     state.design_places.insert("bae".into(), vec!["design/mocks/*.dc.html".into(), "design/system/components/*/".into()]);
+    state.design_sources.insert(
+        "bae".into(),
+        vec!["design/system/components/src/".into(), "design/system/tokens.json".into(), "design/system/tokens.css".into()],
+    );
+    state.spec_files.insert("bae".into(), vec!["spec/*.md".into()]);
     state.version = 0;
     state.log.clear();
     let store = Store::named(&tool.places, "demo").unwrap();
@@ -62,7 +67,7 @@ impl World {
         args.extend(["--by".to_string(), "tester".to_string()]);
         // show and list find the project from the directory the command runs
         // in, which is no repo of the project here.
-        if matches!(args.first().map(String::as_str), Some("show" | "list")) {
+        if matches!(args.first().map(String::as_str), Some("show" | "list" | "approve")) {
             args.extend(["--project".to_string(), "demo".to_string()]);
         }
         run_to_text(&self.tool, &args)
@@ -78,6 +83,10 @@ impl World {
         let file = self.scratch.dir.join("amend.json");
         std::fs::write(&file, body.to_string()).unwrap();
         self.run(&format!("amend {id} --request {}", file.display()))
+    }
+
+    fn approve(&self, id: u32) {
+        self.run(&format!("approve {id} --by-person")).unwrap();
     }
 
     fn state(&self) -> Lists {
@@ -97,8 +106,17 @@ fn draft(title: &str) -> serde_json::Value {
     json!({ "title": title, "area": "Alpha", "details": "do it", "for": "coordinator", "waits": [] })
 }
 
+/// A request for `base..HEAD` answering <places>, with a canvas link for each board among them.
 fn base_request(world: &World, places: serde_json::Value) -> serde_json::Value {
-    json!({ "title": "New cover grid", "details": "the boards", "worktree": world.worktree(), "range": "base..HEAD", "places": places })
+    let boards: serde_json::Map<String, serde_json::Value> = places
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|path| !path.ends_with('/') && !path.contains('#'))
+        .map(|path| (path.clone(), json!({ "link": format!("https://canvas.example/#{path}") })))
+        .collect();
+    json!({ "title": "New cover grid", "details": "the boards", "worktree": world.worktree(), "range": "base..HEAD",
+            "places": places, "boards": boards })
 }
 
 #[test]
@@ -124,6 +142,7 @@ fn a_shared_only_commit_is_listed_by_places_then_recorded_with_no_app_place() {
     let mut request = base_request(&w, json!({}));
     request["no_app_place"] = json!("a palette tweak the boards do not show");
     w.request(request).unwrap();
+    w.approve(1);
     assert!(w.run(&format!("check 1 {wt} {shared}")).is_ok());
     git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     assert!(w.run(&format!("landed 1 {wt} {shared}")).unwrap().contains("landed"));
@@ -183,7 +202,7 @@ fn record_resolves_places_by_item_new_item_and_matches() {
     assert_eq!(derive::item_state(&state, new), ItemState::Waiting);
     let shown = w.run(&format!("show {}", design.id.0)).unwrap();
     assert!(shown.contains("design/mocks/B.dc.html") && shown.contains("compared the component"), "{shown}");
-    assert!(w.run("list").unwrap().contains("New cover grid (repo bae, 3 places, 1 item waiting)"));
+    assert!(w.run("list").unwrap().contains("New cover grid (waiting on review, repo bae, 3 places, 1 item waiting)"));
 }
 
 #[test]
@@ -267,7 +286,8 @@ fn amend_merges_places_over_a_new_range() {
     w.commit(&["design/mocks/B.dc.html", "design/system/components/Sym/a.html"]);
     let before = w.bytes();
     let mut request = json!({ "worktree": w.worktree(), "range": format!("{first}..HEAD"),
-                              "places": { "design/mocks/B.dc.html": { "new": draft("Build the grid the board shows") } } });
+                              "places": { "design/mocks/B.dc.html": { "new": draft("Build the grid the board shows") } },
+                              "boards": { "design/mocks/B.dc.html": { "link": "https://canvas.example/#B" } } });
     let refused = message(w.amend(1, request.clone()));
     assert!(refused.contains("design/system/components/Sym/"), "{refused}");
     assert_eq!(w.bytes(), before);
@@ -292,6 +312,7 @@ fn check_compares_by_path_so_a_rebased_commit_still_checks() {
         json!({ "design/mocks/A.dc.html": { "matches": "x" }, "design/system/components/MacRow/": { "matches": "y" } }),
     ))
     .unwrap();
+    w.approve(1);
     let check = format!("check 1 {}", w.worktree());
     assert!(w.run(&format!("{check} {original}")).unwrap().contains("resolves every place"));
     // The same change as another commit: cherry-picked onto another base.
@@ -308,6 +329,7 @@ fn check_names_what_is_unresolved_and_refuses_a_closed_or_missing_change() {
     let w = world("design-check-refused");
     w.commit(&["design/mocks/A.dc.html"]);
     w.request(base_request(&w, json!({ "design/mocks/A.dc.html": { "matches": "x" } }))).unwrap();
+    w.approve(1);
     let later = w.commit(&["design/mocks/B.dc.html", "design/theme.toml"]);
     let wt = w.worktree();
     let refused = message(w.run(&format!("check 1 {wt} {later}")));
@@ -348,7 +370,7 @@ fn landed_closes_the_change_frees_its_items_and_is_idempotent() {
     let closed = state.closed_record(Id(1)).unwrap();
     assert_eq!(closed.how, How::Landed(vec![sha.clone()]));
     let Record::Design(design) = &closed.record else { panic!("a design change") };
-    assert_eq!(design.landed[0].commits, [sha.clone()]);
+    assert_eq!(design.landed[0].commits, std::slice::from_ref(&sha));
     assert_eq!(derive::item_state(&state, &state.items[0]), ItemState::Ready);
 
     let once = w.bytes();
@@ -381,4 +403,197 @@ fn show_and_list_refuse_what_is_not_a_design_change() {
     assert!(message(w.run("show 5")).contains("not a record"));
     assert!(message(w.run("nonsense")).contains("unknown design command"));
     assert!(message(w.run("")).contains("usage"));
+}
+
+#[test]
+fn a_recorded_change_waits_on_review_and_landing_checks_refuse_until_the_person_approves() {
+    let w = world("design-approve");
+    let sha = w.commit(&["design/mocks/A.dc.html"]);
+    let out = w.request(base_request(&w, json!({ "design/mocks/A.dc.html": { "matches": "x" } }))).unwrap();
+    assert!(out.contains("waits on the person's review"), "{out}");
+    assert!(w.state().designs[0].approved.is_none());
+    assert!(w.run("list").unwrap().contains("waiting on review"));
+    let wt = w.worktree();
+    let refused = message(w.run(&format!("check 1 {wt} {sha}")));
+    assert!(refused.contains("waits on the person's review") && refused.contains("approve 1 --by-person"), "{refused}");
+
+    let before = w.bytes();
+    assert!(message(w.run("approve 1")).contains("--by-person"));
+    assert_eq!(w.bytes(), before);
+    assert!(message(w.run("approve 9 --by-person")).contains("not a record"));
+    assert!(w.run("approve 1 --by-person").unwrap().contains("approved"));
+    assert!(w.state().designs[0].approved.is_some());
+    assert!(w.run(&format!("check 1 {wt} {sha}")).unwrap().contains("and is approved"));
+    assert!(w.run("show 1").unwrap().contains("approved"));
+    assert!(w.run("list").unwrap().contains("(approved,"));
+
+    // The same approval again writes nothing.
+    let once = w.bytes();
+    assert!(w.run("approve 1 --by-person").unwrap().contains("already approved"));
+    assert_eq!(w.bytes(), once);
+}
+
+#[test]
+fn an_amend_clears_the_approval_and_says_so() {
+    let w = world("design-amend-clears");
+    w.commit(&["design/mocks/A.dc.html"]);
+    w.request(base_request(&w, json!({ "design/mocks/A.dc.html": { "matches": "x" } }))).unwrap();
+    w.approve(1);
+    let amended = w.amend(1, json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} })).unwrap();
+    assert!(amended.contains("approval is cleared"), "{amended}");
+    assert!(w.state().designs[0].approved.is_none());
+    // Nothing to clear the second time.
+    let again = w.amend(1, json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} })).unwrap();
+    assert!(!again.contains("approval is cleared"), "{again}");
+}
+
+#[test]
+fn every_board_needs_a_canvas_link_and_a_render_is_an_image_file_that_exists() {
+    let w = world("design-boards");
+    w.commit(&["design/mocks/A.dc.html"]);
+    let before = w.bytes();
+    let board = "design/mocks/A.dc.html";
+    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
+    request["boards"] = json!({});
+    let refused = message(w.request(request));
+    assert!(refused.contains("boards without a canvas link") && refused.contains(board), "{refused}");
+    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
+    request["boards"] = json!({ board: { "link": "  " } });
+    assert!(message(w.request(request)).contains("empty canvas link"));
+    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
+    request["boards"] = json!({ board: { "link": "https://c/#A" }, "design/mocks/Z.dc.html": { "link": "https://c/#Z" } });
+    assert!(message(w.request(request)).contains("is no place of this design change"));
+    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
+    request["boards"] = json!({ board: { "link": "https://c/#A" }, "design/system/components/MacRow/": { "link": "https://c/#R" } });
+    assert!(message(w.request(request)).contains("is no board file"));
+    for (render, expect) in [("relative.png", "absolute path"), ("/tmp/x.txt", "absolute path"), ("/nonexistent/x.png", "is not a file")] {
+        let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
+        request["boards"] = json!({ board: { "link": "https://c/#A", "render": render } });
+        assert!(message(w.request(request)).contains(expect), "{render}");
+    }
+    assert_eq!(w.bytes(), before);
+
+    let png = w.scratch.dir.join("A.png");
+    std::fs::write(&png, b"png").unwrap();
+    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
+    request["boards"] = json!({ board: { "link": "https://c/#A", "render": png.display().to_string() } });
+    w.request(request).unwrap();
+    let state = w.state();
+    assert_eq!(state.designs[0].boards[board].link, "https://c/#A");
+    assert_eq!(state.designs[0].boards[board].render.as_deref(), Some(png.to_str().unwrap()));
+    assert!(w.run("show 1").unwrap().contains("render"));
+}
+
+#[test]
+fn a_changed_shared_source_lists_the_components_whose_drawing_changes() {
+    let w = world("design-sources");
+    w.commit(&["design/system/components/src/10-mac.js", "design/system/components/MacRow/preview.html"]);
+    w.commit(&["design/system/components/MacButton/preview.html"]);
+    let sources = w.commit(&["design/system/components/src/20-android.js", "design/system/tokens.json"]);
+    let wt = w.worktree();
+    assert_eq!(
+        w.run(&format!("places {wt} {sources}")).unwrap(),
+        "source design/system/components/src/20-android.js\nsource design/system/tokens.json\n"
+    );
+    // Only a source changed in this commit: it needs the components or no_app_place.
+    let mut request = base_request(&w, json!({}));
+    request["range"] = json!("HEAD~1..HEAD");
+    let refused = message(w.request(request.clone()));
+    assert!(refused.contains("shared design-system sources") && refused.contains("no_app_place"), "{refused}");
+    // A component that exists but the range does not change, and one that does not exist.
+    let mut bad = request.clone();
+    bad["places"] = json!({ "design/system/components/Nope/": { "matches": "x" } });
+    assert!(message(w.request(bad)).contains("which the range does not change"));
+    let mut listed = request.clone();
+    listed["places"] = json!({
+        "design/system/components/MacRow/": { "matches": "the row reads its colours from the tokens, unchanged" },
+        "design/system/components/MacButton/": { "new": draft("Redraw the button the tokens change") },
+    });
+    w.request(listed).unwrap();
+    let design = &w.state().designs[0];
+    assert_eq!(design.places.len(), 2);
+    w.approve(1);
+    assert!(w.run(&format!("check 1 {wt} {sources}")).is_ok());
+}
+
+#[test]
+fn a_component_the_range_does_not_change_is_listed_only_when_it_changes_a_shared_source() {
+    let w = world("design-affected-needs-sources");
+    w.commit(&["design/system/components/MacRow/preview.html"]);
+    w.commit(&["design/mocks/A.dc.html"]);
+    let mut request = base_request(
+        &w,
+        json!({ "design/mocks/A.dc.html": { "matches": "x" }, "design/system/components/MacRow/": { "matches": "y" } }),
+    );
+    request["range"] = json!("HEAD~1..HEAD");
+    let before = w.bytes();
+    let refused = message(w.request(request));
+    assert!(refused.contains("only when it changes shared design-system sources"), "{refused}");
+    assert_eq!(w.bytes(), before);
+}
+
+#[test]
+fn no_app_place_says_a_source_changed_no_drawing_and_is_refused_beside_listed_components() {
+    let w = world("design-sources-no-app");
+    w.commit(&["design/system/components/MacRow/preview.html"]);
+    w.commit(&["design/system/components/src/10-mac.js", "design/system/README.md"]);
+    let mut request = base_request(&w, json!({}));
+    request["range"] = json!("HEAD~1..HEAD");
+    request["no_app_place"] = json!("a comment in the source");
+    w.request(request.clone()).unwrap();
+    w.approve(1);
+    assert!(w.run(&format!("check 1 {} {}", w.worktree(), w.sha("HEAD"))).is_ok());
+
+    let w = world("design-sources-no-app-listed");
+    w.commit(&["design/system/components/MacRow/preview.html"]);
+    w.commit(&["design/system/components/src/10-mac.js"]);
+    let mut request = base_request(&w, json!({ "design/system/components/MacRow/": { "matches": "x" } }));
+    request["range"] = json!("HEAD~1..HEAD");
+    request["no_app_place"] = json!("none");
+    assert!(message(w.request(request)).contains("lists no component whose drawing changes"));
+}
+
+#[test]
+fn spec_sections_a_design_change_touches_are_places_resolved_like_the_others() {
+    let w = world("design-spec");
+    w.commit(&["spec/bae.md"]);
+    git(&w.dir, &["tag", "specced"]);
+    std::fs::write(w.dir.join("spec/bae.md"), "# bae\n\n## Sync\n\nnew rule\n").unwrap();
+    git(&w.dir, &["add", "spec/bae.md"]);
+    std::fs::create_dir_all(w.dir.join("design/mocks")).unwrap();
+    std::fs::write(w.dir.join("design/mocks/A.dc.html"), "board").unwrap();
+    git(&w.dir, &["add", "design/mocks/A.dc.html"]);
+    git(&w.dir, &["commit", "-q", "-m", "board and spec"]);
+    let sha = w.sha("HEAD");
+    let wt = w.worktree();
+    let places = w.run(&format!("places {wt} {sha}")).unwrap();
+    assert_eq!(places, "place design/mocks/A.dc.html\nspec spec/bae.md#Sync\nspec spec/bae.md#bae\n");
+    let mut request = base_request(&w, json!({ "design/mocks/A.dc.html": { "matches": "x" } }));
+    request["range"] = json!("specced..HEAD");
+    let refused = message(w.request(request.clone()));
+    assert!(refused.contains("spec/bae.md#Sync"), "{refused}");
+    request["places"]["spec/bae.md#Sync"] = json!({ "new": draft("Write the sync rule into the app") });
+    request["places"]["spec/bae.md#bae"] = json!({ "matches": "the title line, no behaviour" });
+    w.request(request).unwrap();
+    w.approve(1);
+    assert!(w.run(&format!("check 1 {wt} {sha}")).is_ok());
+    // A commit that changes only the spec is no design change.
+    let spec_only = w.commit(&["spec/words.md"]);
+    assert_eq!(w.run(&format!("places {wt} {spec_only}")).unwrap(), "");
+}
+
+#[test]
+fn only_succeeds_for_commits_that_are_all_design_and_names_the_rest() {
+    let w = world("design-only");
+    let design = w.commit(&["design/mocks/A.dc.html", "design/system/tokens.json", "spec/bae.md", "design/theme.toml"]);
+    let wt = w.worktree();
+    assert_eq!(w.run(&format!("only {wt} {design}")).unwrap(), "");
+    let mixed = w.commit(&["design/mocks/B.dc.html", "src/app.rs"]);
+    let refused = message(w.run(&format!("only {wt} {design} {mixed}")));
+    assert!(refused.contains("src/app.rs"), "{refused}");
+    let code = w.commit(&["src/b.rs"]);
+    assert!(message(w.run(&format!("only {wt} {code}"))).contains("no design files"));
+    let spec = w.commit(&["spec/words.md"]);
+    assert!(message(w.run(&format!("only {wt} {spec}"))).contains("no design files"));
+    assert!(message(w.run(&format!("only {wt}"))).contains("usage"));
 }

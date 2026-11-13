@@ -239,6 +239,10 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .l-empty { font-size: 13px; color: var(--muted); padding: 4px 2px; }
 .l-sep { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; width: 100%; }
 @keyframes l-flash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 3px transparent; } }
+.l-boards { display: flex; flex-direction: column; gap: 8px; }
+.l-board { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+a.l-link { color: var(--accent); font-size: 13px; overflow-wrap: anywhere; }
+.l-render { max-width: 100%; max-height: 420px; object-fit: contain; align-self: flex-start; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .l-flash { animation: l-flash 1.6s ease-out; }
 </style>
 </head>
@@ -991,10 +995,19 @@ function stackCard(q, n, top) {
     opened(q, "Asked"),
     fold("q:" + q.id, q.id, "Details", () => md(q.details)));
 }
+// Design changes whose boards wait on your review: recorded, not approved, not landed.
+function reviews() { return lists.designs.filter(g => !g.closed && !g.approved); }
 function stackItems() {
-  const own = lists.stack;
-  if (!own.length) return [empty("Nothing waits on you.")];
-  return own.map((q, i) => ({key: "q:" + q.id, data: [q, i], make: () => stackCard(q, i + 1, i === 0)}));
+  const own = lists.stack, review = reviews();
+  if (!own.length && !review.length) return [empty("Nothing waits on you.")];
+  const out = [];
+  if (review.length) out.push({key: "reviews", data: review, make: () => section("Design changes to review", review.length,
+    h("div", {class: "l-rows"}, review.map(g => designCard(g, true))))});
+  const cards = own.map((q, i) => ({key: "q:" + q.id, data: [q, i], make: () => stackCard(q, i + 1, i === 0)}));
+  if (!review.length) return cards;
+  if (cards.length) out.push({key: "questions", data: own, make: () => section("Questions", own.length,
+    h("div", {class: "l-rows"}, own.map((q, i) => stackCard(q, i + 1, i === 0))))});
+  return out;
 }
 
 // ---- Work
@@ -1095,23 +1108,37 @@ function placeLine(p) {
     p.item ? [pill(p.item.state, p.item.state === "ready" ? "s-ready" : "s-winding"), " ", recLink(p.item.id, p.item.title)]
       : ["matches: " + p.matches]);
 }
-function designCard(g) {
-  return h("article", {class: "l-card"},
-    h("div", {class: "l-row1"}, h("span", {class: "l-title"}, g.title), h("span", {class: "l-id"}, "#" + g.id), pill(g.repo, "s-free")),
+// A board: its link on the canvas, and its render when the daemon has the image.
+function boardBlock(g, b, n) {
+  const name = b.path.split("/").pop();
+  return h("div", {class: "l-board"},
+    h("a", {class: "l-link", href: b.link, target: "_blank", rel: "noopener"}, name, " on the canvas"),
+    b.render ? h("img", {class: "l-render", src: "/api/design-render/" + g.id + "/" + n, alt: "Render of " + name, loading: "lazy",
+      onerror: e => e.target.remove()}) : null);
+}
+// A design change. <review> shows what the person decides on: the details
+// in the open and the boards' renders.
+function designCard(g, review) {
+  const state = g.closed ? null : g.approved ? pill("approved", "s-ready") : pill("waiting on your review", "s-you");
+  return h("article", review ? {class: "l-card", "data-rec": String(g.id)} : {class: "l-card"},
+    h("div", {class: "l-row1"}, h("span", {class: "l-title"}, g.title), h("span", {class: "l-id"}, "#" + g.id), pill(g.repo, "s-free"), state),
+    review ? md(g.details) : null,
     g.places.length ? h("ul", {class: "l-list"}, g.places.map(placeLine)) : null,
-    g.no_app_place ? fact("No app place:", g.no_app_place) : null,
+    g.boards.length ? h("div", {class: "l-boards"}, g.boards.map((b, n) => boardBlock(g, b, n))) : null,
+    g.no_app_place ? fact("No drawing changes:", g.no_app_place) : null,
     g.landed.length ? fact("Landed:", g.landed.map(l => l.commits.join(" ") + " " + stamp(l.at)).join("; ")) : null,
+    g.approved ? fact("Approved:", stamp(g.approved.at)) : null,
     opened(g, "Recorded"),
-    fold("g:" + g.id, g.id, "Details", () => md(g.details)));
+    review ? null : fold("g:" + g.id, g.id, "Details", () => md(g.details)));
 }
 function designItems() {
   // The daemon sends `closed` only for a change that landed in the last 14 days.
   const open = lists.designs.filter(g => !g.closed);
   const landed = lists.designs.filter(g => g.closed).sort((a, b) => b.closed.at - a.closed.at);
   const out = [];
-  if (open.length) out.push({key: "open", data: open, make: () => section("Open", open.length, h("div", {class: "l-rows"}, open.map(designCard)))});
+  if (open.length) out.push({key: "open", data: open, make: () => section("Open", open.length, h("div", {class: "l-rows"}, open.map(g => designCard(g))))});
   if (landed.length) out.push({key: "landed", data: landed, make: () => section("Landed in the last " + RECENT_DAYS + " days", landed.length,
-    h("div", {class: "l-rows"}, landed.map(designCard)))});
+    h("div", {class: "l-rows"}, landed.map(g => designCard(g))))});
   return out.length ? out : [empty("No design change is waiting to land.")];
 }
 
@@ -1156,7 +1183,7 @@ function setLists(next) {
 }
 function tabCounts() {
   return {
-    stack: String(lists.stack.length),
+    stack: String(lists.stack.length + reviews().length),
     work: lists.items.filter(isReady).length + " ready · " + lists.items.filter(isRunning).length + " running",
     design: lists.designs.filter(g => !g.closed).length + " open",
     decisions: String(lists.decisions.length),

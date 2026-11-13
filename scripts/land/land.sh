@@ -12,11 +12,15 @@ cd "$1" || exit 1; shift
 if b=$(git symbolic-ref -q --short HEAD); then echo "refusing: $PWD is on branch $b; land from the detached landing worktree"; exit 1; fi
 # In a repo that belongs to a project of the lists (`builds lists project-of`),
 # a landing names the work items it finishes (--done N) or advances (--part N)
-# and, when the commits change design places, the design change (--design N).
+# and, when the commits change design places, the design change (--design N),
+# which the person must have approved (`builds design check` says so).
 # Each is checked before anything is fetched or picked, and recorded after the
 # push. `builds design places` prints one line per changed design path
-# (`place <path>` or `shared <path>`), nothing when none; any line, shared-only
-# included, requires --design. A repo in no project takes none of these flags and lands as before.
+# (`place`, `source`, `spec` or `shared`, then the path), nothing when none; any
+# line, shared-only included, requires --design. When every commit's paths are design
+# files (`builds design only`: boards, the design system, spec lines), --design N
+# alone satisfies the --done/--part requirement: the design change holds the
+# app work. A repo in no project takes none of these flags and lands as before.
 done_args=(); design=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -28,20 +32,28 @@ while [ "$#" -gt 0 ]; do
     *) break ;;
   esac
 done
-[ "$#" -gt 0 ] || { echo "usage: land.sh <worktree> [--done N]... [--part N]... [--design N] <sha>... (the landing worktree must be claimed; --design is required exactly when the commits change a design place or shared design file)"; exit 1; }
+[ "$#" -gt 0 ] || { echo "usage: land.sh <worktree> [--done N]... [--part N]... [--design N] <sha>... (the landing worktree must be claimed; --design is required exactly when the commits change a design place or shared design file, and alone it lands commits that are all design files)"; exit 1; }
 project=$(builds lists project-of "$PWD" 2>&1) || { echo "refusing: builds lists project-of failed: $project"; exit 1; }
 if [ -z "$project" ]; then
   if [ "${#done_args[@]}" != 0 ] || [ -n "$design" ]; then
     echo "refusing: $PWD is in no project of the lists, so --done, --part and --design don't apply"; exit 1
   fi
 else
+  places=$(builds design places "$PWD" "$@" 2>&1) || { echo "refusing: builds design places failed: $places"; exit 1; }
   if [ "${#done_args[@]}" = 0 ]; then
-    echo "refusing: $PWD is in the project $project; name the work item this lands with --done N or --part N"; exit 1
-  fi
-  if ! out=$(builds item check-landing "$PWD" "${done_args[@]}" "$@" 2>&1); then
+    if [ -z "$design" ]; then
+      echo "refusing: $PWD is in the project $project; name the work item this lands with --done N or --part N (commits that are all design files take --design N alone)"; exit 1
+    fi
+    if [ -z "$places" ]; then
+      echo "refusing: --design $design given, but the commits change no design place; name the work item with --done N or --part N"; exit 1
+    fi
+    if ! out=$(builds design only "$PWD" "$@" 2>&1); then
+      echo "LANDING REFUSED, nothing fetched or pushed: --design alone lands only commits that are all design files; name the work item with --done N or --part N"
+      echo "$out"; exit 1
+    fi
+  elif ! out=$(builds item check-landing "$PWD" "${done_args[@]}" "$@" 2>&1); then
     echo "LANDING REFUSED, nothing fetched or pushed:"; echo "$out"; exit 1
   fi
-  places=$(builds design places "$PWD" "$@" 2>&1) || { echo "refusing: builds design places failed: $places"; exit 1; }
   if [ -n "$places" ] && [ -z "$design" ]; then
     echo "LANDING REFUSED, nothing fetched or pushed: the commits change design places; name the design change with --design N"
     echo "$places"; exit 1
@@ -58,9 +70,11 @@ workdir=$PWD
 record_landing() {
   [ -n "$project" ] || return 0
   local failed=0 out cmd
-  cmd=(builds item landed "$workdir" "${done_args[@]}" "$@")
-  if ! out=$("${cmd[@]}" 2>&1); then
-    failed=1; echo "LANDED, NOT RECORDED: $out"; printf 'rerun: '; printf '%q ' "${cmd[@]}"; echo
+  if [ "${#done_args[@]}" != 0 ]; then
+    cmd=(builds item landed "$workdir" "${done_args[@]}" "$@")
+    if ! out=$("${cmd[@]}" 2>&1); then
+      failed=1; echo "LANDED, NOT RECORDED: $out"; printf 'rerun: '; printf '%q ' "${cmd[@]}"; echo
+    fi
   fi
   if [ -n "$design" ]; then
     cmd=(builds design landed "$design" "$workdir" "$@")

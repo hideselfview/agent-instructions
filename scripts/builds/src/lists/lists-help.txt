@@ -38,13 +38,16 @@ makes every command fail naming each fault. Nothing repairs it.
 Commands in this part:
 
   builds lists init PROJECT --repos R,R [--design-places R:GLOB,...]
+                    [--design-sources R:GLOB,...] [--spec-files R:GLOB,...]
                     [--from FILE] [--by WHO]
       Makes the project's store. --repos names the repo directories the
       project covers (as `Checkout` names them: the main checkout's folder).
       --design-places gives each repo's design globs, one REPO:GLOB each; a
-      path a commit changes that matches one is a design place. --from loads
+      path a commit changes that matches one is a design place;
+      --design-sources and --spec-files give the shared design-system sources
+      and the spec files (see Design changes below). --from loads
       a whole state from FILE (`-` for standard input) instead of an empty
-      one, and runs the whole-state check on it; --repos and --design-places
+      one, and runs the whole-state check on it; --repos and the glob flags
       must then match what the file holds. Refused when the store exists.
 
   builds lists show [--json] [--project P]
@@ -59,38 +62,76 @@ Commands in this part:
       repo is in two projects.
 
 Design changes (a product design change: a board or a design-system
-component, not a software plan). A repo's design places are the globs given
-to `lists init`: a board file (`design/mocks/*.dc.html`) is a place, and so is
-a component folder (`design/system/components/*/`), counted once however many
-files in it change. Other changed files under `design/` are shared design
-files. Commands that read git take a worktree DIR and find the project from
-its repo (or --project); commits may be rebased, since places are compared by
-path.
+component, not a software plan). A design change is recorded when its boards
+are drawn and waits on the person's review: it shows in the sidebar's Waiting
+on you tab with what changed, each board linked to the canvas and its render,
+until the person approves it. land.sh --design N refuses it before that;
+landing closes it, so it leaves the tab. The design session lands through
+land.sh like everyone else, from bae's landing worktree (side-7).
+
+A repo's design files are the globs given to `lists init`. --design-places:
+a board file (`design/mocks/*.dc.html`) is a place, and so is a component
+folder (`design/system/components/*/`), counted once however many files in it
+change. --design-sources: the shared design-system sources (the component
+sources, tokens.json, tokens.css); they win over a place glob, and a change to
+one can change any component's drawing, so the design change lists the
+components whose drawing changes. --spec-files: the spec files; in a design
+change, each section (by heading) its commits touch is a place, written
+`spec/bae.md#Heading`; a spec file alone is no design change. Other changed
+files under `design/` are shared design files. Commands that read git take a
+worktree DIR and find the project from its repo (or --project); commits may be
+rebased, since places are compared by path.
 
   builds design places DIR SHA...
       Prints every design path the commits change, one per line: `place PATH`
-      (a component folder once, with a trailing /) or `shared PATH`; nothing
-      when none. land.sh requires --design N whenever this prints anything.
+      (a component folder once, with a trailing /), `source PATH`,
+      `spec PATH#HEADING` or `shared PATH`; nothing when none. land.sh
+      requires --design N whenever this prints anything.
+
+  builds design only DIR SHA...
+      Prints nothing and succeeds when the commits are a design change and
+      every path they change is a design file (boards, the design system,
+      spec lines); otherwise names the paths that are not. land.sh takes
+      --design N alone, with no --done or --part, only then: the design
+      change holds the app work.
 
   builds design record --request FILE       (`-` for standard input)
       FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
       "places": {PLACE: {"item": N} | {"new": ITEM_DRAFT} | {"matches": HOW}},
+      "boards": {BOARD: {"link": CANVAS_URL, "render": IMAGE_PATH}},
       "no_app_place": WHY}. `places` answers every design place the range
-      changes: an open item that does the app work, a new item (which waits on
-      this design change, so it can't be taken before the board lands), or
-      how it was checked that the app already matches. `no_app_place` is for a
-      range that changes shared design files and no place, and only then.
-      Refused, naming each, when a changed place is left unresolved, an
-      answer names a place the range does not change, `matches` has no how,
-      an item is closed or missing, or the range changes no design files.
+      changes (a board, a component folder, a spec section): an open item
+      that does the app work, a new item (which waits on this design change,
+      so it can't be taken before the board lands), or how it was checked
+      that the app already matches. When the range changes shared design-system
+      sources, `places` also lists each component folder whose drawing
+      changes, changed by the range or not (it must exist), answered the same
+      way; `no_app_place` says instead that no drawing changes (a comment in
+      the source), and is refused beside a listed component or a changed board
+      or component. Shared files that are no source (a README, a build
+      script) change no drawing: only `no_app_place`, unless a place is
+      resolved. `boards` gives every board place its canvas link; `render` is
+      an optional absolute path to a png, jpg, webp or gif the daemon shows
+      the page while the file is there. Refused, naming each, when a changed
+      place is left unresolved, an answer names a place the range does not
+      change, `matches` has no how, an item is closed or missing, a board has
+      no link or a render is no image file, or the range changes no design
+      files.
 
   builds design amend N --request FILE
-      The same over a new range; the answers merge into N's places, and
-      `title` and `details` are optional.
+      The same over a new range; the answers merge into N's places and
+      boards, and `title` and `details` are optional. The person's approval is
+      cleared: they approved what was drawn before.
+
+  builds design approve N --by-person
+      Records the person's approval, which only they give (say "--by-person"
+      once they have said to land it, never on your own judgment). The same
+      approval again writes nothing.
 
   builds design check N DIR SHA...
-      Every place the commits change is resolved in open change N (and, for
-      shared files only, `no_app_place` is said); names what is not.
+      Every place the commits change is resolved in open change N, shared
+      files and sources are answered for, and the person has approved it;
+      names what is not.
 
   builds design landed N DIR SHA...
       As land.sh calls it after the push, with SHAs on origin/main: records

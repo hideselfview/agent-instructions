@@ -1,7 +1,8 @@
 //! Design changes: a product design change (a board or a design-system
-//! component) recorded before it lands, with every design place it changes
-//! resolved to the app work that follows or to how it was checked that none
-//! does. These are the operations on the state a write holds under the lock;
+//! component) recorded when its boards are drawn, with every design place it
+//! changes resolved to the app work that follows or to how it was checked
+//! that none does, and waiting on the person's review until it can land.
+//! These are the operations on the state a write holds under the lock;
 //! `design_command` is the commands around them, `design_paths` reads git.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,9 +13,9 @@ use serde::Deserialize;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
-use crate::lists::design_paths::Changes;
+use crate::lists::design_paths::{Changes, PlaceKind};
 use crate::lists::draft::{ItemDraft, add_item};
-use crate::lists::{DesignChange, DesignLanding, How, Id, Kind, Lists, Located, Record, Resolution, Stamp, Standing, Wait};
+use crate::lists::{Board, DesignChange, DesignLanding, How, Id, Kind, Lists, Located, Record, Resolution, Stamp, Standing, Wait};
 use crate::text::local_minute;
 
 /// How one changed place is resolved in a request.
@@ -40,10 +41,14 @@ pub struct DesignRequest {
     pub worktree: String,
     /// The commits, e.g. `origin/main..HEAD`.
     pub range: String,
-    /// For every design place the range changes.
+    /// For every design place the range changes, and for each component a
+    /// changed shared source changes the drawing of.
     #[serde(default)]
     pub places: BTreeMap<String, PlaceAnswer>,
-    /// Why shared design files changed with no board or component.
+    /// Each board place's canvas link, and a picture of it for the review.
+    #[serde(default)]
+    pub boards: BTreeMap<String, Board>,
+    /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
 }
 
@@ -77,16 +82,43 @@ fn open_item(lists: &Lists, id: Id) -> Result<()> {
 
 /// Resolves <changes> in design change <id> by <request>: each answer is
 /// applied (a new item waits on the change), then every changed place must
-/// be resolved and, when only shared files changed, `no_app_place` must be
-/// said. Refuses with every unresolved place named.
-fn resolve(lists: &mut Lists, id: Id, request: &DesignRequest, changes: &Changes, stamp: &Stamp) -> Result<Vec<Id>> {
-    if changes.is_empty() {
+/// be resolved and the shared files and sources answered for. <affected> are
+/// the request's places that name existing components rather than something
+/// the range changes. Refuses with every unresolved place named.
+fn resolve(
+    lists: &mut Lists,
+    id: Id,
+    request: &DesignRequest,
+    changes: &Changes,
+    affected: &BTreeSet<String>,
+    stamp: &Stamp,
+) -> Result<Vec<Id>> {
+    if !changes.is_design_change() {
         fail!("the range {} changes no design files", request.range);
     }
-    let stray: Vec<&str> =
-        request.places.keys().filter(|path| !changes.places.contains(*path)).map(String::as_str).collect();
+    let changed = changes.resolvable();
+    let stray: Vec<&str> = request
+        .places
+        .keys()
+        .filter(|path| !changed.contains(*path) && !affected.contains(*path))
+        .map(String::as_str)
+        .collect();
     if !stray.is_empty() {
-        fail!("`places` names {}, which the range does not change", stray.join(", "));
+        fail!(
+            "`places` names {}, which the range does not change{}",
+            stray.join(", "),
+            if changes.sources.is_empty() {
+                ""
+            } else {
+                " and which is no component folder of the design system; a changed shared source takes the components it changes the drawing of"
+            }
+        );
+    }
+    if !affected.is_empty() && changes.sources.is_empty() {
+        fail!(
+            "`places` names {}, which the range does not change; components that are not in it are listed only when it changes shared design-system sources",
+            join(affected)
+        );
     }
     let mut resolutions = BTreeMap::new();
     let mut new_items = Vec::new();
@@ -112,32 +144,79 @@ fn resolve(lists: &mut Lists, id: Id, request: &DesignRequest, changes: &Changes
         };
         resolutions.insert(path.clone(), resolution);
     }
+    for (path, board) in &request.boards {
+        if PlaceKind::of(path) != PlaceKind::Board {
+            fail!("`boards` names {path}, which is no board file");
+        }
+        if board.link.trim().is_empty() {
+            fail!("board {path} has an empty canvas link");
+        }
+    }
     let Some(design) = lists.design_mut(id) else { fail!("{id} is not an open design change") };
     design.places.extend(resolutions);
+    design.boards.extend(request.boards.clone());
     let unresolved: Vec<&str> =
-        changes.places.iter().filter(|p| !design.places.contains_key(*p)).map(String::as_str).collect();
+        changed.iter().filter(|p| !design.places.contains_key(**p)).map(|p| p.as_str()).collect();
     if !unresolved.is_empty() {
         fail!(
             "design places left unresolved: {}; give each `item` (an open item), `new` (an item draft) or `matches` (how it was checked)",
             unresolved.join(", ")
         );
     }
+    let unlinked: Vec<&str> = design
+        .places
+        .keys()
+        .filter(|p| PlaceKind::of(p) == PlaceKind::Board && !design.boards.contains_key(*p))
+        .map(String::as_str)
+        .collect();
+    if !unlinked.is_empty() {
+        fail!(
+            "boards without a canvas link: {}; give each under `boards` as {{\"link\": URL, \"render\": PATH_TO_AN_IMAGE}} (the render is optional)",
+            unlinked.join(", ")
+        );
+    }
+    if let Some(path) = design.boards.keys().find(|p| !design.places.contains_key(*p)) {
+        fail!("`boards` names {path}, which is no place of this design change");
+    }
     if let Some(why) = &request.no_app_place {
         if why.trim().is_empty() {
-            fail!("no_app_place is empty; say why shared design files changed with no board or component");
+            fail!("no_app_place is empty; say why shared design files changed and no drawing did");
         }
-        if !changes.places.is_empty() || changes.shared.is_empty() {
-            fail!("no_app_place is only for a range that changes shared design files and no board or component");
+        let drawing = design.places.keys().any(|p| PlaceKind::of(p) == PlaceKind::Component);
+        if (changes.sources.is_empty() && changes.shared.is_empty()) || !changes.places.is_empty() || drawing {
+            fail!(
+                "no_app_place is only for a range that changes shared design files and no board or component, and lists no component whose drawing changes"
+            );
         }
         design.no_app_place = Some(why.clone());
     }
-    if changes.places.is_empty() && design.no_app_place.is_none() {
+    needs_answer(design, changes, "the range")?;
+    Ok(new_items)
+}
+
+/// Shared design files and sources change no place by themselves: the change
+/// must list the components whose drawing changes (a source) or have a
+/// resolved place, or say with `no_app_place` that no drawing changes.
+fn needs_answer(design: &DesignChange, changes: &Changes, what: &str) -> Result<()> {
+    if design.no_app_place.is_some() {
+        return Ok(());
+    }
+    if !changes.sources.is_empty() {
+        if design.places.keys().any(|p| PlaceKind::of(p) == PlaceKind::Component) {
+            return Ok(());
+        }
         fail!(
-            "the range changes only shared design files ({}); say why no board or component changed with `no_app_place`",
+            "{what} changes shared design-system sources ({}); list under `places` each component whose drawing changes (an item or `matches`), or say with `no_app_place` that no drawing changes",
+            join(&changes.sources)
+        );
+    }
+    if !changes.shared.is_empty() && changes.places.is_empty() && changes.spec.is_empty() {
+        fail!(
+            "{what} changes only shared design files ({}); say why no board or component changed with `no_app_place`",
             join(&changes.shared)
         );
     }
-    Ok(new_items)
+    Ok(())
 }
 
 fn join(set: &BTreeSet<String>) -> String {
@@ -145,7 +224,14 @@ fn join(set: &BTreeSet<String>) -> String {
 }
 
 /// Records a new design change of <repo> for <changes>.
-pub fn record(lists: &mut Lists, repo: &str, request: &DesignRequest, changes: &Changes, stamp: &Stamp) -> Result<Recorded> {
+pub fn record(
+    lists: &mut Lists,
+    repo: &str,
+    request: &DesignRequest,
+    changes: &Changes,
+    affected: &BTreeSet<String>,
+    stamp: &Stamp,
+) -> Result<Recorded> {
     let title = require_text("title", request.title.as_ref())?;
     if let Some(fault) = crate::lists::check::title_fault(&title) {
         fail!("{fault}");
@@ -158,22 +244,29 @@ pub fn record(lists: &mut Lists, repo: &str, request: &DesignRequest, changes: &
         details,
         repo: repo.to_string(),
         places: BTreeMap::new(),
+        boards: BTreeMap::new(),
         no_app_place: None,
+        approved: None,
         opened: stamp.clone(),
         landed: Vec::new(),
     });
-    let new_items = resolve(lists, design, request, changes, stamp)?;
+    let new_items = resolve(lists, design, request, changes, affected, stamp)?;
     Ok(Recorded { design, new_items })
 }
 
-/// The open design change <id>, of <repo>.
-fn open_design<'a>(lists: &'a Lists, id: Id, repo: &str) -> Result<&'a DesignChange> {
-    let design = match lists.locate(id) {
+/// The open design change <id>.
+fn open_design(lists: &Lists, id: Id) -> Result<&DesignChange> {
+    Ok(match lists.locate(id) {
         None => fail!("{id} is not a record"),
         Some(Located { kind, .. }) if kind != Kind::Design => fail!("{id} is a {}, not a design change", kind.name()),
         Some(Located { standing: Standing::Closed(_), .. }) => fail!("design change {id} has already landed"),
         Some(_) => lists.design(id).expect("located open"),
-    };
+    })
+}
+
+/// The open design change <id>, of <repo>.
+fn open_design_of<'a>(lists: &'a Lists, id: Id, repo: &str) -> Result<&'a DesignChange> {
+    let design = open_design(lists, id)?;
     if design.repo != repo {
         fail!("design change {id} is of repo {}, not {repo}", design.repo);
     }
@@ -181,10 +274,20 @@ fn open_design<'a>(lists: &'a Lists, id: Id, repo: &str) -> Result<&'a DesignCha
 }
 
 /// Adds the places <changes> holds to open design change <id>: the answers
-/// of <request> merge over the places it has.
-pub fn amend(lists: &mut Lists, id: Id, repo: &str, request: &DesignRequest, changes: &Changes, stamp: &Stamp) -> Result<Recorded> {
-    open_design(lists, id, repo)?;
+/// of <request> merge over the places it has. What the person approved is no
+/// longer what is drawn, so the approval is cleared.
+pub fn amend(
+    lists: &mut Lists,
+    id: Id,
+    repo: &str,
+    request: &DesignRequest,
+    changes: &Changes,
+    affected: &BTreeSet<String>,
+    stamp: &Stamp,
+) -> Result<Recorded> {
+    open_design_of(lists, id, repo)?;
     let design = lists.design_mut(id).expect("open");
+    design.approved = None;
     if let Some(title) = &request.title {
         if title.trim().is_empty() {
             fail!("title is empty");
@@ -197,31 +300,48 @@ pub fn amend(lists: &mut Lists, id: Id, repo: &str, request: &DesignRequest, cha
     if let Some(details) = &request.details {
         design.details = require_text("details", Some(details))?;
     }
-    let new_items = resolve(lists, id, request, changes, stamp)?;
+    let new_items = resolve(lists, id, request, changes, affected, stamp)?;
     Ok(Recorded { design: id, new_items })
 }
 
-/// Is every place <changes> holds resolved in open design change <id>?
-/// Compares by path, so a rebased commit checks the same. Names each
-/// place left over.
+/// Is every place <changes> holds resolved in open design change <id>, and
+/// has the person approved it? Compares by path, so a rebased commit checks
+/// the same. Names each place left over.
 pub fn check_changes(lists: &Lists, id: Id, repo: &str, changes: &Changes) -> Result<()> {
-    let design = open_design(lists, id, repo)?;
-    if changes.is_empty() {
+    let n = id.0;
+    let design = open_design_of(lists, id, repo)?;
+    if !changes.is_design_change() {
         fail!("the commits change no design files, so design change {id} has nothing to check");
     }
     let unresolved: Vec<&str> =
-        changes.places.iter().filter(|p| !design.places.contains_key(*p)).map(String::as_str).collect();
+        changes.resolvable().into_iter().filter(|p| !design.places.contains_key(*p)).map(|p| p.as_str()).collect();
     if !unresolved.is_empty() {
         fail!(
-            "design change {id} does not resolve {}; `builds design amend {id}` adds them",
+            "design change {id} does not resolve {}; `builds design amend {n}` adds them",
             unresolved.join(", ")
         );
     }
-    if changes.places.is_empty() && design.no_app_place.is_none() {
+    needs_answer(design, changes, "the commits").map_err(|error| match error {
+        crate::fail::Fail::Message(message) => {
+            crate::fail::Fail::Message(format!("{message} (design change {id}; `builds design amend {}` adds it)", id.0))
+        }
+        other => other,
+    })?;
+    if design.approved.is_none() {
         fail!(
-            "the commits change only shared design files ({}) and design change {id} says why none is a board or component (`no_app_place`); `builds design amend {id}` adds it",
-            join(&changes.shared)
+            "design change {id} waits on the person's review; once they have said to land it, `builds design approve {n} --by-person` records that"
         );
+    }
+    Ok(())
+}
+
+/// Records the person's approval of open design change <id>. The same
+/// approval again is recorded once.
+pub fn approve(lists: &mut Lists, id: Id, stamp: &Stamp) -> Result<()> {
+    open_design(lists, id)?;
+    let design = lists.design_mut(id).expect("open");
+    if design.approved.is_none() {
+        design.approved = Some(stamp.clone());
     }
     Ok(())
 }
@@ -264,7 +384,7 @@ pub fn landed(lists: &mut Lists, id: Id, repo: &str, commits: &[String], stamp: 
     if already_landed(lists, id, repo, commits)? {
         return Ok(Landed::Already);
     }
-    open_design(lists, id, repo)?;
+    open_design_of(lists, id, repo)?;
     lists
         .design_mut(id)
         .expect("open")
@@ -302,12 +422,27 @@ fn describe(lists: &Lists, design: &DesignChange, landed: Option<&crate::lists::
     };
     let _ = writeln!(out, "{} {} [{state}] repo {}", design.id, design.title, design.repo);
     let _ = writeln!(out, "opened {} by {}", local_minute(design.opened.at), design.opened.by);
+    match &design.approved {
+        Some(stamp) => {
+            let _ = writeln!(out, "approved {} (recorded by {})", local_minute(stamp.at), stamp.by);
+        }
+        None if landed.is_none() => {
+            let _ = writeln!(out, "waiting on the person's review");
+        }
+        None => {}
+    }
     let _ = writeln!(out, "\n{}\n", design.details.trim_end());
     for (path, resolution) in &design.places {
         let _ = writeln!(out, "  {path}  {}", resolution_words(lists, resolution));
     }
+    for (path, board) in &design.boards {
+        let _ = writeln!(out, "  board {path}  {}", board.link);
+        if let Some(render) = &board.render {
+            let _ = writeln!(out, "    render {render}");
+        }
+    }
     if let Some(why) = &design.no_app_place {
-        let _ = writeln!(out, "  no board or component: {why}");
+        let _ = writeln!(out, "  no drawing changes: {why}");
     }
     for landing in &design.landed {
         let _ = writeln!(out, "  landed {} as {}", local_minute(landing.at), landing.commits.join(" "));
@@ -335,9 +470,10 @@ pub fn list(lists: &Lists) -> String {
         let waiting = lists.items.iter().filter(|i| i.waits.contains(&Wait::Design(design.id))).count();
         let _ = writeln!(
             out,
-            "{} {} (repo {}, {} place{}, {waiting} item{} waiting)",
+            "{} {} ({}, repo {}, {} place{}, {waiting} item{} waiting)",
             design.id,
             design.title,
+            if design.approved.is_some() { "approved" } else { "waiting on review" },
             design.repo,
             design.places.len(),
             if design.places.len() == 1 { "" } else { "s" },

@@ -124,6 +124,24 @@ pub fn running_worktrees(snapshot: &Snapshot) -> Vec<String> {
     }
 }
 
+/// The image file of the <n>th board (by path) of open design change <id> of
+/// the one project there is, with its content type; None when no such board
+/// has a render, or the file's type is not one of the image types a render
+/// may be.
+pub fn design_render(snapshot: &Snapshot, id: u32, n: usize) -> Option<(String, &'static str)> {
+    let Ok([Loaded { lists: Ok(lists), .. }]) = snapshot.as_deref() else { return None };
+    let design = lists.designs.iter().find(|d| d.id.0 == id)?;
+    let render = design.boards.values().nth(n)?.render.clone()?;
+    let kind = match std::path::Path::new(&render).extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        _ => return None,
+    };
+    Some((render, kind))
+}
+
 /// The view the page reads, for the one project there is. No project, or
 /// several (the sidebar shows one), is the `error`, as is a store that fails
 /// its check. <claims> answers for a running item's worktree.

@@ -8,8 +8,17 @@ fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
     }
 }
 
-fn globs() -> Vec<String> {
-    vec!["design/mocks/*.dc.html".into(), "design/system/components/*/".into()]
+fn globs() -> Globs {
+    Globs { places: vec!["design/mocks/*.dc.html".into(), "design/system/components/*/".into()], ..Globs::default() }
+}
+
+/// Bae's: sources and the spec as well.
+fn full_globs() -> Globs {
+    Globs {
+        sources: vec!["design/system/components/src/".into(), "design/system/tokens.json".into(), "design/system/tokens.css".into()],
+        spec: vec!["spec/*.md".into()],
+        ..globs()
+    }
 }
 
 fn paths(list: &[&str]) -> Vec<String> {
@@ -67,8 +76,8 @@ fn files_that_are_no_place_under_the_design_directory_are_shared() {
 }
 
 #[test]
-fn a_repo_with_no_globs_has_no_places_and_no_shared_files() {
-    assert!(classify(&[], &paths(&["design/mocks/A.dc.html"])).is_empty());
+fn a_repo_with_no_globs_has_no_design_files() {
+    assert!(!classify(&Globs::default(), &paths(&["design/mocks/A.dc.html"])).is_design_change());
 }
 
 #[test]
@@ -117,4 +126,96 @@ fn a_name_with_odd_characters_comes_through_whole() {
     let sha = commit(&dir, &[("design/mocks/Caf\u{e9} \"x\".dc.html", "1")], "odd");
     let changes = changes_of(&dir, &globs(), &[sha]).unwrap();
     assert_eq!(changes.places, set(&["design/mocks/Caf\u{e9} \"x\".dc.html"]));
+}
+
+#[test]
+fn a_source_is_listed_apart_even_where_the_component_glob_would_take_it() {
+    let changes = classify(
+        &full_globs(),
+        &paths(&[
+            "design/system/components/src/10-mac.js",
+            "design/system/components/src/bundle.css",
+            "design/system/tokens.json",
+            "design/system/components/MacRow/preview.html",
+            "design/system/README.md",
+            "scripts/x.sh",
+        ]),
+    );
+    assert_eq!(
+        changes.sources,
+        set(&["design/system/components/src/10-mac.js", "design/system/components/src/bundle.css", "design/system/tokens.json"])
+    );
+    assert_eq!(changes.places, set(&["design/system/components/MacRow/"]));
+    assert_eq!(changes.shared, set(&["design/system/README.md"]));
+    assert_eq!(changes.outside, set(&["scripts/x.sh"]));
+    assert!(changes.is_design_change() && !changes.only_design());
+}
+
+#[test]
+fn a_spec_file_alone_is_no_design_change_and_is_outside_the_design_files() {
+    let scratch = Scratch::new("design-paths-spec-alone");
+    let dir = scratch.dir.join("bae");
+    repo(&dir, "target 1\n");
+    let sha = commit(&dir, &[("spec/bae.md", "# bae\n\ntext\n")], "spec");
+    let changes = changes_of(&dir, &full_globs(), &[sha]).unwrap();
+    assert!(!changes.is_design_change());
+    assert!(changes.spec.is_empty());
+    assert_eq!(changes.outside, set(&["spec/bae.md"]));
+}
+
+#[test]
+fn the_spec_sections_a_design_change_touches_are_places_by_heading() {
+    let scratch = Scratch::new("design-paths-spec");
+    let dir = scratch.dir.join("bae");
+    repo(&dir, "target 1\n");
+    let text = "# bae\n\nintro\n\n## 1. One\n\none\n\n```\n# not a heading\n```\n\n### 1.1 Sub\n\nsub\n\n## 2. Two\n\ntwo\n";
+    commit(&dir, &[("spec/bae.md", text)], "spec");
+    git(&dir, &["tag", "specced"]);
+    // Edits one line in 1.1, one in the code fence of 1. One, deletes a line of 2. Two.
+    let edited = text.replace("sub\n", "sub changed\n").replace("# not a heading", "# still not").replace("\ntwo\n", "\n");
+    let sha = commit(&dir, &[("spec/bae.md", &edited), ("design/mocks/A.dc.html", "1")], "board and spec");
+    let changes = changes_of(&dir, &full_globs(), &[sha]).unwrap();
+    assert_eq!(changes.places, set(&["design/mocks/A.dc.html"]));
+    assert_eq!(changes.spec, set(&["spec/bae.md#1. One", "spec/bae.md#1.1 Sub", "spec/bae.md#2. Two"]));
+    assert!(changes.outside.is_empty() && changes.only_design());
+}
+
+#[test]
+fn a_spec_file_deleted_or_edited_above_its_first_heading_is_one_place() {
+    let scratch = Scratch::new("design-paths-spec-edges");
+    let dir = scratch.dir.join("bae");
+    repo(&dir, "target 1\n");
+    commit(&dir, &[("spec/a.md", "preamble\n\n# A\n\nx\n"), ("spec/b.md", "b\n")], "specs");
+    let edit = commit(&dir, &[("spec/a.md", "preamble 2\n\n# A\n\nx\n"), ("design/theme.toml", "t")], "preamble");
+    let changes = changes_of(&dir, &full_globs(), &[edit]).unwrap();
+    assert_eq!(changes.spec, set(&["spec/a.md#(before the first heading)"]));
+    git(&dir, &["rm", "-q", "spec/b.md"]);
+    let gone = commit(&dir, &[("design/theme.toml", "u")], "delete b");
+    let changes = changes_of(&dir, &full_globs(), &[gone]).unwrap();
+    assert_eq!(changes.spec, set(&["spec/b.md#(file deleted)"]));
+}
+
+#[test]
+fn a_key_names_a_place_only_in_the_form_the_glob_gives_it() {
+    let g = full_globs();
+    assert!(g.names_place("design/system/components/MacRow/"));
+    assert!(!g.names_place("design/system/components/MacRow"));
+    assert!(!g.names_place("design/system/components/MacRow/a.html"));
+    assert!(g.names_place("design/mocks/A.dc.html"));
+    assert!(!g.names_place("design/mocks/A.dc.html/"));
+    assert!(!g.names_place("design/other/"));
+    assert_eq!(PlaceKind::of("design/mocks/A.dc.html"), PlaceKind::Board);
+    assert_eq!(PlaceKind::of("design/system/components/MacRow/"), PlaceKind::Component);
+    assert_eq!(PlaceKind::of("spec/bae.md#2. Two"), PlaceKind::Spec);
+}
+
+#[test]
+fn exists_in_tells_a_folder_a_file_and_a_missing_path_apart() {
+    let scratch = Scratch::new("design-paths-exists");
+    let dir = scratch.dir.join("bae");
+    repo(&dir, "target 1\n");
+    commit(&dir, &[("design/system/components/MacRow/a.html", "1")], "component");
+    assert!(exists_in(&dir, "HEAD", "design/system/components/MacRow").unwrap());
+    assert!(exists_in(&dir, "HEAD", "design/system/components/MacRow/a.html").unwrap());
+    assert!(!exists_in(&dir, "HEAD", "design/system/components/Gone").unwrap());
 }

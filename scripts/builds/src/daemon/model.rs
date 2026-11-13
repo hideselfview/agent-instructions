@@ -487,6 +487,15 @@ impl Model {
         Ok(json)
     }
 
+    /// The render of the <n>th board of design change <id>: its content type
+    /// and bytes. None when the change has no such render or the file is
+    /// gone (the page then shows the board without it).
+    pub fn design_render(&self, id: u32, n: usize) -> Option<(&'static str, Vec<u8>)> {
+        let (_, snapshot) = self.lists.current();
+        let (path, kind) = super::lists::design_render(&snapshot, id, n)?;
+        std::fs::read(path).ok().map(|bytes| (kind, bytes))
+    }
+
     /// The claim and git facts of the worktree at <worktree>; no agent and no
     /// commits for one the daemon doesn't know as a live checkout.
     fn claim_facts(&self, worktree: &str) -> ClaimFacts {

@@ -50,10 +50,11 @@ def fixture(root, checks, compile_check=None):
 # A stand-in `builds` first on PATH for every landing, so no test reaches the real one.
 # It appends each call to $STUB_LOG and answers by cue: STUB_PROJECT is what
 # `lists project-of` prints (nothing when unset), STUB_PLACES what `design places`
-# prints (`place <path>` or `shared <path>` lines), STUB_REFUSE the "<group> <command>" it exits 1 on.
+# prints (`place`, `source`, `spec` or `shared` lines), STUB_REFUSE the "<group> <command>" it exits 1 on,
+# saying STUB_SAYS when that is set.
 STUB = """#!/bin/bash
 echo "$*" >> "$STUB_LOG"
-[ "$STUB_REFUSE" = "$1 $2" ] && { echo "stub refuses $1 $2"; exit 1; }
+[ "$STUB_REFUSE" = "$1 $2" ] && { echo "${STUB_SAYS:-stub refuses $1 $2}"; exit 1; }
 case "$1 $2" in
   "lists project-of") echo "$STUB_PROJECT" ;;
   "design places") echo "$STUB_PLACES" ;;
@@ -182,7 +183,8 @@ with tempfile.TemporaryDirectory() as root:
     a, b = two_sibling_commits(agent, land)
     code, out = run_land(land, a, STUB_PROJECT="bae")
     expect("project repo without --done or --part is refused before anything moves",
-           code == 1 and "--done" in out and git(origin, "rev-parse", "main") != a and calls(land) == [f"lists project-of {land}"])
+           code == 1 and "--done" in out and git(origin, "rev-parse", "main") != a
+           and calls(land) == [f"lists project-of {land}", f"design places {land} {a}"])
     code, out = run_land(land, "--done", "7", a, STUB_PROJECT="bae", STUB_REFUSE="item check-landing")
     expect("refused check-landing: nothing fetched, picked or pushed",
            code == 1 and "stub refuses" in out and git(origin, "rev-parse", "main") != a
@@ -227,6 +229,41 @@ with tempfile.TemporaryDirectory() as root:
     code, out = run_land(land, "--done", "7", "--design", "3", a, STUB_PROJECT="bae", STUB_PLACES="shared design/system/tokens")
     expect("shared-only design files with --design land and record the design change",
            code == 0 and calls(land)[-1] == f"design landed 3 {land} {a}")
+
+# A design change is the whole landing when every commit's paths are design files.
+with tempfile.TemporaryDirectory() as root:
+    origin, agent, land = fixture(root, "true\n")
+    a, b = two_sibling_commits(agent, land)
+    code, out = run_land(land, "--design", "3", a, STUB_PROJECT="bae")
+    expect("--design alone with no design place is refused",
+           code == 1 and "no design place" in out and git(origin, "rev-parse", "main") != a)
+    code, out = run_land(land, a, STUB_PROJECT="bae", STUB_PLACES="place design/mocks/button")
+    expect("design places with neither --done nor --design are refused",
+           code == 1 and "--done" in out and git(origin, "rev-parse", "main") != a)
+    code, out = run_land(land, "--design", "3", a, STUB_PROJECT="bae", STUB_PLACES="place design/mocks/button",
+                         STUB_REFUSE="design only", STUB_SAYS="the commits also change files that are no design file: src/x.rs")
+    expect("--design alone refuses commits that are not all design files, nothing pushed",
+           code == 1 and "src/x.rs" in out and "--done" in out and git(origin, "rev-parse", "main") != a
+           and not any(c.startswith("design check") for c in calls(land)))
+    code, out = run_land(land, "--design", "3", a, STUB_PROJECT="bae", STUB_PLACES="place design/mocks/button",
+                         STUB_REFUSE="design check", STUB_SAYS="design change 3 waits on the person's review")
+    expect("an unapproved design change is refused with its reason, nothing pushed",
+           code == 1 and "waits on the person's review" in out and git(origin, "rev-parse", "main") != a
+           and git(land, "rev-parse", "HEAD") == git(agent, "rev-parse", "origin/main"))
+    code, out = run_land(land, "--design", "3", a, STUB_PROJECT="bae", STUB_PLACES="place design/mocks/button\nspec spec/bae.md#Sync")
+    expect("--design alone lands all-design commits and records only the design change",
+           code == 0 and git(origin, "rev-parse", "main") == a
+           and f"design only {land} {a}" in calls(land) and f"design check 3 {land} {a}" in calls(land)
+           and calls(land)[-1] == f"design landed 3 {land} {a}"
+           and not any(c.startswith("item ") for c in calls(land)))
+
+with tempfile.TemporaryDirectory() as root:
+    origin, agent, land = fixture(root, "true\n")
+    a, b = two_sibling_commits(agent, land)
+    code, out = run_land(land, "--design", "3", a, STUB_PROJECT="bae", STUB_PLACES="place design/mocks/button", STUB_REFUSE="design landed")
+    expect("a failed design record after a design-only push exits 1 with the rerun",
+           code == 1 and git(origin, "rev-parse", "main") == a and "LANDED, NOT RECORDED:" in out
+           and f"rerun: builds design landed 3 {land} {a}" in out and "item landed" not in out)
 
 with tempfile.TemporaryDirectory() as root:
     origin, agent, land = fixture(root, "true\n")

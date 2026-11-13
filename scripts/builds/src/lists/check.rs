@@ -130,12 +130,18 @@ fn header(lists: &Lists, faults: &mut Vec<String>) {
             faults.push(format!("repo {repo} is listed twice"));
         }
     }
-    for (repo, globs) in &lists.design_places {
-        if !lists.repos.contains(repo) {
-            faults.push(format!("design places name repo {repo}, which is not one of the project's"));
-        }
-        if globs.iter().any(|glob| glob.trim().is_empty()) {
-            faults.push(format!("repo {repo} has an empty design place glob"));
+    for (what, map) in [
+        ("design places", &lists.design_places),
+        ("design sources", &lists.design_sources),
+        ("spec files", &lists.spec_files),
+    ] {
+        for (repo, globs) in map {
+            if !lists.repos.contains(repo) {
+                faults.push(format!("{what} name repo {repo}, which is not one of the project's"));
+            }
+            if globs.iter().any(|glob| glob.trim().is_empty()) {
+                faults.push(format!("repo {repo} has an empty glob among its {what}"));
+            }
         }
     }
     if lists.version == 0 && !lists.log.is_empty() {
@@ -297,6 +303,17 @@ fn design_change(lists: &Lists, design: &crate::lists::DesignChange, faults: &mu
     }
     if design.no_app_place.as_deref().is_some_and(|why| why.trim().is_empty()) {
         faults.push(format!("{from} has an empty no-app-place reason"));
+    }
+    for (path, board) in &design.boards {
+        if !design.places.contains_key(path) {
+            faults.push(format!("{from}'s board {path} is no place of it"));
+        }
+        if board.link.trim().is_empty() {
+            faults.push(format!("{from}'s board {path} has an empty canvas link"));
+        }
+    }
+    if let Some(approved) = &design.approved {
+        stamp(&approved.by, &format!("{from}'s approval"), faults);
     }
     for landing in &design.landed {
         if landing.commits.is_empty() {

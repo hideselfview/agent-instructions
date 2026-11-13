@@ -72,6 +72,29 @@ fn design_places_name_project_repos() {
 }
 
 #[test]
+fn design_sources_and_spec_files_name_project_repos_and_no_empty_glob() {
+    let mut lists = lists();
+    lists.design_sources.insert("other".into(), vec!["x/*".into()]);
+    assert_fault(&lists, "design sources name repo other");
+    let mut lists = crate::lists::fixtures::lists();
+    lists.spec_files.insert("bae".into(), vec![" ".into()]);
+    assert_fault(&lists, "empty glob among its spec files");
+}
+
+#[test]
+fn a_boards_link_and_a_design_changes_approval_are_checked() {
+    let mut lists = lists();
+    let id = crate::lists::fixtures::design(&mut lists);
+    let design = lists.design_mut(id).unwrap();
+    design.boards.insert("design/mocks/A.dc.html".into(), crate::lists::Board { link: " ".into(), render: None });
+    assert_fault(&lists, "board design/mocks/A.dc.html is no place of it");
+    assert_fault(&lists, "empty canvas link");
+    let design = lists.design_mut(id).unwrap();
+    design.approved = Some(crate::lists::Stamp { at: NOON, by: " ".into() });
+    assert_fault(&lists, "approval records no one who wrote it");
+}
+
+#[test]
 fn ids_are_unique_and_below_next_id() {
     let mut lists = lists();
     let a = item(&mut lists, vec![]);

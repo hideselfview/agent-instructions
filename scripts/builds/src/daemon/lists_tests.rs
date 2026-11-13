@@ -95,3 +95,37 @@ fn a_write_to_the_store_moves_the_version_the_feed_reports() {
     let fault = snapshot.as_ref().as_ref().unwrap()[0].lists.as_ref().unwrap_err().clone();
     assert!(fault.contains("is not valid lists"), "{fault}");
 }
+
+fn design_with_render(state: &mut crate::lists::Lists, renders: &[(&str, Option<&str>)]) -> crate::lists::Id {
+    let id = crate::lists::fixtures::design(state);
+    let change = state.design_mut(id).unwrap();
+    for (path, render) in renders {
+        change.boards.insert(
+            path.to_string(),
+            crate::lists::Board { link: "https://canvas.example".into(), render: render.map(str::to_string) },
+        );
+    }
+    id
+}
+
+#[test]
+fn a_render_is_found_by_design_and_board_position_and_only_for_image_types() {
+    let mut state = lists();
+    let id = design_with_render(
+        &mut state,
+        &[
+            ("design/mocks/A.dc.html", Some("/r/A.PNG")),
+            ("design/mocks/B.dc.html", None),
+            ("design/mocks/C.dc.html", Some("/r/C.svg")),
+            ("design/mocks/D.dc.html", Some("/r/D.jpeg")),
+        ],
+    );
+    let snapshot: Snapshot = Ok(vec![loaded("demo", Ok(state))]);
+    assert_eq!(design_render(&snapshot, id.0, 0), Some(("/r/A.PNG".to_string(), "image/png")));
+    assert_eq!(design_render(&snapshot, id.0, 1), None, "a board with no render");
+    assert_eq!(design_render(&snapshot, id.0, 2), None, "svg is no render type");
+    assert_eq!(design_render(&snapshot, id.0, 3), Some(("/r/D.jpeg".to_string(), "image/jpeg")));
+    assert_eq!(design_render(&snapshot, id.0, 9), None);
+    assert_eq!(design_render(&snapshot, id.0 + 1, 0), None);
+    assert_eq!(design_render(&Ok(vec![]), id.0, 0), None);
+}

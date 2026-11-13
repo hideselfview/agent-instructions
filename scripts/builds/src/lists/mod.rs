@@ -109,6 +109,14 @@ pub struct Lists {
     /// Per repo, the globs of its design places: a path a commit changes
     /// that matches one is a design place.
     pub design_places: BTreeMap<String, Vec<String>>,
+    /// Per repo, the globs of the shared design-system sources (the
+    /// component sources, the tokens): a change to one can change any
+    /// component's drawing, so a design change touching them lists the
+    /// components whose drawing changes.
+    pub design_sources: BTreeMap<String, Vec<String>>,
+    /// Per repo, the globs of the spec files; in a design change, each
+    /// section (by heading) its commits touch is a place.
+    pub spec_files: BTreeMap<String, Vec<String>>,
     /// The next id to hand out.
     pub next_id: Id,
     /// Counts the writes; the log's last line carries it.
@@ -279,7 +287,20 @@ pub struct DesignLanding {
     pub at: i64,
 }
 
-/// A change to the design files, recorded before it lands.
+/// How the person is shown a board: its place on the published canvas, and
+/// a picture of it drawn for the review.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Board {
+    /// The board's link on the canvas.
+    pub link: String,
+    /// The absolute path of an image (png, jpg, webp or gif) of the board;
+    /// the daemon serves it to the page while the file is there.
+    pub render: Option<String>,
+}
+
+/// A change to the design files, recorded when its boards are drawn. It
+/// waits on the person's review (`approved`) before it can land.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DesignChange {
@@ -287,9 +308,16 @@ pub struct DesignChange {
     pub title: String,
     pub details: String,
     pub repo: String,
+    /// Each design place the change touches, or a component a shared source
+    /// changes the drawing of, and how it is resolved.
     pub places: BTreeMap<String, Resolution>,
-    /// Why shared design files changed with no board or component.
+    /// Each board place's canvas link and render, by the board's path.
+    pub boards: BTreeMap<String, Board>,
+    /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
+    /// The person's review: set by `design approve`, cleared by an amend,
+    /// since the person approved what was drawn before it.
+    pub approved: Option<Stamp>,
     pub opened: Stamp,
     pub landed: Vec<DesignLanding>,
 }
@@ -476,6 +504,8 @@ impl Lists {
             project: project.to_string(),
             repos,
             design_places,
+            design_sources: BTreeMap::new(),
+            spec_files: BTreeMap::new(),
             next_id: Id(1),
             version: 0,
             areas: Vec::new(),
