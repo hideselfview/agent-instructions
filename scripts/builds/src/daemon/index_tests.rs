@@ -29,6 +29,12 @@ fn a_grafted_folder_equals_a_fresh_walk() {
     fill(&root.join("demo/shared/a"), 1200);
     std::fs::hard_link(root.join("demo/shared/a"), deps.join("a-link")).unwrap();
     fill(&root.join("demo/side-2/target/b"), 100);
+    // The shared folder and its file were written long ago, so a rewrite
+    // through the link is a later second however fast the test runs.
+    let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    for old in ["demo/shared/a", "demo/shared"] {
+        std::fs::File::open(root.join(old)).unwrap().set_modified(long_ago).unwrap();
+    }
     let mut index = walked(&root);
 
     // What the index missed, all inside the folder or through a link into it.

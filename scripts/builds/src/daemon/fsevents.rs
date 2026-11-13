@@ -38,7 +38,6 @@ type FSEventStreamCallback = extern "C" fn(
 );
 
 const UTF8: u32 = 0x0800_0100;
-const SINCE_NOW: FSEventStreamEventId = u64::MAX;
 
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
@@ -50,6 +49,7 @@ unsafe extern "C" {
 
 #[link(name = "CoreServices", kind = "framework")]
 unsafe extern "C" {
+    fn FSEventsGetCurrentEventId() -> FSEventStreamEventId;
     fn FSEventStreamCreate(
         allocator: CFAllocatorRef,
         callback: FSEventStreamCallback,
@@ -80,6 +80,8 @@ pub mod flags {
     pub const USER_DROPPED: u32 = 0x2;
     pub const KERNEL_DROPPED: u32 = 0x4;
     pub const EVENT_IDS_WRAPPED: u32 = 0x8;
+    /// Marks the end of the replayed history; its path is not a change.
+    pub const HISTORY_DONE: u32 = 0x10;
     pub const ROOT_CHANGED: u32 = 0x20;
     pub const UNMOUNT: u32 = 0x80;
 }
@@ -119,9 +121,14 @@ extern "C" fn deliver(
     for i in 0..count {
         let path = unsafe { CStr::from_ptr(*paths.add(i)) };
         let path = PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes()));
-        events.push(Event { path, flags: unsafe { *flags.add(i) } });
+        let flags = unsafe { *flags.add(i) };
+        if flags & self::flags::HISTORY_DONE == 0 {
+            events.push(Event { path, flags });
+        }
     }
-    handler(events);
+    if !events.is_empty() {
+        handler(events);
+    }
 }
 
 extern "C" fn free_handler(handler: *mut c_void) {
@@ -147,12 +154,26 @@ fn paths_array(paths: &[&Path]) -> CFArrayRef {
 }
 
 impl Stream {
+    /// The id of the latest event the system has recorded. A stream started
+    /// from it reports every change made after it was taken.
+    pub fn current_event_id() -> u64 {
+        unsafe { FSEventsGetCurrentEventId() }
+    }
+
+    /// Starts following <folders> as `start_since` does, from the event id
+    /// current now.
+    pub fn start(folders: &[&Path], excluded: &[&Path], latency: f64, handler: Handler) -> Option<Stream> {
+        Self::start_since(Self::current_event_id(), folders, excluded, latency, handler)
+    }
+
     /// Starts following <folders>, leaving out what happens under <excluded>
     /// (at most 8), calling <handler> with each batch of events on a queue of
-    /// the stream's own, in order, one batch at a time. Events come from now
-    /// on; with `WatchRoot`, a change to a followed folder's own path arrives
-    /// as ROOT_CHANGED.
-    pub fn start(folders: &[&Path], excluded: &[&Path], latency: f64, handler: Handler) -> Option<Stream> {
+    /// the stream's own, in order, one batch at a time. The stream replays
+    /// every event after <since> (an id from `current_event_id`), so a change
+    /// made after it was taken and before the stream went live is reported,
+    /// not lost; the replay's end marker is not handed on. With `WatchRoot`,
+    /// a change to a followed folder's own path arrives as ROOT_CHANGED.
+    pub fn start_since(since: u64, folders: &[&Path], excluded: &[&Path], latency: f64, handler: Handler) -> Option<Stream> {
         let array = paths_array(folders);
         let handler = Box::into_raw(Box::new(handler));
         let context = FSEventStreamContext {
@@ -165,7 +186,7 @@ impl Stream {
         // NoDefer: the first event after a quiet spell comes at once.
         // WatchRoot: a followed folder vanishing or moving is reported.
         let create = 0x2 | 0x4;
-        let stream = unsafe { FSEventStreamCreate(std::ptr::null(), deliver, &context, array, SINCE_NOW, latency, create) };
+        let stream = unsafe { FSEventStreamCreate(std::ptr::null(), deliver, &context, array, since, latency, create) };
         unsafe { CFRelease(array) };
         if stream.is_null() {
             drop(unsafe { Box::from_raw(handler) });
@@ -231,11 +252,43 @@ mod tests {
     use std::sync::{Arc, mpsc};
     use std::time::Duration;
 
-    struct Sentinel(Arc<AtomicBool>);
+    /// The limit on every wait: a guard against a stuck stream, not the pass
+    /// condition.
+    const HANG_GUARD: Duration = Duration::from_secs(300);
+
+    /// Tells <freed> when the handler holding it is dropped.
+    struct Sentinel(Arc<AtomicBool>, mpsc::Sender<()>);
 
     impl Drop for Sentinel {
         fn drop(&mut self) {
             self.0.store(true, Ordering::SeqCst);
+            let _ = self.1.send(());
+        }
+    }
+
+    #[test]
+    fn a_write_made_before_the_stream_started_is_reported_from_the_id_taken_before_it() {
+        let scratch = crate::testing::Scratch::new("fsevents-replay");
+        let root = scratch.dir.clone();
+        let since = Stream::current_event_id();
+        std::fs::write(root.join("early"), b"x").expect("a write");
+        let (told, heard) = mpsc::channel();
+        let _stream = Stream::start_since(
+            since,
+            &[root.as_path()],
+            &[],
+            0.0,
+            Box::new(move |events| {
+                let _ = told.send(events);
+            }),
+        )
+        .expect("a stream");
+        loop {
+            let events = heard.recv_timeout(HANG_GUARD).expect("the earlier write was never reported");
+            assert!(events.iter().all(|e| e.flags & flags::HISTORY_DONE == 0), "the end of the history was handed on");
+            if events.iter().any(|e| e.path == root) {
+                return;
+            }
         }
     }
 
@@ -244,7 +297,8 @@ mod tests {
         let scratch = crate::testing::Scratch::new("fsevents-drop");
         let root = scratch.dir.clone();
         let freed = Arc::new(AtomicBool::new(false));
-        let sentinel = Sentinel(freed.clone());
+        let (freed_tx, freed_rx) = mpsc::channel();
+        let sentinel = Sentinel(freed.clone(), freed_tx);
         let (entered_tx, entered_rx) = mpsc::channel();
         let (finished_tx, finished_rx) = mpsc::channel();
         let seen_freed = Arc::new(AtomicBool::new(false));
@@ -263,17 +317,11 @@ mod tests {
         )
         .expect("a stream");
         std::fs::write(root.join("a"), b"x").expect("a write");
-        entered_rx.recv_timeout(Duration::from_secs(10)).expect("a batch");
+        entered_rx.recv_timeout(HANG_GUARD).expect("a batch");
         drop(stream);
         assert!(!freed.load(Ordering::SeqCst), "the handler was freed while its batch ran");
-        finished_rx.recv_timeout(Duration::from_secs(10)).expect("the batch ends");
+        finished_rx.recv_timeout(HANG_GUARD).expect("the batch ends");
         assert!(!seen_freed.load(Ordering::SeqCst));
-        for _ in 0..200 {
-            if freed.load(Ordering::SeqCst) {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        panic!("the handler was never freed");
+        freed_rx.recv_timeout(HANG_GUARD).expect("the handler was never freed");
     }
 }

@@ -1,10 +1,10 @@
 //! Keeps the index of the build volume current: a full walk when the daemon
 //! starts or the volume comes back, then every change FSEvents reports.
 //!
-//! - The stream on the root starts before the walk, and the walk waits until
-//!   a mark written after the stream started has come back as an event (a
-//!   stream is not live the moment it starts); events that arrive during the
-//!   walk wait and are applied after it.
+//! - The stream on the root starts before the walk, from an event id taken
+//!   before it (a stream is not live the moment it starts, and replays what
+//!   came after that id); events that arrive during the walk wait and are
+//!   applied after it.
 //! - The stream's callback only queues its events; one thread applies them,
 //!   everything queued at once, so delivery never waits on a walk.
 //! - The stream reports folders, not files: one event per folder something
@@ -237,15 +237,6 @@ impl Tracker {
                 continue;
             }
             *self.stream.lock().expect("no panic holding it") = stream;
-            // A stream reports nothing of what is written in the first moments
-            // after it starts when the machine is loaded, so a write made then
-            // would be in neither the walk nor the events. Walk once a write
-            // made after the stream started has come back as an event.
-            if !self.catch_up() {
-                eprintln!("builds: FSEvents did not follow {}; starting it again", self.root.display());
-                self.flags.lock().expect("no panic holding it").restart = true;
-                continue;
-            }
             let started = std::time::Instant::now();
             walk(&self.index, 0, &self.root, WORKERS);
             loop {

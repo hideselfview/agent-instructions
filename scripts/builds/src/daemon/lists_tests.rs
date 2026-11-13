@@ -6,6 +6,10 @@ use serde_json::json;
 use std::sync::mpsc;
 use std::time::Duration;
 
+/// The limit on a wait for the feed: a guard against a stuck stream, not the
+/// pass condition.
+const HANG_GUARD: Duration = Duration::from_secs(300);
+
 fn loaded(project: &str, lists: Result<crate::lists::Lists, String>) -> Loaded {
     Loaded { project: project.to_string(), lists }
 }
@@ -78,17 +82,20 @@ fn a_write_to_the_store_moves_the_version_the_feed_reports() {
     assert_eq!(before, 1);
     assert_eq!(snapshot.as_ref().as_ref().unwrap()[0].lists.as_ref().unwrap().version, 3);
     let (sent, moved) = mpsc::channel();
-    feed.listen(Box::new(move || sent.send(()).expect("the test waits")));
+    feed.listen(Box::new(move || {
+        let _ = sent.send(());
+    }));
 
+    // A write lands in builds.sqlite-wal, not builds.sqlite, and still wakes the feed.
     store.write(&stamp(NOON), "touch", |_| Ok(())).unwrap();
-    moved.recv_timeout(Duration::from_secs(30)).expect("the write reached the feed");
+    moved.recv_timeout(HANG_GUARD).expect("the write reached the feed");
     let (after, snapshot) = feed.current();
     assert_eq!(after, before + 1);
     assert_eq!(snapshot.as_ref().as_ref().unwrap()[0].lists.as_ref().unwrap().version, 4);
 
     // A store that fails is read and served, not skipped.
     std::fs::write(store.database(), "not a database, and long enough to have a header of sorts").unwrap();
-    moved.recv_timeout(Duration::from_secs(30)).expect("the damage reached the feed");
+    moved.recv_timeout(HANG_GUARD).expect("the damage reached the feed");
     let (_, snapshot) = feed.current();
     let fault = snapshot.as_ref().as_ref().unwrap()[0].lists.as_ref().unwrap_err().clone();
     assert!(fault.contains("not a database"), "{fault}");
@@ -116,7 +123,9 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
     let before = feed.hooks();
     assert!(before.contains("\"runs\":0"), "{before}");
     let (sent, moved) = mpsc::channel();
-    feed.listen(Box::new(move || sent.send(()).expect("the test waits")));
+    feed.listen(Box::new(move || {
+        let _ = sent.send(());
+    }));
 
     let run = Run {
         at: NOON,
@@ -137,7 +146,7 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
         }],
     };
     record(&store.dir.join(DATABASE), &run).unwrap();
-    moved.recv_timeout(Duration::from_secs(30)).expect("the run reached the feed");
+    moved.recv_timeout(HANG_GUARD).expect("the run reached the feed");
     let after = feed.hooks();
     assert!(!std::sync::Arc::ptr_eq(&before, &after));
     assert!(after.contains("\"runs\":1") && after.contains("\"fmt\""), "{after}");

@@ -45,6 +45,9 @@ impl Feed {
         if let Err(error) = std::fs::create_dir_all(&dir) {
             eprintln!("builds: creating {}: {error}", dir.display());
         }
+        // Taken before the first read: a write after it is reported by the
+        // stream, one before it is in the read.
+        let since = Stream::current_event_id();
         let feed = Arc::new(Feed {
             current: Mutex::new((1, Arc::new(load_all(&places)))),
             hooks: Mutex::new(Arc::new(crate::hook_stats::dashboard_json(&places))),
@@ -56,7 +59,8 @@ impl Feed {
             stream: Mutex::new(None),
         });
         let weak = Arc::downgrade(&feed);
-        let started = Stream::start(
+        let started = Stream::start_since(
+            since,
             &[dir.as_path()],
             &[],
             0.1,

@@ -173,6 +173,8 @@ impl Runs {
     pub fn start(places: Places, program: Vec<String>) -> Result<Arc<Runs>> {
         let dir = places.daemon_dir().join("runs");
         std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+        // Taken before the records are read: a write after it is reported.
+        let since = Stream::current_event_id();
         let mut state = HashMap::new();
         for entry in std::fs::read_dir(&dir).context(|| format!("listing {}", dir.display()))? {
             let path = entry.context(|| format!("listing {}", dir.display()))?.path();
@@ -193,7 +195,8 @@ impl Runs {
             stream: Mutex::new(None),
         });
         let weak = Arc::downgrade(&runs);
-        let started = Stream::start(
+        let started = Stream::start_since(
+            since,
             &[dir.as_path()],
             &[],
             0.2,

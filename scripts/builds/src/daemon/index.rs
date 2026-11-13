@@ -51,6 +51,8 @@ struct Node {
 /// What a file with more than one link takes, kept once for all its names.
 struct Linked {
     bytes: u64,
+    /// The inode's last write, which a write through any name moves for all.
+    mtime: i64,
     extents: Option<Box<[(i64, u64)]>>,
     names: u32,
 }
@@ -287,11 +289,12 @@ impl Index {
         if kind == Kind::File && entry.nlink > 1 {
             node.bytes = 0;
             self.extents.remove(&id);
-            let shared = self.linked.entry(entry.ino).or_insert(Linked { bytes: 0, extents: None, names: 0 });
+            let shared = self.linked.entry(entry.ino).or_insert(Linked { bytes: 0, mtime: entry.mtime, extents: None, names: 0 });
             if !linked_before {
                 shared.names += 1;
             }
             shared.bytes = entry.bytes;
+            shared.mtime = entry.mtime;
             shared.extents = entry.extents;
         } else {
             node.bytes = entry.bytes;
@@ -408,9 +411,9 @@ impl Index {
             Kind::File => KindOf::File,
             Kind::Other | Kind::Free => KindOf::Other,
         };
-        let (bytes, extents) = match self.linked.get(&node.ino) {
-            Some(shared) if node.kind == Kind::File && node.nlink > 1 => (shared.bytes, shared.extents.clone()),
-            _ => (node.bytes, self.extents.get(&id).cloned()),
+        let (bytes, mtime, extents) = match self.linked.get(&node.ino) {
+            Some(shared) if node.kind == Kind::File && node.nlink > 1 => (shared.bytes, shared.mtime, shared.extents.clone()),
+            _ => (node.bytes, node.mtime, self.extents.get(&id).cloned()),
         };
         Entry {
             name: node.name.clone(),
@@ -419,7 +422,7 @@ impl Index {
             ino: node.ino,
             nlink: node.nlink,
             bytes,
-            mtime: node.mtime,
+            mtime,
             changed: node.changed,
             extents,
         }
@@ -465,7 +468,12 @@ impl Index {
         let mut pending = vec![id];
         while let Some(at) = pending.pop() {
             let node = &self.nodes[at as usize];
-            newest = newest.max(node.mtime);
+            // A linked file's write time is its inode's, kept once for every
+            // name, so a write through a name outside this subtree shows.
+            newest = newest.max(match self.linked.get(&node.ino) {
+                Some(shared) if node.kind == Kind::File && node.nlink > 1 => shared.mtime,
+                _ => node.mtime,
+            });
             match node.kind {
                 Kind::Dir => {
                     bytes += node.bytes;
