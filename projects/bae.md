@@ -75,6 +75,11 @@ goes on top. An answer about a software plan also goes, numbered, in that plan's
 Decisions section. A question settled from existing rules or code is not their
 decision and is not recorded as one.
 
+Work on the builds tool goes first in the queue, ahead of every other item:
+every agent works through it, so what it lacks or does wrong slows everything
+(the person, 2026-11-13: "anything builds related becomes TOP PRIORITY"). An
+item for the builds tool is added with `--priority first`.
+
 Neither list holds what is not relevant now (a release-time task, something held
 for a later stage): open a GitHub issue for it and take it off the list (the
 person, 2026-11-13: "if there are TODOs that are NOT relevant right now just
