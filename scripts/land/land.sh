@@ -13,7 +13,11 @@ last="${@: -1}"
 for attempt in 1 2 3 4 5; do
   git fetch -q origin || { echo "fetch failed"; continue; }
   git checkout -q --detach origin/main
+  # A fast-forward lands every commit between origin/main and the last one, so
+  # it is taken only when those are exactly the commits named: an unnamed
+  # commit below them (an earlier one on the agent's branch) is never carried in.
   all_in=1; for c in "$@"; do git merge-base --is-ancestor "$c" "$last" || all_in=0; done
+  [ "$(git rev-list --count origin/main.."$last")" = "$#" ] || all_in=0
   if [ "$all_in" = 0 ] || ! git merge -q --ff-only "$last" 2>/dev/null; then
     git checkout -q --detach origin/main
     # A push that reported failure may still have landed, and someone else may
