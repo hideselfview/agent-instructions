@@ -289,7 +289,34 @@ fn a_range_that_changes_no_design_files_or_no_commits_is_refused() {
 }
 
 #[test]
-fn amend_merges_places_over_a_new_range() {
+fn amend_holds_a_change_to_what_its_new_range_changes_so_a_board_renamed_before_landing_drops_out() {
+    let w = world("design-amend-rename");
+    let (old, new) = ("design/mocks/mac.old.dc.html", "design/mocks/all.new.dc.html");
+    w.commit(&[old]);
+    let mut request = base_request(&w, json!({ old: { "matches": "x" } }));
+    request["review"] = review_of(&[old]);
+    w.request(request).unwrap();
+    // The board is renamed before landing and the history rewritten, so the range changes only the new name.
+    git(&w.dir, &["reset", "-q", "--hard", "base"]);
+    w.commit(&[new, "design/mocks/other.dc.html"]);
+    let other = "design/mocks/other.dc.html";
+    let mut amend = base_request(&w, json!({ new: { "matches": "y" }, other: { "matches": "z" } }));
+    amend["review"] = review_of(&[new, other]);
+    w.amend(1, amend).unwrap();
+    let design = &w.state().designs[0];
+    let places: Vec<&str> = design.places.keys().map(String::as_str).collect();
+    assert_eq!(places, [new, other], "the renamed-away place is gone");
+    assert!(!design.boards.contains_key(old), "with its board");
+    assert!(design.review.iter().flat_map(|s| &s.boards).all(|b| b.board != old), "and its place on the page");
+
+    // A place the range does change is still refused until it is answered.
+    w.commit(&["design/mocks/third.dc.html"]);
+    let refused = message(w.amend(1, json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} })));
+    assert!(refused.contains("unresolved") && refused.contains("third.dc.html"), "{refused}");
+}
+
+#[test]
+fn amend_answers_the_places_of_a_new_range_and_drops_those_it_no_longer_changes() {
     let w = world("design-amend");
     w.commit(&["design/mocks/A.dc.html"]);
     w.request(base_request(&w, json!({ "design/mocks/A.dc.html": { "matches": "x" } }))).unwrap();
@@ -306,13 +333,16 @@ fn amend_merges_places_over_a_new_range() {
     request["places"]["design/system/components/Sym/"] = json!({ "matches": "y" });
     let out = w.amend(1, request).unwrap();
     let design = &w.state().designs[0];
-    assert_eq!(design.places.len(), 3);
-    assert_eq!(design.places["design/mocks/A.dc.html"], Resolution::Matches("x".into()));
+    assert_eq!(design.places.len(), 2, "A is not in the range first..HEAD");
+    assert!(!design.places.contains_key("design/mocks/A.dc.html") && !design.boards.contains_key("design/mocks/A.dc.html"));
     assert!(out.contains("wait on it"), "{out}");
     assert_eq!(w.state().items[0].waits, [Wait::Design(design.id)]);
-    let mut stale = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} });
-    stale["places"] = json!({});
-    w.amend(1, stale).unwrap();
+    // A range that changes A again needs A answered again: its earlier answer went with it.
+    let stale = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} });
+    assert!(message(w.amend(1, stale)).contains("unresolved: design/mocks/A.dc.html"));
+    let again = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": { "design/mocks/A.dc.html": { "matches": "again" } },
+                        "boards": { "design/mocks/A.dc.html": { "link": "https://canvas.example/#A" } } });
+    w.amend(1, again).unwrap();
 }
 
 #[test]

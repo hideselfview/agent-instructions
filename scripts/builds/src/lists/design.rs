@@ -166,6 +166,16 @@ fn resolve(
     }
     let Some(design) = lists.design_mut(id) else { fail!("{id} is not an open design change") };
     design.worktree = worktree.to_string();
+    // The change holds what the range changes: a stored place it no longer
+    // touches (a board renamed before landing) leaves with its board and its
+    // place on the review page.
+    let dropped: BTreeSet<String> =
+        design.places.keys().filter(|p| !changed.contains(*p) && !affected.contains(*p)).cloned().collect();
+    design.places.retain(|path, _| !dropped.contains(path));
+    design.boards.retain(|path, _| !dropped.contains(path));
+    for section in &mut design.review {
+        section.boards.retain(|b| !dropped.contains(&b.board));
+    }
     design.places.extend(resolutions);
     design.boards.extend(request.boards.clone());
     if let Some(review) = &request.review {
@@ -331,8 +341,9 @@ fn open_design_of<'a>(lists: &'a Lists, id: Id, repo: &str) -> Result<&'a Design
     Ok(design)
 }
 
-/// Adds the places <changes> holds to open design change <id>: the answers
-/// of <request> merge over the places it has. What the person approved is no
+/// Holds open design change <id> to the places <changes> holds: the answers
+/// of <request> are added, and a stored place the range no longer changes
+/// leaves with its board and its place on the review page. What the person approved is no
 /// longer what is drawn, so the approval is cleared.
 pub fn amend(
     lists: &mut Lists,

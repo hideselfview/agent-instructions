@@ -148,8 +148,10 @@ rebased, since places are compared by path.
       changes no design files.
 
   builds design amend N --request FILE
-      The same over a new range; the answers merge into N's places and
-      boards, and `title` and `details` are optional; `worktree` replaces the
+      The same over a new range, which N then holds to: a stored place the
+      range no longer changes (a board renamed before landing) drops out with
+      its board link and its place on the review page, and a place the range
+      does change needs an answer; `title` and `details` are optional; `worktree` replaces the
       one stored, and `review`, when given, replaces the whole page (left out,
       the page stays, and must still hold every board of the change). The
       person's approval is cleared: they approved what was drawn before.
