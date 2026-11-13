@@ -11,7 +11,7 @@ use crate::fail::{Context, Result};
 use crate::lists::args::{Args, read_input};
 use crate::lists::check::faults;
 use crate::lists::derive::{item_state, unmet_waits, waits_for_others};
-use crate::lists::draft::{ItemDraft, ItemEdit, add_item, brief_base, close, require_brief, require_open_wait};
+use crate::lists::draft::{ItemDraft, ItemEdit, add_item, close, require_brief_from, require_draft_briefs, require_open_wait};
 use crate::lists::store::Store;
 use crate::lists::show::wait_words;
 use crate::lists::{
@@ -106,9 +106,7 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         brief: args.value("brief")?.map(str::to_string),
         priority,
     };
-    if draft.brief.is_some() {
-        draft.require_brief(&brief_base(cwd)?)?;
-    }
+    require_draft_briefs(cwd, std::slice::from_ref(&draft))?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let (id, state) = store.with_write(&stamp, &format!("item add {}", draft.title), |lists| {
@@ -130,7 +128,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         r#for: args.choice("for")?,
     };
     if let Some(brief) = &edit.brief {
-        require_brief(&brief_base(cwd)?, brief)?;
+        require_brief_from(cwd, brief)?;
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
@@ -213,7 +211,7 @@ fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["brief"], &[])?;
     let id = one_id(&args, "builds item handoff N --brief P")?;
     let brief = args.require("brief")?.to_string();
-    require_brief(&brief_base(cwd)?, &brief)?;
+    require_brief_from(cwd, &brief)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.with_write(&stamp, &format!("item handoff {id}"), |lists| {

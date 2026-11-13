@@ -11,7 +11,7 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::Args;
-use crate::lists::draft::{brief_base, require_brief};
+use crate::lists::draft::require_brief_from;
 use crate::lists::item::{blocking_words, open_item};
 use crate::lists::running::running_in;
 use crate::lists::store::Store;
@@ -68,7 +68,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     if !branch_exists(&checkout.top, &branch)? {
         fail!("{} has no branch {branch}", checkout.top.display());
     }
-    require_brief(&brief_base(cwd)?, &brief)?;
+    require_brief_from(cwd, &brief)?;
 
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;

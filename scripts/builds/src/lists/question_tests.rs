@@ -299,7 +299,8 @@ fn answer_refuses_what_it_is_not_given_correctly() {
         (answer_request(r#""blocked": {}, "no_work": "x""#), "99".to_string(), ("is not a record").to_string()),
         (answer_request(&format!(r#"{ok_blocked}, "work": [{{"title": "Too short", "area": "Alpha", "details": "d", "for": "coordinator", "waits": []}}]"#)), q.to_string(), ("item titles are 5 to 7").to_string()),
         (answer_request(&format!(r#"{ok_blocked}, "work": [{{"title": "Five words in this title", "area": "Alpha", "details": "d", "for": "coordinator", "waits": [{{"question": {q}}}]}}]"#)), q.to_string(), ("waits on").to_string()),
-        (answer_request(&format!(r#"{ok_blocked}, "work": [{{"title": "Five words in this title", "area": "Alpha", "details": "d", "for": "coordinator", "waits": [], "brief": "no/such/brief.md"}}]"#)), q.to_string(), ("does not exist").to_string()),
+        (answer_request(&format!(r#"{ok_blocked}, "work": [{{"title": "Five words in this title", "area": "Alpha", "details": "d", "for": "coordinator", "waits": [], "brief": "{}/no/such/brief.md"}}]"#, scratch.dir.display())), q.to_string(), ("does not exist").to_string()),
+        (answer_request(&format!(r#"{ok_blocked}, "work": [{{"title": "Five words in this title", "area": "Alpha", "details": "d", "for": "coordinator", "waits": [], "brief": "no/such/brief.md"}}]"#)), q.to_string(), ("in no git checkout").to_string()),
         (answer_request(&format!(r#"{ok_blocked}, "no_work": "x", "extra": 1"#)), q.to_string(), ("not valid").to_string()),
     ];
     for (n, (request, target, expected)) in cases.into_iter().enumerate() {

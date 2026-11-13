@@ -62,6 +62,19 @@ fn a_brief_must_be_a_file() {
 }
 
 #[test]
+fn only_a_relative_brief_needs_a_checkout() {
+    let scratch = crate::testing::Scratch::new("brief-from");
+    let file = scratch.dir.join("b.md");
+    std::fs::write(&file, "brief").unwrap();
+    assert!(require_brief_from(&scratch.dir, &file.display().to_string()).is_ok());
+    assert!(refusal(require_brief_from(&scratch.dir, "b.md")).contains("in no git checkout"));
+    let mut d = draft("One two three four five");
+    assert!(require_draft_briefs(&scratch.dir, std::slice::from_ref(&d)).is_ok());
+    d.brief = Some("b.md".into());
+    assert!(require_draft_briefs(&scratch.dir, &[d]).is_err());
+}
+
+#[test]
 fn add_item_makes_a_stamped_item_with_the_next_id() {
     let mut lists = lists();
     let mut d = draft("One two three four five");

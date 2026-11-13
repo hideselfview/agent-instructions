@@ -4,17 +4,15 @@
 //! from the decisions that name it, never stored.
 
 use std::fmt::Write;
-use std::path::PathBuf;
 
 use serde::Deserialize;
 
-use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::{Args, read_input, read_request};
 use crate::lists::check::title_fault;
 use crate::lists::derive;
-use crate::lists::draft::{ItemDraft, NewDecision, add_decision, work_or_why};
+use crate::lists::draft::{ItemDraft, NewDecision, add_decision, require_draft_briefs, work_or_why};
 use crate::lists::store::Store;
 use crate::lists::{Decision, Id, Lists, PlanRef, Stamp, Standing, day};
 use crate::text::{local_minute, note};
@@ -52,26 +50,12 @@ pub fn cmd_decision(tool: &Tool, args: &[String]) -> Result<()> {
     }
 }
 
-/// Where a relative brief path is looked for: the main checkout of the
-/// repo the command runs in.
-fn brief_base(cwd: &std::path::Path) -> Result<PathBuf> {
-    match Checkout::at(cwd)? {
-        Some(checkout) => Ok(checkout.main),
-        None => fail!("{} is in no git checkout, so the briefs of `work` have nothing to be found under", cwd.display()),
-    }
-}
-
 fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     let args = Args::parse(args, &["request"], &[])?;
     args.exactly(0, USAGE)?;
     let request: DecisionRequest = read_request(args.require("request")?)?;
     let work = work_or_why(request.work, request.no_work)?;
-    if work.iter().any(|draft| draft.brief.is_some()) {
-        let base = brief_base(cwd)?;
-        for draft in &work {
-            draft.require_brief(&base)?;
-        }
-    }
+    require_draft_briefs(cwd, &work)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let new = NewDecision {

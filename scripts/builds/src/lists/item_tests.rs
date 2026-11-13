@@ -1,6 +1,7 @@
 use super::*;
 use crate::checkout::Checkout;
 use crate::claim::cmd_release;
+use crate::lists::draft::brief_base;
 use crate::lists::item_fixtures::{Demo, demo, refusal, words};
 use crate::lists::{Closed, Record};
 

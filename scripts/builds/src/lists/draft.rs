@@ -89,6 +89,21 @@ pub fn require_brief(base: &Path, brief: &str) -> Result<()> {
     Ok(())
 }
 
+/// <brief> exists, as a command running in <cwd> sees it: an absolute path is
+/// itself, a relative one is under the main checkout of <cwd>'s repo. Only a
+/// relative brief needs a checkout.
+pub fn require_brief_from(cwd: &Path, brief: &str) -> Result<()> {
+    if Path::new(brief).is_absolute() {
+        return require_brief(Path::new("/"), brief);
+    }
+    require_brief(&brief_base(cwd)?, brief)
+}
+
+/// The briefs of <drafts> exist (see `require_brief_from`).
+pub fn require_draft_briefs(cwd: &Path, drafts: &[ItemDraft]) -> Result<()> {
+    drafts.iter().filter_map(|draft| draft.brief.as_deref()).try_for_each(|brief| require_brief_from(cwd, brief))
+}
+
 impl ItemDraft {
     /// The brief's file exists (see `require_brief`).
     pub fn require_brief(&self, base: &Path) -> Result<()> {

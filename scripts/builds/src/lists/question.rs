@@ -3,17 +3,16 @@
 //! so it lands whole or not at all; what a step needs is checked inside it,
 //! and outside work (a brief file, GitHub) before the lock.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::{Args, read_input, read_request};
 use crate::lists::check::title_fault;
 use crate::lists::derive::{self, ItemState};
-use crate::lists::draft::{BlockedMap, ItemDraft, NewDecision, add_decision, add_item, apply_blocked, close, work_or_why};
+use crate::lists::draft::{BlockedMap, ItemDraft, NewDecision, add_decision, add_item, apply_blocked, close, require_draft_briefs, work_or_why};
 use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
 use crate::lists::show::{blocks_text, kind_words, stack_entry};
 use crate::lists::store::Store;
@@ -234,10 +233,6 @@ struct Request {
     no_work: Option<String>,
 }
 
-fn base_dir(cwd: &Path) -> Result<PathBuf> {
-    Ok(Checkout::at(cwd)?.map(|checkout| checkout.top).unwrap_or_else(|| cwd.to_path_buf()))
-}
-
 fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, closing: Closing) -> Result<String> {
     let verb = match closing {
         Closing::Answer => "answer",
@@ -278,10 +273,7 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, closing: Closi
         (_, rule) => rule,
     };
     let drafts = work_or_why(request.work, request.no_work)?;
-    let base = base_dir(cwd)?;
-    for draft in &drafts {
-        draft.require_brief(&base)?;
-    }
+    require_draft_briefs(cwd, &drafts)?;
     let blocked = request.blocked;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
