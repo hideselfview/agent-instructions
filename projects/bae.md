@@ -54,20 +54,21 @@ task list for the coordinator and its agents: only what they can do. Nothing to
 do lives anywhere else: not in an agent's brief, a handoff, a plan, the decision
 log or a chat message, unless §2 has an item pointing at it.
 
-§1 is a stack, newest on top: a new question goes on top as #1. Work it from the
-top, one question at a time: ask #1 and say what it blocks. Once they answer,
-log the answer in `~/dev/bae/plans/decisions.md` (what they chose and why; not a
-list of work), put every piece of work the answer implies into §2 in the same
-edit, renumber, and ask the new #1. While a question is open, talk about that
-question only. A finding that needs no decision goes straight into §2 without
-being raised; one that needs a decision goes on the stack, and is mentioned in
-one line at most. When it is unclear whether something needs the person, or the
-work is large in scope (a new tool or product, not a fix), it goes on top of §1.
-Work that is held until they start it, or blocked on something only they can do
-(an account, a device, a hand check), is §1 too, not §2. An answer about a
-design plan also goes, numbered, in that plan's Decisions section. A question
-settled from existing rules or code is not their decision and is not recorded as
-one.
+§1 is ordered by how much each answer unblocks (the person, 2026-11-09:
+"prioritize questions that unblock the most stuff"): a new question goes in at
+its place by that measure. Work it from the top, one question at a time: ask #1
+and say what it blocks. Once they answer, log the answer in
+`~/dev/bae/plans/decisions.md` (what they chose and why; not a list of work),
+put every piece of work the answer implies into §2 in the same edit, renumber,
+and ask the new #1. While a question is open, talk about that question only. A
+finding that needs no decision goes straight into §2 without being raised; one
+that needs a decision goes on the stack, and is mentioned in one line at most.
+When it is unclear whether something needs the person, or the work is large in
+scope (a new tool or product, not a fix), it goes on top of §1. Work that is
+held until they start it, or blocked on something only they can do (an account,
+a device, a hand check), is §1 too, not §2. An answer about a design plan also
+goes, numbered, in that plan's Decisions section. A question settled from
+existing rules or code is not their decision and is not recorded as one.
 
 A §2 item that an agent is working on says so at its start ("Running: <agent>,
 <repo> <worktree> <branch>, brief/handoff <path>"); that marker is what to read
