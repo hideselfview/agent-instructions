@@ -137,12 +137,20 @@ fn quit(bundle: &str, app: &Path) -> Result<()> {
     fail!("{bundle} is still running after being asked to quit; the new app is at {}", with_new(app).display())
 }
 
-pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
-    let (repo, platform, commit) = match args {
-        [repo, platform] => (repo, Platform::parse(platform)?, "main"),
-        [repo, platform, commit] if !commit.starts_with('-') => (repo, Platform::parse(platform)?, commit.as_str()),
+/// What a build with no ref builds: origin's main as the fetch left it. The
+/// app checkout's own `main` can lag behind it.
+const DEFAULT_REF: &str = "origin/main";
+
+fn parse_args(args: &[String]) -> Result<(&String, Platform, &str)> {
+    match args {
+        [repo, platform] => Ok((repo, Platform::parse(platform)?, DEFAULT_REF)),
+        [repo, platform, commit] if !commit.starts_with('-') => Ok((repo, Platform::parse(platform)?, commit.as_str())),
         _ => fail!("{USAGE}"),
-    };
+    }
+}
+
+pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
+    let (repo, platform, commit) = parse_args(args)?;
     let places = &tool.places;
 
     note(format!("waiting for {repo}'s {} app lock, then building {commit}'s {} app", platform.word(), platform.word()));

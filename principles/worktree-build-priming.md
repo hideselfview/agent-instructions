@@ -436,17 +436,18 @@ build was not measured, and the default leaves it room. `builds build-app` and
 build.
 
 - The dashboard starts `builds build-app` too: each repo lane has a build-app
-  panel in the toolbar with a ref box (empty means the command's default), a
-  Build button, the run's output as it prints, and how it ended (queued,
-  running, finished, failed with its exit status). The daemon runs
-  `builds build-app <repo> <lane> [<ref>]` as its child, so the lane's queue and
-  lock order it like a typed one; a lane takes one run at a time (a second start
-  is refused with 409). The start is a POST to `/api/build-app`, which only the
-  page's own origin may make. Each lane's latest run is kept in
-  `/Volumes/Builds/.builds-daemon/runs/` (`<repo>.<lane>.json`, `.log`); the
-  child writes the log itself, so a daemon restart doesn't stop the build. The
-  restarted daemon shows such a run as still running with its end unseen, or as
-  gone with its end unknown, and never as finished.
+  panel in the toolbar with a ref box (empty means the command's default,
+  origin/main after a fetch), a Build button, the run's output as it prints, and
+  how it ended (queued, running, finished, failed with its exit status). The
+  daemon runs `builds build-app <repo> <lane> [<ref>]` as its child, so the
+  lane's queue and lock order it like a typed one; a lane takes one run at a
+  time (a second start is refused with 409). The start is a POST to
+  `/api/build-app`, which only the page's own origin may make. Each lane's
+  latest run is kept in `/Volumes/Builds/.builds-daemon/runs/`
+  (`<repo>.<lane>.json`, `.log`); the child writes the log itself, so a daemon
+  restart doesn't stop the build. The restarted daemon shows such a run as still
+  running with its end unseen, or as gone with its end unknown, and never as
+  finished.
 
 - `builds lock <repo> [--lane mac|android] <command>` waits until one of the
   lane's locks (the mac lane's unless named;

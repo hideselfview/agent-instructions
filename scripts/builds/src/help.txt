@@ -232,7 +232,7 @@ Commands:
                               one lane's part of the above, in this process
   builds build-app <repo> mac|android [<ref>]
                               on one of that lane's app locks, check out <ref>
-                              (default the main branch) in that app checkout,
+                              (default origin/main, after a fetch) in that app checkout,
                               which must be clean, and run that platform's build its
                               .app-build names; for mac, copy the app to
                               ~/Applications/<repo>-test in place of the copy

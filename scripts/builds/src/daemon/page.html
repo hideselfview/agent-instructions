@@ -626,7 +626,7 @@ async function startBuild(repo, lane, ref) {
   render();
 }
 function buildPanel(repo, lane) {
-  const ref = h("input", {type: "text", placeholder: "ref (default main)", "aria-label": "ref to build", spellcheck: "false"});
+  const ref = h("input", {type: "text", placeholder: "ref (default origin/main)", "aria-label": "ref to build", spellcheck: "false"});
   const button = h("button", {type: "button", class: "qbtn"}, "Build");
   const status = h("div", {class: "bstatus"});
   const output = h("pre", {class: "boutput"});
