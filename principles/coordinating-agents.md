@@ -7,12 +7,15 @@ project's lists, worktrees and landing worktree.
 
 ## The lists
 
-- **The decision stack** (§1 of the project's todo file): what waits on the
-  person, newest on top, asked one at a time. A plan's open question goes here.
-- **The work queue** (§2): only what agents can do, grouped by area. A running
-  item starts with "Running: <agent>, <worktree> <branch>, brief/handoff
-  <path>"; a running item sits under "Running", moved there in the same edit
-  that marks it. A landed item leaves the list in the same edit as its landing.
+The decision stack, the work queue, the decision log and the design changes live
+in the `builds` store (`builds help lists`); the project file says which lists a
+project has. A command refuses a step that lacks what it needs, so the rules
+here are only those it can't check.
+
+- **The decision stack**: what waits on the person, asked one at a time from the
+  top. A plan's open question goes here.
+- **The work queue**: only what agents can do. `builds next` lists what is
+  ready, in dispatch order.
 - **The decision log**: each answer, and each standing choice about how work
   runs, with why.
 
@@ -73,9 +76,16 @@ another's message, written to the same file name.
   what you touched". An agent given that line on 2026-11-06 ran eight crates'
   whole suites for 77 minutes, as told, then failed the hook on a feature set
   its check had not built.
-- Claim the worktree (`builds claim`), keep its note current (`builds note`) on
-  every dispatch, handoff and landing, and release it when the work lands. The
-  dashboard (`builds dashboard`) shows the same.
+- Take items from `builds next`. Claim the worktree (`builds claim`), then mark
+  the items running with `builds item take N --worktree W --branch B --brief P`;
+  the claim names the agent. After a compact, `builds item list --running`
+  prints each running item's agent, worktree, branch and brief. A new agent
+  continues a handoff with `builds item handoff N --brief P`; an agent that
+  stops, with `builds item stop N --why WHY`. `builds release` refuses a
+  worktree an item still runs in. Keep the worktree's note current
+  (`builds note`) on every dispatch, handoff and landing, and release it when
+  the work lands. The dashboard (`builds dashboard`) shows the same, with the
+  lists in its sidebar.
 - Read-only agents (planners, audits) read through `git show`/`git grep` on
   `origin/main`, never a checkout.
 - Disk is a queue limit, never a question for the person. Under the builds
@@ -89,8 +99,7 @@ another's message, written to the same file name.
 
 ## Modes
 
-The person picks the mode; the project's todo file names the current one at the
-top of §2, with when it started and the next full-suite run.
+The person picks the mode; the builds dashboard shows the current one.
 
 - **Strict.** Agents commit through the pre-commit hook and run the tests of
   what they touched. Load is a queue limit: while `builds health` shows load
@@ -128,6 +137,16 @@ agent.
   file size cap) and refuses to push when one fails, leaving the worktree at
   origin/main. A fast-forward skips them. No compile or test step: that stays
   with the coordinator.
+- In a project with lists,
+  `land.sh <worktree> --done N|--part N [--design N] <sha>...` names the items
+  the commits finish (`--done`) or advance (`--part`), and checks them before it
+  fetches anything. Commits that change a design place (a board, a component, a
+  spec section) also need `--design N`, the design change recorded for them,
+  which the person has approved. Commits that are all design files land with
+  `--design N` alone; that is how the design session lands, from the claimed
+  landing worktree. The records are written after the push; when `land.sh`
+  prints `LANDED, NOT RECORDED:`, run the `rerun:` command it prints (safe to
+  repeat).
 - After landing commits whose base is behind main and that touch shared code
   (schema, test stores, bridge types), build main
   (`check --workspace --all-targets --all-features`) before landing more; send
@@ -154,6 +173,9 @@ a schedule can do: nothing else wakes a session), the coordinator runs
   purpose with nothing running gets
   `builds note <worktree> --state held "<why, and until when>"`, which health
   doesn't flag.
+- **A running item whose worktree is gone or unclaimed:** `builds health` names
+  it; land it, stop it (`builds item stop`) or hand it on. A lists store that
+  fails its check is named the same way; nothing repairs it.
 - **Disk under the floor:** hold the queue (Dispatch).
 - **An app lock held long, or with agents waiting:** each lane (mac, android)
   has its own lock and queue, shown separately; check the holder is building,
@@ -165,11 +187,6 @@ In quick mode each check also runs `scripts/agent-runs/check.py`, which lists
 running cargo builds and tests outside quick mode (a feature set other than the
 hook's, a test run with no name filter or over several crates), and tells each
 one's agent to stop it.
-
-Each check also runs `scripts/todo-tally/tally.py <todo file>`, which gives
-every item of the two lists a stable id and logs the items opened and closed
-since the last run (`todo-tally.log` beside the todo file), so the person can
-see whether the lists grow faster than they shrink.
 
 A quiet check needs no message to the person.
 

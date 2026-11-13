@@ -68,9 +68,10 @@ Shots confirm the build, and follow the boards:
 - The same program lists a board with no shot (to build), a shot whose board
   changed since it was confirmed (to update and confirm again), and a shot whose
   board is gone (to delete). Every design commit runs it, and the work it lists
-  goes into the work item the commit files for the code. The hook refuses only
-  the third: a shot of a deleted board is always wrong, while a board ahead of
-  its shot is the normal state between a design landing and its code.
+  goes into the design change the commit records (`builds design record`). The
+  hook refuses only the third: a shot of a deleted board is always wrong, while
+  a board ahead of its shot is the normal state between a design landing and its
+  code.
 
 When drawing a design:
 

@@ -56,55 +56,53 @@ The macOS app logs to the unified log under subsystem `fm.bae.desktop`, every
 level kept in Debug builds:
 `/usr/bin/log show --last 10m --info --debug --predicate 'subsystem == "fm.bae.desktop"'`.
 
-bae and coven keep two lists, both in `~/dev/bae/plans/todo.md` (gitignored),
-and that file holds nothing else: the **decision stack** (§1), what waits on the
-person (questions, and work only they can do), and the **work queue** (§2), the
-task list for the coordinator and its agents: only what they can do. Nothing to
-do lives anywhere else: not in an agent's brief, a handoff, a plan, the decision
-log or a chat message, unless §2 has an item pointing at it.
+bae and coven keep two lists in the `builds` store, never in a file or a commit
+(`builds help lists` has the commands): the **decision stack**, what waits on
+the person (questions, and work only they can do, or work held until they start
+it), and the **work queue**, the task list for the coordinator and its agents:
+only what they can do. Nothing to do lives anywhere else (not in an agent's
+brief, a handoff, a plan, the decision log or a chat message) unless an item
+points at it. Commits, code and repo files never name list ids or the lists.
 
-§1 is ordered by how much each answer unblocks (the person, 2026-11-09:
-"prioritize questions that unblock the most stuff"): a new question goes in at
-its place by that measure. Work it from the top, one question at a time: ask #1
-and say what it blocks. Once they answer, log the answer in
-`~/dev/bae/plans/decisions.md` (what they chose and why; not a list of work),
-put every piece of work the answer implies into §2 in the same edit, renumber,
-and ask the new #1. While a question is open, talk about that question only. A
-finding that needs no decision goes straight into §2 without being raised; one
-that needs a decision goes on the stack, and is mentioned in one line at most.
-When it is unclear whether something needs the person, or the work is large in
-scope (a new tool or product, not a fix), it goes on top of §1. Work that is
-held until they start it, or blocked on something only they can do (an account,
-a device, a hand check), is §1 too, not §2. An answer about a design plan also
-goes, numbered, in that plan's Decisions section. A question settled from
-existing rules or code is not their decision and is not recorded as one.
+The stack is ordered by how much each answer unblocks (the person, 2026-11-09:
+"prioritize questions that unblock the most stuff"). Work it from the top, one
+question at a time: ask the top one and say what it blocks. While a question is
+open, talk about that question only. A finding that needs no decision is an item
+without being raised; one that needs a decision goes on the stack, and is
+mentioned in one line at most. When it is unclear whether something needs the
+person, or the work is large in scope (a new tool or product, not a fix), it
+goes on top. An answer about a software plan also goes, numbered, in that plan's
+Decisions section. A question settled from existing rules or code is not their
+decision and is not recorded as one.
 
 Neither list holds what is not relevant now (a release-time task, something held
 for a later stage): open a GitHub issue for it and take it off the list (the
 person, 2026-11-13: "if there are TODOs that are NOT relevant right now just
 make a GH for each one and REMOVE THEM").
 
-A §2 item tagged "design session" (its boards, `design/mocks`, `design/system`,
-the canvas) is the design session's: the coordinator never picks it up or
-dispatches it, and app work that waits on its board waits until the board lands
-(the person, 2026-11-13).
+An item for the design session (its boards, `design/mocks`, `design/system`, the
+canvas) is the design session's: the coordinator never picks it up or dispatches
+it, and app work that waits on its board waits until the board lands (the
+person, 2026-11-13).
 
-The design session shows the person its boards on its review page (a local page
-of board renders, newest on top) before they land. For the design session,
-"land" means committing the boards, design system and spec lines to git and
-pushing them to `main`. The apps being built to match is the work items' job,
-and landing a board puts every piece of app work it needs into §2 in the same
-step. When boards land, their entries also come off the review page, so the page
-holds only what still waits on the person (the person, 2026-11-10 and
-2026-11-13).
+The design session records each design change when it draws the boards
+(`builds design record`): what changed, each board's canvas link and render, and
+for every board, component, shared design-system source and spec section the
+change touches, the item that builds it in the apps or how it was checked that
+the app already matches. The person reviews it in the dashboard sidebar's
+Waiting on you tab, which replaces the review page the session kept by hand; the
+session keeps no page of its own. Once the person says to land it, the session
+approves it (`builds design approve N --by-person`) and lands it with
+`land.sh --design N` from bae's landing worktree (side-7). For the design
+session, "land" means committing the boards, design system and spec lines to git
+and pushing them to `main`; it closes the change, which takes it off the tab and
+frees the app work that waits on it. The apps being built to match is the items'
+job, and recording a change puts every piece of app work it needs on the queue
+in the same step (the person, 2026-11-10 and 2026-11-13).
 
-Each §2 item opens with a bold title of five to seven plain words on a line of
-its own, for the person (the person, 2026-11-13: "this will be the human
-title"); the details after it stay as agents write them. A §2 item that an agent
-is working on says so right after its title ("Running: <agent>, <repo>
-<worktree> <branch>, brief/handoff <path>"); that marker is what to read after a
-compact. An agent's brief names the §2 items it takes. When an item lands, it
-leaves §2. §2 is grouped by area; an item with an implementation brief points at
+Each item's title is for the person (the person, 2026-11-13: "this will be the
+human title"). An agent's brief names the item ids it takes, and its work lands
+through `land.sh` with those ids. An item with an implementation brief points at
 it in `plans/briefs/<area>.md`. How the coordinator plans, briefs, dispatches
 (Sonnet executes), reviews and lands
 (`~/dev/agent-instructions/scripts/land/land.sh` from bae side-7 and coven

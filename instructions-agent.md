@@ -174,7 +174,7 @@ have established it in this conversation. Don't put one in a reply or a question
 ("ErrMacNotices", "MacErrorDisclosure", "the `bare` prop"); say what the thing
 is or shows ("the board of Mac error notices", "the error box"). Once a name is
 established it's fine to reuse. The same goes for the codes our own tracking
-gives work: todo item numbers ("#625"), plan step letters ("B3", "C2"), commit
+gives work: work item numbers ("#625"), plan step letters ("B3", "C2"), commit
 SHAs and agent or branch names. Say what the work is ("the shot check", "the Ask
 before unpinning setting"), not its code, unless the user asked for it.
 

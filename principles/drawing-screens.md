@@ -43,15 +43,18 @@ draws them with its own parts.
 - Before adding a part, look for the one the system already has (a sheet's
   button row, a spinner with a label) and use or extend it.
 
-## The review page
+## The person reviews in the sidebar
 
-- While the person and the design session work on screens together, the session
-  keeps one local page, the review page, showing the boards under discussion
-  rendered live (both themes or platforms as the question needs), each captioned
-  with what changed. It says which page to reload and when; it holds only what
-  is being asked about now, not everything that landed.
-- Working on its own (landing a queue of fixes, answering another session), the
-  session doesn't keep the page; the published canvas is the record.
+- When the boards are drawn, the design session records the design change
+  (`builds design record`: what changed, each board's canvas link and render).
+  It shows in the builds dashboard sidebar's Waiting on you tab, waiting on the
+  person's review; that tab replaces the review page the session used to keep.
+  The session keeps no page of its own.
+- Once the person says to land it, the session approves it
+  (`builds design approve N --by-person`) and lands with `land.sh --design N`.
+  The change closes and leaves the tab. Changing the boards again
+  (`builds design amend N`) clears the approval.
+- The published canvas is the record of what landed.
 
 ## The boards are the target; the app follows them
 

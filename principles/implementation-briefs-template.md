@@ -6,11 +6,11 @@ You write implementation briefs for queued work so that Sonnet (as of 2026-11:
 capable, follows a clear brief well) can carry each one out with no design
 decision left to make. Change no code.
 
-Read first: ~/dev/bae/plans/todo.md (§1 decision stack and §2 work queue; your
-items are named below), ~/dev/bae/plans/decisions.md, the agent workflow and
-model rule in ~/dev/agent-instructions/instructions-agent.md ("Plan with Opus,
-execute with Sonnet"), and every rule file the matching-rules script lists for
-the files your items touch:
+Read first: `builds item show N` for each of your items (named below),
+`builds decision find <words>` for the decisions they cite, the agent workflow
+and model rule in ~/dev/agent-instructions/instructions-agent.md ("Plan with
+Opus, execute with Sonnet"), and every rule file the matching-rules script lists
+for the files your items touch:
 `~/.codex/agent-instructions/scripts/rules_review/matching_rules.py --project bae <path>...`
 (for coven, read ~/dev/coven-worktrees/side-1/AGENTS.md or CLAUDE.md and its
 rules the same way).
@@ -25,7 +25,7 @@ its callers; line numbers in the items may have moved, so find code by name.
 
 For each item write one brief:
 
-- **Title** and the §2 item it implements (quote its first words).
+- **Title** and the item it implements (`#N` and its title).
 - **Now:** what the code does, with path:line evidence. If the item is already
   done or no longer applies, say so with evidence and write nothing else for it.
 - **Change:** the shape: what changes and what must hold, with names where a
@@ -42,8 +42,8 @@ For each item write one brief:
 - **Locales:** new user-visible strings go in every locale; say which.
 - **Model:** Sonnet executes. Only a design too large for the coordinator to
   hold goes to Opus, which writes a plan for Sonnet; say why.
-- **Order:** what it must come after (other items, running agents' work named in
-  §2 Running, the domain moves).
+- **Order:** what it must come after (other items, running agents' work shown by
+  `builds item list --running`, the domain moves).
 - **Open question** (only if the code and rules can't settle it): the facts and
   the alternatives that add no special-case UI. Such an item goes no further
   until the person answers.
