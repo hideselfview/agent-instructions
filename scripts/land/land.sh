@@ -1,4 +1,5 @@
 #!/bin/bash
+# The landing worktree must be claimed (builds claim): the claim names who is landing, and the store records that name.
 # land.sh <worktree> [--done N]... [--part N]... [--design N] <sha>...: put the commits on origin/main (fast-forward when they sit on it, else cherry-pick), retrying the whole step on a refused push.
 # A cherry-picked result is a tree no hook has seen, so before pushing it the repo's whole-tree checks run: the commands in the repo's `.land-checks` (one per line, blank lines and lines starting with # skipped, each run with `sh -c` from the repo root). A failing check is named with its output, nothing is pushed, and the worktree goes back to origin/main (exit 1, no retry). Then the repo's `.land-compile`, if present, runs (`bash .land-compile` from the repo root, reading what the commits changed from `git diff origin/main HEAD`): the compile check of the result, which the static checks can't do, since two commits that each compile can break each other. It fails the same way. A fast-forward runs both too: a branch rebased after its hook ran is a tree no hook has seen.
 # Two landings in one worktree move each other's HEAD: one pushed the other's and called it landed. Each waits for the worktree to itself.
@@ -13,7 +14,9 @@ if b=$(git symbolic-ref -q --short HEAD); then echo "refusing: $PWD is on branch
 # a landing names the work items it finishes (--done N) or advances (--part N)
 # and, when the commits change design places, the design change (--design N).
 # Each is checked before anything is fetched or picked, and recorded after the
-# push. A repo in no project takes none of these flags and lands as before.
+# push. `builds design places` prints one line per changed design path
+# (`place <path>` or `shared <path>`), nothing when none; any line, shared-only
+# included, requires --design. A repo in no project takes none of these flags and lands as before.
 done_args=(); design=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -25,7 +28,7 @@ while [ "$#" -gt 0 ]; do
     *) break ;;
   esac
 done
-[ "$#" -gt 0 ] || { echo "usage: land.sh <worktree> [--done N]... [--part N]... [--design N] <sha>..."; exit 1; }
+[ "$#" -gt 0 ] || { echo "usage: land.sh <worktree> [--done N]... [--part N]... [--design N] <sha>... (the landing worktree must be claimed; --design is required exactly when the commits change a design place or shared design file)"; exit 1; }
 project=$(builds lists project-of "$PWD" 2>&1) || { echo "refusing: builds lists project-of failed: $project"; exit 1; }
 if [ -z "$project" ]; then
   if [ "${#done_args[@]}" != 0 ] || [ -n "$design" ]; then

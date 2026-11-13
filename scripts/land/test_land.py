@@ -50,7 +50,7 @@ def fixture(root, checks, compile_check=None):
 # A stand-in `builds` first on PATH for every landing, so no test reaches the real one.
 # It appends each call to $STUB_LOG and answers by cue: STUB_PROJECT is what
 # `lists project-of` prints (nothing when unset), STUB_PLACES what `design places`
-# prints, STUB_REFUSE the "<group> <command>" it exits 1 on.
+# prints (`place <path>` or `shared <path>` lines), STUB_REFUSE the "<group> <command>" it exits 1 on.
 STUB = """#!/bin/bash
 echo "$*" >> "$STUB_LOG"
 [ "$STUB_REFUSE" = "$1 $2" ] && { echo "stub refuses $1 $2"; exit 1; }
@@ -205,18 +205,28 @@ with tempfile.TemporaryDirectory() as root:
 with tempfile.TemporaryDirectory() as root:
     origin, agent, land = fixture(root, "true\n")
     a, b = two_sibling_commits(agent, land)
-    code, out = run_land(land, "--done", "7", a, STUB_PROJECT="bae", STUB_PLACES="design/system/button")
+    code, out = run_land(land, "--done", "7", a, STUB_PROJECT="bae", STUB_PLACES="place design/mocks/button")
     expect("design places without --design are refused before anything moves",
+           code == 1 and "--design" in out and git(origin, "rev-parse", "main") != a)
+    code, out = run_land(land, "--done", "7", a, STUB_PROJECT="bae", STUB_PLACES="shared design/system/tokens")
+    expect("shared-only design files without --design are refused",
            code == 1 and "--design" in out and git(origin, "rev-parse", "main") != a)
     code, out = run_land(land, "--done", "7", "--design", "3", a, STUB_PROJECT="bae")
     expect("--design with no design places is refused", code == 1 and "no design place" in out)
     code, out = run_land(land, "--done", "7", "--design", "3", a, STUB_PROJECT="bae",
-                         STUB_PLACES="design/system/button", STUB_REFUSE="design check")
+                         STUB_PLACES="place design/mocks/button", STUB_REFUSE="design check")
     expect("refused design check: nothing pushed", code == 1 and git(origin, "rev-parse", "main") != a)
-    code, out = run_land(land, "--done", "7", "--design", "3", a, STUB_PROJECT="bae", STUB_PLACES="design/system/button")
+    code, out = run_land(land, "--done", "7", "--design", "3", a, STUB_PROJECT="bae", STUB_PLACES="place design/mocks/button")
     expect("design landing records the item and the design change",
            code == 0 and f"design check 3 {land} {a}" in calls(land)
            and calls(land)[-2:] == [f"item landed {land} --done 7 {a}", f"design landed 3 {land} {a}"])
+
+with tempfile.TemporaryDirectory() as root:
+    origin, agent, land = fixture(root, "true\n")
+    a, b = two_sibling_commits(agent, land)
+    code, out = run_land(land, "--done", "7", "--design", "3", a, STUB_PROJECT="bae", STUB_PLACES="shared design/system/tokens")
+    expect("shared-only design files with --design land and record the design change",
+           code == 0 and calls(land)[-1] == f"design landed 3 {land} {a}")
 
 with tempfile.TemporaryDirectory() as root:
     origin, agent, land = fixture(root, "true\n")
