@@ -3,8 +3,8 @@
 //! running item's worktree.
 //!
 //! `Feed` follows `Places::lists` with an FSEvents stream, reads every store
-//! again after the settle delay, and counts the reads that found something
-//! new in its own `version`. A store that fails its check is served as the
+//! and each project's hook runs again after the settle delay, and counts the
+//! reads that found a store changed in its own `version`. A store that fails its check is served as the
 //! JSON's `error`; nothing repairs it.
 
 use std::path::PathBuf;
@@ -25,6 +25,8 @@ pub struct Feed {
     /// The version counts reads that changed what is served; the snapshot is
     /// what the last of them read.
     current: Mutex<(u64, Arc<Snapshot>)>,
+    /// The hook runs' JSON (hook_stats.rs) as the last read built it.
+    hooks: Mutex<Arc<String>>,
     dirty: AtomicBool,
     wake: Condvar,
     wake_lock: Mutex<()>,
@@ -43,6 +45,7 @@ impl Feed {
         }
         let feed = Arc::new(Feed {
             current: Mutex::new((1, Arc::new(load_all(&places)))),
+            hooks: Mutex::new(Arc::new(crate::hook_stats::dashboard_json(&places))),
             places,
             dirty: AtomicBool::new(false),
             wake: Condvar::new(),
@@ -83,6 +86,12 @@ impl Feed {
         (current.0, current.1.clone())
     }
 
+    /// The hook runs' JSON as the last read built it. The same `Arc` comes
+    /// back until a read finds the runs changed.
+    pub fn hooks(&self) -> Arc<String> {
+        self.hooks.lock().expect("no panic holding it").clone()
+    }
+
     fn read_loop(self: Arc<Self>) {
         loop {
             {
@@ -98,18 +107,28 @@ impl Feed {
         }
     }
 
-    /// Reads the stores again; when they differ from the last read, the
-    /// version moves and the listener is called.
+    /// Reads the stores and the hook runs again; when either differs from
+    /// the last read, the listener is called, and the version moves when the
+    /// stores differ.
     fn read(&self) {
         let read = load_all(&self.places);
+        let hooks = crate::hook_stats::dashboard_json(&self.places);
+        let mut changed = false;
         {
             let mut current = self.current.lock().expect("no panic holding it");
-            if *current.1 == read {
-                return;
+            if *current.1 != read {
+                *current = (current.0 + 1, Arc::new(read));
+                changed = true;
             }
-            *current = (current.0 + 1, Arc::new(read));
         }
-        if let Some(listener) = &*self.listener.lock().expect("no panic holding it") {
+        {
+            let mut current = self.hooks.lock().expect("no panic holding it");
+            if **current != hooks {
+                *current = Arc::new(hooks);
+                changed = true;
+            }
+        }
+        if changed && let Some(listener) = &*self.listener.lock().expect("no panic holding it") {
             listener();
         }
     }

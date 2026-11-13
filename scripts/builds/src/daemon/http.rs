@@ -20,6 +20,8 @@
 //!                   events, with their output
 //!     /api/lists    the lists JSON (lists/view.rs, plus each running item's
 //!                   claim facts), as the `lists` event carries it
+//!     /api/hooks    the hook runs' figures and latest runs (hook_stats.rs),
+//!                   as the `hooks` event carries them
 //!     /design/<design id>
 //!                   the review page of an open design change, drawn now
 //!     /design/<design id>/board/<n>
@@ -126,6 +128,7 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
             Ok(lists) => respond(&mut stream, "200 OK", "application/json", lists.as_bytes()),
             Err(error) => json(&mut stream, Err(error)),
         },
+        "/api/hooks" => respond(&mut stream, "200 OK", "application/json", model.hooks_json().as_bytes()),
         "/events" => events(stream, model),
         _ if path.starts_with("/design/") => {
             let drawn = design_route(&path["/design/".len()..]).and_then(|route| match route {
@@ -254,6 +257,7 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
         let mut seen = 0;
         // The lists last sent: another `Arc` means they changed.
         let mut sent_lists: Option<Arc<String>> = None;
+        let mut sent_hooks: Option<Arc<String>> = None;
         loop {
             let started = Instant::now();
             let page = match model.page() {
@@ -281,6 +285,11 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
                 Err(error) => {
                     write!(stream, "event: failure\ndata: {}\n\n", serde_json::json!({ "error": error.text() }))?;
                 }
+            }
+            let hooks = model.hooks_json();
+            if !sent_hooks.as_ref().is_some_and(|sent| Arc::ptr_eq(sent, &hooks)) {
+                write!(stream, "event: hooks\ndata: {hooks}\n\n")?;
+                sent_hooks = Some(hooks);
             }
             stream.flush()?;
             if let Some(left) = EVENT_GAP.checked_sub(started.elapsed()) {

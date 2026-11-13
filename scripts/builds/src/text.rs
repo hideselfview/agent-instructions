@@ -47,6 +47,19 @@ pub fn local_day(epoch: i64) -> String {
     strftime(epoch, c"%Y-%m-%d")
 }
 
+/// Local midnight at the start of <day> (`YYYY-MM-DD`) as seconds since 1970;
+/// None unless it is a real day.
+pub fn local_start_of(day: &str) -> Option<i64> {
+    let (year, month, date) = crate::lists::day::parse(day)?;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    tm.tm_year = (year - 1900) as libc::c_int;
+    tm.tm_mon = (month - 1) as libc::c_int;
+    tm.tm_mday = date as libc::c_int;
+    tm.tm_isdst = -1;
+    let epoch = unsafe { libc::mktime(&mut tm) };
+    (epoch != -1).then_some(epoch)
+}
+
 fn strftime(epoch: i64, format: &std::ffi::CStr) -> String {
     let time: libc::time_t = epoch;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };

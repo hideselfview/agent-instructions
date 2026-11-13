@@ -17,6 +17,7 @@ mod fail;
 mod floor;
 mod free_worktrees;
 mod health;
+mod hook_stats;
 mod install;
 mod install_hook;
 mod lane;

@@ -106,3 +106,42 @@ fn an_open_design_change_is_found_by_id_with_its_view_and_a_landed_or_missing_on
     assert!(open_design(&snapshot, id.0 + 1).is_none());
     assert!(open_design(&Ok(vec![]), id.0).is_none());
 }
+
+#[test]
+fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
+    use crate::hook_stats::{CheckRecord, DATABASE, Outcome, Run, record};
+    let scratch = Scratch::new("daemon-hooks");
+    let places = scratch.places();
+    let store = Store::named(&places, "demo").unwrap();
+    store.create(lists(), &stamp(NOON), "lists init demo").unwrap();
+    let feed = Feed::start(places);
+    let (version, _) = feed.current();
+    let before = feed.hooks();
+    assert!(before.contains("\"runs\":0"), "{before}");
+    let (sent, moved) = mpsc::channel();
+    feed.listen(Box::new(move || sent.send(()).expect("the test waits")));
+
+    let run = Run {
+        at: NOON,
+        repo: "demo".into(),
+        worktree: "/d/demo".into(),
+        branch: Some("main".into()),
+        passed: true,
+        plan_ms: 1,
+        total_ms: 5,
+        files: vec![],
+        checks: vec![CheckRecord {
+            name: "fmt".into(),
+            kind: crate::checks::Kind::Check,
+            outcome: Outcome::Passed,
+            handed: Some((0, 0)),
+            ms: Some(3),
+        }],
+    };
+    record(&store.dir.join(DATABASE), &run).unwrap();
+    moved.recv_timeout(Duration::from_secs(30)).expect("the run reached the feed");
+    let after = feed.hooks();
+    assert!(!std::sync::Arc::ptr_eq(&before, &after));
+    assert!(after.contains("\"runs\":1") && after.contains("\"fmt\""), "{after}");
+    assert_eq!(feed.current().0, version);
+}

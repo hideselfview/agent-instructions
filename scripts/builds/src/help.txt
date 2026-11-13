@@ -295,7 +295,25 @@ runs whole whenever a matching file is staged.
                               status is non-zero if any did. A fix
                               stages again the files it changed, but refuses,
                               naming the file and staging nothing, when a
-                              file it changed also had unstaged changes
+                              file it changed also had unstaged changes.
+                              The run is recorded in builds.sqlite in the
+                              project's store folder (beside lists.json): when,
+                              repo, worktree, branch, each staged file (change
+                              and lines added and removed), each check or fix
+                              (ran with its time and result, or skipped with
+                              the files not picking it), the planning time and
+                              the total. A run that can't be recorded says so
+                              on stderr and ends as the checks decided; a repo
+                              in no project records nothing
+  builds checks stats [--project <project>] [--since <YYYY-MM-DD>]
+                              read the recorded runs back (the project of the
+                              current repo unless --project names one): the
+                              runs, failures and the median and slowest total
+                              time; per check how often it ran, failed and was
+                              skipped, with its median and slowest time; and
+                              the slowest runs with their diffs. --since
+                              counts the runs from that local day on. The
+                              dashboard shows the same, and the latest runs
   builds checks list [<worktree>]
                               print what `run` would run, without running it
   builds checks tests --since <rev> [--run]

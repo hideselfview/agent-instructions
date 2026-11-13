@@ -257,6 +257,19 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .rv-head a { color: var(--accent); }
 .rv-head button { font: 13px var(--sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 12px; cursor: pointer; }
 .rv-frame { flex: 1; border: 0; width: 100%; min-height: 0; background: var(--surface); }
+.hooks { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.hooks > summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.hooks > summary .h-meta { font-weight: 400; color: var(--muted); margin-left: 10px; }
+.hooks h3 { margin: 14px 0 6px; font-size: 13px; font-weight: 600; color: var(--text-3); }
+.hooks table { border-collapse: collapse; font-size: 12px; width: 100%; }
+.hooks th { text-align: left; font-weight: 600; color: var(--muted); padding: 3px 12px 3px 0; }
+.hooks td { padding: 3px 12px 3px 0; border-top: 1px solid var(--line-soft); vertical-align: top; }
+.hooks td.n, .hooks th.n { text-align: right; font-variant-numeric: tabular-nums; }
+.hooks .failed { color: var(--bad); }
+.hooks .h-runs { display: flex; flex-direction: column; font-size: 12px; }
+.hooks .h-run { border-top: 1px solid var(--line-soft); padding: 4px 0; }
+.hooks .h-run > summary { cursor: pointer; display: flex; gap: 14px; flex-wrap: wrap; }
+.hooks .h-checks { margin: 4px 0 4px 16px; color: var(--muted); }
 .l-flash { animation: l-flash 1.6s ease-out; }
 </style>
 </head>
@@ -285,6 +298,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 <div id="findings"></div>
 <div id="errors"></div>
 <main id="view"><div class="loading">Reading the checkouts</div></main>
+<div id="hooks-panels"></div>
 </div>
 <aside class="lists" id="lists" aria-label="Lists">
   <div class="l-top">
@@ -1367,6 +1381,58 @@ fetch("/api/lists").then(async reply => {
   listsNote = "The lists aren’t available. " + e.message;
   renderLists();
 });
+
+// ---- The commit hook panel: what the hook ran for each project, from the
+// `hooks` event (hook_stats.rs) and /api/hooks on load. ----
+let hooks = null;
+const openHooks = new Set();   // projects whose panel is open; they outlive a redraw
+function secs(ms) { return (ms / 1000).toFixed(1) + "s"; }
+function kindsText(kinds) { return Object.entries(kinds).map(([k, n]) => k + " " + n).join(", "); }
+function hookRun(run) {
+  const when = new Date(run.at * 1000);
+  const summary = h("summary", null,
+    h("span", {class: "mono"}, localDay(when) + " " + hhmm(when)),
+    h("span", {class: "mono"}, secs(run.total_ms)),
+    h("span", null, run.branch || "(detached)"),
+    h("span", null, plural(run.files, "file", "files") + " +" + run.added + " -" + run.removed + " (" + kindsText(run.kinds) + ")"),
+    h("span", {class: run.passed ? "" : "failed"}, run.passed ? "passed" : "failed"));
+  const lines = run.checks.map(c => h("div", {class: c.outcome === "failed" ? "failed" : ""},
+    c.name + " (" + c.kind + "): " + (c.outcome === "skipped" ? "skipped" : c.outcome + ", " + secs(c.ms))));
+  lines.unshift(h("div", null, "planning: " + secs(run.plan_ms)));
+  return h("details", {class: "h-run"}, summary, h("div", {class: "h-checks"}, lines));
+}
+function hookProject(p) {
+  const open = openHooks.has(p.project);
+  const meta = p.error ? "" : p.runs === 0 ? "no runs recorded"
+    : plural(p.runs, "run", "runs") + " · " + p.failed + " failed · median " + secs(p.median_ms) + " · slowest " + secs(p.slowest_ms);
+  const box = h("details", {class: "hooks"}, h("summary", null, "Commit hook · " + p.project, h("span", {class: "h-meta"}, meta)));
+  box.open = open;
+  box.addEventListener("toggle", () => { if (box.open) openHooks.add(p.project); else openHooks.delete(p.project); });
+  if (p.error) { box.append(h("div", {class: "error"}, p.error)); return box; }
+  if (p.runs === 0) return box;
+  box.append(h("h3", null, "Per check"),
+    h("table", null,
+      h("tr", null, h("th", null, "check"), h("th", null, "kind"), h("th", {class: "n"}, "ran"), h("th", {class: "n"}, "failed"),
+        h("th", {class: "n"}, "skipped"), h("th", {class: "n"}, "median"), h("th", {class: "n"}, "slowest")),
+      p.checks.map(c => h("tr", null, h("td", null, c.name), h("td", null, c.kind), h("td", {class: "n"}, String(c.ran)),
+        h("td", {class: "n" + (c.failed ? " failed" : "")}, String(c.failed)), h("td", {class: "n"}, String(c.skipped)),
+        h("td", {class: "n"}, secs(c.median_ms)), h("td", {class: "n"}, secs(c.slowest_ms))))),
+    h("h3", null, "Slowest runs"), h("div", {class: "h-runs"}, p.slowest.map(hookRun)),
+    h("h3", null, "Latest runs"), h("div", {class: "h-runs"}, p.recent.map(hookRun)));
+  return box;
+}
+function setHooks(next) {
+  hooks = next;
+  const panels = document.getElementById("hooks-panels");
+  if (hooks.error) panels.replaceChildren(h("div", {class: "error"}, "The hook runs: " + hooks.error));
+  else panels.replaceChildren(...hooks.projects.map(hookProject));
+}
+events.addEventListener("hooks", e => setHooks(JSON.parse(e.data)));
+fetch("/api/hooks").then(async reply => {
+  if (!reply.ok) throw new Error("the daemon answered " + reply.status);
+  const body = await reply.json();
+  if (!hooks) setHooks(body);
+}).catch(() => { /* the `hooks` event shows them once the daemon sends it */ });
 setInterval(tick, 1000);
 render();
 </script>

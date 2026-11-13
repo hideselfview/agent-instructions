@@ -107,7 +107,9 @@ another's message, written to the same file name.
 
 The person picks the mode and tells the coordinator. The pre-commit hook does
 not vary with it: every commit runs the repo's `.checks` through
-`builds checks run`.
+`builds checks run`, which records the run (staged files, each check's time and
+result, what was skipped) in the project's `builds.sqlite`;
+`builds checks stats` and the dashboard read it back.
 
 - **Strict.** Agents commit through the pre-commit hook and run the tests of
   what they touched. Load is a queue limit: while `builds health` shows load

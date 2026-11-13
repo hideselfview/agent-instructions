@@ -496,6 +496,12 @@ impl Model {
         Ok(json)
     }
 
+    /// The hook runs' JSON the page reads; the same `Arc` comes back until
+    /// the runs change.
+    pub fn hooks_json(&self) -> Arc<String> {
+        self.lists.hooks()
+    }
+
     /// The review page of open design change <id>, drawn now; None when no
     /// open design change has that id.
     pub fn design_page(&self, id: u32) -> Option<crate::fail::Result<String>> {
