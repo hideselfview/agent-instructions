@@ -76,6 +76,14 @@ bad pattern's prevalence as license to extend it. We hold the codebase to what's
 above local consistency. When a fix and the surrounding code disagree about
 what's correct, the code is what changes.
 
+**The repo holds the product, not development's ephemera.** Anything development
+produces that could be recreated in an instant (a script, a check, a generated
+copy, scaffolding, a probe) stays out of the repo and its hooks. Before adding a
+file or a hook step, ask whether it is the product or a by-product of making it.
+The person (bae, 2026-11-13): "we need to do a better job of figuring out what
+is ephemera -- products of development that we can in an instant recreate -- and
+what is NOT, what is the product."
+
 **Never declare clean.** Don't conclude with "clean," "done," "no more X," "now
 correct." The false confidence masks incomplete state; every time you say it,
 you stopped looking.
