@@ -497,3 +497,68 @@ fn a_hook_database_whose_schema_is_not_a_fresh_ones_is_refused_and_left_as_it_wa
     assert_eq!(tables, 0, "the lists' tables were rolled back");
     assert_eq!(db::stamp_of(&conn, &dir.join(DATABASE)).unwrap(), 1);
 }
+
+/// A store as the schema before `hook_runs.base` made it: that schema's text, its stamp, one run.
+fn store_before_hook_base(dir: &std::path::Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&db::schema().replace("\n, base TEXT CHECK (base <> '')) STRICT;", "\n) STRICT;")).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_HOOK_BASE_STAMP).unwrap();
+    conn.execute("INSERT INTO hook_runs (started_at, repo, worktree, passed, plan_ms, total_ms) VALUES (5, 'bae', '/d/bae', 1, 1, 9)", []).unwrap();
+    path
+}
+
+#[test]
+fn a_store_of_the_schema_before_the_base_column_gains_it_keeps_its_runs_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-base");
+    let places = scratch.places();
+    let path = store_before_hook_base(&places.lists.join("bae"));
+    migrate_hook_base(&places).unwrap();
+    let conn = db::open_reader(&path).unwrap().expect("opens under today's stamp");
+    assert_eq!(db::schema_rows(&conn).unwrap(), db::schema_rows(&db::memory()).unwrap());
+    let stats = crate::hook_stats::stats(&path, 0).unwrap().unwrap();
+    assert_eq!((stats.runs, stats.recent[0].base.clone()), (1, None), "the old run is kept, with no base");
+    // A run written now records its base, and a second install changes nothing.
+    let before = db::schema_rows(&conn).unwrap();
+    migrate_hook_base(&places).unwrap();
+    assert_eq!(db::schema_rows(&Connection::open(&path).unwrap()).unwrap(), before);
+    assert_eq!(db::stamp_of(&Connection::open(&path).unwrap(), &path).unwrap(), db::stamp());
+}
+
+#[test]
+fn a_store_with_a_stamp_the_base_move_does_not_know_is_refused_and_left_as_it_was() {
+    let scratch = Scratch::new("move-base-unknown");
+    let places = scratch.places();
+    let path = store_before_hook_base(&places.lists.join("bae"));
+    Connection::open(&path).unwrap().pragma_update(None, "user_version", 1234).unwrap();
+    let refused = migrate_hook_base(&places).unwrap_err().text();
+    assert!(refused.contains("stamp 1234") && refused.contains("does not know"), "{refused}");
+    let conn = Connection::open(&path).unwrap();
+    let columns: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('hook_runs') WHERE name = 'base'", [], |r| r.get(0)).unwrap();
+    assert_eq!(columns, 0);
+}
+
+#[test]
+fn a_base_move_that_would_not_equal_a_fresh_schema_rolls_back() {
+    let scratch = Scratch::new("move-base-drift");
+    let places = scratch.places();
+    let path = store_before_hook_base(&places.lists.join("bae"));
+    Connection::open(&path).unwrap().execute_batch("DROP INDEX idx_hook_runs_started").unwrap();
+    let refused = migrate_hook_base(&places).unwrap_err().text();
+    assert!(refused.contains("not the one this builds makes"), "{refused}");
+    let conn = Connection::open(&path).unwrap();
+    let columns: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('hook_runs') WHERE name = 'base'", [], |r| r.get(0)).unwrap();
+    assert_eq!((columns, db::stamp_of(&conn, &path).unwrap()), (0, BEFORE_HOOK_BASE_STAMP));
+}
+
+#[test]
+fn the_previous_stamp_is_the_schema_without_the_base_column() {
+    let text = db::schema().replace("\n, base TEXT CHECK (base <> '')) STRICT;", "\n) STRICT;");
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in text.bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    assert_eq!(i64::from(hash % (i32::MAX as u32 - 2)) + 2, BEFORE_HOOK_BASE_STAMP);
+}

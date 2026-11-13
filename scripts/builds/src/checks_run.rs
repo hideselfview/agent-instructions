@@ -26,13 +26,14 @@ use crate::checkout::{Checkout, git, git_local_env_vars, git_text};
 use crate::checks::{CONFIG, Kind, Line, Planned, parse, plan};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+use crate::hook_impact;
 use crate::hook_stats::{self, CheckRecord, Change, Outcome, Run, StagedFile};
 use crate::lists::args::Args;
 use crate::lists::store::{Store, project_of};
 use crate::places::Places;
 use crate::text::note;
 
-const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--since <YYYY-MM-DD>]";
+const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--since <YYYY-MM-DD>] [--change <rev>]";
 
 pub fn cmd_checks(args: &[String]) -> Result<()> {
     match args {
@@ -84,9 +85,9 @@ fn hook_database(top: &Path) -> Result<Option<PathBuf>> {
     Ok(project_of(&places, &checkout)?.map(|project| places.lists.join(project).join(hook_stats::DATABASE)))
 }
 
-/// `builds checks stats [--project P] [--since DATE]`.
+/// `builds checks stats [--project P] [--since DATE] [--change REV]`.
 fn stats(args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["since"], &[])?;
+    let args = Args::parse(args, &["since", "change"], &[])?;
     if !args.positional().is_empty() {
         fail!("{USAGE}");
     }
@@ -100,6 +101,14 @@ fn stats(args: &[String]) -> Result<()> {
     };
     let places = Places::from_env()?;
     let store = Store::resolve(&places, &args, Path::new("."))?;
+    if let Some(rev) = args.value("change")? {
+        if since.is_some() {
+            fail!("--change splits all the runs; it does not take --since");
+        }
+        let impact = hook_impact::impact(&store.dir.join(hook_stats::DATABASE), rev)?;
+        print!("{}", hook_impact::report(&store.project, impact.as_ref()));
+        return Ok(());
+    }
     let stats = hook_stats::stats(&store.dir.join(hook_stats::DATABASE), start.unwrap_or(0))?;
     print!("{}", hook_stats::report(&store.project, since, stats.as_ref()));
     Ok(())
@@ -226,12 +235,20 @@ fn begin(top: &Path) -> Result<Run> {
         repo,
         worktree: top.to_string_lossy().into_owned(),
         branch,
+        base: head(top),
         passed: false,
         plan_ms: 0,
         total_ms: 0,
         files: staged_diff(top)?,
         checks: Vec::new(),
     })
+}
+
+/// The commit HEAD points at; None in a repo with no commit.
+fn head(top: &Path) -> Option<String> {
+    let output = git(top).args(["rev-parse", "--verify", "-q", "HEAD"]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (output.status.success() && !text.is_empty()).then_some(text)
 }
 
 fn millis(took: Duration) -> u64 {

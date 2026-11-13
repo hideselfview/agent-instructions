@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS hook_runs (
     plan_ms INTEGER NOT NULL CHECK (plan_ms >= 0),
     -- From the start to the last check's end.
     total_ms INTEGER NOT NULL CHECK (total_ms >= plan_ms)
-) STRICT;
+, base TEXT CHECK (base <> '')) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_hook_runs_started ON hook_runs (started_at);
 

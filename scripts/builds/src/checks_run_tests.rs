@@ -140,10 +140,12 @@ fn a_recorded_run_holds_the_files_each_check_with_its_time_and_what_was_skipped(
     std::fs::write(top.join("image.bin"), [0u8, 1, 2, 0]).unwrap();
     git(&top, &["add", "image.bin"]);
     let log = recorded(&scratch);
+    let head = String::from_utf8(std::process::Command::new("git").arg("-C").arg(&top).args(["rev-parse", "HEAD"]).output().unwrap().stdout).unwrap();
     assert!(run_staged(&top, Some(&log)).is_err());
     let runs = recorded_runs(&log);
     assert_eq!(runs.len(), 1);
     let run = &runs[0];
+    assert_eq!(run.base.as_deref(), Some(head.trim()), "the commit HEAD pointed at when the run started");
     assert_eq!((run.passed, run.repo.as_str(), run.branch.as_deref()), (false, "repo", Some("main")));
     assert_eq!(run.worktree, top.to_string_lossy());
     let files: Vec<_> = run.files.iter().map(|f| (f.path.as_str(), f.change, f.lines)).collect();

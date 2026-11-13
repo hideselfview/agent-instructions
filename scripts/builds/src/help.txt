@@ -301,22 +301,42 @@ runs whole whenever a matching file is staged.
                               file it changed also had unstaged changes.
                               The run is recorded in builds.sqlite in the
                               project's store folder (the database that also holds the lists): when,
-                              repo, worktree, branch, each staged file (change
+                              repo, worktree, branch, the commit HEAD pointed
+                              at when it started (its base), each staged file (change
                               and lines added and removed), each check or fix
                               (ran with its time and result, or skipped with
                               the files not picking it), the planning time and
                               the total. A run that can't be recorded says so
                               on stderr and ends as the checks decided; a repo
                               in no project records nothing
-  builds checks stats [--project <project>] [--since <YYYY-MM-DD>]
+  builds checks stats [--project <project>] [--since <YYYY-MM-DD>] [--change <rev>]
                               read the recorded runs back (the project of the
                               current repo unless --project names one): the
                               runs, failures and the median and slowest total
                               time; per check how often it ran, failed and was
                               skipped, with its median and slowest time; and
                               the slowest runs with their diffs. --since
-                              counts the runs from that local day on. The
-                              dashboard shows the same, and the latest runs
+                              counts the runs from that local day on. Per
+                              check it also shows the median of its latest 10
+                              runs against the 10 before, and any set of
+                              checks whose newest run took over 45 seconds (the
+                              hook's limit; a newer run of that set under it
+                              ends the flag). --change <rev> instead splits all
+                              the runs by whether their base contains <rev>
+                              (git merge-base --is-ancestor, so a worktree on
+                              an old base after the change landed counts as
+                              without) and prints per check, on each side, the
+                              runs that ran it, the median crates it was
+                              handed, its median and slowest time. A run
+                              recorded before the base was kept counts as
+                              without when it started before <rev> was
+                              committed and is left out when after; both are
+                              said in the output. The dashboard shows the same
+                              figures and the latest runs; its panel splits
+                              runs by a commit you type, and a flagged set of
+                              checks appears among the things needing acting
+                              on, naming the run's worktree, total, slowest
+                              checks and what it was handed
   builds checks list [<worktree>]
                               print what `run` would run, without running it
   builds checks tests --since <rev> [--run]

@@ -22,6 +22,9 @@
 //!                   claim facts), as the `lists` event carries it
 //!     /api/hooks    the hook runs' figures and latest runs (hook_stats.rs),
 //!                   as the `hooks` event carries them
+//!     /api/hooks/impact?project=<project>&change=<rev>
+//!                   the project's hook runs split by whether their tree has
+//!                   that change (hook_impact.rs), read now
 //!     /design/<design id>
 //!                   the review page of an open design change, drawn now
 //!     /design/<design id>/board/<n>
@@ -129,6 +132,17 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
             Err(error) => json(&mut stream, Err(error)),
         },
         "/api/hooks" => respond(&mut stream, "200 OK", "application/json", model.hooks_json().as_bytes()),
+        "/api/hooks/impact" => {
+            let query = target.split_once('?').map_or("", |(_, query)| query);
+            let (project, change) = (query_value(query, "project"), query_value(query, "change"));
+            match (project, change) {
+                (Some(project), Some(change)) => {
+                    let body = model.hook_impact_json(&project, &change);
+                    respond(&mut stream, "200 OK", "application/json", body.as_bytes())
+                }
+                _ => respond(&mut stream, "400 Bad Request", "application/json", b"{\"error\":\"needs project and change\"}"),
+            }
+        }
         "/events" => events(stream, model),
         _ if path.starts_with("/design/") => {
             let drawn = design_route(&path["/design/".len()..]).and_then(|route| match route {
@@ -145,6 +159,27 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
         }
         _ => respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"not found\n"),
     }
+}
+
+/// The value of <name> in a query string, with `%XX` and `+` decoded.
+fn query_value(query: &str, name: &str) -> Option<String> {
+    let raw = query.split('&').find_map(|pair| pair.split_once('=').filter(|(key, _)| *key == name).map(|(_, value)| value))?;
+    let bytes = raw.as_bytes();
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            b'+' => out.push(b' '),
+            b'%' if bytes.len() >= at + 3 => {
+                let hex = std::str::from_utf8(&bytes[at + 1..at + 3]).ok()?;
+                out.push(u8::from_str_radix(hex, 16).ok()?);
+                at += 2;
+            }
+            byte => out.push(byte),
+        }
+        at += 1;
+    }
+    String::from_utf8(out).ok()
 }
 
 /// What a `/design/...` path asks for.

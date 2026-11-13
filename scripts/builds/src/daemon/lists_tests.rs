@@ -123,6 +123,7 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
         repo: "demo".into(),
         worktree: "/d/demo".into(),
         branch: Some("main".into()),
+        base: None,
         passed: true,
         plan_ms: 1,
         total_ms: 5,
@@ -155,7 +156,7 @@ fn a_hook_runs_write_reads_no_store_again_and_the_served_snapshot_is_the_same() 
     assert!(!changed && same == first);
     record(
         &store.dir.join(DATABASE),
-        &Run { at: NOON, repo: "demo".into(), worktree: "/d/demo".into(), branch: None, passed: true, plan_ms: 1, total_ms: 2, files: vec![], checks: vec![] },
+        &Run { at: NOON, repo: "demo".into(), worktree: "/d/demo".into(), branch: None, base: None, passed: true, plan_ms: 1, total_ms: 2, files: vec![], checks: vec![] },
     )
     .unwrap();
     let (after_hook, changed) = crate::lists::store::reload(&places, &first);

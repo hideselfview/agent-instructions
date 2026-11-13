@@ -18,6 +18,7 @@ mod fail;
 mod floor;
 mod free_worktrees;
 mod health;
+mod hook_impact;
 mod hook_stats;
 mod install;
 mod install_hook;

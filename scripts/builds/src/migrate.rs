@@ -169,6 +169,66 @@ pub fn migrate_lists(places: &Places, now: i64) -> Result<()> {
     Ok(())
 }
 
+/// The stamp of the schema before `hook_runs.base` was added.
+const BEFORE_HOOK_BASE_STAMP: i64 = 119_742_261;
+
+/// Gives each project's `builds.sqlite` the `hook_runs.base` column: a store
+/// stamped as the schema before it gets the column in one transaction, is
+/// stamped as today's schema, and must then equal a fresh database's schema
+/// or the transaction rolls back. A store already at today's stamp, or with
+/// no database, is left alone; any other stamp is refused. Delete this once it
+/// has run. Run it before `migrate_lists`, which refuses the stamp this one
+/// moves.
+pub fn migrate_hook_base(places: &Places) -> Result<()> {
+    let entries = match std::fs::read_dir(&places.lists) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => fail!("listing {}: {error}", places.lists.display()),
+    };
+    let mut dirs = Vec::new();
+    for entry in entries {
+        let entry = entry.context(|| format!("listing {}", places.lists.display()))?;
+        if entry.path().is_dir() {
+            dirs.push(entry.path());
+        }
+    }
+    dirs.sort();
+    for dir in dirs {
+        add_hook_base(&dir.join(DATABASE))?;
+    }
+    Ok(())
+}
+
+fn add_hook_base(path: &Path) -> Result<()> {
+    if !path.is_file() {
+        return Ok(());
+    }
+    let mut conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .context(|| format!("opening {}", path.display()))?;
+    conn.busy_timeout(std::time::Duration::from_millis(i32::MAX as u64)).sql()?;
+    let found = db::stamp_of(&conn, path)?;
+    if found == db::stamp() || found == 0 || found == db::HOOK_ONLY_STAMP {
+        // Today's schema already; or one `migrate_lists` makes whole.
+        return Ok(());
+    }
+    if found != BEFORE_HOOK_BASE_STAMP {
+        fail!(
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_HOOK_BASE_STAMP}, and today's {})",
+            path.display(),
+            db::stamp()
+        );
+    }
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).sql()?;
+    tx.execute_batch("ALTER TABLE hook_runs ADD COLUMN base TEXT CHECK (base <> '')").sql()?;
+    tx.pragma_update(None, "user_version", db::stamp()).sql()?;
+    if db::schema_rows(&tx)? != db::schema_rows(&db::memory())? {
+        fail!("{} holds a schema that is not the one this builds makes; it is left as it was", path.display());
+    }
+    tx.commit().sql()?;
+    crate::text::note(format!("gave {}'s hook runs a base commit", path.display()));
+    Ok(())
+}
+
 /// What the move's own write log line says.
 const MOVE_WORDS: &str = "move lists.json into builds.sqlite";
 const MOVE_BY: &str = "builds install";

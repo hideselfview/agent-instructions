@@ -502,6 +502,11 @@ impl Model {
         self.lists.hooks()
     }
 
+    /// What a change did to a project's hook times, read now (hook_impact.rs).
+    pub fn hook_impact_json(&self, project: &str, change: &str) -> String {
+        crate::hook_impact::impact_json(&self.places, project, change)
+    }
+
     /// The review page of open design change <id>, drawn now; None when no
     /// open design change has that id.
     pub fn design_page(&self, id: u32) -> Option<crate::fail::Result<String>> {

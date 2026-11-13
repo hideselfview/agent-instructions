@@ -266,6 +266,10 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .hooks td { padding: 3px 12px 3px 0; border-top: 1px solid var(--line-soft); vertical-align: top; }
 .hooks td.n, .hooks th.n { text-align: right; font-variant-numeric: tabular-nums; }
 .hooks .failed { color: var(--bad); }
+.hooks .slower { color: var(--warn); }
+.hooks .h-impactform { display: flex; gap: 8px; margin-bottom: 6px; }
+.hooks .h-impact { font-size: 12px; }
+.hooks .h-impact .h-meta { color: var(--muted); margin: 2px 0; }
 .hooks .h-runs { display: flex; flex-direction: column; font-size: 12px; }
 .hooks .h-run { border-top: 1px solid var(--line-soft); padding: 4px 0; }
 .hooks .h-run > summary { cursor: pointer; display: flex; gap: 14px; flex-wrap: wrap; }
@@ -940,9 +944,21 @@ function loadView(load) {
     line];
 }
 
+// A hook run over the limit, as one of the things needing action: the newest
+// run of its set of checks stays here until a newer run of that set is under
+// the limit (hook_stats.rs), which the `hooks` event carries.
+function hookFindings() {
+  if (!hooks || hooks.error) return [];
+  return hooks.projects.flatMap(p => (p.over_limit || []).map(run => {
+    const slowest = run.checks.filter(c => c.ms != null).sort((a, b) => b.ms - a.ms).slice(0, 3).map(c => c.name + " " + secs(c.ms));
+    return "commit hook · " + p.project + ": " + secs(run.total_ms) + " in " + run.worktree.split("/").pop() + " (" + (run.branch || "detached") +
+      "), over " + secs(p.limit_ms) + " · slowest " + slowest.join(", ") + " · handed " + plural(run.files, "file", "files") + ", " + plural(run.crates, "crate", "crates");
+  }));
+}
+
 function findingsView(health) {
   const box = document.getElementById("findings");
-  const findings = health ? health.findings : [];
+  const findings = (health ? health.findings : []).concat(hookFindings());
   box.replaceChildren(...(findings.length ? [h("div", {class: "findings"},
     h("span", {class: "label"}, plural(findings.length, "thing needs", "things need") + " acting on"),
     findings.map(f => h("span", {}, f)))] : []));
@@ -1401,6 +1417,52 @@ function hookRun(run) {
   lines.unshift(h("div", null, "planning: " + secs(run.plan_ms)));
   return h("details", {class: "h-run"}, summary, h("div", {class: "h-checks"}, lines));
 }
+// A check's latest runs against the ones before: slower reads as a warning.
+function trendCell(c) {
+  if (c.recent_ms == null) return h("td", {class: "n"}, "");
+  const slower = c.recent_ms > c.earlier_ms * 1.2 && c.recent_ms - c.earlier_ms > 1000;
+  const faster = c.recent_ms < c.earlier_ms * 0.8 && c.earlier_ms - c.recent_ms > 1000;
+  return h("td", {class: "n" + (slower ? " slower" : "")}, (slower ? "▲ " : faster ? "▼ " : "") + secs(c.recent_ms) + " vs " + secs(c.earlier_ms));
+}
+// What a change did to the hook's times: the runs split by whether their tree
+// has the change (/api/hooks/impact). The rev stays in the field across redraws.
+const impactRevs = new Map();
+function impactCell(c) { return c ? c.ran + " · " + c.median_crates + " cr · " + secs(c.median_ms) + " · " + secs(c.slowest_ms) : "–"; }
+function impactTable(r) {
+  const names = [];
+  for (const c of r.with.checks.concat(r.without.checks)) if (!names.some(n => n[0] === c.name && n[1] === c.kind)) names.push([c.name, c.kind]);
+  const find = (side, [name, kind]) => side.checks.find(c => c.name === name && c.kind === kind);
+  const notes = [];
+  if (r.without_by_time) notes.push(plural(r.without_by_time, "run", "runs") + " without it were recorded before the hook kept its base commit; counted as without because they started before the change was committed");
+  if (r.unplaced_by_time) notes.push(plural(r.unplaced_by_time, "run", "runs") + " left out: recorded before the hook kept its base commit, started after the change was committed");
+  if (r.unplaced_by_base) notes.push(plural(r.unplaced_by_base, "run", "runs") + " left out: their base commit is gone from the repo");
+  return [h("div", {class: "h-meta"}, "with: " + plural(r.with.runs, "run", "runs") + ", median " + secs(r.with.median_ms) + ", slowest " + secs(r.with.slowest_ms) +
+      " · without: " + plural(r.without.runs, "run", "runs") + ", median " + secs(r.without.median_ms) + ", slowest " + secs(r.without.slowest_ms)),
+    h("table", null, h("tr", null, h("th", null, "check"), h("th", null, "with (ran · crates · median · slowest)"), h("th", null, "without")),
+      names.map(n => h("tr", null, h("td", null, n[0]), h("td", null, impactCell(find(r.with, n))), h("td", null, impactCell(find(r.without, n)))))),
+    notes.map(t => h("div", {class: "h-meta"}, t))];
+}
+function impactForm(project) {
+  const input = h("input", {type: "text", placeholder: "commit, e.g. 711e9cd12c", size: "24"});
+  input.value = impactRevs.get(project) || "";
+  const out = h("div", {class: "h-impact"});
+  const ask = async () => {
+    const rev = input.value.trim();
+    impactRevs.set(project, rev);
+    if (!rev) { out.replaceChildren(); return; }
+    out.replaceChildren(h("div", {class: "h-meta"}, "reading…"));
+    try {
+      const reply = await fetch("/api/hooks/impact?project=" + encodeURIComponent(project) + "&change=" + encodeURIComponent(rev));
+      const body = await reply.json();
+      out.replaceChildren(...(body.error ? [h("div", {class: "error"}, body.error)] : body.runs === 0 ? [h("div", {class: "h-meta"}, "no runs recorded")] : impactTable(body)));
+    } catch (e) { out.replaceChildren(h("div", {class: "error"}, String(e))); }
+  };
+  input.addEventListener("keydown", e => { if (e.key === "Enter") ask(); });
+  const button = h("button", null, "Split runs");
+  button.addEventListener("click", ask);
+  if (input.value) ask();
+  return h("div", null, h("h3", null, "What a change did"), h("div", {class: "h-impactform"}, input, button), out);
+}
 function hookProject(p) {
   const open = openHooks.has(p.project);
   const meta = p.error ? "" : p.runs === 0 ? "no runs recorded"
@@ -1413,10 +1475,12 @@ function hookProject(p) {
   box.append(h("h3", null, "Per check"),
     h("table", null,
       h("tr", null, h("th", null, "check"), h("th", null, "kind"), h("th", {class: "n"}, "ran"), h("th", {class: "n"}, "failed"),
-        h("th", {class: "n"}, "skipped"), h("th", {class: "n"}, "median"), h("th", {class: "n"}, "slowest")),
+        h("th", {class: "n"}, "skipped"), h("th", {class: "n"}, "median"), h("th", {class: "n"}, "slowest"),
+        h("th", {class: "n", title: "median of the latest " + p.trend_runs + " runs of the check, against the " + p.trend_runs + " before them"}, "latest vs before")),
       p.checks.map(c => h("tr", null, h("td", null, c.name), h("td", null, c.kind), h("td", {class: "n"}, String(c.ran)),
         h("td", {class: "n" + (c.failed ? " failed" : "")}, String(c.failed)), h("td", {class: "n"}, String(c.skipped)),
-        h("td", {class: "n"}, secs(c.median_ms)), h("td", {class: "n"}, secs(c.slowest_ms))))),
+        h("td", {class: "n"}, secs(c.median_ms)), h("td", {class: "n"}, secs(c.slowest_ms)), trendCell(c)))),
+    impactForm(p.project),
     h("h3", null, "Slowest runs"), h("div", {class: "h-runs"}, p.slowest.map(hookRun)),
     h("h3", null, "Latest runs"), h("div", {class: "h-runs"}, p.recent.map(hookRun)));
   return box;
@@ -1426,6 +1490,7 @@ function setHooks(next) {
   const panels = document.getElementById("hooks-panels");
   if (hooks.error) panels.replaceChildren(h("div", {class: "error"}, "The hook runs: " + hooks.error));
   else panels.replaceChildren(...hooks.projects.map(hookProject));
+  findingsView(state ? state.health : null);
 }
 events.addEventListener("hooks", e => setHooks(JSON.parse(e.data)));
 fetch("/api/hooks").then(async reply => {

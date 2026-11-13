@@ -21,6 +21,7 @@ fn run(at: i64, total_ms: u64, passed: bool, checks: Vec<CheckRecord>) -> Run {
         repo: "bae".into(),
         worktree: "/d/bae".into(),
         branch: Some("main".into()),
+        base: None,
         passed,
         plan_ms: 10,
         total_ms,
@@ -169,4 +170,76 @@ fn the_dashboard_json_has_each_project_with_its_figures_and_the_latest_runs_firs
     std::fs::write(store.dir.join(DATABASE), "not a database, and long enough to have a header of sorts").unwrap();
     let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
     assert!(json["projects"][0]["error"].is_string(), "{json}");
+}
+
+fn check_set(names: &[(&str, u64)]) -> Vec<CheckRecord> {
+    names.iter().map(|(name, ms)| check(name, Outcome::Passed, Some(*ms))).collect()
+}
+
+#[test]
+fn a_run_records_the_commit_it_started_on() {
+    let scratch = Scratch::new("hook-db-base");
+    let path = database(&scratch);
+    let mut written = run(5, 100, true, vec![]);
+    written.base = Some("abc123".into());
+    record(&path, &written).unwrap();
+    assert_eq!(stats(&path, 0).unwrap().unwrap().recent[0].base.as_deref(), Some("abc123"));
+}
+
+#[test]
+fn a_set_of_checks_is_flagged_while_its_newest_run_is_over_the_limit() {
+    let scratch = Scratch::new("hook-db-limit");
+    let path = database(&scratch);
+    let flagged = |path: &Path| stats(path, 0).unwrap().unwrap().over_limit.iter().map(|r| r.at).collect::<Vec<_>>();
+    record(&path, &run(1, 50_000, true, check_set(&[("clippy", 40_000), ("fmt", 1_000)]))).unwrap();
+    record(&path, &run(2, 46_000, true, check_set(&[("fmt", 1_000)]))).unwrap();
+    // A run under the limit of another set of checks ends neither.
+    record(&path, &run(3, 5_000, true, check_set(&[("docs", 100)]))).unwrap();
+    assert_eq!(flagged(&path), vec![1, 2]);
+    // A slower run of a set replaces its older flag: one flag per set.
+    record(&path, &run(4, 90_000, true, check_set(&[("clippy", 80_000), ("fmt", 1_000)]))).unwrap();
+    assert_eq!(flagged(&path), vec![4, 2]);
+    // A newer run of the set under the limit ends it; exactly at the limit is under.
+    record(&path, &run(5, 45_000, true, check_set(&[("fmt", 1_000), ("clippy", 30_000)]))).unwrap();
+    assert_eq!(flagged(&path), vec![2]);
+    record(&path, &run(6, 3_000, true, check_set(&[("fmt", 1_000)]))).unwrap();
+    assert_eq!(flagged(&path), Vec::<i64>::new());
+    // A run that checked nothing is never flagged.
+    record(&path, &run(7, 60_000, true, vec![])).unwrap();
+    assert_eq!(flagged(&path), Vec::<i64>::new());
+}
+
+#[test]
+fn a_check_gets_a_trend_of_its_latest_runs_against_the_ones_before() {
+    let scratch = Scratch::new("hook-db-trend");
+    let path = database(&scratch);
+    for at in 1..=12 {
+        let ms = if at <= 6 { 10_000 } else { 30_000 };
+        record(&path, &run(at, ms, true, check_set(&[("clippy", ms)]))).unwrap();
+    }
+    // 12 runs: the latest ten against the two before them is too few to compare.
+    assert_eq!(stats(&path, 0).unwrap().unwrap().checks[0].trend, None);
+    for at in 13..=16 {
+        record(&path, &run(at, 30_000, true, check_set(&[("clippy", 30_000)]))).unwrap();
+    }
+    // Latest ten: runs 7 to 16, all 30s; the six before: all 10s.
+    let trend = stats(&path, 0).unwrap().unwrap().checks[0].trend.unwrap();
+    assert_eq!((trend.recent_ms, trend.earlier_ms), (30_000, 10_000));
+    let text = report("bae", None, stats(&path, 0).unwrap().as_ref());
+    assert!(text.contains("30.0s vs 10.0s"), "{text}");
+}
+
+#[test]
+fn the_dashboard_json_carries_the_flags_and_the_trend() {
+    let scratch = Scratch::new("hook-json-flags");
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    record(&store.dir.join(DATABASE), &run(1, 99_000, true, check_set(&[("clippy", 90_000)]))).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
+    let project = &json["projects"][0];
+    assert_eq!(project["limit_ms"], 45_000);
+    assert_eq!(project["over_limit"][0]["total_ms"], 99_000);
+    assert_eq!(project["over_limit"][0]["worktree"], "/d/bae");
+    assert_eq!(project["over_limit"][0]["checks"][0]["crates"], 0);
+    assert!(project["checks"][0]["recent_ms"].is_null());
 }
