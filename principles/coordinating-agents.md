@@ -81,7 +81,9 @@ another's message, written to the same file name.
   the claim names the agent. After a compact, `builds item list --running`
   prints each running item's agent, worktree, branch and brief. A new agent
   continues a handoff with `builds item handoff N --brief P`; an agent that
-  stops, with `builds item stop N --why WHY`. `builds release` refuses a
+  stops, with `builds item stop N --why WHY`. An open item moves first or last
+  in the queue, or back to the usual order, with
+  `builds item place N first|last|none --why WHY`. `builds release` refuses a
   worktree an item still runs in. Keep the worktree's note current
   (`builds note`) on every dispatch, handoff and landing, and release it when
   the work lands. The dashboard (`builds dashboard`) shows the same, with the
