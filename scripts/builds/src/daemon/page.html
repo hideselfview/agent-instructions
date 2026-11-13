@@ -1064,11 +1064,10 @@ function flowLine(label, days) {
 }
 function workHead() {
   const today = localDay(new Date());
-  const recent = lists.flow.slice(-RECENT_DAYS);
   return h("div", {class: "l-flow"},
     lists.mode ? h("div", {class: "l-fact"}, h("span", {class: "k"}, "Mode"), " ", pill(lists.mode, "s-ready")) : null,
-    flowLine("Today:", recent.filter(d => d.day === today)),
-    flowLine("Last " + RECENT_DAYS + " days:", recent));
+    flowLine("Today:", lists.flow.filter(d => d.day === today)),
+    flowLine("Last " + RECENT_DAYS + " days:", lists.flow));
 }
 function rows(its, one) { return h("div", {class: "l-rows"}, its.map(one || itemRow)); }
 function workItems() {
@@ -1096,11 +1095,6 @@ function placeLine(p) {
     p.item ? [pill(p.item.state, p.item.state === "ready" ? "s-ready" : "s-winding"), " ", recLink(p.item.id, p.item.title)]
       : ["matches: " + p.matches]);
 }
-function closedAt(g) {
-  const c = g.closed;
-  if (c) return c.at !== undefined ? c.at : c.closed ? c.closed.at : 0;
-  return g.landed.length ? g.landed[g.landed.length - 1].at : 0;
-}
 function designCard(g) {
   return h("article", {class: "l-card"},
     h("div", {class: "l-row1"}, h("span", {class: "l-title"}, g.title), h("span", {class: "l-id"}, "#" + g.id), pill(g.repo, "s-free")),
@@ -1111,9 +1105,9 @@ function designCard(g) {
     fold("g:" + g.id, g.id, "Details", () => md(g.details)));
 }
 function designItems() {
-  const now = Date.now() / 1000;
+  // The daemon sends `closed` only for a change that landed in the last 14 days.
   const open = lists.designs.filter(g => !g.closed);
-  const landed = lists.designs.filter(g => g.closed && now - closedAt(g) <= RECENT_DAYS * 86400).sort((a, b) => closedAt(b) - closedAt(a));
+  const landed = lists.designs.filter(g => g.closed).sort((a, b) => b.closed.at - a.closed.at);
   const out = [];
   if (open.length) out.push({key: "open", data: open, make: () => section("Open", open.length, h("div", {class: "l-rows"}, open.map(designCard)))});
   if (landed.length) out.push({key: "landed", data: landed, make: () => section("Landed in the last " + RECENT_DAYS + " days", landed.length,
