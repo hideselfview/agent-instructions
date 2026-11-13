@@ -326,7 +326,10 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   `build-android.sh` build into `target-macos`, `target-ios` and
   `target-android`, each its own folder because they read the built staticlib
   back to generate bindings. Each of those paths is part of sccache's key, so an
-  inline override gets no cache hits.
+  inline override gets no cache hits. The one wrapper set in the repo is
+  `scripts/clippy-crates.sh`'s, `scripts/clippy-rustc-wrapper.sh`, which itself
+  runs sccache: it lints only the crates named with `-p` and compiles the
+  workspace crates below them through sccache, which cannot cache a clippy run.
 
 - **Build copies no build used for three days are deleted, and a copy a newer
   copy built from other sources replaced at once**, at the start of the next
