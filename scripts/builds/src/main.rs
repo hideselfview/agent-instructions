@@ -109,9 +109,10 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "du" => usage::cmd_du(args),
         "health" => health::cmd_health(&tool, args),
         "lists" => lists::cmd_lists(&tool, args),
+        "decision" => lists::cmd_decision(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
         other => fail!(
-            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | lists | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install)"
+            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | lists | decision | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install)"
         ),
     }
 }

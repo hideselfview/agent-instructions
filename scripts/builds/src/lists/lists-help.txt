@@ -65,3 +65,32 @@ open coordinator item that is not itself last exists) or ready; the stack
 asks `placed first` questions (newest first), then those that unblock the most
 open items directly or through chains of open items (ties oldest first), then
 `placed last`.
+
+Decisions (the log, never closed):
+
+  builds decision add --request FILE [--by WHO]
+      Records a decision. The request is JSON: title, by (who decided:
+      person, coordinator, design-session, ...), body, and either `work` (item
+      drafts the decision makes, each waiting as its draft says) or `no_work`
+      with the reason there is none; optionally `replaces` (the id of an
+      earlier decision it revises) and `plan` ({path, number}). Its date is
+      today. Refused: both or neither of work and no_work; an empty body; a
+      replaces that is not a decision; a draft the item rules refuse; a brief
+      that is no file under the repo's main checkout. A question's answer is
+      recorded by `question answer`, not here.
+
+  builds decision edit N [--title T] [--body-file FILE|-] [--by WHO]
+      Changes a decision's title or body. Refused when it changes nothing.
+
+  builds decision find WORD...
+      The decisions whose title or body holds every word, ignoring case,
+      newest first, one line each.
+
+  builds decision show N
+      One decision in full: who decided and recorded it, the question it
+      answered, the items it made and where they are, what it replaces and
+      what replaces it (derived from the decisions that name it), its body.
+
+  builds decision list [--plan PATH] [--since YYYY-MM-DD]
+      The log newest first, one line each; --plan keeps the decisions
+      recorded against that plan, with their plan numbers.

@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use crate::lists::{
-    Audience, Closed, Id, Item, Kind, Level, Lists, Located, Position, Question, Record, Standing, Wait, day,
+    Audience, Closed, Decision, Id, Item, Kind, Level, Lists, Located, Position, Question, Record, Standing, Wait, day,
 };
 use crate::text::local_day;
 
@@ -24,6 +24,18 @@ pub fn closed_meets_wait(closed: &Closed) -> bool {
         (Record::Question(_), How::Answered(_) | How::Settled(_) | How::Done)
             | (Record::Item(_) | Record::Design(_), How::Landed(_))
     )
+}
+
+/// The decisions, newest first: by date, then by id.
+pub fn decisions_newest_first(lists: &Lists) -> Vec<&Decision> {
+    let mut ordered: Vec<&Decision> = lists.decisions.iter().collect();
+    ordered.sort_by(|a, b| (&b.date, b.id).cmp(&(&a.date, a.id)));
+    ordered
+}
+
+/// The newest decision that replaces <decision>. Derived, never stored.
+pub fn replaced_by(lists: &Lists, decision: Id) -> Option<Id> {
+    lists.decisions.iter().filter(|other| other.replaces == Some(decision)).map(|other| other.id).max()
 }
 
 /// Is <wait> met? A wait on a record that does not exist is not (the check

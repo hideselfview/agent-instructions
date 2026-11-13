@@ -5,12 +5,14 @@
 //! This file is the data model. `store` holds the file and the write path,
 //! `check` the whole-state check, `derive` what is computed and never stored,
 //! `view` the JSON the page reads, `draft` the item draft and the record
-//! operations the nouns share, `args` the flag parsing every command uses.
+//! operations the nouns share, `decision` the decision log's commands, `args`
+//! the flag parsing every command uses.
 
 pub mod args;
 pub mod check;
 mod command;
 pub mod day;
+mod decision;
 pub mod derive;
 pub mod draft;
 #[cfg(test)]
@@ -20,6 +22,7 @@ pub mod store;
 pub mod view;
 
 pub use command::cmd_lists;
+pub use decision::cmd_decision;
 
 use std::collections::BTreeMap;
 use std::fmt;

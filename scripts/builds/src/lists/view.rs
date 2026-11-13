@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::lists::derive::{self, FLOW_DAYS, FlowDay};
 use crate::lists::{
-    Audience, Decision, DesignChange, Id, Item, LandedPart, Lists, Located, Note, PlanRef, Placement, Priority,
+    Audience, DesignChange, Id, Item, LandedPart, Lists, Located, Note, PlanRef, Placement, Priority,
     QuestionKind, Resolution, Stamp, Standing, Wait, side_worktree_parts,
 };
 
@@ -275,9 +275,7 @@ fn designs(lists: &Lists, now: i64) -> Vec<DesignView> {
 }
 
 fn decisions(lists: &Lists) -> Vec<DecisionView> {
-    let mut ordered: Vec<&Decision> = lists.decisions.iter().collect();
-    ordered.sort_by(|a, b| (&b.date, b.id).cmp(&(&a.date, a.id)));
-    ordered
+    derive::decisions_newest_first(lists)
         .into_iter()
         .map(|decision| DecisionView {
             id: decision.id,
@@ -296,12 +294,7 @@ fn decisions(lists: &Lists) -> Vec<DecisionView> {
                 })
                 .collect(),
             replaces: decision.replaces,
-            replaced_by: lists
-                .decisions
-                .iter()
-                .filter(|other| other.replaces == Some(decision.id))
-                .map(|other| other.id)
-                .max(),
+            replaced_by: derive::replaced_by(lists, decision.id),
             plan: decision.plan.clone(),
         })
         .collect()
