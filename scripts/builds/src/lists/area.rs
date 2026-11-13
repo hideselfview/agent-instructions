@@ -8,7 +8,7 @@ use crate::fail::Result;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::check::title_fault;
 use crate::lists::store::Store;
-use crate::lists::{Lists, Stamp, item};
+use crate::lists::{Id, Lists, Stamp, item};
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -54,7 +54,7 @@ pub fn add_area(lists: &mut Lists, name: &str, after: Option<&str>) -> Result<()
     Ok(())
 }
 
-/// Renames area <old> to <new>, on every item in it.
+/// Renames area <old> to <new>, on every item in it, open or closed.
 pub fn rename_area(lists: &mut Lists, old: &str, new: &str) -> Result<()> {
     let at = position(lists, old)?;
     require_new_name(lists, new)?;
@@ -73,10 +73,10 @@ pub fn move_area(lists: &mut Lists, name: &str, after: &str) -> Result<()> {
     Ok(())
 }
 
-/// Removes area <name>, which no item is in.
+/// Removes area <name>, which no item, open or closed, is in.
 pub fn remove_area(lists: &mut Lists, name: &str) -> Result<()> {
     let at = position(lists, name)?;
-    let inside: Vec<String> = lists.items.iter().filter(|item| item.area == name).map(|i| i.id.to_string()).collect();
+    let inside: Vec<String> = item::items_in_area(lists, name).iter().map(Id::to_string).collect();
     if !inside.is_empty() {
         fail!("area '{name}' still holds {}; move each with `builds item edit N --area AREA`", inside.join(", "));
     }

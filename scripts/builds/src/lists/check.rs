@@ -379,6 +379,9 @@ fn closed_record(lists: &Lists, closed: &Closed, faults: &mut Vec<String>) {
     faults.extend(title_fault(closed.record.title()).map(|f| format!("{from}: {f}")));
     if let Record::Item(item) = &closed.record {
         faults.extend(item_title_fault(&item.title).map(|f| format!("{from}: {f}")));
+        if !lists.areas.contains(&item.area) {
+            faults.push(format!("{from} is in area '{}', which does not exist", item.area));
+        }
         for wait in &item.waits {
             faults.extend(wait_fault(lists, wait, &from));
         }

@@ -222,12 +222,16 @@ fn titles_are_one_line_and_item_titles_five_to_seven_words() {
 }
 
 #[test]
-fn every_area_an_open_item_names_exists_but_a_closed_item_may_name_a_removed_one() {
+fn every_area_an_item_names_exists_open_or_closed() {
     let mut lists = lists();
     let i = item(&mut lists, vec![]);
-    crate::lists::item::plant_area(&mut lists, i, "Gone");
-    assert_fault(&lists, "area 'Gone', which does not exist");
+    item_owner::plant_area(&mut lists, i, "Gone");
+    assert_fault(&lists, &format!("item {i} is in area 'Gone', which does not exist"));
     crate::lists::record::close(&mut lists, i, How::Dropped("x".into()), &stamp(NOON)).unwrap();
+    assert_fault(&lists, &format!("closed item {i} is in area 'Gone', which does not exist"));
+    let mut lists = crate::lists::fixtures::lists();
+    let j = item(&mut lists, vec![]);
+    crate::lists::record::close(&mut lists, j, How::Dropped("x".into()), &stamp(NOON)).unwrap();
     assert_eq!(faults(&lists), Vec::<String>::new());
 }
 

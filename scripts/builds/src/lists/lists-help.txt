@@ -29,7 +29,7 @@ or closed; no item waits on itself through a chain of items; no open item
 waits on a record that closed in a way that never meets a wait (dropped,
 deferred, moved to the stack); every open question has an open item waiting
 on it or says why it is asked anyway; titles are one line and item titles are
-five to seven words; every open item's area exists; a running item's worktrees
+five to seven words; every item's area exists, open or closed; a running item's worktrees
 are side worktrees (<parent>/<repo>-worktrees/side-N) of project repos, one per
 repo; a
 record left only the ways its kind can; decisions have a YYYY-MM-DD date, a
@@ -342,6 +342,7 @@ commit); an absolute path is itself.
       open. The design session's items never appear.
   builds area add NAME [--after AREA] | rename OLD NEW | move NAME --after AREA
               | remove NAME
-      remove is refused while an item is in the area; rename follows the items.
+      remove is refused while an item, open or closed, is in the area; rename
+      follows the items, open and closed.
 
 builds release W is refused while an item runs in W, naming it.

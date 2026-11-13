@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::check::item_title_fault;
-use crate::lists::{Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing};
+use crate::lists::{Id, Kind, LandedPart, Lists, Located, Record, Running, Stamp, Standing};
 
 /// Whose work an item is. The coordinator dispatches `Coordinator` items;
 /// `DesignSession` items are shown apart and never listed as dispatchable.
@@ -296,11 +296,30 @@ pub fn set_priority(lists: &mut Lists, id: Id, priority: Option<Priority>) -> Re
     Ok(())
 }
 
-/// Renames area <old> to <new> on every open item in it.
+/// Renames area <old> to <new> on every item in it, open or closed.
 pub fn rename_area(lists: &mut Lists, old: &str, new: &str) {
     for item in lists.items.iter_mut().filter(|item| item.area == old) {
         item.area = new.to_string();
     }
+    for closed in lists.closed.iter_mut() {
+        if let Record::Item(item) = &mut closed.record
+            && item.area == old
+        {
+            item.area = new.to_string();
+        }
+    }
+}
+
+/// The ids of the items in area <area>, open and closed, in id order.
+pub fn items_in_area(lists: &Lists, area: &str) -> Vec<Id> {
+    let open = lists.items.iter().filter(|item| item.area == area).map(|item| item.id);
+    let closed = lists.closed.iter().filter_map(|closed| match &closed.record {
+        Record::Item(item) if item.area == area => Some(item.id),
+        _ => None,
+    });
+    let mut ids: Vec<Id> = open.chain(closed).collect();
+    ids.sort();
+    ids
 }
 
 impl Lists {
