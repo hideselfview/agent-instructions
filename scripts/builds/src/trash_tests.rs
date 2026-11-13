@@ -51,7 +51,7 @@ fn an_emptier_never_takes_a_slot_from_an_eviction_that_made_it() {
     // The rename into the slot happens after the emptier asked to take the
     // trash; it must still find the slot.
     std::fs::rename(&folder, slot.path.join("target")).unwrap();
-    slot.remove_now().unwrap();
+    slot.remove_now();
     drop(eviction);
     finished.recv_timeout(Duration::from_secs(30)).unwrap().unwrap();
     assert!(!folder.exists() && !places.trash().exists());

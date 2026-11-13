@@ -741,11 +741,19 @@ taken without waiting (cargo holds one while it compiles, and `builds cargo` the
 guard until cargo exits), then a fresh check that no process has a file or
 working directory inside it, then the rename, then the locks are released. A
 cargo build that starts meanwhile queues on the lock and writes into the new
-folder. Caps are about twice a fresh build of the folder; the next build refills
-it, mostly from sccache (a wipe and rebuild took 137 s and 8.9 GB). Sizes, for
-the caps and `builds status`, count each block once (`builds du <path>...`
-prints them): cargo uplifts a library out of `deps/` as an APFS clone, which
-shares its blocks, and `du` counts those blocks once per file, so it read bae's
+folder. The guard is taken even when a checkout has had no `builds cargo` build
+yet (its file is created, in the nearest folder holding a `.checkout` marker),
+so no build can start using a folder between being judged idle and being moved:
+a build that starts then waits for the guard and finds the moved folder gone. A
+removal that fails anyway (a process was still writing into the folder in the
+trash, which stopped a build step with "Directory not empty" on 2026-11-13)
+warns once and leaves the slot in the trash for the next emptier, and a failed
+rename leaves the folder where it was: a deletion never fails a build. Caps are
+about twice a fresh build of the folder; the next build refills it, mostly from
+sccache (a wipe and rebuild took 137 s and 8.9 GB). Sizes, for the caps and
+`builds status`, count each block once (`builds du <path>...` prints them):
+cargo uplifts a library out of `deps/` as an APFS clone, which shares its
+blocks, and `du` counts those blocks once per file, so it read bae's
 `target-macos` as 9.3 GB where it took 7.3 GB. A file with several hard links
 (rustc links `deps/` files into `incremental/`) counts once.
 

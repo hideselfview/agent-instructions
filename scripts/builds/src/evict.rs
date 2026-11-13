@@ -12,7 +12,10 @@
 //! last, immediately before the rename. A folder inside a checkout's build
 //! root is in use too while a `builds cargo` build holds that checkout's
 //! guard (`units::GUARD`): cargo lets go of its lock before `cargo test`
-//! runs the tests it built.
+//! runs the tests it built. The guard is taken, creating its file when a
+//! checkout has had no `builds cargo` build yet, so a build starting after the
+//! check waits for the guard until the folder has been moved, never uses a
+//! folder judged idle.
 
 use std::ffi::CString;
 use std::fs::File;
@@ -53,7 +56,7 @@ pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) 
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
     let parent = folder.parent().expect("a folder to delete has a parent").to_path_buf();
     let same_volume = device(&parent)? == device(&places.root)?;
-    let _guard = match crate::units::lock_guard(&folder)? {
+    let _guard = match crate::units::lock_guard_creating(&folder)? {
         crate::units::Guard::Busy => return Ok(false),
         guard => guard,
     };
@@ -77,7 +80,7 @@ pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) 
     let moved = move_in(&folder, &slot.path, name, recreate)?;
     drop(_locks);
     match removal {
-        Removal::Now => slot.remove_now()?,
+        Removal::Now => slot.remove_now(),
         Removal::Background => slot.remove_background()?,
     }
     Ok(moved)
@@ -92,7 +95,15 @@ pub(crate) fn move_in(folder: &Path, slot: &Path, name: &std::ffi::OsStr, recrea
         Err(error) if error.kind() == std::io::ErrorKind::NotFound && !folder.exists() && slot.is_dir() => {
             return Ok(false);
         }
-        Err(error) => fail!("moving {} into {}: {error}", folder.display(), slot.display()),
+        Err(error) => {
+            // The folder stays where it was, as if it were in use.
+            crate::text::note(format!(
+                "warning: could not move {} into {}: {error}; it was not deleted",
+                folder.display(),
+                slot.display()
+            ));
+            return Ok(false);
+        }
     }
     if recreate == Recreate::Yes {
         std::fs::create_dir(folder).context(|| format!("recreating {}", folder.display()))?;
@@ -227,12 +238,12 @@ pub fn make_temp_dir(dir: &Path, prefix: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(std::ffi::OsString::from(std::ffi::OsStr::from_bytes(&bytes))))
 }
 
-/// Removes <slot> now, or starts `rm -rf` on it in a session of its own, so
+/// Removes <slot> now (warning, and leaving it, when it cannot be finished), or starts `rm -rf` on it in a session of its own, so
 /// it finishes after this process and its terminal are gone.
 pub fn remove(slot: &Path, removal: Removal) -> Result<bool> {
     match removal {
         Removal::Now => {
-            std::fs::remove_dir_all(slot).context(|| format!("removing {}", slot.display()))?;
+            return Ok(crate::trash::remove_or_warn(slot));
         }
         Removal::Background => {
             background_rm(slot)?;

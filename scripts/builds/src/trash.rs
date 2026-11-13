@@ -84,13 +84,34 @@ impl Slot {
         Ok(Slot { path, hold })
     }
 
-    pub fn remove_now(self) -> Result<()> {
-        std::fs::remove_dir_all(&self.path).context(|| format!("removing {}", self.path.display()))
+    /// Removes the slot before returning. A removal that cannot finish (see
+    /// `remove_or_warn`) warns and leaves the slot in the trash, whose next
+    /// emptier removes it: nothing wrong is left, only space unreclaimed.
+    pub fn remove_now(self) {
+        remove_or_warn(&self.path);
     }
 
     /// Starts `rm -rf` on the slot; it keeps the slot's lock until it ends.
     pub fn remove_background(self) -> Result<()> {
         spawn_rm(std::slice::from_ref(&self.path), None, &[&self.hold])
+    }
+}
+
+/// Removes <path> and everything in it, once; a path already gone is
+/// removed. When that fails, says so on stderr and goes on: what is left is
+/// bytes nothing references, in the trash, for the next emptier. Returns
+/// whether <path> is gone.
+pub fn remove_or_warn(path: &Path) -> bool {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(error) => {
+            crate::text::note(format!(
+                "warning: could not finish removing {}: {error}; it stays in the trash for the next emptier",
+                path.display()
+            ));
+            false
+        }
     }
 }
 
@@ -157,13 +178,6 @@ fn entries(folder: &Path) -> Result<Vec<PathBuf>> {
     Ok(found)
 }
 
-fn ignore_missing(result: std::io::Result<()>, path: &Path) -> Result<()> {
-    match result {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => fail!("removing {}: {error}", path.display()),
-        _ => Ok(()),
-    }
-}
-
 /// Empties the trash before returning: each slot once no other process is
 /// removing it.
 pub fn empty_now(places: &Places) -> Result<()> {
@@ -172,15 +186,27 @@ pub fn empty_now(places: &Places) -> Result<()> {
             if slot.is_dir() {
                 // Waits for a removal already running. Its slot is then gone.
                 match lock_folder(&slot, true) {
-                    Ok(_held) => ignore_missing(std::fs::remove_dir_all(&slot), &slot)?,
+                    Ok(_held) => {
+                        remove_or_warn(&slot);
+                    }
                     Err(_) if !slot.exists() => {}
                     Err(error) => return Err(error),
                 }
             } else {
-                ignore_missing(std::fs::remove_file(&slot), &slot)?;
+                if let Err(error) = std::fs::remove_file(&slot)
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    crate::text::note(format!("warning: could not remove {}: {error}", slot.display()));
+                }
             }
         }
-        ignore_missing(std::fs::remove_dir(&folder), &folder)?;
+        // A slot a warning above left keeps its folder; the next emptier
+        // takes both.
+        if let Err(error) = std::fs::remove_dir(&folder)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            crate::text::note(format!("warning: could not remove {}: {error}", folder.display()));
+        }
     }
     Ok(())
 }

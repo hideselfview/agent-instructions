@@ -218,6 +218,22 @@ pub fn lock_guard(path: &Path) -> Result<Guard> {
     }
 }
 
+/// Like `lock_guard`, for a folder in a checkout's build root (the nearest
+/// folder at or above <path> with a `.checkout` marker): creates the guard
+/// when it does not exist yet, which is when no `builds cargo` build has run
+/// there. A build that starts after this takes the guard, as `builds cargo`
+/// does, waits for it, so no build can begin using <path> between its being
+/// judged idle and its move. A path in no build root has no guard.
+pub fn lock_guard_creating(path: &Path) -> Result<Guard> {
+    let Some(root) = path.ancestors().find(|dir| dir.join(".checkout").is_file()) else {
+        return lock_guard(path);
+    };
+    match crate::evict::try_lock_creating(&root.join(GUARD))? {
+        Some(file) => Ok(Guard::Held(file)),
+        None => Ok(Guard::Busy),
+    }
+}
+
 /// The files and folders under <roots> that a process other than this one
 /// holds open (a file, a working directory, a running executable, a mapped
 /// file), by inode: lsof names a hard-linked file by whichever of its names
