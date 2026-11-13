@@ -89,6 +89,14 @@ the canvas) is the design session's: the coordinator never picks it up or
 dispatches it, and app work that waits on its board waits until the board lands
 (the person, 2026-11-13).
 
+The design session shows the person its boards on its review page (a local page
+of board renders, newest on top) before they land. For the design session,
+"land" means committing the boards, design system and spec lines to git and
+pushing them to `main`; it never means the apps being built to match (that is
+the work items' job). When boards land, their entries come off the review page
+in the same step, so the page holds only what still waits on the person (the
+person, 2026-11-10 and 2026-11-13).
+
 Each §2 item opens with a bold title of five to seven plain words on a line of
 its own, for the person (the person, 2026-11-13: "this will be the human
 title"); the details after it stay as agents write them. A §2 item that an agent
