@@ -1,5 +1,5 @@
 use super::*;
-use crate::lists::draft::{NewDecision, add_decision};
+use crate::lists::decision::{NewDecision, add_decision};
 use crate::lists::fixtures::{NOON, draft, lists, stamp};
 use crate::testing::{Scratch, repo};
 use std::collections::BTreeMap;

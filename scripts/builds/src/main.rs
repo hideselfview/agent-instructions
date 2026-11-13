@@ -117,7 +117,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "lists" => lists::cmd_lists(&tool, args),
         "decision" => lists::cmd_decision(&tool, args),
         "design" => lists::cmd_design(&tool, args),
-        "question" => lists::question::cmd_question(&tool, args),
+        "question" => lists::question_command::cmd_question(&tool, args),
         "item" => lists::cmd_item(&tool, args),
         "next" => lists::cmd_next(&tool, args),
         "area" => lists::cmd_area(&tool, args),

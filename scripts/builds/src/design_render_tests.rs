@@ -1,7 +1,7 @@
 use super::*;
 use crate::lists::fixtures::{design, lists};
 use crate::lists::view::design_view;
-use crate::lists::{Board, ReviewSection};
+use crate::lists::design::{Board, ReviewSection};
 use crate::testing::Scratch;
 
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {

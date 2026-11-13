@@ -1,234 +1,116 @@
-//! `builds decision add | edit | find | show | list`: the decision log.
-//! `add` records a decision with the work it makes, or the reason it makes
-//! none; the log is never closed, and what replaces a decision is derived
+//! The decision log's entries: what a decision is, and the write that adds
+//! one with the work it makes or edits one. `decision_command` is the
+//! commands around these operations; what replaces a decision is derived
 //! from the decisions that name it, never stored.
 
-use std::fmt::Write;
-
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::fail;
-use crate::fail::{Context, Result};
-use crate::lists::args::{Args, read_input, read_request};
+use crate::fail::Result;
 use crate::lists::check::title_fault;
-use crate::lists::derive;
-use crate::lists::draft::{NewDecision, add_decision, require_draft_briefs, work_or_why};
-use crate::lists::item::ItemDraft;
-use crate::lists::store::Store;
-use crate::lists::{Decision, Id, Lists, PlanRef, Stamp, Standing, day};
-use crate::text::{local_minute, note};
-use crate::tool::Tool;
+use crate::lists::item::{ItemDraft, add_item};
+use crate::lists::{Id, Kind, Lists, PlanRef, Stamp};
+use crate::text::local_day;
 
-const USAGE: &str = "usage: builds decision add --request FILE [--by WHO]\n       builds decision edit N [--title T] [--body-file FILE] [--by WHO]\n       builds decision find WORD... \n       builds decision show N\n       builds decision list [--plan PATH] [--since YYYY-MM-DD]\n(every command takes --project P)";
+impl Lists {
+    pub fn decision(&self, id: Id) -> Option<&Decision> {
+        self.decisions.iter().find(|d| d.id == id)
+    }
+}
 
-/// A decision as `add --request` writes it. It carries no `question`: a
-/// question's answer is recorded by `question answer`, which closes the
-/// question in the same write.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+/// An entry of the log. Never closed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DecisionRequest {
+pub struct Decision {
+    pub id: Id,
+    /// YYYY-MM-DD.
+    pub date: String,
     pub title: String,
+    /// `person`, `coordinator`, `design-session`, ...
     pub by: String,
     pub body: String,
+    /// The question it answered.
+    pub question: Option<Id>,
+    /// The items it created.
+    pub work: Vec<Id>,
+    /// The earlier decision it revises.
     pub replaces: Option<Id>,
     pub plan: Option<PlanRef>,
-    /// The items the decision makes, or ...
-    pub work: Option<Vec<ItemDraft>>,
-    /// ... why it makes none.
-    pub no_work: Option<String>,
+    pub recorded: Stamp,
+}
+/// A decision's own fields; its date and recorder come from the write.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NewDecision {
+    pub title: String,
+    /// Who decided: `person`, `coordinator`, `design-session`, ...
+    pub by: String,
+    pub body: String,
+    pub question: Option<Id>,
+    pub replaces: Option<Id>,
+    pub plan: Option<PlanRef>,
 }
 
-pub fn cmd_decision(tool: &Tool, args: &[String]) -> Result<()> {
-    let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
-    let Some((command, rest)) = args.split_first() else { fail!("{USAGE}") };
-    match command.as_str() {
-        "add" => add(tool, rest, &cwd),
-        "edit" => edit(tool, rest, &cwd),
-        "find" => find(tool, rest, &cwd),
-        "show" => show(tool, rest, &cwd),
-        "list" => list(tool, rest, &cwd),
-        other => fail!("unknown decision command {other}\n{USAGE}"),
-    }
+/// What `add_decision` made.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Added {
+    pub decision: Id,
+    pub items: Vec<Id>,
 }
 
-fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
-    let args = Args::parse(args, &["request"], &[])?;
-    args.exactly(0, USAGE)?;
-    let request: DecisionRequest = read_request(args.require("request")?)?;
-    let work = work_or_why(request.work, request.no_work)?;
-    require_draft_briefs(cwd, &work)?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let new = NewDecision {
-        title: request.title,
-        by: request.by,
-        body: request.body,
-        question: None,
-        replaces: request.replaces,
-        plan: request.plan,
-    };
-    let words = format!("decision add --request {}", args.require("request")?);
-    let added = store.with_write(&stamp, &words, |lists| {
-        let added = add_decision(lists, &new, &work, &stamp)?;
-        let made: Vec<String> = added
-            .items
-            .iter()
-            .map(|id| format!("{id} {}", lists.item(*id).map(|i| i.title.as_str()).unwrap_or("?")))
-            .collect();
-        Ok((added.decision, made))
-    })?;
-    let (decision, made) = added;
-    note(format!("recorded decision {decision}: {}", new.title));
-    for item in made {
-        note(format!("made item {item}"));
-    }
-    Ok(())
-}
-
-fn edit(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
-    let args = Args::parse(args, &["title", "body-file"], &[])?;
-    let [id] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
-    let id = Id::parse(id)?;
-    let title = args.value("title")?.map(str::to_string);
-    let body = args.value("body-file")?.map(read_input).transpose()?;
-    if title.is_none() && body.is_none() {
-        fail!("the edit of {id} changes nothing: give --title or --body-file");
-    }
-    if let Some(title) = &title
-        && let Some(fault) = title_fault(title)
-    {
+/// Adds the decision <new> with the items of <work>, each made by it; the
+/// decision's date is the day of <stamp>.
+pub fn add_decision(lists: &mut Lists, new: &NewDecision, work: &[ItemDraft], stamp: &Stamp) -> Result<Added> {
+    if let Some(fault) = title_fault(&new.title) {
         fail!("{fault}");
     }
-    if body.as_deref().is_some_and(|b| b.trim().is_empty()) {
+    if new.by.trim().is_empty() {
+        fail!("a decision names who decided (`by`)");
+    }
+    if new.body.trim().is_empty() {
         fail!("the decision's body is empty; say what was decided and why");
     }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("decision edit {}", id.0), |lists| {
-        let Some(decision) = lists.decisions.iter_mut().find(|d| d.id == id) else {
-            fail!("{id} is not a decision");
-        };
-        if let Some(title) = title {
-            decision.title = title;
-        }
-        if let Some(body) = body {
-            decision.body = body;
-        }
-        Ok(())
-    })?;
-    note(format!("edited decision {id}"));
-    Ok(())
-}
-
-/// A decision's one line: `#id date title (by)`.
-fn line(decision: &Decision) -> String {
-    format!("{} {} {} ({})", decision.id, decision.date, decision.title, decision.by)
-}
-
-/// The decisions every word of <words> appears in, in title or body, ignoring
-/// case; newest first.
-pub fn matching<'a>(lists: &'a Lists, words: &[String]) -> Vec<&'a Decision> {
-    let words: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
-    derive::decisions_newest_first(lists)
-        .into_iter()
-        .filter(|decision| {
-            let text = format!("{}\n{}", decision.title, decision.body).to_lowercase();
-            words.iter().all(|word| text.contains(word.as_str()))
-        })
-        .collect()
-}
-
-fn find(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    let words = args.positional();
-    if words.is_empty() {
-        fail!("usage: builds decision find WORD...: say what to look for");
-    }
-    let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
-    for decision in matching(&lists, words) {
-        println!("{}", line(decision));
-    }
-    Ok(())
-}
-
-/// The decisions of the log, newest first, from <since> on and of <plan>.
-pub fn listed<'a>(lists: &'a Lists, plan: Option<&str>, since: Option<&str>) -> Vec<&'a Decision> {
-    derive::decisions_newest_first(lists)
-        .into_iter()
-        .filter(|d| plan.is_none_or(|path| d.plan.as_ref().is_some_and(|p| p.path == path)))
-        .filter(|d| since.is_none_or(|from| d.date.as_str() >= from))
-        .collect()
-}
-
-fn list(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
-    let args = Args::parse(args, &["plan", "since"], &[])?;
-    args.exactly(0, USAGE)?;
-    let since = args.value("since")?;
-    if let Some(since) = since
-        && day::parse(since).is_none()
+    if let Some(question) = new.question
+        && lists.locate(question).is_none_or(|found| found.kind != Kind::Question)
     {
-        fail!("--since '{since}' is not a date: use YYYY-MM-DD");
+        fail!("the decision answers {question}, which is not a question");
     }
-    let plan = args.value("plan")?;
-    let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
-    for decision in listed(&lists, plan, since) {
-        let number = match (&decision.plan, plan) {
-            (Some(p), Some(_)) => format!(" [{}]", p.number),
-            _ => String::new(),
-        };
-        println!("{}{number}", line(decision));
+    if let Some(replaces) = new.replaces
+        && lists.decision(replaces).is_none()
+    {
+        fail!("the decision replaces {replaces}, which is not a decision");
     }
-    Ok(())
+    let decision = lists.alloc_id();
+    let mut items = Vec::new();
+    for draft in work {
+        items.push(add_item(lists, draft, Some(decision), stamp)?);
+    }
+    lists.decisions.push(Decision {
+        id: decision,
+        date: local_day(stamp.at),
+        title: new.title.clone(),
+        by: new.by.clone(),
+        body: new.body.clone(),
+        question: new.question,
+        work: items.clone(),
+        replaces: new.replaces,
+        plan: new.plan.clone(),
+        recorded: stamp.clone(),
+    });
+    Ok(Added { decision, items })
 }
 
-fn named(lists: &Lists, id: Id) -> String {
-    let title = lists.locate(id).map(|found| found.title).unwrap_or("?");
-    format!("{id} \"{title}\"")
-}
-
-/// One decision in full: who decided and recorded it, what it answered,
-/// made, replaces and is replaced by, then its body.
-pub fn render(lists: &Lists, decision: &Decision) -> String {
-    let mut out = String::new();
-    let _ = writeln!(out, "{} {} {}", decision.id, decision.date, decision.title);
-    let _ = writeln!(
-        out,
-        "decided by {}, recorded {} by {}",
-        decision.by,
-        local_minute(decision.recorded.at),
-        decision.recorded.by
-    );
-    if let Some(question) = decision.question {
-        let _ = writeln!(out, "answers question {}", named(lists, question));
+/// Changes decision <id>'s title and body, those given.
+pub fn edit(lists: &mut Lists, id: Id, title: Option<String>, body: Option<String>) -> Result<()> {
+    let Some(decision) = lists.decisions.iter_mut().find(|d| d.id == id) else {
+        fail!("{id} is not a decision");
+    };
+    if let Some(title) = title {
+        decision.title = title;
     }
-    if let Some(plan) = &decision.plan {
-        let _ = writeln!(out, "plan {} {}", plan.path, plan.number);
+    if let Some(body) = body {
+        decision.body = body;
     }
-    if let Some(replaces) = decision.replaces {
-        let _ = writeln!(out, "replaces {}", named(lists, replaces));
-    }
-    if let Some(by) = derive::replaced_by(lists, decision.id) {
-        let _ = writeln!(out, "replaced by {}", named(lists, by));
-    }
-    for id in &decision.work {
-        let state = match lists.locate(*id).map(|found| found.standing) {
-            Some(Standing::Open) => "open".to_string(),
-            Some(Standing::Closed(closed)) => closed.how.label().to_string(),
-            None => "missing".to_string(),
-        };
-        let _ = writeln!(out, "made item {} [{state}]", named(lists, *id));
-    }
-    let _ = write!(out, "\n{}\n", decision.body.trim_end());
-    out
-}
-
-fn show(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
-    let id = Id::parse(id)?;
-    let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
-    let Some(decision) = lists.decision(id) else { fail!("{id} is not a decision") };
-    print!("{}", render(&lists, decision));
     Ok(())
 }
 

@@ -126,7 +126,8 @@ impl Server {
 /// review page has two boards, `A` and one that is no file.
 fn design_store(scratch: &Scratch, places: &crate::places::Places) {
     use crate::lists::fixtures::{NOON, design, lists, stamp};
-    use crate::lists::{ReviewBoard, ReviewSection, Theme};
+    use crate::lists::design::ReviewSection;
+    use crate::lists::{ReviewBoard, Theme};
     let wt = scratch.dir.join("wt");
     std::fs::create_dir_all(wt.join("design/mocks")).unwrap();
     std::fs::create_dir_all(wt.join("design/system/components")).unwrap();

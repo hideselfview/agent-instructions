@@ -1,514 +1,170 @@
-//! `builds question ask | answer | settle | done | drop | defer | place |
-//! edit | show | list`: the decision stack. Each write is one `with_write`,
-//! so it lands whole or not at all; what a step needs is checked inside it,
-//! and outside work (a brief file, GitHub) before the lock.
+//! The decision stack's questions: what a question is, where it sits, and
+//! every write to one, with the fates an answer gives the items that waited
+//! on it. `question_command` is the commands around these operations.
 
-use std::path::Path;
+use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::fail;
-use crate::fail::{Context, Result};
-use crate::lists::args::{Args, parse_named, read_input, read_request};
-use crate::lists::check::title_fault;
-use crate::lists::derive::{self, ItemState};
+use crate::fail::Result;
+use crate::lists::item::ItemEdit;
 use crate::lists::record::close;
-use crate::lists::draft::{BlockedMap, NewDecision, add_decision, apply_blocked, require_draft_briefs, work_or_why};
-use crate::lists::item::{ItemDraft, add_item};
-use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
-use crate::lists::show::{blocks_text, kind_words, stack_entry};
-use crate::lists::store::Store;
-use crate::lists::{
-    How, Id, Kind, Lists, Located, PlanRef, Placement, Position, QuestionKind, Stamp, Standing, Wait,
-};
-use crate::tool::Tool;
+use crate::lists::{How, Id, Lists, Stamp, Wait};
 
-const USAGE: &str = "usage: builds question ask --title T --kind question|your-step|held --details-file F (--blocks N[,N] | --blocks-nothing WHY) [--from-item N] [--first WHY] [--plan PATH --plan-number Qn]
-       builds question answer N --request F
-       builds question settle N --request F
-       builds question done N --request F
-       builds question drop N --why WHY
-       builds question defer N --issue URL
-       builds question place N first|last|auto --why WHY [--by-person]
-       builds question edit N [--title T] [--details-file F] [--blocks-nothing WHY | --blocks-something]
-       builds question show N
-       builds question list
-  every command also takes --project P and --by WHO";
+impl Lists {
+    pub fn question(&self, id: Id) -> Option<&Question> {
+        self.questions.iter().find(|q| q.id == id)
+    }
+}
 
-pub fn cmd_question(tool: &Tool, args: &[String]) -> Result<()> {
-    let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
-    print!("{}", run(tool, args, &cwd, &real_gh)?);
+/// What a question is, and so what answers it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum QuestionKind {
+    /// A question to answer.
+    Question,
+    /// Work only the person can do.
+    YourStep,
+    /// Work held until the person starts it.
+    Held,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Position {
+    First,
+    Last,
+}
+
+/// Where a question sits in the stack when not by how much it unblocks.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Placement {
+    pub at: Position,
+    pub why: String,
+    pub by_person: bool,
+}
+
+/// A plan's numbered open question or decision.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanRef {
+    pub path: String,
+    pub number: String,
+}
+
+/// An entry of the decision stack. What it blocks is not stored: it is the
+/// open items whose waits name it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Question {
+    pub id: Id,
+    pub title: String,
+    pub details: String,
+    pub kind: QuestionKind,
+    /// Why it is asked though nothing waits on it.
+    pub blocks_nothing: Option<String>,
+    pub placed: Option<Placement>,
+    pub plan: Option<PlanRef>,
+    pub opened: Stamp,
+}
+/// What an answer does to one item that waited on the question.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Blocked {
+    /// The item goes on as it is; its wait is now met.
+    Proceeds,
+    Edit(ItemEdit),
+    /// The item closes, for this reason.
+    Drop(String),
+}
+
+/// For each item that waits on a question, what its answer does to it.
+pub type BlockedMap = BTreeMap<Id, Blocked>;
+
+/// Adds <question> to the stack.
+pub fn add(lists: &mut Lists, question: Question) {
+    lists.questions.push(question);
+}
+
+/// Sets, or with None clears, open question <id>'s placement.
+pub fn place(lists: &mut Lists, id: Id, placed: Option<Placement>) -> Result<()> {
+    let Some(question) = lists.questions.iter_mut().find(|q| q.id == id) else { fail!("{id} is not an open question") };
+    question.placed = placed;
     Ok(())
 }
 
-/// Runs one command and returns what it prints.
-pub fn run(tool: &Tool, args: &[String], cwd: &Path, gh: GhRunner<'_>) -> Result<String> {
-    let Some((command, rest)) = args.split_first() else { fail!("{USAGE}") };
-    let words = format!("question {}", args.join(" "));
-    match command.as_str() {
-        "ask" => ask(tool, rest, cwd, &words),
-        "answer" => resolve(tool, rest, cwd, &words, Closing::Answer),
-        "settle" => resolve(tool, rest, cwd, &words, Closing::Settle),
-        "done" => resolve(tool, rest, cwd, &words, Closing::Done),
-        "drop" => leave(tool, rest, cwd, &words, gh, Leaving::Drop),
-        "defer" => leave(tool, rest, cwd, &words, gh, Leaving::Defer),
-        "place" => place(tool, rest, cwd, &words),
-        "edit" => edit(tool, rest, cwd, &words),
-        "show" => show(tool, rest, cwd),
-        "list" => list(tool, rest, cwd),
-        other => fail!("unknown question command {other}\n{USAGE}"),
+/// Changes open question <id>: the title and details when given, and its
+/// blocks-nothing why: None leaves it, Some(None) clears it (the question
+/// blocks something), Some(Some(why)) sets it.
+pub fn edit(
+    lists: &mut Lists,
+    id: Id,
+    title: Option<String>,
+    details: Option<String>,
+    blocks_nothing: Option<Option<String>>,
+) -> Result<()> {
+    let Some(question) = lists.questions.iter_mut().find(|q| q.id == id) else { fail!("{id} is not an open question") };
+    if let Some(title) = title {
+        question.title = title;
     }
+    if let Some(details) = details {
+        question.details = details;
+    }
+    if let Some(why) = blocks_nothing {
+        question.blocks_nothing = why;
+    }
+    Ok(())
 }
 
-fn question_id(args: &Args) -> Result<Id> {
-    let [id] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
-    Id::parse(id)
+/// Every open item that waits on question <question> directly, which an
+/// answer must say what to do with.
+fn waiting_on(lists: &Lists, question: Id) -> Vec<Id> {
+    lists.items.iter().filter(|i| i.waits.contains(&Wait::Question(question))).map(|i| i.id).collect()
 }
 
-/// What follows from a write: the stack's top and what it blocks.
-fn stack_top(lists: &Lists) -> String {
-    match derive::stack_order(lists).first() {
-        None => "the stack is empty".to_string(),
-        Some(entry) => format!(
-            "the stack's top is {} {} [{}]: {}",
-            entry.question.id,
-            entry.question.title,
-            kind_words(entry.question.kind),
-            blocks_text(entry)
-        ),
+/// Is <blocked> exactly the items waiting on <question>, each with one fate?
+/// Names the items left out, and the ones named that do not wait.
+pub fn check_blocked(lists: &Lists, question: Id, blocked: &BlockedMap) -> Result<()> {
+    let waiting = waiting_on(lists, question);
+    let left_out: Vec<String> = waiting.iter().filter(|id| !blocked.contains_key(id)).map(|id| id.to_string()).collect();
+    if !left_out.is_empty() {
+        fail!(
+            "{} wait{} on {question} and `blocked` says nothing about {}: give each `proceeds`, `edit` or `drop`",
+            left_out.join(", "),
+            if left_out.len() == 1 { "s" } else { "" },
+            if left_out.len() == 1 { "it" } else { "them" }
+        );
     }
-}
-
-fn open_question(lists: &Lists, id: Id) -> Result<&crate::lists::Question> {
-    if let Some(question) = lists.question(id) {
-        return Ok(question);
+    let stray: Vec<String> = blocked.keys().filter(|id| !waiting.contains(id)).map(|id| id.to_string()).collect();
+    if !stray.is_empty() {
+        fail!("`blocked` names {}, which do not wait on {question}", stray.join(", "));
     }
-    match lists.locate(id) {
-        None => fail!("{id} is not a record"),
-        Some(Located { kind: Kind::Question, standing: Standing::Closed(closed), .. }) => {
-            fail!("question {id} is closed ({})", closed.how.label())
-        }
-        Some(Located { kind, .. }) => fail!("{id} is a {}, not a question", kind.name()),
-    }
-}
-
-fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
-    let args = Args::parse(
-        args,
-        &["title", "kind", "details-file", "blocks", "blocks-nothing", "first", "plan", "plan-number", "from-item"],
-        &[],
-    )?;
-    args.exactly(0, USAGE)?;
-    let title = args.require("title")?.to_string();
-    if let Some(fault) = title_fault(&title) {
-        fail!("{fault}");
-    }
-    let kind: QuestionKind = parse_named("--kind", args.require("kind")?, "question, your-step or held")?;
-    let details = read_input(args.require("details-file")?)?;
-    if details.trim().is_empty() {
-        fail!("details are empty; say what is asked");
-    }
-    let blocks = args.ids("blocks")?.unwrap_or_default();
-    let blocks_nothing = args.value("blocks-nothing")?.map(str::to_string);
-    if !blocks.is_empty() && blocks_nothing.is_some() {
-        fail!("--blocks and --blocks-nothing contradict each other: it blocks items or it blocks nothing");
-    }
-    if blocks_nothing.as_deref().is_some_and(|why| why.trim().is_empty()) {
-        fail!("--blocks-nothing needs its why");
-    }
-    let from_item = args.id("from-item")?;
-    let placed = match args.value("first")? {
-        None => None,
-        Some(why) if why.trim().is_empty() => fail!("--first needs its why"),
-        Some(why) => Some(Placement { at: Position::First, why: why.to_string(), by_person: false }),
-    };
-    let plan = match (args.value("plan")?, args.value("plan-number")?) {
-        (None, None) => None,
-        (Some(path), Some(number)) if !path.trim().is_empty() && !number.trim().is_empty() => {
-            Some(PlanRef { path: path.to_string(), number: number.to_string() })
-        }
-        _ => fail!("--plan and --plan-number go together, each with a value"),
-    };
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, words, |lists| {
-        let id = lists.alloc_id();
-        for blocked in &blocks {
-            if Some(*blocked) == from_item {
-                fail!("--blocks names {blocked}, the item --from-item closes");
+    for (id, fate) in blocked {
+        match fate {
+            Blocked::Drop(why) if why.trim().is_empty() => fail!("`blocked` drops {id} with no reason"),
+            Blocked::Edit(edit) if edit.is_empty() => {
+                fail!("`blocked` edits {id} but names no field; `proceeds` leaves it as it is")
             }
-            match lists.locate(*blocked) {
-                None => fail!("--blocks names {blocked}, which no record has"),
-                Some(Located { kind: Kind::Item, standing: Standing::Open, .. }) => {}
-                Some(Located { kind: Kind::Item, standing: Standing::Closed(closed), .. }) => {
-                    fail!("--blocks names {blocked}, an item that is closed ({})", closed.how.label())
-                }
-                Some(Located { kind, .. }) => fail!("--blocks names {blocked}, a {}, not an item", kind.name()),
-            }
-        }
-        // The items that wait on the question once it exists.
-        let mut waiting: Vec<Id> = blocks.clone();
-        if let Some(from) = from_item {
-            let Some(item) = lists.item(from) else { fail!("--from-item names {from}, which is not an open item") };
-            if !item.running.is_empty() {
-                fail!("item {from} is running; `builds item stop {} --why …` first, then move it to the stack", from.0);
-            }
-            // What waited on the item waits on the question that takes its place.
-            for other in lists.items.iter_mut() {
-                for wait in other.waits.iter_mut().filter(|w| **w == Wait::Item(from)) {
-                    *wait = Wait::Question(id);
-                    if !waiting.contains(&other.id) {
-                        waiting.push(other.id);
-                    }
-                }
-            }
-        }
-        if waiting.is_empty() && blocks_nothing.is_none() {
-            fail!(
-                "say what the question blocks: --blocks N[,N] (open items, which gain a wait on it), or --blocks-nothing WHY (why it is asked though nothing waits)"
-            );
-        }
-        for item in lists.items.iter_mut().filter(|i| waiting.contains(&i.id)) {
-            if !item.waits.contains(&Wait::Question(id)) {
-                item.waits.push(Wait::Question(id));
-            }
-        }
-        lists.questions.push(crate::lists::Question {
-            id,
-            title,
-            details,
-            kind,
-            blocks_nothing,
-            placed,
-            plan,
-            opened: stamp.clone(),
-        });
-        if let Some(from) = from_item {
-            close(lists, from, How::MovedToStack(id), &stamp)?;
-        }
-        Ok(())
-    })?;
-    let lists = store.load()?;
-    let id = Id(lists.next_id.0 - 1);
-    let mut out = format!("asked question {id}\n");
-    if let Some(from) = from_item {
-        out.push_str(&format!("item {from} moved to the stack; what waited on it now waits on {id}\n"));
-    }
-    out.push_str(&format!("{}\n", stack_top(&lists)));
-    Ok(out)
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Closing {
-    Answer,
-    Settle,
-    Done,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AnswerDecision {
-    title: String,
-    body: String,
-    by: String,
-    replaces: Option<Id>,
-}
-
-/// What `answer`, `settle` and `done` read from `--request`: the decision
-/// (answer), the rule that settles it (settle), and for each the fate of every
-/// item that waits and the work that follows.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Request {
-    decision: Option<AnswerDecision>,
-    by_rule: Option<String>,
-    #[serde(default)]
-    blocked: BlockedMap,
-    work: Option<Vec<ItemDraft>>,
-    no_work: Option<String>,
-}
-
-fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, closing: Closing) -> Result<String> {
-    let verb = match closing {
-        Closing::Answer => "answer",
-        Closing::Settle => "settle",
-        Closing::Done => "done",
-    };
-    let args = Args::parse(args, &["request"], &[])?;
-    let id = question_id(&args)?;
-    let request: Request = read_request(args.require("request")?)?;
-    // What the request must hold for this verb, and nothing of the others'.
-    let stray = |field: &str, others: &str| -> Result<()> {
-        fail!("`{field}` is not part of `question {verb}`; {others}")
-    };
-    match closing {
-        Closing::Answer => {
-            if request.by_rule.is_some() {
-                stray("by_rule", "a decision of the person is `decision`, a rule is `question settle`")?;
-            }
-        }
-        Closing::Settle => {
-            if request.decision.is_some() {
-                stray("decision", "settling records none: a question settled from rules is not the person's")?;
-            }
-        }
-        Closing::Done => {
-            if request.decision.is_some() || request.by_rule.is_some() {
-                stray("decision` or `by_rule", "done takes `blocked` and `work` or `no_work`")?;
-            }
-        }
-    }
-    let decision = match (closing, request.decision) {
-        (Closing::Answer, None) => fail!("`question answer` needs `decision` {{title, body, by}} in the request"),
-        (_, decision) => decision,
-    };
-    let by_rule = match (closing, request.by_rule) {
-        (Closing::Settle, None) => fail!("`question settle` needs `by_rule`: the rule or code that settles it"),
-        (Closing::Settle, Some(rule)) if rule.trim().is_empty() => fail!("`by_rule` is empty"),
-        (_, rule) => rule,
-    };
-    let drafts = work_or_why(request.work, request.no_work)?;
-    require_draft_briefs(cwd, &drafts)?;
-    let blocked = request.blocked;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let resolved = store.with_write(&stamp, words, |lists| {
-        let question = open_question(lists, id)?.clone();
-        match (closing, question.kind) {
-            (Closing::Done, QuestionKind::Question) => {
-                fail!("question {id} is a question: `builds question answer {} --request F` records the decision", id.0)
-            }
-            (Closing::Answer, QuestionKind::YourStep | QuestionKind::Held) => fail!(
-                "question {id} is {}: `builds question done {} --request F` closes it",
-                kind_words(question.kind),
-                id.0
-            ),
             _ => {}
         }
-        if drafts.iter().any(|draft| draft.waits.contains(&Wait::Question(id))) {
-            fail!("a work item waits on {id}, which this closes; the work that follows has nothing to wait for");
-        }
-        apply_blocked(lists, id, &blocked, &stamp)?;
-        let (how, made) = match decision {
-            Some(decision) => {
-                let new = NewDecision {
-                    title: decision.title,
-                    by: decision.by,
-                    body: decision.body,
-                    question: Some(id),
-                    replaces: decision.replaces,
-                    plan: question.plan.clone(),
-                };
-                let added = add_decision(lists, &new, &drafts, &stamp)?;
-                (How::Answered(added.decision), (Some(added.decision), added.items))
-            }
-            None => {
-                let mut items = Vec::new();
-                for draft in &drafts {
-                    items.push(add_item(lists, draft, None, &stamp)?);
-                }
-                let how = match by_rule {
-                    Some(rule) => How::Settled(rule),
-                    None => How::Done,
-                };
-                (how, (None, items))
-            }
-        };
-        close(lists, id, how, &stamp)?;
-        let ready: Vec<Id> = blocked
-            .iter()
-            .filter(|(item, fate)| !matches!(fate, crate::lists::draft::Blocked::Drop(_)) && lists.item(**item).is_some())
-            .map(|(item, _)| *item)
-            .filter(|item| lists.item(*item).is_some_and(|i| derive::item_state(lists, i) == ItemState::Ready))
-            .collect();
-        Ok((made, ready))
-    })?;
-    let ((decision, items), ready) = resolved;
-    let lists = store.load()?;
-    let mut out = match (closing, decision) {
-        (Closing::Answer, Some(decision)) => format!("answered question {id} with decision {decision}\n"),
-        (Closing::Settle, _) => format!("settled question {id} by rule (no decision recorded)\n"),
-        _ => format!("question {id} done\n"),
-    };
-    if !items.is_empty() {
-        let named: Vec<String> = items.iter().map(Id::to_string).collect();
-        out.push_str(&format!("made items {}\n", named.join(", ")));
     }
-    for (item, fate) in &blocked {
-        if let crate::lists::draft::Blocked::Drop(why) = fate {
-            out.push_str(&format!("dropped item {item}: {why}\n"));
-        }
-    }
-    for item in ready {
-        let title = lists.item(item).map(|i| i.title.as_str()).unwrap_or("?");
-        out.push_str(&format!("ready now: {item} {title}\n"));
-    }
-    out.push_str(&format!("{}\n", stack_top(&lists)));
-    Ok(out)
+    Ok(())
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Leaving {
-    Drop,
-    Defer,
-}
-
-/// `drop` and `defer`: the question leaves with nothing waiting on it.
-fn leave(tool: &Tool, args: &[String], cwd: &Path, words: &str, gh: GhRunner<'_>, leaving: Leaving) -> Result<String> {
-    let args = match leaving {
-        Leaving::Drop => Args::parse(args, &["why"], &[])?,
-        Leaving::Defer => Args::parse(args, &["issue"], &[])?,
-    };
-    let id = question_id(&args)?;
-    let how = match leaving {
-        Leaving::Drop => {
-            let why = args.require("why")?;
-            if why.trim().is_empty() {
-                fail!("--why is empty");
-            }
-            How::Dropped(why.to_string())
+/// Does what <blocked> says to each item that waits on <question>, after
+/// `check_blocked` accepts it.
+pub fn apply_blocked(lists: &mut Lists, question: Id, blocked: &BlockedMap, stamp: &Stamp) -> Result<()> {
+    check_blocked(lists, question, blocked)?;
+    for (id, fate) in blocked {
+        match fate {
+            Blocked::Proceeds => {}
+            Blocked::Edit(edit) => edit.apply(lists, *id)?,
+            Blocked::Drop(why) => close(lists, *id, How::Dropped(why.clone()), stamp)?,
         }
-        Leaving::Defer => {
-            let url = args.require("issue")?;
-            require_open_issue(gh, url)?;
-            How::Deferred(url.to_string())
-        }
-    };
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, words, |lists| {
-        open_question(lists, id)?;
-        let waiting: Vec<String> = lists
-            .items
-            .iter()
-            .filter(|item| item.waits.contains(&Wait::Question(id)))
-            .map(|item| format!("{} {}: `builds item wait {} --off question:{}`", item.id, item.title, item.id.0, id.0))
-            .collect();
-        if !waiting.is_empty() {
-            fail!("items still wait on question {id}; free each first:\n  {}", waiting.join("\n  "));
-        }
-        close(lists, id, how, &stamp)
-    })?;
-    let lists = store.load()?;
-    let verb = if leaving == Leaving::Drop { "dropped" } else { "deferred" };
-    Ok(format!("{verb} question {id}\n{}\n", stack_top(&lists)))
-}
-
-fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
-    let args = Args::parse(args, &["why"], &["by-person"])?;
-    let [id, at] = args.exactly(2, USAGE)? else { unreachable!("exactly two") };
-    let id = Id::parse(id)?;
-    let why = args.why()?;
-    let placed = match at.as_str() {
-        "auto" => {
-            if args.switch("by-person") {
-                fail!("--by-person goes with first or last; auto gives the place back to the order of what it unblocks");
-            }
-            None
-        }
-        other => {
-            let at: Position = parse_named("the place", other, "first, last or auto")?;
-            Some(Placement { at, why: why.to_string(), by_person: args.switch("by-person") })
-        }
-    };
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, words, |lists| {
-        open_question(lists, id)?;
-        lists.questions.iter_mut().find(|q| q.id == id).expect("open").placed = placed;
-        Ok(())
-    })?;
-    let lists = store.load()?;
-    Ok(format!("placed question {id} {at}\n{}\n", stack_top(&lists)))
-}
-
-fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
-    let args = Args::parse(args, &["title", "details-file", "blocks-nothing"], &["blocks-something"])?;
-    let id = question_id(&args)?;
-    let title = args.value("title")?.map(str::to_string);
-    if let Some(fault) = title.as_deref().and_then(title_fault) {
-        fail!("{fault}");
     }
-    let details = args.value("details-file")?.map(read_input).transpose()?;
-    if details.as_deref().is_some_and(|d| d.trim().is_empty()) {
-        fail!("details are empty; say what is asked");
-    }
-    let blocks_nothing = args.value("blocks-nothing")?.map(str::to_string);
-    if blocks_nothing.as_deref().is_some_and(|why| why.trim().is_empty()) {
-        fail!("--blocks-nothing needs its why");
-    }
-    let blocks_something = args.switch("blocks-something");
-    if blocks_nothing.is_some() && blocks_something {
-        fail!("--blocks-nothing and --blocks-something contradict each other");
-    }
-    if title.is_none() && details.is_none() && blocks_nothing.is_none() && !blocks_something {
-        fail!("the edit changes nothing: name --title, --details-file, --blocks-nothing or --blocks-something");
-    }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, words, |lists| {
-        open_question(lists, id)?;
-        let waited_on = lists.items.iter().any(|item| item.waits.contains(&Wait::Question(id)));
-        if blocks_something && !waited_on {
-            fail!(
-                "no open item waits on question {id}, so it would block nothing with no why: `builds item wait ITEM --on question:{}` makes an item wait, or give --blocks-nothing WHY",
-                id.0
-            );
-        }
-        let question = lists.questions.iter_mut().find(|q| q.id == id).expect("open");
-        if let Some(title) = title {
-            question.title = title;
-        }
-        if let Some(details) = details {
-            question.details = details;
-        }
-        if let Some(why) = blocks_nothing {
-            question.blocks_nothing = Some(why);
-        }
-        if blocks_something {
-            question.blocks_nothing = None;
-        }
-        Ok(())
-    })?;
-    let lists = store.load()?;
-    Ok(format!("edited question {id}\n{}\n", stack_top(&lists)))
-}
-
-fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
-    let id = question_id(&args)?;
-    let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
-    let stack = derive::stack_order(&lists);
-    if let Some(at) = stack.iter().position(|entry| entry.question.id == id) {
-        let entry = &stack[at];
-        let mut out = stack_entry(at + 1, entry);
-        if let Some(plan) = &entry.question.plan {
-            out.push_str(&format!("       plan {} {}\n", plan.path, plan.number));
-        }
-        out.push_str(&format!("\n{}\n", entry.question.details.trim_end()));
-        return Ok(out);
-    }
-    match lists.locate(id) {
-        Some(Located { kind: Kind::Question, standing: Standing::Closed(closed), title }) => Ok(format!(
-            "{id} {title}\nclosed {} ({}) by {}\n",
-            closed.how.label(),
-            crate::text::local_minute(closed.closed.at),
-            closed.closed.by
-        )),
-        Some(Located { kind, .. }) => fail!("{id} is a {}, not a question", kind.name()),
-        None => fail!("{id} is not a record"),
-    }
-}
-
-fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
-    args.exactly(0, USAGE)?;
-    let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
-    let stack = derive::stack_order(&lists);
-    if stack.is_empty() {
-        return Ok("the stack is empty\n".to_string());
-    }
-    Ok(stack.iter().enumerate().map(|(n, entry)| stack_entry(n + 1, entry)).collect())
+    Ok(())
 }
 
 #[cfg(test)]

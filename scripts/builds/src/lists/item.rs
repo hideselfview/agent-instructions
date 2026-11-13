@@ -276,6 +276,19 @@ pub fn remove_wait(lists: &mut Lists, id: Id, wait: &Wait) -> Result<()> {
     Ok(())
 }
 
+/// Turns every open item's wait on <from> into a wait on <to>; returns the
+/// items that had one.
+pub fn move_waits(lists: &mut Lists, from: &Wait, to: &Wait) -> Vec<Id> {
+    let mut moved = Vec::new();
+    for item in lists.items.iter_mut() {
+        for wait in item.waits.iter_mut().filter(|w| *w == from) {
+            *wait = to.clone();
+            moved.push(item.id);
+        }
+    }
+    moved
+}
+
 /// Sets, or with None clears, open item <id>'s priority.
 pub fn set_priority(lists: &mut Lists, id: Id, priority: Option<Priority>) -> Result<()> {
     let Some(item) = lists.item_mut(id) else { fail!("{id} is not an open item") };

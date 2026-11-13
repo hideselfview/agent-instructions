@@ -8,20 +8,113 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::design_paths::{Changes, PlaceKind};
 use crate::lists::item::{ItemDraft, add_item};
-use crate::lists::{
-    Board, DesignChange, DesignLanding, How, Id, Kind, Lists, Located, Record, Resolution, ReviewSection, Stamp, Standing,
-    Wait,
-};
+use crate::lists::{How, Id, Kind, Lists, Located, Record, Stamp, Standing, Wait};
 use crate::text::local_minute;
 
+/// How a design place was resolved.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Resolution {
+    /// The item that does the app work for it.
+    Item(Id),
+    /// How it was checked that no app work is needed.
+    Matches(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DesignLanding {
+    pub commits: Vec<String>,
+    pub at: i64,
+}
+
+/// A board place's link on the published canvas.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Board {
+    /// The board's link on the canvas.
+    pub link: String,
+}
+
+/// The theme a board is drawn in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    Light,
+    Dark,
+}
+
+impl Theme {
+    pub fn word(self) -> &'static str {
+        match self {
+            Theme::Light => "light",
+            Theme::Dark => "dark",
+        }
+    }
+}
+
+/// A board on a review page: the board file (a place of the repo's design
+/// places, `design/mocks/<name>.dc.html`), what the caption under it says,
+/// and the theme it is drawn in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewBoard {
+    pub board: String,
+    pub caption: String,
+    pub theme: Theme,
+}
+
+/// One heading of a review page, the words under it, and the boards.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewSection {
+    pub heading: String,
+    #[serde(default)]
+    pub words: String,
+    #[serde(default)]
+    pub boards: Vec<ReviewBoard>,
+}
+
+/// A change to the design files, recorded when its boards are drawn. It
+/// waits on the person's review (`approved`) before it can land.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DesignChange {
+    pub id: Id,
+    pub title: String,
+    pub details: String,
+    pub repo: String,
+    /// The worktree (absolute path) the boards are drawn in: the review page
+    /// renders every board from it, live, on each request.
+    pub worktree: String,
+    /// Each design place the change touches, or a component a shared source
+    /// changes the drawing of, and how it is resolved.
+    pub places: BTreeMap<String, Resolution>,
+    /// Each board place's canvas link, by the board's path.
+    pub boards: BTreeMap<String, Board>,
+    /// How the review page reads: its headings, words and boards, in order.
+    pub review: Vec<ReviewSection>,
+    /// Why shared design files changed and no drawing did.
+    pub no_app_place: Option<String>,
+    /// The person's review: set by `design approve`, cleared by an amend,
+    /// since the person approved what was drawn before it.
+    pub approved: Option<Stamp>,
+    pub opened: Stamp,
+    pub landed: Vec<DesignLanding>,
+}
+
 impl Lists {
+    pub fn design(&self, id: Id) -> Option<&DesignChange> {
+        self.designs.iter().find(|d| d.id == id)
+    }
+
     pub fn design_mut(&mut self, id: Id) -> Option<&mut DesignChange> {
         self.designs.iter_mut().find(|d| d.id == id)
     }

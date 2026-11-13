@@ -92,7 +92,8 @@ fn a_lane_never_locked_gets_its_old_lock_made_before_it_is_linked() {
 fn old_design_store(places: &Places) -> crate::lists::store::Store {
     use crate::lists::record::close;
     use crate::lists::fixtures::{NOON, design, lists, stamp};
-    use crate::lists::{Board, How};
+    use crate::lists::design::Board;
+    use crate::lists::How;
     let mut state = lists();
     for _ in 0..2 {
         let id = design(&mut state);
