@@ -123,7 +123,11 @@ fn waiting_in(queue: &Path) -> Result<bool> {
     Ok(false)
 }
 
-/// The second move: design changes recorded with an image of each board
+/// The second and third moves, made together in one write of each store (the
+/// state is read as the current shape only after both, so a store old in both
+/// ways still moves):
+///
+/// The second: design changes recorded with an image of each board
 /// (`render`) and no worktree or review page. Each, open or landed, gains its
 /// worktree and a review page, and its boards lose the image.
 ///
@@ -133,10 +137,14 @@ fn waiting_in(queue: &Path) -> Result<bool> {
 /// from the worktree that holds them records the right one. The review page is
 /// one section headed by the change's title, with every board of the change in
 /// the dark, captioned with its file name.
-pub fn migrate_design_changes(places: &Places, now: i64) -> Result<()> {
+///
+/// The third: an item's `running`, once one worktree or null, is a list with
+/// one entry per repo the work spans. An object becomes a one-entry list and
+/// null an empty one, for open items and for items in the closed records.
+pub fn migrate_lists(places: &Places, now: i64) -> Result<()> {
     for store in stores(places)? {
         let stamp = Stamp { at: now, by: "builds install".to_string() };
-        let moved = store.migrate(&stamp, "migrate design changes to review pages", |state| {
+        let moved = store.migrate(&stamp, "migrate lists to the current shape", |state| {
             let mut moved = false;
             let dev = places.home.join("dev");
             if let Some(open) = state.get_mut("designs").and_then(Value::as_array_mut) {
@@ -149,13 +157,41 @@ pub fn migrate_design_changes(places: &Places, now: i64) -> Result<()> {
                     moved |= migrate_design(design, &dev)?;
                 }
             }
+            if let Some(open) = state.get_mut("items").and_then(Value::as_array_mut) {
+                for item in open {
+                    moved |= migrate_running(item)?;
+                }
+            }
+            if let Some(closed) = state.get_mut("closed").and_then(Value::as_array_mut) {
+                for item in closed.iter_mut().filter_map(|c| c.pointer_mut("/record/item")) {
+                    moved |= migrate_running(item)?;
+                }
+            }
             Ok(moved)
         })?;
         if moved {
-            crate::text::note(format!("moved project {}'s design changes to review pages", store.project));
+            crate::text::note(format!("moved project {}'s lists to the current shape", store.project));
         }
     }
     Ok(())
+}
+
+/// Moves one item's `running` to a list; false when it already is one.
+fn migrate_running(item: &mut Value) -> Result<bool> {
+    let Some(item) = item.as_object_mut() else { fail!("an item is not an object") };
+    let Some(running) = item.get_mut("running") else { return Ok(false) };
+    match running {
+        Value::Array(_) => Ok(false),
+        Value::Null => {
+            *running = json!([]);
+            Ok(true)
+        }
+        Value::Object(_) => {
+            *running = json!([running.take()]);
+            Ok(true)
+        }
+        other => fail!("an item's running is {other}, neither null, an object nor a list"),
+    }
 }
 
 /// Moves one design change's JSON to the current shape; false when it

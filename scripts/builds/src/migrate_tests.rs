@@ -128,7 +128,7 @@ fn open_and_landed_design_changes_gain_a_worktree_and_a_review_page_and_lose_the
     let scratch = Scratch::new("migrate-designs");
     let places = scratch.places();
     let store = old_design_store(&places);
-    migrate_design_changes(&places, 1_000).unwrap();
+    migrate_lists(&places, 1_000).unwrap();
 
     let state = store.load().unwrap();
     let main_checkout = places.home.join("dev/bae").display().to_string();
@@ -157,9 +157,9 @@ fn a_store_already_in_the_current_shape_is_left_as_it_is() {
     let scratch = Scratch::new("migrate-designs-again");
     let places = scratch.places();
     let store = old_design_store(&places);
-    migrate_design_changes(&places, 1_000).unwrap();
+    migrate_lists(&places, 1_000).unwrap();
     let once = std::fs::read(store.state_path()).unwrap();
-    migrate_design_changes(&places, 2_000).unwrap();
+    migrate_lists(&places, 2_000).unwrap();
     assert_eq!(std::fs::read(store.state_path()).unwrap(), once, "no write, no new version");
 }
 
@@ -172,7 +172,64 @@ fn a_state_that_cannot_be_read_as_the_current_shape_after_the_move_is_not_writte
     raw["designs"][0]["surprise"] = serde_json::json!(1);
     std::fs::write(store.state_path(), serde_json::to_string_pretty(&raw).unwrap()).unwrap();
     let before = std::fs::read(store.state_path()).unwrap();
-    let refused = migrate_design_changes(&places, 1_000).unwrap_err().text();
+    let refused = migrate_lists(&places, 1_000).unwrap_err().text();
     assert!(refused.contains("not valid lists") && refused.contains("surprise"), "{refused}");
     assert_eq!(std::fs::read(store.state_path()).unwrap(), before);
+}
+
+/// A store of project `demo` with item 1 running and item 2 landed, rewritten
+/// in the shape before `running` was a list: an object on the open item, null
+/// on the closed one.
+fn old_running_store(places: &Places) -> crate::lists::store::Store {
+    use crate::lists::draft::close;
+    use crate::lists::fixtures::{NOON, item, lists, stamp};
+    use crate::lists::{How, Running};
+    let mut state = lists();
+    let running = item(&mut state, vec![]);
+    let landed = item(&mut state, vec![]);
+    state.item_mut(running).unwrap().running = vec![Running {
+        worktree: "/d/bae-worktrees/side-2".into(),
+        branch: "import-tags".into(),
+        brief: "plans/briefs/x.md".into(),
+        since: stamp(NOON),
+    }];
+    close(&mut state, landed, How::Landed(vec!["abc".into()]), &stamp(NOON)).unwrap();
+    let store = crate::lists::store::Store::named(places, "demo").unwrap();
+    store.create(state, &stamp(NOON), "lists init demo").unwrap();
+    let mut raw: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(store.state_path()).unwrap()).unwrap();
+    let entry = raw["items"][0]["running"][0].clone();
+    raw["items"][0]["running"] = entry;
+    raw["closed"][0]["record"]["item"]["running"] = serde_json::Value::Null;
+    std::fs::write(store.state_path(), serde_json::to_string_pretty(&raw).unwrap()).unwrap();
+    assert!(store.load().is_err(), "the old shape is not the current one");
+    store
+}
+
+#[test]
+fn a_running_object_becomes_a_one_entry_list_and_null_an_empty_one() {
+    let scratch = Scratch::new("migrate-running");
+    let places = scratch.places();
+    let store = old_running_store(&places);
+    migrate_lists(&places, 1_000).unwrap();
+    let state = store.load().unwrap();
+    let running = &state.items[0].running;
+    assert_eq!(
+        running.iter().map(|r| (r.worktree.as_str(), r.branch.as_str())).collect::<Vec<_>>(),
+        [("/d/bae-worktrees/side-2", "import-tags")]
+    );
+    let crate::lists::Record::Item(closed) = &state.closed[0].record else { panic!("an item") };
+    assert!(closed.running.is_empty());
+    let last = state.log.last().unwrap();
+    assert_eq!((last.version, last.at, last.by.as_str()), (state.version, 1_000, "builds install"));
+}
+
+#[test]
+fn a_store_whose_running_is_already_a_list_is_left_as_it_is() {
+    let scratch = Scratch::new("migrate-running-again");
+    let places = scratch.places();
+    let store = old_running_store(&places);
+    migrate_lists(&places, 1_000).unwrap();
+    let once = std::fs::read(store.state_path()).unwrap();
+    migrate_lists(&places, 2_000).unwrap();
+    assert_eq!(std::fs::read(store.state_path()).unwrap(), once, "no write, no new version");
 }

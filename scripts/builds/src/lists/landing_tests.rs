@@ -268,9 +268,11 @@ fn a_part_from_one_repo_leaves_the_item_running_and_done_from_the_other_closes_i
 }
 
 #[test]
-fn a_commit_of_one_repos_branch_is_not_accepted_for_another_repos_landing() {
-    let t = two_repos("landing-two-wrong-commit");
-    let args = land_args(&t.demo_lander, &["--part", "1", &t.other_commit]);
-    let refused = refusal(check_landing(&t.demo.tool, &args));
+fn a_landing_from_the_second_repo_is_accepted_and_the_first_repos_commit_is_not_in_it() {
+    let t = two_repos("landing-two-second-repo");
+    let from_other = land_args(&t.other_lander, &["--part", "1", &t.other_commit]);
+    check_landing(&t.demo.tool, &from_other).unwrap();
+    let wrong_commit = land_args(&t.other_lander, &["--part", "1", &t.demo_commit]);
+    let refused = refusal(check_landing(&t.demo.tool, &wrong_commit));
     assert!(refused.contains("not a commit"), "{refused}");
 }
