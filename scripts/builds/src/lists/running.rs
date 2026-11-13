@@ -83,6 +83,14 @@ pub fn stop(lists: &mut Lists, id: Id) -> Result<()> {
     Ok(())
 }
 
+/// Ends open item <id>'s running wherever it runs, if it runs: an item that
+/// is done runs nowhere.
+pub fn end(lists: &mut Lists, id: Id) -> Result<()> {
+    let Some(item) = lists.item_mut(id) else { fail!("{id} is not an open item") };
+    item.running.clear();
+    Ok(())
+}
+
 /// Who holds the worktree an item runs in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Agent {

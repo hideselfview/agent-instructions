@@ -329,7 +329,8 @@ commit); an absolute path is itself.
       worktree of each of two repos accepts a landing from either), and each
       SHA is on the branch of one of them. landed (after the push): each SHA is on
       origin/main; --part records a landed part and leaves the item running
-      in all its worktrees, --done closes the item as landed, so an item
+      in all its worktrees, --done closes the item as landed and ends its running everywhere (a
+      closed item runs nowhere), so an item
       spanning two repos lands --part from one and --done from the other. The same call twice records once; a different set of commits
       for an item already closed as landed is refused.
   builds item show N | list [--running] [--ready] [--area A] [--for F]

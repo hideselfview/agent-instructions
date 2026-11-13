@@ -39,15 +39,15 @@ fn wait_line(lists: &Lists, wait: &Wait) -> String {
 
 /// Item <id>, open or closed, in full.
 pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
-    let (item, state) = match lists.locate(id) {
+    let (item, state, open) = match lists.locate(id) {
         Some(Located { kind: Kind::Item, standing: Standing::Open, .. }) => {
             let item = open_item(lists, id)?;
-            (item, derive::item_state(lists, item).label().to_string())
+            (item, derive::item_state(lists, item).label().to_string(), true)
         }
         Some(Located { kind: Kind::Item, standing: Standing::Closed(closed), .. }) => {
             let crate::lists::Record::Item(item) = &closed.record else { unreachable!("an item's closed record") };
             let text = format!("closed, {} by {} {}", how_words(&closed.how), closed.closed.by, local_minute(closed.closed.at));
-            (item, text)
+            (item, text, false)
         }
         Some(Located { kind, .. }) => fail!("{id} is a {}, not an item", kind.name()),
         None => fail!("{id} is not a record"),
@@ -68,7 +68,9 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
     for wait in &item.waits {
         let _ = writeln!(out, "waits on {}", wait_line(lists, wait));
     }
-    for running in &item.running {
+    // A closed item runs nowhere, whatever its record holds.
+    let running = if open { item.running.as_slice() } else { &[] };
+    for running in running {
         let _ = writeln!(out, "{}", marker(running)?);
         let _ = writeln!(out, "running since {} by {}", local_minute(running.since.at), running.since.by);
     }

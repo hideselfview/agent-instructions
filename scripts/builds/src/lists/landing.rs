@@ -27,7 +27,7 @@ use crate::lists::args::Args;
 use crate::lists::record::close;
 use crate::lists::store::Store;
 use crate::lists::item::open_item;
-use crate::lists::running::{Running, side_worktree_parts};
+use crate::lists::running::{Running, end, side_worktree_parts};
 use crate::lists::{Closed, How, Id, Kind, Lists, Located, Stamp, Standing};
 use crate::text::note;
 use crate::tool::Tool;
@@ -197,6 +197,7 @@ fn record(lists: &mut Lists, items: &[Named], repo: &str, commits: &[String], st
             Some(Located { standing: Standing::Open, .. }) => {
                 let item = lists.item(id).expect("located open");
                 if named.finishes {
+                    end(lists, id)?;
                     close(lists, id, How::Landed(commits.to_vec()), stamp)?;
                     did.push(format!("{id} landed"));
                 } else if item.landed.iter().any(|part| part.repo == repo && same_set(&part.commits, commits)) {

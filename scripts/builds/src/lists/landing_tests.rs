@@ -1,6 +1,7 @@
 use super::*;
 use crate::lists::item_command::cmd_item;
 use crate::lists::item_fixtures::{Demo, demo, refusal, words};
+use crate::lists::Record;
 use crate::testing::git as run_git;
 
 /// A repo with agent A running items 1 and 2 on branch `work` in side-1, one
@@ -110,6 +111,33 @@ fn landed_records_a_part_then_closes_and_is_idempotent() {
     assert_eq!(lists.closed.len(), 1);
     assert_eq!(lists.version, version + 1, "the repeat is a logged write that adds no record");
     let _ = after_first;
+}
+
+/// What `item show` prints for item <id>.
+fn shown(l: &Landing, id: u32) -> String {
+    crate::lists::item_show::render_item(&l.demo.store.load().unwrap(), Id(id)).unwrap()
+}
+
+#[test]
+fn landed_done_ends_where_the_item_runs_and_a_part_leaves_it_running() {
+    let l = setup("landing-done-stops-running");
+    push(&l);
+    assert!(shown(&l, 2).contains("running since"), "the item runs before it lands");
+    landed(&l, &["--part", "1", "--done", "2", &l.commit]).unwrap();
+    let lists = l.demo.store.load().unwrap();
+    let Record::Item(closed) = &lists.closed_record(Id(2)).expect("item 2 closed").record else { panic!("an item") };
+    assert!(closed.running.is_empty(), "a closed item runs nowhere: {:?}", closed.running);
+    assert_eq!(lists.item(Id(1)).unwrap().running.len(), 1, "a part leaves the item running");
+}
+
+#[test]
+fn item_show_of_a_landed_item_prints_no_running_marker() {
+    let l = setup("landing-done-show");
+    push(&l);
+    landed(&l, &["--done", "2", &l.commit]).unwrap();
+    let text = shown(&l, 2);
+    assert!(text.contains("[closed, landed"), "{text}");
+    assert!(!text.contains("Running:") && !text.contains("running since"), "{text}");
 }
 
 #[test]
@@ -265,6 +293,8 @@ fn a_part_from_one_repo_leaves_the_item_running_and_done_from_the_other_closes_i
     let lists = t.demo.store.load().unwrap();
     assert!(lists.item(Id(1)).is_none());
     assert!(matches!(&lists.closed[0].how, How::Landed(c) if *c == [t.other_commit.clone()]));
+    let Record::Item(closed) = &lists.closed[0].record else { panic!("an item") };
+    assert!(closed.running.is_empty(), "done ends the running in every repo: {:?}", closed.running);
 }
 
 #[test]
