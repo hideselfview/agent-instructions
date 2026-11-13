@@ -15,20 +15,23 @@
 //! so its SHAs are the commits now on origin/main and must be there. Git runs
 //! before the store's lock.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Stdio;
 
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 use crate::checkout::{Checkout, git};
+use crate::db::Sql;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::Args;
 use crate::lists::record::close;
-use crate::lists::store::Store;
-use crate::lists::item::open_item;
+use crate::lists::item::{self, open_item};
+use crate::lists::store::{self, Store};
 use crate::lists::running::{Running, end, side_worktree_parts};
-use crate::lists::{Closed, How, Id, Kind, Lists, Located, Stamp, Standing};
+use crate::lists::{Closed, How, Id, Kind, Located, Stamp, Standing};
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -44,10 +47,38 @@ pub struct LandedPart {
 }
 
 /// Records on open item <id> that <part> of it is on main.
-pub fn add_part(lists: &mut Lists, id: Id, part: LandedPart) -> Result<()> {
-    let Some(item) = lists.item_mut(id) else { fail!("{id} is not an open item") };
-    item.landed.push(part);
+pub fn add_part(db: &Connection, id: Id, part: LandedPart) -> Result<()> {
+    item::require_open_item(db, id)?;
+    db.execute("INSERT INTO item_landing (item_id, repo, at) VALUES (?1, ?2, ?3)", params![id, part.repo, part.at]).sql()?;
+    let landing = db.last_insert_rowid();
+    for (position, sha) in part.commits.iter().enumerate() {
+        db.execute(
+            "INSERT INTO item_landing_commit (landing_id, position, sha) VALUES (?1, ?2, ?3)",
+            params![landing, position as i64, sha],
+        )
+        .sql()?;
+    }
     Ok(())
+}
+
+/// What already landed of every item, by item, in the order it landed.
+pub fn read(db: &Connection) -> Result<BTreeMap<Id, Vec<LandedPart>>> {
+    let mut commits: BTreeMap<i64, Vec<String>> = BTreeMap::new();
+    let mut statement = db.prepare("SELECT landing_id, sha FROM item_landing_commit ORDER BY landing_id, position").sql()?;
+    for row in statement.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))).sql()? {
+        let (landing, sha) = row.sql()?;
+        commits.entry(landing).or_default().push(sha);
+    }
+    let mut statement = db.prepare("SELECT id, item_id, repo, at FROM item_landing ORDER BY id").sql()?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Id>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?)))
+        .sql()?;
+    let mut all: BTreeMap<Id, Vec<LandedPart>> = BTreeMap::new();
+    for row in rows {
+        let (landing, item, repo, at) = row.sql()?;
+        all.entry(item).or_default().push(LandedPart { repo, commits: commits.remove(&landing).unwrap_or_default(), at });
+    }
+    Ok(all)
 }
 
 /// An item a landing names, and whether the landing finishes it.
@@ -178,7 +209,8 @@ fn same_set(a: &[String], b: &[String]) -> bool {
 
 /// Records on <lists> that <commits> of <repo> landed for <items>; the same
 /// call again records nothing more. Returns what each item did.
-fn record(lists: &mut Lists, items: &[Named], repo: &str, commits: &[String], stamp: &Stamp) -> Result<Vec<String>> {
+fn record(db: &Connection, items: &[Named], repo: &str, commits: &[String], stamp: &Stamp) -> Result<Vec<String>> {
+    let lists = store::read(db)?;
     let mut did = Vec::new();
     for named in items {
         let id = named.id;
@@ -197,13 +229,13 @@ fn record(lists: &mut Lists, items: &[Named], repo: &str, commits: &[String], st
             Some(Located { standing: Standing::Open, .. }) => {
                 let item = lists.item(id).expect("located open");
                 if named.finishes {
-                    end(lists, id)?;
-                    close(lists, id, How::Landed(commits.to_vec()), stamp)?;
+                    end(db, id)?;
+                    close(db, id, How::Landed(commits.to_vec()), stamp)?;
                     did.push(format!("{id} landed"));
                 } else if item.landed.iter().any(|part| part.repo == repo && same_set(&part.commits, commits)) {
                     did.push(format!("{id} already had this part"));
                 } else {
-                    add_part(lists, id, LandedPart { repo: repo.to_string(), commits: commits.to_vec(), at: stamp.at })?;
+                    add_part(db, id, LandedPart { repo: repo.to_string(), commits: commits.to_vec(), at: stamp.at })?;
                     did.push(format!("{id} gained a landed part"));
                 }
             }
@@ -226,20 +258,32 @@ pub fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let store = Store::resolve(&tool.places, &landing.args, top)?;
     let stamp = Stamp::resolve(tool.now, &landing.args, cwd)?;
     let repo = landing.checkout.repo();
-    let did = store.with_write(&stamp, &format!("item landed {}", commits.join(" ")), |lists| {
+    let did = store.write(&stamp, &format!("item landed {}", commits.join(" ")), |db| {
+        let lists = store::read(db)?;
         for named in &landing.items {
-            if let Ok(item) = open_item(lists, named.id)
+            if let Ok(item) = open_item(&lists, named.id)
                 && !item.running.is_empty()
             {
                 running_in_repo(&item.running, &landing.checkout, named.id)?;
             }
         }
-        record(lists, &landing.items, &repo, &commits, &stamp)
+        record(db, &landing.items, &repo, &commits, &stamp)
     })?;
     for line in did {
         note(line);
     }
     Ok(())
+}
+
+/// The tables landing.rs owns.
+#[cfg(test)]
+const TABLES: [&str; 2] = ["item_landing", "item_landing_commit"];
+
+/// Writes a row of one of landing.rs's tables as given, the constraints
+/// still holding: for tests that need a row they refuse.
+#[cfg(test)]
+pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+    crate::db::plant_row(db, &TABLES, table, columns)
 }
 
 #[cfg(test)]

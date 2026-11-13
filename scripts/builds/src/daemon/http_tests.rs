@@ -125,8 +125,8 @@ impl Server {
 /// `wt` in the scratch folder: a board `A` and the design system's files. Its
 /// review page has two boards, `A` and one that is no file.
 fn design_store(scratch: &Scratch, places: &crate::places::Places) {
-    use crate::lists::fixtures::{NOON, design, lists, stamp};
-    use crate::lists::design::{ReviewSection, plant_review, plant_worktree};
+    use crate::lists::fixtures::{NOON, design_drawn, make_store, stamp};
+    use crate::lists::design::ReviewSection;
     use crate::lists::{ReviewBoard, Theme};
     let wt = scratch.dir.join("wt");
     std::fs::create_dir_all(wt.join("design/mocks")).unwrap();
@@ -136,18 +136,25 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
     std::fs::write(wt.join("design/system/components/bundle.js"), "window.Bae = {};").unwrap();
     std::fs::write(wt.join("design/mocks/A.dc.html"), "<x-dc><p>board A as drawn {{yes}}</p></x-dc>").unwrap();
     std::fs::write(wt.join("design/mocks/canvas.json"), r#"{"boards": {"A.dc.html": {"w": 300, "h": 200}}}"#).unwrap();
-    let mut state = lists();
-    let id = design(&mut state);
-    plant_worktree(&mut state, id, &wt.display().to_string());
-    plant_review(&mut state, id, vec![ReviewSection {
-        heading: "The change".into(),
-        words: "what it shows".into(),
-        boards: vec![
-            ReviewBoard { board: "design/mocks/A.dc.html".into(), caption: "A".into(), theme: Theme::Light },
-            ReviewBoard { board: "design/mocks/Gone.dc.html".into(), caption: "Gone".into(), theme: Theme::Dark },
-        ],
-    }]);
-    crate::lists::store::Store::named(places, "demo").unwrap().create(state, &stamp(NOON), "lists init demo").unwrap();
+    let store = make_store(places, &["bae", "coven"]);
+    store
+        .write(&stamp(NOON), "design record", |db| {
+            design_drawn(
+                db,
+                &wt.display().to_string(),
+                &[],
+                vec![ReviewSection {
+                    heading: "The change".into(),
+                    words: "what it shows".into(),
+                    boards: vec![
+                        ReviewBoard { board: "design/mocks/A.dc.html".into(), caption: "A".into(), theme: Theme::Light },
+                        ReviewBoard { board: "design/mocks/Gone.dc.html".into(), caption: "Gone".into(), theme: Theme::Dark },
+                    ],
+                }],
+            );
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]

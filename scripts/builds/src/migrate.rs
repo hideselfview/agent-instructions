@@ -17,13 +17,15 @@
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
-use serde_json::{Value, json};
+use rusqlite::Connection;
+use serde_json::Value;
 
+use crate::db::{self, DATABASE, Sql};
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Fail, Result};
 use crate::lane::Lane;
-use crate::lists::Stamp;
-use crate::lists::store::stores;
+use crate::lists::store;
+use crate::lists::{self, Lists, LogLine};
 use crate::places::Places;
 use crate::queue::is_held;
 
@@ -123,113 +125,437 @@ fn waiting_in(queue: &Path) -> Result<bool> {
     Ok(false)
 }
 
-/// The second and third moves, made together in one write of each store (the
-/// state is read as the current shape only after both, so a store old in both
-/// ways still moves):
+/// The move of the lists from `lists.json` into `builds.sqlite`, made by
+/// `builds install` for each project folder that still holds the JSON (or a
+/// move a crash left half done).
 ///
-/// The second: design changes recorded with an image of each board
-/// (`render`) and no worktree or review page. Each, open or landed, gains its
-/// worktree and a review page, and its boards lose the image.
+/// The JSON is read as today's shape and nothing older. Everything the
+/// database will derive is checked to agree with what the JSON stores twice,
+/// and a copy of the whole store is built in memory and checked before
+/// anything on disk changes, so a store that can't move is refused with
+/// everything as it was. Then, holding `lists.lock` so no old binary is
+/// mid-write:
 ///
-/// A record never said which worktree its boards were drawn in, so it gets
-/// the main checkout of its repo, `~/dev/<repo>`. Boards that are not there
-/// show their review page's board as that problem until `design amend N`
-/// from the worktree that holds them records the right one. The review page is
-/// one section headed by the change's title, with every board of the change in
-/// the dark, captioned with its file name.
+/// 1. `lists.json` is renamed to `lists.json.moving`: from then on an old
+///    binary fails loudly instead of writing JSON the database would never
+///    see, and a new one refuses with "a move is under way".
+/// 2. The database is brought to the current schema (a new file gets all of
+///    it; one holding only the hook stats' tables gets the lists' tables, and
+///    must then equal a fresh schema) and every row goes in one transaction,
+///    with the move's own line in the write log.
+/// 3. `lists.json.moving` is renamed to `lists.json.moved`, and `lists.lock`
+///    goes.
 ///
-/// The third: an item's `running`, once one worktree or null, is a list with
-/// one entry per repo the work spans. An object becomes a one-entry list and
-/// null an empty one, for open items and for items in the closed records.
+/// Running install again finishes whatever state a crash left: `.moving` with
+/// no lists rows moves again; `.moving` with the lists rows of its own move
+/// only renames; anything else is refused naming what it found.
 pub fn migrate_lists(places: &Places, now: i64) -> Result<()> {
-    for store in stores(places)? {
-        let stamp = Stamp { at: now, by: "builds install".to_string() };
-        let moved = store.migrate(&stamp, "migrate lists to the current shape", |state| {
-            let mut moved = false;
-            let dev = places.home.join("dev");
-            if let Some(open) = state.get_mut("designs").and_then(Value::as_array_mut) {
-                for design in open {
-                    moved |= migrate_design(design, &dev)?;
-                }
-            }
-            if let Some(closed) = state.get_mut("closed").and_then(Value::as_array_mut) {
-                for design in closed.iter_mut().filter_map(|c| c.pointer_mut("/record/design")) {
-                    moved |= migrate_design(design, &dev)?;
-                }
-            }
-            if let Some(open) = state.get_mut("items").and_then(Value::as_array_mut) {
-                for item in open {
-                    moved |= migrate_running(item)?;
-                }
-            }
-            if let Some(closed) = state.get_mut("closed").and_then(Value::as_array_mut) {
-                for item in closed.iter_mut().filter_map(|c| c.pointer_mut("/record/item")) {
-                    moved |= migrate_running(item)?;
-                }
-            }
-            Ok(moved)
-        })?;
-        if moved {
-            crate::text::note(format!("moved project {}'s lists to the current shape", store.project));
+    let entries = match std::fs::read_dir(&places.lists) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => fail!("listing {}: {error}", places.lists.display()),
+    };
+    let mut dirs = Vec::new();
+    for entry in entries {
+        let entry = entry.context(|| format!("listing {}", places.lists.display()))?;
+        if entry.path().is_dir() {
+            dirs.push(entry.path());
         }
+    }
+    dirs.sort();
+    for dir in dirs {
+        move_folder(&dir, now)?;
     }
     Ok(())
 }
 
-/// Moves one item's `running` to a list; false when it already is one.
-fn migrate_running(item: &mut Value) -> Result<bool> {
-    let Some(item) = item.as_object_mut() else { fail!("an item is not an object") };
-    let Some(running) = item.get_mut("running") else { return Ok(false) };
-    match running {
-        Value::Array(_) => Ok(false),
-        Value::Null => {
-            *running = json!([]);
-            Ok(true)
+/// What the move's own write log line says.
+const MOVE_WORDS: &str = "move lists.json into builds.sqlite";
+const MOVE_BY: &str = "builds install";
+
+/// An exclusive lock on a folder's `lists.lock`, held until dropped: every old
+/// binary's write holds it for the whole write.
+struct Locked {
+    _file: std::fs::File,
+}
+
+fn take_lock(path: &Path) -> Result<Locked> {
+    use std::os::fd::AsRawFd;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+        .context(|| format!("opening {}", path.display()))?;
+    loop {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(Locked { _file: file });
         }
-        Value::Object(_) => {
-            *running = json!([running.take()]);
-            Ok(true)
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            fail!("locking {}: {error}", path.display());
         }
-        other => fail!("an item's running is {other}, neither null, an object nor a list"),
     }
 }
 
-/// Moves one design change's JSON to the current shape; false when it
-/// already is. <dev> holds the repos' main checkouts.
-fn migrate_design(design: &mut Value, dev: &Path) -> Result<bool> {
-    let Some(record) = design.as_object_mut() else { fail!("a design change is not an object") };
-    let mut moved = false;
-    if let Some(boards) = record.get_mut("boards").and_then(Value::as_object_mut) {
-        for board in boards.values_mut().filter_map(Value::as_object_mut) {
-            moved |= board.remove("render").is_some();
+/// How many lists rows the database in <dir> holds, and its latest version:
+/// None when it holds no project.
+fn lists_rows(dir: &Path) -> Result<Option<u64>> {
+    let path = dir.join(DATABASE);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let conn = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .context(|| format!("opening {}", path.display()))?;
+    let stamp = db::stamp_of(&conn, &path)?;
+    if stamp == 0 || stamp == db::HOOK_ONLY_STAMP {
+        return Ok(None);
+    }
+    if stamp != db::stamp() {
+        fail!("{} was made by another builds schema (it carries {stamp})", path.display());
+    }
+    let rows: i64 = conn.query_row("SELECT COUNT(*) FROM project", [], |row| row.get(0)).sql()?;
+    if rows == 0 {
+        return Ok(None);
+    }
+    Ok(Some(store::version(&conn)?))
+}
+
+fn move_folder(dir: &Path, now: i64) -> Result<()> {
+    let state = dir.join(store::JSON_STATE);
+    let moving = dir.join(store::JSON_MOVING);
+    let moved = dir.join(format!("{}.moved", store::JSON_STATE));
+    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let (has_state, has_moving) = (state.exists(), moving.exists());
+    if !has_state && !has_moving {
+        return upgrade_hook_only(dir);
+    }
+    if has_state && has_moving {
+        fail!("{} holds both {} and {}; one of them is left from a move that did not finish, and neither is deleted for you", dir.display(), store::JSON_STATE, store::JSON_MOVING);
+    }
+    let rows = lists_rows(dir)?;
+    let _lock = take_lock(&dir.join("lists.lock"))?;
+    if has_state {
+        if let Some(version) = rows {
+            fail!("{} holds {} beside lists rows in {DATABASE} (version {version}); it can only come from a hand edit, and neither is deleted for you", dir.display(), store::JSON_STATE);
+        }
+        let lists = read_json(&state)?;
+        // Everything the database refuses or the checks find is found here, before anything changes.
+        rehearse(&lists, &name)?;
+        std::fs::rename(&state, &moving).context(|| format!("renaming {} to {}", state.display(), moving.display()))?;
+    }
+    let lists = read_json(&moving)?;
+    match rows {
+        None => {
+            put_in_database(dir, &lists, &name, now)?;
+        }
+        Some(version) => {
+            let last = {
+                let path = dir.join(DATABASE);
+                let conn = db::open_reader(&path)?.expect("rows were read");
+                store::read_log(&conn)?.pop()
+            };
+            let ours = lists.1.version + 1 == version
+                && last.is_some_and(|(v, _, by, words)| v == version && by == MOVE_BY && words == MOVE_WORDS);
+            if !ours {
+                fail!(
+                    "{} holds {} at version {}, and {DATABASE} holds lists at version {version} that are not this move's; neither is deleted for you",
+                    dir.display(),
+                    store::JSON_MOVING,
+                    lists.1.version
+                );
+            }
         }
     }
-    if !record.contains_key("worktree") {
-        let Some(repo) = record.get("repo").and_then(Value::as_str) else { fail!("a design change has no repo") };
-        let worktree = dev.join(repo).display().to_string();
-        record.insert("worktree".to_string(), json!(worktree));
-        moved = true;
+    std::fs::rename(&moving, &moved).context(|| format!("renaming {} to {}", moving.display(), moved.display()))?;
+    // Removed while the lock is still held; an old writer blocked on it then finds no lists.json.
+    let _ = std::fs::remove_file(dir.join("lists.lock"));
+    crate::text::note(format!("moved project {name}'s lists into {}", dir.join(DATABASE).display()));
+    Ok(())
+}
+
+/// A database the hook stats made, with only their tables: given the lists'
+/// tables and the schema's stamp, so every later open takes it as a store.
+fn upgrade_hook_only(dir: &Path) -> Result<()> {
+    let path = dir.join(DATABASE);
+    if !path.is_file() {
+        return Ok(());
     }
-    if !record.contains_key("review") {
-        let title = record.get("title").and_then(Value::as_str).unwrap_or("Boards").to_string();
-        let boards: Vec<Value> = record
-            .get("boards")
-            .and_then(Value::as_object)
-            .map(|boards| {
-                boards
-                    .keys()
-                    .map(|path| {
-                        let file = path.rsplit('/').next().unwrap_or(path);
-                        let name = file.strip_suffix(".dc.html").unwrap_or(file);
-                        json!({ "board": path, "caption": name, "theme": "dark" })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        record.insert("review".to_string(), json!([{ "heading": title, "words": "", "boards": boards }]));
-        moved = true;
+    let mut conn = db::open_for_move(&path)?;
+    if db::stamp_of(&conn, &path)? != db::HOOK_ONLY_STAMP {
+        return Ok(());
     }
-    Ok(moved)
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).sql()?;
+    bring_to_schema(&tx, &path)?;
+    tx.commit().sql()?;
+    crate::text::note(format!("gave {} the lists' tables", path.display()));
+    Ok(())
+}
+
+/// Creates the lists' tables in <tx> where only the hook stats' (or none)
+/// are, stamps it, and refuses unless what it holds is what a fresh database
+/// has.
+fn bring_to_schema(tx: &Connection, path: &Path) -> Result<()> {
+    let found = db::stamp_of(tx, path)?;
+    if found == 0 {
+        tx.execute_batch(&db::schema()).sql()?;
+    } else {
+        tx.execute_batch(&db::lists_schema()).sql()?;
+    }
+    tx.pragma_update(None, "user_version", db::stamp()).sql()?;
+    if db::schema_rows(tx)? != db::schema_rows(&db::memory())? {
+        fail!("{} holds a schema that is not the one this builds makes; it is left as it was", path.display());
+    }
+    Ok(())
+}
+
+type Source = (Lists, Json);
+
+/// What `lists.json` held outside `Lists`: the counter and the log.
+struct Json {
+    next_id: u32,
+    log: Vec<LogLine>,
+    version: u64,
+}
+
+/// `lists.json` read as today's shape.
+fn read_json(path: &Path) -> Result<Source> {
+    let text = std::fs::read_to_string(path).context(|| format!("reading {}", path.display()))?;
+    let mut value: Value =
+        serde_json::from_str(&text).map_err(|error| Fail::Message(format!("{} is not valid JSON: {error}", path.display())))?;
+    let Some(object) = value.as_object_mut() else { fail!("{} is not an object", path.display()) };
+    let Some(next_id) = object.remove("next_id").and_then(|v| v.as_u64()) else { fail!("{} has no next_id", path.display()) };
+    let Some(log) = object.remove("log") else { fail!("{} has no log", path.display()) };
+    let log: Vec<LogLine> = serde_json::from_value(log)
+        .map_err(|error| Fail::Message(format!("{}'s log is not today's shape: {error}", path.display())))?;
+    let lists: Lists = serde_json::from_value(value)
+        .map_err(|error| Fail::Message(format!("{} is not today's shape of the lists: {error}", path.display())))?;
+    let version = lists.version;
+    Ok((lists, Json { next_id: next_id as u32, log, version }))
+}
+
+/// What the database derives instead of storing must agree with what the JSON
+/// says twice; each disagreement is named.
+fn derived_disagreements(lists: &Lists, json: &Json) -> Vec<String> {
+    use crate::lists::{How, Record};
+    let mut faults = Vec::new();
+    let mut ids: Vec<u32> = lists.questions.iter().map(|q| q.id.0).collect();
+    ids.extend(lists.items.iter().map(|i| i.id.0));
+    ids.extend(lists.designs.iter().map(|d| d.id.0));
+    ids.extend(lists.decisions.iter().map(|d| d.id.0));
+    ids.extend(lists.closed.iter().map(|c| c.record.id().0));
+    if let Some(top) = ids.iter().max()
+        && json.next_id <= *top
+    {
+        faults.push(format!("next_id is {}, not above the highest id {top}", json.next_id));
+    }
+    match json.log.last() {
+        Some(last) if last.version != json.version => {
+            faults.push(format!("version is {}, but the log ends at {}", json.version, last.version))
+        }
+        None if json.version != 0 => faults.push(format!("version is {}, but the log is empty", json.version)),
+        _ => {}
+    }
+    let all_items: Vec<&crate::lists::Item> = lists
+        .items
+        .iter()
+        .chain(lists.closed.iter().filter_map(|c| match &c.record {
+            Record::Item(item) => Some(item),
+            _ => None,
+        }))
+        .collect();
+    for decision in &lists.decisions {
+        let answered_by_closing = lists.closed.iter().find_map(|c| match (&c.record, &c.how) {
+            (Record::Question(q), How::Answered(d)) if *d == decision.id => Some(q.id),
+            _ => None,
+        });
+        if answered_by_closing != decision.question {
+            faults.push(format!(
+                "decision {} says it answered {:?}, but the closings say {:?}",
+                decision.id,
+                decision.question.map(|q| q.0),
+                answered_by_closing.map(|q| q.0)
+            ));
+        }
+        let made: Vec<_> = all_items.iter().filter(|i| i.from == Some(decision.id)).map(|i| i.id).collect();
+        let mut said = decision.work.clone();
+        said.sort();
+        let mut made_sorted = made.clone();
+        made_sorted.sort();
+        if said != made_sorted {
+            faults.push(format!("decision {} says it made {:?}, but the items' origins say {:?}", decision.id, said, made_sorted));
+        }
+        if let Some(question) = decision.question {
+            let asked = lists.closed.iter().find_map(|c| match &c.record {
+                Record::Question(q) if q.id == question => Some(q.plan.clone()),
+                _ => None,
+            });
+            if asked.is_some_and(|plan| plan != decision.plan) {
+                faults.push(format!("decision {} has a plan other than its question {question}'s", decision.id));
+            }
+        }
+    }
+    for item in &all_items {
+        if let Some(first) = item.running.first()
+            && item.running.iter().any(|r| r.brief != first.brief || r.since != first.since)
+        {
+            faults.push(format!("item {} runs in places with different briefs or moments", item.id));
+        }
+    }
+    let landed_of = |id| {
+        lists.closed.iter().find_map(|c| match (&c.record, &c.how) {
+            (Record::Design(d), How::Landed(commits)) if d.id == id => Some((commits.clone(), c.closed.at)),
+            _ => None,
+        })
+    };
+    let designs = lists.designs.iter().map(|d| (d, None)).chain(lists.closed.iter().filter_map(|c| match &c.record {
+        Record::Design(d) => Some((d, landed_of(d.id))),
+        _ => None,
+    }));
+    for (design, closing) in designs {
+        let said: Vec<(Vec<String>, i64)> = design.landed.iter().map(|l| (l.commits.clone(), l.at)).collect();
+        let derived: Vec<(Vec<String>, i64)> = closing.into_iter().collect();
+        if said != derived {
+            faults.push(format!("design change {} says it landed as {:?}, but its closing says {:?}", design.id, said, derived));
+        }
+    }
+    faults
+}
+
+/// Builds the whole store in memory from <source> and checks it, naming every
+/// fault; nothing on disk is touched.
+fn rehearse(source: &Source, project: &str) -> Result<()> {
+    let (lists, json) = source;
+    let faults = derived_disagreements(lists, json);
+    if !faults.is_empty() {
+        fail!("the lists of {project} cannot move into {DATABASE}:\n  {}", faults.join("\n  "));
+    }
+    let mut conn = db::memory();
+    let tx = conn.transaction().sql()?;
+    move_in(&tx, source, project, 0)?;
+    tx.rollback().sql()?;
+    Ok(())
+}
+
+/// The database of <dir>, brought to the schema, with every row of <source>
+/// in one transaction.
+fn put_in_database(dir: &Path, source: &Source, project: &str, now: i64) -> Result<()> {
+    let path = dir.join(DATABASE);
+    let mut conn = db::open_for_move(&path)?;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).sql()?;
+    let found = db::stamp_of(&tx, &path)?;
+    if found == db::stamp() {
+        let rows: i64 = tx.query_row("SELECT COUNT(*) FROM project", [], |row| row.get(0)).sql()?;
+        if rows > 0 {
+            fail!("{} already holds lists", path.display());
+        }
+    } else {
+        bring_to_schema(&tx, &path)?;
+    }
+    let left_out = move_in(&tx, source, project, now)?;
+    tx.commit().sql()?;
+    if left_out > 0 {
+        crate::text::note(format!("left out the {left_out} running entries of closed items: a closed item runs nowhere"));
+    }
+    Ok(())
+}
+
+/// Puts every row of <source> into <db>, parents first, runs the code check
+/// and returns how many running entries of closed items were left out. The
+/// log is the file's, and the move's own line after it.
+fn move_in(db: &Connection, source: &Source, project: &str, now: i64) -> Result<usize> {
+    use crate::lists::item::Origin;
+    use crate::lists::project::NewProject;
+    use crate::lists::record::{move_in_closing, move_in_record};
+    use crate::lists::{Kind, Record};
+    let (lists, json) = source;
+    lists::project::init(
+        db,
+        &NewProject {
+            name: lists.project.clone(),
+            repos: lists.repos.clone(),
+            places: lists.design_places.clone(),
+            sources: lists.design_sources.clone(),
+            specs: lists.spec_files.clone(),
+        },
+    )?;
+    lists::area::move_in(db, &lists.areas)?;
+    let closed_items: Vec<&crate::lists::Item> = lists
+        .closed
+        .iter()
+        .filter_map(|c| match &c.record {
+            Record::Item(item) => Some(item),
+            _ => None,
+        })
+        .collect();
+    let closed_questions = lists.closed.iter().filter_map(|c| match &c.record {
+        Record::Question(q) => Some(q),
+        _ => None,
+    });
+    let closed_designs: Vec<&crate::lists::DesignChange> = lists
+        .closed
+        .iter()
+        .filter_map(|c| match &c.record {
+            Record::Design(d) => Some(d),
+            _ => None,
+        })
+        .collect();
+    let questions: Vec<&crate::lists::Question> = lists.questions.iter().chain(closed_questions).collect();
+    let items: Vec<&crate::lists::Item> = lists.items.iter().chain(closed_items.iter().copied()).collect();
+    let designs: Vec<&crate::lists::DesignChange> = lists.designs.iter().chain(closed_designs.iter().copied()).collect();
+    // The record rows of every kind first: everything else points at them.
+    let mut kinds: Vec<(crate::lists::Id, Kind, crate::lists::Stamp)> = Vec::new();
+    kinds.extend(questions.iter().map(|q| (q.id, Kind::Question, q.opened.clone())));
+    kinds.extend(items.iter().map(|i| (i.id, Kind::Item, i.opened.clone())));
+    kinds.extend(designs.iter().map(|d| (d.id, Kind::Design, d.opened.clone())));
+    kinds.extend(lists.decisions.iter().map(|d| (d.id, Kind::Decision, d.recorded.clone())));
+    kinds.sort_by_key(|(id, _, _)| *id);
+    for (id, kind, opened) in &kinds {
+        move_in_record(db, *id, *kind, opened)?;
+    }
+    for question in &questions {
+        lists::question::move_in(db, question)?;
+    }
+    let mut decisions: Vec<&crate::lists::Decision> = lists.decisions.iter().collect();
+    decisions.sort_by_key(|d| d.id);
+    for decision in decisions {
+        lists::decision::move_in(db, decision)?;
+    }
+    for design in &designs {
+        lists::design::move_in(db, design)?;
+    }
+    for item in &items {
+        let origin = match item.from {
+            None => None,
+            Some(from) => Some(match kinds.iter().find(|(id, _, _)| *id == from) {
+                Some((_, Kind::Decision, _)) => Origin::Decision(from),
+                Some((_, Kind::Design, _)) => Origin::Design(from),
+                _ => fail!("item {} was made by {from}, which is no decision or design change", item.id),
+            }),
+        };
+        lists::item::move_in(db, item, origin)?;
+    }
+    for item in &lists.items {
+        lists::item::move_in_children(db, item, false)?;
+    }
+    for item in &closed_items {
+        lists::item::move_in_children(db, item, true)?;
+    }
+    for design in &designs {
+        lists::design::move_in_children(db, design)?;
+    }
+    for closed in &lists.closed {
+        move_in_closing(db, closed.record.id(), closed.record.kind(), &closed.how, &closed.closed)?;
+    }
+    for line in &json.log {
+        store::move_in_log(db, line.version, line.at, &line.by, &line.words)?;
+    }
+    store::move_in_log(db, json.version + 1, now, MOVE_BY, MOVE_WORDS)?;
+    let faults = crate::lists::check::faults(db, project)?;
+    if !faults.is_empty() {
+        fail!("the lists of {project} fail their check after the move:\n  {}", faults.join("\n  "));
+    }
+    Ok(closed_items.iter().map(|item| item.running.len()).sum())
 }
 
 #[cfg(test)]

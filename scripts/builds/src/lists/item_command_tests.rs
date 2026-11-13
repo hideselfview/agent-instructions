@@ -29,7 +29,7 @@ fn add_makes_a_ready_item_and_refuses_what_it_lacks() {
     let lists = open(&demo);
     assert_eq!(lists.items[0].title, FIVE);
     assert_eq!(lists.items[0].opened.by, "tester");
-    let before = demo.bytes();
+    let before = demo.state();
     assert!(refusal(add(&demo, "Too short", &[])).contains("2 words"));
     let details = demo.brief("d");
     let no_area = refusal(item(&demo, &["add", "--title", FIVE, "--area", "Nowhere", "--details-file", &details]));
@@ -39,7 +39,7 @@ fn add_makes_a_ready_item_and_refuses_what_it_lacks() {
     assert!(refusal(add(&demo, FIVE, &["--priority", "first"])).contains("needs --why"));
     assert!(refusal(add(&demo, FIVE, &["--why", "x"])).contains("belongs to --priority"));
     assert!(refusal(add(&demo, FIVE, &["--wait", "bogus"])).contains("is not a wait"));
-    assert_eq!(demo.bytes(), before, "a refused add changed the file");
+    assert_eq!(demo.state(), before, "a refused add changed the file");
 }
 
 #[test]
@@ -95,14 +95,14 @@ fn wait_adds_and_removes_and_refuses_a_cycle_or_a_closed_record() {
     add(&demo, "Do the second thing now", &[]).unwrap();
     item(&demo, &["wait", "2", "--on", "item:1"]).unwrap();
     assert_eq!(open(&demo).items[1].waits, [Wait::Item(Id(1))]);
-    let before = demo.bytes();
+    let before = demo.state();
     let cycle = refusal(item(&demo, &["wait", "1", "--on", "item:2"]));
     assert!(cycle.contains("in a circle"), "{cycle}");
     assert!(refusal(item(&demo, &["wait", "1", "--on", "item:1"])).contains("cannot wait on itself"));
     assert!(refusal(item(&demo, &["wait", "2", "--on", "item:1"])).contains("already waits"));
     assert!(refusal(item(&demo, &["wait", "1", "--off", "item:2"])).contains("does not wait on item:2"));
     assert!(refusal(item(&demo, &["wait", "1"])).contains("exactly one of --on REF and --off REF"));
-    assert_eq!(demo.bytes(), before);
+    assert_eq!(demo.state(), before);
     item(&demo, &["wait", "2", "--off", "item:1"]).unwrap();
     item(&demo, &["wait", "2", "--on", "condition:a quiet machine"]).unwrap();
     item(&demo, &["wait", "2", "--off", "condition:a quiet machine"]).unwrap();
@@ -130,7 +130,7 @@ fn take_marks_items_running_in_the_worktree_and_stores_no_agent() {
         let running = item.running.first().unwrap();
         assert_eq!((running.worktree.as_str(), running.branch.as_str(), running.brief.as_str()), (side_arg.as_str(), "work", brief.as_str()));
     }
-    assert!(!std::fs::read_to_string(demo.store.state_path()).unwrap().contains("agent A"));
+    assert!(!demo.state().contains("agent A"));
     assert!(crate::lists::running::agent_of(lists.items[0].running.first().unwrap()).unwrap() == crate::lists::running::Agent::Claimed("agent A".into()));
 }
 
@@ -143,7 +143,7 @@ fn take_refuses_what_is_not_ready_or_not_right() {
     add(&demo, FIVE, &[]).unwrap();
     add(&demo, "Do the second thing now", &["--wait", "item:1"]).unwrap();
     add(&demo, "Do the design sessions thing", &["--for", "design-session"]).unwrap();
-    let before = demo.bytes();
+    let before = demo.state();
     let waits = refusal(item(&demo, &take_args(&side_arg, &brief, &["2"], "work")));
     assert!(waits.contains("2 waits on item #1"), "{waits}");
     assert!(refusal(item(&demo, &take_args(&side_arg, &brief, &["3"], "work"))).contains("--as design-session"));
@@ -155,7 +155,7 @@ fn take_refuses_what_is_not_ready_or_not_right() {
     assert!(refusal(item(&demo, &take_args(&side_arg, &brief, &["1", "1"], "work"))).contains("named twice"));
     let main = demo.main.display().to_string();
     assert!(refusal(item(&demo, &take_args(&main, &brief, &["1"], "main"))).contains("not one of the repo's side worktrees"));
-    assert_eq!(demo.bytes(), before);
+    assert_eq!(demo.state(), before);
 
     let unclaimed = demo.add_side(2, "x", "other");
     cmd_release(&demo.tool.places, &[unclaimed.display().to_string()]).unwrap();
@@ -219,10 +219,10 @@ fn drop_refuses_a_waited_on_running_or_last_blocking_item() {
     let demo = demo("item-drop");
     add(&demo, FIVE, &[]).unwrap();
     add(&demo, "Do the second thing now", &["--wait", "item:1"]).unwrap();
-    let before = demo.bytes();
+    let before = demo.state();
     let waited = refusal(item(&demo, &["drop", "1", "--why", "no"]));
     assert!(waited.contains("2 \"Do the second thing now\" waits on #1") && waited.contains("item wait 2 --off item:1"), "{waited}");
-    assert_eq!(demo.bytes(), before);
+    assert_eq!(demo.state(), before);
     item(&demo, &["drop", "2", "--why", "not needed"]).unwrap();
     let lists = open(&demo);
     assert!(matches!(&lists.closed[0], Closed { record: Record::Item(i), how: How::Dropped(w), .. } if i.id == Id(2) && w == "not needed"));
@@ -232,14 +232,15 @@ fn drop_refuses_a_waited_on_running_or_last_blocking_item() {
 #[test]
 fn drop_refuses_the_last_item_a_question_blocks_and_a_running_item() {
     let demo = demo("item-drop-last");
-    let mut lists = demo.store.load().unwrap();
-    let blocked = crate::lists::fixtures::item(&mut lists, vec![]);
-    let q = crate::lists::fixtures::question(&mut lists);
-    let first = lists.questions[0].id;
-    crate::lists::fixtures::blocks_something(&mut lists, first);
-    crate::lists::item::add_wait(&mut lists, blocked, Wait::Question(q)).unwrap();
-    // Written through the store so the file stays valid.
-    demo.store.with_write(&crate::lists::fixtures::stamp(1), "seed", |on_disk| { *on_disk = Lists { version: on_disk.version, log: on_disk.log.clone(), ..lists.clone() }; Ok(()) }).unwrap();
+    demo.store
+        .write(&crate::lists::fixtures::stamp(1), "seed", |db| {
+            let blocked = crate::lists::fixtures::item(db, vec![]);
+            let q = crate::lists::fixtures::question(db);
+            crate::lists::item::add_wait(db, blocked, Wait::Question(q))?;
+            crate::lists::fixtures::blocks_something(db, q);
+            Ok(())
+        })
+        .unwrap();
     let refused = refusal(item(&demo, &["drop", "1", "--why", "no"]));
     assert!(refused.contains("last item question #2") && refused.contains("--blocks-nothing"), "{refused}");
 
@@ -263,9 +264,9 @@ fn defer_wants_an_open_issue() {
     let args = |url: &str| words(&["1", "--issue", url]);
     let closed = |_: &[&str]| Ok(r#"{"state":"CLOSED"}"#.to_string());
     let open_issue = |_: &[&str]| Ok(r#"{"state":"OPEN"}"#.to_string());
-    let before = demo.bytes();
+    let before = demo.state();
     assert!(refusal(defer(&demo.tool, &args("https://x/1"), &cwd, &closed)).contains("is CLOSED"));
-    assert_eq!(demo.bytes(), before);
+    assert_eq!(demo.state(), before);
     defer(&demo.tool, &args("https://x/1"), &cwd, &open_issue).unwrap();
     assert!(matches!(&open(&demo).closed[0].how, How::Deferred(url) if url == "https://x/1"));
 }
@@ -277,7 +278,8 @@ fn place_moves_an_open_item_first_or_last_or_clears_it_and_logs_the_write() {
     item(&demo, &["place", "1", "first", "--why", "top priority"]).unwrap();
     let placed = open(&demo).items[0].priority.clone().unwrap();
     assert_eq!((placed.level, placed.why.as_str()), (Level::First, "top priority"));
-    assert!(open(&demo).log.last().unwrap().words.starts_with("item place #1 first"));
+    let db = crate::db::open_reader(&demo.store.database()).unwrap().unwrap();
+    assert!(crate::lists::store::read_log(&db).unwrap().last().unwrap().3.starts_with("item place #1 first"));
     item(&demo, &["place", "1", "last", "--why", "later"]).unwrap();
     assert_eq!(open(&demo).items[0].priority.as_ref().unwrap().level, Level::Last);
     item(&demo, &["place", "1", "none", "--why", "back to the order"]).unwrap();
@@ -288,12 +290,12 @@ fn place_moves_an_open_item_first_or_last_or_clears_it_and_logs_the_write() {
 fn place_refuses_a_closed_item_a_missing_why_and_an_unknown_place() {
     let demo = demo("item-place-refuse");
     add(&demo, FIVE, &[]).unwrap();
-    let before = demo.bytes();
+    let before = demo.state();
     assert!(refusal(item(&demo, &["place", "1", "first"])).contains("--why is required"));
     assert!(refusal(item(&demo, &["place", "1", "first", "--why", " "])).contains("--why is empty"));
     assert!(refusal(item(&demo, &["place", "1", "middle", "--why", "w"])).contains("first, last or none, not 'middle'"));
     assert!(refusal(item(&demo, &["place", "99", "first", "--why", "w"])).contains("is not a record"));
-    assert_eq!(demo.bytes(), before, "a refused place changed the file");
+    assert_eq!(demo.state(), before, "a refused place changed the file");
     item(&demo, &["drop", "1", "--why", "no"]).unwrap();
     assert!(refusal(item(&demo, &["place", "1", "first", "--why", "w"])).contains("is closed (dropped)"));
 }

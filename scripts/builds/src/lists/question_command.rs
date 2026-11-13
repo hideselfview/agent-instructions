@@ -1,5 +1,5 @@
 //! `builds question ask | answer | settle | done | drop | defer | place |
-//! edit | show | list`: the decision stack. Each write is one `with_write`,
+//! edit | show | list`: the decision stack. Each write is one `Store::write`,
 //! so it lands whole or not at all; what a step needs is checked inside it,
 //! and outside work (a brief file, GitHub) before the lock.
 
@@ -15,11 +15,11 @@ use crate::lists::derive::{self, ItemState};
 use crate::lists::record::close;
 use crate::lists::decision::{NewDecision, add_decision};
 use crate::lists::draft::{require_draft_briefs, work_or_why};
-use crate::lists::item::{ItemDraft, add_item, add_wait, move_waits};
+use crate::lists::item::{ItemDraft, add_item, add_wait, move_waits_to_question};
 use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, apply_blocked};
 use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
 use crate::lists::show::{blocks_text, kind_words, stack_entry};
-use crate::lists::store::Store;
+use crate::lists::store::{self, Store};
 use crate::lists::{How, Id, Kind, Lists, Located, PlanRef, Placement, Position, Question, QuestionKind, Stamp, Standing, Wait};
 use crate::tool::Tool;
 
@@ -131,7 +131,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let id = store.with_write(&stamp, words, |lists| {
+    let id = store.write(&stamp, words, |db| {
         let new = NewQuestion {
             title: title.clone(),
             details: details.clone(),
@@ -140,7 +140,8 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
             placed: placed.clone(),
             plan: plan.clone(),
         };
-        let id = question::ask(lists, new, &stamp);
+        let id = question::ask(db, new, &stamp)?;
+        let lists = &store::read(db)?;
         for blocked in &blocks {
             if Some(*blocked) == from_item {
                 fail!("--blocks names {blocked}, the item --from-item closes");
@@ -162,7 +163,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
                 fail!("item {from} is running; `builds item stop {} --why …` first, then move it to the stack", from.0);
             }
             // What waited on the item waits on the question that takes its place.
-            for moved in move_waits(lists, &Wait::Item(from), &Wait::Question(id)) {
+            for moved in move_waits_to_question(db, from, id)? {
                 if !waiting.contains(&moved) {
                     waiting.push(moved);
                 }
@@ -174,10 +175,10 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
             );
         }
         for blocked in &waiting {
-            add_wait(lists, *blocked, Wait::Question(id))?;
+            add_wait(db, *blocked, Wait::Question(id))?;
         }
         if let Some(from) = from_item {
-            close(lists, from, How::MovedToStack(id), &stamp)?;
+            close(db, from, How::MovedToStack(id), &stamp)?;
         }
         Ok(id)
     })?;
@@ -264,7 +265,8 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, closing: Closi
     let blocked = request.blocked;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let resolved = store.with_write(&stamp, words, |lists| {
+    let resolved = store.write(&stamp, words, |db| {
+        let lists = &store::read(db)?;
         let question = open_question(lists, id)?.clone();
         match (closing, question.kind) {
             (Closing::Done, QuestionKind::Question) => {
@@ -280,7 +282,7 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, closing: Closi
         if drafts.iter().any(|draft| draft.waits.contains(&Wait::Question(id))) {
             fail!("a work item waits on {id}, which this closes; the work that follows has nothing to wait for");
         }
-        apply_blocked(lists, id, &blocked, &stamp)?;
+        apply_blocked(db, id, &blocked, &stamp)?;
         let (how, made) = match decision {
             Some(decision) => {
                 let new = NewDecision {
@@ -291,13 +293,13 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, closing: Closi
                     replaces: decision.replaces,
                     plan: question.plan.clone(),
                 };
-                let added = add_decision(lists, &new, &drafts, &stamp)?;
+                let added = add_decision(db, &new, &drafts, &stamp)?;
                 (How::Answered(added.decision), (Some(added.decision), added.items))
             }
             None => {
                 let mut items = Vec::new();
                 for draft in &drafts {
-                    items.push(add_item(lists, draft, None, &stamp)?);
+                    items.push(add_item(db, draft, None, &stamp)?);
                 }
                 let how = match by_rule {
                     Some(rule) => How::Settled(rule),
@@ -306,7 +308,8 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, closing: Closi
                 (how, (None, items))
             }
         };
-        close(lists, id, how, &stamp)?;
+        close(db, id, how, &stamp)?;
+        let lists = &store::read(db)?;
         let ready: Vec<Id> = blocked
             .iter()
             .filter(|(item, fate)| !matches!(fate, Blocked::Drop(_)) && lists.item(**item).is_some())
@@ -368,7 +371,8 @@ fn leave(tool: &Tool, args: &[String], cwd: &Path, words: &str, gh: GhRunner<'_>
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, words, |lists| {
+    store.write(&stamp, words, |db| {
+        let lists = &store::read(db)?;
         open_question(lists, id)?;
         let waiting: Vec<String> = lists
             .items
@@ -379,7 +383,7 @@ fn leave(tool: &Tool, args: &[String], cwd: &Path, words: &str, gh: GhRunner<'_>
         if !waiting.is_empty() {
             fail!("items still wait on question {id}; free each first:\n  {}", waiting.join("\n  "));
         }
-        close(lists, id, how, &stamp)
+        close(db, id, how, &stamp)
     })?;
     let lists = store.load()?;
     let verb = if leaving == Leaving::Drop { "dropped" } else { "deferred" };
@@ -405,9 +409,9 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, words, |lists| {
-        open_question(lists, id)?;
-        question::place(lists, id, placed)
+    store.write(&stamp, words, |db| {
+        open_question(&store::read(db)?, id)?;
+        question::place(db, id, placed)
     })?;
     let lists = store.load()?;
     Ok(format!("placed question {id} {at}\n{}\n", stack_top(&lists)))
@@ -437,7 +441,8 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, words, |lists| {
+    store.write(&stamp, words, |db| {
+        let lists = &store::read(db)?;
         open_question(lists, id)?;
         let waited_on = lists.items.iter().any(|item| item.waits.contains(&Wait::Question(id)));
         if blocks_something && !waited_on {
@@ -451,7 +456,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
             (None, true) => Some(None),
             (None, false) => None,
         };
-        question::edit(lists, id, title, details, blocks_nothing)
+        question::edit(db, id, title, details, blocks_nothing)
     })?;
     let lists = store.load()?;
     Ok(format!("edited question {id}\n{}\n", stack_top(&lists)))

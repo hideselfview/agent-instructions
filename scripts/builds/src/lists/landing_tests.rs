@@ -74,7 +74,7 @@ fn check_landing_takes_land_shs_arguments_and_passes_a_branch_commit() {
 #[test]
 fn check_landing_refuses_each_thing_it_requires() {
     let l = setup("landing-check-refuse");
-    let before = l.demo.bytes();
+    let before = l.demo.state();
     assert!(refusal(check(&l, &[&l.commit])).contains("name the work items"));
     assert!(refusal(check(&l, &["--done", "1", "--part", "1", &l.commit])).contains("named twice"));
     assert!(refusal(check(&l, &["--done", "9", &l.commit])).contains("not a record"));
@@ -84,10 +84,10 @@ fn check_landing_refuses_each_thing_it_requires() {
     assert!(refusal(check(&l, &["--done", "1", &on_main])).contains("on the branch of none"));
     cmd_item(&l.demo.tool, &words(&["stop", "2", "--why", "x"])).unwrap();
     assert!(refusal(check(&l, &["--done", "2", &l.commit])).contains("is not running"));
-    assert_ne!(l.demo.bytes(), before); // the stop above
-    let before = l.demo.bytes();
+    assert_ne!(l.demo.state(), before); // the stop above
+    let before = l.demo.state();
     check(&l, &["--done", "1", &l.commit]).unwrap();
-    assert_eq!(l.demo.bytes(), before, "check-landing changed the store");
+    assert_eq!(l.demo.state(), before, "check-landing changed the store");
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn landed_records_a_part_then_closes_and_is_idempotent() {
     assert!(lists.item(Id(2)).is_none());
     assert!(matches!(&lists.closed[0].how, How::Landed(c) if *c == [l.commit.clone()]));
 
-    let after_first = l.demo.bytes();
+    let after_first = l.demo.state();
     let version = lists.version;
     // The same call again records once; it changes nothing (not even the version).
     let again = landed(&l, &["--part", "1", "--done", "2", &l.commit]);
@@ -148,10 +148,10 @@ fn landed_refuses_a_different_set_for_a_closed_item_and_commits_not_on_main() {
     landed(&l, &["--done", "1", &l.commit]).unwrap();
     let second = l.demo.commit(&l.agent, "b.txt");
     push(&l);
-    let before = l.demo.bytes();
+    let before = l.demo.state();
     let refused = refusal(landed(&l, &["--done", "1", &second]));
     assert!(refused.contains("closed as landed with other commits"), "{refused}");
-    assert_eq!(l.demo.bytes(), before);
+    assert_eq!(l.demo.state(), before);
     let dropped = refusal(landed(&l, &["--done", "7", &second]));
     assert!(dropped.contains("not a record"), "{dropped}");
 }
@@ -258,7 +258,7 @@ fn take_refuses_two_worktrees_of_one_repo_and_unpaired_branches() {
     let details = demo.brief("details.txt");
     let brief = demo.brief("b.md");
     cmd_item(&demo.tool, &words(&["add", "--title", "Do the first thing now", "--area", "Alpha", "--details-file", &details])).unwrap();
-    let before = demo.bytes();
+    let before = demo.state();
     let (one, two) = (one.to_str().unwrap(), two.to_str().unwrap());
     let same = refusal(cmd_item(
         &demo.tool,
@@ -267,7 +267,7 @@ fn take_refuses_two_worktrees_of_one_repo_and_unpaired_branches() {
     assert!(same.contains("both worktrees of demo"), "{same}");
     let unpaired = refusal(cmd_item(&demo.tool, &words(&["take", "1", "--worktree", one, "--worktree", two, "--branch", "work", "--brief", &brief])));
     assert!(unpaired.contains("2 --worktree and 1 --branch"), "{unpaired}");
-    assert_eq!(demo.bytes(), before);
+    assert_eq!(demo.state(), before);
 }
 
 #[test]
@@ -305,4 +305,26 @@ fn a_landing_from_the_second_repo_is_accepted_and_the_first_repos_commit_is_not_
     let wrong_commit = land_args(&t.other_lander, &["--part", "1", &t.demo_commit]);
     let refused = refusal(check_landing(&t.demo.tool, &wrong_commit));
     assert!(refused.contains("not a commit"), "{refused}");
+}
+
+#[test]
+fn every_named_constraint_of_the_landing_tables_refuses_its_row() {
+    use crate::lists::fixtures::{Refusals, db, item, row, sha, v};
+    let db = db();
+    let id = item(&db, vec![]);
+    add_part(&db, id, LandedPart { repo: "bae".into(), commits: vec![sha('1')], at: 5 }).unwrap();
+    let landing: i64 = db.query_row("SELECT id FROM item_landing", [], |r| r.get(0)).unwrap();
+    let commit = [("landing_id", v(landing)), ("position", v(3)), ("sha", v(sha('2')))];
+    let mut refused = Refusals::new(include_str!("landing.sql"));
+    refused.check("item_landing_commit_position_not_negative", plant(&db, "item_landing_commit", &row(&commit, &[("position", v(-1))])));
+    for bad in ["abc", &"A".repeat(40), &"1".repeat(41)] {
+        refused.check("item_landing_commit_sha_is_a_commit", plant(&db, "item_landing_commit", &row(&commit, &[("sha", v(bad.to_string()))])));
+    }
+    refused.check_as(
+        "item_landing_commit_once",
+        "UNIQUE constraint failed: item_landing_commit.landing_id, item_landing_commit.sha",
+        plant(&db, "item_landing_commit", &row(&commit, &[("sha", v(sha('1')))])),
+    );
+    plant(&db, "item_landing_commit", &commit).unwrap();
+    refused.done();
 }

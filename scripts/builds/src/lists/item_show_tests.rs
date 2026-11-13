@@ -55,19 +55,26 @@ fn list_running_prints_the_marker_with_the_agent_from_the_claim() {
 }
 
 #[test]
-fn a_closed_item_prints_no_running_marker_even_when_its_record_still_holds_one() {
+fn a_closed_item_prints_no_running_marker() {
     let demo = demo("show-closed-running");
     add(&demo, "Do the first thing now", "Alpha", &[]);
-    let mut lists = demo.store.load().unwrap();
+    let stamp = crate::lists::fixtures::stamp(crate::lists::fixtures::NOON);
     let running = crate::lists::running::Running {
         worktree: "/d/demo-worktrees/side-1".into(),
         branch: "work".into(),
         brief: "plans/briefs/x.md".into(),
-        since: crate::lists::fixtures::stamp(crate::lists::fixtures::NOON),
+        since: stamp.clone(),
     };
-    crate::lists::running::start(&mut lists, &[Id(1)], &[running]).unwrap();
-    assert!(render_item(&lists, Id(1)).unwrap().contains("Running:"));
-    crate::lists::record::plant_closing(&mut lists, Id(1), How::Landed(vec!["abc".into()]), &crate::lists::fixtures::stamp(1));
-    let text = render_item(&lists, Id(1)).unwrap();
+    demo.store
+        .write(&stamp, "item take 1", |db| crate::lists::running::start(db, &[Id(1)], &[running]))
+        .unwrap();
+    assert!(render_item(&demo.store.load().unwrap(), Id(1)).unwrap().contains("Running:"));
+    demo.store
+        .write(&stamp, "item landed", |db| {
+            crate::lists::running::end(db, Id(1))?;
+            crate::lists::record::close(db, Id(1), How::Landed(vec!["a".repeat(40)]), &stamp)
+        })
+        .unwrap();
+    let text = render_item(&demo.store.load().unwrap(), Id(1)).unwrap();
     assert!(text.contains("[closed, landed") && !text.contains("Running:") && !text.contains("running since"), "{text}");
 }

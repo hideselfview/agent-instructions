@@ -61,8 +61,8 @@ fn a_database_with_another_schema_version_is_refused() {
     let path = database(&scratch);
     record(&path, &run(1, 10, true, vec![])).unwrap();
     Connection::open(&path).unwrap().pragma_update(None, "user_version", 99).unwrap();
-    assert!(record(&path, &run(2, 10, true, vec![])).unwrap_err().text().contains("schema version 99"));
-    assert!(stats(&path, 0).unwrap_err().text().contains("schema version 99"));
+    assert!(record(&path, &run(2, 10, true, vec![])).unwrap_err().text().contains("another builds schema"));
+    assert!(stats(&path, 0).unwrap_err().text().contains("another builds schema"));
 }
 
 #[test]
@@ -153,8 +153,7 @@ fn a_day_starts_at_local_midnight_and_a_bad_day_is_none() {
 fn the_dashboard_json_has_each_project_with_its_figures_and_the_latest_runs_first() {
     let scratch = Scratch::new("hook-json");
     let places = scratch.places();
-    let store = crate::lists::store::Store::named(&places, "demo").unwrap();
-    store.create(crate::lists::fixtures::lists(), &crate::lists::fixtures::stamp(crate::lists::fixtures::NOON), "init").unwrap();
+    let store = crate::lists::fixtures::make_store(&places, &["bae", "coven"]);
     let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
     assert_eq!(json["projects"][0]["runs"], 0);
     for at in 1..=25 {

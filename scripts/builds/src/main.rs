@@ -11,6 +11,7 @@ mod checks;
 mod checks_run;
 mod claim;
 mod daemon;
+mod db;
 mod design_render;
 mod evict;
 mod fail;

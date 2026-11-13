@@ -8,13 +8,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
+use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::design_paths::{Changes, PlaceKind};
-use crate::lists::item::{ItemDraft, add_item};
+use crate::lists::item::{ItemDraft, Origin, add_item};
+use crate::lists::record;
+use crate::lists::store;
 use crate::lists::{How, Id, Kind, Lists, Located, Record, Stamp, Standing, Wait};
 use crate::text::local_minute;
 
@@ -114,10 +118,6 @@ impl Lists {
     pub fn design(&self, id: Id) -> Option<&DesignChange> {
         self.designs.iter().find(|d| d.id == id)
     }
-
-    pub fn design_mut(&mut self, id: Id) -> Option<&mut DesignChange> {
-        self.designs.iter_mut().find(|d| d.id == id)
-    }
 }
 
 /// How one changed place is resolved in a request.
@@ -174,7 +174,8 @@ fn require_text(what: &str, text: Option<&String>) -> Result<String> {
     }
 }
 
-fn open_item(lists: &Lists, id: Id) -> Result<()> {
+fn open_item(db: &Connection, id: Id) -> Result<()> {
+    let lists = store::read(db)?;
     match lists.locate(id) {
         None => fail!("place resolved by item {id}, which no record has"),
         Some(Located { kind, .. }) if kind != Kind::Item => {
@@ -193,7 +194,7 @@ fn open_item(lists: &Lists, id: Id) -> Result<()> {
 /// the request's places that name existing components rather than something
 /// the range changes. Refuses with every unresolved place named.
 fn resolve(
-    lists: &mut Lists,
+    db: &Connection,
     id: Id,
     request: &DesignRequest,
     worktree: &str,
@@ -233,7 +234,7 @@ fn resolve(
     for (path, answer) in &request.places {
         let resolution = match answer {
             PlaceAnswer::Item(item) => {
-                open_item(lists, *item)?;
+                open_item(db, *item)?;
                 Resolution::Item(*item)
             }
             PlaceAnswer::New(draft) => {
@@ -241,7 +242,7 @@ fn resolve(
                 if !draft.waits.contains(&Wait::Design(id)) {
                     draft.waits.push(Wait::Design(id));
                 }
-                let item = add_item(lists, &draft, Some(id), stamp)?;
+                let item = add_item(db, &draft, Some(Origin::Design(id)), stamp)?;
                 new_items.push(item);
                 Resolution::Item(item)
             }
@@ -263,7 +264,9 @@ fn resolve(
     if let Some(review) = &request.review {
         check_review(review)?;
     }
-    let Some(design) = lists.design_mut(id) else { fail!("{id} is not an open design change") };
+    let mut held = store::read(db)?;
+    let Some(at) = held.designs.iter().position(|d| d.id == id) else { fail!("{id} is not an open design change") };
+    let design = &mut held.designs[at];
     design.worktree = worktree.to_string();
     // The change holds what the range changes: a stored place it no longer
     // touches (a board renamed before landing) leaves with its board and its
@@ -329,6 +332,7 @@ fn resolve(
         design.no_app_place = Some(why.clone());
     }
     needs_answer(design, changes, "the range")?;
+    save(db, design)?;
     Ok(new_items)
 }
 
@@ -394,28 +398,88 @@ pub struct NewDesign {
 }
 
 /// Opens a design change as <new>, made by <stamp>; returns its id.
-pub fn open_change(lists: &mut Lists, new: NewDesign, stamp: &Stamp) -> Id {
-    let id = lists.alloc_id();
-    lists.designs.push(DesignChange {
-        id,
-        title: new.title,
-        details: new.details,
-        repo: new.repo,
-        worktree: new.worktree,
-        places: BTreeMap::new(),
-        boards: BTreeMap::new(),
-        review: Vec::new(),
-        no_app_place: new.no_app_place,
-        approved: None,
-        opened: stamp.clone(),
-        landed: Vec::new(),
-    });
-    id
+pub fn open_change(db: &Connection, new: NewDesign, stamp: &Stamp) -> Result<Id> {
+    let id = record::open(db, Kind::Design, stamp)?;
+    db.execute(
+        "INSERT INTO design (id, title, details, repo, worktree, no_app_place) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, new.title, new.details, new.repo, new.worktree, new.no_app_place],
+    )
+    .sql()?;
+    Ok(id)
+}
+
+/// Puts <design> in as it was written elsewhere: its row, which its record
+/// is open for already. Its places, boards, review page and approval point at
+/// items, so `move_in_children` puts them in after the items.
+pub fn move_in(db: &Connection, design: &DesignChange) -> Result<()> {
+    db.execute(
+        "INSERT INTO design (id, title, details, repo, worktree, no_app_place) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![design.id, design.title, design.details, design.repo, design.worktree, design.no_app_place],
+    )
+    .sql()
+    .map(|_| ())
+}
+
+/// Puts the places, boards, review page and approval of <design> in, after
+/// its row and the items its places name.
+pub fn move_in_children(db: &Connection, design: &DesignChange) -> Result<()> {
+    save(db, design)?;
+    if let Some(approved) = &design.approved {
+        db.execute(
+            "INSERT INTO design_approval (design_id, at, by) VALUES (?1, ?2, ?3)",
+            params![design.id, approved.at, approved.by],
+        )
+        .sql()?;
+    }
+    Ok(())
+}
+
+/// Writes what the change holds of its own: its fields, and its places,
+/// boards and review page as a whole, which replace the ones it had. The
+/// approval is the person's and is not touched.
+pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
+    db.execute(
+        "UPDATE design SET title = ?2, details = ?3, worktree = ?4, no_app_place = ?5 WHERE id = ?1",
+        params![design.id, design.title, design.details, design.worktree, design.no_app_place],
+    )
+    .sql()?;
+    // The boards leave with their places, the review boards with their sections.
+    db.execute("DELETE FROM design_place WHERE design_id = ?1", [design.id]).sql()?;
+    db.execute("DELETE FROM review_section WHERE design_id = ?1", [design.id]).sql()?;
+    for (path, resolution) in &design.places {
+        let (item, matches) = match resolution {
+            Resolution::Item(item) => (Some(*item), None),
+            Resolution::Matches(how) => (None, Some(how.as_str())),
+        };
+        db.execute(
+            "INSERT INTO design_place (design_id, path, item_id, matches) VALUES (?1, ?2, ?3, ?4)",
+            params![design.id, path, item, matches],
+        )
+        .sql()?;
+    }
+    for (path, board) in &design.boards {
+        db.execute("INSERT INTO design_board (design_id, path, link) VALUES (?1, ?2, ?3)", params![design.id, path, board.link]).sql()?;
+    }
+    for (position, section) in design.review.iter().enumerate() {
+        db.execute(
+            "INSERT INTO review_section (design_id, position, heading, words) VALUES (?1, ?2, ?3, ?4)",
+            params![design.id, position as i64, section.heading, section.words],
+        )
+        .sql()?;
+        for (at, board) in section.boards.iter().enumerate() {
+            db.execute(
+                "INSERT INTO review_board (design_id, section, position, board, caption, theme) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![design.id, position as i64, at as i64, board.board, board.caption, board.theme.word()],
+            )
+            .sql()?;
+        }
+    }
+    Ok(())
 }
 
 /// Records a new design change of <repo> for <changes>.
 pub fn record(
-    lists: &mut Lists,
+    db: &Connection,
     repo: &str,
     worktree: &str,
     request: &DesignRequest,
@@ -432,11 +496,11 @@ pub fn record(
         fail!("a design change needs its `review`: the headings, words and boards of the page the person reviews it on");
     }
     let design = open_change(
-        lists,
+        db,
         NewDesign { title, details, repo: repo.to_string(), worktree: worktree.to_string(), no_app_place: None },
         stamp,
-    );
-    let new_items = resolve(lists, design, request, worktree, changes, affected, stamp)?;
+    )?;
+    let new_items = resolve(db, design, request, worktree, changes, affected, stamp)?;
     Ok(Recorded { design, new_items })
 }
 
@@ -464,7 +528,7 @@ fn open_design_of<'a>(lists: &'a Lists, id: Id, repo: &str) -> Result<&'a Design
 /// leaves with its board and its place on the review page. What the person approved is no
 /// longer what is drawn, so the approval is cleared.
 pub fn amend(
-    lists: &mut Lists,
+    db: &Connection,
     id: Id,
     repo: &str,
     worktree: &str,
@@ -473,9 +537,8 @@ pub fn amend(
     affected: &BTreeSet<String>,
     stamp: &Stamp,
 ) -> Result<Recorded> {
-    open_design_of(lists, id, repo)?;
-    let design = lists.design_mut(id).expect("open");
-    design.approved = None;
+    open_design_of(&store::read(db)?, id, repo)?;
+    db.execute("DELETE FROM design_approval WHERE design_id = ?1", [id]).sql()?;
     if let Some(title) = &request.title {
         if title.trim().is_empty() {
             fail!("title is empty");
@@ -483,12 +546,13 @@ pub fn amend(
         if let Some(fault) = crate::lists::check::title_fault(title) {
             fail!("{fault}");
         }
-        design.title = title.clone();
+        db.execute("UPDATE design SET title = ?2 WHERE id = ?1", params![id, title]).sql()?;
     }
     if let Some(details) = &request.details {
-        design.details = require_text("details", Some(details))?;
+        let details = require_text("details", Some(details))?;
+        db.execute("UPDATE design SET details = ?2 WHERE id = ?1", params![id, details]).sql()?;
     }
-    let new_items = resolve(lists, id, request, worktree, changes, affected, stamp)?;
+    let new_items = resolve(db, id, request, worktree, changes, affected, stamp)?;
     Ok(Recorded { design: id, new_items })
 }
 
@@ -525,12 +589,13 @@ pub fn check_changes(lists: &Lists, id: Id, repo: &str, changes: &Changes) -> Re
 
 /// Records the person's approval of open design change <id>. The same
 /// approval again is recorded once.
-pub fn approve(lists: &mut Lists, id: Id, stamp: &Stamp) -> Result<()> {
-    open_design(lists, id)?;
-    let design = lists.design_mut(id).expect("open");
-    if design.approved.is_none() {
-        design.approved = Some(stamp.clone());
-    }
+pub fn approve(db: &Connection, id: Id, stamp: &Stamp) -> Result<()> {
+    open_design(&store::read(db)?, id)?;
+    db.execute(
+        "INSERT OR IGNORE INTO design_approval (design_id, at, by) VALUES (?1, ?2, ?3)",
+        params![id, stamp.at, stamp.by],
+    )
+    .sql()?;
     Ok(())
 }
 
@@ -565,20 +630,17 @@ pub fn already_landed(lists: &Lists, id: Id, repo: &str, commits: &[String]) -> 
 /// Records that design change <id> landed as <commits> (full hashes) and
 /// closes it. The same commits again are recorded once; other commits for a
 /// change that landed are refused.
-pub fn landed(lists: &mut Lists, id: Id, repo: &str, commits: &[String], stamp: &Stamp) -> Result<Landed> {
+pub fn landed(db: &Connection, id: Id, repo: &str, commits: &[String], stamp: &Stamp) -> Result<Landed> {
     if commits.is_empty() {
         fail!("design landed names no commits");
     }
-    if already_landed(lists, id, repo, commits)? {
+    let before = store::read(db)?;
+    if already_landed(&before, id, repo, commits)? {
         return Ok(Landed::Already);
     }
-    open_design_of(lists, id, repo)?;
-    lists
-        .design_mut(id)
-        .expect("open")
-        .landed
-        .push(DesignLanding { commits: commits.to_vec(), at: stamp.at });
-    crate::lists::record::close(lists, id, How::Landed(commits.to_vec()), stamp)?;
+    open_design_of(&before, id, repo)?;
+    record::close(db, id, How::Landed(commits.to_vec()), stamp)?;
+    let lists = &store::read(db)?;
     let ready = lists
         .items
         .iter()
@@ -675,59 +737,116 @@ pub fn list(lists: &Lists) -> String {
     out
 }
 
-#[cfg(test)]
-fn planted(lists: &mut Lists, id: Id) -> &mut DesignChange {
-    lists.design_mut(id).expect("an open design change")
+/// Every design change, open and closed, as the rows hold it. <opened> is
+/// every record's stamp and <closings> every closing: a landed change's
+/// landing is its closing.
+pub fn read(
+    db: &Connection,
+    opened: &BTreeMap<Id, Stamp>,
+    closings: &BTreeMap<Id, (How, Stamp)>,
+) -> Result<Vec<DesignChange>> {
+    let mut places: BTreeMap<Id, BTreeMap<String, Resolution>> = BTreeMap::new();
+    let mut statement = db.prepare("SELECT design_id, path, item_id, matches FROM design_place").sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<Id>>(2)?, row.get::<_, Option<String>>(3)?))
+        })
+        .sql()?
+    {
+        let (design, path, item, matches) = row.sql()?;
+        let resolution = match (item, matches) {
+            (Some(item), _) => Resolution::Item(item),
+            (None, how) => Resolution::Matches(how.expect("design_place_is_resolved_one_way holds")),
+        };
+        places.entry(design).or_default().insert(path, resolution);
+    }
+    let mut boards: BTreeMap<Id, BTreeMap<String, Board>> = BTreeMap::new();
+    let mut statement = db.prepare("SELECT design_id, path, link FROM design_board").sql()?;
+    for row in statement
+        .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+        .sql()?
+    {
+        let (design, path, link) = row.sql()?;
+        boards.entry(design).or_default().insert(path, Board { link });
+    }
+    let mut review: BTreeMap<Id, Vec<ReviewSection>> = BTreeMap::new();
+    let mut statement = db.prepare("SELECT design_id, heading, words FROM review_section ORDER BY design_id, position").sql()?;
+    for row in statement
+        .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+        .sql()?
+    {
+        let (design, heading, words) = row.sql()?;
+        review.entry(design).or_default().push(ReviewSection { heading, words, boards: Vec::new() });
+    }
+    let mut statement = db
+        .prepare("SELECT design_id, section, board, caption, theme FROM review_board ORDER BY design_id, section, position")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((row.get::<_, Id>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?))
+        })
+        .sql()?
+    {
+        let (design, section, board, caption, theme) = row.sql()?;
+        let theme = if theme == "light" { Theme::Light } else { Theme::Dark };
+        review.get_mut(&design).expect("review_board_is_on_a_section holds")[section as usize]
+            .boards
+            .push(ReviewBoard { board, caption, theme });
+    }
+    let mut approvals: BTreeMap<Id, Stamp> = BTreeMap::new();
+    let mut statement = db.prepare("SELECT design_id, at, by FROM design_approval").sql()?;
+    for row in statement.query_map([], |row| Ok((row.get::<_, Id>(0)?, Stamp { at: row.get(1)?, by: row.get(2)? }))).sql()? {
+        let (design, stamp) = row.sql()?;
+        approvals.insert(design, stamp);
+    }
+    let mut statement = db.prepare("SELECT id, title, details, repo, worktree, no_app_place FROM design ORDER BY id").sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })
+        .sql()?;
+    let mut designs = Vec::new();
+    for row in rows {
+        let (id, title, details, repo, worktree, no_app_place) = row.sql()?;
+        let landed = match closings.get(&id) {
+            Some((How::Landed(commits), stamp)) => vec![DesignLanding { commits: commits.clone(), at: stamp.at }],
+            _ => Vec::new(),
+        };
+        designs.push(DesignChange {
+            id,
+            title,
+            details,
+            repo,
+            worktree,
+            places: places.remove(&id).unwrap_or_default(),
+            boards: boards.remove(&id).unwrap_or_default(),
+            review: review.remove(&id).unwrap_or_default(),
+            no_app_place,
+            approved: approvals.remove(&id),
+            opened: opened[&id].clone(),
+            landed,
+        });
+    }
+    Ok(designs)
 }
 
-/// Sets design change <id>'s title, with no check of it.
+/// The tables design.rs owns.
 #[cfg(test)]
-pub fn plant_title(lists: &mut Lists, id: Id, title: &str) {
-    planted(lists, id).title = title.to_string();
-}
+const TABLES: [&str; 6] =
+    ["design", "design_approval", "design_place", "design_board", "review_section", "review_board"];
 
-/// Sets design change <id>'s repo, whether or not the project has it.
+/// Writes a row of one of design.rs's tables as given, the constraints still
+/// holding: for tests that need a row they refuse.
 #[cfg(test)]
-pub fn plant_repo(lists: &mut Lists, id: Id, repo: &str) {
-    planted(lists, id).repo = repo.to_string();
-}
-
-/// Sets the worktree design change <id> is drawn in, with no check of it.
-#[cfg(test)]
-pub fn plant_worktree(lists: &mut Lists, id: Id, worktree: &str) {
-    planted(lists, id).worktree = worktree.to_string();
-}
-
-/// Sets how place <path> of design change <id> is resolved, whether or not
-/// the change touches it.
-#[cfg(test)]
-pub fn plant_place(lists: &mut Lists, id: Id, path: &str, resolution: Resolution) {
-    planted(lists, id).places.insert(path.to_string(), resolution);
-}
-
-/// Sets the canvas link of board <path> of design change <id>, whether or
-/// not <path> is a place of it.
-#[cfg(test)]
-pub fn plant_board(lists: &mut Lists, id: Id, path: &str, board: Board) {
-    planted(lists, id).boards.insert(path.to_string(), board);
-}
-
-/// Sets how the review page of design change <id> reads.
-#[cfg(test)]
-pub fn plant_review(lists: &mut Lists, id: Id, review: Vec<ReviewSection>) {
-    planted(lists, id).review = review;
-}
-
-/// Sets why design change <id> has no drawing, whatever it says.
-#[cfg(test)]
-pub fn plant_no_app_place(lists: &mut Lists, id: Id, why: &str) {
-    planted(lists, id).no_app_place = Some(why.to_string());
-}
-
-/// Adds <landing> to design change <id>, whatever it holds.
-#[cfg(test)]
-pub fn plant_landing(lists: &mut Lists, id: Id, landing: DesignLanding) {
-    planted(lists, id).landed.push(landing);
+pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+    crate::db::plant_row(db, &TABLES, table, columns)
 }
 
 #[cfg(test)]

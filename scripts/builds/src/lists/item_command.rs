@@ -1,11 +1,13 @@
 //! `builds item add | edit | note | wait | take | handoff | stop | drop |
 //! defer | place | check-landing | landed | show | list`: the work queue's
 //! commands. Each refuses a step that lacks what it needs, and every write is
-//! one `Store::with_write` made of the owners' operations (`item`, `running`,
+//! one `Store::write` made of the owners' operations (`item`, `running`,
 //! `landing`, `record`), so it lands whole or not at all. What reads the file
 //! system or runs a program (a brief's file, `gh`, git) runs before the lock.
 
 use std::path::Path;
+
+use rusqlite::Connection;
 
 use crate::fail;
 use crate::fail::Result;
@@ -19,7 +21,8 @@ use crate::lists::item::{
 };
 use crate::lists::record::close;
 use crate::lists::show::wait_words;
-use crate::lists::store::Store;
+use crate::lists::project;
+use crate::lists::store::{self, Store};
 use crate::lists::{How, Id, Lists, Stamp, issue, item_show, landing, running, take};
 use crate::text::note;
 use crate::tool::Tool;
@@ -97,9 +100,10 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     require_draft_briefs(cwd, std::slice::from_ref(&draft))?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let (id, state) = store.with_write(&stamp, &format!("item add {}", draft.title), |lists| {
-        let id = add_item(lists, &draft, None, &stamp)?;
-        Ok((id, item_state(lists, lists.item(id).expect("just added"))))
+    let (id, state) = store.write(&stamp, &format!("item add {}", draft.title), |db| {
+        let id = add_item(db, &draft, None, &stamp)?;
+        let lists = store::read(db)?;
+        Ok((id, item_state(&lists, lists.item(id).expect("just added"))))
     })?;
     note(format!("added {id} \"{}\" ({})", draft.title, state.label()));
     Ok(())
@@ -120,9 +124,9 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("item edit {id}"), |lists| {
-        open_item(lists, id)?;
-        edit.apply(lists, id)
+    store.write(&stamp, &format!("item edit {id}"), |db| {
+        open_item(&store::read(db)?, id)?;
+        edit.apply(db, id)
     })?;
     note(format!("edited {id}"));
     Ok(())
@@ -138,9 +142,9 @@ fn note_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("item note {id}"), |lists| {
-        open_item(lists, id)?;
-        add_note(lists, id, Note { at: stamp.at, by: stamp.by.clone(), text })
+    store.write(&stamp, &format!("item note {id}"), |db| {
+        open_item(&store::read(db)?, id)?;
+        add_note(db, id, Note { at: stamp.at, by: stamp.by.clone(), text })
     })?;
     note(format!("noted on {id}"));
     Ok(())
@@ -149,8 +153,8 @@ fn note_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// Refuses a change that leaves the state failing its check, naming what
 /// fails, instead of the check's own "nothing repairs them" wrapper (the
 /// state on disk is untouched: the write has not happened).
-fn require_state_holds(lists: &Lists, what: &str) -> Result<()> {
-    let found = faults(lists);
+fn require_state_holds(db: &Connection, what: &str) -> Result<()> {
+    let found = faults(db, &project::name(db)?)?;
     if found.is_empty() {
         return Ok(());
     }
@@ -168,27 +172,30 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let wait = parse_wait(reference)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let state = store.with_write(&stamp, &format!("item wait {id} {}", if on { "--on" } else { "--off" }), |lists| {
+    let state = store.write(&stamp, &format!("item wait {id} {}", if on { "--on" } else { "--off" }), |db| {
+        let lists = store::read(db)?;
+        let lists = &lists;
         let item = open_item(lists, id)?;
         if on {
             if wait == Wait::Item(id) {
                 fail!("{id} cannot wait on itself");
             }
-            require_open_wait(lists, &wait)?;
+            require_open_wait(db, &wait)?;
             if item.waits.contains(&wait) {
                 fail!("{id} already waits on {reference}");
             }
-            add_wait(lists, id, wait.clone())?;
+            add_wait(db, id, wait.clone())?;
         } else {
             if !item.waits.contains(&wait) {
                 let current: Vec<String> = item.waits.iter().map(|w| wait_words(lists, w)).collect();
                 let current = if current.is_empty() { "nothing".to_string() } else { current.join("; ") };
                 fail!("{id} does not wait on {reference}; it waits on {current}");
             }
-            remove_wait(lists, id, &wait)?;
+            remove_wait(db, id, &wait)?;
         }
-        require_state_holds(lists, &format!("{id} cannot {verb} {reference}"))?;
-        Ok(item_state(lists, lists.item(id).expect("open")))
+        require_state_holds(db, &format!("{id} cannot {verb} {reference}"))?;
+        let lists = store::read(db)?;
+        Ok(item_state(&lists, lists.item(id).expect("open")))
     })?;
     note(format!("{id} {} {reference} ({})", if on { "now waits on" } else { "no longer waits on" }, state.label()));
     Ok(())
@@ -201,9 +208,9 @@ fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     require_brief_from(cwd, &brief)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("item handoff {id}"), |lists| {
-        open_item(lists, id)?;
-        running::handoff(lists, id, &brief)
+    store.write(&stamp, &format!("item handoff {id}"), |db| {
+        open_item(&store::read(db)?, id)?;
+        running::handoff(db, id, &brief)
     })?;
     note(format!("{id} is handed to the brief {brief}"));
     Ok(())
@@ -215,10 +222,10 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("item stop {id}"), |lists| {
-        open_item(lists, id)?;
-        running::stop(lists, id)?;
-        add_note(lists, id, Note { at: stamp.at, by: stamp.by.clone(), text: format!("stopped: {why}") })
+    store.write(&stamp, &format!("item stop {id}"), |db| {
+        open_item(&store::read(db)?, id)?;
+        running::stop(db, id)?;
+        add_note(db, id, Note { at: stamp.at, by: stamp.by.clone(), text: format!("stopped: {why}") })
     })?;
     note(format!("stopped {id}; it is back in the queue"));
     Ok(())
@@ -262,9 +269,9 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("item drop {id}"), |lists| {
-        require_can_leave(lists, id, "drop")?;
-        close(lists, id, How::Dropped(why.clone()), &stamp)
+    store.write(&stamp, &format!("item drop {id}"), |db| {
+        require_can_leave(&store::read(db)?, id, "drop")?;
+        close(db, id, How::Dropped(why.clone()), &stamp)
     })?;
     note(format!("dropped {id}"));
     Ok(())
@@ -277,9 +284,9 @@ fn defer(tool: &Tool, args: &[String], cwd: &Path, gh: issue::GhRunner<'_>) -> R
     issue::require_open_issue(gh, &url)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("item defer {id}"), |lists| {
-        require_can_leave(lists, id, "defer")?;
-        close(lists, id, How::Deferred(url.clone()), &stamp)
+    store.write(&stamp, &format!("item defer {id}"), |db| {
+        require_can_leave(&store::read(db)?, id, "defer")?;
+        close(db, id, How::Deferred(url.clone()), &stamp)
     })?;
     note(format!("deferred {id} to {url}"));
     Ok(())
@@ -296,9 +303,9 @@ fn place(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("item place {id} {at}"), |lists| {
-        open_item(lists, id)?;
-        set_priority(lists, id, priority)
+    store.write(&stamp, &format!("item place {id} {at}"), |db| {
+        open_item(&store::read(db)?, id)?;
+        set_priority(db, id, priority)
     })?;
     note(format!("placed {id} {at}"));
     Ok(())

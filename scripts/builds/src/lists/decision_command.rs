@@ -15,7 +15,7 @@ use crate::lists::derive;
 use crate::lists::decision::{self, NewDecision, add_decision};
 use crate::lists::draft::{require_draft_briefs, work_or_why};
 use crate::lists::item::ItemDraft;
-use crate::lists::store::Store;
+use crate::lists::store::{self, Store};
 use crate::lists::{Decision, Id, Lists, PlanRef, Stamp, Standing, day};
 use crate::text::{local_minute, note};
 use crate::tool::Tool;
@@ -69,8 +69,9 @@ fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
         plan: request.plan,
     };
     let words = format!("decision add --request {}", args.require("request")?);
-    let added = store.with_write(&stamp, &words, |lists| {
-        let added = add_decision(lists, &new, &work, &stamp)?;
+    let added = store.write(&stamp, &words, |db| {
+        let added = add_decision(db, &new, &work, &stamp)?;
+        let lists = &store::read(db)?;
         let made: Vec<String> = added
             .items
             .iter()
@@ -105,8 +106,8 @@ fn edit(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("decision edit {}", id.0), |lists| {
-        decision::edit(lists, id, title, body)
+    store.write(&stamp, &format!("decision edit {}", id.0), |db| {
+        decision::edit(db, id, title, body)
     })?;
     note(format!("edited decision {id}"));
     Ok(())

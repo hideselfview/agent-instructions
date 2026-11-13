@@ -1,7 +1,7 @@
 use super::*;
 use crate::lists::record::close;
 use crate::lists::decision::{NewDecision, add_decision};
-use crate::lists::fixtures::{NOON, design, draft, item, lists, question, stamp};
+use crate::lists::fixtures::{NOON, blocks_something, db, design, design_place, draft, item, question, read, stamp};
 use crate::lists::{How, Resolution, Running, Wait};
 use serde_json::{Value, json};
 
@@ -11,25 +11,25 @@ fn view_json(lists: &Lists) -> Value {
 
 #[test]
 fn the_json_has_the_pages_shape() {
-    let mut lists = lists();
-    let q = question(&mut lists);
-    let first = lists.questions[0].id;
-    crate::lists::fixtures::blocks_something(&mut lists, first);
-    let waiting = item(&mut lists, vec![Wait::Question(q), Wait::Condition("a quiet machine".into())]);
-    let running = item(&mut lists, vec![]);
-    crate::lists::running::start(&mut lists, &[running], &[Running {
+    let db = db();
+    let q = question(&db);
+    let waiting = item(&db, vec![Wait::Question(q), Wait::Condition("a quiet machine".into())]);
+    blocks_something(&db, q);
+    let running = item(&db, vec![]);
+    crate::lists::running::start(&db, &[running], &[Running {
         worktree: "/d/bae-worktrees/side-2".into(),
         branch: "import-tags".into(),
         brief: "plans/briefs/x.md".into(),
         since: stamp(NOON),
     }]).unwrap();
-    let board = design(&mut lists);
-    crate::lists::design::plant_place(&mut lists, board, "design/mocks/A.dc.html", Resolution::Item(waiting));
-    crate::lists::design::plant_place(&mut lists, board, "design/system/components/B/", Resolution::Matches("diffed".into()));
+    let board = design(&db);
+    design_place(&db, board, "design/mocks/A.dc.html", Resolution::Item(waiting));
+    design_place(&db, board, "design/system/components/B/", Resolution::Matches("diffed".into()));
     let new = NewDecision { title: "Chose".into(), by: "person".into(), body: "why".into(), question: None, replaces: None, plan: None };
-    let first = add_decision(&mut lists, &new, &[draft("One two three four five")], &stamp(NOON)).unwrap();
-    let second = add_decision(&mut lists, &NewDecision { replaces: Some(first.decision), ..new }, &[], &stamp(NOON)).unwrap();
+    let first = add_decision(&db, &new, &[draft("One two three four five")], &stamp(NOON)).unwrap();
+    let second = add_decision(&db, &NewDecision { replaces: Some(first.decision), ..new }, &[], &stamp(NOON)).unwrap();
 
+    let lists = read(&db);
     let json = view_json(&lists);
     assert_eq!((&json["project"], &json["version"], &json["error"]), (&json!("demo"), &json!(1), &Value::Null));
     let stack = &json["stack"][0];
@@ -62,12 +62,12 @@ fn the_json_has_the_pages_shape() {
 
 #[test]
 fn designs_that_landed_recently_show_closed_and_old_ones_drop_off() {
-    let mut lists = lists();
-    let recent = design(&mut lists);
-    let old = design(&mut lists);
-    close(&mut lists, recent, How::Landed(vec!["a".into()]), &stamp(NOON - 86400)).unwrap();
-    close(&mut lists, old, How::Landed(vec!["b".into()]), &stamp(NOON - 20 * 86400)).unwrap();
-    let json = view_json(&lists);
+    let db = db();
+    let recent = design(&db);
+    let old = design(&db);
+    close(&db, recent, How::Landed(vec![crate::lists::fixtures::sha('a')]), &stamp(NOON - 86400)).unwrap();
+    close(&db, old, How::Landed(vec![crate::lists::fixtures::sha('b')]), &stamp(NOON - 20 * 86400)).unwrap();
+    let json = view_json(&read(&db));
     let designs = json["designs"].as_array().unwrap();
     assert_eq!(designs.len(), 1);
     assert_eq!(designs[0]["id"], json!(recent.0));
@@ -76,12 +76,12 @@ fn designs_that_landed_recently_show_closed_and_old_ones_drop_off() {
 
 #[test]
 fn a_closed_item_a_place_names_reads_closed() {
-    let mut lists = lists();
-    let board = design(&mut lists);
-    let work = item(&mut lists, vec![]);
-    crate::lists::design::plant_place(&mut lists, board, "p", Resolution::Item(work));
-    close(&mut lists, work, How::Landed(vec!["a".into()]), &stamp(NOON)).unwrap();
-    assert_eq!(view_json(&lists)["designs"][0]["places"][0]["item"]["state"], json!("closed"));
+    let db = db();
+    let board = design(&db);
+    let work = item(&db, vec![]);
+    design_place(&db, board, "p", Resolution::Item(work));
+    close(&db, work, How::Landed(vec![crate::lists::fixtures::sha('a')]), &stamp(NOON)).unwrap();
+    assert_eq!(view_json(&read(&db))["designs"][0]["places"][0]["item"]["state"], json!("closed"));
 }
 
 #[test]
@@ -92,12 +92,13 @@ fn a_failed_store_shows_its_error_and_nothing_else() {
 
 #[test]
 fn a_design_change_shows_the_items_waiting_on_it_and_its_approval() {
-    let mut lists = lists();
-    let id = design(&mut lists);
-    let waiting = item(&mut lists, vec![Wait::Design(id)]);
-    let free = item(&mut lists, vec![]);
+    let db = db();
+    let id = design(&db);
+    let waiting = item(&db, vec![Wait::Design(id)]);
+    let free = item(&db, vec![]);
     let _ = free;
-    crate::lists::design::approve(&mut lists, id, &stamp(NOON)).unwrap();
+    crate::lists::design::approve(&db, id, &stamp(NOON)).unwrap();
+    let lists = read(&db);
     let json = view_json(&lists);
     assert_eq!(json["designs"][0]["blocks"], json!([{"id": waiting.0, "title": lists.item(waiting).unwrap().title}]));
     assert_eq!(json["designs"][0]["approved"]["at"], json!(NOON));

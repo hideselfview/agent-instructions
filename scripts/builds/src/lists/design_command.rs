@@ -14,7 +14,7 @@ use crate::fail::{Context, Result};
 use crate::lists::args::{Args, read_request};
 use crate::lists::design::{self, DesignRequest, Landed, PlaceAnswer};
 use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
-use crate::lists::store::{Store, project_of};
+use crate::lists::store::{self, Store, project_of};
 use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
@@ -206,9 +206,9 @@ fn record(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let repo = scope.checkout.repo();
     let worktree = scope.checkout.top.display().to_string();
     let words = format!("design record {}", request.title.as_deref().unwrap_or(""));
-    let (recorded, title) = scope.store.with_write(&stamp, &words, |lists| {
-        let recorded = design::record(lists, &repo, &worktree, &request, &scope.changes, &affected, &stamp)?;
-        let title = lists.design(recorded.design).expect("just recorded").title.clone();
+    let (recorded, title) = scope.store.write(&stamp, &words, |db| {
+        let recorded = design::record(db, &repo, &worktree, &request, &scope.changes, &affected, &stamp)?;
+        let title = store::read(db)?.design(recorded.design).expect("just recorded").title.clone();
         Ok((recorded, title))
     })?;
     Ok(recorded_words("recorded", &recorded, &title, false))
@@ -226,10 +226,10 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let repo = scope.checkout.repo();
     let worktree = scope.checkout.top.display().to_string();
-    let (recorded, title, cleared) = scope.store.with_write(&stamp, &format!("design amend {id}"), |lists| {
-        let was_approved = lists.design(id).is_some_and(|d| d.approved.is_some());
-        let recorded = design::amend(lists, id, &repo, &worktree, &request, &scope.changes, &affected, &stamp)?;
-        let title = lists.design(id).expect("open").title.clone();
+    let (recorded, title, cleared) = scope.store.write(&stamp, &format!("design amend {id}"), |db| {
+        let was_approved = store::read(db)?.design(id).is_some_and(|d| d.approved.is_some());
+        let recorded = design::amend(db, id, &repo, &worktree, &request, &scope.changes, &affected, &stamp)?;
+        let title = store::read(db)?.design(id).expect("open").title.clone();
         Ok((recorded, title, was_approved))
     })?;
     Ok(recorded_words("amended", &recorded, &title, cleared))
@@ -251,7 +251,7 @@ fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
         return Ok(format!("design change {id} was already approved ({})\n", local_minute(approved.at)));
     }
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("design approve {id}"), |lists| design::approve(lists, id, &stamp))?;
+    store.write(&stamp, &format!("design approve {id}"), |db| design::approve(db, id, &stamp))?;
     Ok(format!("design change {id} approved; land.sh --design {} can land it\n", id.0))
 }
 
@@ -293,8 +293,8 @@ fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
         return Ok(format!("design change {id} was already recorded as landed with these commits\n"));
     }
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let result = store.with_write(&stamp, &format!("design landed {id}"), |lists| {
-        design::landed(lists, id, &repo, &commits, &stamp)
+    let result = store.write(&stamp, &format!("design landed {id}"), |db| {
+        design::landed(db, id, &repo, &commits, &stamp)
     })?;
     Ok(match result {
         Landed::Already => format!("design change {id} was already recorded as landed with these commits\n"),

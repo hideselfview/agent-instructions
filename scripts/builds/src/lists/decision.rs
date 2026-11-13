@@ -3,13 +3,18 @@
 //! commands around these operations; what replaces a decision is derived
 //! from the decisions that name it, never stored.
 
+use std::collections::BTreeMap;
+
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
+use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::check::title_fault;
-use crate::lists::item::{ItemDraft, add_item};
-use crate::lists::{Id, Kind, Lists, PlanRef, Stamp};
+use crate::lists::item::{ItemDraft, Origin, add_item};
+use crate::lists::record;
+use crate::lists::{How, Id, Item, Kind, Lists, PlanRef, Question, Stamp};
 use crate::text::local_day;
 
 impl Lists {
@@ -59,8 +64,9 @@ pub struct Added {
 }
 
 /// Adds the decision <new> with the items of <work>, each made by it; the
-/// decision's date is the day of <stamp>.
-pub fn add_decision(lists: &mut Lists, new: &NewDecision, work: &[ItemDraft], stamp: &Stamp) -> Result<Added> {
+/// decision's date is the day of <stamp>. A decision that answers a question
+/// has that question's plan, so only one that answers none stores its own.
+pub fn add_decision(db: &Connection, new: &NewDecision, work: &[ItemDraft], stamp: &Stamp) -> Result<Added> {
     if let Some(fault) = title_fault(&new.title) {
         fail!("{fault}");
     }
@@ -71,88 +77,134 @@ pub fn add_decision(lists: &mut Lists, new: &NewDecision, work: &[ItemDraft], st
         fail!("the decision's body is empty; say what was decided and why");
     }
     if let Some(question) = new.question
-        && lists.locate(question).is_none_or(|found| found.kind != Kind::Question)
+        && !matches!(record::standing(db, question)?, Some((Kind::Question, _)))
     {
         fail!("the decision answers {question}, which is not a question");
     }
     if let Some(replaces) = new.replaces
-        && lists.decision(replaces).is_none()
+        && !matches!(record::standing(db, replaces)?, Some((Kind::Decision, _)))
     {
         fail!("the decision replaces {replaces}, which is not a decision");
     }
-    let decision = lists.alloc_id();
+    let decision = record::open(db, Kind::Decision, stamp)?;
     let mut items = Vec::new();
     for draft in work {
-        items.push(add_item(lists, draft, Some(decision), stamp)?);
+        items.push(add_item(db, draft, Some(Origin::Decision(decision)), stamp)?);
     }
-    lists.decisions.push(Decision {
-        id: decision,
-        date: local_day(stamp.at),
-        title: new.title.clone(),
-        by: new.by.clone(),
-        body: new.body.clone(),
-        question: new.question,
-        work: items.clone(),
-        replaces: new.replaces,
-        plan: new.plan.clone(),
-        recorded: stamp.clone(),
-    });
+    insert(db, decision, &local_day(stamp.at), new.title.as_str(), new.by.as_str(), new.body.as_str(), new.replaces)?;
+    if let (None, Some(plan)) = (new.question, &new.plan) {
+        insert_plan(db, decision, plan)?;
+    }
     Ok(Added { decision, items })
 }
 
-/// Changes decision <id>'s title and body, those given.
-pub fn edit(lists: &mut Lists, id: Id, title: Option<String>, body: Option<String>) -> Result<()> {
-    let Some(decision) = lists.decisions.iter_mut().find(|d| d.id == id) else {
-        fail!("{id} is not a decision");
-    };
-    if let Some(title) = title {
-        decision.title = title;
-    }
-    if let Some(body) = body {
-        decision.body = body;
+fn insert(db: &Connection, id: Id, date: &str, title: &str, by: &str, body: &str, replaces: Option<Id>) -> Result<()> {
+    db.execute(
+        "INSERT INTO decision (id, date, title, decided_by, body, replaces) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, date, title, by, body, replaces],
+    )
+    .sql()?;
+    Ok(())
+}
+
+fn insert_plan(db: &Connection, id: Id, plan: &PlanRef) -> Result<()> {
+    db.execute("INSERT INTO decision_plan (decision_id, path, number) VALUES (?1, ?2, ?3)", params![id, plan.path, plan.number]).sql()?;
+    Ok(())
+}
+
+/// Puts <decision> in as it was written elsewhere; its record is open
+/// already. What it answered and what it made are the closing and the items
+/// that name it, put in by theirs; an answering decision's plan is its
+/// question's.
+pub fn move_in(db: &Connection, decision: &Decision) -> Result<()> {
+    insert(db, decision.id, &decision.date, &decision.title, &decision.by, &decision.body, decision.replaces)?;
+    if let (None, Some(plan)) = (decision.question, &decision.plan) {
+        insert_plan(db, decision.id, plan)?;
     }
     Ok(())
 }
 
-#[cfg(test)]
-fn planted(lists: &mut Lists, id: Id) -> &mut Decision {
-    lists.decisions.iter_mut().find(|d| d.id == id).expect("a decision")
+/// Changes decision <id>'s title and body, those given.
+pub fn edit(db: &Connection, id: Id, title: Option<String>, body: Option<String>) -> Result<()> {
+    if !matches!(record::standing(db, id)?, Some((Kind::Decision, _))) {
+        fail!("{id} is not a decision");
+    }
+    db.execute("UPDATE decision SET title = COALESCE(?2, title), body = COALESCE(?3, body) WHERE id = ?1", params![id, title, body])
+        .sql()?;
+    Ok(())
 }
 
-/// Sets decision <id>'s date, whatever it says.
-#[cfg(test)]
-pub fn plant_date(lists: &mut Lists, id: Id, date: &str) {
-    planted(lists, id).date = date.to_string();
+/// Every decision as the rows hold it. What it answered, what it made and
+/// an answering decision's plan are read from the closings, the items and
+/// the questions.
+pub fn read(
+    db: &Connection,
+    opened: &BTreeMap<Id, Stamp>,
+    closings: &BTreeMap<Id, (How, Stamp)>,
+    items: &[Item],
+    questions: &[Question],
+) -> Result<Vec<Decision>> {
+    let mut answered: BTreeMap<Id, Id> = BTreeMap::new();
+    for (question, (how, _)) in closings {
+        if let How::Answered(decision) = how {
+            answered.insert(*decision, *question);
+        }
+    }
+    let mut plans: BTreeMap<Id, PlanRef> = BTreeMap::new();
+    let mut statement = db.prepare("SELECT decision_id, path, number FROM decision_plan").sql()?;
+    for row in statement
+        .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+        .sql()?
+    {
+        let (id, path, number) = row.sql()?;
+        plans.insert(id, PlanRef { path, number });
+    }
+    let mut statement = db.prepare("SELECT id, date, title, decided_by, body, replaces FROM decision ORDER BY id").sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<Id>>(5)?,
+            ))
+        })
+        .sql()?;
+    let mut decisions = Vec::new();
+    for row in rows {
+        let (id, date, title, by, body, replaces) = row.sql()?;
+        let question = answered.get(&id).copied();
+        let plan = match question {
+            Some(question) => questions.iter().find(|q| q.id == question).and_then(|q| q.plan.clone()),
+            None => plans.remove(&id),
+        };
+        decisions.push(Decision {
+            id,
+            date,
+            title,
+            by,
+            body,
+            question,
+            work: items.iter().filter(|item| item.from == Some(id)).map(|item| item.id).collect(),
+            replaces,
+            plan,
+            recorded: opened[&id].clone(),
+        });
+    }
+    Ok(decisions)
 }
 
-/// Sets who decided <id>, whatever it says.
+/// The tables decision.rs owns.
 #[cfg(test)]
-pub fn plant_decided_by(lists: &mut Lists, id: Id, by: &str) {
-    planted(lists, id).by = by.to_string();
-}
+const TABLES: [&str; 2] = ["decision", "decision_plan"];
 
-/// Sets decision <id>'s body, whatever it says.
+/// Writes a row of one of decision.rs's tables as given, the constraints
+/// still holding: for tests that need a row they refuse.
 #[cfg(test)]
-pub fn plant_body(lists: &mut Lists, id: Id, body: &str) {
-    planted(lists, id).body = body.to_string();
-}
-
-/// Sets the decision <id> revises, whatever it names.
-#[cfg(test)]
-pub fn plant_replaces(lists: &mut Lists, id: Id, replaces: Id) {
-    planted(lists, id).replaces = Some(replaces);
-}
-
-/// Sets the question <id> answered, whatever it names.
-#[cfg(test)]
-pub fn plant_question(lists: &mut Lists, id: Id, question: Id) {
-    planted(lists, id).question = Some(question);
-}
-
-/// Sets the items <id> made, whatever they name.
-#[cfg(test)]
-pub fn plant_work(lists: &mut Lists, id: Id, work: Vec<Id>) {
-    planted(lists, id).work = work;
+pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+    crate::db::plant_row(db, &TABLES, table, columns)
 }
 
 #[cfg(test)]

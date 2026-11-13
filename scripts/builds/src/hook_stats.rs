@@ -11,21 +11,14 @@
 //! code does not know is an error.
 
 use std::path::Path;
-use std::time::Duration;
 
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::{Connection, params};
 
 use crate::checks::Kind;
 use crate::fail;
 use crate::fail::{Context, Result};
 
-/// The database's file name in a project's store folder.
-pub const DATABASE: &str = "builds.sqlite";
-
-const SCHEMA: &str = include_str!("hook_stats.sql");
-const SCHEMA_VERSION: i64 = 1;
-/// How long a connection waits for another's write.
-const BUSY: Duration = Duration::from_secs(5);
+pub use crate::db::DATABASE;
 
 /// How a staged file differs from HEAD.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,44 +130,16 @@ fn kind_of(word: &str) -> Result<Kind> {
     }
 }
 
-fn configure(conn: &Connection, path: &Path) -> Result<()> {
-    conn.busy_timeout(BUSY).context(|| format!("configuring {}", path.display()))?;
-    conn.pragma_update(None, "foreign_keys", true).context(|| format!("configuring {}", path.display()))
-}
-
 /// The database at <path> ready for writing: made with its schema when it is
 /// new. The folder must exist; this never makes it.
 fn open_for_writing(path: &Path) -> Result<Connection> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE)
-        .context(|| format!("opening {}", path.display()))?;
-    configure(&conn, path)?;
-    let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).context(|| format!("reading {}", path.display()))?;
-    match version {
-        0 => {
-            conn.execute_batch(SCHEMA).context(|| format!("making the schema in {}", path.display()))?;
-            conn.pragma_update(None, "user_version", SCHEMA_VERSION).context(|| format!("making the schema in {}", path.display()))?;
-        }
-        SCHEMA_VERSION => {}
-        other => fail!("{} has schema version {other}, not {SCHEMA_VERSION}", path.display()),
-    }
-    Ok(conn)
+    crate::db::open(path, crate::db::Make::Allowed)
 }
 
 /// The database at <path> for reading; None when there is no file or no
 /// schema in it yet.
 fn open_for_reading(path: &Path) -> Result<Option<Connection>> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .context(|| format!("opening {}", path.display()))?;
-    configure(&conn, path)?;
-    let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).context(|| format!("reading {}", path.display()))?;
-    match version {
-        0 => Ok(None),
-        SCHEMA_VERSION => Ok(Some(conn)),
-        other => fail!("{} has schema version {other}, not {SCHEMA_VERSION}", path.display()),
-    }
+    crate::db::open_reader(path)
 }
 
 /// Writes <run>, its files and its checks to the database at <path>, in one

@@ -454,7 +454,7 @@ impl Model {
             &places,
             claimed,
             unclaimed,
-            crate::lists::running::findings(&self.lists.current().1, &roots)?,
+            crate::lists::running::findings(&self.places, &self.lists.current().1, &roots)?,
         );
         state.machine = Some(machine);
         state.health = Some(health.clone());

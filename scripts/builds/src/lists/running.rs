@@ -3,16 +3,19 @@
 //! guard also lives here: a worktree can't be released while an item runs in
 //! it. `findings` is what `builds health` says about the lists.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 use crate::checkout::{Checkout, Root};
 use crate::claim::Claim;
+use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::store::{Loaded, Store, project_of};
-use crate::lists::item::Item;
+use crate::lists::item::{self, Item};
 use crate::lists::{Id, Lists, Stamp};
 use crate::places::Places;
 
@@ -29,11 +32,10 @@ pub struct Running {
     pub since: Stamp,
 }
 
-/// The repo and checkout name of a side worktree path,
-/// `<parent>/<repo>-worktrees/side-N`, by its shape alone. The checks that
-/// run on every load can't ask git; whether the folder is a live worktree is
-/// asked where a command takes the item.
-pub fn side_worktree_parts(path: &str) -> Option<(String, String)> {
+/// The parent folder, repo and checkout name of a side worktree path,
+/// `<parent>/<repo>-worktrees/side-N`, by its shape alone. Whether the folder
+/// is a live worktree is asked where a command takes the item.
+pub fn side_worktree_split(path: &str) -> Option<(String, String, String)> {
     let path = std::path::Path::new(path);
     if !path.is_absolute() {
         return None;
@@ -48,47 +50,93 @@ pub fn side_worktree_parts(path: &str) -> Option<(String, String)> {
     if repo.is_empty() {
         return None;
     }
-    Some((repo.to_string(), checkout.to_string()))
+    let parent = path.parent()?.parent()?.to_str()?;
+    Some((parent.to_string(), repo.to_string(), checkout.to_string()))
 }
 
-/// Starts open items <ids> running in <places>: the same places for each.
-pub fn start(lists: &mut Lists, ids: &[Id], places: &[Running]) -> Result<()> {
+/// The repo and checkout name of a side worktree path.
+pub fn side_worktree_parts(path: &str) -> Option<(String, String)> {
+    side_worktree_split(path).map(|(_, repo, checkout)| (repo, checkout))
+}
+
+/// Starts open items <ids> running in <places>: the same places, brief and
+/// moment for each, which is what the first of <places> says.
+pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
+    let Some(first) = places.first() else { fail!("an item runs in at least one worktree") };
     for id in ids {
-        let Some(item) = lists.item_mut(*id) else { fail!("{id} is not an open item") };
-        item.running = places.to_vec();
+        item::require_open_item(db, *id)?;
+        db.execute(
+            "INSERT INTO running (item_id, brief, since_at, since_by) VALUES (?1, ?2, ?3, ?4)",
+            params![id, first.brief, first.since.at, first.since.by],
+        )
+        .sql()?;
+        for place in places {
+            let Some((parent, repo, checkout)) = side_worktree_split(&place.worktree) else {
+                fail!("{} is not a side worktree (<parent>/<repo>-worktrees/side-N)", place.worktree);
+            };
+            db.execute(
+                "INSERT INTO running_place (item_id, repo, parent, checkout, branch) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, repo, parent, checkout, place.branch],
+            )
+            .sql()?;
+        }
     }
     Ok(())
 }
 
 /// Gives every place open item <id> runs in <brief>. Refused when it does
 /// not run.
-pub fn handoff(lists: &mut Lists, id: Id, brief: &str) -> Result<()> {
-    let Some(item) = lists.item_mut(id) else { fail!("{id} is not an open item") };
-    if item.running.is_empty() {
+pub fn handoff(db: &Connection, id: Id, brief: &str) -> Result<()> {
+    item::require_open_item(db, id)?;
+    let changed = db.execute("UPDATE running SET brief = ?2 WHERE item_id = ?1", params![id, brief]).sql()?;
+    if changed == 0 {
         fail!("{id} is not running; a handoff gives a running item's next agent its brief (`item take` starts one)");
-    }
-    for running in &mut item.running {
-        running.brief = brief.to_string();
     }
     Ok(())
 }
 
 /// Ends open item <id>'s running, everywhere. Refused when it does not run.
-pub fn stop(lists: &mut Lists, id: Id) -> Result<()> {
-    let Some(item) = lists.item_mut(id) else { fail!("{id} is not an open item") };
-    if item.running.is_empty() {
+pub fn stop(db: &Connection, id: Id) -> Result<()> {
+    item::require_open_item(db, id)?;
+    if end(db, id)? == 0 {
         fail!("{id} is not running");
     }
-    item.running.clear();
     Ok(())
 }
 
-/// Ends open item <id>'s running wherever it runs, if it runs: an item that
-/// is done runs nowhere.
-pub fn end(lists: &mut Lists, id: Id) -> Result<()> {
-    let Some(item) = lists.item_mut(id) else { fail!("{id} is not an open item") };
-    item.running.clear();
-    Ok(())
+/// Ends item <id>'s running wherever it runs, if it runs; says how many
+/// items it ended (0 or 1): an item that is done runs nowhere.
+pub fn end(db: &Connection, id: Id) -> Result<usize> {
+    db.execute("DELETE FROM running WHERE item_id = ?1", [id]).sql()
+}
+
+/// Where every running item runs, by item.
+pub fn read(db: &Connection) -> Result<BTreeMap<Id, Vec<Running>>> {
+    let mut statement = db
+        .prepare(
+            "SELECT r.item_id, p.worktree, p.branch, r.brief, r.since_at, r.since_by \
+             FROM running r JOIN running_place p ON p.item_id = r.item_id ORDER BY r.item_id, p.repo",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                Running {
+                    worktree: row.get(1)?,
+                    branch: row.get(2)?,
+                    brief: row.get(3)?,
+                    since: Stamp { at: row.get(4)?, by: row.get(5)? },
+                },
+            ))
+        })
+        .sql()?;
+    let mut all: BTreeMap<Id, Vec<Running>> = BTreeMap::new();
+    for row in rows {
+        let (id, running) = row.sql()?;
+        all.entry(id).or_default().push(running);
+    }
+    Ok(all)
 }
 
 /// Who holds the worktree an item runs in.
@@ -164,16 +212,21 @@ pub fn require_release_allowed(places: &Places, checkout: &Checkout) -> Result<(
     );
 }
 
-/// What `builds health` says about the lists: a store that fails its check,
+/// What `builds health` says about the lists: a store whose database fails
+/// SQLite's integrity checks, a store that fails its check,
 /// and a running item whose worktree is gone or has no claim. `builds release`
 /// refuses while an item runs in the worktree, so only a hand edit reaches the
 /// second; it is named loudly, never repaired. One line per fault.
-pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>, roots: &[Root]) -> Result<Vec<String>> {
+pub fn findings(
+    places: &Places,
+    loaded: &std::result::Result<Vec<Loaded>, String>,
+    roots: &[Root],
+) -> Result<Vec<String>> {
     let loaded = match loaded {
         Ok(loaded) => loaded,
         Err(fault) => return Ok(vec![format!("lists: {fault}")]),
     };
-    let mut findings = Vec::new();
+    let mut findings = crate::lists::store::integrity(places);
     for project in loaded {
         let lists = match &project.lists {
             Ok(lists) => lists,
@@ -201,6 +254,17 @@ pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>, roots: &[Root
         }
     }
     Ok(findings)
+}
+
+/// The tables running.rs owns.
+#[cfg(test)]
+const TABLES: [&str; 2] = ["running", "running_place"];
+
+/// Writes a row of one of running.rs's tables as given, the constraints
+/// still holding: for tests that need a row they refuse.
+#[cfg(test)]
+pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+    crate::db::plant_row(db, &TABLES, table, columns)
 }
 
 #[cfg(test)]

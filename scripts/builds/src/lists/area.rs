@@ -3,12 +3,15 @@
 
 use std::path::Path;
 
+use rusqlite::{Connection, params};
+
+use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::check::title_fault;
 use crate::lists::store::Store;
-use crate::lists::{Id, Lists, Stamp, item};
+use crate::lists::{Id, Stamp, item};
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -26,68 +29,102 @@ pub fn cmd_area(tool: &Tool, args: &[String]) -> Result<()> {
     }
 }
 
-fn position(lists: &Lists, area: &str) -> Result<usize> {
-    match lists.areas.iter().position(|known| known == area) {
+/// The areas in the order the sidebar shows them.
+pub fn areas(db: &Connection) -> Result<Vec<String>> {
+    let mut statement = db.prepare("SELECT name FROM area ORDER BY position").sql()?;
+    let names = statement.query_map([], |row| row.get(0)).sql()?;
+    names.map(|name| name.sql()).collect()
+}
+
+fn position(areas: &[String], area: &str) -> Result<usize> {
+    match areas.iter().position(|known| known == area) {
         Some(at) => Ok(at),
-        None => fail!("area '{area}' does not exist (the areas are: {})", lists.areas.join("; ")),
+        None => fail!("area '{area}' does not exist (the areas are: {})", areas.join("; ")),
     }
 }
 
-fn require_new_name(lists: &Lists, name: &str) -> Result<()> {
+fn require_new_name(areas: &[String], name: &str) -> Result<()> {
     if let Some(fault) = title_fault(name) {
         fail!("{fault}");
     }
-    if lists.areas.iter().any(|known| known == name) {
+    if areas.iter().any(|known| known == name) {
         fail!("area '{name}' exists already");
     }
     Ok(())
 }
 
-/// Adds area <name> after <after>, or at the end.
-pub fn add_area(lists: &mut Lists, name: &str, after: Option<&str>) -> Result<()> {
-    require_new_name(lists, name)?;
-    let at = match after {
-        Some(after) => position(lists, after)? + 1,
-        None => lists.areas.len(),
-    };
-    lists.areas.insert(at, name.to_string());
+/// Gives the areas the positions of <order>. The unique positions are never
+/// two at once: every area moves out of the range first.
+fn renumber(db: &Connection, order: &[String]) -> Result<()> {
+    db.execute("UPDATE area SET position = position + 1000000", []).sql()?;
+    for (at, name) in order.iter().enumerate() {
+        db.execute("UPDATE area SET position = ?1 WHERE name = ?2", params![at as i64, name]).sql()?;
+    }
     Ok(())
 }
 
-/// Renames area <old> to <new>, on every item in it, open or closed.
-pub fn rename_area(lists: &mut Lists, old: &str, new: &str) -> Result<()> {
-    let at = position(lists, old)?;
-    require_new_name(lists, new)?;
-    lists.areas[at] = new.to_string();
-    item::rename_area(lists, old, new);
+/// Adds area <name> after <after>, or at the end.
+pub fn add_area(db: &Connection, name: &str, after: Option<&str>) -> Result<()> {
+    let mut order = areas(db)?;
+    require_new_name(&order, name)?;
+    let at = match after {
+        Some(after) => position(&order, after)? + 1,
+        None => order.len(),
+    };
+    db.execute("INSERT INTO area (name, position) VALUES (?1, ?2)", params![name, 2_000_000 + order.len() as i64]).sql()?;
+    order.insert(at, name.to_string());
+    renumber(db, &order)
+}
+
+/// Renames area <old> to <new>, on every item in it, open or closed: the
+/// items' foreign key carries the new name.
+pub fn rename_area(db: &Connection, old: &str, new: &str) -> Result<()> {
+    let order = areas(db)?;
+    position(&order, old)?;
+    require_new_name(&order, new)?;
+    db.execute("UPDATE area SET name = ?1 WHERE name = ?2", params![new, old]).sql()?;
     Ok(())
 }
 
 /// Moves area <name> to just after <after>.
-pub fn move_area(lists: &mut Lists, name: &str, after: &str) -> Result<()> {
-    let from = position(lists, name)?;
-    position(lists, after)?;
-    let area = lists.areas.remove(from);
-    let to = position(lists, after)? + 1;
-    lists.areas.insert(to, area);
-    Ok(())
+pub fn move_area(db: &Connection, name: &str, after: &str) -> Result<()> {
+    let mut order = areas(db)?;
+    let from = position(&order, name)?;
+    position(&order, after)?;
+    let area = order.remove(from);
+    let to = position(&order, after)? + 1;
+    order.insert(to, area);
+    renumber(db, &order)
 }
 
 /// Removes area <name>, which no item, open or closed, is in.
-pub fn remove_area(lists: &mut Lists, name: &str) -> Result<()> {
-    let at = position(lists, name)?;
-    let inside: Vec<String> = item::items_in_area(lists, name).iter().map(Id::to_string).collect();
+pub fn remove_area(db: &Connection, name: &str) -> Result<()> {
+    position(&areas(db)?, name)?;
+    let inside: Vec<String> = item::items_in_area(db, name)?.iter().map(Id::to_string).collect();
     if !inside.is_empty() {
         fail!("area '{name}' still holds {}; move each with `builds item edit N --area AREA`", inside.join(", "));
     }
-    lists.areas.remove(at);
+    db.execute("DELETE FROM area WHERE name = ?1", [name]).sql()?;
     Ok(())
 }
 
-/// Lists area <name> again at the end, whether or not it is there already.
+/// Puts <areas> in as they were written elsewhere, in their order.
+pub fn move_in(db: &Connection, areas: &[String]) -> Result<()> {
+    for (at, name) in areas.iter().enumerate() {
+        db.execute("INSERT INTO area (name, position) VALUES (?1, ?2)", params![name, at as i64]).sql()?;
+    }
+    Ok(())
+}
+
+/// The tables area.rs owns.
 #[cfg(test)]
-pub fn plant_area_listed_again(lists: &mut Lists, name: &str) {
-    lists.areas.push(name.to_string());
+const TABLES: [&str; 1] = ["area"];
+
+/// Writes a row of area.rs's table as given, the constraints still holding:
+/// for tests that need a row they refuse.
+#[cfg(test)]
+pub fn plant(db: &Connection, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+    crate::db::plant_row(db, &TABLES, "area", columns)
 }
 
 fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
@@ -95,8 +132,8 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let [name] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("area add {name}"), |lists| {
-        add_area(lists, name, args.value("after")?)
+    store.write(&stamp, &format!("area add {name}"), |db| {
+        add_area(db, name, args.value("after")?)
     })?;
     note(format!("added area {name}"));
     Ok(())
@@ -107,8 +144,8 @@ fn rename(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let [old, new] = args.exactly(2, USAGE)? else { unreachable!("exactly two") };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("area rename {old}"), |lists| {
-        rename_area(lists, old, new)
+    store.write(&stamp, &format!("area rename {old}"), |db| {
+        rename_area(db, old, new)
     })?;
     note(format!("renamed area {old} to {new}"));
     Ok(())
@@ -123,8 +160,8 @@ fn move_after(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("area move {name}"), |lists| {
-        move_area(lists, name, after)
+    store.write(&stamp, &format!("area move {name}"), |db| {
+        move_area(db, name, after)
     })?;
     note(format!("moved area {name} after {after}"));
     Ok(())
@@ -135,8 +172,8 @@ fn remove(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let [name] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("area remove {name}"), |lists| {
-        remove_area(lists, name)
+    store.write(&stamp, &format!("area remove {name}"), |db| {
+        remove_area(db, name)
     })?;
     note(format!("removed area {name}"));
     Ok(())

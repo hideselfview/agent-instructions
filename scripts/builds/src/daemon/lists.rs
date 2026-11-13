@@ -2,10 +2,12 @@
 //! the lists JSON built from what was read and each
 //! running item's worktree.
 //!
-//! `Feed` follows `Places::lists` with an FSEvents stream, reads every store
-//! and each project's hook runs again after the settle delay, and counts the
-//! reads that found a store changed in its own `version`. A store that fails its check is served as the
-//! JSON's `error`; nothing repairs it.
+//! `Feed` follows `Places::lists` with an FSEvents stream and, after the
+//! settle delay, asks each store for its last write's version: a store that
+//! has not moved is not read again (a hook run's write wakes the feed and
+//! reads nothing more), and the reads that found a store changed are counted.
+//! Each project's hook runs are read again too. A store that fails its check
+//! is served as the JSON's `error`; nothing repairs it.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use super::fsevents::Stream;
 use super::model::SETTLE;
-use crate::lists::store::{Loaded, load_all};
+use crate::lists::store::{Loaded, load_all, reload};
 use crate::lists::DesignChange;
 use crate::lists::view::{ClaimFacts, DesignView, View, design_view};
 use crate::places::Places;
@@ -107,19 +109,18 @@ impl Feed {
         }
     }
 
-    /// Reads the stores and the hook runs again; when either differs from
-    /// the last read, the listener is called, and the version moves when the
-    /// stores differ.
+    /// Reads the stores whose version moved and the hook runs again; when
+    /// either differs from the last read, the listener is called, and the
+    /// version moves when the stores differ.
     fn read(&self) {
-        let read = load_all(&self.places);
+        let previous = self.current.lock().expect("no panic holding it").1.clone();
+        let (read, stores_changed) = reload(&self.places, &previous);
         let hooks = crate::hook_stats::dashboard_json(&self.places);
         let mut changed = false;
-        {
+        if stores_changed {
             let mut current = self.current.lock().expect("no panic holding it");
-            if *current.1 != read {
-                *current = (current.0 + 1, Arc::new(read));
-                changed = true;
-            }
+            *current = (current.0 + 1, Arc::new(read));
+            changed = true;
         }
         {
             let mut current = self.hooks.lock().expect("no panic holding it");

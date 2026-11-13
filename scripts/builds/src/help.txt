@@ -271,7 +271,8 @@ Commands:
                               clones and hard links share once
   builds install              (from a fresh build, not the installed binary; or
                               run agent-instructions' install.sh) copy `builds`
-                              onto PATH, create the shared caches
+                              onto PATH, move each project's lists.json into
+                              its builds.sqlite once, create the shared caches
                               and their links, write the sccache config, run
                               the sccache server under launchd, point Xcode's
                               default DerivedData at the volume
@@ -299,7 +300,7 @@ runs whole whenever a matching file is staged.
                               naming the file and staging nothing, when a
                               file it changed also had unstaged changes.
                               The run is recorded in builds.sqlite in the
-                              project's store folder (beside lists.json): when,
+                              project's store folder (the database that also holds the lists): when,
                               repo, worktree, branch, each staged file (change
                               and lines added and removed), each check or fix
                               (ran with its time and result, or skipped with

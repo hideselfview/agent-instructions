@@ -2,10 +2,12 @@ builds lists: the lists of a project, kept in a store of their own.
 
 A project is a set of repos that share lists (`bae` holds bae and coven). Its
 store is ~/Library/Application Support/builds/lists/<project>/, or
-$BUILDS_LISTS/<project>/: lists.json (the whole state) and lists.lock. It is
-outside every repo, so no commit can carry it. Nothing edits it by hand:
-every change is a command, and every command refuses a step that lacks what
-it needs.
+$BUILDS_LISTS/<project>/: builds.sqlite, one SQLite database, which also holds
+the hook-run stats. It is outside every repo, so no commit can carry it.
+Nothing edits it by hand: every change is a command, and every command
+refuses a step that lacks what it needs. A folder that still holds lists.json
+(the store before the database) is refused by every command until
+`builds install` moves it.
 
 Every record has an id from one counter per project, printed #N. Commands
 take ids as bare numbers (`builds item take 12`): an unquoted #12 is a
@@ -16,40 +18,43 @@ worktree the command runs in, else the command is refused ("say who you are
 with --by"). The project comes from `--project P`, else from the repo of the
 directory the command runs in (a repo in no project, or in two, is refused).
 
-Writes take an exclusive lock, read the state, apply the command, run the
-whole-state check, and replace lists.json by an atomic rename: a write lands
-whole or not at all, and a refused command leaves the file byte for byte as it
-was. Two commands at once both land, one after the other.
+Every write is one SQLite transaction, taken as the write lock: the command's
+own changes, the line of the write log, and the code check, then commit. A
+write lands whole or not at all, and a refused command leaves every table and
+the version as they were. Two commands at once both land, one after the other,
+and a reader sees the last committed state while a write runs.
 
-The whole-state check runs on every load and before every write. It holds
-that: ids are unique and below the counter; every reference (waits, an item's
-origin, a decision's question, work and replaced decision, a design change's
-places, how a record left) names a record of the right kind that exists, open
-or closed; no item waits on itself through a chain of items; no open item
-waits on a record that closed in a way that never meets a wait (dropped,
-deferred, moved to the stack); every open question has an open item waiting
-on it or says why it is asked anyway; titles are one line and item titles are
-five to seven words; every item's area exists, open or closed; a running item's worktrees
-are side worktrees (<parent>/<repo>-worktrees/side-N) of project repos, one per
-repo; a
-record left only the ways its kind can; decisions have a YYYY-MM-DD date, a
-decider and a body; the version is the log's last line. A store that fails it
-makes every command fail naming each fault. Nothing repairs it.
+The tables hold most of what must always be true: ids are unique across the
+four kinds of record, and a reference (waits, an item's origin, a closing's
+decision or question, a decision's replaced decision, a design change's
+places) names a record of the right kind that exists, open or closed; titles
+are one line; every item's area exists, open or closed; a running item's
+worktrees are side worktrees (<parent>/<repo>-worktrees/side-N) of project
+repos, one per repo; a record left only the ways its kind can; decisions have a
+YYYY-MM-DD date, a decider and a body, and replace only an older decision.
+What the tables cannot say is a short check run on every read and before every
+commit: the project has a repo; every open question has an open item waiting
+on it or says why it is asked anyway; no open item waits on a record that
+closed in a way that never meets a wait (dropped, deferred, moved to the
+stack); no open items wait on each other in a circle; a closed item runs
+nowhere; a worktree holds one branch of work; a landed closing or part has a
+commit; the project row names the folder's project. A store that fails it
+makes every command fail naming each fault. Nothing repairs it. Item titles
+being five to seven words, and git, files and GitHub, are checked by the
+command that writes them.
 
 Commands in this part:
 
   builds lists init PROJECT --repos R,R [--design-places R:GLOB,...]
                     [--design-sources R:GLOB,...] [--spec-files R:GLOB,...]
-                    [--from FILE] [--by WHO]
+                    [--by WHO]
       Makes the project's store. --repos names the repo directories the
       project covers (as `Checkout` names them: the main checkout's folder).
       --design-places gives each repo's design globs, one REPO:GLOB each; a
       path a commit changes that matches one is a design place;
       --design-sources and --spec-files give the shared design-system sources
-      and the spec files (see Design changes below). --from loads
-      a whole state from FILE (`-` for standard input) instead of an empty
-      one, and runs the whole-state check on it; --repos and the glob flags
-      must then match what the file holds. Refused when the store exists.
+      and the spec files (see Design changes below). Refused when the store
+      exists.
 
   builds lists add-repo PROJECT REPO [--by WHO]
       The project carries the work of one more repo, so its worktrees run

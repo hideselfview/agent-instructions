@@ -1,8 +1,8 @@
 use super::*;
 use crate::fail::Fail;
 use crate::lists::design_command::run_to_text;
-use crate::lists::fixtures::{NOON, stamp, unwritten};
-use crate::lists::project;
+use crate::lists::fixtures::{NOON, stamp};
+use crate::lists::project::NewProject;
 use crate::lists::store::Store;
 use crate::testing::{Scratch, git, repo};
 use crate::tool::Tool;
@@ -30,16 +30,18 @@ fn world(name: &str) -> World {
     repo(&dir, "target 1\n");
     git(&dir, &["tag", "base"]);
     let tool = scratch.tool(0);
-    let mut state = unwritten();
-    project::plant_design_places(&mut state, "bae", vec!["design/mocks/*.dc.html".into(), "design/system/components/*/".into()]);
-    project::plant_design_sources(
-        &mut state,
-        "bae",
-        vec!["design/system/components/src/".into(), "design/system/tokens.json".into(), "design/system/tokens.css".into()],
-    );
-    project::plant_spec_files(&mut state, "bae", vec!["spec/*.md".into()]);
     let store = Store::named(&tool.places, "demo").unwrap();
-    store.create(state, &stamp(NOON), "lists init demo").unwrap();
+    let globs = |globs: &[&str]| std::collections::BTreeMap::from([("bae".to_string(), globs.iter().map(|g| g.to_string()).collect())]);
+    let new = NewProject {
+        name: "demo".into(),
+        repos: vec!["bae".into(), "coven".into()],
+        places: globs(&["design/mocks/*.dc.html", "design/system/components/*/"]),
+        sources: globs(&["design/system/components/src/", "design/system/tokens.json", "design/system/tokens.css"]),
+        specs: globs(&["spec/*.md"]),
+    };
+    store.create(&new, &stamp(NOON), "lists init demo").unwrap();
+    store.write(&stamp(NOON), "area add Alpha", |db| crate::lists::area::add_area(db, "Alpha", None)).unwrap();
+    store.write(&stamp(NOON), "area add Beta", |db| crate::lists::area::add_area(db, "Beta", None)).unwrap();
     World { scratch, tool, dir, store }
 }
 
@@ -93,8 +95,8 @@ impl World {
         self.store.load().unwrap()
     }
 
-    fn bytes(&self) -> Vec<u8> {
-        std::fs::read(self.store.state_path()).unwrap()
+    fn bytes(&self) -> String {
+        crate::lists::fixtures::state_of(&self.store)
     }
 
     fn worktree(&self) -> String {
@@ -181,12 +183,7 @@ fn record_refuses_each_unresolved_place_by_name_and_changes_nothing() {
 #[test]
 fn record_resolves_places_by_item_new_item_and_matches() {
     let w = world("design-record");
-    let existing = {
-        let mut state = w.state();
-        let id = crate::lists::fixtures::item(&mut state, vec![]);
-        std::fs::write(w.store.state_path(), serde_json::to_string(&state).unwrap()).unwrap();
-        id
-    };
+    let existing = w.store.write(&stamp(NOON), "seed", |db| Ok(crate::lists::fixtures::item(db, vec![]))).unwrap();
     w.commit(&["design/mocks/A.dc.html", "design/mocks/B.dc.html", "design/system/components/MacRow/a.html"]);
     let out = w
         .request(base_request(
@@ -245,13 +242,14 @@ fn record_refuses_bad_answers_and_changes_nothing() {
 #[test]
 fn record_refuses_an_item_that_is_closed() {
     let w = world("design-closed-item");
-    let id = {
-        let mut state = w.state();
-        let id = crate::lists::fixtures::item(&mut state, vec![]);
-        crate::lists::record::close(&mut state, id, How::Dropped("gone".into()), &stamp(NOON)).unwrap();
-        std::fs::write(w.store.state_path(), serde_json::to_string(&state).unwrap()).unwrap();
-        id
-    };
+    let id = w
+        .store
+        .write(&stamp(NOON), "seed", |db| {
+            let id = crate::lists::fixtures::item(db, vec![]);
+            crate::lists::record::close(db, id, How::Dropped("gone".into()), &stamp(NOON))?;
+            Ok(id)
+        })
+        .unwrap();
     w.commit(&["design/mocks/A.dc.html"]);
     let refused = message(w.request(base_request(&w, json!({ "design/mocks/A.dc.html": { "item": id.0 } }))));
     assert!(refused.contains("closed"), "{refused}");
@@ -703,4 +701,88 @@ fn render_prints_a_board_of_a_worktree_as_one_page_in_the_theme_asked() {
     assert!(message(w.run(&format!("render {wt} mac.a --theme sepia"))).contains("light or dark"));
     assert!(message(w.run(&format!("render {wt} mac.none"))).contains("mac.none.dc.html is not there"));
     assert!(message(w.run(&format!("render {wt}"))).contains("usage"));
+}
+
+#[test]
+fn every_named_constraint_of_the_design_tables_refuses_its_row() {
+    use crate::lists::fixtures::{Refusals, db, item, row, v};
+    use crate::lists::record::open;
+    let db = db();
+    let good = open(&db, crate::lists::Kind::Design, &stamp(1)).unwrap();
+    let spare = open(&db, crate::lists::Kind::Design, &stamp(1)).unwrap();
+    let worker = item(&db, vec![]);
+    let design = [
+        ("id", v(good.0)),
+        ("title", v("A design change")),
+        ("details", v("d")),
+        ("repo", v("bae")),
+        ("worktree", v("/d/bae-worktrees/side-2")),
+    ];
+    plant(&db, "design", &design).unwrap();
+    let mut refused = Refusals::new(include_str!("design.sql"));
+    let spare_row = |over: &[(&'static str, rusqlite::types::Value)]| row(&row(&design, &[("id", v(spare.0))]), over);
+    refused.check("design_is_a_design", plant(&db, "design", &spare_row(&[("record_kind", v("item"))])));
+    for title in ["", " x", "a\nb"] {
+        refused.check("design_title_is_one_line", plant(&db, "design", &spare_row(&[("title", v(title))])));
+    }
+    refused.check("design_details_say_something", plant(&db, "design", &spare_row(&[("details", v(" "))])));
+    refused.check_as("design_repo_is_the_projects", "FOREIGN KEY", plant(&db, "design", &spare_row(&[("repo", v("nope"))])));
+    for worktree in ["", "d/bae-worktrees/side-2", "~/x"] {
+        refused.check("design_worktree_is_absolute", plant(&db, "design", &spare_row(&[("worktree", v(worktree))])));
+    }
+    refused.check("design_no_app_place_says_something", plant(&db, "design", &spare_row(&[("no_app_place", v(" "))])));
+    refused.check_as("design_is_a_record", "FOREIGN KEY", plant(&db, "design", &row(&design, &[("id", v(900))])));
+    refused.check("design_approval_by_says_something", plant(&db, "design_approval", &[("design_id", v(good.0)), ("at", v(1)), ("by", v(" "))]));
+    let place = [("design_id", v(good.0)), ("path", v("design/mocks/A.dc.html")), ("item_id", v(worker.0))];
+    refused.check("design_place_matches_says_something", plant(&db, "design_place", &[("design_id", v(good.0)), ("path", v("p")), ("matches", v(" "))]));
+    refused.check("design_place_is_resolved_one_way", plant(&db, "design_place", &[("design_id", v(good.0)), ("path", v("p"))]));
+    refused.check("design_place_is_resolved_one_way", plant(&db, "design_place", &row(&place, &[("matches", v("m"))])));
+    plant(&db, "design_place", &place).unwrap();
+    let board = [("design_id", v(good.0)), ("path", v("design/mocks/A.dc.html")), ("link", v("https://x/#A"))];
+    for path in ["design/system/components/B/", "spec/x.md#Heading"] {
+        refused.check("design_board_path_is_a_board_file", plant(&db, "design_board", &row(&board, &[("path", v(path))])));
+    }
+    refused.check("design_board_link_says_something", plant(&db, "design_board", &row(&board, &[("link", v(" "))])));
+    refused.check_as("design_board_is_a_place", "FOREIGN KEY", plant(&db, "design_board", &row(&board, &[("path", v("design/mocks/Other.dc.html"))])));
+    plant(&db, "design_board", &board).unwrap();
+    let section = [("design_id", v(good.0)), ("position", v(0)), ("heading", v("H")), ("words", v(""))];
+    refused.check("review_section_position_not_negative", plant(&db, "review_section", &row(&section, &[("position", v(-1))])));
+    refused.check("review_section_heading_says_something", plant(&db, "review_section", &row(&section, &[("heading", v(" "))])));
+    plant(&db, "review_section", &section).unwrap();
+    let review = [
+        ("design_id", v(good.0)),
+        ("section", v(0)),
+        ("position", v(0)),
+        ("board", v("design/mocks/A.dc.html")),
+        ("caption", v("c")),
+        ("theme", v("dark")),
+    ];
+    refused.check("review_board_position_not_negative", plant(&db, "review_board", &row(&review, &[("position", v(-1))])));
+    refused.check("review_board_is_a_board_file", plant(&db, "review_board", &row(&review, &[("board", v("design/system/components/B/"))])));
+    refused.check("review_board_caption_says_something", plant(&db, "review_board", &row(&review, &[("caption", v(" "))])));
+    refused.check("review_board_theme_known", plant(&db, "review_board", &row(&review, &[("theme", v("sepia"))])));
+    refused.check_as("review_board_is_on_a_section", "FOREIGN KEY", plant(&db, "review_board", &row(&review, &[("section", v(4))])));
+    plant(&db, "review_board", &review).unwrap();
+    refused.covered_without_a_name(&["design_repo_is_the_projects"]);
+    refused.done();
+}
+
+#[test]
+fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards() {
+    use crate::lists::fixtures::{db, design_drawn, read};
+    let db = db();
+    let id = design_drawn(
+        &db,
+        "/d/bae-worktrees/side-2",
+        &[("design/mocks/A.dc.html", "https://x/#A")],
+        vec![ReviewSection {
+            heading: "H".into(),
+            words: String::new(),
+            boards: vec![ReviewBoard { board: "design/mocks/A.dc.html".into(), caption: "c".into(), theme: Theme::Dark }],
+        }],
+    );
+    db.execute("DELETE FROM design_place WHERE design_id = ?1", [id]).unwrap();
+    db.execute("DELETE FROM review_section WHERE design_id = ?1", [id]).unwrap();
+    let change = read(&db).design(id).unwrap().clone();
+    assert!(change.places.is_empty() && change.boards.is_empty() && change.review.is_empty());
 }

@@ -1,8 +1,9 @@
 use super::*;
 use crate::fail::Fail;
 use crate::lists::decision::NewDecision;
-use crate::lists::fixtures::{NOON, item, lists, stamp};
+use crate::lists::fixtures::{NOON, db, draft, item, make_store, read, stamp, state_of};
 use crate::lists::{Lists, PlanRef, Wait};
+use rusqlite::Connection;
 use crate::testing::Scratch;
 
 fn refusal(result: Result<()>) -> String {
@@ -17,11 +18,14 @@ fn run(tool: &Tool, command: &str) -> Result<()> {
     cmd_decision(tool, &words)
 }
 
-/// A tool whose clock is `NOON` and whose store `demo` holds <lists>.
-fn tool_with(scratch: &Scratch, lists: Lists) -> Tool {
+/// A tool whose clock is `NOON` and whose store `demo` holds what <build>
+/// puts in it, written around the code check.
+fn tool_with(scratch: &Scratch, build: impl FnOnce(&Connection)) -> Tool {
     let mut tool = scratch.tool(0);
     tool.now = NOON;
-    Store::named(&tool.places, "demo").unwrap().create(lists, &stamp(NOON), "lists init demo").unwrap();
+    let store = make_store(&tool.places, &["bae", "coven"]);
+    let db = crate::db::open(&store.database(), crate::db::Make::Never).unwrap();
+    build(&db);
     tool
 }
 
@@ -29,8 +33,8 @@ fn state(tool: &Tool) -> Lists {
     Store::named(&tool.places, "demo").unwrap().load().unwrap()
 }
 
-fn bytes(tool: &Tool) -> Vec<u8> {
-    std::fs::read(tool.places.lists.join("demo/lists.json")).unwrap()
+fn bytes(tool: &Tool) -> String {
+    state_of(&Store::named(&tool.places, "demo").unwrap())
 }
 
 fn request(scratch: &Scratch, name: &str, json: &str) -> String {
@@ -49,21 +53,22 @@ fn add(tool: &Tool, scratch: &Scratch, name: &str, json: &str) -> Result<()> {
 #[test]
 fn add_records_the_decision_dated_today_with_no_work() {
     let scratch = Scratch::new("decision-add");
-    let tool = tool_with(&scratch, lists());
+    let tool = tool_with(&scratch, |_| ());
     add(&tool, &scratch, "r.json", &format!(r#"{{{BASE}, "no_work": "nothing to build"}}"#)).unwrap();
     let after = state(&tool);
     let decision = &after.decisions[0];
     assert_eq!((decision.title.as_str(), decision.by.as_str()), ("Use one store", "person"));
     assert_eq!(decision.date, crate::text::local_day(NOON));
     assert_eq!((decision.question, decision.replaces, decision.work.len()), (None, None, 0));
-    assert_eq!((decision.recorded.by.as_str(), after.version), ("tester", 3));
-    assert!(after.log.last().unwrap().words.starts_with("decision add"));
+    assert_eq!((decision.recorded.by.as_str(), after.version), ("tester", 4));
+    let log = crate::lists::store::read_log(&crate::db::open_reader(&Store::named(&tool.places, "demo").unwrap().database()).unwrap().unwrap()).unwrap();
+    assert!(log.last().unwrap().3.starts_with("decision add"));
 }
 
 #[test]
 fn add_makes_its_work_from_the_decision() {
     let scratch = Scratch::new("decision-work");
-    let tool = tool_with(&scratch, lists());
+    let tool = tool_with(&scratch, |_| ());
     let work = r#"[{"title": "Build the one store now", "area": "Alpha", "details": "d", "for": "coordinator",
                     "waits": [{"condition": "a quiet machine"}], "brief": null, "priority": null}]"#;
     add(&tool, &scratch, "r.json", &format!(r#"{{{BASE}, "work": {work}}}"#)).unwrap();
@@ -77,7 +82,7 @@ fn add_makes_its_work_from_the_decision() {
 #[test]
 fn add_refuses_work_and_no_work_together_or_neither() {
     let scratch = Scratch::new("decision-workwhy");
-    let tool = tool_with(&scratch, lists());
+    let tool = tool_with(&scratch, |_| ());
     let before = bytes(&tool);
     let both = refusal(add(&tool, &scratch, "a.json", &format!(r#"{{{BASE}, "work": [], "no_work": "none"}}"#)));
     assert!(both.contains("not both"), "{both}");
@@ -91,7 +96,7 @@ fn add_refuses_work_and_no_work_together_or_neither() {
 #[test]
 fn add_refuses_an_empty_body_title_or_decider() {
     let scratch = Scratch::new("decision-empty");
-    let tool = tool_with(&scratch, lists());
+    let tool = tool_with(&scratch, |_| ());
     let before = bytes(&tool);
     let no_body = refusal(add(&tool, &scratch, "a.json", r#"{"title": "T", "by": "person", "body": " ", "no_work": "x"}"#));
     assert!(no_body.contains("body is empty"), "{no_body}");
@@ -105,7 +110,7 @@ fn add_refuses_an_empty_body_title_or_decider() {
 #[test]
 fn add_refuses_a_request_with_a_question_or_an_unknown_field() {
     let scratch = Scratch::new("decision-fields");
-    let tool = tool_with(&scratch, lists());
+    let tool = tool_with(&scratch, |_| ());
     let before = bytes(&tool);
     let message = refusal(add(&tool, &scratch, "a.json", &format!(r#"{{{BASE}, "no_work": "x", "question": 2}}"#)));
     assert!(message.contains("unknown field `question`"), "{message}");
@@ -117,9 +122,8 @@ fn add_refuses_a_request_with_a_question_or_an_unknown_field() {
 #[test]
 fn add_refuses_a_replaces_that_is_no_decision() {
     let scratch = Scratch::new("decision-replaces");
-    let mut seed = lists();
-    let some_item = item(&mut seed, vec![]);
-    let tool = tool_with(&scratch, seed);
+    let mut some_item = Id(0);
+    let tool = tool_with(&scratch, |db| some_item = item(db, vec![]));
     let before = bytes(&tool);
     for target in [some_item.0, 99] {
         let message = refusal(add(&tool, &scratch, "a.json", &format!(r#"{{{BASE}, "no_work": "x", "replaces": {target}}}"#)));
@@ -131,7 +135,7 @@ fn add_refuses_a_replaces_that_is_no_decision() {
 #[test]
 fn replaced_by_is_derived_and_never_stored() {
     let scratch = Scratch::new("decision-replaced-by");
-    let tool = tool_with(&scratch, lists());
+    let tool = tool_with(&scratch, |_| ());
     add(&tool, &scratch, "a.json", &format!(r#"{{{BASE}, "no_work": "x"}}"#)).unwrap();
     let first = state(&tool).decisions[0].id;
     add(&tool, &scratch, "b.json", &format!(r#"{{"title": "Use two stores", "by": "person", "body": "Revised.", "no_work": "x", "replaces": {}}}"#, first.0)).unwrap();
@@ -140,7 +144,7 @@ fn replaced_by_is_derived_and_never_stored() {
     assert_eq!(after.decisions[1].replaces, Some(first));
     assert_eq!(derive::replaced_by(&after, first), Some(second));
     assert_eq!(derive::replaced_by(&after, second), None);
-    assert!(!String::from_utf8(bytes(&tool)).unwrap().contains("replaced_by"));
+    assert!(!bytes(&tool).contains("replaced_by"));
     assert!(render(&after, &after.decisions[0]).contains(&format!("replaced by {second} \"Use two stores\"")));
     assert!(render(&after, &after.decisions[1]).contains(&format!("replaces {first} \"Use one store\"")));
 }
@@ -148,7 +152,7 @@ fn replaced_by_is_derived_and_never_stored() {
 #[test]
 fn add_refuses_a_brief_that_is_no_file_and_a_draft_the_item_rules_refuse() {
     let scratch = Scratch::new("decision-brief");
-    let tool = tool_with(&scratch, lists());
+    let tool = tool_with(&scratch, |_| ());
     let before = bytes(&tool);
     let draft = |title: &str, brief: &str| {
         format!(
@@ -165,7 +169,7 @@ fn add_refuses_a_brief_that_is_no_file_and_a_draft_the_item_rules_refuse() {
 #[test]
 fn add_with_a_plan_keeps_the_link() {
     let scratch = Scratch::new("decision-plan");
-    let tool = tool_with(&scratch, lists());
+    let tool = tool_with(&scratch, |_| ());
     add(&tool, &scratch, "a.json", &format!(r#"{{{BASE}, "no_work": "x", "plan": {{"path": "plans/p.md", "number": "Q2"}}}}"#)).unwrap();
     assert_eq!(state(&tool).decisions[0].plan, Some(PlanRef { path: "plans/p.md".into(), number: "Q2".into() }));
 }
@@ -173,14 +177,15 @@ fn add_with_a_plan_keeps_the_link() {
 #[test]
 fn edit_changes_title_or_body_and_refuses_the_rest() {
     let scratch = Scratch::new("decision-edit");
-    let tool = tool_with(&scratch, lists());
+    let tool = tool_with(&scratch, |_| ());
     add(&tool, &scratch, "a.json", &format!(r#"{{{BASE}, "no_work": "x"}}"#)).unwrap();
     let id = state(&tool).decisions[0].id.0;
     let body = request(&scratch, "body.md", "A better body.\n");
     run(&tool, &format!("edit {id} --title Renamed --body-file {body} --project demo --by tester")).unwrap();
     let after = state(&tool);
     assert_eq!((after.decisions[0].title.as_str(), after.decisions[0].body.as_str()), ("Renamed", "A better body.\n"));
-    assert!(after.log.last().unwrap().words.starts_with("decision edit"));
+    let log = crate::lists::store::read_log(&crate::db::open_reader(&Store::named(&tool.places, "demo").unwrap().database()).unwrap().unwrap()).unwrap();
+    assert!(log.last().unwrap().3.starts_with("decision edit"));
 
     let before = bytes(&tool);
     let empty = request(&scratch, "empty.md", " \n");
@@ -200,8 +205,19 @@ fn edit_changes_title_or_body_and_refuses_the_rest() {
     assert_eq!(bytes(&tool), before);
 }
 
-fn decide(lists: &mut Lists, date: &str, title: &str, body: &str, plan: Option<&str>) -> Id {
-    let number = format!("Q{}", lists.next_id.0);
+fn decide(db: &Connection, date: &str, title: &str, body: &str, plan: Option<&str>) -> Id {
+    decide_making(db, date, title, body, plan, &[]).decision
+}
+
+fn decide_making(
+    db: &Connection,
+    date: &str,
+    title: &str,
+    body: &str,
+    plan: Option<&str>,
+    work: &[crate::lists::item::ItemDraft],
+) -> crate::lists::decision::Added {
+    let number = format!("Q{}", crate::lists::fixtures::next_id(db).0);
     let new = NewDecision {
         title: title.into(),
         by: "person".into(),
@@ -211,7 +227,7 @@ fn decide(lists: &mut Lists, date: &str, title: &str, body: &str, plan: Option<&
         plan: plan.map(|path| PlanRef { path: path.into(), number }),
     };
     let noon_that_day = crate::text::local_start_of(date).expect("a real day") + 12 * 3600;
-    add_decision(lists, &new, &[], &stamp(noon_that_day)).unwrap().decision
+    add_decision(db, &new, work, &stamp(noon_that_day)).unwrap()
 }
 
 fn words(text: &str) -> Vec<String> {
@@ -220,11 +236,12 @@ fn words(text: &str) -> Vec<String> {
 
 #[test]
 fn find_matches_every_word_in_title_or_body_ignoring_case_newest_first() {
-    let mut lists = lists();
-    let old = decide(&mut lists, "2026-11-01", "Queue order", "Oldest first, because it is fair.", None);
-    let newer = decide(&mut lists, "2026-11-10", "Fairness of the QUEUE", "Nothing here.", None);
-    let newest_same_day = decide(&mut lists, "2026-11-10", "Other", "the queue is fair", None);
-    let _unrelated = decide(&mut lists, "2026-11-12", "Colours", "queue-free", None);
+    let db = db();
+    let old = decide(&db, "2026-11-01", "Queue order", "Oldest first, because it is fair.", None);
+    let newer = decide(&db, "2026-11-10", "Fairness of the QUEUE", "Nothing here.", None);
+    let newest_same_day = decide(&db, "2026-11-10", "Other", "the queue is fair", None);
+    let _unrelated = decide(&db, "2026-11-12", "Colours", "queue-free", None);
+    let lists = read(&db);
     let ids = |found: Vec<&Decision>| found.iter().map(|d| d.id).collect::<Vec<_>>();
     assert_eq!(ids(matching(&lists, &words("queue fair"))), [newest_same_day, newer, old]);
     assert_eq!(ids(matching(&lists, &words("FAIR"))), [newest_same_day, newer, old]);
@@ -235,18 +252,19 @@ fn find_matches_every_word_in_title_or_body_ignoring_case_newest_first() {
 #[test]
 fn find_needs_a_word() {
     let scratch = Scratch::new("decision-find");
-    let tool = tool_with(&scratch, lists());
+    let tool = tool_with(&scratch, |_| ());
     assert!(refusal(run(&tool, "find --project demo")).contains("say what to look for"));
     run(&tool, "find anything --project demo").unwrap();
 }
 
 #[test]
 fn list_filters_by_plan_and_since_newest_first() {
-    let mut lists = lists();
-    let a = decide(&mut lists, "2026-11-01", "A", "b", Some("plans/p.md"));
-    let b = decide(&mut lists, "2026-11-05", "B", "b", Some("plans/q.md"));
-    let c = decide(&mut lists, "2026-11-09", "C", "b", Some("plans/p.md"));
-    let d = decide(&mut lists, "2026-11-09", "D", "b", None);
+    let db = db();
+    let a = decide(&db, "2026-11-01", "A", "b", Some("plans/p.md"));
+    let b = decide(&db, "2026-11-05", "B", "b", Some("plans/q.md"));
+    let c = decide(&db, "2026-11-09", "C", "b", Some("plans/p.md"));
+    let d = decide(&db, "2026-11-09", "D", "b", None);
+    let lists = read(&db);
     let ids = |found: Vec<&Decision>| found.iter().map(|d| d.id).collect::<Vec<_>>();
     assert_eq!(ids(listed(&lists, None, None)), [d, c, b, a]);
     assert_eq!(ids(listed(&lists, Some("plans/p.md"), None)), [c, a]);
@@ -257,11 +275,11 @@ fn list_filters_by_plan_and_since_newest_first() {
 #[test]
 fn list_refuses_a_date_that_is_not_one_and_show_reads_one_decision() {
     let scratch = Scratch::new("decision-list");
-    let mut seed = lists();
-    let made = item(&mut seed, vec![]);
-    let id = decide(&mut seed, "2026-11-05", "Pick one", "The body.", None);
-    crate::lists::decision::plant_work(&mut seed, id, vec![made]);
-    let tool = tool_with(&scratch, seed);
+    let (mut id, mut made) = (Id(0), Id(0));
+    let tool = tool_with(&scratch, |db| {
+        let added = decide_making(db, "2026-11-05", "Pick one", "The body.", None, &[draft("Do the work numbered 1")]);
+        (id, made) = (added.decision, added.items[0]);
+    });
     assert!(refusal(run(&tool, "list --since 2026-13-01 --project demo")).contains("not a date"));
     assert!(refusal(run(&tool, "list --since yesterday --project demo")).contains("YYYY-MM-DD"));
     run(&tool, "list --since 2026-11-01 --project demo").unwrap();
@@ -269,14 +287,14 @@ fn list_refuses_a_date_that_is_not_one_and_show_reads_one_decision() {
     assert!(refusal(run(&tool, &format!("show {} --project demo", made.0))).contains("is not a decision"));
     let after = state(&tool);
     let text = render(&after, &after.decisions[0]);
-    assert!(text.contains("made item #1 \"Do the work numbered 1\" [open]"), "{text}");
+    assert!(text.contains("made item #2 \"Do the work numbered 1\" [open]"), "{text}");
     assert!(text.ends_with("The body.\n"), "{text}");
 }
 
 #[test]
 fn an_unknown_command_or_flag_is_refused() {
     let scratch = Scratch::new("decision-unknown");
-    let tool = tool_with(&scratch, lists());
+    let tool = tool_with(&scratch, |_| ());
     assert!(refusal(run(&tool, "frobnicate")).contains("unknown decision command frobnicate"));
     assert!(refusal(cmd_decision(&tool, &[])).contains("usage"));
     assert!(refusal(run(&tool, "list --nope 1 --project demo")).contains("--nope"));

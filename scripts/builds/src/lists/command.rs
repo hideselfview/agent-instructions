@@ -4,17 +4,17 @@ use std::path::Path;
 
 use crate::checkout::Checkout;
 use crate::fail;
-use crate::fail::{Context, Fail, Result};
-use crate::lists::args::{Args, read_input};
+use crate::fail::{Context, Result};
+use crate::lists::args::Args;
 use crate::lists::check::repo_name_fault;
 use crate::lists::store::{Store, project_of, projects_holding};
 use crate::lists::view::View;
-use crate::lists::project::{self, parse_globs};
-use crate::lists::{Lists, Stamp, show};
+use crate::lists::project::{self, NewProject, parse_globs};
+use crate::lists::{Stamp, show};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--from FILE] [--by WHO]\n       builds lists add-repo PROJECT REPO [--by WHO]\n       builds lists show [--json] [--project P]\n       builds lists project-of DIR";
+const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists add-repo PROJECT REPO [--by WHO]\n       builds lists show [--json] [--project P]\n       builds lists project-of DIR";
 
 pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
@@ -29,53 +29,22 @@ pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
 }
 
 fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["repos", "design-places", "design-sources", "spec-files", "from"], &[])?;
+    let args = Args::parse(args, &["repos", "design-places", "design-sources", "spec-files"], &[])?;
     let [project] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
-    let repos: Option<Vec<String>> = args.value("repos")?.map(|r| r.split(',').map(str::to_string).collect());
+    let Some(repos) = args.value("repos")?.map(|r| r.split(',').map(str::to_string).collect::<Vec<String>>()) else {
+        fail!("init needs --repos R,R: the repos the project's lists cover");
+    };
     let globs = |flag| args.value(flag).and_then(|text| text.map(|t| parse_globs(flag, t)).transpose());
-    let design_places = globs("design-places")?;
-    let design_sources = globs("design-sources")?;
-    let spec_files = globs("spec-files")?;
-    let lists = match args.value("from")? {
-        None => {
-            let Some(repos) = repos else { fail!("init needs --repos R,R: the repos the project's lists cover") };
-            project::init(
-                project,
-                repos,
-                design_places.unwrap_or_default(),
-                design_sources.unwrap_or_default(),
-                spec_files.unwrap_or_default(),
-            )
-        }
-        Some(from) => {
-            let text = read_input(from)?;
-            let lists: Lists = serde_json::from_str(&text)
-                .map_err(|error| Fail::Message(format!("{from} is not valid lists: {error}")))?;
-            if lists.project != *project {
-                fail!("{from} holds the lists of project {}, not {project}", lists.project);
-            }
-            if repos.as_ref().is_some_and(|given| *given != lists.repos) {
-                fail!("--repos does not match the repos {from} holds ({})", lists.repos.join(","));
-            }
-            for (flag, given, held) in [
-                ("design-places", &design_places, &lists.design_places),
-                ("design-sources", &design_sources, &lists.design_sources),
-                ("spec-files", &spec_files, &lists.spec_files),
-            ] {
-                if given.as_ref().is_some_and(|given| given != held) {
-                    fail!("--{flag} does not match the globs {from} holds");
-                }
-            }
-            lists
-        }
+    let new = NewProject {
+        name: project.to_string(),
+        repos,
+        places: globs("design-places")?.unwrap_or_default(),
+        sources: globs("design-sources")?.unwrap_or_default(),
+        specs: globs("spec-files")?.unwrap_or_default(),
     };
     let store = Store::named(&tool.places, project)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let words = match args.value("from")? {
-        Some(from) => format!("lists init {project} --from {from}"),
-        None => format!("lists init {project}"),
-    };
-    store.create(lists, &stamp, &words)?;
+    store.create(&new, &stamp, &format!("lists init {project}"))?;
     note(format!("made the lists of project {project} in {}", store.dir.display()));
     Ok(())
 }
@@ -90,11 +59,11 @@ fn add_repo(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     }
     let store = Store::named(&tool.places, project)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("lists add-repo {project} {repo}"), |lists| {
+    store.write(&stamp, &format!("lists add-repo {project} {repo}"), |db| {
         if let Some(other) = projects_holding(&tool.places, repo)?.into_iter().find(|held| held != project) {
             fail!("repo {repo} is already in project {other}; a repo is in one project");
         }
-        project::add_repo(lists, repo)
+        project::add_repo(db, repo)
     })?;
     note(format!("project {project} now carries repo {repo}"));
     Ok(())

@@ -4,13 +4,16 @@
 
 use std::collections::BTreeMap;
 
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
+use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::item::ItemEdit;
-use crate::lists::record::close;
-use crate::lists::{How, Id, Lists, Stamp, Wait};
+use crate::lists::record::{self, close};
+use crate::lists::store;
+use crate::lists::{How, Id, Kind, Lists, Stamp, Wait};
 
 impl Lists {
     pub fn question(&self, id: Id) -> Option<&Question> {
@@ -94,50 +97,158 @@ pub struct NewQuestion {
     pub plan: Option<PlanRef>,
 }
 
+fn kind_word(kind: QuestionKind) -> &'static str {
+    match kind {
+        QuestionKind::Question => "question",
+        QuestionKind::YourStep => "your-step",
+        QuestionKind::Held => "held",
+    }
+}
+
+fn position_word(at: Position) -> &'static str {
+    match at {
+        Position::First => "first",
+        Position::Last => "last",
+    }
+}
+
+/// Writes the placement of question <id>, replacing one it has.
+fn insert_placement(db: &Connection, id: Id, placed: &Placement) -> Result<()> {
+    db.execute(
+        "INSERT INTO question_placement (question_id, at, why, by_person) VALUES (?1, ?2, ?3, ?4) \
+         ON CONFLICT (question_id) DO UPDATE SET at = ?2, why = ?3, by_person = ?4",
+        params![id, position_word(placed.at), placed.why, placed.by_person],
+    )
+    .sql()?;
+    Ok(())
+}
+
 /// Asks <new> on the stack, opened by <stamp>; returns its id.
-pub fn ask(lists: &mut Lists, new: NewQuestion, stamp: &Stamp) -> Id {
-    let id = lists.alloc_id();
-    lists.questions.push(Question {
-        id,
-        title: new.title,
-        details: new.details,
-        kind: new.kind,
-        blocks_nothing: new.blocks_nothing,
-        placed: new.placed,
-        plan: new.plan,
-        opened: stamp.clone(),
-    });
-    id
+pub fn ask(db: &Connection, new: NewQuestion, stamp: &Stamp) -> Result<Id> {
+    let id = record::open(db, Kind::Question, stamp)?;
+    insert(db, id, &new)?;
+    Ok(id)
+}
+
+/// The question's own rows, for the record <id> already opened.
+fn insert(db: &Connection, id: Id, new: &NewQuestion) -> Result<()> {
+    db.execute(
+        "INSERT INTO question (id, title, details, kind, blocks_nothing) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, new.title, new.details, kind_word(new.kind), new.blocks_nothing],
+    )
+    .sql()?;
+    if let Some(placed) = &new.placed {
+        insert_placement(db, id, placed)?;
+    }
+    if let Some(plan) = &new.plan {
+        db.execute("INSERT INTO question_plan (question_id, path, number) VALUES (?1, ?2, ?3)", params![id, plan.path, plan.number])
+            .sql()?;
+    }
+    Ok(())
+}
+
+/// Puts <question> in as it was written elsewhere; its record is open already.
+pub fn move_in(db: &Connection, question: &Question) -> Result<()> {
+    insert(
+        db,
+        question.id,
+        &NewQuestion {
+            title: question.title.clone(),
+            details: question.details.clone(),
+            kind: question.kind,
+            blocks_nothing: question.blocks_nothing.clone(),
+            placed: question.placed.clone(),
+            plan: question.plan.clone(),
+        },
+    )
+}
+
+/// Question <id> is open, or the refusal.
+fn require_open_question(db: &Connection, id: Id) -> Result<()> {
+    match record::standing(db, id)? {
+        Some((Kind::Question, None)) => Ok(()),
+        _ => fail!("{id} is not an open question"),
+    }
 }
 
 /// Sets, or with None clears, open question <id>'s placement.
-pub fn place(lists: &mut Lists, id: Id, placed: Option<Placement>) -> Result<()> {
-    let Some(question) = lists.questions.iter_mut().find(|q| q.id == id) else { fail!("{id} is not an open question") };
-    question.placed = placed;
-    Ok(())
+pub fn place(db: &Connection, id: Id, placed: Option<Placement>) -> Result<()> {
+    require_open_question(db, id)?;
+    match placed {
+        Some(placed) => insert_placement(db, id, &placed),
+        None => {
+            db.execute("DELETE FROM question_placement WHERE question_id = ?1", [id]).sql()?;
+            Ok(())
+        }
+    }
 }
 
 /// Changes open question <id>: the title and details when given, and its
 /// blocks-nothing why: None leaves it, Some(None) clears it (the question
 /// blocks something), Some(Some(why)) sets it.
 pub fn edit(
-    lists: &mut Lists,
+    db: &Connection,
     id: Id,
     title: Option<String>,
     details: Option<String>,
     blocks_nothing: Option<Option<String>>,
 ) -> Result<()> {
-    let Some(question) = lists.questions.iter_mut().find(|q| q.id == id) else { fail!("{id} is not an open question") };
-    if let Some(title) = title {
-        question.title = title;
-    }
-    if let Some(details) = details {
-        question.details = details;
-    }
-    if let Some(why) = blocks_nothing {
-        question.blocks_nothing = why;
-    }
+    require_open_question(db, id)?;
+    db.execute(
+        "UPDATE question SET title = COALESCE(?2, title), details = COALESCE(?3, details), \
+         blocks_nothing = CASE WHEN ?4 THEN ?5 ELSE blocks_nothing END WHERE id = ?1",
+        params![id, title, details, blocks_nothing.is_some(), blocks_nothing.flatten()],
+    )
+    .sql()?;
     Ok(())
+}
+
+/// Every question, open and closed, as the rows hold it. <opened> is every
+/// record's stamp.
+pub fn read(db: &Connection, opened: &BTreeMap<Id, Stamp>) -> Result<Vec<Question>> {
+    let mut placements: BTreeMap<Id, Placement> = BTreeMap::new();
+    let mut statement = db.prepare("SELECT question_id, at, why, by_person FROM question_placement").sql()?;
+    for row in statement
+        .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, bool>(3)?)))
+        .sql()?
+    {
+        let (id, at, why, by_person) = row.sql()?;
+        placements.insert(id, Placement { at: if at == "first" { Position::First } else { Position::Last }, why, by_person });
+    }
+    let mut plans: BTreeMap<Id, PlanRef> = BTreeMap::new();
+    let mut statement = db.prepare("SELECT question_id, path, number FROM question_plan").sql()?;
+    for row in statement
+        .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+        .sql()?
+    {
+        let (id, path, number) = row.sql()?;
+        plans.insert(id, PlanRef { path, number });
+    }
+    let mut statement = db.prepare("SELECT id, title, details, kind, blocks_nothing FROM question ORDER BY id").sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?))
+        })
+        .sql()?;
+    let mut questions = Vec::new();
+    for row in rows {
+        let (id, title, details, kind, blocks_nothing) = row.sql()?;
+        questions.push(Question {
+            id,
+            title,
+            details,
+            kind: match kind.as_str() {
+                "question" => QuestionKind::Question,
+                "your-step" => QuestionKind::YourStep,
+                _ => QuestionKind::Held,
+            },
+            blocks_nothing,
+            placed: placements.remove(&id),
+            plan: plans.remove(&id),
+            opened: opened[&id].clone(),
+        });
+    }
+    Ok(questions)
 }
 
 /// Every open item that waits on question <question> directly, which an
@@ -177,28 +288,27 @@ pub fn check_blocked(lists: &Lists, question: Id, blocked: &BlockedMap) -> Resul
 
 /// Does what <blocked> says to each item that waits on <question>, after
 /// `check_blocked` accepts it.
-pub fn apply_blocked(lists: &mut Lists, question: Id, blocked: &BlockedMap, stamp: &Stamp) -> Result<()> {
-    check_blocked(lists, question, blocked)?;
+pub fn apply_blocked(db: &Connection, question: Id, blocked: &BlockedMap, stamp: &Stamp) -> Result<()> {
+    check_blocked(&store::read(db)?, question, blocked)?;
     for (id, fate) in blocked {
         match fate {
             Blocked::Proceeds => {}
-            Blocked::Edit(edit) => edit.apply(lists, *id)?,
-            Blocked::Drop(why) => close(lists, *id, How::Dropped(why.clone()), stamp)?,
+            Blocked::Edit(edit) => edit.apply(db, *id)?,
+            Blocked::Drop(why) => close(db, *id, How::Dropped(why.clone()), stamp)?,
         }
     }
     Ok(())
 }
 
-/// Sets the plan open question <id> belongs to.
+/// The tables question.rs owns.
 #[cfg(test)]
-pub fn plant_plan(lists: &mut Lists, id: Id, plan: PlanRef) {
-    lists.questions.iter_mut().find(|q| q.id == id).expect("an open question").plan = Some(plan);
-}
+const TABLES: [&str; 3] = ["question", "question_placement", "question_plan"];
 
-/// Sets what open question <id> is.
+/// Writes a row of one of question.rs's tables as given, the constraints
+/// still holding: for tests that need a row they refuse.
 #[cfg(test)]
-pub fn plant_kind(lists: &mut Lists, id: Id, kind: QuestionKind) {
-    lists.questions.iter_mut().find(|q| q.id == id).expect("an open question").kind = kind;
+pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+    crate::db::plant_row(db, &TABLES, table, columns)
 }
 
 #[cfg(test)]

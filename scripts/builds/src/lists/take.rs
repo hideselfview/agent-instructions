@@ -17,7 +17,7 @@ use crate::lists::draft::require_brief_from;
 use crate::lists::item::open_item;
 use crate::lists::item_command::blocking_words;
 use crate::lists::running::{Running, running_in, start};
-use crate::lists::store::Store;
+use crate::lists::store::{self, Store};
 use crate::lists::{Audience, Id, Stamp};
 use crate::text::note;
 use crate::tool::Tool;
@@ -102,7 +102,8 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.with_write(&stamp, &format!("item take {}", ids.iter().map(|i| i.0.to_string()).collect::<Vec<_>>().join(" ")), |lists| {
+    store.write(&stamp, &format!("item take {}", ids.iter().map(|i| i.0.to_string()).collect::<Vec<_>>().join(" ")), |db| {
+        let lists = &store::read(db)?;
         for Place { top, checkout, branch, .. } in &places {
             if !lists.repos.contains(&checkout.repo()) {
                 fail!("{top} is a worktree of repo {}, which is not one of project {}'s ({})", checkout.repo(), lists.project, lists.repos.join(", "));
@@ -136,7 +137,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 since: stamp.clone(),
             })
             .collect();
-        start(lists, &ids, &running)
+        start(db, &ids, &running)
     })?;
     let named: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
     let wheres: Vec<String> = places.iter().map(|p| format!("{} on {} for {}", p.top, p.branch, p.agent)).collect();

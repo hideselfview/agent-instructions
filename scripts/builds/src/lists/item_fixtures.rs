@@ -7,13 +7,10 @@ use crate::checkout::git_text;
 use crate::claim::write_claim;
 use crate::checkout::{Checkout, git};
 use crate::fail::{Fail, Result};
-use crate::lists::area::add_area;
-use crate::lists::fixtures::{NOON, stamp};
+use crate::lists::fixtures::NOON;
 use crate::lists::store::Store;
-use crate::lists::Lists;
 use crate::testing::{Scratch, git as run_git, repo};
 use crate::tool::Tool;
-use std::collections::BTreeMap;
 
 pub struct Demo {
     pub scratch: Scratch,
@@ -45,11 +42,7 @@ pub fn demo_over(name: &str, repos: &[&str]) -> Demo {
     for other in &repos[1..] {
         add_repo_with_origin(&scratch, other);
     }
-    let store = Store::named(&tool.places, "demo").unwrap();
-    let mut state = Lists::empty("demo", repos.iter().map(|r| r.to_string()).collect(), BTreeMap::new());
-    add_area(&mut state, "Alpha", None).unwrap();
-    add_area(&mut state, "Beta", None).unwrap();
-    store.create(state, &stamp(NOON), "lists init demo").unwrap();
+    let store = crate::lists::fixtures::make_store(&tool.places, repos);
     Demo { scratch, tool, main, store }
 }
 
@@ -83,8 +76,10 @@ impl Demo {
         run_git(&self.main, &["branch", branch, "main"]);
     }
 
-    pub fn bytes(&self) -> Vec<u8> {
-        std::fs::read(self.store.state_path()).unwrap()
+    /// Everything the store holds, for comparing before and after a command:
+    /// the lists as read and the write log.
+    pub fn state(&self) -> String {
+        crate::lists::fixtures::state_of(&self.store)
     }
 
     pub fn brief(&self, name: &str) -> String {

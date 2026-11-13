@@ -1,6 +1,5 @@
 use super::*;
-use std::collections::BTreeMap;
-use crate::lists::Id;
+use crate::fail::Fail;
 use crate::testing::{Scratch, repo};
 
 fn words(text: &str) -> Vec<String> {
@@ -27,8 +26,9 @@ fn init_makes_the_store_with_repos_and_design_places() {
     assert_eq!(lists.repos, ["bae", "coven"]);
     assert_eq!(lists.design_places["bae"], ["design/mocks/*.dc.html", "design/system/components/*/"]);
     assert!(lists.design_sources.is_empty() && lists.spec_files.is_empty());
-    assert_eq!((lists.version, lists.log[0].by.as_str()), (1, "tester"));
-    assert_eq!(lists.next_id, Id(1));
+    assert_eq!(lists.version, 1);
+    let db = crate::db::open_reader(&Store::named(&tool.places, "bae").unwrap().database()).unwrap().unwrap();
+    assert_eq!(crate::lists::store::read_log(&db).unwrap()[0].2, "tester");
     run(&tool, "show --project bae").unwrap();
     run(&tool, "show --json --project bae").unwrap();
 }
@@ -52,9 +52,10 @@ fn init_refuses_an_existing_store() {
     let scratch = Scratch::new("lists-cmd-twice");
     let tool = scratch.tool(0);
     run(&tool, "init bae --repos bae --by tester").unwrap();
-    let before = std::fs::read(tool.places.lists.join("bae/lists.json")).unwrap();
+    let store = Store::named(&tool.places, "bae").unwrap();
+    let before = store.load().unwrap();
     assert!(refusal(run(&tool, "init bae --repos bae,coven --by tester")).contains("already exist"));
-    assert_eq!(std::fs::read(tool.places.lists.join("bae/lists.json")).unwrap(), before);
+    assert_eq!(store.load().unwrap(), before);
 }
 
 #[test]
@@ -72,40 +73,13 @@ fn init_needs_its_arguments() {
 }
 
 #[test]
-fn init_from_a_file_loads_checks_and_advances_the_state() {
+fn init_no_longer_loads_a_state_from_a_file() {
     let scratch = Scratch::new("lists-cmd-from");
     let tool = scratch.tool(0);
-    let mut state = Lists::empty("bae", vec!["bae".into(), "coven".into()], BTreeMap::new());
-    crate::lists::record::plant_next_id(&mut state, Id(660));
-    crate::lists::area::add_area(&mut state, "Alpha", None).unwrap();
     let file = scratch.dir.join("bae.json");
-    std::fs::write(&file, serde_json::to_string(&state).unwrap()).unwrap();
-    let from = file.display().to_string();
-
-    assert!(refusal(run(&tool, &format!("init bae --repos bae --from {from} --by me"))).contains("does not match the repos"));
-    assert!(refusal(run(&tool, &format!("init bae --repos bae,coven --design-places bae:x --from {from} --by me"))).contains("--design-places does not match"));
-    assert!(refusal(run(&tool, &format!("init other --from {from} --by me"))).contains("holds the lists of project bae"));
+    std::fs::write(&file, "{}").unwrap();
+    assert!(refusal(run(&tool, &format!("init bae --repos bae --from {} --by me", file.display()))).contains("--from"));
     assert!(!tool.places.lists.join("bae").exists());
-
-    run(&tool, &format!("init bae --repos bae,coven --from {from} --by me")).unwrap();
-    let lists = Store::named(&tool.places, "bae").unwrap().load().unwrap();
-    assert_eq!((lists.next_id, lists.version, lists.areas.clone()), (Id(660), 1, vec!["Alpha".to_string()]));
-    assert!(lists.log[0].words.contains("--from"));
-}
-
-#[test]
-fn init_from_a_state_failing_the_check_makes_no_store() {
-    let scratch = Scratch::new("lists-cmd-from-bad");
-    let tool = scratch.tool(0);
-    let mut state = Lists::empty("bae", vec!["bae".into()], BTreeMap::new());
-    crate::lists::area::add_area(&mut state, "A", None).unwrap();
-    crate::lists::area::plant_area_listed_again(&mut state, "A");
-    let file = scratch.dir.join("bad.json");
-    std::fs::write(&file, serde_json::to_string(&state).unwrap()).unwrap();
-    let message = refusal(run(&tool, &format!("init bae --from {} --by me", file.display())));
-    assert!(message.contains("'A' is listed twice"), "{message}");
-    assert!(!tool.places.lists.join("bae/lists.json").exists());
-    assert!(refusal(run(&tool, "init bae --from /nonexistent/x.json --by me")).contains("reading"));
 }
 
 #[test]
@@ -113,14 +87,15 @@ fn show_of_a_store_failing_the_check_fails_naming_the_fault() {
     let scratch = Scratch::new("lists-cmd-show-bad");
     let tool = scratch.tool(0);
     run(&tool, "init bae --repos bae --by me").unwrap();
-    let file = tool.places.lists.join("bae/lists.json");
-    let mut state: Lists = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-    crate::lists::area::plant_area_listed_again(&mut state, "Dup");
-    crate::lists::area::plant_area_listed_again(&mut state, "Dup");
-    std::fs::write(&file, serde_json::to_string(&state).unwrap()).unwrap();
+    // A question that blocks nothing and says nothing of why, written around the check.
+    let store = Store::named(&tool.places, "bae").unwrap();
+    let db = crate::db::open(&store.database(), crate::db::Make::Never).unwrap();
+    let q = crate::lists::fixtures::question(&db);
+    crate::lists::fixtures::blocks_something(&db, q);
+    drop(db);
     for command in ["show --project bae", "show --json --project bae"] {
         let message = refusal(run(&tool, command));
-        assert!(message.contains("fail their check") && message.contains("'Dup' is listed twice"), "{message}");
+        assert!(message.contains("fail their check") && message.contains("blocks no open item"), "{message}");
     }
 }
 
@@ -164,8 +139,9 @@ fn add_repo_lets_a_repo_whose_work_a_project_carries_resolve_to_it() {
     assert_eq!(project_of(&tool.places, &checkout).unwrap(), None);
     run(&tool, "add-repo bae agent-instructions --by tester").unwrap();
     let lists = Store::named(&tool.places, "bae").unwrap().load().unwrap();
-    assert_eq!(lists.repos, ["bae", "coven", "agent-instructions"]);
-    assert_eq!(lists.log.last().unwrap().words, "lists add-repo bae agent-instructions");
+    assert_eq!(lists.repos, ["agent-instructions", "bae", "coven"]);
+    let db = crate::db::open_reader(&Store::named(&tool.places, "bae").unwrap().database()).unwrap().unwrap();
+    assert_eq!(crate::lists::store::read_log(&db).unwrap().pop().unwrap().3, "lists add-repo bae agent-instructions");
     assert_eq!(project_of(&tool.places, &checkout).unwrap(), Some("bae".to_string()));
     let none = Args::parse(&[], &[], &[]).unwrap();
     assert_eq!(Store::resolve(&tool.places, &none, &carried).unwrap().project, "bae");

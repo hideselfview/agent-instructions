@@ -1,23 +1,25 @@
 //! The lists: a project's decision stack, work queue, design changes and
-//! decision log, kept in one store that every command writes through and
-//! refuses a step missing what it needs (plans/lists-tool.md).
+//! decision log, kept in one SQLite database that every command writes through
+//! and refuses a step missing what it needs (plans/lists-tool.md).
 //!
-//! This file is the whole state and the owners' types re-exported.
-//! Each owner holds its types and every write to them: `record` (ids, stamps,
-//! closing), `project`, `area`, `item` with `running` and `landing`,
-//! `question`, `decision`, `design`. Their commands are `command`,
+//! This file is the whole state as one snapshot and the owners' types
+//! re-exported. Each owner holds its types, its tables (the `.sql` file beside
+//! it) and every write to them: `record` (ids, stamps, closing), `project`,
+//! `area`, `item` with `running` and `landing`, `question`, `decision`,
+//! `design`, `store` (the write log). Their commands are `command`,
 //! `item_command`, `question_command`, `decision_command` and
-//! `design_command`. `store` holds the file and the write path, `check` the
-//! whole-state check, `derive` what is computed and never stored, `view` the
-//! JSON the page reads, `draft` what a command that makes work checks before
-//! the lock, `args` the flag parsing every command uses.
+//! `design_command`. `store` also holds the database's opening, the write
+//! transaction and the snapshot read, `check` the checks the tables cannot
+//! hold, `derive` what is computed and never stored, `view` the JSON the page
+//! reads, `draft` what a command that makes work checks before the write,
+//! `args` the flag parsing every command uses.
 
-mod area;
+pub mod area;
 pub mod args;
 pub mod check;
 mod command;
 pub mod day;
-mod decision;
+pub mod decision;
 mod decision_command;
 pub mod derive;
 pub mod design;
@@ -32,7 +34,7 @@ mod item_command;
 #[cfg(test)]
 mod item_fixtures;
 mod item_show;
-mod landing;
+pub mod landing;
 pub mod project;
 pub mod question;
 pub mod question_command;
@@ -89,9 +91,7 @@ pub struct Lists {
     /// Per repo, the globs of the spec files; in a design change, each
     /// section (by heading) its commits touch is a place.
     pub spec_files: BTreeMap<String, Vec<String>>,
-    /// The next id to hand out.
-    pub next_id: Id,
-    /// Counts the writes; the log's last line carries it.
+    /// The last write's version.
     pub version: u64,
     /// In the order the sidebar shows them.
     pub areas: Vec<String>,
@@ -100,7 +100,6 @@ pub struct Lists {
     pub designs: Vec<DesignChange>,
     pub decisions: Vec<Decision>,
     pub closed: Vec<Closed>,
-    pub log: Vec<LogLine>,
 }
 
 #[cfg(test)]
