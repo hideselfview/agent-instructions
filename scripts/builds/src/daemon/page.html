@@ -131,6 +131,13 @@ article { min-width: 0; display: flex; flex-direction: column; }
 .qbtn { font: 600 12px var(--sans); color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
 .qbtn.danger { color: var(--bad); }
 .qbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bform { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.bform input { flex: 1 1 140px; min-width: 0; font: 12px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.bform input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.qbtn:disabled { color: var(--muted); cursor: default; }
+.bstatus { font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.bstatus.failed { color: var(--bad); }
+.boutput { margin: 0; font: 11px/1.4 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 .commit { display: flex; gap: 8px; font-size: 13px; line-height: 1.35; min-width: 0; }
 .commit .sha { font-family: var(--mono); color: var(--accent); flex: none; }
 .commit .subject { color: var(--text-2); overflow-wrap: anywhere; min-width: 0; }
@@ -262,6 +269,7 @@ a.l-link { color: var(--accent); font-size: 13px; overflow-wrap: anywhere; }
     <label class="hide-free"><input type="checkbox" id="hide-free"> Hide free worktrees</label>
     <span class="updated" id="hidden-count"></span>
     <div class="queues" id="queues"></div>
+    <div class="queues" id="builds"></div>
     <div class="load" id="load"><span class="label">Load</span><span class="note">read while this page is open</span></div>
     <div class="disk" id="disk"><span class="label">Disk</span><span class="floors">reading</span></div>
     <span class="live" id="live">connecting</span>
@@ -581,6 +589,88 @@ function queuesView() {
   document.getElementById("queues").replaceChildren(...menus);
 }
 
+// build-app: a button per repo lane that runs `builds build-app <repo> <lane>
+// [<ref>]` in the daemon, and the run it started: queued or running, its
+// output as it goes, how it ended. Each lane's panel is made once and
+// updated in place, so the ref being typed and the open panel survive the
+// page's redraws.
+const buildPanels = new Map();
+const PHASES = {
+  queued: "Queued: waiting for an app lock",
+  running: "Running",
+  succeeded: "Finished",
+  failed: "Failed",
+  detached: "Started before the daemon restarted and still running: the dashboard can't see how it ends",
+  lost: "The daemon restarted while this ran and the build is gone: how it ended is unknown",
+};
+function phaseLine(run) {
+  let text = PHASES[run.phase] || run.phase;
+  if (run.phase === "failed") {
+    text += run.signal ? " (signal " + run.signal + ")" : run.exit_code === null ? "" : " (exit " + run.exit_code + ")";
+  }
+  const at = run.ended_at || run.started_at;
+  return text + " · " + (run.ended_at ? "ended " : "started ") + when(new Date(at * 1000)) + (run.ref ? " · " + run.ref : "");
+}
+async function startBuild(repo, lane, ref) {
+  try {
+    const reply = await fetch("/api/build-app", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({repo: repo.name, lane, ref: ref || null})});
+    if (!reply.ok) {
+      const body = await reply.json().catch(() => ({}));
+      throw new Error(body.error || reply.status);
+    }
+    streamError = "";
+  } catch (e) {
+    streamError = "build-app: " + e.message;
+  }
+  render();
+}
+function buildPanel(repo, lane) {
+  const ref = h("input", {type: "text", placeholder: "ref (default main)", "aria-label": "ref to build", spellcheck: "false"});
+  const button = h("button", {type: "button", class: "qbtn"}, "Build");
+  const status = h("div", {class: "bstatus"});
+  const output = h("pre", {class: "boutput"});
+  const summary = h("summary", {});
+  const el = h("details", {class: "qmenu"}, summary,
+    h("div", {class: "qpanel"}, h("span", {class: "label"}, "builds build-app " + repo.name + " " + lane),
+      h("div", {class: "bform"}, ref, button), status, output));
+  const panel = {el, ref, button, status, output, summary, repo, lane};
+  button.addEventListener("click", () => startBuild(panel.repo, lane, ref.value.trim()));
+  return panel;
+}
+function updateBuildPanel(panel, repo, lane, several) {
+  panel.repo = repo;
+  const run = repo.runs.find(r => r.lane === lane);
+  const active = run && ["queued", "running", "detached"].includes(run.phase);
+  panel.summary.replaceChildren((several ? repo.name + " " : "") + lane.charAt(0).toUpperCase() + lane.slice(1) + " build-app",
+    h("span", {class: "count"}, run ? run.phase : "idle"));
+  panel.button.disabled = !!active;
+  panel.status.textContent = run ? phaseLine(run) : "No build started from this page.";
+  panel.status.className = "bstatus" + (run && (run.phase === "failed" || run.phase === "lost") ? " failed" : "");
+  const text = run ? (run.output_cut ? "…\n" : "") + run.output : "";
+  panel.output.hidden = !run;
+  if (panel.output.textContent !== text) {
+    const atEnd = panel.output.scrollTop + panel.output.clientHeight >= panel.output.scrollHeight - 4;
+    panel.output.textContent = text;
+    if (atEnd) panel.output.scrollTop = panel.output.scrollHeight;
+  }
+}
+function buildsView() {
+  const withLanes = state.repos.filter(r => r.lanes.length);
+  const els = [];
+  for (const repo of withLanes) {
+    for (const {lane} of repo.lanes) {
+      const key = repo.name + " " + lane;
+      if (!buildPanels.has(key)) buildPanels.set(key, buildPanel(repo, lane));
+      const panel = buildPanels.get(key);
+      updateBuildPanel(panel, repo, lane, withLanes.length > 1);
+      els.push(panel.el);
+    }
+  }
+  const box = document.getElementById("builds");
+  if (els.length !== box.children.length || els.some((el, i) => box.children[i] !== el)) box.replaceChildren(...els);
+}
+
 function pinnedMain(repo, c) {
   const b = built(c);
   return h("article", {class: "pinned"},
@@ -856,6 +946,7 @@ function render() {
   document.getElementById("load").replaceChildren(...loadView(state.load));
   findingsView(state.health);
   queuesView();
+  buildsView();
   const root = document.getElementById("view");
   if (root.dataset.view !== view) { root.replaceChildren(); root.dataset.view = view; }
   if (view === "lanes") lanesView(root); else reposView(root);

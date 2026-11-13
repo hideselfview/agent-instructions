@@ -435,6 +435,19 @@ build was not measured, and the default leaves it room. `builds build-app` and
 `builds lock` set no limit; `builds lock` stays for a command that is no repo's
 build.
 
+- The dashboard starts `builds build-app` too: each repo lane has a build-app
+  panel in the toolbar with a ref box (empty means the command's default), a
+  Build button, the run's output as it prints, and how it ended (queued,
+  running, finished, failed with its exit status). The daemon runs
+  `builds build-app <repo> <lane> [<ref>]` as its child, so the lane's queue and
+  lock order it like a typed one; a lane takes one run at a time (a second start
+  is refused with 409). The start is a POST to `/api/build-app`, which only the
+  page's own origin may make. Each lane's latest run is kept in
+  `/Volumes/Builds/.builds-daemon/runs/` (`<repo>.<lane>.json`, `.log`); the
+  child writes the log itself, so a daemon restart doesn't stop the build. The
+  restarted daemon shows such a run as still running with its end unseen, or as
+  gone with its end unknown, and never as finished.
+
 - `builds lock <repo> [--lane mac|android] <command>` waits until one of the
   lane's locks (the mac lane's unless named;
   `/Volumes/Builds/<repo>/app.locks/<checkout>`) is free, so run it as a
@@ -453,6 +466,7 @@ build.
   kernel stops a background group the moment it sets terminal modes (Gradle's
   console does), which hung `builds build-app` after a finished build.
   `tests/terminal.rs` checks it on a pseudo-terminal.
+
 - Waiters go in the order they came, in each lane's line, one line for all of
   the lane's locks. `/Volumes/Builds/<repo>/app.queue/order`
   (`app-android.queue/order`) lists one ticket per line, next first, the
@@ -473,12 +487,15 @@ build.
   (build-app's copy) ignores a takeover. `tests/app_queue.rs` checks the order,
   `top`, a killed waiter and a takeover with real processes, two lanes at once,
   one lane failing and a step past its limit among them.
+
 - `--detach` checks out your branch's commit: the branch itself stays checked
   out in your worktree, and git checks out a branch in one worktree only.
+
 - To change something, edit and commit (or amend) in your worktree, then run the
   command again. Put everything that needs the build — the build, its tests,
   launching the app — in the same locked command; the next holder moves the
   checkout.
+
 - A dirty app checkout (either lane's) fails the command instead of carrying
   someone's changes into your build. Find out whose they are before deleting
   them.

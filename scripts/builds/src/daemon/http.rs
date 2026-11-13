@@ -2,7 +2,10 @@
 //! stream of server-sent events per open page. A request whose Host isn't
 //! this server's own address is refused, so a page from elsewhere that
 //! resolves its name to 127.0.0.1 can't read these; a POST whose Origin isn't
-//! the page's own is refused too, so a web page can't trigger it.
+//! the page's own is refused too, so a web page can't trigger it. (A browser
+//! sends the real Origin on every cross-site POST and a page can't change it,
+//! so no token is needed; a POST with no Origin, which a browser never sends,
+//! is refused as well.)
 //!
 //!     /             the page (page.html, built into the binary)
 //!     /api/state    the whole state as JSON
@@ -10,6 +13,11 @@
 //!     POST /api/queue  `{"action": "top"|"takeover", "repo", "pid"}`: the
 //!                   same as `builds queue <repo> top <pid>` and
 //!                   `builds takeover <repo> <pid>`
+//!     POST /api/build-app  `{"repo", "lane": "mac"|"android", "ref"?}`: starts
+//!                   `builds build-app <repo> <lane> [<ref>]` as a child of
+//!                   the daemon (runs.rs), 409 when the lane has a build
+//!                   queued or running; the runs are in `/api/state` and its
+//!                   events, with their output
 //!     /api/lists    the lists JSON (lists/view.rs, plus each running item's
 //!                   claim facts), as the `lists` event carries it
 //!     /api/design-render/<design id>/<n>
@@ -88,18 +96,25 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
         return respond(&mut stream, "403 Forbidden", "text/plain; charset=utf-8", b"only for this machine's own browser\n");
     }
     let path = target.split('?').next().unwrap_or("");
-    if method == "POST" && path == "/api/queue" {
-        let own = [format!("http://127.0.0.1:{port}"), format!("http://localhost:{port}")];
-        if !origin.is_some_and(|origin| own.contains(&origin)) {
+    if method == "POST" && (path == "/api/queue" || path == "/api/build-app") {
+        if !from_own_page(origin.as_deref(), port) {
             return respond(&mut stream, "403 Forbidden", "text/plain; charset=utf-8", b"only from the page itself\n");
         }
         if length > MAX_BODY {
             return respond(&mut stream, "413 Payload Too Large", "text/plain; charset=utf-8", b"too large\n");
         }
+        if path == "/api/build-app" {
+            return build_app(&mut stream, model, &body);
+        }
         return json(&mut stream, queue_action(model, &body).map(|()| b"{}".to_vec()));
     }
     if method != "GET" {
-        return respond(&mut stream, "405 Method Not Allowed", "text/plain; charset=utf-8", b"GET only, and POST /api/queue\n");
+        return respond(
+            &mut stream,
+            "405 Method Not Allowed",
+            "text/plain; charset=utf-8",
+            b"GET only, and POST /api/queue and /api/build-app\n",
+        );
     }
     match path {
         "/" => respond(&mut stream, "200 OK", "text/html; charset=utf-8", PAGE.as_bytes()),
@@ -122,6 +137,45 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
             }
         }
         _ => respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"not found\n"),
+    }
+}
+
+/// Does the Origin header name this server's own page?
+fn from_own_page(origin: Option<&str>, port: u16) -> bool {
+    let own = [format!("http://127.0.0.1:{port}"), format!("http://localhost:{port}")];
+    origin.is_some_and(|origin| own.iter().any(|own| own == origin))
+}
+
+#[derive(serde::Deserialize)]
+struct BuildRequest {
+    repo: String,
+    lane: String,
+    #[serde(rename = "ref")]
+    reference: Option<String>,
+}
+
+/// Starts a build-app run, as `builds build-app` (runs.rs). 400 for a
+/// request that names no such thing, 409 for a lane that is already building,
+/// 500 for a build that could not be started.
+fn build_app(stream: &mut TcpStream, model: &Model, body: &[u8]) -> std::io::Result<()> {
+    use super::runs::StartError;
+    let request: BuildRequest = match serde_json::from_slice(body) {
+        Ok(request) => request,
+        Err(error) => {
+            let message = serde_json::json!({ "error": format!("the request: {error}") }).to_string();
+            return respond(stream, "400 Bad Request", "application/json", message.as_bytes());
+        }
+    };
+    match model.runs.start_build(&request.repo, &request.lane, request.reference.as_deref()) {
+        Ok(()) => respond(stream, "200 OK", "application/json", b"{}"),
+        Err(error) => {
+            let status = match error {
+                StartError::Invalid(_) => "400 Bad Request",
+                StartError::Busy(_) => "409 Conflict",
+                StartError::Failed(_) => "500 Internal Server Error",
+            };
+            respond(stream, status, "application/json", serde_json::json!({ "error": error.message() }).to_string().as_bytes())
+        }
     }
 }
 
@@ -215,3 +269,7 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
     model.watch(false);
     sent
 }
+
+#[cfg(test)]
+#[path = "http_tests.rs"]
+mod tests;

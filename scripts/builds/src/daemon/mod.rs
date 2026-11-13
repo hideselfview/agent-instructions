@@ -12,6 +12,7 @@ pub mod http;
 pub mod index;
 pub mod lists;
 pub mod model;
+pub mod runs;
 pub mod tracker;
 
 use std::io::{BufRead, BufReader, Write};
@@ -28,6 +29,7 @@ use crate::text::note;
 use crate::tool::Tool;
 use crate::usage::Measure;
 use model::Model;
+use runs::Runs;
 use tracker::Tracker;
 
 #[derive(Serialize, Deserialize)]
@@ -120,7 +122,9 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let socket = bind(tool)?;
     let tracker = Tracker::start(&root, &tool.places.daemon_dir()).context(|| format!("following {}", root.display()))?;
-    let model = Model::start(tool.places.clone(), tool.rules.clone(), tracker);
+    let exe = std::env::current_exe().context(|| "finding this program".to_string())?;
+    let runs = Runs::start(tool.places.clone(), vec![exe.to_string_lossy().into_owned()])?;
+    let model = Model::start(tool.places.clone(), tool.rules.clone(), tracker, runs);
     let questions = model.clone();
     let given = tool.places.root.clone();
     std::thread::Builder::new()

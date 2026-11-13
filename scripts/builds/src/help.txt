@@ -237,6 +237,10 @@ Commands:
                               .app-build names; for mac, copy the app to
                               ~/Applications/<repo>-test in place of the copy
                               there, quitting the one running. Opens nothing
+                              The dashboard has a build-app panel per repo lane
+                              (ref box, Build button, the run's output and how
+                              it ended) that runs this as a child of the
+                              daemon; a lane takes one at a time
   builds units prune <days> <incremental hours> <dry 0|1> <folder>...
   builds units git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...
                               the steps setup and prune run on cargo's

@@ -14,6 +14,7 @@ use serde::Serialize;
 
 use super::fsevents::Stream;
 use super::lists::{Feed, compose, running_worktrees};
+use super::runs::{RunPage, Runs};
 use super::tracker::Tracker;
 use crate::checkout::{Root, absolute_link_target, all_roots, parallel_map};
 use crate::claim::Claim;
@@ -104,6 +105,8 @@ pub struct Model {
     viewing_lock: Mutex<()>,
     git_stream: Mutex<Option<(Vec<PathBuf>, Stream)>>,
     lists: Arc<Feed>,
+    /// The build-app runs the page starts.
+    pub runs: Arc<Runs>,
     /// The lists JSON last built and what it was built from.
     served: Mutex<Option<(ServedKey, Arc<String>)>>,
 }
@@ -112,7 +115,7 @@ pub struct Model {
 /// of the stores, the day, the mode and each running item's claim facts.
 type ServedKey = (u64, String, &'static str, Vec<ClaimFacts>);
 
-fn now_seconds() -> i64 {
+pub(super) fn now_seconds() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("the clock is after 1970")
@@ -120,7 +123,7 @@ fn now_seconds() -> i64 {
 }
 
 impl Model {
-    pub fn start(places: Places, rules: Rules, tracker: Arc<Tracker>) -> Arc<Model> {
+    pub fn start(places: Places, rules: Rules, tracker: Arc<Tracker>, runs: Arc<Runs>) -> Arc<Model> {
         let model = Arc::new(Model {
             places: places.clone(),
             rules,
@@ -134,6 +137,7 @@ impl Model {
             viewing_lock: Mutex::new(()),
             git_stream: Mutex::new(None),
             lists: Feed::start(places),
+            runs,
             served: Mutex::new(None),
         });
         let weak = Arc::downgrade(&model);
@@ -144,6 +148,12 @@ impl Model {
         }));
         let weak = Arc::downgrade(&model);
         model.lists.listen(Box::new(move || {
+            if let Some(model) = weak.upgrade() {
+                model.publish();
+            }
+        }));
+        let weak = Arc::downgrade(&model);
+        model.runs.listen(Box::new(move || {
             if let Some(model) = weak.upgrade() {
                 model.publish();
             }
@@ -536,6 +546,14 @@ impl Model {
                         .as_ref()
                         .map(|m| m.queues.iter().filter(|q| q.repo == repo_name).cloned().collect())
                         .unwrap_or_default(),
+                    runs: self.runs.pages(&repo_name, &|lane| {
+                        state
+                            .machine
+                            .as_ref()
+                            .and_then(|m| m.queues.iter().find(|q| q.repo == repo_name && q.lane == lane.word()))
+                            .map(|q| q.queue.iter().map(|waiting| waiting.pid).collect())
+                            .unwrap_or_default()
+                    }),
                     name: repo_name.clone(),
                     checkouts: Vec::new(),
                 });
@@ -755,6 +773,8 @@ pub struct RepoPage {
     pub locks: Vec<crate::health::LockHealth>,
     /// Each lane's one queue, for whichever of its locks frees first.
     pub queues: Vec<crate::health::LaneQueue>,
+    /// The latest build-app run the page started in each lane.
+    pub runs: Vec<RunPage>,
     pub checkouts: Vec<CheckoutPage>,
 }
 
