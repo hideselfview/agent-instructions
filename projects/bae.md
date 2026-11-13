@@ -79,6 +79,11 @@ a device, a hand check), is §1 too, not §2. An answer about a design plan also
 goes, numbered, in that plan's Decisions section. A question settled from
 existing rules or code is not their decision and is not recorded as one.
 
+Neither list holds what is not relevant now (a release-time task, something held
+for a later stage): open a GitHub issue for it and take it off the list (the
+person, 2026-11-13: "if there are TODOs that are NOT relevant right now just
+make a GH for each one and REMOVE THEM").
+
 A §2 item that an agent is working on says so at its start ("Running: <agent>,
 <repo> <worktree> <branch>, brief/handoff <path>"); that marker is what to read
 after a compact. An agent's brief names the §2 items it takes. When an item
