@@ -1,8 +1,10 @@
 //! Keeps the index of the build volume current: a full walk when the daemon
 //! starts or the volume comes back, then every change FSEvents reports.
 //!
-//! - The stream on the root starts before the walk; events that arrive
-//!   during it wait and are applied after it.
+//! - The stream on the root starts before the walk, and the walk waits until
+//!   a mark written after the stream started has come back as an event (a
+//!   stream is not live the moment it starts); events that arrive during the
+//!   walk wait and are applied after it.
 //! - The stream's callback only queues its events; one thread applies them,
 //!   everything queued at once, so delivery never waits on a walk.
 //! - The stream reports folders, not files: one event per folder something
@@ -86,6 +88,9 @@ pub struct Tracker {
     marks_dir: PathBuf,
     marks: Mutex<Marks>,
     delivered: Condvar,
+    /// How long a question waits for its mark's event before answering
+    /// nothing.
+    mark_wait: std::time::Duration,
     index: Mutex<Index>,
     flags: Mutex<Flags>,
     wake: Condvar,
@@ -104,6 +109,14 @@ pub type Answer = Option<Measure>;
 impl Tracker {
     /// Starts following <root> (an absolute, resolved path).
     pub fn start(root: &Path, marks_dir: &Path) -> std::io::Result<Arc<Tracker>> {
+        Self::start_waiting(root, marks_dir, std::time::Duration::from_secs(10))
+    }
+
+    /// Starts following <root>; a question waits up to <mark_wait> for the
+    /// stream to deliver its mark. How long FSEvents takes depends on every
+    /// write on the machine, so a caller that must have the answer gives a
+    /// wait it will not reach unless the stream is stuck.
+    pub fn start_waiting(root: &Path, marks_dir: &Path, mark_wait: std::time::Duration) -> std::io::Result<Arc<Tracker>> {
         let meta = std::fs::symlink_metadata(root)?;
         std::fs::create_dir_all(marks_dir)?;
         // Marks a daemon killed mid-question left; no question waits on
@@ -143,6 +156,7 @@ impl Tracker {
                 ),
                 marks: Mutex::new(Marks::default()),
                 delivered: Condvar::new(),
+                mark_wait,
                 index: Mutex::new(Index::new(root, &meta)),
                 flags: Mutex::new(Flags { restart: true, ..Flags::default() }),
                 wake: Condvar::new(),
@@ -223,6 +237,15 @@ impl Tracker {
                 continue;
             }
             *self.stream.lock().expect("no panic holding it") = stream;
+            // A stream reports nothing of what is written in the first moments
+            // after it starts when the machine is loaded, so a write made then
+            // would be in neither the walk nor the events. Walk once a write
+            // made after the stream started has come back as an event.
+            if !self.catch_up() {
+                eprintln!("builds: FSEvents did not follow {}; starting it again", self.root.display());
+                self.flags.lock().expect("no panic holding it").restart = true;
+                continue;
+            }
             let started = std::time::Instant::now();
             walk(&self.index, 0, &self.root, WORKERS);
             loop {
@@ -570,22 +593,30 @@ impl Tracker {
             marks.taken
         };
         let mark = self.marks_dir.join(format!("{}{n}", self.marks_prefix));
-        if let Err(error) = std::fs::create_dir(&mark).and_then(|()| std::fs::write(mark.join("mark"), b"")) {
+        if let Err(error) = std::fs::create_dir_all(&self.marks_dir)
+            .and_then(|()| std::fs::create_dir(&mark))
+            .and_then(|()| std::fs::write(mark.join("mark"), b""))
+        {
             eprintln!("builds: writing {}: {error}; answering nothing", mark.display());
             return false;
         }
         if let Some(stream) = self.stream.lock().expect("no panic holding it").as_ref() {
             stream.flush();
         }
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let asked = std::time::Instant::now();
+        let deadline = asked + self.mark_wait;
         let mut marks = self.marks.lock().expect("no panic holding it");
         let caught_up = loop {
             if marks.seen >= n {
+                let took = asked.elapsed();
+                if took > std::time::Duration::from_secs(1) {
+                    eprintln!("builds: FSEvents took {:.1}s to deliver {}", took.as_secs_f64(), mark.display());
+                }
                 break true;
             }
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             if left.is_zero() {
-                eprintln!("builds: FSEvents did not deliver {} in 10s; answering nothing", mark.display());
+                eprintln!("builds: FSEvents did not deliver {} in {}s; answering nothing", mark.display(), self.mark_wait.as_secs());
                 break false;
             }
             marks = self.delivered.wait_timeout(marks, left).expect("no panic holding it").0;
@@ -633,6 +664,26 @@ impl Tracker {
     #[cfg(test)]
     pub fn wait_ready(&self) {
         self.wait_walks(1);
+    }
+
+    /// Blocks until the whole root is walked and followed as the folder now
+    /// at the root's path. A replaced root restarts the tracker once for each
+    /// signal that reports it (the root's stream, the parent's stream, events
+    /// of the old stream still queued), so a count of walks does not say the
+    /// last restart is done; the folder's identity does.
+    #[cfg(test)]
+    pub fn wait_following_current_root(&self) {
+        let hang_guard = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        let mut flags = self.flags.lock().expect("no panic holding it");
+        loop {
+            let now = std::fs::symlink_metadata(&self.root).ok().map(|meta| (meta.dev(), meta.ino()));
+            if flags.ready && now.is_some() && flags.followed == now {
+                return;
+            }
+            let left = hang_guard.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "the root was never followed again");
+            flags = self.wake.wait_timeout(flags, left).expect("no panic holding it").0;
+        }
     }
 
     /// Blocks until the root has been walked whole <n> times and is followed.
