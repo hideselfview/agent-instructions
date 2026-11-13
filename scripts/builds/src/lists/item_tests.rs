@@ -268,3 +268,31 @@ fn defer_wants_an_open_issue() {
     defer(&demo.tool, &args("https://x/1"), &cwd, &open_issue).unwrap();
     assert!(matches!(&open(&demo).closed[0].how, How::Deferred(url) if url == "https://x/1"));
 }
+
+#[test]
+fn place_moves_an_open_item_first_or_last_or_clears_it_and_logs_the_write() {
+    let demo = demo("item-place");
+    add(&demo, FIVE, &[]).unwrap();
+    item(&demo, &["place", "1", "first", "--why", "top priority"]).unwrap();
+    let placed = open(&demo).items[0].priority.clone().unwrap();
+    assert_eq!((placed.level, placed.why.as_str()), (Level::First, "top priority"));
+    assert!(open(&demo).log.last().unwrap().words.starts_with("item place #1 first"));
+    item(&demo, &["place", "1", "last", "--why", "later"]).unwrap();
+    assert_eq!(open(&demo).items[0].priority.as_ref().unwrap().level, Level::Last);
+    item(&demo, &["place", "1", "none", "--why", "back to the order"]).unwrap();
+    assert_eq!(open(&demo).items[0].priority, None);
+}
+
+#[test]
+fn place_refuses_a_closed_item_a_missing_why_and_an_unknown_place() {
+    let demo = demo("item-place-refuse");
+    add(&demo, FIVE, &[]).unwrap();
+    let before = demo.bytes();
+    assert!(refusal(item(&demo, &["place", "1", "first"])).contains("--why is required"));
+    assert!(refusal(item(&demo, &["place", "1", "first", "--why", " "])).contains("--why is empty"));
+    assert!(refusal(item(&demo, &["place", "1", "middle", "--why", "w"])).contains("first, last or none, not 'middle'"));
+    assert!(refusal(item(&demo, &["place", "99", "first", "--why", "w"])).contains("is not a record"));
+    assert_eq!(demo.bytes(), before, "a refused place changed the file");
+    item(&demo, &["drop", "1", "--why", "no"]).unwrap();
+    assert!(refusal(item(&demo, &["place", "1", "first", "--why", "w"])).contains("is closed (dropped)"));
+}

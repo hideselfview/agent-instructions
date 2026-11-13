@@ -274,6 +274,11 @@ commit); an absolute path is itself.
       Refused while the item runs, an open item waits on it (the message names
       them and the `item wait --off` that frees each), or it is the last item
       an open question blocks. defer needs an open GitHub issue.
+  builds item place N first|last|none --why WHY
+      Sets an open item's priority as `item add --priority` does: first goes
+      ahead of the queue, last waits until nothing else is open, none gives it
+      back to the order of area and age. The why is kept; refused for a closed
+      item.
   builds item check-landing DIR [--done N]... [--part N]... SHA...
   builds item landed DIR [--done N]... [--part N]... SHA...
       What land.sh calls. check-landing (before anything is fetched): each N

@@ -1,5 +1,5 @@
 //! `builds item add | edit | note | wait | take | handoff | stop | drop |
-//! defer | check-landing | landed | show | list`: the work queue. Each
+//! defer | place | check-landing | landed | show | list`: the work queue. Each
 //! command refuses a step that lacks what it needs, and every write is one
 //! `Store::with_write`, so it lands whole or not at all. What reads the file
 //! system or runs a program (a brief's file, `gh`, git) runs before the lock.
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lists::args::{Args, read_input};
+use crate::lists::args::{Args, parse_named, read_input};
 use crate::lists::check::faults;
 use crate::lists::derive::{item_state, unmet_waits, waits_for_others};
 use crate::lists::draft::{ItemDraft, ItemEdit, add_item, close, require_brief_from, require_draft_briefs, require_open_wait};
@@ -21,7 +21,7 @@ use crate::lists::{
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY]\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F]\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF)\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F]\n(REF is item:N, question:N, design:N or condition:TEXT)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY]\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F]\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF)\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F]\n(REF is item:N, question:N, design:N or condition:TEXT)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -36,6 +36,7 @@ pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
         "stop" => stop(tool, rest, &cwd),
         "drop" => drop_item(tool, rest, &cwd),
         "defer" => defer(tool, rest, &cwd, &issue::real_gh),
+        "place" => place(tool, rest, &cwd),
         "check-landing" => landing::check_landing(tool, rest),
         "landed" => landing::landed(tool, rest, &cwd),
         "show" => item_show::show(tool, rest, &cwd),
@@ -229,10 +230,7 @@ fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["why"], &[])?;
     let id = one_id(&args, "builds item stop N --why WHY")?;
-    let why = args.require("why")?.to_string();
-    if why.trim().is_empty() {
-        fail!("--why is empty");
-    }
+    let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.with_write(&stamp, &format!("item stop {id}"), |lists| {
@@ -282,10 +280,7 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str) -> Result<()> {
 fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["why"], &[])?;
     let id = one_id(&args, "builds item drop N --why WHY")?;
-    let why = args.require("why")?.to_string();
-    if why.trim().is_empty() {
-        fail!("--why is empty");
-    }
+    let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.with_write(&stamp, &format!("item drop {id}"), |lists| {
@@ -308,6 +303,26 @@ fn defer(tool: &Tool, args: &[String], cwd: &Path, gh: issue::GhRunner<'_>) -> R
         close(lists, id, How::Deferred(url.clone()), &stamp)
     })?;
     note(format!("deferred {id} to {url}"));
+    Ok(())
+}
+
+fn place(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+    let args = Args::parse(args, &["why"], &[])?;
+    let [id, at] = args.exactly(2, "builds item place N first|last|none --why WHY")? else { unreachable!("exactly two") };
+    let id = Id::parse(id)?;
+    let why = args.why()?;
+    let priority = match at.as_str() {
+        "none" => None,
+        other => Some(Priority { level: parse_named("the place", other, "first, last or none")?, why: why.to_string() }),
+    };
+    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    store.with_write(&stamp, &format!("item place {id} {at}"), |lists| {
+        open_item(lists, id)?;
+        lists.item_mut(id).expect("open").priority = priority;
+        Ok(())
+    })?;
+    note(format!("placed {id} {at}"));
     Ok(())
 }
 

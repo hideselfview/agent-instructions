@@ -84,6 +84,15 @@ impl Args {
         }
     }
 
+    /// The `--why`, which the command requires and which says something.
+    pub fn why(&self) -> Result<&str> {
+        let why = self.require("why")?;
+        if why.trim().is_empty() {
+            fail!("--why is empty");
+        }
+        Ok(why)
+    }
+
     /// Every value of a flag that may repeat, in order.
     pub fn values(&self, name: &str) -> Vec<&str> {
         self.flags
@@ -114,6 +123,13 @@ impl Args {
     pub fn ids(&self, name: &str) -> Result<Option<Vec<Id>>> {
         self.value(name)?.map(Id::parse_list).transpose()
     }
+}
+
+/// A variant's name as the request files spell it: through the type's own
+/// serde names, so the flag and the JSON never disagree.
+pub fn parse_named<T: DeserializeOwned>(flag: &str, text: &str, names: &str) -> Result<T> {
+    serde_json::from_value(serde_json::Value::String(text.to_string()))
+        .map_err(|_| crate::fail::Fail::Message(format!("{flag} is {names}, not '{text}'")))
 }
 
 /// What <spec> names: standard input for `-`, else a file.

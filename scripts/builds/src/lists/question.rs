@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lists::args::{Args, read_input, read_request};
+use crate::lists::args::{Args, parse_named, read_input, read_request};
 use crate::lists::check::title_fault;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::draft::{BlockedMap, ItemDraft, NewDecision, add_decision, add_item, apply_blocked, close, require_draft_briefs, work_or_why};
@@ -88,13 +88,6 @@ fn open_question(lists: &Lists, id: Id) -> Result<&crate::lists::Question> {
         }
         Some(Located { kind, .. }) => fail!("{id} is a {}, not a question", kind.name()),
     }
-}
-
-/// A variant's name as the request files spell it: through the type's own
-/// serde names, so the flag and the JSON never disagree.
-fn parse_named<T: serde::de::DeserializeOwned>(flag: &str, text: &str, names: &str) -> Result<T> {
-    serde_json::from_value(serde_json::Value::String(text.to_string()))
-        .map_err(|_| crate::fail::Fail::Message(format!("{flag} is {names}, not '{text}'")))
 }
 
 fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
@@ -403,10 +396,7 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
     let args = Args::parse(args, &["why"], &["by-person"])?;
     let [id, at] = args.exactly(2, USAGE)? else { unreachable!("exactly two") };
     let id = Id::parse(id)?;
-    let why = args.require("why")?;
-    if why.trim().is_empty() {
-        fail!("--why is empty");
-    }
+    let why = args.why()?;
     let placed = match at.as_str() {
         "auto" => {
             if args.switch("by-person") {
