@@ -16,7 +16,7 @@ fn no_claims(_: &str) -> ClaimFacts {
 }
 
 fn error_of(snapshot: Snapshot) -> String {
-    let view = serde_json::to_value(compose(&snapshot, NOON, "quick", &no_claims)).unwrap();
+    let view = serde_json::to_value(compose(&snapshot, NOON, &no_claims)).unwrap();
     assert_eq!(view["items"], json!([]));
     view["error"].as_str().expect("an error").to_string()
 }
@@ -55,7 +55,7 @@ fn a_running_item_carries_its_claim_facts_and_nothing_else_does() {
         note_state: Some("held".into()),
         waiting_to_land: 2,
     };
-    let view = serde_json::to_value(compose(&snapshot, NOON, "quick", &|asked| {
+    let view = serde_json::to_value(compose(&snapshot, NOON, &|asked| {
         assert_eq!(asked, worktree);
         facts.clone()
     }))

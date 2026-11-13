@@ -1,5 +1,5 @@
 //! The lists as the page reads them: the store's folder followed live, and
-//! the lists JSON built from what was read, the machine's mode and each
+//! the lists JSON built from what was read and each
 //! running item's worktree.
 //!
 //! `Feed` follows `Places::lists` with an FSEvents stream, reads every store
@@ -145,22 +145,22 @@ pub fn design_render(snapshot: &Snapshot, id: u32, n: usize) -> Option<(String, 
 /// The view the page reads, for the one project there is. No project, or
 /// several (the sidebar shows one), is the `error`, as is a store that fails
 /// its check. <claims> answers for a running item's worktree.
-pub fn compose(snapshot: &Snapshot, now: i64, mode: &str, claims: &dyn Fn(&str) -> ClaimFacts) -> View {
+pub fn compose(snapshot: &Snapshot, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) -> View {
     let loaded = match snapshot.as_deref() {
         Ok([one]) => one,
         Ok([]) => {
-            return View::failed("", 0, "there are no lists; `builds lists init <project>` makes them".to_string(), mode);
+            return View::failed("", 0, "there are no lists; `builds lists init <project>` makes them".to_string());
         }
         Ok(several) => {
             let names: Vec<&str> = several.iter().map(|l| l.project.as_str()).collect();
-            return View::failed("", 0, format!("there are several projects ({}) and the sidebar shows one", names.join(", ")), mode);
+            return View::failed("", 0, format!("there are several projects ({}) and the sidebar shows one", names.join(", ")));
         }
-        Err(fault) => return View::failed("", 0, fault.clone(), mode),
+        Err(fault) => return View::failed("", 0, fault.clone()),
     };
     match &loaded.lists {
-        Err(fault) => View::failed(&loaded.project, 0, fault.clone(), mode),
+        Err(fault) => View::failed(&loaded.project, 0, fault.clone()),
         Ok(lists) => {
-            let mut view = View::build(lists, now, mode);
+            let mut view = View::build(lists, now);
             for item in &mut view.items {
                 if let Some(running) = &mut item.running {
                     running.claim = Some(claims(&running.worktree));

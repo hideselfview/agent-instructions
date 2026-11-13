@@ -6,6 +6,8 @@ mod app_config;
 mod build_app;
 mod cargo_run;
 mod checkout;
+mod checks;
+mod checks_run;
 mod claim;
 mod daemon;
 mod evict;
@@ -14,12 +16,12 @@ mod floor;
 mod free_worktrees;
 mod health;
 mod install;
+mod install_hook;
 mod lane;
 mod lists;
 mod lock;
 mod manifest;
 mod migrate;
-mod mode;
 mod places;
 mod procs;
 mod prune;
@@ -76,6 +78,8 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         // These run in the caller's environment as it is, which cargo
         // inherits; `cargo` asks git about its checkout without changing it.
         "cargo" => return cargo_run::cmd_cargo(args),
+        "checks" => return checks_run::cmd_checks(args),
+        "install-hook" => return install_hook::cmd_install_hook(args),
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
         "app-build" => return app_build::cmd_app_build(&Places::from_env()?, args),
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),
@@ -101,7 +105,6 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "release" => claim::cmd_release(&tool.places, args),
         "app-checkout" => worktree::cmd_app_checkout(&tool, args),
         "build-app" => build_app::cmd_build_app(&tool, args),
-        "mode" => mode::cmd_mode(&tool, args),
         "status" => status::cmd_status(&mut tool, args),
         "prune" => prune::cmd_prune(&tool, args),
         "install" => install::cmd_install(&tool, args),
@@ -117,7 +120,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "area" => lists::cmd_area(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
         other => fail!(
-            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | mode | status | health | lists | decision | design | question | item | next | area | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install)"
+            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install | checks | install-hook)"
         ),
     }
 }

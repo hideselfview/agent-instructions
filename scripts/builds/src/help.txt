@@ -18,7 +18,6 @@ on it:
                         never wait on each other. A lane with several app
                         checkouts builds in as many at once; the queue gives
                         a free lock to the next in line
-  mode                  the pre-commit hooks' mode, quick or strict
   DerivedData/          Xcode's default DerivedData location
   caches/<name>/        download caches every checkout shares, each linked
                         from where its tool looks (~/.gradle -> caches/gradle)
@@ -108,13 +107,6 @@ Commands:
   builds app-checkout remove mac|android <checkout>
                               take it out again (it refuses while a build
                               holds the checkout's lock)
-  builds mode [quick|strict]  set the mode the pre-commit hooks run in, for
-                              every repo on the machine, in
-                              /Volumes/Builds/mode; with no argument, print
-                              it (strict when none is set). Strict runs the
-                              whole hook; quick runs its cheap checks and a
-                              compile of what changed, with no clippy,
-                              rustdoc or tests
   builds status               every entry on the volume: size per folder vs
                               cap, last write, links; and build output in
                               the temporary folders
@@ -257,6 +249,41 @@ Commands:
                               and their links, write the sccache config, run
                               the sccache server under launchd, point Xcode's
                               default DerivedData at the volume
+
+Commit checks. A repo's `.checks` (at its root) declares the checks its
+pre-commit hook runs, one per line, `<kind> <name> <paths> <program>
+[<args>...]`: kind is `check` (a static check), `fix` (a formatter; the files
+it changed are staged again) or `test` (a checker's own test; CI runs it,
+never the hook). paths is a comma-separated list of globs over repo-relative
+paths: `*` stays inside one path segment, `**` is any number of segments, and
+a glob with no `/` matches the file name anywhere. The program is not run by a
+shell. As whole arguments, `{files}` is the matching staged files that still
+exist and `{crates}` is `-p <crate>` for each workspace crate holding one (a
+root Cargo.toml or Cargo.lock counts as every crate); with neither the check
+runs whole whenever a matching file is staged.
+  builds checks run [<worktree>]
+                              what the pre-commit hook calls: runs the
+                              check and fix lines the staged files match, in
+                              file order, from the repo root, printing each
+                              one's name, time and result (a failing one's
+                              output too) and the run's total time. Every
+                              line runs even after one fails; the exit
+                              status is non-zero if any did. A fix
+                              stages again the files it changed, but refuses,
+                              naming the file and staging nothing, when a
+                              file it changed also had unstaged changes
+  builds checks list [<worktree>]
+                              print what `run` would run, without running it
+  builds checks tests --since <rev> [--run]
+                              the test lines whose paths match the files
+                              changed in <rev>..HEAD; --run runs them and
+                              fails if any fails. A <rev> that is not in the
+                              history selects every test, and says so
+  builds install-hook <repo>  write the repo's pre-commit hook, a script
+                              that runs `builds checks run`: in
+                              core.hooksPath when it is set, else in the git
+                              common dir's hooks, which worktrees share;
+                              running it again overwrites the file
 
 Claims. A claim records who works in a side worktree, so another session
 doesn't take it: whoever hands out the worktree (a coordinator dispatching an

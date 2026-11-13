@@ -112,8 +112,8 @@ pub struct Model {
 }
 
 /// What the lists JSON is built from besides the clock's second: the read
-/// of the stores, the day, the mode and each running item's claim facts.
-type ServedKey = (u64, String, &'static str, Vec<ClaimFacts>);
+/// of the stores, the day and each running item's claim facts.
+type ServedKey = (u64, String, Vec<ClaimFacts>);
 
 pub(super) fn now_seconds() -> i64 {
     std::time::SystemTime::now()
@@ -472,24 +472,23 @@ impl Model {
         state.version
     }
 
-    /// The lists JSON the page reads: the stores as last read, the mode, and
+    /// The lists JSON the page reads: the stores as last read, and
     /// each running item's worktree joined with its claim and git. The same
     /// `Arc` comes back until one of those changes, so a caller sends the
     /// lists only when it is not the one it sent last.
     pub fn lists_json(&self) -> crate::fail::Result<Arc<String>> {
         let now = now_seconds();
-        let mode = crate::mode::current(&self.places)?;
         let (version, snapshot) = self.lists.current();
         let claims: Vec<(String, ClaimFacts)> =
             running_worktrees(&snapshot).into_iter().map(|worktree| (worktree.clone(), self.claim_facts(&worktree))).collect();
-        let key: ServedKey = (version, crate::text::local_day(now), mode, claims.iter().map(|(_, facts)| facts.clone()).collect());
+        let key: ServedKey = (version, crate::text::local_day(now), claims.iter().map(|(_, facts)| facts.clone()).collect());
         let mut served = self.served.lock().expect("no panic holding it");
         if let Some((built, json)) = &*served
             && *built == key
         {
             return Ok(json.clone());
         }
-        let view = compose(&snapshot, now, mode, &|worktree| {
+        let view = compose(&snapshot, now, &|worktree| {
             claims.iter().find(|(w, _)| w == worktree).map(|(_, facts)| facts.clone()).expect("every running worktree was asked")
         });
         let json = Arc::new(serde_json::to_string(&view).expect("the lists serialize"));

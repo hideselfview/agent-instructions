@@ -14,8 +14,8 @@ fn the_text_lists_the_stack_then_the_queue() {
     lists.item_mut(first).unwrap().priority = Some(Priority { level: Level::First, why: "w".into() });
     let gone = item(&mut lists, vec![]);
     close(&mut lists, gone, How::Dropped("x".into()), &stamp(NOON)).unwrap();
-    let text = render(&lists, "quick");
-    assert!(text.starts_with("demo lists, version 1, quick mode\n"), "{text}");
+    let text = render(&lists);
+    assert!(text.starts_with("demo lists, version 1\n"), "{text}");
     for expected in [
         "Waiting on you (1)",
         &format!("  1. {q} Which way for number {} [question]", q.0),

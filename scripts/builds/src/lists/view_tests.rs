@@ -5,7 +5,7 @@ use crate::lists::{How, Resolution, Running, Wait};
 use serde_json::{Value, json};
 
 fn view_json(lists: &Lists) -> Value {
-    serde_json::to_value(View::build(lists, NOON, "quick")).unwrap()
+    serde_json::to_value(View::build(lists, NOON)).unwrap()
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn the_json_has_the_pages_shape() {
     let second = add_decision(&mut lists, &NewDecision { replaces: Some(first.decision), ..new }, &[], &stamp(NOON)).unwrap();
 
     let json = view_json(&lists);
-    assert_eq!((&json["project"], &json["version"], &json["error"], &json["mode"]), (&json!("demo"), &json!(1), &Value::Null, &json!("quick")));
+    assert_eq!((&json["project"], &json["version"], &json["error"]), (&json!("demo"), &json!(1), &Value::Null));
     let stack = &json["stack"][0];
     assert_eq!((&stack["id"], &stack["kind"], &stack["blocked_count"]), (&json!(q.0), &json!("question"), &json!(1)));
     assert_eq!(stack["blocks"], json!([{"id": waiting.0, "title": lists.item(waiting).unwrap().title}]));
@@ -84,7 +84,7 @@ fn a_closed_item_a_place_names_reads_closed() {
 
 #[test]
 fn a_failed_store_shows_its_error_and_nothing_else() {
-    let json = serde_json::to_value(View::failed("demo", 7, "it is broken".into(), "strict")).unwrap();
+    let json = serde_json::to_value(View::failed("demo", 7, "it is broken".into())).unwrap();
     assert_eq!((&json["error"], &json["version"], &json["stack"]), (&json!("it is broken"), &json!(7), &json!([])));
 }
 

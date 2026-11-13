@@ -99,7 +99,9 @@ another's message, written to the same file name.
 
 ## Modes
 
-The person picks the mode; the builds dashboard shows the current one.
+The person picks the mode and tells the coordinator. The pre-commit hook does
+not vary with it: every commit runs the repo's `.checks` through
+`builds checks run`.
 
 - **Strict.** Agents commit through the pre-commit hook and run the tests of
   what they touched. Load is a queue limit: while `builds health` shows load
@@ -109,22 +111,17 @@ The person picks the mode; the builds dashboard shows the current one.
   health check and every landing. Before each commit an agent compiles what it
   touched (`cargo clippy --all-targets -- -D warnings` with the project's test
   features, and the apps' test-target compiles for Swift or Kotlin changes) and
-  commits through the hook, which in quick mode runs fmt, the static checks, and
-  a compile of what changed (no clippy, rustdoc or tests). Agents run only the
-  one test that proves a fix. land.sh's compile of the touched crates, clippy
-  included, still gates every landing, so main always builds; an agent that
-  skips clippy finds its lint at landing, a round trip later. At the full-suite
-  run the person sets, a fixer agent runs every suite and CI, and fixes each
-  failure with the commit that caused it. A test that fails during the window is
-  checked on `origin/main` first; when it fails there too and isn't the agent's,
-  the agent notes it and moves on.
+  commits through the hook. Agents run only the one test that proves a fix.
+  land.sh's compile of the touched crates, clippy included, still gates every
+  landing, so main always builds; an agent that skips clippy finds its lint at
+  landing, a round trip later. At the full-suite run the person sets, a fixer
+  agent runs every suite and CI, and fixes each failure with the commit that
+  caused it. A test that fails during the window is checked on `origin/main`
+  first; when it fails there too and isn't the agent's, the agent notes it and
+  moves on.
 
-The mode is one machine-wide setting the pre-commit hooks of every repo read:
-the coordinator switches it with `builds mode quick` or `builds mode strict`
-(`builds mode` prints it; unset means strict), and a hook prints the mode it
-ran. Agents never set it. Disk under the floor holds new dispatch in both modes.
-Each brief names the mode, and switching modes means telling every running
-agent.
+Disk under the floor holds new dispatch in both modes. Each brief names the
+mode, and switching modes means telling every running agent.
 
 ## Landing
 
@@ -182,11 +179,6 @@ a schedule can do: nothing else wakes a session), the coordinator runs
   not stuck. A step past its time limit (45 minutes, or its `limit` line in
   `.app-build`) is killed and fails the build, which passes the lock on, so a
   hung step ends by itself; a build that is slow but alive is not killed.
-
-In quick mode each check also runs `scripts/agent-runs/check.py`, which lists
-running cargo builds and tests outside quick mode (a feature set other than the
-hook's, a test run with no name filter or over several crates), and tells each
-one's agent to stop it.
 
 A quiet check needs no message to the person.
 

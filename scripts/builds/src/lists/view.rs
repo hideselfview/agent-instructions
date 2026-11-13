@@ -17,7 +17,6 @@ pub struct View {
     /// What is wrong with the store, when it fails its check; then nothing
     /// else is filled.
     pub error: Option<String>,
-    pub mode: String,
     pub stack: Vec<StackView>,
     pub areas: Vec<String>,
     pub items: Vec<ItemView>,
@@ -164,12 +163,11 @@ pub struct DecisionView {
 
 impl View {
     /// What the page shows for a store that fails its check.
-    pub fn failed(project: &str, version: u64, error: String, mode: &str) -> View {
+    pub fn failed(project: &str, version: u64, error: String) -> View {
         View {
             project: project.to_string(),
             version,
             error: Some(error),
-            mode: mode.to_string(),
             stack: Vec::new(),
             areas: Vec::new(),
             items: Vec::new(),
@@ -179,13 +177,12 @@ impl View {
         }
     }
 
-    /// The view of <lists> at <now>, with the machine's <mode>.
-    pub fn build(lists: &Lists, now: i64, mode: &str) -> View {
+    /// The view of <lists> at <now>.
+    pub fn build(lists: &Lists, now: i64) -> View {
         View {
             project: lists.project.clone(),
             version: lists.version,
             error: None,
-            mode: mode.to_string(),
             stack: derive::stack_order(lists)
                 .into_iter()
                 .map(|entry| StackView {

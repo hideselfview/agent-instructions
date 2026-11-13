@@ -1169,14 +1169,13 @@ function flowLine(label, days) {
 function workHead() {
   const today = localDay(new Date());
   return h("div", {class: "l-flow"},
-    lists.mode ? h("div", {class: "l-fact"}, h("span", {class: "k"}, "Mode"), " ", pill(lists.mode, "s-ready")) : null,
     flowLine("Today:", lists.flow.filter(d => d.day === today)),
     flowLine("Last " + RECENT_DAYS + " days:", lists.flow));
 }
 function rows(its, one) { return h("div", {class: "l-rows"}, its.map(one || itemRow)); }
 function workItems() {
   const all = lists.items;
-  const out = [{key: "head", data: [lists.mode, lists.flow], make: workHead}];
+  const out = [{key: "head", data: [lists.flow], make: workHead}];
   const running = all.filter(isRunning).sort((a, b) => a.running.since.at - b.running.since.at);
   const design = all.filter(it => !isRunning(it) && it.for === "design-session");
   const mine = all.filter(it => !isRunning(it) && it.for !== "design-session");

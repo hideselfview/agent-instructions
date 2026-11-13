@@ -11,7 +11,6 @@ use crate::lists::check::repo_name_fault;
 use crate::lists::store::{Store, project_of, projects_holding};
 use crate::lists::view::View;
 use crate::lists::{Lists, Stamp, show};
-use crate::mode;
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -119,13 +118,12 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     args.exactly(0, USAGE)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let lists = store.load()?;
-    let mode = mode::current(&tool.places)?;
     if args.switch("json") {
-        let view = View::build(&lists, tool.now, mode);
+        let view = View::build(&lists, tool.now);
         let text = serde_json::to_string_pretty(&view).context(|| "writing the lists JSON".to_string())?;
         println!("{text}");
     } else {
-        print!("{}", show::render(&lists, mode));
+        print!("{}", show::render(&lists));
     }
     Ok(())
 }

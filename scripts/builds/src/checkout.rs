@@ -28,7 +28,7 @@ pub fn drop_git_local_env() -> Result<()> {
     Ok(())
 }
 
-fn git_local_env_vars() -> Result<Vec<String>> {
+pub fn git_local_env_vars() -> Result<Vec<String>> {
     let mut command = Command::new("git");
     command.args(["rev-parse", "--local-env-vars"]);
     let listed = git_text(&mut command, "list its local variables")?;

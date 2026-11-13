@@ -79,9 +79,9 @@ pub fn stack_entry(number: usize, entry: &StackEntry<'_>) -> String {
     out
 }
 
-pub fn render(lists: &Lists, mode: &str) -> String {
+pub fn render(lists: &Lists) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "{} lists, version {}, {mode} mode", lists.project, lists.version);
+    let _ = writeln!(out, "{} lists, version {}", lists.project, lists.version);
     let stack = derive::stack_order(lists);
     let _ = writeln!(out, "\nWaiting on you ({})", stack.len());
     for (number, entry) in stack.iter().enumerate() {
