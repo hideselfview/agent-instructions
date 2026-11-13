@@ -54,6 +54,15 @@ for attempt in 1 2 3 4 5; do
       exit 1
     fi
   fi
+  # Something else that moved this worktree's HEAD during the checks (a
+  # checkout run by hand) leaves nothing of the landing's to push, and the
+  # push of origin/main to itself would report success.
+  for c in "$@"; do
+    if [ "$(git cherry HEAD "$c" "$c^" | cut -c1)" = + ]; then
+      echo "HEAD moved during the landing: $(git log --oneline -1 "$c") is not in it; nothing pushed"
+      exit 1
+    fi
+  done
   if out=$(git push -q origin HEAD:main 2>&1); then git fetch -q origin; git log --oneline -"$#" origin/main; exit 0; fi
   echo "push failed: $(echo "$out" | grep -v '^hint' | tail -1)"
 done
