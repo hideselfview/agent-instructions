@@ -85,7 +85,11 @@ Commands:
                               tree, every commit on origin/main by patch)
                               checked out afresh from origin/main, else add
                               the next side-N from it; link it, run its
-                              post-checkout. It claims what it hands out,
+                              post-checkout. When the worktree's host target
+                              is empty it clones another checkout's warm
+                              target into it (copy-on-write, taken while no
+                              build runs there; the one with origin/main's
+                              Cargo.lock, then the newest build). It claims what it hands out,
                               for <who> (--for) or "builds new", under a lock
                               on the repo (claims: below)
   builds claim <checkout> <who>

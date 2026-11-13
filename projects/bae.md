@@ -299,7 +299,10 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   none is free, and runs its `post-checkout`, which links the build folders,
   `CLAUDE.md`, the main checkout's `bae-ffmpeg`, the signing/feature xcconfigs
   and `bae-android/local.properties`, and seeds the macOS app's
-  `Package.resolved` from main. It builds nothing. `builds retire <worktree>`
+  `Package.resolved` from main. It then fills the worktree's host `target`
+  (never an app lane's folders) with a copy-on-write clone of a warm checkout's,
+  when that folder is empty, so the first clippy or hook run there rebuilds no
+  third-party build script. It compiles nothing. `builds retire <worktree>`
   removes a side worktree and its folders once its work has moved on;
   `builds prune` retires a free one nothing has used for a day, never an app
   checkout or one with unlanded commits.

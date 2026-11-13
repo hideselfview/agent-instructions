@@ -141,6 +141,7 @@ fn reuse(free: &Checkout, branch: Option<&str>) -> Result<()> {
 fn prepare(tool: &Tool, checkout: &Checkout) -> Result<()> {
     let dir = &checkout.top;
     setup(tool, checkout)?;
+    crate::warm::fill(tool, checkout)?;
     if dir.join(crate::checks::CONFIG).is_file() {
         crate::install_hook::install(dir)?;
     }

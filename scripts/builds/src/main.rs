@@ -45,6 +45,7 @@ mod tool;
 mod trees;
 mod units;
 mod usage;
+mod warm;
 mod worktree;
 
 use std::process::ExitCode;

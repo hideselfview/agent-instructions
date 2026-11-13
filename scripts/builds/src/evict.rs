@@ -117,7 +117,7 @@ fn device(path: &Path) -> Result<u64> {
 
 /// Every .cargo-lock in <folder> and two levels below, each taken without
 /// waiting; None as soon as one is held by a build.
-fn cargo_locks(folder: &Path) -> Result<Option<Vec<File>>> {
+pub(crate) fn cargo_locks(folder: &Path) -> Result<Option<Vec<File>>> {
     let mut held = Vec::new();
     let mut pending = vec![(folder.to_path_buf(), 0)];
     while let Some((dir, depth)) = pending.pop() {
@@ -169,6 +169,16 @@ pub fn try_lock_creating(path: &Path) -> Result<Option<File>> {
 /// Takes a shared flock on <path>, creating it when missing, waiting while
 /// another process holds it exclusively.
 pub fn lock_shared_creating(path: &Path) -> Result<File> {
+    lock_creating_waiting(path, libc::LOCK_SH)
+}
+
+/// Takes the exclusive flock on <path>, creating it when missing, waiting
+/// while any other process holds it.
+pub fn lock_exclusive_creating(path: &Path) -> Result<File> {
+    lock_creating_waiting(path, libc::LOCK_EX)
+}
+
+fn lock_creating_waiting(path: &Path, operation: libc::c_int) -> Result<File> {
     let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -177,7 +187,7 @@ pub fn lock_shared_creating(path: &Path) -> Result<File> {
         .open(path)
         .context(|| format!("opening {}", path.display()))?;
     loop {
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } == 0 {
+        if unsafe { libc::flock(file.as_raw_fd(), operation) } == 0 {
             return Ok(file);
         }
         let error = std::io::Error::last_os_error();

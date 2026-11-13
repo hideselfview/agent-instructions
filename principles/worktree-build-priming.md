@@ -66,7 +66,36 @@ a failed build leaves the installed one as it was; a commit on main that touches
   for `<who>` or `builds new` when `--for` is absent. It checks a fresh branch
   (or a detached HEAD) out of `origin/main` there. Only when none is free does
   it add the next `side-N` from `origin/main`. Either way it links the checkout
-  and runs its own `post-checkout`, which sets it up and builds nothing.
+  and runs its own `post-checkout`, which sets it up and builds nothing. Then,
+  when the worktree's host `target` (the `.build-dirs` entry named `target` with
+  no lane; never an app lane's folders) is empty, `new` fills it with a
+  `clonefile(2)` clone of another checkout's `target` (`warm.rs`): a side
+  worktree's first clippy or test build otherwise spends 57-105 s (a warm one
+  12.9 s) on third-party build scripts and proc-macros sccache never caches
+  (aws-lc-sys 37 s, libsqlite3-sys with bindgen 36 s, bindgen 28 s and 17 s,
+  async-trait 28 s). The source is the repo's other checkout (main's is only
+  read) with a built debug profile and a `target` within the new folder's cap,
+  preferring one whose committed `Cargo.lock` is origin/main's, then the one
+  whose last `builds cargo` build finished latest (`.after-build.log`). The
+  clone is taken holding the source's guard and every `.cargo-lock` of its
+  folder, exclusively and without waiting, so it is a state cargo left; a source
+  a build holds is passed over, and when all are building the call waits on the
+  best one's guard (no time limit, no retry), which `builds cargo` drops when
+  its cargo exits. The clone is made beside the folder and renamed over the
+  empty one, so the folder is empty or whole; then the usual prune deletes its
+  incremental folders. Sizes count a clone's blocks in its own folder like any
+  other, so a fresh clone reads as the source's size: an upper bound on the
+  blocks it owns, below the cap by the choice of source, and the free-space
+  floor reads the volume's real free space. A free worktree handed out again
+  keeps a `target` that holds anything. Measured 2026-11-13 on bae (hook clippy
+  of bae-library, `--tests`): an empty `target` compiled 88 third-party crates
+  (198 s of CPU); a clone of another worktree's compiled 3, aws-lc-sys and the
+  two crates above it (43 s of CPU). Cargo reruns a build script whose recorded
+  environment changed, and aws-lc-sys's records `PKG_CONFIG_PATH`, which bae's
+  `.cargo/config.toml` sets to `<checkout>/bae-ffmpeg/dist/...`: a different
+  value in every checkout, so that chain rebuilds there however the folder was
+  filled. The fix is a checkout-independent value in bae, not something `new`
+  can do to the clone.
 - `builds claim <checkout> <who>` and `builds release <checkout>` record and
   remove who works in a side worktree. Whoever hands a worktree out (a
   coordinator dispatching an agent, a person) claims it, and releases it when
