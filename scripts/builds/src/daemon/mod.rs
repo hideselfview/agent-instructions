@@ -10,6 +10,7 @@ pub mod client;
 pub mod fsevents;
 pub mod http;
 pub mod index;
+pub mod lists;
 pub mod model;
 pub mod tracker;
 

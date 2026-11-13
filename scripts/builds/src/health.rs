@@ -6,8 +6,9 @@
 //! It exits 1 when something needs acting on: clients waiting on an sccache
 //! server that finished nothing since the last readings, agent shells that are
 //! junk (shells.rs), a claimed worktree with no change and no build for an hour
-//! (its own, or one it holds the app lock for), or the volume under its
-//! free-space floor.
+//! (its own, or one it holds the app lock for), the volume under its
+//! free-space floor, a lists store that fails its check, or a running item
+//! whose worktree is gone or has no claim (lists/running.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -387,6 +388,7 @@ pub fn assess(
     places: &[Place],
     claimed: Vec<Claimed>,
     unclaimed: Vec<Unclaimed>,
+    lists: Vec<String>,
 ) -> Health {
     let mut findings = Vec::new();
     if disk.free_kib < disk.floor_kib {
@@ -450,6 +452,7 @@ pub fn assess(
             app_build,
         });
     }
+    findings.extend(lists);
     Health {
         generated_at: now,
         load: machine.load,
@@ -526,7 +529,8 @@ pub fn health(tool: &Tool) -> Result<Health> {
     for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
         judged.push(Claimed { place, claim, branch: checkout.branch()?, git });
     }
-    Ok(assess(now, tool.disk_space()?, machine, &places, judged, unclaimed))
+    let lists = crate::lists::running::findings(&crate::lists::store::load_all(&tool.places), &roots)?;
+    Ok(assess(now, tool.disk_space()?, machine, &places, judged, unclaimed, lists))
 }
 
 fn root_repo(root: &Root) -> String {
@@ -717,6 +721,7 @@ mod tests {
             &[place(1), place(2)],
             vec![claimed(1, None), claimed(2, Some("held"))],
             Vec::new(),
+            Vec::new(),
         );
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
         assert!(health.findings[0].starts_with("worktree: demo/side-1 "), "{:?}", health.findings);
@@ -752,6 +757,7 @@ mod tests {
             &[place(1), place(2)],
             Vec::new(),
             vec![Unclaimed { place: 0, git: git(vec![commit]) }, Unclaimed { place: 1, git: git(Vec::new()) }],
+            Vec::new(),
         );
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
         assert!(

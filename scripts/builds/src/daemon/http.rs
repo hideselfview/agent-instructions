@@ -10,8 +10,12 @@
 //!     POST /api/queue  `{"action": "top"|"takeover", "repo", "pid"}`: the
 //!                   same as `builds queue <repo> top <pid>` and
 //!                   `builds takeover <repo> <pid>`
+//!     /api/lists    the lists JSON (lists/view.rs, plus each running item's
+//!                   claim facts), as the `lists` event carries it
 //!     /events       `state` events: the whole state on connect and each time
-//!                   it changes, at most four a second
+//!                   it changes, at most four a second; `lists` events: the
+//!                   lists JSON on connect and each time it changes, never
+//!                   with a `state` event that only repeats the processes
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -98,6 +102,10 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
         "/" => respond(&mut stream, "200 OK", "text/html; charset=utf-8", PAGE.as_bytes()),
         "/api/state" => json(&mut stream, model.page().map(|page| serde_json::to_vec(&page).expect("the state serializes"))),
         "/api/health" => json(&mut stream, model.sample_now().map(|health| serde_json::to_vec(&health).expect("health serializes"))),
+        "/api/lists" => match model.lists_json() {
+            Ok(lists) => respond(&mut stream, "200 OK", "application/json", lists.as_bytes()),
+            Err(error) => json(&mut stream, Err(error)),
+        },
         "/events" => events(stream, model),
         _ => respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"not found\n"),
     }
@@ -153,6 +161,8 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
     model.watch(true);
     let sent = (|| -> std::io::Result<()> {
         let mut seen = 0;
+        // The lists last sent: another `Arc` means they changed.
+        let mut sent_lists: Option<Arc<String>> = None;
         loop {
             let started = Instant::now();
             let page = match model.page() {
@@ -171,6 +181,16 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
             seen = page.version;
             let data = serde_json::to_string(&page).expect("the state serializes");
             write!(stream, "event: state\ndata: {data}\n\n")?;
+            match model.lists_json() {
+                Ok(lists) if !sent_lists.as_ref().is_some_and(|sent| Arc::ptr_eq(sent, &lists)) => {
+                    write!(stream, "event: lists\ndata: {lists}\n\n")?;
+                    sent_lists = Some(lists);
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    write!(stream, "event: failure\ndata: {}\n\n", serde_json::json!({ "error": error.text() }))?;
+                }
+            }
             stream.flush()?;
             if let Some(left) = EVENT_GAP.checked_sub(started.elapsed()) {
                 std::thread::sleep(left);

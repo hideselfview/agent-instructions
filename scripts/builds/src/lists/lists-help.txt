@@ -51,7 +51,8 @@ Commands in this part:
       The stack in the order it is asked, then the queue, as text; with
       --json the whole state with its derived fields (state of each item,
       what each question blocks, the flow of the last 14 days), the JSON the
-      dashboard reads.
+      dashboard reads. The dashboard adds, to each running item, the agent,
+      note, note state and commits waiting to land of its worktree's claim.
 
   builds lists project-of DIR
       Prints the project DIR's repo belongs to, or nothing. Refused when the

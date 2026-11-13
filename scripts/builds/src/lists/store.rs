@@ -184,13 +184,11 @@ fn advance(lists: &mut Lists, stamp: &Stamp, words: &str) {
     lists.log.push(LogLine { version: lists.version, at: stamp.at, by: stamp.by.clone(), words: words.to_string() });
 }
 
-/// The project <checkout>'s repo belongs to, or None. A repo in two projects
-/// is refused.
-pub fn project_of(places: &Places, checkout: &Checkout) -> Result<Option<String>> {
-    let repo = checkout.repo();
+/// The stores that exist under `Places::lists`, by project name.
+fn stores(places: &Places) -> Result<Vec<Store>> {
     let entries = match std::fs::read_dir(&places.lists) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => fail!("listing {}: {error}", places.lists.display()),
     };
     let mut names = Vec::new();
@@ -201,11 +199,35 @@ pub fn project_of(places: &Places, checkout: &Checkout) -> Result<Option<String>
         }
     }
     names.sort();
+    names.iter().map(|name| Store::named(places, name)).collect()
+}
+
+/// One project's store as read: its lists, or what is wrong with them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Loaded {
+    pub project: String,
+    pub lists: std::result::Result<Lists, String>,
+}
+
+/// Every store, each loaded and checked, for what reads them all (the
+/// daemon, `builds health`): a store that fails stays in the answer with its
+/// fault, since nothing repairs it. Err when the folder can't be listed.
+pub fn load_all(places: &Places) -> std::result::Result<Vec<Loaded>, String> {
+    let stores = stores(places).map_err(Fail::text)?;
+    Ok(stores
+        .into_iter()
+        .map(|store| Loaded { lists: store.load().map_err(Fail::text), project: store.project })
+        .collect())
+}
+
+/// The project <checkout>'s repo belongs to, or None. A repo in two projects
+/// is refused.
+pub fn project_of(places: &Places, checkout: &Checkout) -> Result<Option<String>> {
+    let repo = checkout.repo();
     let mut found = Vec::new();
-    for name in names {
-        let lists = Store::named(places, &name)?.load()?;
-        if lists.repos.contains(&repo) {
-            found.push(name);
+    for store in stores(places)? {
+        if store.load()?.repos.contains(&repo) {
+            found.push(store.project);
         }
     }
     match found.len() {

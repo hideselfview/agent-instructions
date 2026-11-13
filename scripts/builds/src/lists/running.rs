@@ -1,15 +1,15 @@
 //! Where an item runs. The agent is the claim of the item's worktree, never
 //! stored on the item, so the two can't disagree; this reads it. The release
 //! guard also lives here: a worktree can't be released while an item runs in
-//! it.
+//! it. `findings` is what `builds health` says about the lists.
 
 use std::path::Path;
 
-use crate::checkout::Checkout;
+use crate::checkout::{Checkout, Root};
 use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::store::{Store, project_of};
+use crate::lists::store::{Loaded, Store, project_of};
 use crate::lists::{Item, Lists, Running, side_worktree_parts};
 use crate::places::Places;
 
@@ -36,7 +36,12 @@ pub fn agent_of(running: &Running) -> Result<Agent> {
     if !path.is_dir() {
         return Ok(Agent::WorktreeGone);
     }
-    let Some(checkout) = Checkout::at(path)? else { return Ok(Agent::WorktreeGone) };
+    agent_in(Checkout::at(path)?.as_ref())
+}
+
+/// The agent of an item running in <checkout> (None: no live worktree there).
+fn agent_in(checkout: Option<&Checkout>) -> Result<Agent> {
+    let Some(checkout) = checkout else { return Ok(Agent::WorktreeGone) };
     Ok(match Claim::read(&checkout.claim_file())? {
         Some(claim) if !claim.who.is_empty() => Agent::Claimed(claim.who),
         _ => Agent::Unclaimed,
@@ -80,3 +85,45 @@ pub fn require_release_allowed(places: &Places, checkout: &Checkout) -> Result<(
         named.join("; ")
     );
 }
+
+/// What `builds health` says about the lists: a store that fails its check,
+/// and a running item whose worktree is gone or has no claim. `builds release`
+/// refuses while an item runs in the worktree, so only a hand edit reaches the
+/// second; it is named loudly, never repaired. One line per fault.
+pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>, roots: &[Root]) -> Result<Vec<String>> {
+    let loaded = match loaded {
+        Ok(loaded) => loaded,
+        Err(fault) => return Ok(vec![format!("lists: {fault}")]),
+    };
+    let mut findings = Vec::new();
+    for project in loaded {
+        let lists = match &project.lists {
+            Ok(lists) => lists,
+            Err(fault) => {
+                findings.push(format!("lists: project {} fails its check: {fault}", project.project));
+                continue;
+            }
+        };
+        for item in &lists.items {
+            let Some(running) = &item.running else { continue };
+            let live = roots
+                .iter()
+                .filter_map(|root| root.live.as_ref())
+                .find(|checkout| checkout.top == Path::new(&running.worktree));
+            let fault = match agent_in(live)? {
+                Agent::WorktreeGone => "is not a live worktree",
+                Agent::Unclaimed => "has no claim",
+                Agent::Claimed(_) => continue,
+            };
+            findings.push(format!(
+                "lists: item {} \"{}\" runs in {}, which {fault}; `builds item stop {}` ends it",
+                item.id.0, item.title, running.worktree, item.id.0
+            ));
+        }
+    }
+    Ok(findings)
+}
+
+#[cfg(test)]
+#[path = "running_tests.rs"]
+mod tests;

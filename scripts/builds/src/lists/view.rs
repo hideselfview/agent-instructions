@@ -56,6 +56,18 @@ pub struct WaitView {
     pub met: bool,
 }
 
+/// What the daemon joins to a running item from the worktree's claim and
+/// git; `lists show --json` has none of it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ClaimFacts {
+    /// The claim's who; None when the worktree has no claim.
+    pub agent: Option<String>,
+    pub note: Option<String>,
+    pub note_state: Option<String>,
+    /// Commits on the worktree's HEAD that origin/main has no copy of.
+    pub waiting_to_land: usize,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct RunningView {
     pub worktree: String,
@@ -64,6 +76,8 @@ pub struct RunningView {
     pub branch: String,
     pub brief: String,
     pub since: Stamp,
+    #[serde(flatten)]
+    pub claim: Option<ClaimFacts>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -217,6 +231,7 @@ fn item_view(lists: &Lists, item: &Item) -> ItemView {
                 branch: running.branch.clone(),
                 brief: running.brief.clone(),
                 since: running.since.clone(),
+                claim: None,
             }
         }),
         landed: item.landed.clone(),

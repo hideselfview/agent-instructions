@@ -11,6 +11,16 @@ pub enum Fail {
     Exit(i32),
 }
 
+impl Fail {
+    /// What to say of it: the message, or the exit status.
+    pub fn text(self) -> String {
+        match self {
+            Fail::Message(message) => message,
+            Fail::Exit(code) => format!("exit {code}"),
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Fail>;
 
 /// Ends the current function with a `Fail::Message` built like `format!`.

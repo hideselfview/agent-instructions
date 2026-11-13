@@ -138,7 +138,10 @@ Commands:
                               or under an app lock for it), each lane's app
                               lock's holder (the build's top process when its
                               `builds lock` is gone); an unclaimed worktree
-                              with commits waiting to land is a finding;
+                              with commits waiting to land is a finding, as
+                              are a lists store that fails its check and a
+                              running item whose worktree is gone or has no
+                              claim;
                               exits 1 when something needs acting on. Asks the daemon when one runs
   builds lists ...            the decision stack, work queue, design changes
                               and decision log of a project, in a store
@@ -148,7 +151,9 @@ Commands:
                               volume and the checkouts through FSEvents,
                               keeps every folder's size and last write and
                               every checkout's git state and claim current,
-                              serves the page at http://127.0.0.1:7787/, and
+                              serves the page at http://127.0.0.1:7787/ and
+                              the lists, which it follows too, at /api/lists
+                              and in its `lists` events, and
                               answers the commands' questions about sizes
                               and health on <root>/.builds-daemon/socket; a
                               command with no daemon measures itself

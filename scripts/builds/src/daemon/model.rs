@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use super::fsevents::Stream;
+use super::lists::{Feed, compose, running_worktrees};
 use super::tracker::Tracker;
 use crate::checkout::{Root, absolute_link_target, all_roots, parallel_map};
 use crate::claim::Claim;
@@ -22,11 +23,12 @@ use crate::places::{DiskSpace, Places, Rules};
 use crate::procs::Place;
 use crate::side_git::SideGit;
 use crate::tool::volume_space;
+use crate::lists::view::ClaimFacts;
 use crate::usage::Measure;
 
 /// Changes wait this long for more before they are read: agents write
 /// files in bursts.
-const SETTLE: Duration = Duration::from_millis(300);
+pub(super) const SETTLE: Duration = Duration::from_millis(300);
 /// How often the processes are read while a page watches.
 const SAMPLE_EVERY: Duration = Duration::from_secs(2);
 /// How often sccache is asked for its count while a page watches.
@@ -101,7 +103,14 @@ pub struct Model {
     viewing: Condvar,
     viewing_lock: Mutex<()>,
     git_stream: Mutex<Option<(Vec<PathBuf>, Stream)>>,
+    lists: Arc<Feed>,
+    /// The lists JSON last built and what it was built from.
+    served: Mutex<Option<(ServedKey, Arc<String>)>>,
 }
+
+/// What the lists JSON is built from besides the clock's second: the read
+/// of the stores, the day, the mode and each running item's claim facts.
+type ServedKey = (u64, String, &'static str, Vec<ClaimFacts>);
 
 fn now_seconds() -> i64 {
     std::time::SystemTime::now()
@@ -113,7 +122,7 @@ fn now_seconds() -> i64 {
 impl Model {
     pub fn start(places: Places, rules: Rules, tracker: Arc<Tracker>) -> Arc<Model> {
         let model = Arc::new(Model {
-            places,
+            places: places.clone(),
             rules,
             tracker: tracker.clone(),
             state: Mutex::new(State::default()),
@@ -124,11 +133,19 @@ impl Model {
             viewing: Condvar::new(),
             viewing_lock: Mutex::new(()),
             git_stream: Mutex::new(None),
+            lists: Feed::start(places),
+            served: Mutex::new(None),
         });
         let weak = Arc::downgrade(&model);
         tracker.listen(Box::new(move |paths| {
             if let Some(model) = weak.upgrade() {
                 model.volume_changed(paths);
+            }
+        }));
+        let weak = Arc::downgrade(&model);
+        model.lists.listen(Box::new(move || {
+            if let Some(model) = weak.upgrade() {
+                model.publish();
             }
         }));
         let refresher = model.clone();
@@ -427,6 +444,7 @@ impl Model {
             &places,
             claimed,
             unclaimed,
+            crate::lists::running::findings(&self.lists.current().1, &roots)?,
         );
         state.machine = Some(machine);
         state.health = Some(health.clone());
@@ -442,6 +460,49 @@ impl Model {
             state = self.changed.wait(state).expect("no panic holding it");
         }
         state.version
+    }
+
+    /// The lists JSON the page reads: the stores as last read, the mode, and
+    /// each running item's worktree joined with its claim and git. The same
+    /// `Arc` comes back until one of those changes, so a caller sends the
+    /// lists only when it is not the one it sent last.
+    pub fn lists_json(&self) -> crate::fail::Result<Arc<String>> {
+        let now = now_seconds();
+        let mode = crate::mode::current(&self.places)?;
+        let (version, snapshot) = self.lists.current();
+        let claims: Vec<(String, ClaimFacts)> =
+            running_worktrees(&snapshot).into_iter().map(|worktree| (worktree.clone(), self.claim_facts(&worktree))).collect();
+        let key: ServedKey = (version, crate::text::local_day(now), mode, claims.iter().map(|(_, facts)| facts.clone()).collect());
+        let mut served = self.served.lock().expect("no panic holding it");
+        if let Some((built, json)) = &*served
+            && *built == key
+        {
+            return Ok(json.clone());
+        }
+        let view = compose(&snapshot, now, mode, &|worktree| {
+            claims.iter().find(|(w, _)| w == worktree).map(|(_, facts)| facts.clone()).expect("every running worktree was asked")
+        });
+        let json = Arc::new(serde_json::to_string(&view).expect("the lists serialize"));
+        *served = Some((key, json.clone()));
+        Ok(json)
+    }
+
+    /// The claim and git facts of the worktree at <worktree>; no agent and no
+    /// commits for one the daemon doesn't know as a live checkout.
+    fn claim_facts(&self, worktree: &str) -> ClaimFacts {
+        let state = self.state.lock().expect("no panic holding it");
+        let facts = state
+            .roots
+            .iter()
+            .find(|root| root.live.as_ref().is_some_and(|checkout| checkout.top == Path::new(worktree)))
+            .and_then(|root| state.facts.get(&root.path));
+        let claim = facts.and_then(|f| f.claim.as_ref());
+        ClaimFacts {
+            agent: claim.map(|c| c.who.clone()),
+            note: claim.and_then(|c| c.note.clone()),
+            note_state: claim.and_then(|c| c.note_state.clone()),
+            waiting_to_land: facts.and_then(|f| f.git.as_ref()).map_or(0, |git| git.ahead.len()),
+        }
     }
 
     /// The whole state, as the page reads it.
