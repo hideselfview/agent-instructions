@@ -204,12 +204,6 @@ it; don't take action (edit, run, write) without explicit instruction. Wait for
 an explicit instruction ("fix it", "do it", "apply", "go") before changing
 state.
 
-One exception: a question about how to build or fix something in the product
-("how can we implement this?", "how do we support X?") is the request to have
-it. Answer it, and in the same reply put it in the project's work queue, or
-start it when the queue's rules allow. Never ask whether to queue it, and never
-list it later as waiting on the person: they asked for it.
-
 # Writing style
 
 **Commit messages: brief, why not what.** State what happened. No padding, no
