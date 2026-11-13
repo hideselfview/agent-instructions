@@ -17,7 +17,7 @@ fn root_at(top: &Path, claimed: bool) -> Root {
     Root { path: PathBuf::from("/volume/bae/side-1"), top: top.to_path_buf(), live: Some(checkout) }
 }
 
-fn running_in(worktree: &Path) -> Vec<Loaded> {
+fn loaded_running_in(worktree: &Path) -> Vec<Loaded> {
     let mut state = lists();
     let id = item(&mut state, vec![]);
     state.item_mut(id).unwrap().running = Some(Running {
@@ -33,7 +33,7 @@ fn running_in(worktree: &Path) -> Vec<Loaded> {
 fn a_running_item_in_a_claimed_worktree_is_fine() {
     let scratch = Scratch::new("running-ok");
     let top = scratch.dir.join("bae-worktrees/side-1");
-    let found = findings(&Ok(running_in(&top)), &[root_at(&top, true)]).unwrap();
+    let found = findings(&Ok(loaded_running_in(&top)), &[root_at(&top, true)]).unwrap();
     assert!(found.is_empty(), "{found:?}");
 }
 
@@ -41,10 +41,10 @@ fn a_running_item_in_a_claimed_worktree_is_fine() {
 fn a_running_item_in_an_unclaimed_or_gone_worktree_is_named() {
     let scratch = Scratch::new("running-bad");
     let top = scratch.dir.join("bae-worktrees/side-1");
-    let unclaimed = findings(&Ok(running_in(&top)), &[root_at(&top, false)]).unwrap();
+    let unclaimed = findings(&Ok(loaded_running_in(&top)), &[root_at(&top, false)]).unwrap();
     assert_eq!(unclaimed.len(), 1);
     assert!(unclaimed[0].contains("has no claim") && unclaimed[0].contains("`builds item stop 1`"), "{unclaimed:?}");
-    let gone = findings(&Ok(running_in(&top)), &[]).unwrap();
+    let gone = findings(&Ok(loaded_running_in(&top)), &[]).unwrap();
     assert!(gone[0].contains("is not a live worktree"), "{gone:?}");
 }
 
