@@ -47,7 +47,7 @@ fn list_running_prints_the_marker_with_the_agent_from_the_claim() {
     let brief = demo.brief("b.md");
     cmd_item(&demo.tool, &words(&["take", "1", "--worktree", side.to_str().unwrap(), "--branch", "work", "--brief", &brief])).unwrap();
     let lists = demo.store.load().unwrap();
-    let line = marker(lists.items[0].running.as_ref().unwrap()).unwrap();
+    let line = marker(lists.items[0].running.first().unwrap()).unwrap();
     assert_eq!(line, format!("Running: agent A, demo side-1 work, brief {brief}"));
     cmd_item(&demo.tool, &words(&["list", "--running"])).unwrap();
     cmd_item(&demo.tool, &words(&["list", "--ready", "--area", "Alpha", "--for", "coordinator"])).unwrap();

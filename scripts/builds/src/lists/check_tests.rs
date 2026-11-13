@@ -244,13 +244,13 @@ fn running_worktrees_are_side_worktrees_of_project_repos() {
         brief: "plans/briefs/x.md".into(),
         since: stamp(NOON),
     };
-    lists.item_mut(i).unwrap().running = Some(run("/dev/bae-worktrees/side-2"));
+    lists.item_mut(i).unwrap().running = vec![run("/dev/bae-worktrees/side-2")];
     assert_eq!(faults(&lists), Vec::<String>::new());
-    lists.item_mut(i).unwrap().running = Some(run("/dev/other-worktrees/side-2"));
+    lists.item_mut(i).unwrap().running = vec![run("/dev/other-worktrees/side-2")];
     assert_fault(&lists, "worktree of repo other");
-    lists.item_mut(i).unwrap().running = Some(run("/dev/bae"));
+    lists.item_mut(i).unwrap().running = vec![run("/dev/bae")];
     assert_fault(&lists, "not a side worktree");
-    lists.item_mut(i).unwrap().running = Some(Running { branch: " ".into(), ..run("/dev/bae-worktrees/side-2") });
+    lists.item_mut(i).unwrap().running = vec![Running { branch: " ".into(), ..run("/dev/bae-worktrees/side-2") }];
     assert_fault(&lists, "no branch or no brief");
 }
 

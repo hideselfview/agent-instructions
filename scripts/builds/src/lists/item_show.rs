@@ -68,7 +68,7 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
     for wait in &item.waits {
         let _ = writeln!(out, "waits on {}", wait_line(lists, wait));
     }
-    if let Some(running) = &item.running {
+    for running in &item.running {
         let _ = writeln!(out, "{}", marker(running)?);
         let _ = writeln!(out, "running since {} by {}", local_minute(running.since.at), running.since.by);
     }
@@ -109,15 +109,19 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let chosen: Vec<&Item> = lists
         .items
         .iter()
-        .filter(|item| !args.switch("running") || item.running.is_some())
+        .filter(|item| !args.switch("running") || !item.running.is_empty())
         .filter(|item| !args.switch("ready") || derive::item_state(&lists, item) == ItemState::Ready)
         .filter(|item| area.is_none_or(|a| item.area == a))
         .filter(|item| audience.is_none_or(|f| item.r#for == f))
         .collect();
     for item in chosen {
-        match &item.running {
-            Some(running) if args.switch("running") => println!("{} {}\n  {}", item.id, item.title, marker(running)?),
-            _ => println!("{}", item_line(&lists, item)),
+        if args.switch("running") && !item.running.is_empty() {
+            println!("{} {}", item.id, item.title);
+            for running in &item.running {
+                println!("  {}", marker(running)?);
+            }
+        } else {
+            println!("{}", item_line(&lists, item));
         }
     }
     Ok(())

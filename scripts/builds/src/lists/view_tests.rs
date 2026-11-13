@@ -15,12 +15,12 @@ fn the_json_has_the_pages_shape() {
     lists.questions[0].blocks_nothing = None;
     let waiting = item(&mut lists, vec![Wait::Question(q), Wait::Condition("a quiet machine".into())]);
     let running = item(&mut lists, vec![]);
-    lists.item_mut(running).unwrap().running = Some(Running {
+    lists.item_mut(running).unwrap().running = vec![Running {
         worktree: "/d/bae-worktrees/side-2".into(),
         branch: "import-tags".into(),
         brief: "plans/briefs/x.md".into(),
         since: stamp(NOON),
-    });
+    }];
     let board = design(&mut lists);
     lists.design_mut(board).unwrap().places.insert("design/mocks/A.dc.html".into(), Resolution::Item(waiting));
     lists.design_mut(board).unwrap().places.insert("design/system/components/B/".into(), Resolution::Matches("diffed".into()));
@@ -40,7 +40,7 @@ fn the_json_has_the_pages_shape() {
     assert_eq!(item_json["waits"][1], json!({"kind": "condition", "id": null, "title": null, "text": "a quiet machine", "met": false}));
     let running_json = json["items"].as_array().unwrap().iter().find(|i| i["id"] == json!(running.0)).unwrap();
     assert_eq!(running_json["state"], json!("running"));
-    let r = &running_json["running"];
+    let r = &running_json["running"][0];
     assert_eq!((&r["repo"], &r["checkout"], &r["branch"]), (&json!("bae"), &json!("side-2"), &json!("import-tags")));
     let design_json = &json["designs"][0];
     assert_eq!(design_json["closed"], Value::Null);

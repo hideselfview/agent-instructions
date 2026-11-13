@@ -217,10 +217,13 @@ fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.with_write(&stamp, &format!("item handoff {id}"), |lists| {
         open_item(lists, id)?;
-        let Some(running) = lists.item_mut(id).expect("open").running.as_mut() else {
+        let running = &mut lists.item_mut(id).expect("open").running;
+        if running.is_empty() {
             fail!("{id} is not running; a handoff gives a running item's next agent its brief (`item take` starts one)");
-        };
-        running.brief = brief.clone();
+        }
+        for running in running {
+            running.brief = brief.clone();
+        }
         Ok(())
     })?;
     note(format!("{id} is handed to the brief {brief}"));
@@ -236,9 +239,10 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     store.with_write(&stamp, &format!("item stop {id}"), |lists| {
         open_item(lists, id)?;
         let item = lists.item_mut(id).expect("open");
-        if item.running.take().is_none() {
+        if item.running.is_empty() {
             fail!("{id} is not running");
         }
+        item.running.clear();
         item.notes.push(Note { at: stamp.at, by: stamp.by.clone(), text: format!("stopped: {why}") });
         Ok(())
     })?;
@@ -251,8 +255,9 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// question blocks. Names each and the command that frees it.
 fn require_can_leave(lists: &Lists, id: Id, how: &str) -> Result<()> {
     let item = open_item(lists, id)?;
-    if let Some(running) = &item.running {
-        fail!("{id} runs in {}; `builds item stop {} --why WHY` first, then {how} it", running.worktree, id.0);
+    if !item.running.is_empty() {
+        let worktrees: Vec<&str> = item.running.iter().map(|r| r.worktree.as_str()).collect();
+        fail!("{id} runs in {}; `builds item stop {} --why WHY` first, then {how} it", worktrees.join(" and "), id.0);
     }
     let on_it = Wait::Item(id);
     let waiting: Vec<&Item> = lists.open_items_waiting_on(&on_it).collect();

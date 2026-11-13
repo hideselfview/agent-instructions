@@ -62,12 +62,12 @@ fn an_items_state() {
     let design_session = item(&mut lists, vec![]);
     lists.item_mut(design_session).unwrap().r#for = Audience::DesignSession;
     let running = item(&mut lists, vec![Wait::Question(q)]);
-    lists.item_mut(running).unwrap().running = Some(Running {
+    lists.item_mut(running).unwrap().running = vec![Running {
         worktree: "/d/bae-worktrees/side-1".into(),
         branch: "b".into(),
         brief: "p".into(),
         since: stamp(NOON),
-    });
+    }];
     let state = |id| item_state(&lists, lists.item(id).unwrap());
     assert_eq!(state(ready), ItemState::Ready);
     assert_eq!(state(waiting), ItemState::Waiting);

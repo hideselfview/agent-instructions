@@ -127,11 +127,11 @@ fn take_marks_items_running_in_the_worktree_and_stores_no_agent() {
     item(&demo, &take_args(&side_arg, &brief, &["1", "2"], "work")).unwrap();
     let lists = open(&demo);
     for item in &lists.items {
-        let running = item.running.as_ref().unwrap();
+        let running = item.running.first().unwrap();
         assert_eq!((running.worktree.as_str(), running.branch.as_str(), running.brief.as_str()), (side_arg.as_str(), "work", brief.as_str()));
     }
     assert!(!std::fs::read_to_string(demo.store.state_path()).unwrap().contains("agent A"));
-    assert!(crate::lists::running::agent_of(lists.items[0].running.as_ref().unwrap()).unwrap() == crate::lists::running::Agent::Claimed("agent A".into()));
+    assert!(crate::lists::running::agent_of(lists.items[0].running.first().unwrap()).unwrap() == crate::lists::running::Agent::Claimed("agent A".into()));
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn a_design_session_item_is_taken_as_the_design_session() {
     let mut args = take_args(side.to_str().unwrap(), &brief, &["1"], "canvas");
     args.extend(["--as", "design-session"]);
     item(&demo, &args).unwrap();
-    assert!(open(&demo).items[0].running.is_some());
+    assert!(!open(&demo).items[0].running.is_empty());
 }
 
 #[test]
@@ -192,10 +192,10 @@ fn stop_returns_the_item_to_the_queue_with_the_why_and_handoff_changes_the_brief
     assert!(refusal(item(&demo, &["handoff", "1", "--brief", &second])).contains("is not running"));
     item(&demo, &take_args(side.to_str().unwrap(), &brief, &["1"], "work")).unwrap();
     item(&demo, &["handoff", "1", "--brief", &second]).unwrap();
-    assert_eq!(open(&demo).items[0].running.as_ref().unwrap().brief, second);
+    assert_eq!(open(&demo).items[0].running.first().unwrap().brief, second);
     item(&demo, &["stop", "1", "--why", "agent ran out of room"]).unwrap();
     let item = &open(&demo).items[0];
-    assert!(item.running.is_none());
+    assert!(item.running.is_empty());
     assert_eq!(item.notes[0].text, "stopped: agent ran out of room");
 }
 

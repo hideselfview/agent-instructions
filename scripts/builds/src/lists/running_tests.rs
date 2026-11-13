@@ -20,12 +20,12 @@ fn root_at(top: &Path, claimed: bool) -> Root {
 fn loaded_running_in(worktree: &Path) -> Vec<Loaded> {
     let mut state = lists();
     let id = item(&mut state, vec![]);
-    state.item_mut(id).unwrap().running = Some(Running {
+    state.item_mut(id).unwrap().running = vec![Running {
         worktree: worktree.display().to_string(),
         branch: "work".into(),
         brief: "b.md".into(),
         since: stamp(NOON),
-    });
+    }];
     vec![Loaded { project: "demo".into(), lists: Ok(state) }]
 }
 

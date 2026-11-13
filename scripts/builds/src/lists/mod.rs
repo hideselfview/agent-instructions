@@ -216,7 +216,8 @@ pub struct Priority {
     pub why: String,
 }
 
-/// An item an agent is working on. The agent is the worktree's claim, so the
+/// An item an agent is working on, in one worktree of one repo (an item that
+/// spans repos has one of these per repo). The agent is the worktree's claim, so the
 /// claim and this marker can't disagree; the repo is the worktree's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -261,7 +262,9 @@ pub struct Item {
     pub priority: Option<Priority>,
     /// The implementation brief: path, then `#section` when it names one.
     pub brief: Option<String>,
-    pub running: Option<Running>,
+    /// Where an agent works on it: one worktree per repo the work spans, none
+    /// when it is not running.
+    pub running: Vec<Running>,
     pub landed: Vec<LandedPart>,
     /// Newest last.
     pub notes: Vec<Note>,

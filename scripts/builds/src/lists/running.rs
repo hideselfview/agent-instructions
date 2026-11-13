@@ -63,7 +63,7 @@ pub fn marker(running: &Running) -> Result<String> {
 
 /// The open items running in <worktree>.
 pub fn running_in<'a>(lists: &'a Lists, worktree: &str) -> Vec<&'a Item> {
-    lists.items.iter().filter(|item| item.running.as_ref().is_some_and(|r| r.worktree == worktree)).collect()
+    lists.items.iter().filter(|item| item.running.iter().any(|r| r.worktree == worktree)).collect()
 }
 
 /// `builds release` is refused while an item runs in the worktree: the claim
@@ -105,20 +105,21 @@ pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>, roots: &[Root
             }
         };
         for item in &lists.items {
-            let Some(running) = &item.running else { continue };
-            let live = roots
-                .iter()
-                .filter_map(|root| root.live.as_ref())
-                .find(|checkout| checkout.top == Path::new(&running.worktree));
-            let fault = match agent_in(live)? {
-                Agent::WorktreeGone => "is not a live worktree",
-                Agent::Unclaimed => "has no claim",
-                Agent::Claimed(_) => continue,
-            };
-            findings.push(format!(
-                "lists: item {} \"{}\" runs in {}, which {fault}; `builds item stop {}` ends it",
-                item.id.0, item.title, running.worktree, item.id.0
-            ));
+            for running in &item.running {
+                let live = roots
+                    .iter()
+                    .filter_map(|root| root.live.as_ref())
+                    .find(|checkout| checkout.top == Path::new(&running.worktree));
+                let fault = match agent_in(live)? {
+                    Agent::WorktreeGone => "is not a live worktree",
+                    Agent::Unclaimed => "has no claim",
+                    Agent::Claimed(_) => continue,
+                };
+                findings.push(format!(
+                    "lists: item {} \"{}\" runs in {}, which {fault}; `builds item stop {}` ends it",
+                    item.id.0, item.title, running.worktree, item.id.0
+                ));
+            }
         }
     }
     Ok(findings)

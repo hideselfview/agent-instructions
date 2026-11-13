@@ -1113,13 +1113,13 @@ function stackItems() {
 }
 
 // ---- Work
-function isRunning(it) { return !!it.running; }
-function isReady(it) { return !it.running && it.for === "coordinator" && it.state === "ready"; }
+function isRunning(it) { return it.running.length > 0; }
+function isReady(it) { return !isRunning(it) && it.for === "coordinator" && it.state === "ready"; }
 function unmet(it) { return it.waits.filter(w => !w.met); }
 function waitName(w) { return w.kind === "condition" ? w.text : w.title + " #" + w.id; }
 function waitLink(w) { return w.kind === "condition" ? document.createTextNode(w.text) : recLink(w.id, w.title + " #" + w.id); }
 function itemPill(it) {
-  if (it.running) return pill("running", "s-working");
+  if (isRunning(it)) return pill("running", "s-working");
   if (it.for === "design-session") return pill("design session’s", "s-free");
   if (it.state === "waiting") return pill("waiting", "s-winding");
   return pill("ready", "s-ready");
@@ -1151,18 +1151,21 @@ function itemRow(it) {
     () => itemBody(it), "l-row");
 }
 function runningCard(it) {
-  const r = it.running;
+  const first = it.running[0];
+  // One group of facts per worktree: an item that spans repos runs in one of each.
+  const where = it.running.flatMap(r => [
+    fact("Agent", h("strong", {}, r.agent || "unclaimed")),
+    fact("Worktree", mono(r.repo + " " + r.checkout), " on ", mono(r.branch)),
+    r.waiting_to_land ? fact("Waiting to land:", plural(r.waiting_to_land, "commit", "commits")) : null]);
   return h("article", {class: "l-card"},
     h("div", {class: "l-row1"}, h("span", {class: "l-title"}, it.title), h("span", {class: "l-id"}, "#" + it.id), itemPill(it)),
     h("div", {class: "l-facts"},
-      fact("Agent", h("strong", {}, r.agent || "unclaimed")),
-      fact("Worktree", mono(r.repo + " " + r.checkout), " on ", mono(r.branch)),
-      r.brief ? fact("Brief", mono(r.brief)) : null,
-      fact("Since", stamp(r.since.at) + " by " + r.since.by),
-      r.waiting_to_land ? fact("Waiting to land:", plural(r.waiting_to_land, "commit", "commits")) : null,
+      ...where,
+      first.brief ? fact("Brief", mono(first.brief)) : null,
+      fact("Since", stamp(first.since.at) + " by " + first.since.by),
       it.landed.length ? fact("Already landed:", it.landed.map(l => l.repo + " " + l.commits.join(" ")).join("; ")) : null,
       unmet(it).length ? fact("Held on", unmet(it).map(waitLink).flatMap((el, i) => i ? ["; ", el] : [el])) : null),
-    r.note ? h("div", {class: "l-note"}, r.note, r.note_state ? " " : null, r.note_state ? pill(r.note_state, "s-winding") : null) : null,
+    ...it.running.map(r => r.note ? h("div", {class: "l-note"}, r.note, r.note_state ? " " : null, r.note_state ? pill(r.note_state, "s-winding") : null) : null),
     fold("i:" + it.id, it.id, "Details and notes", () => itemBody(it)));
 }
 function sum(obj) { return Object.values(obj || {}).reduce((a, b) => a + b, 0); }
@@ -1187,7 +1190,7 @@ function rows(its, one) { return h("div", {class: "l-rows"}, its.map(one || item
 function workItems() {
   const all = lists.items;
   const out = [{key: "head", data: [lists.flow], make: workHead}];
-  const running = all.filter(isRunning).sort((a, b) => a.running.since.at - b.running.since.at);
+  const running = all.filter(isRunning).sort((a, b) => a.running[0].since.at - b.running[0].since.at);
   const design = all.filter(it => !isRunning(it) && it.for === "design-session");
   const mine = all.filter(it => !isRunning(it) && it.for !== "design-session");
   const first = mine.filter(it => it.priority && it.priority.level === "first").sort((a, b) => a.opened.at - b.opened.at);

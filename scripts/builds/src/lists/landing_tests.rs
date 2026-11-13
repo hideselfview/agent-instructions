@@ -145,3 +145,132 @@ fn landed_in_another_repo_than_the_item_runs_in_is_refused() {
     let refused = refusal(super::landed(&l.demo.tool, &with_dir, &other));
     assert!(refused.contains("not in a worktree of other"), "{refused}");
 }
+
+/// An item whose work spans two repos: running in side-1 of `demo` on `work`
+/// and side-1 of `other` on `work-other`, each repo with one commit on its
+/// branch and a detached landing worktree (side-2).
+struct TwoRepos {
+    demo: Demo,
+    demo_lander: std::path::PathBuf,
+    other_lander: std::path::PathBuf,
+    demo_agent: std::path::PathBuf,
+    other_agent: std::path::PathBuf,
+    demo_commit: String,
+    other_commit: String,
+}
+
+fn two_repos(name: &str) -> TwoRepos {
+    let demo = crate::lists::item_fixtures::demo_over(name, &["demo", "other"]);
+    let demo_agent = demo.add_side_of("demo", 1, "agent A", "work");
+    let other_agent = demo.add_side_of("other", 1, "agent A", "work-other");
+    let demo_lander = demo.add_side_of("demo", 2, "coordinator", "landing");
+    let other_lander = demo.add_side_of("other", 2, "coordinator", "landing-other");
+    run_git(&demo_lander, &["checkout", "-q", "--detach", "main"]);
+    run_git(&other_lander, &["checkout", "-q", "--detach", "main"]);
+    let details = demo.brief("details.txt");
+    let brief = demo.brief("b.md");
+    cmd_item(&demo.tool, &words(&["add", "--title", "Do the first thing now", "--area", "Alpha", "--details-file", &details])).unwrap();
+    cmd_item(
+        &demo.tool,
+        &words(&[
+            "take",
+            "1",
+            "--worktree",
+            demo_agent.to_str().unwrap(),
+            "--branch",
+            "work",
+            "--worktree",
+            other_agent.to_str().unwrap(),
+            "--branch",
+            "work-other",
+            "--brief",
+            &brief,
+        ]),
+    )
+    .unwrap();
+    let demo_commit = demo.commit(&demo_agent, "a.txt");
+    let other_commit = demo.commit(&other_agent, "b.txt");
+    TwoRepos { demo, demo_lander, other_lander, demo_agent, other_agent, demo_commit, other_commit }
+}
+
+fn land_args(lander: &std::path::Path, extra: &[&str]) -> Vec<String> {
+    let mut args = vec![lander.display().to_string()];
+    args.extend(extra.iter().map(|a| a.to_string()));
+    args
+}
+
+#[test]
+fn an_item_in_two_repos_is_taken_in_both_and_shown_in_both() {
+    let t = two_repos("landing-two-take");
+    let lists = t.demo.store.load().unwrap();
+    let running = &lists.item(Id(1)).unwrap().running;
+    assert_eq!(
+        running.iter().map(|r| (r.worktree.clone(), r.branch.clone())).collect::<Vec<_>>(),
+        vec![
+            (t.demo_agent.display().to_string(), "work".to_string()),
+            (t.other_agent.display().to_string(), "work-other".to_string())
+        ]
+    );
+    let shown = crate::lists::item_show::render_item(&lists, Id(1)).unwrap();
+    assert!(shown.contains("Running: agent A, demo side-1 work"), "{shown}");
+    assert!(shown.contains("Running: agent A, other side-1 work-other"), "{shown}");
+    let line = crate::lists::show::item_line(&lists, lists.item(Id(1)).unwrap());
+    assert!(line.contains(&t.demo_agent.display().to_string()) && line.contains(&t.other_agent.display().to_string()), "{line}");
+    // The view the dashboard reads lists both.
+    let view = serde_json::to_value(crate::lists::view::View::build(&lists, crate::lists::fixtures::NOON)).unwrap();
+    let repos: Vec<&str> = view["items"][0]["running"].as_array().unwrap().iter().map(|r| r["repo"].as_str().unwrap()).collect();
+    assert_eq!(repos, ["demo", "other"]);
+}
+
+#[test]
+fn take_refuses_two_worktrees_of_one_repo_and_unpaired_branches() {
+    let demo = demo("landing-two-same-repo");
+    let one = demo.add_side(1, "agent A", "work");
+    let two = demo.add_side(2, "agent A", "work2");
+    let details = demo.brief("details.txt");
+    let brief = demo.brief("b.md");
+    cmd_item(&demo.tool, &words(&["add", "--title", "Do the first thing now", "--area", "Alpha", "--details-file", &details])).unwrap();
+    let before = demo.bytes();
+    let (one, two) = (one.to_str().unwrap(), two.to_str().unwrap());
+    let same = refusal(cmd_item(
+        &demo.tool,
+        &words(&["take", "1", "--worktree", one, "--branch", "work", "--worktree", two, "--branch", "work2", "--brief", &brief]),
+    ));
+    assert!(same.contains("both worktrees of demo"), "{same}");
+    let unpaired = refusal(cmd_item(&demo.tool, &words(&["take", "1", "--worktree", one, "--worktree", two, "--branch", "work", "--brief", &brief])));
+    assert!(unpaired.contains("2 --worktree and 1 --branch"), "{unpaired}");
+    assert_eq!(demo.bytes(), before);
+}
+
+#[test]
+fn a_part_from_one_repo_leaves_the_item_running_and_done_from_the_other_closes_it() {
+    let t = two_repos("landing-two-land");
+    run_git(&t.demo_agent, &["push", "-q", "origin", "HEAD:main"]);
+    run_git(&t.demo_lander, &["fetch", "-q", "origin"]);
+    run_git(&t.other_agent, &["push", "-q", "origin", "HEAD:main"]);
+    run_git(&t.other_lander, &["fetch", "-q", "origin"]);
+
+    // Each repo's landing is accepted by the check.
+    let demo_check = land_args(&t.demo_lander, &["--part", "1", &t.demo_commit]);
+    check_landing(&t.demo.tool, &demo_check).unwrap();
+    let other_check = land_args(&t.other_lander, &["--done", "1", &t.other_commit]);
+    check_landing(&t.demo.tool, &other_check).unwrap();
+
+    super::landed(&t.demo.tool, &demo_check, &t.demo_lander).unwrap();
+    let lists = t.demo.store.load().unwrap();
+    let item = lists.item(Id(1)).unwrap();
+    assert_eq!((item.running.len(), item.landed.len(), item.landed[0].repo.as_str()), (2, 1, "demo"));
+
+    super::landed(&t.demo.tool, &other_check, &t.other_lander).unwrap();
+    let lists = t.demo.store.load().unwrap();
+    assert!(lists.item(Id(1)).is_none());
+    assert!(matches!(&lists.closed[0].how, How::Landed(c) if *c == [t.other_commit.clone()]));
+}
+
+#[test]
+fn a_commit_of_one_repos_branch_is_not_accepted_for_another_repos_landing() {
+    let t = two_repos("landing-two-wrong-commit");
+    let args = land_args(&t.demo_lander, &["--part", "1", &t.other_commit]);
+    let refused = refusal(check_landing(&t.demo.tool, &args));
+    assert!(refused.contains("not a commit"), "{refused}");
+}

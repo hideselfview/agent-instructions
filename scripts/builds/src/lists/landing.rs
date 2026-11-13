@@ -8,7 +8,10 @@
 //! DIR is the landing worktree. `--done` names an item the commits finish,
 //! `--part` one they advance. `check-landing` runs before the commits are
 //! fetched or picked, so the SHAs are the agent's branch commits and must be
-//! reachable from the branch of a named item; `landed` runs after the push,
+//! reachable from the branch the named item runs on in DIR's repo (an item
+//! that spans repos runs in a worktree of each, and a landing from any of
+//! them is accepted; `--part` leaves it running everywhere, `--done` closes
+//! it); `landed` runs after the push,
 //! so its SHAs are the commits now on origin/main and must be there. Git runs
 //! before the store's lock.
 
@@ -22,7 +25,7 @@ use crate::lists::args::Args;
 use crate::lists::draft::close;
 use crate::lists::item::open_item;
 use crate::lists::store::Store;
-use crate::lists::{Closed, How, Id, Kind, LandedPart, Lists, Located, Stamp, Standing, side_worktree_parts};
+use crate::lists::{Closed, How, Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, side_worktree_parts};
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -100,11 +103,17 @@ fn is_ancestor(dir: &Path, commit: &str, rev: &str) -> Result<bool> {
     }
 }
 
-/// Is <dir>'s repo the repo an item's running worktree is of?
-fn require_repo_of(worktree: &str, checkout: &Checkout, id: Id) -> Result<()> {
-    match side_worktree_parts(worktree) {
-        Some((repo, _)) if repo == checkout.repo() => Ok(()),
-        _ => fail!("{id} runs in {worktree}, not in a worktree of {}, the repo being landed", checkout.repo()),
+/// The place item <id> runs in the repo being landed, the one whose branch
+/// the landing's commits are on. An item that runs only in other repos can't
+/// land from this one.
+fn running_in_repo<'a>(running: &'a [Running], checkout: &Checkout, id: Id) -> Result<&'a Running> {
+    let found = running.iter().find(|r| side_worktree_parts(&r.worktree).is_some_and(|(repo, _)| repo == checkout.repo()));
+    match found {
+        Some(running) => Ok(running),
+        None => {
+            let worktrees: Vec<&str> = running.iter().map(|r| r.worktree.as_str()).collect();
+            fail!("{id} runs in {}, not in a worktree of {}, the repo being landed", worktrees.join(" and "), checkout.repo())
+        }
     }
 }
 
@@ -115,10 +124,10 @@ pub fn check_landing(tool: &Tool, args: &[String]) -> Result<()> {
     let mut branches = Vec::new();
     for named in &landing.items {
         let item = open_item(&lists, named.id)?;
-        let Some(running) = &item.running else {
+        if item.running.is_empty() {
             fail!("{} is not running, and a landing is an agent's branch arriving: `builds item take` it first", named.id);
-        };
-        require_repo_of(&running.worktree, &landing.checkout, named.id)?;
+        }
+        let running = running_in_repo(&item.running, &landing.checkout, named.id)?;
         branches.push((named.id, running.worktree.clone(), format!("refs/heads/{}", running.branch)));
     }
     for sha in &landing.shas {
@@ -203,8 +212,10 @@ pub fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let repo = landing.checkout.repo();
     let did = store.with_write(&stamp, &format!("item landed {}", commits.join(" ")), |lists| {
         for named in &landing.items {
-            if let Some(running) = &open_item(lists, named.id).ok().and_then(|item| item.running.as_ref()) {
-                require_repo_of(&running.worktree, &landing.checkout, named.id)?;
+            if let Ok(item) = open_item(lists, named.id)
+                && !item.running.is_empty()
+            {
+                running_in_repo(&item.running, &landing.checkout, named.id)?;
             }
         }
         record(lists, &landing.items, &repo, &commits, &stamp)

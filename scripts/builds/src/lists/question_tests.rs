@@ -180,12 +180,12 @@ fn ask_from_an_item_needs_waiters_or_a_reason_and_refuses_a_running_item() {
     let (scratch, tool, store, (lonely, running)) = setup("q-ask-from-refused", |l| {
         let lonely = item(l, vec![]);
         let running = item(l, vec![]);
-        l.items.last_mut().unwrap().running = Some(crate::lists::Running {
+        l.items.last_mut().unwrap().running = vec![crate::lists::Running {
             worktree: "/x/bae-worktrees/side-1".into(),
             branch: "b".into(),
             brief: "p".into(),
             since: stamp(NOON),
-        });
+        }];
         (lonely, running)
     });
     let d = details(&scratch);

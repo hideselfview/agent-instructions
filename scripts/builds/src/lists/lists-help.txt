@@ -29,8 +29,9 @@ or closed; no item waits on itself through a chain of items; no open item
 waits on a record that closed in a way that never meets a wait (dropped,
 deferred, moved to the stack); every open question has an open item waiting
 on it or says why it is asked anyway; titles are one line and item titles are
-five to seven words; every open item's area exists; a running item's worktree
-is a side worktree (<parent>/<repo>-worktrees/side-N) of a project repo; a
+five to seven words; every open item's area exists; a running item's worktrees
+are side worktrees (<parent>/<repo>-worktrees/side-N) of project repos, one per
+repo; a
 record left only the ways its kind can; decisions have a YYYY-MM-DD date, a
 decider and a body; the version is the log's last line. A store that fails it
 makes every command fail naming each fault. Nothing repairs it.
@@ -61,8 +62,9 @@ Commands in this part:
       The stack in the order it is asked, then the queue, as text; with
       --json the whole state with its derived fields (state of each item,
       what each question blocks, the flow of the last 14 days), the JSON the
-      dashboard reads. The dashboard adds, to each running item, the agent,
-      note, note state and commits waiting to land of its worktree's claim.
+      dashboard reads. The dashboard adds, to each worktree a running item runs
+      in, the agent, note, note state and commits waiting to land of its
+      claim.
 
   builds lists project-of DIR
       Prints the project DIR's repo belongs to, or nothing. Refused when the
@@ -296,14 +298,19 @@ commit); an absolute path is itself.
   builds item wait N --on REF | --off REF
       Refused when it would make items wait on each other in a circle, or on a
       closed record. A condition is met only by --off.
-  builds item take N [M...] --worktree W --branch B --brief P [--as design-session]
+  builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2]
+                    --brief P [--as design-session]
       W is a claimed side worktree of a project repo (the claim names the
-      agent; the item stores none) and B a branch of it. Refused for an item
-      that waits, one already running (stop it first), a design-session item
-      without --as design-session, and a worktree already running another
-      branch.
-  builds item handoff N --brief P      A running item's next agent's brief.
-  builds item stop N --why WHY         Back to the queue; the why is a note.
+      agent; the item stores none) and B a branch of it. Work that spans
+      repos names one worktree and branch per repo, the nth --branch for the
+      nth --worktree; the item runs in all of them. Refused for an item that
+      waits, one already running (stop it first), a design-session item
+      without --as design-session, a worktree already running another
+      branch, and two worktrees of one repo.
+  builds item handoff N --brief P      A running item's next agent's brief
+                                       (in every worktree it runs in).
+  builds item stop N --why WHY         Back to the queue, out of every
+                                       worktree; the why is a note.
   builds item drop N --why WHY | defer N --issue URL
       Refused while the item runs, an open item waits on it (the message names
       them and the `item wait --off` that frees each), or it is the last item
@@ -316,14 +323,16 @@ commit); an absolute path is itself.
   builds item check-landing DIR [--done N]... [--part N]... SHA...
   builds item landed DIR [--done N]... [--part N]... SHA...
       What land.sh calls. check-landing (before anything is fetched): each N
-      is open and running in a worktree of DIR's repo, and each SHA is on the
-      branch of one of them. landed (after the push): each SHA is on
-      origin/main; --part records a landed part, --done closes the item as
-      landed. The same call twice records once; a different set of commits
+      is open and running in a worktree of DIR's repo (an item that runs in a
+      worktree of each of two repos accepts a landing from either), and each
+      SHA is on the branch of one of them. landed (after the push): each SHA is on
+      origin/main; --part records a landed part and leaves the item running
+      in all its worktrees, --done closes the item as landed, so an item
+      spanning two repos lands --part from one and --done from the other. The same call twice records once; a different set of commits
       for an item already closed as landed is refused.
   builds item show N | list [--running] [--ready] [--area A] [--for F]
-      list --running prints each item's marker line: Running: agent, repo
-      worktree branch, brief.
+      list --running prints each item's marker line, one per worktree it runs
+      in: Running: agent, repo worktree branch, brief. show prints them all.
   builds next
       The ready coordinator items in dispatch order: priority first (oldest
       first), then by area order and age, last items once nothing else is

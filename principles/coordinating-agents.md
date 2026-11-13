@@ -78,11 +78,15 @@ another's message, written to the same file name.
   its check had not built.
 - Take items from `builds next`. Claim the worktree (`builds claim`), then mark
   the items running with `builds item take N --worktree W --branch B --brief P`;
-  the claim names the agent. After a compact, `builds item list --running`
-  prints each running item's agent, worktree, branch and brief. A new agent
-  continues a handoff with `builds item handoff N --brief P`; an agent that
-  stops, with `builds item stop N --why WHY`. An open item moves first or last
-  in the queue, or back to the usual order, with
+  the claim names the agent. Work that spans two repos names a worktree and
+  branch in each (`--worktree W --branch B --worktree W2 --branch B2`, one per
+  repo); the item runs in both, a landing from either worktree is accepted,
+  `--part` from one leaves it running in the other, and `--done` closes it.
+  After a compact, `builds item list --running` prints each running item's
+  agent, worktree, branch and brief. A new agent continues a handoff with
+  `builds item handoff N --brief P`; an agent that stops, with
+  `builds item stop N --why WHY`. An open item moves first or last in the queue,
+  or back to the usual order, with
   `builds item place N first|last|none --why WHY`. `builds release` refuses a
   worktree an item still runs in. Keep the worktree's note current
   (`builds note`) on every dispatch, handoff and landing, and release it when

@@ -22,31 +22,47 @@ pub struct Demo {
 }
 
 pub fn demo(name: &str) -> Demo {
-    let scratch = Scratch::new(name);
-    let tool = scratch.tool(0);
-    let main = scratch.dir.join("demo");
+    demo_over(name, &["demo"])
+}
+
+/// A repo with an origin in the scratch folder: <repo>, and <repo>.git beside it.
+fn add_repo_with_origin(scratch: &Scratch, repo_name: &str) -> PathBuf {
+    let main = scratch.dir.join(repo_name);
     repo(&main, "target 1G\n");
-    let origin = scratch.dir.join("origin.git");
+    let origin = scratch.dir.join(format!("{repo_name}-origin.git"));
     run_git(&scratch.dir, &["init", "-q", "--bare", &origin.display().to_string()]);
     run_git(&main, &["remote", "add", "origin", &origin.display().to_string()]);
     run_git(&main, &["push", "-q", "origin", "main"]);
+    main
+}
+
+/// A project `demo` over each repo of <repos> (the first is `main`).
+pub fn demo_over(name: &str, repos: &[&str]) -> Demo {
+    let scratch = Scratch::new(name);
+    let tool = scratch.tool(0);
+    let main = add_repo_with_origin(&scratch, repos[0]);
+    for other in &repos[1..] {
+        add_repo_with_origin(&scratch, other);
+    }
     let store = Store::named(&tool.places, "demo").unwrap();
-    let mut state = Lists::empty("demo", vec!["demo".into()], BTreeMap::new());
+    let mut state = Lists::empty("demo", repos.iter().map(|r| r.to_string()).collect(), BTreeMap::new());
     state.areas = vec!["Alpha".into(), "Beta".into()];
     store.create(state, &stamp(NOON), "lists init demo").unwrap();
     Demo { scratch, tool, main, store }
 }
 
 impl Demo {
-    pub fn side(&self, n: usize) -> PathBuf {
-        self.scratch.dir.join(format!("demo-worktrees/side-{n}"))
-    }
-
     /// A claimed side worktree <n>, on a new branch <branch>.
     pub fn add_side(&self, n: usize, who: &str, branch: &str) -> PathBuf {
-        let top = self.side(n);
+        self.add_side_of("demo", n, who, branch)
+    }
+
+    /// `add_side` for the repo <repo> of the project (`demo_over`).
+    pub fn add_side_of(&self, repo: &str, n: usize, who: &str, branch: &str) -> PathBuf {
+        let main = self.scratch.dir.join(repo);
+        let top = self.scratch.dir.join(format!("{repo}-worktrees/side-{n}"));
         std::fs::create_dir_all(top.parent().unwrap()).unwrap();
-        run_git(&self.main, &["worktree", "add", "-q", "-b", branch, &top.display().to_string(), "main"]);
+        run_git(&main, &["worktree", "add", "-q", "-b", branch, &top.display().to_string(), "main"]);
         let checkout = Checkout::find(&top.display().to_string()).unwrap();
         write_claim(&checkout, who, NOON, None, None).unwrap();
         top

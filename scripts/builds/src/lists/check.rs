@@ -243,9 +243,15 @@ fn open_item(lists: &Lists, item: &Item, faults: &mut Vec<String>) {
     {
         faults.push(format!("{from} has an empty brief path"));
     }
-    if let Some(running) = &item.running {
+    let mut repos_running_in: Vec<String> = Vec::new();
+    for running in &item.running {
         match side_worktree_parts(&running.worktree) {
-            Some((repo, _)) if lists.repos.contains(&repo) => {}
+            Some((repo, _)) if lists.repos.contains(&repo) => {
+                if repos_running_in.contains(&repo) {
+                    faults.push(format!("{from} runs in two worktrees of repo {repo}; it runs in one worktree per repo"));
+                }
+                repos_running_in.push(repo);
+            }
             Some((repo, _)) => faults.push(format!(
                 "{from} runs in {}, a worktree of repo {repo}, which is not one of the project's",
                 running.worktree

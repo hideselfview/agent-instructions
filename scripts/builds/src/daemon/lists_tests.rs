@@ -3,7 +3,7 @@ use crate::lists::Running;
 use crate::lists::fixtures::{NOON, item, lists, stamp};
 use crate::lists::store::Store;
 use crate::testing::Scratch;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -41,12 +41,12 @@ fn a_running_item_carries_its_claim_facts_and_nothing_else_does() {
     let running = item(&mut state, vec![]);
     let idle = item(&mut state, vec![]);
     let worktree = "/d/bae-worktrees/side-2";
-    state.item_mut(running).unwrap().running = Some(Running {
+    state.item_mut(running).unwrap().running = vec![Running {
         worktree: worktree.into(),
         branch: "import-tags".into(),
         brief: "plans/briefs/x.md".into(),
         since: stamp(NOON),
-    });
+    }];
     let snapshot: Snapshot = Ok(vec![loaded("demo", Ok(state))]);
     assert_eq!(running_worktrees(&snapshot), vec![worktree.to_string()]);
     let facts = ClaimFacts {
@@ -61,12 +61,12 @@ fn a_running_item_carries_its_claim_facts_and_nothing_else_does() {
     }))
     .unwrap();
     let find = |id: crate::lists::Id| view["items"].as_array().unwrap().iter().find(|i| i["id"] == json!(id.0)).unwrap().clone();
-    let r = &find(running)["running"];
+    let r = &find(running)["running"][0];
     assert_eq!(
         (&r["agent"], &r["note"], &r["note_state"], &r["waiting_to_land"]),
         (&json!("import-tags"), &json!("tests next"), &json!("held"), &json!(2))
     );
-    assert_eq!(find(idle)["running"], Value::Null);
+    assert_eq!(find(idle)["running"], json!([]));
 }
 
 #[test]

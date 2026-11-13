@@ -119,7 +119,7 @@ impl Feed {
 pub fn running_worktrees(snapshot: &Snapshot) -> Vec<String> {
     match snapshot.as_deref() {
         Ok([Loaded { lists: Ok(lists), .. }]) => {
-            lists.items.iter().filter_map(|item| item.running.as_ref().map(|r| r.worktree.clone())).collect()
+            lists.items.iter().flat_map(|item| item.running.iter().map(|r| r.worktree.clone())).collect()
         }
         _ => Vec::new(),
     }
@@ -153,7 +153,7 @@ pub fn compose(snapshot: &Snapshot, now: i64, claims: &dyn Fn(&str) -> ClaimFact
         Ok(lists) => {
             let mut view = View::build(lists, now);
             for item in &mut view.items {
-                if let Some(running) = &mut item.running {
+                for running in &mut item.running {
                     running.claim = Some(claims(&running.worktree));
                 }
             }

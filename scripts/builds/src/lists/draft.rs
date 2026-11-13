@@ -194,7 +194,7 @@ pub fn add_item(lists: &mut Lists, draft: &ItemDraft, from: Option<Id>, stamp: &
         waits: draft.waits.clone(),
         priority: draft.priority.clone(),
         brief: draft.brief.clone(),
-        running: None,
+        running: Vec::new(),
         landed: Vec::new(),
         notes: Vec::new(),
         from,

@@ -40,7 +40,7 @@ pub fn item_line(lists: &Lists, item: &Item) -> String {
     if derive::waits_for_others(lists, item) {
         line.push_str("\n      last: waits until no other coordinator work is open");
     }
-    if let Some(running) = &item.running {
+    for running in &item.running {
         let _ = write!(line, "\n      running in {} on {}, brief {}", running.worktree, running.branch, running.brief);
     }
     line
@@ -89,7 +89,7 @@ pub fn render(lists: &Lists) -> String {
     }
     let state = |wanted: ItemState| lists.items.iter().filter(|i| derive::item_state(lists, i) == wanted).count();
     let _ = writeln!(out, "\nWork ({} ready, {} running)", state(ItemState::Ready), state(ItemState::Running));
-    let running: Vec<&Item> = lists.items.iter().filter(|i| i.running.is_some()).collect();
+    let running: Vec<&Item> = lists.items.iter().filter(|i| !i.running.is_empty()).collect();
     if !running.is_empty() {
         let _ = writeln!(out, "Running");
         for item in running {
@@ -99,7 +99,7 @@ pub fn render(lists: &Lists) -> String {
     let first: Vec<&Item> = lists
         .items
         .iter()
-        .filter(|i| i.running.is_none() && i.priority.as_ref().is_some_and(|p| p.level == Level::First))
+        .filter(|i| i.running.is_empty() && i.priority.as_ref().is_some_and(|p| p.level == Level::First))
         .collect();
     if !first.is_empty() {
         let _ = writeln!(out, "First");
@@ -113,7 +113,7 @@ pub fn render(lists: &Lists) -> String {
             .iter()
             .filter(|i| {
                 i.area == *area
-                    && i.running.is_none()
+                    && i.running.is_empty()
                     && !i.priority.as_ref().is_some_and(|p| p.level == Level::First)
             })
             .collect();

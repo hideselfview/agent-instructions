@@ -91,7 +91,8 @@ pub struct ItemView {
     pub priority: Option<Priority>,
     pub brief: Option<String>,
     pub waits: Vec<WaitView>,
-    pub running: Option<RunningView>,
+    /// One per repo the item runs in; empty when it is not running.
+    pub running: Vec<RunningView>,
     pub landed: Vec<LandedPart>,
     pub notes: Vec<Note>,
     pub from: Option<Id>,
@@ -222,19 +223,23 @@ fn item_view(lists: &Lists, item: &Item) -> ItemView {
         priority: item.priority.clone(),
         brief: item.brief.clone(),
         waits: item.waits.iter().map(|wait| wait_view(lists, wait)).collect(),
-        running: item.running.as_ref().map(|running| {
-            let (repo, checkout) = side_worktree_parts(&running.worktree)
-                .expect("a stored running worktree passed the check on load");
-            RunningView {
-                worktree: running.worktree.clone(),
-                repo,
-                checkout,
-                branch: running.branch.clone(),
-                brief: running.brief.clone(),
-                since: running.since.clone(),
-                claim: None,
-            }
-        }),
+        running: item
+            .running
+            .iter()
+            .map(|running| {
+                let (repo, checkout) =
+                    side_worktree_parts(&running.worktree).expect("a stored running worktree passed the check on load");
+                RunningView {
+                    worktree: running.worktree.clone(),
+                    repo,
+                    checkout,
+                    branch: running.branch.clone(),
+                    brief: running.brief.clone(),
+                    since: running.since.clone(),
+                    claim: None,
+                }
+            })
+            .collect(),
         landed: item.landed.clone(),
         notes: item.notes.clone(),
         from: item.from,

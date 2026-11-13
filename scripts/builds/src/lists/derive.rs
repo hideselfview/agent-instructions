@@ -92,7 +92,7 @@ impl ItemState {
 }
 
 pub fn item_state(lists: &Lists, item: &Item) -> ItemState {
-    if item.running.is_some() {
+    if !item.running.is_empty() {
         ItemState::Running
     } else if item.r#for == Audience::DesignSession {
         ItemState::DesignSession

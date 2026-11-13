@@ -37,7 +37,7 @@ pub fn item(lists: &mut Lists, waits: Vec<Wait>) -> Id {
         waits,
         priority: None,
         brief: None,
-        running: None,
+        running: Vec::new(),
         landed: Vec::new(),
         notes: Vec::new(),
         from: None,

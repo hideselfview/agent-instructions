@@ -148,7 +148,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
         let mut waiting: Vec<Id> = blocks.clone();
         if let Some(from) = from_item {
             let Some(item) = lists.item(from) else { fail!("--from-item names {from}, which is not an open item") };
-            if item.running.is_some() {
+            if !item.running.is_empty() {
                 fail!("item {from} is running; `builds item stop {} --why …` first, then move it to the stack", from.0);
             }
             // What waited on the item waits on the question that takes its place.
