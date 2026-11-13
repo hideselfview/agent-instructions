@@ -137,3 +137,62 @@ Decisions (the log, never closed):
   builds decision list [--plan PATH] [--since YYYY-MM-DD]
       The log newest first, one line each; --plan keeps the decisions
       recorded against that plan, with their plan numbers.
+The decision stack: builds question ...
+
+Long text comes from a file (--details-file F; `-` is standard input). Compound
+writes take one JSON request (--request F), refused with the field that is
+wrong when it does not parse or holds a field the command does not take. A
+write lands whole or not at all; each prints what it did and what follows (the
+stack's new top and what it blocks, the items an answer made ready).
+
+  builds question ask --title T --kind question|your-step|held
+                      --details-file F (--blocks N[,N] | --blocks-nothing WHY)
+                      [--from-item N] [--first WHY] [--plan PATH --plan-number Qn]
+      Puts an entry on the stack: a question, work only the person can do
+      (your-step), or work held until they start it (held). Requires what it
+      blocks: open items, which gain a wait on it (a running item may be
+      blocked: its agent is held on the answer), or why it is asked though
+      nothing waits. Refuses a --blocks item that is unknown or closed.
+      --first puts it on top, with why. --from-item N closes item N as moved to
+      the stack (it was the person's work); every item that waited on N waits
+      on the new question instead, so the question blocks them. Refused for a
+      running item. --plan and --plan-number tie it to a plan's open question;
+      its answer carries the link.
+
+  builds question answer N --request F
+      The request: {"decision": {"title", "body", "by", "replaces"?},
+      "blocked": {"ITEM": "proceeds" | {"edit": {fields}} | {"drop": WHY}},
+      "work": [item drafts] | "no_work": WHY}. In one write: the decision (with
+      the question and its work linked), every new item (made by the decision),
+      each blocked item's edit or drop, and the question's close. `blocked` has
+      every item waiting on N and no other; `work` or `no_work`, never both or
+      neither; the decision's body is not empty. Only for a question-kind
+      entry. Prints the items now ready and the stack's new top.
+
+  builds question settle N --request F
+      The request: {"by_rule": the rule or code that settles it, "blocked",
+      "work" | "no_work"}. Records no decision: a question settled from rules is
+      not the person's.
+
+  builds question done N --request F
+      For your-step and held entries: {"blocked", "work" | "no_work"}. A
+      question-kind entry is closed with `answer`.
+
+  builds question drop N --why WHY
+  builds question defer N --issue URL
+      Takes the entry off with no item waiting on it (the message names each
+      and the `item wait ITEM --off question:N` that frees it). defer needs an
+      open GitHub issue (`gh issue view URL --json state`, asked before the
+      lock).
+
+  builds question place N first|last|auto --why WHY [--by-person]
+      Where it sits: first, last, or auto (the order of what it unblocks).
+
+  builds question edit N [--title T] [--details-file F]
+                         [--blocks-nothing WHY | --blocks-something]
+      --blocks-something is refused when no open item waits on it: a question
+      blocking nothing needs a why.
+
+  builds question show N | builds question list
+      One entry with its details, or the stack in the order it is asked (a
+      closed question shows how it left).

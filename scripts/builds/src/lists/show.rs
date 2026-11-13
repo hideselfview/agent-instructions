@@ -2,11 +2,11 @@
 
 use std::fmt::Write;
 
-use crate::lists::derive::{self, ItemState};
+use crate::lists::derive::{self, ItemState, StackEntry};
 use crate::lists::{Audience, Item, Lists, Level, Position, QuestionKind, Wait};
 use crate::text::local_minute;
 
-fn kind_words(kind: QuestionKind) -> &'static str {
+pub fn kind_words(kind: QuestionKind) -> &'static str {
     match kind {
         QuestionKind::Question => "question",
         QuestionKind::YourStep => "for you to do",
@@ -46,37 +46,46 @@ fn item_line(lists: &Lists, item: &Item) -> String {
     line
 }
 
+/// What an entry of the stack blocks, or why it is asked though it blocks
+/// nothing.
+pub fn blocks_text(entry: &StackEntry<'_>) -> String {
+    match &entry.question.blocks_nothing {
+        Some(why) => format!("blocks nothing: {why}"),
+        None => {
+            let named: Vec<String> = entry.blocks.iter().map(|i| format!("{} {}", i.id, i.title)).collect();
+            format!("blocks {} ({} through chains): {}", entry.blocks.len(), entry.blocked_count, named.join("; "))
+        }
+    }
+}
+
+/// An entry of the stack as lines: its place in the order, its title, who
+/// placed it where, what it blocks.
+pub fn stack_entry(number: usize, entry: &StackEntry<'_>) -> String {
+    let q = entry.question;
+    let mut out = format!(
+        "{number:>3}. {} {} [{}] opened {} by {}\n",
+        q.id,
+        q.title,
+        kind_words(q.kind),
+        local_minute(q.opened.at),
+        q.opened.by
+    );
+    if let Some(placed) = &q.placed {
+        let at = if placed.at == Position::First { "first" } else { "last" };
+        let by = if placed.by_person { " by you" } else { "" };
+        let _ = writeln!(out, "       placed {at}{by}: {}", placed.why);
+    }
+    let _ = writeln!(out, "       {}", blocks_text(entry));
+    out
+}
+
 pub fn render(lists: &Lists, mode: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "{} lists, version {}, {mode} mode", lists.project, lists.version);
     let stack = derive::stack_order(lists);
     let _ = writeln!(out, "\nWaiting on you ({})", stack.len());
     for (number, entry) in stack.iter().enumerate() {
-        let q = entry.question;
-        let _ = writeln!(
-            out,
-            "{:>3}. {} {} [{}] opened {} by {}",
-            number + 1,
-            q.id,
-            q.title,
-            kind_words(q.kind),
-            local_minute(q.opened.at),
-            q.opened.by
-        );
-        if let Some(placed) = &q.placed {
-            let at = if placed.at == Position::First { "first" } else { "last" };
-            let by = if placed.by_person { " by you" } else { "" };
-            let _ = writeln!(out, "       placed {at}{by}: {}", placed.why);
-        }
-        match &q.blocks_nothing {
-            Some(why) => {
-                let _ = writeln!(out, "       blocks nothing: {why}");
-            }
-            None => {
-                let named: Vec<String> = entry.blocks.iter().map(|i| format!("{} {}", i.id, i.title)).collect();
-                let _ = writeln!(out, "       blocks {} ({} through chains): {}", entry.blocks.len(), entry.blocked_count, named.join("; "));
-            }
-        }
+        out.push_str(&stack_entry(number + 1, entry));
     }
     let state = |wanted: ItemState| lists.items.iter().filter(|i| derive::item_state(lists, i) == wanted).count();
     let _ = writeln!(out, "\nWork ({} ready, {} running)", state(ItemState::Ready), state(ItemState::Running));

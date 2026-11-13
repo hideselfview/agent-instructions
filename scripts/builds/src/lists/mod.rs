@@ -20,7 +20,9 @@ mod design_paths;
 pub mod draft;
 #[cfg(test)]
 pub mod fixtures;
-mod show;
+pub mod issue;
+pub mod question;
+pub mod show;
 pub mod store;
 pub mod view;
 
