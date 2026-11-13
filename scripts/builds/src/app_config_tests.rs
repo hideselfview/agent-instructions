@@ -29,6 +29,7 @@ fn a_config_names_each_platforms_build() {
             mac: Some(MacApp { build: words("mkdir out.app"), app: "out.app".to_string(), bundle: "demo.test".to_string() }),
             android: Some(AndroidApp { build: words("./a.sh --x") }),
             steps: Vec::new(),
+            tests: Vec::new(),
         }
     );
 }
@@ -99,4 +100,32 @@ fn a_step_names_its_lane_first() {
     assert!(parse_config("step macos ./a\n").is_err(), "a name where the lane goes");
     assert!(parse_config("step ios a ./a\n").is_err(), "a lane there is none of");
     assert!(parse_config("step android\n").is_err(), "no name");
+}
+
+#[test]
+fn a_test_line_gives_a_lane_the_command_that_runs_one_class() {
+    let config = parse_config("test mac ./t.sh --run-only {class}\ntest android ./g.sh --tests *{class}\n").unwrap();
+    assert_eq!(
+        config.tests,
+        vec![
+            ClassTest { lane: Lane::Mac, command: words("./t.sh --run-only {class}") },
+            ClassTest { lane: Lane::Android, command: words("./g.sh --tests *{class}") },
+        ]
+    );
+    assert_eq!(config.class_test(Lane::Android).unwrap().command[2], "*{class}");
+    assert!(parse_config("step mac s ./a\n").unwrap().class_test(Lane::Mac).is_none());
+}
+
+#[test]
+fn a_test_line_needs_a_lane_a_class_placeholder_and_to_be_the_only_one_of_its_lane() {
+    assert!(parse_config("test mac ./t.sh --run-only\n").is_err(), "no {{class}}");
+    assert!(parse_config("test mac\n").is_err(), "no command");
+    assert!(parse_config("test ios ./t {class}\n").is_err(), "a lane there is none of");
+    assert!(parse_config("test mac ./a {class}\ntest mac ./b {class}\n").is_err(), "two for a lane");
+}
+
+#[test]
+fn the_class_fills_each_word_it_stands_in() {
+    let test = ClassTest { lane: Lane::Mac, command: words("./g.sh --tests *{class}") };
+    assert_eq!(test.command_for("FooTest"), words("./g.sh --tests *FooTest"));
 }

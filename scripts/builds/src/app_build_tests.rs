@@ -79,3 +79,44 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(unsafe { libc::kill(background, 0) }, -1, "the step's background process was killed with its group");
 }
+
+fn args(words: &[&str]) -> Vec<String> {
+    words.iter().map(|w| w.to_string()).collect()
+}
+
+#[test]
+fn test_flags_follow_the_steps_each_naming_a_lane_and_a_class() {
+    let (names, tests) = split_tests(&args(&["one", "two", "--test", "mac", "FooTests", "--test", "android", "BarTest"])).unwrap();
+    assert_eq!(names, args(&["one", "two"]));
+    assert_eq!(tests, vec![(Lane::Mac, "FooTests".to_string()), (Lane::Android, "BarTest".to_string())]);
+    assert_eq!(split_tests(&args(&["one"])).unwrap(), (args(&["one"]), Vec::new()));
+}
+
+#[test]
+fn a_test_flag_needs_a_lane_and_a_class_that_is_one_plain_word() {
+    for bad in [&["--test"][..], &["--test", "mac"], &["--test", "ios", "X"], &["--test", "mac", "--run-only"], &["--test", "mac", "A B"], &["--test", "mac", ""], &["--test", "mac", "X", "stray"]] {
+        assert!(split_tests(&args(bad)).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn a_lane_runs_its_steps_then_its_classes_and_only_the_classes_when_no_step_is_named() {
+    let config = parse_config("step mac one ./one\ntest mac ./t {class}\ntest android ./g {class}\n").unwrap();
+    let classes = [(Lane::Mac, "A".to_string()), (Lane::Android, "B".to_string()), (Lane::Mac, "C".to_string())];
+    let steps = lane_steps(&config, Lane::Mac, &args(&["one"]), &classes).unwrap();
+    assert_eq!(names(&steps), vec!["one", "test A", "test C"]);
+    assert_eq!(steps[1].command, args(&["./t", "A"]));
+    assert_eq!(steps[1].limit(), TEST_CLASS_LIMIT);
+    let only = lane_steps(&config, Lane::Mac, &[], &classes).unwrap();
+    assert_eq!(names(&only), vec!["test A", "test C"]);
+    let android = lane_steps(&config, Lane::Android, &[], &classes).unwrap();
+    assert_eq!(names(&android), vec!["test B"]);
+    assert_eq!(names(&lane_steps(&config, Lane::Mac, &[], &[]).unwrap()), vec!["one"]);
+}
+
+#[test]
+fn a_lane_without_a_test_line_refuses_a_class() {
+    let config = parse_config("step mac one ./one\n").unwrap();
+    let Err(Fail::Message(message)) = lane_steps(&config, Lane::Mac, &[], &[(Lane::Mac, "A".to_string())]) else { panic!("refused") };
+    assert!(message.contains("no `test mac ...` line"), "{message}");
+}

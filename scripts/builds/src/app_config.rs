@@ -11,7 +11,14 @@
 //! step mac macos ./bae-macos/run.sh --no-open
 //! step android android ./bae-android/compile-all.sh
 //! limit macos 90m
+//! test mac ./bae-macos/test.sh --run-only {class}
+//! test android ./bae-android/gradle.sh :app:testFullDebugUnitTest --tests *{class}
 //! ```
+//!
+//! A `test <lane> <command>` line, at most one per lane, is the command that
+//! runs one test class, `{class}` in a word standing for the class:
+//! `builds app-build <repo> <ref> --test <lane> <Class>` runs it, so a class
+//! needs no step of its own.
 //!
 //! A step belongs to a lane (`mac` or `android`, lane.rs), named first: the
 //! lane's app checkout and lock are where it runs.
@@ -48,6 +55,33 @@ pub struct Config {
     pub android: Option<AndroidApp>,
     /// What `builds app-build` runs, in the order written.
     pub steps: Vec<Step>,
+    /// How each lane runs one test class; at most one per lane.
+    pub tests: Vec<ClassTest>,
+}
+
+impl Config {
+    pub fn class_test(&self, lane: Lane) -> Option<&ClassTest> {
+        self.tests.iter().find(|test| test.lane == lane)
+    }
+}
+
+/// The word in a `test` line's command that the class takes the place of.
+pub const CLASS_PLACEHOLDER: &str = "{class}";
+
+/// A `test <lane> <program> [<args>...]` line: the command, as for `Step`, that
+/// runs one test class of the lane, with `{class}` where the class goes.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ClassTest {
+    pub lane: Lane,
+    pub command: Vec<String>,
+}
+
+impl ClassTest {
+    /// The command with <class> in each word's `{class}`; the class stays one
+    /// argument, never read by a shell.
+    pub fn command_for(&self, class: &str) -> Vec<String> {
+        self.command.iter().map(|word| word.replace(CLASS_PLACEHOLDER, class)).collect()
+    }
 }
 
 /// The `mac` lines.
@@ -120,6 +154,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let (mut mac_build, mut mac_app, mut bundle) = (None, None, None);
     let mut android = None;
     let mut steps: Vec<Step> = Vec::new();
+    let mut tests: Vec<ClassTest> = Vec::new();
     let mut limits: Vec<(String, Duration)> = Vec::new();
     for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
         let (platform, field) = line.split_once(' ').unwrap_or((line, ""));
@@ -147,6 +182,22 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 }
                 steps.push(Step { name, lane, command, limit: None });
             }
+            ("test", _) => {
+                let Some(lane) = Lane::parse(name) else {
+                    fail!("{CONFIG}: {line:?}: a test line starts with its lane, mac or android, not {name:?}");
+                };
+                let command = words(value);
+                if command.is_empty() {
+                    fail!("{CONFIG}: the test line for {name} names no command");
+                }
+                if !command.iter().any(|word| word.contains(CLASS_PLACEHOLDER)) {
+                    fail!("{CONFIG}: the test line for {name} has no {CLASS_PLACEHOLDER} for the class to go in");
+                }
+                if tests.iter().any(|test| test.lane == lane) {
+                    fail!("{CONFIG}: two test lines for {name}");
+                }
+                tests.push(ClassTest { lane, command });
+            }
             ("limit", _) => {
                 let Some(limit) = parse_duration(value) else {
                     fail!("{CONFIG}: {line:?} needs a step and a time like 90s, 30m or 2h");
@@ -170,7 +221,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
         (None, None, None) => None,
         _ => fail!("{CONFIG}: mac needs build, app and bundle lines"),
     };
-    Ok(Config { mac, android, steps })
+    Ok(Config { mac, android, steps, tests })
 }
 
 /// Runs git in <top>, failing with what it said.

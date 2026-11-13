@@ -19,7 +19,12 @@
 //! `run_in_group`, stopping at the first one that fails. A step has a time
 //! limit (app_config.rs): past it the step's process group is killed and the
 //! build fails, which gives up the lock.
-//! `builds app-build <repo> --list` prints the steps.
+//! `builds app-build <repo> --list` prints the steps and the test lines.
+//!
+//! `--test <lane> <Class>` (any number, after the steps) adds, to the end of
+//! that lane's steps, the lane's `test` line (app_config.rs) with the class in
+//! it, one run per class, each with `TEST_CLASS_LIMIT`. With `--test` and no
+//! step named, only the classes run, not every step.
 //!
 //! A takeover stops the step running; the lane's build then runs again from
 //! the checkout, behind the build that took over.
@@ -42,7 +47,7 @@ use crate::lock::{self, Ran, Within};
 use crate::places::Places;
 use crate::text::note;
 
-const USAGE: &str = "usage: builds app-build <repo> <ref> [<step>...] | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...]";
+const USAGE: &str = "usage: builds app-build <repo> <ref> [<step>...] [--test mac|android <Class>]... | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]...";
 
 /// Set by the parent in each lane's process: print the marker line below once
 /// the checkout is known.
@@ -83,6 +88,57 @@ fn chosen(config: &Config, lane: Lane, names: &[String]) -> Result<Vec<Step>> {
         .collect()
 }
 
+/// How long a test class may run, as the limit of a step; the time the
+/// per-class steps in bae's `.app-build` had.
+pub const TEST_CLASS_LIMIT: Duration = Duration::from_secs(10 * 60);
+
+/// The name <class>'s run goes by in messages and the dashboard's step lines.
+const TEST_STEP_PREFIX: &str = "test ";
+
+/// A `--test <lane> <Class>` flag.
+type ClassFlag = (Lane, String);
+
+/// <args> (the steps, then `--test <lane> <Class>` flags) as the step names
+/// and the lane and class of each flag.
+fn split_tests(args: &[String]) -> Result<(Vec<String>, Vec<ClassFlag>)> {
+    let at = args.iter().position(|arg| arg == "--test").unwrap_or(args.len());
+    let (names, mut flags) = (args[..at].to_vec(), &args[at..]);
+    let mut tests = Vec::new();
+    while let Some((flag, rest)) = flags.split_first() {
+        let [lane, class, after @ ..] = rest else {
+            fail!("--test needs a lane and a class\n{USAGE}");
+        };
+        if flag != "--test" {
+            fail!("{flag:?} where --test <lane> <Class> goes\n{USAGE}");
+        }
+        if class.is_empty() || class.starts_with('-') || class.contains(char::is_whitespace) {
+            fail!("--test {} takes one class name, not {class:?}", lane);
+        }
+        tests.push((Lane::parse_or_fail(lane)?, class.clone()));
+        flags = after;
+    }
+    Ok((names, tests))
+}
+
+/// What <lane> runs: its steps (<names>, or every one when none is named and
+/// no class is), then its `test` line for each of <classes> that is the lane's.
+fn lane_steps(config: &Config, lane: Lane, names: &[String], classes: &[ClassFlag]) -> Result<Vec<Step>> {
+    let mut steps =
+        if names.is_empty() && !classes.is_empty() { Vec::new() } else { chosen(config, lane, names)? };
+    for (_, class) in classes.iter().filter(|(own, _)| *own == lane) {
+        let Some(test) = config.class_test(lane) else {
+            fail!("{CONFIG} has no `test {} ...` line, so it cannot run the class {class}", lane.word());
+        };
+        steps.push(Step {
+            name: format!("{TEST_STEP_PREFIX}{class}"),
+            lane,
+            command: test.command_for(class),
+            limit: Some(TEST_CLASS_LIMIT),
+        });
+    }
+    Ok(steps)
+}
+
 /// The names in <names> that are steps of <lane> in <config>, in order.
 fn names_in(config: &Config, lane: Lane, names: &[String]) -> Vec<String> {
     names
@@ -101,11 +157,15 @@ fn run_steps(top: &Path, steps: &[Step]) -> Result<Ran> {
             Ok(Within::Ran(Ran::Finished)) => {}
             Ok(Within::Ran(Ran::TakenOver)) => return Ok(Ran::TakenOver),
             Ok(Within::TimedOut) => {
+                let hint = if step.name.starts_with(TEST_STEP_PREFIX) {
+                    String::new()
+                } else {
+                    format!(" (a `limit {} <time>` line in {CONFIG} sets another)", step.name)
+                };
                 fail!(
-                    "step {} ran past its limit of {} and its process group was killed; the lock goes to the next build (a `limit {} <time>` line in {CONFIG} sets another)",
+                    "step {} ran past its limit of {} and its process group was killed; the lock goes to the next build{hint}",
                     step.name,
                     show_duration(step.limit()),
-                    step.name
                 );
             }
             Err(Fail::Exit(code)) => {
@@ -139,8 +199,15 @@ fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
 }
 
 /// Builds <commit> in <lane>'s app checkout on the lane's lock: <names> are
-/// the lane's steps to run, or all of them when none.
-fn run_lane(places: &Places, repo: &str, lane: Lane, commit: &str, names: &[String]) -> Result<()> {
+/// the lane's steps to run, or all of them when none and no <classes>.
+fn run_lane(
+    places: &Places,
+    repo: &str,
+    lane: Lane,
+    commit: &str,
+    names: &[String],
+    classes: &[ClassFlag],
+) -> Result<()> {
     note(format!("waiting for {repo}'s {} app lock, then building {commit}", lane.word()));
     let mut held = lock::take(places, repo, lane)?;
     loop {
@@ -153,7 +220,7 @@ fn run_lane(places: &Places, repo: &str, lane: Lane, commit: &str, names: &[Stri
             eprintln!("{CHECKOUT_MARKER}{}", held.checkout);
         }
         let config = check_out(&top, commit)?;
-        let steps = chosen(&config, lane, names)?;
+        let steps = lane_steps(&config, lane, names, classes)?;
         if steps.is_empty() {
             fail!("{CONFIG} names no step in the {} lane", lane.word());
         }
@@ -212,7 +279,7 @@ fn copy_lines(
 
 /// Runs the lanes in <lanes> at the same time, each as a process of its own;
 /// fails, naming the lanes, if any does.
-fn run_lanes(repo: &str, commit: &str, lanes: &[(Lane, Vec<String>)]) -> Result<()> {
+fn run_lanes(repo: &str, commit: &str, lanes: &[(Lane, Vec<String>)], classes: &[ClassFlag]) -> Result<()> {
     let exe = std::env::current_exe().context(|| "finding the builds program".to_string())?;
     unsafe {
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
@@ -225,6 +292,7 @@ fn run_lanes(repo: &str, commit: &str, lanes: &[(Lane, Vec<String>)]) -> Result<
         command
             .args(["app-build", repo, "--lane", lane.word(), commit])
             .args(names)
+            .args(classes.iter().filter(|(own, _)| own == lane).flat_map(|(own, class)| ["--test", own.word(), class]))
             .env(PREFIXED, "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -271,8 +339,12 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
         let top = any_checkout(places, repo)?;
         let file = top.join(CONFIG);
         let text = std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
-        for step in parse_config(&text)?.steps {
+        let config = parse_config(&text)?;
+        for step in &config.steps {
             println!("{} {} {}", step.lane.word(), step.name, step.command.join(" "));
+        }
+        for test in &config.tests {
+            println!("{} --test <Class> {}", test.lane.word(), test.command.join(" "));
         }
         return Ok(());
     }
@@ -280,14 +352,17 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
         && flag == "--lane"
         && !commit.starts_with('-')
     {
-        return run_lane(places, repo, Lane::parse_or_fail(word)?, commit, names);
+        let (names, classes) = split_tests(names)?;
+        return run_lane(places, repo, Lane::parse_or_fail(word)?, commit, &names, &classes);
     }
-    let [commit, names @ ..] = rest else {
+    let [commit, tail @ ..] = rest else {
         fail!("{USAGE}");
     };
     if commit.starts_with('-') {
         fail!("{USAGE}");
     }
+    let (names, classes) = split_tests(tail)?;
+    let names = &names[..];
     let config = config_at(places, repo, commit)?;
     for name in names {
         if !config.steps.iter().any(|step| step.name == *name) {
@@ -295,19 +370,29 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
             fail!("{CONFIG} has no step {name} (it has: {})", known.join(", "));
         }
     }
-    // The lanes the steps are in: those with a step named, or with any step
-    // when none is named, each with its own names.
+    for (lane, class) in &classes {
+        if config.class_test(*lane).is_none() {
+            fail!("{CONFIG} has no `test {} ...` line, so it cannot run the class {class}", lane.word());
+        }
+    }
+    // The lanes the steps or classes are in: those with a step named, or with
+    // any step when none is named and no class is, each with its own names.
     let lanes: Vec<(Lane, Vec<String>)> = Lane::ALL
         .into_iter()
         .map(|lane| (lane, names_in(&config, lane, names)))
         .filter(|(lane, own)| {
-            if names.is_empty() { config.steps.iter().any(|step| step.lane == *lane) } else { !own.is_empty() }
+            let classes_here = classes.iter().any(|(class_lane, _)| class_lane == lane);
+            if names.is_empty() && classes.is_empty() {
+                config.steps.iter().any(|step| step.lane == *lane)
+            } else {
+                !own.is_empty() || classes_here
+            }
         })
         .collect();
     if lanes.is_empty() {
         fail!("{CONFIG} names no step");
     }
-    run_lanes(repo, commit, &lanes)
+    run_lanes(repo, commit, &lanes, &classes)
 }
 
 #[cfg(test)]

@@ -405,7 +405,7 @@ Commit your work on your branch in your own side worktree, then run one command
 that holds the lock, moves the app checkout to your commit and builds. In bae:
 
 ```sh
-builds app-build bae <branch> [<step>...]
+builds app-build bae <branch> [<step>...] [--test mac|android <Class>]...
 ```
 
 It queues for the locks of each lane the steps are in, takes the first free one,
@@ -422,6 +422,13 @@ either lane fails, saying which; the other still runs to its end.
 `builds app-build <repo> --list` prints the steps with their lanes. A step is a
 program, not a shell string: a step that needs a shell is a script in the repo.
 A takeover reruns the build from the checkout.
+
+One test class needs no step of its own: the repo declares once per lane, in a
+`test <lane> <program> [<args>...]` line with `{class}` where the class goes,
+how its lane runs a filtered class, and `--test <lane> <Class>` (any number,
+after the steps) runs that line for the class after the lane's steps, each run
+limited to 10 minutes. With `--test` and no step named, only the classes run,
+not every step. The class is one argument, never read by a shell.
 
 A step has a time limit: 45 minutes, or what its `limit <step> <time>` line in
 `.app-build` says (`90s`, `30m`, `2h`). Past it the step's whole process group

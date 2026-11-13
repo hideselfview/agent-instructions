@@ -230,7 +230,7 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     then run, as a background task:
 
     ```sh
-    builds app-build bae <branch> [<step>...]
+    builds app-build bae <branch> [<step>...] [--test mac|android <Class>]...
     ```
 
     It takes the queue for the locks of each lane the steps are in
@@ -252,9 +252,11 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     `android-tests` (run the unit tests from that output) in the android lane. A
     change to a bridge shape or to Swift code runs `macos` and `macos-tests`;
     one to Kotlin runs `android-bridge` and `android`; a bridge shape runs both
-    sets, in one command. Then only the test class that proves the change, from
-    a filtered step (`step mac <name> bae-macos/test.sh --run-only <TestClass>`,
-    or a Gradle `--tests` filter): never `macos-tests-run`, `macos-tests-all` or
+    sets, in one command. Then only the test class that proves the change, with
+    `--test mac <TestClass>` or `--test android <TestClass>` after the steps
+    (`.app-build` declares once per lane how a lane runs one class, the `test`
+    lines with `{class}` in them; no step is added per class, and with no step
+    named only the classes run): never `macos-tests-run`, `macos-tests-all` or
     `android-tests` as a check, since they run every test and put windows on the
     person's screen. CI runs the suites. A step is a program, not a shell
     string: one that needs a shell is a script in the repo
