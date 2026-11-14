@@ -486,9 +486,10 @@ fn the_dashboard_json_carries_the_flags_and_the_trend() {
     let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
     let project = &json["projects"][0]["repos"][0];
     assert_eq!(project["limit_ms"], 45_000);
-    assert_eq!(project["over_limit"][0]["total_ms"], 99_000);
-    assert_eq!(project["over_limit"][0]["worktree"], "/d/bae");
-    assert_eq!(project["over_limit"][0]["checks"][0]["crates"], 0);
+    assert_eq!(project["over_count"], 1);
+    assert_eq!(project["over"][0]["total_ms"], 99_000);
+    assert_eq!(project["over"][0]["worktree"], "/d/bae");
+    assert_eq!(project["over"][0]["checks"][0]["crates"], 0);
     assert!(project["checks"][0]["recent_ms"].is_null());
 }
 
@@ -525,5 +526,12 @@ fn each_repos_runs_are_kept_apart_in_the_figures_and_the_dashboard() {
     let names: Vec<&str> = panels.iter().map(|p| p["repo"].as_str().unwrap()).collect();
     assert_eq!(names, ["agent-instructions", "bae"]);
     assert_eq!(panels[1]["runs"], 2);
-    assert_eq!(panels[0]["over_limit"].as_array().unwrap().len(), 1);
+    assert_eq!(panels[0]["over"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        (
+            panels[0]["over_count"].as_u64(),
+            panels[1]["over_count"].as_u64()
+        ),
+        (Some(1), Some(0))
+    );
 }

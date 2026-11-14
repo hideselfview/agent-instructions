@@ -197,7 +197,7 @@ impl Demo {
             .unwrap()
             .iter()
             .any(|finding| {
-                finding
+                finding["text"]
                     .as_str()
                     .unwrap()
                     .starts_with("worktree: demo/side-2 ")

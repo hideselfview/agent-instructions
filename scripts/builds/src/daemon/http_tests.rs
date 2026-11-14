@@ -287,36 +287,17 @@ fn a_design_path_is_a_page_or_a_board_of_a_page() {
     }
 }
 
-/// Project `demo` with hook runs made in a repo of its own: one before a change, one on the old base
-/// after it, one on a base that has it, and a slow run.
-fn hook_store(scratch: &Scratch, places: &crate::places::Places) {
+/// Project `demo` with three hook runs in a repo of its own: two over the limit and one under it.
+fn hook_store(_scratch: &Scratch, places: &crate::places::Places) {
     use crate::checks::Kind;
     use crate::hook_stats::{CheckRecord, DATABASE, Outcome, Run, record};
-    use crate::testing::{git, repo};
-    let top = scratch.dir.join("hooked");
-    repo(&top, "target 1\n");
-    let head = |dir: &std::path::Path| {
-        let out = std::process::Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .args(["rev-parse", "HEAD"])
-            .output()
-            .unwrap();
-        String::from_utf8(out.stdout).unwrap().trim().to_string()
-    };
-    let old = head(&top);
-    std::fs::write(top.join("change.txt"), "c").unwrap();
-    git(&top, &["add", "change.txt"]);
-    git(&top, &["commit", "-q", "-m", "The change"]);
-    std::fs::write(scratch.dir.join("change"), head(&top)).unwrap();
-    let new = head(&top);
     let store = crate::lists::fixtures::make_store(places, &["demo"]);
-    let run = |at: i64, base: &str, total_ms: u64, clippy_ms: u64| Run {
+    let run = |at: i64, total_ms: u64, clippy_ms: u64| Run {
         at,
         repo: "demo".into(),
-        worktree: top.to_string_lossy().into_owned(),
+        worktree: "/d/demo".into(),
         branch: Some("main".into()),
-        base: Some(base.into()),
+        base: None,
         passed: true,
         plan_ms: 1,
         total_ms,
@@ -330,64 +311,24 @@ fn hook_store(scratch: &Scratch, places: &crate::places::Places) {
         }],
     };
     for r in [
-        run(1, &old, 80_000, 70_000),
-        run(2_000_000_000, &old, 90_000, 85_000),
-        run(2_000_000_001, &new, 20_000, 10_000),
+        run(1, 80_000, 70_000),
+        run(2_000_000_000, 90_000, 85_000),
+        run(2_000_000_001, 20_000, 10_000),
     ] {
         record(&store.dir.join(DATABASE), &r).unwrap();
     }
 }
 
 #[test]
-fn the_daemon_serves_the_hook_runs_with_their_flag_and_splits_them_by_a_change_on_request() {
+fn the_daemon_serves_the_hook_runs_with_their_over_limit_runs() {
     let s = server_with("http-hooks", hook_store);
-    let change = std::fs::read_to_string(s.scratch.dir.join("change")).unwrap();
     let (status, kind, body) = s.get("/api/hooks");
     assert_eq!((status, kind.as_str()), (200, "application/json"));
     let hooks: serde_json::Value = serde_json::from_str(&body).unwrap();
-    // The newest run of the one check set took 20 s: under the limit, so nothing is flagged.
-    assert_eq!(
-        hooks["projects"][0]["repos"][0]["over_limit"],
-        serde_json::json!([])
-    );
-    let (status, kind, body) = s.get(&format!(
-        "/api/hooks/impact?project=demo&change={}",
-        &change[..10]
-    ));
-    assert_eq!((status, kind.as_str()), (200, "application/json"));
-    let impact: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(
-        (
-            impact["with"]["runs"].as_u64(),
-            impact["without"]["runs"].as_u64()
-        ),
-        (Some(1), Some(2)),
-        "{impact}"
-    );
-    assert_eq!(impact["repo"], "demo");
-    assert_eq!(impact["with"]["checks"][0]["median_crates"], 4);
-    // Asked in a named repo: that repo's runs; a repo with no runs is an error.
-    let (_, _, body) = s.get(&format!(
-        "/api/hooks/impact?project=demo&change={}&repo=demo",
-        &change[..10]
-    ));
-    assert!(body.contains("\"with\""), "{body}");
-    let (_, _, body) = s.get(&format!(
-        "/api/hooks/impact?project=demo&change={}&repo=nonesuch",
-        &change[..10]
-    ));
-    assert!(body.contains("no runs of repo"), "{body}");
-    assert_eq!(impact["without"]["checks"][0]["median_ms"], 77_500);
-    // A change git does not know, a project that is not one, and a request missing a part.
-    let (status, _, body) = s.get("/api/hooks/impact?project=demo&change=nonesuch");
-    assert!(
-        status == 200 && body.contains("\"error\""),
-        "{status} {body}"
-    );
-    let (_, _, body) = s.get(&format!(
-        "/api/hooks/impact?project=other&change={}",
-        &change[..10]
-    ));
-    assert!(body.contains("no project"), "{body}");
-    assert_eq!(s.get("/api/hooks/impact?project=demo").0, 400);
+    let repo = &hooks["projects"][0]["repos"][0];
+    // Two of the three runs took over the limit, the longest first.
+    assert_eq!(repo["over_count"], 2);
+    assert_eq!(repo["over"][0]["total_ms"], 90_000);
+    assert_eq!(repo["over"][1]["total_ms"], 80_000);
+    assert_eq!(s.get("/api/hooks/impact?project=demo").0, 404);
 }

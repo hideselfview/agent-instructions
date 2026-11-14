@@ -448,46 +448,6 @@ pub fn report(project: &str, impact: Option<&Impact>) -> String {
     out
 }
 
-fn side_json(side: &Side) -> serde_json::Value {
-    serde_json::json!({
-        "runs": side.runs, "median_ms": side.median_ms, "slowest_ms": side.slowest_ms,
-        "checks": side.checks.iter().map(|c| serde_json::json!({
-            "name": c.name, "kind": c.kind, "ran": c.ran, "median_ms": c.median_ms,
-            "slowest_ms": c.slowest_ms, "median_crates": c.median_crates,
-        })).collect::<Vec<_>>(),
-    })
-}
-
-/// The dashboard's JSON for `/api/hooks/impact`: the split of <project>'s
-/// runs by <rev> in <repo>, or in the repo that has it when none is named; or
-/// `{"error"}`.
-pub fn impact_json(
-    places: &crate::places::Places,
-    project: &str,
-    rev: &str,
-    repo: Option<&str>,
-) -> String {
-    let value = (|| -> Result<serde_json::Value> {
-        let stores = crate::lists::store::stores(places)?;
-        let Some(store) = stores.iter().find(|store| store.project == project) else {
-            fail!("no project {project:?}")
-        };
-        let Some(impact) = impact(&store.dir.join(hook_stats::DATABASE), rev, repo)? else {
-            return Ok(serde_json::json!({ "project": project, "runs": 0 }));
-        };
-        Ok(serde_json::json!({
-            "project": project, "repo": impact.repo, "runs": impact.with.runs + impact.without.runs,
-            "change": impact.change, "committed_at": impact.committed_at,
-            "with": side_json(&impact.with), "without": side_json(&impact.without),
-            "without_by_time": impact.without_by_time, "unplaced_by_time": impact.unplaced_by_time,
-            "unplaced_by_base": impact.unplaced_by_base,
-        }))
-    })();
-    value
-        .unwrap_or_else(|error| serde_json::json!({ "error": error.text() }))
-        .to_string()
-}
-
 #[cfg(test)]
 #[path = "hook_impact_tests.rs"]
 mod tests;

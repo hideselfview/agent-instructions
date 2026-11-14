@@ -35,6 +35,34 @@ const QUIET_MINUTES: i64 = 60;
 /// Readings of sccache's count this old or older say whether it moved.
 const READING_MINUTES: i64 = 5;
 
+/// What a finding is about, so the dashboard shows the ones nothing else on
+/// its page shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FindingKind {
+    Disk,
+    Sccache,
+    Shells,
+    /// A worktree with commits waiting to land and no claim.
+    Unclaimed,
+    /// A claimed worktree with no change and no build for a while.
+    Quiet,
+    Lists,
+}
+
+/// One line of what needs acting on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Finding {
+    pub kind: FindingKind,
+    pub text: String,
+}
+
+impl Finding {
+    fn new(kind: FindingKind, text: String) -> Finding {
+        Finding { kind, text }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Health {
     pub generated_at: i64,
@@ -49,7 +77,7 @@ pub struct Health {
     /// Each lane's one queue.
     pub queues: Vec<LaneQueue>,
     /// What needs acting on, one line each; empty when nothing does.
-    pub findings: Vec<String>,
+    pub findings: Vec<Finding>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -495,40 +523,55 @@ pub fn assess(
 ) -> Health {
     let mut findings = Vec::new();
     if disk.free_kib < disk.floor_kib {
-        findings.push(format!(
-            "disk: {} free, under the {} floor",
-            human(disk.free_kib),
-            human(disk.floor_kib)
+        findings.push(Finding::new(
+            FindingKind::Disk,
+            format!(
+                "disk: {} free, under the {} floor",
+                human(disk.free_kib),
+                human(disk.floor_kib)
+            ),
         ));
     }
     let s = &machine.sccache;
     if let Some(oldest) = s.waiting.first().map(|c| c.minutes) {
         match (s.listening, s.executed, &s.compared) {
-            (false, _, _) => findings.push(format!(
-                "sccache: no server is listening and {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m)",
-                s.waiting.len()
+            (false, _, _) => findings.push(Finding::new(
+                FindingKind::Sccache,
+                format!(
+                    "sccache: no server is listening and {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m)",
+                    s.waiting.len()
+                ),
             )),
-            (true, Some(now_count), Some(before)) if now_count == before.executed => findings.push(format!(
-                "sccache: {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m) and the server finished no compile since {} ({}m ago)",
-                s.waiting.len(),
-                local_minute(before.at),
-                minutes_since(now, before.at)
+            (true, Some(now_count), Some(before)) if now_count == before.executed => findings.push(Finding::new(
+                FindingKind::Sccache,
+                format!(
+                    "sccache: {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m) and the server finished no compile since {} ({}m ago)",
+                    s.waiting.len(),
+                    local_minute(before.at),
+                    minutes_since(now, before.at)
+                ),
             )),
             _ => {}
         }
     }
     if !machine.shells.junk.is_empty() {
-        findings.push(format!(
-            "shells: {} junk, listed under shells; stop them by pid",
-            machine.shells.junk.len()
+        findings.push(Finding::new(
+            FindingKind::Shells,
+            format!(
+                "shells: {} junk, listed under shells; stop them by pid",
+                machine.shells.junk.len()
+            ),
         ));
     }
     for Unclaimed { place, git } in unclaimed {
         if !git.ahead.is_empty() {
-            findings.push(format!(
-                "worktree: {} has no claim and {} waiting to land, so it is not retired",
-                places[place].label,
-                crate::text::counted(git.ahead.len(), "commit", "commits")
+            findings.push(Finding::new(
+                FindingKind::Unclaimed,
+                format!(
+                    "worktree: {} has no claim and {} waiting to land, so it is not retired",
+                    places[place].label,
+                    crate::text::counted(git.ahead.len(), "commit", "commits")
+                ),
             ));
         }
     }
@@ -561,12 +604,15 @@ pub fn assess(
             && app_build.is_none()
             && quiet_minutes.is_none_or(|m| m >= QUIET_MINUTES)
         {
-            findings.push(format!(
-                "worktree: {label} ({}) has had no change for {} and no build runs there",
-                claim.who,
-                quiet_minutes
-                    .map(|m| format!("{m}m"))
-                    .unwrap_or_else(|| "as long as git can tell".to_string())
+            findings.push(Finding::new(
+                FindingKind::Quiet,
+                format!(
+                    "worktree: {label} ({}) has had no change for {} and no build runs there",
+                    claim.who,
+                    quiet_minutes
+                        .map(|m| format!("{m}m"))
+                        .unwrap_or_else(|| "as long as git can tell".to_string())
+                ),
             ));
         }
         worktrees.push(WorktreeHealth {
@@ -580,7 +626,11 @@ pub fn assess(
             app_build,
         });
     }
-    findings.extend(lists);
+    findings.extend(
+        lists
+            .into_iter()
+            .map(|text| Finding::new(FindingKind::Lists, text)),
+    );
     Health {
         generated_at: now,
         load: machine.load,
@@ -856,7 +906,7 @@ pub fn lines(health: &Health) -> Vec<String> {
     } else {
         out.push("needs action:".to_string());
         for finding in &health.findings {
-            out.push(format!("    {finding}"));
+            out.push(format!("    {}", finding.text));
         }
     }
     out
@@ -974,7 +1024,9 @@ mod tests {
         );
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
         assert!(
-            health.findings[0].starts_with("worktree: demo/side-1 "),
+            health.findings[0]
+                .text
+                .starts_with("worktree: demo/side-1 "),
             "{:?}",
             health.findings
         );
@@ -1045,6 +1097,7 @@ mod tests {
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
         assert!(
             health.findings[0]
+                .text
                 .starts_with("worktree: demo/side-1 has no claim and 1 commit waiting to land"),
             "{:?}",
             health.findings

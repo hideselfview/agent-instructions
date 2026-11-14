@@ -269,6 +269,10 @@ pub struct Stats {
     pub slowest: Vec<Run>,
     /// The latest runs, newest first.
     pub recent: Vec<Run>,
+    /// How many runs took over `LIMIT_MS`.
+    pub over_count: u32,
+    /// The longest runs over `LIMIT_MS`, longest first, at most `OVER_RUNS`.
+    pub over: Vec<Run>,
     /// Of every set of checks that ran, the newest run when it took over
     /// `LIMIT_MS`, longest first: what needs acting on. A newer run of the
     /// same set under the limit ends it (`over_limit`).
@@ -277,6 +281,8 @@ pub struct Stats {
 
 /// How many of the longest runs `Stats` holds.
 pub const SLOWEST_RUNS: usize = 5;
+/// How many of the runs over the limit `Stats` holds.
+pub const OVER_RUNS: usize = 20;
 /// How many of the latest runs `Stats` holds.
 pub const RECENT_RUNS: usize = 20;
 
@@ -399,6 +405,22 @@ pub fn stats(path: &Path, since: i64, repo: &str) -> Result<Option<Stats>> {
         path,
     )?;
     let over_limit = over_limit(&conn, since, repo, path)?;
+    let over_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM hook_runs WHERE started_at >= ?1 AND repo = ?2 AND total_ms > ?3",
+            params![since, repo, LIMIT_MS as i64],
+            |row| row.get(0),
+        )
+        .context(what)?;
+    let over = runs_where(
+        &conn,
+        &format!(
+            "started_at >= ?1 AND repo = ?2 AND total_ms > {LIMIT_MS} ORDER BY total_ms DESC, started_at DESC"
+        ),
+        (since, repo),
+        OVER_RUNS,
+        path,
+    )?;
     Ok(Some(Stats {
         runs: runs as u32,
         failed: failed as u32,
@@ -407,6 +429,8 @@ pub fn stats(path: &Path, since: i64, repo: &str) -> Result<Option<Stats>> {
         checks,
         slowest,
         recent,
+        over_count: over_count as u32,
+        over,
         over_limit,
     }))
 }
@@ -777,7 +801,8 @@ fn repo_json(repo: &str, path: &Path) -> serde_json::Value {
             })).collect::<Vec<_>>(),
             "trend_runs": TREND_RUNS,
             "limit_ms": LIMIT_MS,
-            "over_limit": stats.over_limit.iter().map(run_json).collect::<Vec<_>>(),
+            "over_count": stats.over_count,
+            "over": stats.over.iter().map(run_json).collect::<Vec<_>>(),
             "slowest": stats.slowest.iter().map(run_json).collect::<Vec<_>>(),
             "recent": stats.recent.iter().map(run_json).collect::<Vec<_>>(),
         }),
