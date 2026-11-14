@@ -174,7 +174,8 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         &diff,
         inputs.brief.as_ref(),
         &settled_for,
-    );
+    )
+    .calls;
     let stamp = inputs.stamp;
     let (landing, run_id, stored_calls, findings) =
         inputs

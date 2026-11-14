@@ -12,6 +12,7 @@ fn group(name: &str, enumerate: bool) -> Group {
         project_facts: false,
         enumerate,
         sites: enumerate.then(|| "handles rows a query returned".to_string()),
+        passes: 1,
     }
 }
 

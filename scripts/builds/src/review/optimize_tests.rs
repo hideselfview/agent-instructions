@@ -123,6 +123,7 @@ fn a_current_grouping_that_misses_a_finding_is_not_compared_against() {
 #[test]
 fn a_candidate_with_more_false_blocking_findings_does_not_qualify() {
     let t = |found, false_blocking, tokens_in| Totals {
+        repeat: Default::default(),
         expected: 2,
         found,
         false_blocking,

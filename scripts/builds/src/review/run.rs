@@ -152,13 +152,18 @@ pub fn ask_groups(
     diff: &Diff,
     brief: Option<&(String, String)>,
     settled: &(dyn Fn(&str) -> Vec<Settled> + Sync),
-) -> Vec<NewCall> {
+) -> Asked {
     let files = parse_diff(&diff.text);
     let by_file = files::split(&diff.text);
     // The reviewers read the repository at the commit under review.
     let checkout = match diff.source.as_ref().map(files::Source::checkout) {
         Some(Ok(checkout)) => Some(checkout),
-        Some(Err(why)) => return failed_all(picked, &why.text()),
+        Some(Err(why)) => {
+            return Asked {
+                calls: failed_all(picked, &why.text()),
+                repeat: Tokens::default(),
+            };
+        }
         None => None,
     };
     let mut units: Vec<Unit> = Vec::new();
@@ -227,7 +232,8 @@ pub fn ask_groups(
     };
     // The first call of each group runs alone with the others of its group
     // held back: it writes the group's system prompt to the cache, and the
-    // rest read it from there.
+    // rest read it from there. A group's later passes repeat the same
+    // prompts after that, so they read the cache too.
     let mut first: Vec<usize> = Vec::new();
     for (i, unit) in units.iter().enumerate() {
         if !first
@@ -238,22 +244,58 @@ pub fn ask_groups(
         }
     }
     let rest: Vec<usize> = (0..units.len()).filter(|i| !first.contains(i)).collect();
-    let mut slots: Vec<Option<NewCall>> = units.iter().map(|_| None).collect();
+    let mut done: Vec<Vec<NewCall>> = units.iter().map(|_| Vec::new()).collect();
     for (i, call) in first.iter().zip(parallel_map(&first, |&i| one(&units[i]))) {
-        slots[*i] = Some(call);
+        done[*i].push(call);
     }
     for (i, call) in rest.iter().zip(parallel_map(&rest, |&i| one(&units[i]))) {
-        slots[*i] = Some(call);
+        done[*i].push(call);
     }
-    let done = slots.into_iter().map(|c| c.expect("every unit ran"));
-    let mut calls: Vec<NewCall> = Vec::new();
-    for (unit, call) in units.iter().zip(done) {
-        match calls.iter_mut().find(|c| c.group == unit.group.name) {
-            Some(held) => merge(held, call),
-            None => calls.push(call),
+    let most = units.iter().map(|u| u.group.passes).max().unwrap_or(1);
+    let mut repeat = Tokens::default();
+    for pass in 1..most {
+        let again: Vec<usize> = (0..units.len())
+            .filter(|&i| units[i].group.passes > pass)
+            .collect();
+        for (i, call) in again.iter().zip(parallel_map(&again, |&i| one(&units[i]))) {
+            repeat.add(&call);
+            done[*i].push(call);
         }
     }
-    calls
+    let mut calls: Vec<NewCall> = Vec::new();
+    for (unit, made) in units.iter().zip(done) {
+        for call in made {
+            match calls.iter_mut().find(|c| c.group == unit.group.name) {
+                Some(held) => merge(held, call),
+                None => calls.push(call),
+            }
+        }
+    }
+    Asked { calls, repeat }
+}
+
+/// What a review asked: one call per group, and the tokens of the passes
+/// after each group's first.
+pub struct Asked {
+    pub calls: Vec<NewCall>,
+    pub repeat: Tokens,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tokens {
+    pub input: i64,
+    pub cached: i64,
+    pub written: i64,
+    pub output: i64,
+}
+
+impl Tokens {
+    fn add(&mut self, call: &NewCall) {
+        self.input += call.tokens_in;
+        self.cached += call.tokens_cached;
+        self.written += call.tokens_written;
+        self.output += call.tokens_out;
+    }
 }
 
 /// A failed call for each group of <picked>, because the checkout the
@@ -298,7 +340,17 @@ fn merge(held: &mut NewCall, more: NewCall) {
             None => held.verdicts.push((rule, verdict)),
         }
     }
-    held.findings.extend(more.findings);
+    for finding in more.findings {
+        let same = held.findings.iter().any(|f| {
+            f.rule == finding.rule
+                && f.file == finding.file
+                && crate::review::check::squash(&f.code)
+                    == crate::review::check::squash(&finding.code)
+        });
+        if !same {
+            held.findings.push(finding);
+        }
+    }
     held.sites = match (held.sites.take(), more.sites) {
         (Some(a), Some(b)) => Some(
             json!([

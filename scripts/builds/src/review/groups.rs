@@ -13,6 +13,10 @@ use crate::review::rules::Rule;
 /// Where the file sits in a checkout.
 pub const FILE: &str = "review/groups.toml";
 
+fn one() -> usize {
+    1
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Group {
@@ -40,6 +44,10 @@ pub struct Group {
     /// "every site in the diff that ...".
     #[serde(default)]
     pub sites: Option<String>,
+    /// How many times each call is made; the findings of all are kept. The
+    /// later calls of one prompt read the first one's prompt from the cache.
+    #[serde(default = "one")]
+    pub passes: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -93,6 +101,12 @@ impl Groups {
             if !group.enumerate && group.sites.is_some() {
                 faults.push(format!(
                     "group {} says what a site is but does not list sites (`enumerate`)",
+                    group.name
+                ));
+            }
+            if group.passes == 0 {
+                faults.push(format!(
+                    "group {} makes no call (`passes` is 0)",
                     group.name
                 ));
             }

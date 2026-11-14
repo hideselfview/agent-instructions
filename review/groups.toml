@@ -19,6 +19,9 @@
 #             hunk is in the message)
 # sites      what a site is, for an enumerate group: the end of "every site in
 #             the diff that ..."
+# passes     how many times each call is made, default 1; the findings of all
+#             are kept, and the later calls read the first one's prompt from
+#             the cache
 # project_facts true when the group also answers for the project facts that
 #             every commit keeps (the spec moves with the commit, bae writes as
 #             local), as one more verdict named project-facts
@@ -30,6 +33,7 @@ model = "opus"
 rules = ["reactive-screens-read-plain-live-queries"]
 principles = []
 enumerate = true
+passes = 2
 sites = "handles rows a query returned, in Rust, Swift or Kotlin: a filter, a pick (first, find, first(where:)), a membership test (contains, isSubset, a Set of ids), a length or emptiness test, a count, a sort, a group, a join, a map that drops rows, or a subscription taken once"
 
 [[group]]

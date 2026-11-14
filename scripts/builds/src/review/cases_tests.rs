@@ -230,7 +230,7 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
     let fake = fake(&scratch.dir);
     std::fs::write(
         fake.root.join("review/groups.toml"),
-        "[[group]]\nname = \"alpha\"\nquestion = \"q\"\nmodel = \"sonnet\"\nrules = [\"rule-a\"]\nenumerate = true\nsites = \"handles rows\"\n\n[[group]]\nname = \"beta\"\nquestion = \"q\"\nmodel = \"opus\"\nrules = [\"rule-b\"]\n",
+        "[[group]]\nname = \"alpha\"\nquestion = \"q\"\nmodel = \"sonnet\"\nrules = [\"rule-a\"]\nenumerate = true\npasses = 2\nsites = \"handles rows\"\n\n[[group]]\nname = \"beta\"\nquestion = \"q\"\nmodel = \"opus\"\nrules = [\"rule-b\"]\n",
     )
     .unwrap();
     fake.answer_task(
@@ -254,11 +254,16 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
     let result = replay_case(&material(&fake), &fake.program, &case, None);
     let alpha: Vec<_> = result.calls.iter().filter(|c| c.group == "alpha").collect();
     assert_eq!(alpha.len(), 1, "one merged call per group");
-    assert_eq!(alpha[0].findings.len(), 2, "one finding from each .rs file");
-    assert_eq!(alpha[0].tokens_in, 100, "two calls of 50 tokens");
+    assert_eq!(
+        alpha[0].findings.len(),
+        1,
+        "the same finding raised by several calls is kept once"
+    );
+    assert_eq!(alpha[0].tokens_in, 200, "four calls of 50 tokens");
+    assert_eq!(result.repeat.input, 100, "the second pass is two calls");
     let prompts = fake.prompts();
     let alpha_prompts: Vec<_> = prompts.iter().filter(|(g, _)| g == "alpha").collect();
-    assert_eq!(alpha_prompts.len(), 2);
+    assert_eq!(alpha_prompts.len(), 4, "two files, two passes");
     assert!(alpha_prompts.iter().all(|(_, t)| !t.contains("c.swift")));
     assert_eq!(prompts.iter().filter(|(g, _)| g == "beta").count(), 1);
 }

@@ -13,7 +13,7 @@ use crate::review::check::parse_diff;
 use crate::review::files::Source;
 use crate::review::groups::Groups;
 use crate::review::record::{Kind, NewCall, NewRun};
-use crate::review::run::{Diff, Material, ask_groups};
+use crate::review::run::{Diff, Material, Tokens, ask_groups};
 
 pub const DIR: &str = "review/cases";
 const PATCH: &str = "change.patch";
@@ -182,6 +182,8 @@ pub struct CaseResult {
     /// Blocking findings on a rule the case must keep quiet.
     pub false_blocking: usize,
     pub calls: Vec<NewCall>,
+    /// The tokens of the passes after each group's first.
+    pub repeat: Tokens,
 }
 
 impl CaseResult {
@@ -215,7 +217,8 @@ pub fn replay_case(
         changed: files.iter().map(|f| f.path.clone()).collect(),
     };
     let picked = material.groups.pick(&material.rules, &diff.changed);
-    let calls = ask_groups(material, reviewer, &picked, &diff, None, &|_| Vec::new());
+    let asked = ask_groups(material, reviewer, &picked, &diff, None, &|_| Vec::new());
+    let (calls, repeat) = (asked.calls, asked.repeat);
     let accepted: Vec<&crate::review::record::NewFinding> = calls
         .iter()
         .flat_map(|c| c.findings.iter())
@@ -241,6 +244,7 @@ pub fn replay_case(
         missed,
         false_blocking,
         calls,
+        repeat,
     }
 }
 
@@ -314,6 +318,8 @@ pub struct Totals {
     /// Of tokens_in, the part read from the prompt cache and the part written to it.
     pub tokens_cached: i64,
     pub tokens_written: i64,
+    /// Of those, what the passes after each group's first used.
+    pub repeat: Tokens,
 }
 
 pub fn totals(results: &[CaseResult]) -> Totals {
@@ -326,6 +332,7 @@ pub fn totals(results: &[CaseResult]) -> Totals {
         tokens_out: 0,
         tokens_cached: 0,
         tokens_written: 0,
+        repeat: Tokens::default(),
     };
     for r in results {
         t.expected += r.expected;
@@ -337,6 +344,10 @@ pub fn totals(results: &[CaseResult]) -> Totals {
         t.tokens_out += o;
         t.tokens_cached += r.calls.iter().map(|c| c.tokens_cached).sum::<i64>();
         t.tokens_written += r.calls.iter().map(|c| c.tokens_written).sum::<i64>();
+        t.repeat.input += r.repeat.input;
+        t.repeat.cached += r.repeat.cached;
+        t.repeat.written += r.repeat.written;
+        t.repeat.output += r.repeat.output;
     }
     t
 }
@@ -378,6 +389,16 @@ pub fn report(results: &[CaseResult]) -> String {
         t.tokens_written,
         t.tokens_out
     ));
+    if t.repeat != Tokens::default() {
+        out.push_str(&format!(
+            "repeat passes: {} tokens in ({} uncached, {} read from the cache, {} written to it), {} out\n",
+            t.repeat.input,
+            t.repeat.input - t.repeat.cached - t.repeat.written,
+            t.repeat.cached,
+            t.repeat.written,
+            t.repeat.output
+        ));
+    }
     out
 }
 

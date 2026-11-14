@@ -77,6 +77,7 @@ fn synthetic(name: String, model: &str, question: &str, rules: &[&Rule], groups:
         project_facts: false,
         enumerate: false,
         sites: None,
+        passes: 1,
     }
 }
 
@@ -298,6 +299,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
         run::ask_groups(&material, inputs.reviewer, &picked, &diff, None, &|_| {
             Vec::new()
         })
+        .calls
     };
     let calls_rules = ask(&per_rule);
     let calls_shuffled = ask(&shuffled);
