@@ -102,14 +102,21 @@ session keeps no page of its own. `builds design render DIR BOARD` prints a
 board as a page of HTML to look at while drawing. Once the person says to land
 it, the session approves it (`builds design approve N --by-person`) and lands it
 with `builds land <worktree> --design N <sha>...` from bae's landing worktree
-(side-7). For the design session, "land" means committing the boards, design
-system and spec lines to git, pushing them to `main`, and publishing the canvas
-(`design/mocks/README.md` names the two canvases and which pages each holds).
-The commit on `main` is the record of what landed; the published canvas lets
-anyone look at the landed boards. Landing closes the change, which takes it off
-the tab and frees the app work that waits on it. The apps being built to match
-is the items' job, and recording a change puts every piece of app work it needs
-on the queue in the same step (the person, 2026-11-10 and 2026-11-13).
+(side-7). A change that only makes boards follow the design system's measures or
+fixes a drawing mistake, with no new screen, state, words or behavior, needs no
+review: the session approves and lands it on the person's standing word (the
+person, 2026-11-14: "random little tweaks like this you can do w/o me").
+Anything else the session wants the person to look at, such as a proposal or
+before and after examples, goes to them as a recorded design change, never as a
+page the session makes by hand (the person, 2026-11-14). For the design session,
+"land" means committing the boards, design system and spec lines to git, pushing
+them to `main`, and publishing the canvas (`design/mocks/README.md` names the
+two canvases and which pages each holds). The commit on `main` is the record of
+what landed; the published canvas lets anyone look at the landed boards. Landing
+closes the change, which takes it off the tab and frees the app work that waits
+on it. The apps being built to match is the items' job, and recording a change
+puts every piece of app work it needs on the queue in the same step (the person,
+2026-11-10 and 2026-11-13).
 
 Each item's title is for the person (the person, 2026-11-13: "this will be the
 human title"). An agent's brief names the item ids it takes, and its work lands
