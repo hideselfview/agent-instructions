@@ -61,7 +61,7 @@ fn the_cheapest_grouping_that_loses_no_recall_is_adopted_with_its_numbers() {
             (&merged("both-rules"), "one call covers both rules"),
         ],
     );
-    let decision = optimize(&fake.root, &fake.program, &fake.program, &[], &[]).unwrap();
+    let decision = optimize(&fake.root, &fake.program, &fake.program, None, &[], &[]).unwrap();
     assert!(
         decision
             .text
@@ -95,7 +95,7 @@ fn nothing_changes_when_no_proposal_is_valid_cheaper_and_whole() {
             (crate::review::fakes::GROUPS, "the same"),
         ],
     );
-    let decision = optimize(&fake.root, &fake.program, &fake.program, &[], &[]).unwrap();
+    let decision = optimize(&fake.root, &fake.program, &fake.program, None, &[], &[]).unwrap();
     assert!(
         decision.text.contains("proposal 1 discarded"),
         "{}",
@@ -111,7 +111,7 @@ fn a_current_grouping_that_misses_a_finding_is_not_compared_against() {
     let (_scratch, fake) = setup("optimize-baseline");
     fake.answer("alpha", &[("rule-a", None)]);
     propose(&fake, &[]);
-    let decision = optimize(&fake.root, &fake.program, &fake.program, &[], &[]).unwrap();
+    let decision = optimize(&fake.root, &fake.program, &fake.program, None, &[], &[]).unwrap();
     assert!(
         decision.text.contains("misses an expected finding"),
         "{}",

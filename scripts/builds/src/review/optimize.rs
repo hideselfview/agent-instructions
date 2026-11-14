@@ -177,6 +177,7 @@ pub fn optimize(
     root: &Path,
     reviewer: &Path,
     proposer: &Path,
+    source_repo: Option<&Path>,
     stats: &[GroupStat],
     rates: &[Rate],
 ) -> Result<Decision> {
@@ -191,7 +192,8 @@ pub fn optimize(
     let groups_text = std::fs::read_to_string(&groups_path)
         .context(|| format!("reading {}", groups_path.display()))?;
     let current = Groups::parse(&groups_text)?;
-    let baseline_results: Vec<CaseResult> = cases::replay_all(root, &all_cases, reviewer, None)?;
+    let baseline_results: Vec<CaseResult> =
+        cases::replay_all(root, &all_cases, reviewer, None, source_repo)?;
     let baseline = cases::totals(&baseline_results);
     let mut text = format!(
         "current grouping: {}\n",
@@ -230,7 +232,8 @@ pub fn optimize(
         match parsed {
             Err(why) => text.push_str(&format!("proposal {n} discarded: {}\n", why.text())),
             Ok(groups) => {
-                let results = cases::replay_all(root, &all_cases, reviewer, Some(&groups))?;
+                let results =
+                    cases::replay_all(root, &all_cases, reviewer, Some(&groups), source_repo)?;
                 let totals = cases::totals(&results);
                 text.push_str(&format!(
                     "proposal {n}: {} ({})\n",

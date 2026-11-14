@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::review::check::parse_diff;
+use crate::review::files::Source;
 use crate::review::groups::Groups;
 use crate::review::record::{Kind, NewCall, NewRun};
 use crate::review::run::{Diff, Material, ask_groups};
@@ -193,9 +194,20 @@ impl CaseResult {
 }
 
 /// Runs <material>'s groups over <case> the way a landing's review does.
-pub fn replay_case(material: &Material, reviewer: &Path, case: &Case) -> CaseResult {
+pub fn replay_case(
+    material: &Material,
+    reviewer: &Path,
+    case: &Case,
+    source_repo: Option<&Path>,
+) -> CaseResult {
     let files = parse_diff(&case.patch);
     let diff = Diff {
+        source: source_repo.and_then(|repo| {
+            Some(Source {
+                repo: repo.to_path_buf(),
+                rev: commit_of(&case.patch)?,
+            })
+        }),
         base: String::new(),
         head: String::new(),
         text: case.patch.clone(),
@@ -231,18 +243,28 @@ pub fn replay_case(material: &Material, reviewer: &Path, case: &Case) -> CaseRes
     }
 }
 
+/// The commit a `git format-patch` file was made from, named on its first line.
+fn commit_of(patch: &str) -> Option<String> {
+    let rest = patch.strip_prefix("From ")?;
+    let sha = rest.split_whitespace().next()?;
+    (sha.len() >= 7 && sha.chars().all(|c| c.is_ascii_hexdigit())).then(|| sha.to_string())
+}
+
 /// Whether two paths name one file, one possibly shortened from the left.
 fn same_file(a: &str, b: &str) -> bool {
     a == b || a.ends_with(&format!("/{b}")) || b.ends_with(&format!("/{a}"))
 }
 
 /// Every case of <cases> replayed, in order. <alternative> stands in for the
-/// checkout's own groups when given.
+/// checkout's own groups when given. A reviewer of one file at a time reads
+/// that file's new text from <source_repo> at the commit the case's patch was
+/// made from.
 pub fn replay_all(
     root: &Path,
     cases: &[Case],
     reviewer: &Path,
     alternative: Option<&Groups>,
+    source_repo: Option<&Path>,
 ) -> Result<Vec<CaseResult>> {
     let mut materials: Vec<(String, Material)> = Vec::new();
     let mut results = Vec::new();
@@ -261,7 +283,7 @@ pub fn replay_all(
             .iter()
             .find(|(project, _)| *project == case.project)
             .expect("loaded above");
-        results.push(replay_case(material, reviewer, case));
+        results.push(replay_case(material, reviewer, case, source_repo));
     }
     Ok(results)
 }

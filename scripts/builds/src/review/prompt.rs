@@ -35,6 +35,9 @@ pub struct Input<'a> {
     pub brief: Option<&'a (String, String)>,
     pub settled: &'a [Settled],
     pub diff: &'a str,
+    /// The new text of the diff's file around each hunk, when the group
+    /// reviews one file per call; empty otherwise.
+    pub context: &'a str,
 }
 
 /// The verdict names a group answers for: its rules, then project-facts.
@@ -124,6 +127,12 @@ pub fn shared(input: &Input) -> String {
         "\n# Diff\n\n```diff\n{}\n```\n",
         input.diff.trim_end()
     ));
+    if !input.context.is_empty() {
+        out.push_str(&format!(
+            "\n# The file's new text around each hunk\n\n```\n{}\n```\n",
+            input.context.trim_end()
+        ));
+    }
     out
 }
 
@@ -153,6 +162,7 @@ pub fn group_part(input: &Input) -> String {
     if group.enumerate {
         out.push_str(
             "\nHow to answer. Put your answer in `summary` and `sites`, and leave `rules` out.\n\
+             - The message holds one changed file: its diff, then its new text around each hunk with line numbers. Read the new text to see what each value is, where it comes from and what the code around the site does with it.\n\
              - First list every site in the diff that handles rows a query returned, in Rust, Swift or Kotlin: a filter, a pick (first, find, first(where:)), a membership test (contains, isSubset, a Set of ids), a count, a sort, a group, a join, a map that drops rows, or a subscription taken once. Give each site its file, the line number in the new file, its kind, and its code copied exactly from the diff.\n\
              - Then give each site a verdict against each \"Never\" clause of the rule: `finding`, with the clause copied exactly from the rule's text below and one or two plain sentences on what goes wrong, or `none`.\n\
              - Consider only sites on lines the diff adds or changes. A diff with no such site has an empty `sites`, and `summary` says so; otherwise `summary` says in a sentence what the diff does with returned rows.\n\

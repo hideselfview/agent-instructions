@@ -5,11 +5,14 @@
 use std::path::Path;
 use std::process::Stdio;
 
+use serde_json::json;
+
 use crate::checkout::{git, parallel_map};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::review::call;
 use crate::review::check::{DiffFile, clause_in, code_in, parse_diff};
+use crate::review::files::{self, FileDiff, Source};
 use crate::review::groups::{Group, Groups};
 use crate::review::prompt::{self, PROJECT_FACTS, Settled};
 use crate::review::record::{NewCall, NewFinding};
@@ -80,6 +83,8 @@ pub fn hash(text: &str) -> String {
 
 /// A change to review.
 pub struct Diff {
+    /// Where the new text of a changed file is read, when it can be.
+    pub source: Option<Source>,
     pub base: String,
     pub head: String,
     pub text: String,
@@ -116,6 +121,10 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
     let names = text_of(&["diff", "--no-color", "--name-only", &range])?;
     let head = text_of(&["rev-parse", head])?.trim().to_string();
     Ok(Diff {
+        source: Some(Source {
+            repo: worktree.to_path_buf(),
+            rev: head.clone(),
+        }),
         base: merge_base,
         head,
         text,
@@ -123,7 +132,18 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
     })
 }
 
-/// Asks one reviewer per group of <picked> and checks what comes back.
+/// One reviewer's work: a group, and for a group that lists sites the one
+/// file it reads.
+struct Unit<'a> {
+    group: &'a Group,
+    members: &'a [&'a Rule],
+    file: Option<FileDiff>,
+}
+
+/// Asks the reviewers of <picked> and checks what comes back: one per group,
+/// except that a group that lists sites gets one per changed file its rule
+/// covers, each given that file's diff and its new text around the hunks. The
+/// calls of a group come back as one call with the findings of all.
 pub fn ask_groups(
     material: &Material,
     reviewer: &Path,
@@ -133,41 +153,107 @@ pub fn ask_groups(
     settled: &(dyn Fn(&str) -> Vec<Settled> + Sync),
 ) -> Vec<NewCall> {
     let files = parse_diff(&diff.text);
-    let one = |(group, members): &(&Group, Vec<&Rule>)| {
+    let by_file = files::split(&diff.text);
+    let mut units: Vec<Unit> = Vec::new();
+    for (group, members) in picked {
+        if group.enumerate {
+            for file in &by_file {
+                let path = std::slice::from_ref(&file.path);
+                if members.iter().any(|rule| rule.matches(path)) {
+                    units.push(Unit {
+                        group,
+                        members,
+                        file: Some(file.clone()),
+                    });
+                }
+            }
+        } else {
+            units.push(Unit {
+                group,
+                members,
+                file: None,
+            });
+        }
+    }
+    let one = |unit: &Unit| {
+        let group = unit.group;
         let principles: Vec<(String, String)> = group
             .principles
             .iter()
             .map(|p| material.principle(p))
             .collect();
         let settled = settled(&group.name);
+        let (text_diff, context) = match &unit.file {
+            Some(file) => (
+                file.text.as_str(),
+                files::context(diff.source.as_ref(), &file.path, &file.text),
+            ),
+            None => (diff.text.as_str(), String::new()),
+        };
         let text = prompt::build(&prompt::Input {
             group,
-            rules: members,
+            rules: unit.members,
             project_text: &material.project_text,
             principles: &principles,
             brief,
             settled: &settled,
-            diff: &diff.text,
+            diff: text_diff,
+            context: &context,
         });
-        let names = prompt::answer_names(group, members);
+        let names = prompt::answer_names(group, unit.members);
         let output = call::run(reviewer, &group.model, &names, group.enumerate, &text);
         checked(
             group,
-            members,
+            unit.members,
             &material.project_text,
             &files,
             &names,
             output,
         )
     };
-    // The first call writes the shared prefix of the prompt to the cache and
-    // the rest, started after it answers, read it from there.
-    let Some((first, rest)) = picked.split_first() else {
-        return Vec::new();
-    };
-    let mut calls = vec![one(first)];
-    calls.extend(parallel_map(rest, one));
+    let done = parallel_map(&units, one);
+    let mut calls: Vec<NewCall> = Vec::new();
+    for (unit, call) in units.iter().zip(done) {
+        match calls.iter_mut().find(|c| c.group == unit.group.name) {
+            Some(held) => merge(held, call),
+            None => calls.push(call),
+        }
+    }
     calls
+}
+
+/// <held> with <more>: tokens added, verdicts joined (`finding` when either
+/// is), findings and sites collected, failures kept.
+fn merge(held: &mut NewCall, more: NewCall) {
+    held.tokens_in += more.tokens_in;
+    held.tokens_out += more.tokens_out;
+    held.tokens_cached += more.tokens_cached;
+    held.tokens_written += more.tokens_written;
+    held.failure = match (held.failure.take(), more.failure) {
+        (Some(a), Some(b)) => Some(format!("{a}; {b}")),
+        (a, b) => a.or(b),
+    };
+    for (rule, verdict) in more.verdicts {
+        match held.verdicts.iter_mut().find(|(r, _)| *r == rule) {
+            Some((_, held_verdict)) => {
+                if verdict == "finding" {
+                    *held_verdict = verdict;
+                }
+            }
+            None => held.verdicts.push((rule, verdict)),
+        }
+    }
+    held.findings.extend(more.findings);
+    held.sites = match (held.sites.take(), more.sites) {
+        (Some(a), Some(b)) => Some(
+            json!([
+                serde_json::from_str::<serde_json::Value>(&a).unwrap_or_default(),
+                serde_json::from_str::<serde_json::Value>(&b).unwrap_or_default()
+            ])
+            .to_string(),
+        ),
+        (a, b) => a.or(b),
+    };
 }
 
 /// The call as the store holds it: findings whose clause or code is not

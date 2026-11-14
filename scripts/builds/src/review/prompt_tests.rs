@@ -23,6 +23,7 @@ fn prompt_of(group: &Group, rule: &Rule) -> String {
         brief: Some(&("plans/b.md".to_string(), "The brief.\n".to_string())),
         settled: &[],
         diff: "diff --git a/a.rs b/a.rs\n+x\n",
+        context: "",
     })
 }
 
@@ -40,6 +41,7 @@ fn the_prompts_of_a_landing_share_one_prefix_and_differ_only_after_it() {
         brief: Some(&("plans/b.md".to_string(), "The brief.\n".to_string())),
         settled: &[],
         diff: "diff --git a/a.rs b/a.rs\n+x\n",
+        context: "",
     });
     assert!(first.starts_with(&shared_text) && second.starts_with(&shared_text));
     for part in ["Project facts.", "The brief.", "+x"] {

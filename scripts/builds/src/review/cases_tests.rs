@@ -137,14 +137,14 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
     .unwrap();
     let case = load(&fake.root).unwrap().remove(0);
     fake.answer("alpha", &[("rule-a", Some(BAD))]);
-    let found = replay_case(&material(&fake), &fake.program, &case);
+    let found = replay_case(&material(&fake), &fake.program, &case, None);
     assert_eq!(
         (found.expected, found.found, found.false_blocking),
         (1, 1, 0)
     );
     assert_eq!(found.tokens(), (100, 10));
     fake.answer("alpha", &[("rule-a", None)]);
-    let missed = replay_case(&material(&fake), &fake.program, &case);
+    let missed = replay_case(&material(&fake), &fake.program, &case, None);
     assert_eq!((missed.found, missed.missed.len()), (0, 1));
     // A finding whose code is not in the patch does not count as found.
     fake.answer(
@@ -154,7 +154,10 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
             Some(("Never do the bad thing here.", "a.rs", 1, "not in it", "p")),
         )],
     );
-    assert_eq!(replay_case(&material(&fake), &fake.program, &case).found, 0);
+    assert_eq!(
+        replay_case(&material(&fake), &fake.program, &case, None).found,
+        0
+    );
     // On a clean case, a blocking finding of the quiet rule is a false one.
     let clean = Case {
         name: "clean".to_string(),
@@ -165,11 +168,11 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
     };
     fake.answer("alpha", &[("rule-a", Some(BAD))]);
     assert_eq!(
-        replay_case(&material(&fake), &fake.program, &clean).false_blocking,
+        replay_case(&material(&fake), &fake.program, &clean, None).false_blocking,
         1
     );
     fake.answer("alpha", &[("rule-a", None)]);
-    let quiet = replay_case(&material(&fake), &fake.program, &clean);
+    let quiet = replay_case(&material(&fake), &fake.program, &clean, None);
     assert_eq!(quiet.false_blocking, 0);
     let text = report(&[found, missed, quiet]);
     assert!(
@@ -196,7 +199,7 @@ fn a_failed_call_in_a_replay_is_counted_and_named() {
     .unwrap();
     let case = load(&fake.root).unwrap().remove(0);
     fake.fail("alpha");
-    let result = replay_case(&material(&fake), &fake.program, &case);
+    let result = replay_case(&material(&fake), &fake.program, &case, None);
     let t = totals(std::slice::from_ref(&result));
     assert_eq!((t.failed_calls, t.found), (1, 0));
     assert!(report(&[result]).contains("group alpha failed"));
@@ -219,4 +222,43 @@ fn the_committed_cases_load_and_each_names_a_rule_that_exists() {
     }
     let quiet = cases.iter().filter(|c| c.expected.is_empty()).count();
     assert_eq!(quiet, 2);
+}
+
+#[test]
+fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
+    let scratch = Scratch::new("case-per-file");
+    let fake = fake(&scratch.dir);
+    std::fs::write(
+        fake.root.join("review/groups.toml"),
+        "[[group]]\nname = \"alpha\"\nquestion = \"q\"\nmodel = \"sonnet\"\nrules = [\"rule-a\"]\nenumerate = true\n\n[[group]]\nname = \"beta\"\nquestion = \"q\"\nmodel = \"opus\"\nrules = [\"rule-b\"]\n",
+    )
+    .unwrap();
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "summary": "s",
+            "sites": [{"file": "a.rs", "line": 1, "kind": "filter", "code": "a.rs", "verdict": "finding",
+                       "clause": "Never do the bad thing here.", "problem": "p"}]
+        }),
+    );
+    let patch = format!(
+        "{PATCH}diff --git a/b.rs b/b.rs\nindex 1..2 100644\n--- a/b.rs\n+++ b/b.rs\n@@ -0,0 +1 @@\n+b.rs\ndiff --git a/c.swift b/c.swift\nindex 1..2 100644\n--- a/c.swift\n+++ b/c.swift\n@@ -0,0 +1 @@\n+c\n"
+    );
+    let case = Case {
+        name: "n".to_string(),
+        project: "demo".to_string(),
+        patch,
+        clean_for: Vec::new(),
+        expected: Vec::new(),
+    };
+    let result = replay_case(&material(&fake), &fake.program, &case, None);
+    let alpha: Vec<_> = result.calls.iter().filter(|c| c.group == "alpha").collect();
+    assert_eq!(alpha.len(), 1, "one merged call per group");
+    assert_eq!(alpha[0].findings.len(), 2, "one finding from each .rs file");
+    assert_eq!(alpha[0].tokens_in, 100, "two calls of 50 tokens");
+    let prompts = fake.prompts();
+    let alpha_prompts: Vec<_> = prompts.iter().filter(|(g, _)| g == "alpha").collect();
+    assert_eq!(alpha_prompts.len(), 2);
+    assert!(alpha_prompts.iter().all(|(_, t)| !t.contains("c.swift")));
+    assert_eq!(prompts.iter().filter(|(g, _)| g == "beta").count(), 1);
 }

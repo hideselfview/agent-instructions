@@ -7,11 +7,11 @@
 //! builds review settle FINDING confirmed|dropped --why TEXT
 //! builds review show LANDING
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
-//! builds review replay [--groups FILE] [--case NAME]... [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review audit LANDING --repo-dir DIR
 //! builds review sample --landing KEY --repo-dir DIR
 //! builds review misses | rates
-//! builds review optimize --rules-root DIR [--reviewer PROGRAM] [--proposer PROGRAM]
+//! builds review optimize --rules-root DIR [--source REPO] [--reviewer PROGRAM] [--proposer PROGRAM]
 //! builds review case add ...
 //! ```
 //!
@@ -27,6 +27,7 @@ mod cases;
 mod check;
 #[cfg(test)]
 mod fakes;
+mod files;
 mod groups;
 mod optimize;
 mod prompt;
@@ -49,7 +50,7 @@ use crate::tool::Tool;
 use prompt::Settled;
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review sample --landing KEY --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review optimize --rules-root DIR [--reviewer PROGRAM] [--proposer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review sample --landing KEY --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review optimize --rules-root DIR [--source REPO] [--reviewer PROGRAM] [--proposer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -412,10 +413,15 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
 /// `review/cases` and prints the recall, the false blocking findings and the
 /// tokens. Each replayed case is recorded in its project's store.
 fn replay(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["groups", "case", "rules-root", "reviewer"], &[])?;
+    let args = Args::parse(
+        args,
+        &["groups", "case", "rules-root", "reviewer", "source"],
+        &[],
+    )?;
     args.exactly(0, USAGE)?;
     let root = rules_root(&args)?;
     let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let source = args.value("source")?.map(PathBuf::from);
     let mut all = cases::load(&root)?;
     let wanted = args.values("case");
     if !wanted.is_empty() {
@@ -437,7 +443,13 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let cwd = current_dir()?;
     let stamp = Stamp::resolve(tool.now, &args, &cwd)?;
-    let results = cases::replay_all(&root, &all, &reviewer, alternative.as_ref())?;
+    let results = cases::replay_all(
+        &root,
+        &all,
+        &reviewer,
+        alternative.as_ref(),
+        source.as_deref(),
+    )?;
     for (case, result) in all.iter().zip(&results) {
         let store = Store::named(&tool.places, &case.project)?;
         store.write(&stamp, &format!("review replay {}", case.name), |db| {
@@ -612,7 +624,7 @@ fn rates(tool: &Tool, args: &[String]) -> Result<()> {
 /// `builds review optimize`: asks the proposer for groupings, replays each
 /// over the test set and commits the cheapest one that loses no recall.
 fn optimize(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["rules-root", "reviewer", "proposer"], &[])?;
+    let args = Args::parse(args, &["rules-root", "reviewer", "proposer", "source"], &[])?;
     args.exactly(0, USAGE)?;
     let Some(root) = args.value("rules-root")? else {
         fail!("name the agent-instructions worktree to commit the grouping in with --rules-root");
@@ -637,7 +649,14 @@ fn optimize(tool: &Tool, args: &[String]) -> Result<()> {
             rates.extend(audit::rates(&conn, &by_group)?);
         }
     }
-    let decision = optimize::optimize(&root, &reviewer, &proposer, &stats, &rates)?;
+    let decision = optimize::optimize(
+        &root,
+        &reviewer,
+        &proposer,
+        args.value("source")?.map(Path::new),
+        &stats,
+        &rates,
+    )?;
     print!("{}", decision.text);
     if let Some(adoption) = &decision.adopt {
         optimize::adopt(&root, adoption)?;
