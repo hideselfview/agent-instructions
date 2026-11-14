@@ -14,6 +14,7 @@
 //! test mac ./bae-macos/test.sh --run-only {class}
 //! test android ./bae-android/gradle.sh :app:testFullDebugUnitTest --tests *{class}
 //! shots mac scripts/cargo.sh run -p bae-shots -- run --platform mac --select {select}
+//! shots-source bae-shots
 //! ```
 //!
 //! A `test <lane> <command>` line, at most one per lane, is the command that
@@ -22,6 +23,11 @@
 //! needs no step of its own. A `shots <lane> <command>` line is the same for
 //! a selection of screenshots, `{select}` standing for the prefix of their
 //! names: `--shots <lane> <prefix>` runs it.
+//!
+//! A `shots-source <folder>` line names the folder, relative to the repo's top,
+//! that holds the shots program's source. Its git tree at a commit is the
+//! version of the checker that made a run's findings (shot_findings.rs); with
+//! no such line, builds stores and reads no findings.
 //!
 //! A step belongs to a lane (`mac` or `android`, lane.rs), named first: the
 //! lane's app checkout and lock are where it runs.
@@ -62,6 +68,8 @@ pub struct Config {
     /// How each lane runs one test class and one selection of shots; at most
     /// one of each per lane.
     pub pickers: Vec<Picker>,
+    /// The `shots-source` line: the folder of the shots program's source.
+    pub shots_source: Option<String>,
 }
 
 impl Config {
@@ -229,6 +237,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let mut steps: Vec<Step> = Vec::new();
     let mut pickers: Vec<Picker> = Vec::new();
     let mut limits: Vec<(String, Duration)> = Vec::new();
+    let mut shots_source: Option<String> = None;
     for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
         let (platform, field) = line.split_once(' ').unwrap_or((line, ""));
         let (name, value) = field.trim().split_once(' ').unwrap_or((field.trim(), ""));
@@ -300,6 +309,15 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     command,
                 });
             }
+            ("shots-source", _) => {
+                let folder = field.trim();
+                if folder.is_empty() || folder.contains(char::is_whitespace) {
+                    fail!("{CONFIG}: {line:?} needs one folder name");
+                }
+                if shots_source.replace(folder.to_string()).is_some() {
+                    fail!("{CONFIG}: two shots-source lines");
+                }
+            }
             ("limit", _) => {
                 let Some(limit) = parse_duration(value) else {
                     fail!("{CONFIG}: {line:?} needs a step and a time like 90s, 30m or 2h");
@@ -328,6 +346,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
         android,
         steps,
         pickers,
+        shots_source,
     })
 }
 
@@ -392,9 +411,8 @@ pub fn check_out(top: &Path, commit: &str) -> Result<Config> {
     parse_config(&std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?)
 }
 
-/// Runs <command> in the checkout <top>, in a process group of its own, killed
-/// once <limit> has passed.
-pub fn run_command(top: &Path, command: &[String], limit: Option<Duration>) -> Result<Within> {
+/// The process that runs <command> in the checkout <top>.
+fn start_of(top: &Path, command: &[String]) -> Result<Command> {
     let Some((program, args)) = command.split_first() else {
         fail!("{CONFIG}: a command names no program");
     };
@@ -405,7 +423,24 @@ pub fn run_command(top: &Path, command: &[String], limit: Option<Duration>) -> R
     };
     let mut start = Command::new(path);
     start.args(args).current_dir(top);
-    lock::run_in_group_within(start, program, limit)
+    Ok(start)
+}
+
+/// Runs <command> in the checkout <top>, in a process group of its own, killed
+/// once <limit> has passed.
+pub fn run_command(top: &Path, command: &[String], limit: Option<Duration>) -> Result<Within> {
+    lock::run_in_group_within(start_of(top, command)?, &command[0], limit)
+}
+
+/// `run_command`, passing the command's output on as it arrives and keeping a
+/// copy in <kept>.
+pub fn run_command_capturing(
+    top: &Path,
+    command: &[String],
+    limit: Option<Duration>,
+    kept: &lock::Captured,
+) -> Result<Within> {
+    lock::run_in_group_capturing(start_of(top, command)?, &command[0], limit, kept)
 }
 
 /// The folder of <repo>'s app checkout <name>.

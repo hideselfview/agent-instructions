@@ -47,7 +47,7 @@ use std::time::{Duration, Instant};
 
 use crate::app_config::{
     CONFIG, Config, PickKind, Step, app_checkout_top, check_out, parse_config, run_command,
-    run_git, show_duration,
+    run_command_capturing, run_git, show_duration,
 };
 use crate::app_timing::{self, RunRecord, StepKind, StepRecord, StepResult, Timer};
 use crate::checkout::Checkout;
@@ -57,9 +57,10 @@ use crate::fail::{Context, Fail, Result};
 use crate::lane::Lane;
 use crate::lock::{self, Ran, Within};
 use crate::places::Places;
+use crate::shot_findings;
 use crate::text::note;
 
-const USAGE: &str = "usage: builds app-build <repo> <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]... | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]...";
+const USAGE: &str = "usage: builds app-build <repo> <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--fresh] | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]...";
 
 /// Set by the parent in each lane's process: print the marker line below once
 /// the checkout is known.
@@ -290,7 +291,12 @@ fn resolve(top: &Path, rev: &str) -> Result<String> {
 /// Runs <steps> in the checkout <top> in order, stopping at the first that
 /// fails; `TakenOver` when a takeover stopped one. Each step it starts is
 /// timed into <log> (app_timing.rs).
-fn run_steps(top: &Path, steps: &[Step], log: &mut Vec<StepRecord>) -> Result<Ran> {
+fn run_steps(
+    top: &Path,
+    steps: &[Step],
+    log: &mut Vec<StepRecord>,
+    shots: Option<&ShotsStore>,
+) -> Result<Ran> {
     for step in steps {
         note(format!("step {}", step.name));
         let kind = match pick_kind_of(&step.name) {
@@ -299,7 +305,26 @@ fn run_steps(top: &Path, steps: &[Step], log: &mut Vec<StepRecord>) -> Result<Ra
             None => StepKind::Step,
         };
         let timer = Timer::start();
-        let outcome = run_command(top, &step.command, Some(step.limit()));
+        let kept = lock::Captured::default();
+        let outcome = match (kind, shots) {
+            (StepKind::Shots, Some(_)) => {
+                run_command_capturing(top, &step.command, Some(step.limit()), &kept)
+            }
+            _ => run_command(top, &step.command, Some(step.limit())),
+        };
+        if let (StepKind::Shots, Some(store)) = (kind, shots) {
+            let exit = match &outcome {
+                Ok(Within::Ran(Ran::Finished)) => Some(0),
+                Err(Fail::Exit(code)) => Some(i64::from(*code)),
+                _ => None,
+            };
+            if let Some(exit) = exit {
+                let prefix = step.name.strip_prefix(PickKind::Shots.step_prefix());
+                let text = String::from_utf8_lossy(&kept.lock().expect("no panic holding it"))
+                    .into_owned();
+                store.keep(top, prefix.unwrap_or(&step.name), exit, &text);
+            }
+        }
         let result = match &outcome {
             Ok(Within::Ran(Ran::Finished)) => StepResult::Passed,
             Ok(Within::Ran(Ran::TakenOver)) => StepResult::TakenOver,
@@ -353,6 +378,79 @@ fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
     let top = any_checkout(places, repo)?;
     run_git(&top, &["fetch", "-q", "origin"])?;
     parse_config(&run_git(&top, &["show", &format!("{commit}:{CONFIG}")])?)
+}
+
+/// The full id of <git_ref> and the repo's `.app-build` at it, read without
+/// touching a checkout's tree, with the app checkout's folder they were read
+/// from.
+pub fn commit_and_config(
+    places: &Places,
+    repo: &str,
+    git_ref: &str,
+) -> Result<(std::path::PathBuf, String, Config)> {
+    let top = any_checkout(places, repo)?;
+    run_git(&top, &["fetch", "-q", "origin"])?;
+    let commit = resolve(&top, git_ref)?;
+    let config = parse_config(&run_git(&top, &["show", &format!("{commit}:{CONFIG}")])?)?;
+    Ok((top, commit, config))
+}
+
+/// Where a lane's run keeps the findings of its `--shots` runs.
+struct ShotsStore {
+    repo: String,
+    lane: Lane,
+    /// The folder of the shots program's source.
+    source: String,
+    database: std::path::PathBuf,
+}
+
+impl ShotsStore {
+    /// The store for <repo>'s <lane> run, when the repo's config names the
+    /// shots program's source and the repo is in a project with a store.
+    fn of(places: &Places, repo: &str, lane: Lane, config: &Config) -> Option<ShotsStore> {
+        let source = config.shots_source.clone()?;
+        let database = match app_timing::database_of(places, repo) {
+            Ok(Some(database)) => database,
+            Ok(None) => return None,
+            Err(error) => {
+                note(format!("shot findings are not kept: {}", error.text()));
+                return None;
+            }
+        };
+        Some(ShotsStore {
+            repo: repo.to_string(),
+            lane,
+            source,
+            database,
+        })
+    }
+
+    /// Keeps what a run of <prefix> that exited <exit> printed in <output>,
+    /// as the findings of the commit the checkout <top> holds. A run that
+    /// printed no findings, or a write that fails, is said and changes
+    /// nothing about the build's result.
+    fn keep(&self, top: &Path, prefix: &str, exit: i64, output: &str) {
+        let findings = shot_findings::findings_of(output);
+        if !shot_findings::has_findings(exit, findings) {
+            note(format!(
+                "the shots run of {prefix} exited {exit} without findings, so none were kept"
+            ));
+            return;
+        }
+        let stored = resolve(top, "HEAD").and_then(|commit| {
+            let key = shot_findings::Key {
+                repo: self.repo.clone(),
+                version: shot_findings::version_at(top, &commit, &self.source)?,
+                commit,
+                lane: self.lane,
+                prefix: prefix.to_string(),
+            };
+            shot_findings::store(&self.database, &key, exit, findings)
+        });
+        if let Err(error) = stored {
+            note(format!("the shot findings were not kept: {}", error.text()));
+        }
+    }
 }
 
 /// What a lane's run has timed so far, for `record` to write when it ends.
@@ -479,7 +577,8 @@ fn build_lane(
         let (tests, builds): (Vec<Step>, Vec<Step>) = steps
             .into_iter()
             .partition(|step| pick_kind_of(&step.name).is_some());
-        let mut ran = run_steps(&top, &builds, &mut timing.steps)?;
+        let shots = ShotsStore::of(places, repo, lane, &config);
+        let mut ran = run_steps(&top, &builds, &mut timing.steps, shots.as_ref())?;
         if ran == Ran::Finished && !builds.is_empty() {
             let steps = builds.iter().map(|step| step.name.clone()).collect();
             Built {
@@ -489,7 +588,7 @@ fn build_lane(
             .write(&built_file)?;
         }
         if ran == Ran::Finished {
-            ran = run_steps(&top, &tests, &mut timing.steps)?;
+            ran = run_steps(&top, &tests, &mut timing.steps, shots.as_ref())?;
         }
         match ran {
             Ran::Finished => return Ok(()),
@@ -503,6 +602,44 @@ fn build_lane(
             }
         }
     }
+}
+
+/// Prints the stored findings of each `--shots` pick in <picks> that has a
+/// run stored for <git_ref>'s commit, and returns the picks left to run: the
+/// `--test` picks, and the `--shots` picks with no stored run (a repo with no
+/// `shots-source` line stores none). A run of picks with no step builds
+/// nothing, so a stored run is printed in place of taking the lane.
+fn serve_stored(
+    places: &Places,
+    repo: &str,
+    git_ref: &str,
+    config: &Config,
+    picks: Vec<Pick>,
+) -> Result<Vec<Pick>> {
+    if config.shots_source.is_none() || !picks.iter().any(|(_, kind, _)| *kind == PickKind::Shots) {
+        return Ok(picks);
+    }
+    let mut left = Vec::new();
+    for pick in picks {
+        let (lane, kind, prefix) = &pick;
+        if *kind != PickKind::Shots {
+            left.push(pick);
+            continue;
+        }
+        let (key, database) = shot_findings::key_for(places, repo, git_ref, *lane, prefix)?;
+        let stored = match &database {
+            Some(database) => shot_findings::lookup(database, &key)?,
+            None => None,
+        };
+        match stored {
+            Some(stored) => {
+                note("printing the stored findings instead of running (--fresh runs)");
+                shot_findings::print(&stored);
+            }
+            None => left.push(pick),
+        }
+    }
+    Ok(left)
 }
 
 /// The pids of the lanes' processes, for the signal handler to pass on to.
@@ -675,7 +812,13 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
     if commit.starts_with('-') {
         fail!("{USAGE}");
     }
-    let (names, picks) = split_picks(tail)?;
+    let fresh = tail.iter().any(|arg| arg == "--fresh");
+    let tail: Vec<String> = tail
+        .iter()
+        .filter(|arg| *arg != "--fresh")
+        .cloned()
+        .collect();
+    let (names, mut picks) = split_picks(&tail)?;
     let names = &names[..];
     let config = config_at(places, repo, commit)?;
     for name in names {
@@ -687,6 +830,12 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
     for (lane, kind, arg) in &picks {
         if config.picker(*lane, *kind).is_none() {
             return Err(missing_line(*lane, *kind, arg));
+        }
+    }
+    if names.is_empty() && !picks.is_empty() && !fresh {
+        picks = serve_stored(places, repo, commit, &config, picks)?;
+        if picks.is_empty() {
+            return Ok(());
         }
     }
     // The lanes the steps or picks are in: those with a step named, or with

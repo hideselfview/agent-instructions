@@ -38,6 +38,7 @@ mod remote;
 mod sccache;
 mod setup;
 mod shells;
+mod shot_findings;
 mod side_git;
 mod status;
 mod temp_builds;
@@ -99,6 +100,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "install-hook" => return install_hook::cmd_install_hook(args),
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
         "app-build" => return app_build::cmd_app_build(&Places::from_env()?, args),
+        "shots" => return shot_findings::cmd_shots(&Places::from_env()?, args),
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),
         "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
         "-h" | "--help" | "help" => {
@@ -140,7 +142,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "host" => host::cmd_host(&tool, &host::Ssh::from_env(), args),
         "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
         other => fail!(
-            "unknown command {other} (setup | new | land | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | host | remote | prune | cargo | lock | app-build | queue | takeover | build-app | install | checks | install-hook)"
+            "unknown command {other} (setup | new | land | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | host | remote | prune | cargo | lock | app-build | shots | queue | takeover | build-app | install | checks | install-hook)"
         ),
     }
 }

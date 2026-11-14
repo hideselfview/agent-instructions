@@ -47,9 +47,19 @@ pub const DESIGN_SESSION_PART: &str = include_str!("lists/design_session.sql");
 /// takes the wait as milliseconds in an `i32`.
 const BUSY: Duration = Duration::from_millis(i32::MAX as u64);
 
+/// The stored findings of `--shots` runs (shot_findings.sql), the last part of
+/// the schema.
+pub const SHOT_FINDINGS_PART: &str = include_str!("shot_findings.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
-/// app-build timings', then the design changes' recording sessions'.
+/// app-build timings', then the design changes' recording sessions', then the
+/// stored shot findings.
 pub fn schema() -> String {
+    format!("{}\n{SHOT_FINDINGS_PART}", schema_before_shot_findings())
+}
+
+/// The schema as it was before the shot findings' table joined it.
+pub fn schema_before_shot_findings() -> String {
     format!("{}\n{DESIGN_SESSION_PART}", schema_before_design_session())
 }
 

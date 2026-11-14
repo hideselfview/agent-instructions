@@ -41,9 +41,9 @@
 
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::Command;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::fail;
@@ -309,10 +309,61 @@ pub fn run_in_group(start: Command, command: &str) -> Result<Ran> {
 /// `run_in_group`, killing the group once <limit> has passed (when there is
 /// one) and saying `Within::TimedOut`.
 pub fn run_in_group_within(
-    mut start: Command,
+    start: Command,
     command: &str,
     limit: Option<Duration>,
 ) -> Result<Within> {
+    run_group(start, command, limit, None)
+}
+
+/// What a command printed, kept as it arrived on both streams.
+pub type Captured = Arc<Mutex<Vec<u8>>>;
+
+/// How long to wait, after the command ends, for the end of its output: it
+/// may leave a process behind that holds the pipe open.
+const OUTPUT_GRACE: Duration = Duration::from_secs(2);
+
+/// Copies <from> to <to> and into <kept>; sends on <done> at the end.
+fn copy_and_keep(
+    mut from: impl std::io::Read,
+    mut to: impl std::io::Write,
+    kept: Captured,
+    done: std::sync::mpsc::Sender<()>,
+) {
+    let mut chunk = [0u8; 8192];
+    while let Ok(read) = from.read(&mut chunk) {
+        if read == 0 {
+            break;
+        }
+        let _ = to.write_all(&chunk[..read]);
+        kept.lock()
+            .expect("no panic holding it")
+            .extend_from_slice(&chunk[..read]);
+    }
+    let _ = done.send(());
+}
+
+/// `run_in_group_within`, passing what the command prints on to this
+/// process's own output as it arrives and keeping a copy in <kept>.
+pub fn run_in_group_capturing(
+    start: Command,
+    command: &str,
+    limit: Option<Duration>,
+    kept: &Captured,
+) -> Result<Within> {
+    run_group(start, command, limit, Some(kept))
+}
+
+fn run_group(
+    mut start: Command,
+    command: &str,
+    limit: Option<Duration>,
+    kept: Option<&Captured>,
+) -> Result<Within> {
+    if kept.is_some() {
+        start.stdout(std::process::Stdio::piped());
+        start.stderr(std::process::Stdio::piped());
+    }
     // The signals stay blocked until the group is known, so one sent while
     // the command starts is passed on rather than lost; the command starts
     // with them unblocked.
@@ -350,6 +401,21 @@ pub fn run_in_group_within(
     let mut child = start.spawn().context(|| format!("running {command}"))?;
     let group = child.id() as i32;
     GROUP.store(group, Ordering::SeqCst);
+    let (output_done, output_ended) = channel::<()>();
+    let mut copies = 0;
+    if let Some(kept) = kept {
+        if let Some(stdout) = child.stdout.take() {
+            let (kept, done) = (kept.clone(), output_done.clone());
+            std::thread::spawn(move || copy_and_keep(stdout, std::io::stdout(), kept, done));
+            copies += 1;
+        }
+        if let Some(stderr) = child.stderr.take() {
+            let (kept, done) = (kept.clone(), output_done.clone());
+            std::thread::spawn(move || copy_and_keep(stderr, std::io::stderr(), kept, done));
+            copies += 1;
+        }
+    }
+    drop(output_done);
     // A takeover that came before the group was known stops it now.
     if TAKEN_OVER.load(Ordering::SeqCst) {
         unsafe { libc::kill(-group, libc::SIGTERM) };
@@ -373,6 +439,11 @@ pub fn run_in_group_within(
     unsafe { libc::sigprocmask(libc::SIG_UNBLOCK, &passed, std::ptr::null_mut()) };
     let waited = child.wait();
     drop(ended);
+    for _ in 0..copies {
+        if output_ended.recv_timeout(OUTPUT_GRACE).is_err() {
+            break;
+        }
+    }
     if let Some(watcher) = watcher {
         let _ = watcher.join();
     }

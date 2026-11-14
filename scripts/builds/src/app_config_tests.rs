@@ -40,6 +40,7 @@ fn a_config_names_each_platforms_build() {
             }),
             steps: Vec::new(),
             pickers: Vec::new(),
+            shots_source: None,
         }
     );
 }
@@ -332,5 +333,22 @@ fn a_shots_line_needs_a_lane_a_select_placeholder_and_to_be_the_only_one_of_its_
     assert!(
         parse_config("test mac ./a {class}\nshots mac ./b {select}\n").is_ok(),
         "one of each"
+    );
+}
+
+#[test]
+fn a_shots_source_line_names_the_folder_of_the_shots_program_once() {
+    assert_eq!(
+        parse_config("shots-source bae-shots\n")
+            .unwrap()
+            .shots_source,
+        Some("bae-shots".to_string())
+    );
+    assert_eq!(parse_config("").unwrap().shots_source, None);
+    assert!(parse_config("shots-source\n").is_err(), "no folder");
+    assert!(parse_config("shots-source a b\n").is_err(), "two words");
+    assert!(
+        parse_config("shots-source a\nshots-source b\n").is_err(),
+        "two lines"
     );
 }

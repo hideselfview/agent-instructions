@@ -52,7 +52,21 @@ here are only those it can't check.
    platforms (app builds in the app checkouts, a mac and an android one, each
    under its lane's lock), tests covering the changed code. Never a whole app
    test suite (it launches the app on the person's screen) or the full CI
-   script: CI runs those. A project with no pre-commit hook gets one.
+   script: CI runs those. A project with no pre-commit hook gets one. A shots
+   check needs the "before" side: the findings of the commit the branch started
+   from. The agent takes it from builds, never by building that commit first:
+   `builds shots findings <repo> <commit> mac|android <prefix>` prints the
+   findings an earlier `--shots` run of that commit stored (keyed by the repo,
+   the full commit, the platform, the prefix and the version of the shots
+   program's source), and
+   `builds app-build <repo> <ref> --shots <lane> <prefix>` with no build step
+   prints them too, without taking the lane's lock. When none are stored, the
+   first command fails and names the app-build command that makes them; the
+   agent runs that once, and every later agent reads the result. `--fresh` runs
+   the shots anyway. The stored findings are those a run printed against
+   `origin/main`'s record at the time it ran; CI's shots job keeps no findings
+   in its artifacts that builds can read, so only runs through
+   `builds app-build` fill the store.
 6. **Commit and report** the SHA, base and checks; the coordinator lands it.
 
 Every agent the coordinator starts shares its session's scratchpad directory, so

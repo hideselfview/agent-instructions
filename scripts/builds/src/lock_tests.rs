@@ -116,3 +116,16 @@ fn builds_take_different_checkouts_at_once_and_wait_when_every_lock_is_held() {
     free_third.send(()).unwrap();
     first.release();
 }
+
+#[test]
+fn a_capturing_run_keeps_what_the_command_printed_on_both_streams() {
+    let mut start = Command::new("sh");
+    start.args(["-c", "echo out; echo err >&2; exit 4"]);
+    let kept = Captured::default();
+    assert!(matches!(
+        run_in_group_capturing(start, "sh", None, &kept),
+        Err(Fail::Exit(4))
+    ));
+    let text = String::from_utf8(kept.lock().unwrap().clone()).unwrap();
+    assert!(text.contains("out\n") && text.contains("err\n"), "{text:?}");
+}
