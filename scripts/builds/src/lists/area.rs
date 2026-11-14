@@ -135,18 +135,6 @@ pub fn remove_area(db: &Connection, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Puts <areas> in as they were written elsewhere, in their order.
-pub fn move_in(db: &Connection, areas: &[String]) -> Result<()> {
-    for (at, name) in areas.iter().enumerate() {
-        db.execute(
-            "INSERT INTO area (name, position) VALUES (?1, ?2)",
-            params![name, at as i64],
-        )
-        .sql()?;
-    }
-    Ok(())
-}
-
 /// The tables area.rs owns.
 #[cfg(test)]
 const TABLES: [&str; 1] = ["area"];

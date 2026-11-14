@@ -285,9 +285,8 @@ Commands:
                               clones and hard links share once
   builds install              (from a fresh build, not the installed binary; or
                               run agent-instructions' install.sh) copy `builds`
-                              onto PATH, move each project's lists.json into
-                              its builds.sqlite once, create the shared caches
-                              and their links, write the sccache config, run
+                              onto PATH, create the shared caches and their
+                              links, write the sccache config, run
                               the sccache server under launchd, point Xcode's
                               default DerivedData at the volume
 

@@ -142,26 +142,6 @@ fn insert_plan(db: &Connection, id: Id, plan: &PlanRef) -> Result<()> {
     Ok(())
 }
 
-/// Puts <decision> in as it was written elsewhere; its record is open
-/// already. What it answered and what it made are the closing and the items
-/// that name it, put in by theirs; an answering decision's plan is its
-/// question's.
-pub fn move_in(db: &Connection, decision: &Decision) -> Result<()> {
-    insert(
-        db,
-        decision.id,
-        &decision.date,
-        &decision.title,
-        &decision.by,
-        &decision.body,
-        decision.replaces,
-    )?;
-    if let (None, Some(plan)) = (decision.question, &decision.plan) {
-        insert_plan(db, decision.id, plan)?;
-    }
-    Ok(())
-}
-
 /// Changes decision <id>'s title and body, those given.
 pub fn edit(db: &Connection, id: Id, title: Option<String>, body: Option<String>) -> Result<()> {
     if !matches!(record::standing(db, id)?, Some((Kind::Decision, _))) {

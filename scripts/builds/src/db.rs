@@ -39,19 +39,14 @@ const HOOK_PART: &str = include_str!("hook_stats.sql");
 /// takes the wait as milliseconds in an `i32`.
 const BUSY: Duration = Duration::from_millis(i32::MAX as u64);
 
-/// Every table of the lists, in schema order.
-pub fn lists_schema() -> String {
-    LISTS_PARTS.join("\n")
-}
-
 /// The whole schema: the lists' tables, then the hook stats'.
 pub fn schema() -> String {
-    format!("{}\n{HOOK_PART}", lists_schema())
+    format!("{}\n{HOOK_PART}", LISTS_PARTS.join("\n"))
 }
 
 /// The stamp of the schema text: its FNV-1a hash, folded into `user_version`'s
-/// positive range and kept off 0 (no schema) and 1 (the hook stats' first
-/// database, which held only their tables).
+/// positive range and kept off 0 (no schema) and 1 (which a hook-stats-only
+/// database once carried).
 pub fn stamp() -> i64 {
     let mut hash: u32 = 0x811c_9dc5;
     for byte in schema().bytes() {
@@ -60,9 +55,6 @@ pub fn stamp() -> i64 {
     }
     i64::from(hash % (i32::MAX as u32 - 2)) + 2
 }
-
-/// The stamp the first hook-stats database carried.
-pub const HOOK_ONLY_STAMP: i64 = 1;
 
 fn configure(conn: &Connection, path: &Path) -> Result<()> {
     let what = || format!("configuring {}", path.display());
@@ -167,36 +159,8 @@ pub fn open_reader(path: &Path) -> Result<Option<Connection>> {
     Ok(Some(conn))
 }
 
-/// The database at <path> for the move: a new file, or one holding only the
-/// hook stats' tables under their first stamp. Neither has been given the
-/// lists' tables yet; the caller does that and stamps it in one transaction.
-pub fn open_for_move(path: &Path) -> Result<Connection> {
-    let conn = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
-    )
-    .context(|| format!("opening {}", path.display()))?;
-    configure(&conn, path)?;
-    let found = stamp_of(&conn, path)?;
-    if found == 0 && has_tables(&conn, path)? {
-        fail!(
-            "{} holds tables and no schema stamp; it is no builds.sqlite of this builds",
-            path.display()
-        );
-    }
-    if found != 0 && found != HOOK_ONLY_STAMP && found != stamp() {
-        require_stamp(found, path)?;
-    }
-    // A hook-stats database made before the lists were in it is in the default
-    // mode; the lists' writers and readers share it, so it moves to WAL here.
-    conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-        .context(|| format!("configuring {}", path.display()))?;
-    Ok(conn)
-}
-
 /// A new in-memory database with the whole schema: the same pragmas, nothing
-/// on disk. Tests build their lists in one, and the move rehearses a store in
-/// one before it changes anything.
+/// on disk. Tests build their lists in one.
 pub fn memory() -> Connection {
     let conn = Connection::open_in_memory().expect("an in-memory database opens");
     conn.pragma_update(None, "foreign_keys", true)

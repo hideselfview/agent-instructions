@@ -418,28 +418,6 @@ pub fn read_opened(db: &Connection) -> Result<BTreeMap<Id, Stamp>> {
     rows.map(|row| row.sql()).collect()
 }
 
-/// Puts record <id> in as it was written elsewhere: its kind and who opened
-/// it when.
-pub fn move_in_record(db: &Connection, id: Id, kind: Kind, opened: &Stamp) -> Result<()> {
-    db.execute(
-        "INSERT INTO record (id, kind, opened_at, opened_by) VALUES (?1, ?2, ?3, ?4)",
-        params![id, kind.word(), opened.at, opened.by],
-    )
-    .sql()?;
-    Ok(())
-}
-
-/// Puts the closing of <id>, a <kind>, in as it was written elsewhere.
-pub fn move_in_closing(
-    db: &Connection,
-    id: Id,
-    kind: Kind,
-    how: &How,
-    closed: &Stamp,
-) -> Result<()> {
-    insert_closing(db, id, kind, how, closed)
-}
-
 /// The tables record.rs owns.
 #[cfg(test)]
 const TABLES: [&str; 3] = ["record", "closing", "closing_commit"];

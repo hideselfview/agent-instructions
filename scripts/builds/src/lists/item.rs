@@ -271,47 +271,6 @@ fn insert(db: &Connection, id: Id, draft: &ItemDraft, from: Option<Origin>) -> R
     Ok(())
 }
 
-/// Puts <item> in as it was written elsewhere: its row, which its record is
-/// open for already. Everything that points at other records follows in
-/// `move_in_children`, once every record's row is in.
-pub fn move_in(db: &Connection, item: &Item, from: Option<Origin>) -> Result<()> {
-    let draft = ItemDraft {
-        title: item.title.clone(),
-        area: item.area.clone(),
-        details: item.details.clone(),
-        r#for: item.r#for,
-        waits: Vec::new(),
-        brief: item.brief.clone(),
-        priority: None,
-    };
-    insert(db, item.id, &draft, from)
-}
-
-/// Puts the priority, waits, notes, running places and landed parts of
-/// <item> in. A closed item runs nowhere, so its running is left out.
-pub fn move_in_children(db: &Connection, item: &Item, closed: bool) -> Result<()> {
-    if let Some(priority) = &item.priority {
-        insert_priority(db, item.id, priority)?;
-    }
-    for wait in &item.waits {
-        insert_wait(db, item.id, wait)?;
-    }
-    for note in &item.notes {
-        db.execute(
-            "INSERT INTO item_note (item_id, at, by, text) VALUES (?1, ?2, ?3, ?4)",
-            params![item.id, note.at, note.by, note.text],
-        )
-        .sql()?;
-    }
-    if !closed && !item.running.is_empty() {
-        running::start(db, &[item.id], &item.running)?;
-    }
-    for part in &item.landed {
-        landing::add_part(db, item.id, part.clone())?;
-    }
-    Ok(())
-}
-
 fn audience_word(audience: Audience) -> &'static str {
     match audience {
         Audience::Coordinator => "coordinator",

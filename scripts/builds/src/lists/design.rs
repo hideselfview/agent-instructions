@@ -448,32 +448,6 @@ pub fn open_change(db: &Connection, new: NewDesign, stamp: &Stamp) -> Result<Id>
     Ok(id)
 }
 
-/// Puts <design> in as it was written elsewhere: its row, which its record
-/// is open for already. Its places, boards, review page and approval point at
-/// items, so `move_in_children` puts them in after the items.
-pub fn move_in(db: &Connection, design: &DesignChange) -> Result<()> {
-    db.execute(
-        "INSERT INTO design (id, title, details, repo, worktree, no_app_place) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![design.id, design.title, design.details, design.repo, design.worktree, design.no_app_place],
-    )
-    .sql()
-    .map(|_| ())
-}
-
-/// Puts the places, boards, review page and approval of <design> in, after
-/// its row and the items its places name.
-pub fn move_in_children(db: &Connection, design: &DesignChange) -> Result<()> {
-    save(db, design)?;
-    if let Some(approved) = &design.approved {
-        db.execute(
-            "INSERT INTO design_approval (design_id, at, by) VALUES (?1, ?2, ?3)",
-            params![design.id, approved.at, approved.by],
-        )
-        .sql()?;
-    }
-    Ok(())
-}
-
 /// Writes what the change holds of its own: its fields, and its places,
 /// boards and review page as a whole, which replace the ones it had. The
 /// approval is the person's and is not touched.

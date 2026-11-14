@@ -150,22 +150,6 @@ fn insert(db: &Connection, id: Id, new: &NewQuestion) -> Result<()> {
     Ok(())
 }
 
-/// Puts <question> in as it was written elsewhere; its record is open already.
-pub fn move_in(db: &Connection, question: &Question) -> Result<()> {
-    insert(
-        db,
-        question.id,
-        &NewQuestion {
-            title: question.title.clone(),
-            details: question.details.clone(),
-            kind: question.kind,
-            blocks_nothing: question.blocks_nothing.clone(),
-            placed: question.placed.clone(),
-            plan: question.plan.clone(),
-        },
-    )
-}
-
 /// Question <id> is open, or the refusal.
 fn require_open_question(db: &Connection, id: Id) -> Result<()> {
     match record::standing(db, id)? {

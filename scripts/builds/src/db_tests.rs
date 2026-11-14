@@ -30,7 +30,7 @@ fn a_new_file_gets_the_whole_schema_the_stamp_and_wal_in_its_first_transaction()
     let path = scratch.dir.join(DATABASE);
     let conn = open(&path, Make::Allowed).unwrap();
     assert_eq!(stamp_of(&conn, &path).unwrap(), stamp());
-    assert!(stamp() > HOOK_ONLY_STAMP);
+    assert!(stamp() > 1, "the stamp stays off 0 and 1");
     let mode: String = conn
         .pragma_query_value(None, "journal_mode", |row| row.get(0))
         .unwrap();

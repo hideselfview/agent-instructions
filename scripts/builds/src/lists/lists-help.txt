@@ -5,9 +5,7 @@ store is ~/Library/Application Support/builds/lists/<project>/, or
 $BUILDS_LISTS/<project>/: builds.sqlite, one SQLite database, which also holds
 the hook-run stats. It is outside every repo, so no commit can carry it.
 Nothing edits it by hand: every change is a command, and every command
-refuses a step that lacks what it needs. A folder that still holds lists.json
-(the store before the database) is refused by every command until
-`builds install` moves it.
+refuses a step that lacks what it needs.
 
 Every record has an id from one counter per project, printed #N. Commands
 take ids as bare numbers (`builds item take 12`): an unquoted #12 is a

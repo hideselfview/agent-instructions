@@ -6,10 +6,6 @@
 //! point rolls back, so a refused command changes nothing. A reader sees one
 //! committed snapshot and takes no write lock.
 //!
-//! A folder that still holds `lists.json` or `lists.json.moving` has lists
-//! that `builds install` has not moved yet; every command refuses it, naming
-//! that.
-//!
 //! Nothing here reads or writes outside the project's folder, except the
 //! listing of the parent folder that finds which project a repo is in.
 
@@ -28,11 +24,6 @@ use crate::lists::project::NewProject;
 use crate::lists::record::{self, Closed, Record};
 use crate::lists::{Lists, Stamp, area, decision, design, item, project, question};
 use crate::places::Places;
-
-/// The lists as the JSON store kept them, which `builds install` moves.
-pub const JSON_STATE: &str = "lists.json";
-/// The JSON store mid-move.
-pub const JSON_MOVING: &str = "lists.json.moving";
 
 /// One project's folder.
 #[derive(Clone, Debug)]
@@ -79,26 +70,6 @@ impl Store {
         self.dir.join(DATABASE)
     }
 
-    /// Refuses a folder whose lists are still in JSON.
-    fn require_moved(&self) -> Result<()> {
-        if self.dir.join(JSON_MOVING).exists() {
-            fail!(
-                "the lists of project {} are mid-move (`{}` is in {}); `builds install` finishes the move",
-                self.project,
-                JSON_MOVING,
-                self.dir.display()
-            );
-        }
-        if self.dir.join(JSON_STATE).exists() {
-            fail!(
-                "the lists of project {} are still in {JSON_STATE} ({}); `builds install` moves them",
-                self.project,
-                self.dir.display()
-            );
-        }
-        Ok(())
-    }
-
     fn no_lists(&self) -> Fail {
         Fail::Message(format!(
             "there are no lists for project {} ({} holds no project); `builds lists init {}` makes them",
@@ -111,7 +82,6 @@ impl Store {
     /// The database for reading: None when there is none, or none with a
     /// project in it.
     fn reader(&self) -> Result<Option<Connection>> {
-        self.require_moved()?;
         let Some(conn) = db::open_reader(&self.database())? else {
             return Ok(None);
         };
@@ -178,7 +148,6 @@ impl Store {
         if let Some(fault) = new.refusal() {
             fail!("{fault}");
         }
-        self.require_moved()?;
         std::fs::create_dir_all(&self.dir)
             .context(|| format!("creating {}", self.dir.display()))?;
         let mut conn = db::open(&self.database(), Make::Allowed)?;
@@ -196,7 +165,6 @@ impl Store {
         words: &str,
         apply: impl FnOnce(&Connection) -> Result<T>,
     ) -> Result<T> {
-        self.require_moved()?;
         if !self.database().is_file() {
             return Err(self.no_lists());
         }
@@ -251,16 +219,6 @@ pub fn log_write(db: &Connection, stamp: &Stamp, words: &str) -> Result<()> {
     Ok(())
 }
 
-/// Puts a line in the log as it was written elsewhere.
-pub fn move_in_log(db: &Connection, version: u64, at: i64, by: &str, words: &str) -> Result<()> {
-    db.execute(
-        "INSERT INTO write_log (version, at, by, words) VALUES (?1, ?2, ?3, ?4)",
-        params![version as i64, at, by, words],
-    )
-    .sql()?;
-    Ok(())
-}
-
 /// The tables store.rs owns.
 #[cfg(test)]
 const TABLES: [&str; 1] = ["write_log"];
@@ -288,6 +246,7 @@ pub fn version(db: &Connection) -> Result<u64> {
 }
 
 /// Every line of the write log, oldest first.
+#[cfg(test)]
 pub fn read_log(db: &Connection) -> Result<Vec<(u64, i64, String, String)>> {
     let mut statement = db
         .prepare("SELECT version, at, by, words FROM write_log ORDER BY version")
@@ -367,8 +326,7 @@ pub fn read(db: &Connection) -> Result<Lists> {
 }
 
 /// The stores that exist under `Places::lists`, by project name: a folder
-/// whose database holds a project, or whose lists are still in JSON. A folder
-/// with only hook stats is no store.
+/// whose database holds a project. A folder with only hook stats is no store.
 pub fn stores(places: &Places) -> Result<Vec<Store>> {
     let entries = match std::fs::read_dir(&places.lists) {
         Ok(entries) => entries,
@@ -379,7 +337,6 @@ pub fn stores(places: &Places) -> Result<Vec<Store>> {
     for entry in entries {
         let entry = entry.context(|| format!("listing {}", places.lists.display()))?;
         let path = entry.path();
-        let in_json = path.join(JSON_STATE).is_file() || path.join(JSON_MOVING).is_file();
         let in_database = match db::open_reader(&path.join(DATABASE)) {
             Ok(Some(conn)) => conn
                 .query_row("SELECT COUNT(*) FROM project", [], |row| {
@@ -391,7 +348,7 @@ pub fn stores(places: &Places) -> Result<Vec<Store>> {
             // A database this builds can't read is a store that fails, named when it is loaded.
             Err(_) => path.join(DATABASE).is_file(),
         };
-        if in_json || in_database {
+        if in_database {
             names.push(entry.file_name().to_string_lossy().into_owned());
         }
     }

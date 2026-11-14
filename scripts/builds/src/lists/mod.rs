@@ -60,22 +60,10 @@ pub use running::{Running, side_worktree_parts};
 
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
-
-/// One line of the write log.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LogLine {
-    pub version: u64,
-    pub at: i64,
-    pub by: String,
-    /// The command's words.
-    pub words: String,
-}
+use serde::Serialize;
 
 /// The whole state of one project's lists.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Lists {
     pub project: String,
     /// Repo directory names, as `Checkout::repo` gives them.

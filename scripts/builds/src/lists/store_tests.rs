@@ -298,26 +298,6 @@ fn a_database_of_another_schema_is_refused_by_every_open() {
 }
 
 #[test]
-fn lists_still_in_json_are_refused_by_every_open_naming_the_move() {
-    let scratch = Scratch::new("lists-json-beside");
-    let store = fresh(&scratch);
-    std::fs::write(store.dir.join(JSON_STATE), "{}").unwrap();
-    let text = message(store.load());
-    assert!(
-        text.contains("still in lists.json") && text.contains("builds install"),
-        "{text}"
-    );
-    assert!(message(store.write(&stamp(NOON), "w", |_| Ok(()))).contains("builds install"));
-    std::fs::rename(store.dir.join(JSON_STATE), store.dir.join(JSON_MOVING)).unwrap();
-    let text = message(store.load());
-    assert!(
-        text.contains("mid-move") && text.contains("builds install"),
-        "{text}"
-    );
-    assert!(message(store.create(&new_project(&["bae"]), &stamp(NOON), "w")).contains("mid-move"));
-}
-
-#[test]
 fn a_database_of_another_project_is_refused() {
     let scratch = Scratch::new("lists-foreign");
     let store = fresh(&scratch);
@@ -360,22 +340,19 @@ fn the_store_touches_only_its_own_folder() {
 }
 
 #[test]
-fn a_folder_with_only_hook_stats_is_no_store_and_one_with_json_is() {
+fn a_folder_with_only_hook_stats_is_no_store() {
     let scratch = Scratch::new("lists-stores");
     let places = scratch.places();
     let hooks = places.lists.join("hooks-only");
     std::fs::create_dir_all(&hooks).unwrap();
     db::open(&hooks.join(DATABASE), Make::Allowed).unwrap();
-    let json = places.lists.join("json");
-    std::fs::create_dir_all(&json).unwrap();
-    std::fs::write(json.join(JSON_STATE), "{}").unwrap();
     fresh(&scratch);
     let names: Vec<String> = stores(&places)
         .unwrap()
         .into_iter()
         .map(|s| s.project)
         .collect();
-    assert_eq!(names, vec!["demo", "json"]);
+    assert_eq!(names, vec!["demo"]);
 }
 
 const CHILD_DIR: &str = "LISTS_TEST_CHILD_DIR";
