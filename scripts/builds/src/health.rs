@@ -7,8 +7,10 @@
 //! server that finished nothing since the last readings, agent shells that are
 //! junk (shells.rs), a claimed worktree with no change and no build for an hour
 //! (its own, or one it holds the app lock for), the volume under its
-//! free-space floor, a lists store that fails its check, or a running item
-//! whose worktree is gone or has no claim (lists/running.rs).
+//! free-space floor, a lists store that fails its check, a running item
+//! whose worktree is gone or has no claim (lists/running.rs), a held worktree
+//! whose item waits on nothing open, or commits that change design files no
+//! recorded design change covers (lists/held.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -730,7 +732,19 @@ pub fn health(tool: &Tool) -> Result<Health> {
         crate::side_git::read(&checkout.top)
     });
     let mut judged = Vec::new();
+    let mut held_worktrees = Vec::new();
     for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
+        held_worktrees.push(crate::lists::held::Worktree {
+            label: places[place].label.clone(),
+            top: checkout.top.clone(),
+            repo: checkout.repo(),
+            claim: claim.clone(),
+            app_checkout: tool
+                .places
+                .app_lane_of(&checkout.repo(), &checkout.name())?
+                .is_some(),
+            ahead: git.ahead.iter().rev().map(|c| c.full.clone()).collect(),
+        });
         judged.push(Claimed {
             place,
             claim,
@@ -738,10 +752,9 @@ pub fn health(tool: &Tool) -> Result<Health> {
             git,
         });
     }
-    let lists = crate::lists::running::findings(
-        &tool.places,
-        &crate::lists::store::load_all(&tool.places),
-    )?;
+    let loaded = crate::lists::store::load_all(&tool.places);
+    let mut lists = crate::lists::running::findings(&tool.places, &loaded)?;
+    lists.extend(crate::lists::held::findings(&loaded, &held_worktrees));
     Ok(assess(
         now,
         tool.disk_space()?,

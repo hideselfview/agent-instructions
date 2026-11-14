@@ -1,0 +1,206 @@
+//! Held work: a worktree kept on purpose with no agent running must wait on
+//! something that can end, or no list would ever restart it. `builds note
+//! --state held` asks `require_hold_allowed`; `builds health` asks
+//! `findings` for the holds whose wait closed and for design changes in a
+//! branch that no recorded design change covers.
+
+use std::path::PathBuf;
+
+use crate::checkout::Checkout;
+use crate::claim::Claim;
+use crate::fail;
+use crate::fail::Result;
+use crate::lists::design::DesignChange;
+use crate::lists::design_paths::{Changes, Globs, changes_of};
+use crate::lists::running::running_in;
+use crate::lists::store::{Loaded, Store, project_of};
+use crate::lists::{Item, Lists, Located, Standing, Wait};
+use crate::places::Places;
+
+/// Does <wait> still hold something: a condition, or an open question, item
+/// or design change? A wait on a record that closed without meeting it
+/// (dropped, deferred) holds nothing either.
+pub fn wait_open(lists: &Lists, wait: &Wait) -> bool {
+    let id = match wait {
+        Wait::Condition(_) => return true,
+        Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => *id,
+    };
+    matches!(
+        lists.locate(id),
+        Some(Located {
+            standing: Standing::Open,
+            ..
+        })
+    )
+}
+
+fn waits_on_open(lists: &Lists, item: &Item) -> bool {
+    item.waits.iter().any(|wait| wait_open(lists, wait))
+}
+
+/// Why <worktree> may not be held in <lists>: no item runs there, or a
+/// running item waits on nothing open. None when it may.
+fn hold_fault(lists: &Lists, worktree: &str) -> Option<String> {
+    let running = running_in(lists, worktree);
+    if running.is_empty() {
+        return Some(format!(
+            "{worktree} runs no item, so nothing says what it waits on"
+        ));
+    }
+    let idle: Vec<String> = running
+        .iter()
+        .filter(|item| !waits_on_open(lists, item))
+        .map(|item| format!("{} \"{}\"", item.id.0, item.title))
+        .collect();
+    if idle.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "{worktree} runs {}, which waits on nothing open",
+            idle.join("; ")
+        ))
+    }
+}
+
+/// Does a claim whose holder is <who> belong to the coordinator's landing
+/// worktree? Landing worktrees are standing roles: held with no item.
+fn is_landing(who: &str) -> bool {
+    who.ends_with("(landing)")
+}
+
+/// `builds note --state held` is refused unless every item running in the
+/// worktree waits on an open question, item, design change or condition. A
+/// landing worktree (its claim ends "(landing)") and an app checkout (the
+/// recorded app-checkout list) are standing roles that hold no item, and are
+/// never refused.
+pub fn require_hold_allowed(places: &Places, checkout: &Checkout) -> Result<()> {
+    let top = checkout.top.display().to_string();
+    if let Some(claim) = Claim::read(&checkout.claim_file())?
+        && is_landing(&claim.who)
+    {
+        return Ok(());
+    }
+    if checkout.is_side()
+        && places
+            .app_lane_of(&checkout.repo(), &checkout.name())?
+            .is_some()
+    {
+        return Ok(());
+    }
+    let Some(project) = project_of(places, checkout)? else {
+        fail!(
+            "{top} can't be held: no lists project holds its repo, so no item there waits on anything"
+        );
+    };
+    let lists = Store::named(places, &project)?.load()?;
+    match hold_fault(&lists, &top) {
+        None => Ok(()),
+        Some(fault) => fail!(
+            "{fault}; a held worktree waits on an open record. Make the running item wait on one with `builds item wait N --on REF` (REF is question:N, item:N, design:N or condition:TEXT), then note it held"
+        ),
+    }
+}
+
+/// A claimed worktree as `builds health` read it.
+pub struct Worktree {
+    pub label: String,
+    pub top: PathBuf,
+    pub repo: String,
+    pub claim: Claim,
+    /// Is it one of the repo's recorded app checkouts?
+    pub app_checkout: bool,
+    /// The commits origin/main has no copy of, oldest first.
+    pub ahead: Vec<String>,
+}
+
+/// Does open design change <design> hold every place <changes> changes?
+fn covers(design: &DesignChange, changes: &Changes) -> bool {
+    changes
+        .resolvable()
+        .iter()
+        .all(|place| design.places.contains_key(*place))
+        && crate::lists::design::needs_answer(design, changes, "the commits").is_ok()
+}
+
+/// What `builds health` says about held work, one line each: a held worktree
+/// whose item waits on nothing open (the record it waited on closed, or
+/// nothing runs there), and a branch whose commits change design files that
+/// no open design change covers. A store that fails its check is named by
+/// `running::findings`, not here.
+pub fn findings(
+    loaded: &std::result::Result<Vec<Loaded>, String>,
+    worktrees: &[Worktree],
+) -> Vec<String> {
+    let Ok(loaded) = loaded else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for worktree in worktrees {
+        let Some(lists) = loaded
+            .iter()
+            .filter_map(|project| project.lists.as_ref().ok())
+            .find(|lists| lists.repos.contains(&worktree.repo))
+        else {
+            continue;
+        };
+        let top = worktree.top.display().to_string();
+        let standing = is_landing(&worktree.claim.who) || worktree.app_checkout;
+        if !standing
+            && worktree.claim.note_state.as_deref() == Some("held")
+            && let Some(fault) = hold_fault(lists, &top)
+        {
+            found.push(format!(
+                "lists: {} is held, but {fault}; start its work again (builds item take/handoff), then clear the hold with `builds note {top} TEXT`",
+                worktree.label
+            ));
+        }
+        if is_landing(&worktree.claim.who) || worktree.ahead.is_empty() {
+            continue;
+        }
+        let globs = Globs::of(lists, &worktree.repo);
+        if globs.places.is_empty() && globs.sources.is_empty() {
+            continue;
+        }
+        match changes_of(&worktree.top, &globs, &worktree.ahead) {
+            Err(error) => found.push(format!(
+                "lists: could not read the design files {} changes: {}",
+                worktree.label,
+                error.text()
+            )),
+            Ok(changes) if changes.is_design_change() => {
+                let covered = lists.designs.iter().any(|design| {
+                    design.repo == worktree.repo
+                        && matches!(
+                            lists.locate(design.id),
+                            Some(Located {
+                                standing: Standing::Open,
+                                ..
+                            })
+                        )
+                        && covers(design, &changes)
+                });
+                if !covered {
+                    let named: Vec<&str> = changes
+                        .resolvable()
+                        .into_iter()
+                        .map(|place| place.as_str())
+                        .chain(changes.sources.iter().map(String::as_str))
+                        .chain(changes.shared.iter().map(String::as_str))
+                        .chain(changes.deleted.iter().map(String::as_str))
+                        .collect();
+                    found.push(format!(
+                        "lists: {} has commits that change design files ({}) and no recorded design change covers them; `builds design record` records one",
+                        worktree.label,
+                        named.join(", ")
+                    ));
+                }
+            }
+            Ok(_) => {}
+        }
+    }
+    found
+}
+
+#[cfg(test)]
+#[path = "held_tests.rs"]
+mod tests;

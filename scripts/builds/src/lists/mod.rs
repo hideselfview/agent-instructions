@@ -28,6 +28,7 @@ mod design_paths;
 pub mod draft;
 #[cfg(test)]
 pub mod fixtures;
+pub mod held;
 pub mod issue;
 pub mod item;
 mod item_command;

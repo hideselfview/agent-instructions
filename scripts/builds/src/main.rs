@@ -116,7 +116,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "retire" => worktree::cmd_retire(&tool, args),
         "land" => land::cmd_land(args),
         "claim" => claim::cmd_claim(args, tool.now),
-        "note" => claim::cmd_note(args),
+        "note" => claim::cmd_note(&tool.places, args),
         "release" => claim::cmd_release(&tool.places, args),
         "app-checkout" => worktree::cmd_app_checkout(&tool, args),
         "build-app" => build_app::cmd_build_app(&tool, args),

@@ -402,7 +402,11 @@ fn check_review(review: &[ReviewSection]) -> Result<()> {
 /// Shared design files and sources change no place by themselves: the change
 /// must list the components whose drawing changes (a source) or have a
 /// resolved place, or say with `no_app_place` that no drawing changes.
-fn needs_answer(design: &DesignChange, changes: &Changes, what: &str) -> Result<()> {
+pub(in crate::lists) fn needs_answer(
+    design: &DesignChange,
+    changes: &Changes,
+    what: &str,
+) -> Result<()> {
     if design.no_app_place.is_some() {
         return Ok(());
     }

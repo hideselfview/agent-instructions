@@ -173,7 +173,8 @@ mode, and switching modes means telling every running agent.
 
 Every 5 minutes, scheduled in the coordinator's session (CronCreate, which only
 a schedule can do: nothing else wakes a session), the coordinator runs
-`builds health` and acts on its "needs action" list before anything else:
+`builds health` and acts on every line of its "needs action" list before
+anything else:
 
 - **sccache finished no compiles while clients wait:** the server is stuck;
   restart it (`launchctl kickstart -k gui/$(id -u)/local.sccache-server`).
@@ -189,8 +190,14 @@ a schedule can do: nothing else wakes a session), the coordinator runs
 - **A claimed worktree with no change and no build for an hour:** ask its agent
   what it waits on, or land and release it if the work is done. A claim kept on
   purpose with nothing running gets
-  `builds note <worktree> --state held "<why, and until when>"`, which health
-  doesn't flag.
+  `builds note <worktree> --state held "<why, and until when>"`, which
+  `builds note` accepts only while the worktree's running item waits on an open
+  question, item, design change or condition (`builds item wait N --on REF`);
+  health doesn't flag it while that wait stays open.
+- **A held worktree whose wait closed:** health names it; restart its work and
+  clear the hold.
+- **Commits that change design files with no recorded design change:** health
+  names the worktree; the design session records one (`builds design record`).
 - **A running item whose worktree is gone or unclaimed:** `builds health` names
   it; land it, stop it (`builds item stop`) or hand it on. A lists store that
   fails its check is named the same way; nothing repairs it.

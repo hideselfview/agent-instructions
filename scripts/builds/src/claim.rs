@@ -136,8 +136,9 @@ pub fn cmd_claim(args: &[String], now: i64) -> Result<()> {
 /// `builds note <checkout> [--state <state>] [<text>]`: sets the claim's
 /// note to the rest of the arguments joined by spaces, with the state
 /// --state names or none, or clears note and state when there is no text. The
-/// claim's date stays.
-pub fn cmd_note(args: &[String]) -> Result<()> {
+/// claim's date stays. --state held is refused unless every item running in
+/// the worktree waits on an open record (lists/held.rs).
+pub fn cmd_note(places: &Places, args: &[String]) -> Result<()> {
     let usage = format!(
         "usage: builds note <checkout> [--state {}] [<text>]",
         NOTE_STATES.join("|")
@@ -172,6 +173,9 @@ pub fn cmd_note(args: &[String]) -> Result<()> {
             checkout.top.display()
         );
     };
+    if state.as_deref() == Some("held") {
+        crate::lists::held::require_hold_allowed(places, &checkout)?;
+    }
     let top = checkout.top.display();
     let message = match (&state, text.is_empty()) {
         (Some(state), _) => format!(
