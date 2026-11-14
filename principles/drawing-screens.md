@@ -56,6 +56,10 @@ draws them with its own parts.
   page in a modal. Every board on that page is drawn live from the design
   session's worktree, in a frame the person can zoom, and drawn again on each
   load, so a redraw shows on reload. The session keeps no page of its own.
+- Each board on the review page shows now and proposed side by side: the board
+  as it stands on `main`, and the board as the change draws it. A new board has
+  no now and says so; a deleted board shows only its now (the person,
+  2026-11-14: "you gotta show a now and proposed").
 - Everything the person reviews goes there: new boards, proposals, before and
   after examples. Never a hand-made page (a `review.html`, a page in the
   scratchpad) and never a new browser tab; the person reloads the review page.
