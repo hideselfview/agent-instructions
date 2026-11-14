@@ -251,7 +251,11 @@ a failed build leaves the installed one as it was; a commit on main that touches
     stays in place while the checkouts scroll, and scrolls its lists inside it.
     A button in its header hides it; then a Lists button at the right of the
     title shows it again, and the page remembers the choice. Under 1200 px it
-    sits above the checkouts.
+    sits above the checkouts. Each tab holds rows grouped under a heading with
+    its count (Running: Working and Ready to land, then design changes being
+    drawn). A row is a title with its repo and worktree at the right, and opens
+    to what happens now, its items, agent, branch, plan and landed commits.
+    Waiting on you and Queue use the same rows.
   - **States.** Each side worktree gets one, the first that matches: *Waiting on
     you* (the note's state says so), *Landing* (the claim's who ends in
     `(landing)`), *Held* (the note's state says so), *Ready to land* (commits
