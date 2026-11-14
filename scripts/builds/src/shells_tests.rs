@@ -350,20 +350,25 @@ fn a_wait_in_the_app_build_queue_is_not_idle() {
         0.05,
         &["builds", "app-build", "demo", "work", "macos"],
     );
-    let stranger = shell(2, 60, &side(1), "builds app-build demo other macos");
-    let stranger_child = child(
-        21,
-        &stranger,
-        0.05,
-        &["builds", "app-build", "demo", "other", "macos"],
-    );
-    let entries = [queued, queued_child, stranger, stranger_child];
+    let entries = [queued, queued_child];
     let waiting = HashSet::from([11]);
     let found = judge(&entries, NOW, Path::new(HOME), &places(), &waiting);
-    assert_eq!(
-        found.junk.iter().map(|j| j.pid).collect::<Vec<_>>(),
-        vec![2]
+    assert!(found.junk.is_empty(), "{} junk", found.junk.len());
+}
+
+#[test]
+fn a_queued_app_build_the_queue_list_missed_is_not_idle_either() {
+    // `builds health` once judged this one idle at 0.2% of a core and
+    // stopped it: it runs a build, so its CPU says nothing.
+    let queued = shell(1, 60, &side(1), "builds app-build demo work macos");
+    let queued_child = child(
+        11,
+        &queued,
+        0.05,
+        &["builds", "app-build", "demo", "work", "macos"],
     );
+    let found = judge_all(&[queued, queued_child]);
+    assert!(found.junk.is_empty(), "{} junk", found.junk.len());
 }
 
 #[test]

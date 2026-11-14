@@ -500,6 +500,10 @@ struct Candidate {
     /// A compiler runs under it: the compile may be in the sccache server's
     /// tree, so the shell's own CPU says nothing.
     compiling: bool,
+    /// A `builds` command that builds runs in its tree (`runs_a_build`): one
+    /// waiting for a lock or an app lane's queue uses next to no CPU and is
+    /// not idle. A bare cargo blocked on a build-directory lock still is.
+    building: bool,
 }
 
 /// Judges every agent shell in <entries> at <now>: which are junk, and why.
@@ -585,6 +589,9 @@ pub fn judge(
             junk,
             cpu_seconds: tree.iter().map(|e| e.cpu_seconds).sum(),
             queued: tree.iter().any(|e| queued.contains(&e.pid)),
+            building: members.iter().any(|e| {
+                e.argv.first().is_some_and(|a| basename(a) == "builds") && runs_a_build(&e.argv)
+            }),
             compiling: members.iter().any(|e| {
                 e.argv
                     .first()
@@ -609,6 +616,7 @@ pub fn judge(
         } else if age >= IDLE_MINUTES * 60
             && !this.queued
             && !this.compiling
+            && !this.building
             && this.cpu_seconds / (age as f64) < IDLE_SHARE
         {
             Some(Reason::Idle {
