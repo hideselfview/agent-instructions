@@ -212,6 +212,12 @@ article { min-width: 0; display: flex; flex-direction: column; }
 .l-section > h3 .l-n { font: 500 12px var(--mono); text-transform: none; letter-spacing: 0; }
 .l-rows { display: flex; flex-direction: column; gap: 6px; }
 .l-card, .l-fold.l-row { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.l-works { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.l-works > .l-work { padding: 10px 12px; min-width: 0; }
+.l-works > .l-work + .l-work { border-top: 1px solid var(--line-soft); }
+.l-work > summary { font-size: 14px; font-weight: 500; color: var(--text); justify-content: space-between; flex-wrap: nowrap; }
+.l-work > summary .l-title { font-weight: 500; flex: 1 1 auto; }
+.l-work > summary .l-wt { font: 400 12px var(--mono); color: var(--muted-2); white-space: nowrap; margin-left: auto; }
 .l-plain { display: flex; flex-direction: column; gap: 8px; }
 .l-card { display: flex; flex-direction: column; gap: 8px; }
 .l-row1 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
@@ -1180,23 +1186,22 @@ function itemRow(it) {
       sub ? h("span", {class: "l-sub"}, sub) : null],
     () => itemBody(it), "l-row");
 }
-function runningCard(it) {
-  const first = it.running[0];
-  // One group of facts per worktree: an item that spans repos runs in one of each.
-  const where = it.running.flatMap(r => [
-    fact("Agent", h("strong", {}, r.agent || "unclaimed")),
-    fact("Worktree", mono(r.repo + " " + r.checkout), " on ", mono(r.branch)),
-    r.waiting_to_land ? fact("Waiting to land:", plural(r.waiting_to_land, "commit", "commits")) : null]);
-  return h("article", {class: "l-card"},
-    h("div", {class: "l-row1"}, h("span", {class: "l-title"}, it.title), h("span", {class: "l-id"}, "#" + it.id), itemPill(it)),
-    h("div", {class: "l-facts"},
-      ...where,
-      first.brief ? fact("Brief", mono(first.brief)) : null,
-      fact("Since", stamp(first.since.at) + " by " + first.since.by),
-      it.landed.length ? fact("Already landed:", it.landed.map(l => l.repo + " " + l.commits.join(" ")).join("; ")) : null,
-      unmet(it).length ? fact("Held on", unmet(it).map(waitLink).flatMap((el, i) => i ? ["; ", el] : [el])) : null),
-    ...it.running.map(r => r.note ? h("div", {class: "l-note"}, r.note, r.note_state ? " " : null, r.note_state ? pill(r.note_state, "s-winding") : null) : null),
-    fold("i:" + it.id, it.id, "Details and notes", () => itemBody(it)));
+// A running work is one line: its title with its worktree beside it; opened,
+// what is happening now and its items, agent, branch, plan and landed commits.
+// The daemon groups and words each one (board.rs).
+function workRow(w) {
+  const first = w.items[0].id;
+  return fold("i:" + first, first,
+    [h("span", {class: "l-title"}, w.title), h("span", {class: "l-wt"}, w.repo + " " + w.checkout)],
+    () => h("div", {class: "l-plain"},
+      w.now ? h("div", {class: "l-fact"}, inline(w.now)) : null,
+      h("div", {class: "l-facts"},
+        fact("Items", w.items.map(i => i.title).join(", ")),
+        w.agent ? fact("Agent", w.agent + ", since " + stamp(w.since.at)) : null,
+        fact("Branch", mono(w.branch)),
+        fact("Plan", mono(w.plan)),
+        w.landed.length ? fact("Landed", mono(w.landed.join(" "))) : null)),
+    "l-work");
 }
 function sum(obj) { return Object.values(obj || {}).reduce((a, b) => a + b, 0); }
 function split2(obj) { const parts = Object.entries(obj || {}).map(([k, v]) => k + " " + v); return parts.length ? " (" + parts.join(", ") + ")" : ""; }
@@ -1220,7 +1225,6 @@ function rows(its, one) { return h("div", {class: "l-rows"}, its.map(one || item
 function workItems() {
   const all = lists.items;
   const out = [{key: "head", data: [lists.flow], make: workHead}];
-  const running = all.filter(isRunning).sort((a, b) => a.running[0].since.at - b.running[0].since.at);
   const design = all.filter(it => !isRunning(it) && it.for === "design-session");
   const mine = all.filter(it => !isRunning(it) && it.for !== "design-session");
   const first = mine.filter(it => it.priority && it.priority.level === "first").sort((a, b) => a.opened.at - b.opened.at);
@@ -1228,7 +1232,8 @@ function workItems() {
   const part = (key, title, its, one) => {
     if (its.length) out.push({key, data: its, make: () => section(title, its.length, rows(its, one))});
   };
-  part("running", "Running", running, runningCard);
+  if (lists.works.length) out.push({key: "running", data: lists.works, make: () => section("Running", lists.works.length,
+    h("div", {class: "l-works"}, lists.works.map(workRow)))});
   part("first", "First", first);
   for (const area of lists.areas) part("area:" + area, area, rest.filter(it => it.area === area));
   part("design-session", "Design session’s", design);

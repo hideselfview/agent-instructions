@@ -99,6 +99,7 @@ fn a_running_item_carries_its_claim_facts_and_nothing_else_does() {
         )
     );
     assert_eq!(find(idle)["running"], json!([]));
+    assert_eq!(view["works"].as_array().unwrap().len(), 1);
 }
 
 #[test]
