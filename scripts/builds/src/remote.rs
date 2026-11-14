@@ -277,6 +277,9 @@ fn run_script(host: &Host, worktree: &str, command: &[String]) -> String {
     format!(
         r#"{root}PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 export PATH
+# ssh's shell starts with macOS's default of 256 open files, which cargo's
+# tests (many stores open at once) exceed; a login shell here has more.
+ulimit -n 10240 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null
 set -m
 cd {wt} || exit 92
 ( exec {words} ) &
