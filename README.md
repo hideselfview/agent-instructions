@@ -119,8 +119,7 @@ The per-rule CI matrix, local Codex review matrix, and `code-rules-review` skill
 are deprecated. They are not required before committing, opening a PR, or
 merging. The former instruction to avoid reviewing rules together is withdrawn.
 
-`scripts/rules_review/local_codex.py` and its supporting review code remain as
-historical tooling, not part of the agent workflow. The skill carries a
-deprecation notice instead of instructions to run the matrix.
-`matching_rules.py` remains active for finding rule bodies to read; it does not
+The tooling that ran the matrix is removed. The skill carries a deprecation
+notice instead of instructions to run the matrix.
+`scripts/rules_review/matching_rules.py` finds rule bodies to read; it does not
 run an AI review.
