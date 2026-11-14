@@ -1,6 +1,14 @@
 project = "bae"
-clean_for = ["reactive-screens-read-plain-live-queries"]
+clean_for = []
 
 [[finding]]
 rule = "write-plain-literal-active-sentences"
 file = "bae-records/src/records/read.rs"
+
+[[finding]]
+rule = "reactive-screens-read-plain-live-queries"
+file = "bae-views/src/release.rs"
+
+[[finding]]
+rule = "reactive-screens-read-plain-live-queries"
+file = "bae-library/src/manager/release_edit.rs"

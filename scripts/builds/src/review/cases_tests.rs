@@ -218,5 +218,5 @@ fn the_committed_cases_load_and_each_names_a_rule_that_exists() {
         }
     }
     let quiet = cases.iter().filter(|c| c.expected.is_empty()).count();
-    assert_eq!(quiet, 3);
+    assert_eq!(quiet, 2);
 }
