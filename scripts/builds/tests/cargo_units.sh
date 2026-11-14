@@ -5,9 +5,8 @@
 
 set -euo pipefail
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cargo build --quiet --manifest-path "$script_dir/Cargo.toml"
-builds="$script_dir/target/debug/builds"
+# cargo_units.rs runs this with BUILDS_BIN set to the built `builds`.
+builds="${BUILDS_BIN:?run through cargo test --test cargo_units}"
 export UNITS_CMD="$builds units"
 # The steps setup and prune run on cargo's folders, on the folders named.
 units() { $UNITS_CMD "$@"; }

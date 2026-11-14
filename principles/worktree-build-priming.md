@@ -270,9 +270,10 @@ a failed build leaves the installed one as it was; a commit on main that touches
     worktrees, read-only with `--no-optional-locks`, and fetches nothing: for
     the person's main checkouts it shows what `status` shows. Coordinators keep
     it current through the claims and notes they already make, setting a note's
-    state when the work waits on the person or is winding down. `test-claims.sh`
-    tests claims, notes and their states, `status --json`, the daemon's answers,
-    its events and the states it derives on a scratch repo and build volume.
+    state when the work waits on the person or is winding down.
+    `tests/claims.rs` tests claims, notes and their states, `status --json`, the
+    daemon's answers, its events and the states it derives on a scratch repo and
+    build volume.
 - `builds prune [--dry-run] [--idle <minutes> [--include-warm]]` deletes every
   checkout's unused build copies, applies every cap, deletes roots whose
   checkout is gone, DerivedData entries nothing wrote to for a day and build
@@ -531,11 +532,11 @@ build.
   running, and the next waiter started a second build in the same checkout. The
   command runs in a process group of its own; SIGTERM, SIGINT or SIGHUP to
   `builds lock` goes to that whole group, so killing the holder stops its build,
-  and the next waiter starts once it has exited. `test-lock.sh` checks both.
-  When `builds` is its terminal's foreground process, the build's group holds
-  the terminal while it runs and `builds` takes it back when the build ends: the
-  kernel stops a background group the moment it sets terminal modes (Gradle's
-  console does), which hung `builds build-app` after a finished build.
+  and the next waiter starts once it has exited. `tests/lock_holder.rs` checks
+  both. When `builds` is its terminal's foreground process, the build's group
+  holds the terminal while it runs and `builds` takes it back when the build
+  ends: the kernel stops a background group the moment it sets terminal modes
+  (Gradle's console does), which hung `builds build-app` after a finished build.
   `tests/terminal.rs` checks it on a pseudo-terminal.
 
 - Waiters go in the order they came, in each lane's line, one line for all of
@@ -744,7 +745,7 @@ binary or dylib doesn't name (read from the Mach-O's `N_OSO` entries when more
 than one set is left). rustc reuses incremental objects from `incremental/`,
 never from `deps/`, and cargo's freshness never looks at them: after deleting
 them every unit stays fresh and a panic's backtrace keeps file and line, in the
-test and in an rlib it calls (`test-cargo-units.sh` checks both).
+test and in an rlib it calls (`tests/cargo_units.sh` checks both).
 
 Deleting a unit's files is made impossible while a build can still read them.
 Cargo decides which units are up to date for its whole unit graph before it runs

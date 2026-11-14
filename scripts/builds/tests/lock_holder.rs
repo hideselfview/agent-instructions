@@ -1,0 +1,406 @@
+//! `builds lock` and `builds health` on a scratch repo and build volume, with
+//! `sleep` standing in for a build: a waiting command does not start while any
+//! process of the holder's build lives, whether the holder is killed outright
+//! or asked to stop; and health counts a build under the lock as the build of
+//! the worktree it is for, and finds the holder by the lock file's open
+//! descriptor once `builds lock` itself is gone.
+
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
+
+const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
+const PATIENCE: Duration = Duration::from_secs(30);
+
+/// A repo `demo` with origin/main, its app checkout side-1, and side-2,
+/// claimed, whose one commit of its own was made three hours ago and nothing
+/// since; on a build volume of its own.
+struct Demo {
+    dir: PathBuf,
+    side: PathBuf,
+    app: PathBuf,
+    work: String,
+    started: Vec<Child>,
+}
+
+fn git(top: &Path, args: &[&str], date: Option<&str>) -> String {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(top).args(args);
+    if let Some(date) = date {
+        command
+            .env("GIT_AUTHOR_DATE", date)
+            .env("GIT_COMMITTER_DATE", date);
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
+impl Demo {
+    fn new(name: &str) -> Demo {
+        let dir = PathBuf::from(format!("/private/tmp/bl-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let main = dir.join("demo");
+        let app = dir.join("demo-worktrees/side-1");
+        let side = dir.join("demo-worktrees/side-2");
+        let three_hours_ago = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 3 * 3600;
+        let old = format!("{three_hours_ago} +0000");
+        std::fs::create_dir_all(&main).unwrap();
+        git(&main, &["init", "-q", "-b", "main"], None);
+        git(&main, &["config", "user.email", "test@example.com"], None);
+        git(&main, &["config", "user.name", "test"], None);
+        std::fs::write(main.join(".build-dirs"), "target 1G\n").unwrap();
+        std::fs::write(main.join(".gitignore"), "target\n").unwrap();
+        git(&main, &["add", ".build-dirs", ".gitignore"], None);
+        git(&main, &["commit", "-q", "-m", "Start"], Some(&old));
+        let origin = dir.join("origin.git");
+        let made = Command::new("git")
+            .args(["init", "-q", "--bare"])
+            .arg(&origin)
+            .output()
+            .unwrap();
+        assert!(made.status.success());
+        git(
+            &main,
+            &["remote", "add", "origin", origin.to_str().unwrap()],
+            None,
+        );
+        git(&main, &["push", "-q", "origin", "main"], None);
+        git(
+            &main,
+            &["worktree", "add", "-q", "--detach", app.to_str().unwrap()],
+            None,
+        );
+        git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "work",
+                side.to_str().unwrap(),
+                "origin/main",
+            ],
+            None,
+        );
+        std::fs::write(side.join("file"), "change\n").unwrap();
+        git(&side, &["add", "file"], None);
+        git(&side, &["commit", "-q", "-m", "Work"], Some(&old));
+        let work = git(&side, &["rev-parse", "HEAD"], None);
+        for (name, top) in [("main", &main), ("side-1", &app), ("side-2", &side)] {
+            let root = dir.join("volume/demo").join(name);
+            std::fs::create_dir_all(&root).unwrap();
+            std::fs::write(root.join(".checkout"), format!("{}\n", top.display())).unwrap();
+        }
+        let demo = Demo {
+            dir,
+            side,
+            app,
+            work,
+            started: Vec::new(),
+        };
+        let app = demo.app.to_str().unwrap().to_string();
+        let side = demo.side.to_str().unwrap().to_string();
+        assert!(demo.run(&["app-checkout", "mac", &app]).status.success());
+        assert!(
+            demo.run(&["claim", &side, "agent B"]).status.success(),
+            "claim"
+        );
+        demo
+    }
+
+    fn builds(&self) -> Command {
+        let mut command = Command::new(BUILDS);
+        command
+            .env("BUILDS_ROOT", self.dir.join("volume"))
+            .env("HOME", self.dir.join("home"));
+        command
+    }
+
+    fn run(&self, args: &[&str]) -> std::process::Output {
+        self.builds().args(args).output().unwrap()
+    }
+
+    /// Starts `builds lock demo <script>` in <cwd>, <script> run by sh with
+    /// the arguments <args> after its name.
+    fn lock(&mut self, cwd: &Path, script: &str, args: &[String]) -> i32 {
+        let child = self
+            .builds()
+            .current_dir(cwd)
+            .args(["lock", "demo", "sh", "-c", script, "sh"])
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id() as i32;
+        self.started.push(child);
+        pid
+    }
+
+    /// Starts a `builds lock demo` that records in <out> whether <flag>
+    /// existed when it started: `during` or `after`.
+    fn waiter(&mut self, flag: &Path, out: &Path) -> Child {
+        self.builds()
+            .args([
+                "lock",
+                "demo",
+                "sh",
+                "-c",
+                r#"if [ -f "$1" ]; then echo after; else echo during; fi > "$2""#,
+                "sh",
+            ])
+            .arg(flag)
+            .arg(out)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap()
+    }
+
+    /// `builds health --json`, which exits 1 when it finds something to act
+    /// on: its JSON.
+    fn health(&self) -> serde_json::Value {
+        let output = self.run(&["health", "--json"]);
+        serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+            panic!(
+                "health said {}: {error}",
+                String::from_utf8_lossy(&output.stdout)
+            )
+        })
+    }
+
+    fn side_2(&self, health: &serde_json::Value) -> serde_json::Value {
+        health["worktrees"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|worktree| worktree["checkout"] == "demo/side-2")
+            .unwrap_or_else(|| panic!("no side-2 in {health}"))
+            .clone()
+    }
+
+    fn idle(&self, health: &serde_json::Value) -> bool {
+        health["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| {
+                finding
+                    .as_str()
+                    .unwrap()
+                    .starts_with("worktree: demo/side-2 ")
+            })
+    }
+}
+
+impl Drop for Demo {
+    fn drop(&mut self) {
+        for child in &mut self.started {
+            // SIGTERM: a running `builds lock` passes it to its build's group.
+            unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+            let _ = child.wait();
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = Instant::now() + PATIENCE;
+    while !done() {
+        assert!(Instant::now() < deadline, "never saw {what}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn path(path: &Path) -> String {
+    path.to_str().unwrap().to_string()
+}
+
+fn kill(pid: i32, signal: i32) {
+    unsafe { libc::kill(pid, signal) };
+}
+
+fn wait_for(child: &mut Child) -> std::process::ExitStatus {
+    child.wait().unwrap()
+}
+
+/// The pid of the one child of <pid>.
+fn child_of(pid: i32) -> i32 {
+    let output = Command::new("pgrep")
+        .args(["-P", &pid.to_string()])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .unwrap_or_else(|| panic!("{pid} has no child"))
+        .parse()
+        .unwrap()
+}
+
+#[test]
+fn a_repo_without_an_app_checkout_has_no_app_lock_to_take() {
+    let demo = Demo::new("noapp");
+    let output = demo.run(&["lock", "other", "true"]);
+    assert!(!output.status.success());
+}
+
+/// The holder killed outright (SIGKILL: nothing is passed on). Its build keeps
+/// running and keeps the lock until it ends.
+#[test]
+fn a_killed_holders_build_keeps_the_lock_until_it_ends() {
+    let mut demo = Demo::new("kill");
+    let dir = demo.dir.clone();
+    let holder = demo.lock(
+        &dir,
+        r#"touch "$1/started"; sleep 3; touch "$1/build.done""#,
+        &[path(&dir)],
+    );
+    until("the build to start", || dir.join("started").exists());
+    let mut waiter = demo.waiter(&dir.join("build.done"), &dir.join("waiter"));
+    kill(holder, libc::SIGKILL);
+    let index = demo
+        .started
+        .iter()
+        .position(|child| child.id() as i32 == holder)
+        .unwrap();
+    let _ = wait_for(&mut demo.started[index]);
+    assert!(wait_for(&mut waiter).success());
+    assert_eq!(
+        std::fs::read_to_string(dir.join("waiter")).unwrap(),
+        "after\n",
+        "the waiter started while the killed holder's build still ran"
+    );
+}
+
+/// The holder asked to stop (SIGTERM). It passes the signal on to its build's
+/// whole process group, the background sleep included, and the waiter starts
+/// once all of it has exited, well before the sleep would have ended. Health
+/// names the `builds lock` with the file open as the holder.
+#[test]
+fn a_stopped_holder_stops_its_whole_build_before_the_waiter_starts() {
+    let mut demo = Demo::new("term");
+    let dir = demo.dir.clone();
+    let holder = demo.lock(
+        &dir,
+        r#"trap 'touch "$1/build.stopped"; exit 1' TERM; sleep 60 & touch "$1/started"; wait"#,
+        &[path(&dir)],
+    );
+    until("the build to start", || dir.join("started").exists());
+    let mut waiter = demo.waiter(&dir.join("build.stopped"), &dir.join("waiter"));
+    let health = demo.health();
+    assert_eq!(
+        health["locks"][0]["holder"]["pid"].as_i64(),
+        Some(holder as i64),
+        "health named another process as the lock's holder: {health}"
+    );
+    let begun = Instant::now();
+    kill(holder, libc::SIGTERM);
+    let index = demo
+        .started
+        .iter()
+        .position(|child| child.id() as i32 == holder)
+        .unwrap();
+    let status = wait_for(&mut demo.started[index]);
+    assert!(wait_for(&mut waiter).success());
+    assert_eq!(
+        std::fs::read_to_string(dir.join("waiter")).unwrap(),
+        "after\n",
+        "the waiter started before the stopped build had exited"
+    );
+    assert!(
+        !status.success(),
+        "the holder exited 0 for a build that was stopped"
+    );
+    assert!(
+        begun.elapsed() < Duration::from_secs(30),
+        "the build's background sleep was not stopped"
+    );
+}
+
+/// side-2, quiet for three hours with no build of its own, is idle.
+#[test]
+fn a_side_worktree_quiet_for_hours_with_no_build_is_idle() {
+    let demo = Demo::new("idle");
+    assert!(
+        demo.idle(&demo.health()),
+        "health did not call the quiet side-2 idle"
+    );
+}
+
+/// A `builds lock` run from side-2 builds for it: side-2 is not idle.
+#[test]
+fn a_lock_run_from_a_side_worktree_builds_for_it() {
+    let mut demo = Demo::new("from");
+    let dir = demo.dir.clone();
+    let side = demo.side.clone();
+    let holder = demo.lock(
+        &side,
+        r#"touch "$1"; exec sleep 30"#,
+        &[path(&dir.join("started"))],
+    );
+    until("the build to start", || dir.join("started").exists());
+    let health = demo.health();
+    assert_eq!(
+        demo.side_2(&health)["app_build"].as_i64(),
+        Some(holder as i64),
+        "health did not link the lock run from side-2 to it: {health}"
+    );
+    assert!(
+        !demo.idle(&health),
+        "health called side-2 idle while its build held the app lock"
+    );
+}
+
+/// A `builds lock` run from elsewhere that moves the app checkout to side-2's
+/// commit, then killed outright: its build still holds the lock, and health
+/// finds that build by the open lock file and links it to side-2 through the
+/// commit.
+#[test]
+fn a_killed_holders_build_is_found_by_the_open_lock_file_and_linked_by_commit() {
+    let mut demo = Demo::new("found");
+    let dir = demo.dir.clone();
+    let app = demo.app.clone();
+    let holder = demo.lock(
+        &dir,
+        r#"cd "$1" && git checkout -q --detach "$2" && touch "$3" && sleep 30"#,
+        &[path(&app), demo.work.clone(), path(&dir.join("started"))],
+    );
+    until("the build to start", || dir.join("started").exists());
+    let build = child_of(holder);
+    kill(holder, libc::SIGKILL);
+    let index = demo
+        .started
+        .iter()
+        .position(|child| child.id() as i32 == holder)
+        .unwrap();
+    let _ = wait_for(&mut demo.started[index]);
+    let health = demo.health();
+    assert_eq!(
+        health["locks"][0]["holder"]["pid"].as_i64(),
+        Some(build as i64),
+        "health did not find the killed holder's build by the open lock file: {health}"
+    );
+    assert_eq!(
+        demo.side_2(&health)["app_build"].as_i64(),
+        Some(build as i64),
+        "health did not link the app checkout's build at side-2's commit to side-2"
+    );
+    assert!(
+        !demo.idle(&health),
+        "health called side-2 idle while a build at its commit held the app lock"
+    );
+    kill(-build, libc::SIGTERM);
+}
