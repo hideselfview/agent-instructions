@@ -139,10 +139,25 @@ fn plant_run(conn: &Connection) {
     .unwrap();
 }
 
-/// The schema's text before `design_deleted`: today's without that table and
-/// the comment above it.
-fn schema_before_design_deleted() -> String {
+/// The schema's text before `hook_run_checks` kept a time only for a passed
+/// check: today's with the older comment and the older rule for `ms`.
+fn schema_before_check_times() -> String {
     let schema = db::schema();
+    let from = schema
+        .find("    -- What it was handed (NULL for a skipped one)")
+        .expect("the column's comment");
+    let to = from + schema[from..].find("    files INTEGER").unwrap();
+    let older = "    -- What it was handed, and how long it took: NULL for a skipped one.\n";
+    format!("{}{older}{}", &schema[..from], &schema[to..]).replace(
+        "CHECK ((outcome = 'passed') = (ms IS NOT NULL))",
+        "CHECK ((outcome = 'skipped') = (ms IS NULL))",
+    )
+}
+
+/// The schema's text before `design_deleted`: the one before check times
+/// without that table and the comment above it.
+fn schema_before_design_deleted() -> String {
+    let schema = schema_before_check_times();
     let from = schema
         .find("\n-- A board the change deletes")
         .expect("the table's comment");
@@ -170,7 +185,7 @@ fn a_store_of_the_schema_before_deleted_boards_gains_the_table_keeps_its_runs_an
     let scratch = Scratch::new("move-deleted");
     let places = scratch.places();
     let path = store_before_design_deleted(&places.lists.join("bae"));
-    migrate_design_deleted(&places).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -182,7 +197,7 @@ fn a_store_of_the_schema_before_deleted_boards_gains_the_table_keeps_its_runs_an
     assert_eq!(stats.runs, 1, "the old run is kept");
     // A second install changes nothing.
     let before = db::schema_rows(&conn).unwrap();
-    migrate_design_deleted(&places).unwrap();
+    migrate_stores(&places).unwrap();
     assert_eq!(
         db::schema_rows(&Connection::open(&path).unwrap()).unwrap(),
         before
@@ -202,7 +217,7 @@ fn a_store_with_a_stamp_the_deleted_boards_move_does_not_know_is_refused_and_lef
         .unwrap()
         .pragma_update(None, "user_version", 1234)
         .unwrap();
-    let refused = migrate_design_deleted(&places).unwrap_err().text();
+    let refused = migrate_stores(&places).unwrap_err().text();
     assert!(
         refused.contains("stamp 1234") && refused.contains("does not know"),
         "{refused}"
@@ -220,7 +235,7 @@ fn a_deleted_boards_move_that_would_not_equal_a_fresh_schema_rolls_back() {
         .unwrap()
         .execute_batch("DROP INDEX idx_hook_runs_started")
         .unwrap();
-    let refused = migrate_design_deleted(&places).unwrap_err().text();
+    let refused = migrate_stores(&places).unwrap_err().text();
     assert!(
         refused.contains("not the one this builds makes"),
         "{refused}"
@@ -256,5 +271,68 @@ fn the_previous_stamp_is_the_schema_without_the_deleted_boards_table() {
     assert_eq!(
         i64::from(hash % (i32::MAX as u32 - 2)) + 2,
         BEFORE_DESIGN_DELETED_STAMP
+    );
+}
+
+/// A store as the schema before check times made it: that schema's text, its stamp, one run with
+/// a passed check and a failed one, each with a time as the old schema kept it.
+fn store_before_check_times(dir: &std::path::Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&schema_before_check_times()).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_CHECK_TIMES_STAMP)
+        .unwrap();
+    plant_run(&conn);
+    conn.execute_batch(
+        "INSERT INTO hook_run_checks (run_id, position, name, kind, outcome, files, crates, ms) VALUES
+            (1, 0, 'fmt', 'check', 'passed', 1, 0, 40),
+            (1, 1, 'clippy', 'check', 'failed', 1, 3, 90),
+            (1, 2, 'docs', 'check', 'skipped', NULL, NULL, NULL)",
+    )
+    .unwrap();
+    path
+}
+
+#[test]
+fn a_store_from_before_check_times_loses_a_failed_checks_time_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-check-times");
+    let places = scratch.places();
+    let path = store_before_check_times(&places.lists.join("bae"));
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let times: Vec<(String, Option<i64>)> = conn
+        .prepare("SELECT name, ms FROM hook_run_checks ORDER BY position")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        times,
+        vec![
+            ("fmt".to_string(), Some(40)),
+            ("clippy".to_string(), None),
+            ("docs".to_string(), None)
+        ]
+    );
+}
+
+#[test]
+fn the_check_times_stamp_is_the_schema_before_check_times() {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in schema_before_check_times().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    assert_eq!(
+        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        BEFORE_CHECK_TIMES_STAMP
     );
 }

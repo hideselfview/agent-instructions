@@ -46,7 +46,9 @@ CREATE TABLE IF NOT EXISTS hook_run_checks (
     name TEXT NOT NULL CHECK (name <> ''),
     kind TEXT NOT NULL CHECK (kind IN ('check', 'fix')),
     outcome TEXT NOT NULL CHECK (outcome IN ('passed', 'failed', 'skipped')),
-    -- What it was handed, and how long it took: NULL for a skipped one.
+    -- What it was handed (NULL for a skipped one) and how long it took (kept
+    -- only for a passed one: a failed check's time says nothing about how
+    -- long the check takes).
     files INTEGER CHECK (files >= 0),
     crates INTEGER CHECK (crates >= 0),
     ms INTEGER CHECK (ms >= 0),
@@ -54,7 +56,7 @@ CREATE TABLE IF NOT EXISTS hook_run_checks (
     UNIQUE (run_id, name),
     CHECK ((outcome = 'skipped') = (files IS NULL)),
     CHECK ((outcome = 'skipped') = (crates IS NULL)),
-    CHECK ((outcome = 'skipped') = (ms IS NULL))
+    CHECK ((outcome = 'passed') = (ms IS NOT NULL))
 ) STRICT, WITHOUT ROWID;
 
 CREATE INDEX IF NOT EXISTS idx_hook_run_checks_name ON hook_run_checks (name, kind);

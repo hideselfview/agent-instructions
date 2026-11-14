@@ -135,6 +135,9 @@ fn waiting_in(queue: &Path) -> Result<bool> {
 
 /// The stamp of the schema before the `design_deleted` table was added.
 const BEFORE_DESIGN_DELETED_STAMP: i64 = 155_110_266;
+/// The stamp of the schema before `hook_run_checks` kept a time only for a
+/// passed check.
+const BEFORE_CHECK_TIMES_STAMP: i64 = 213_607_842;
 
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
@@ -143,13 +146,15 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     PRIMARY KEY (design_id, path)
 ) STRICT, WITHOUT ROWID";
 
-/// Gives each project's `builds.sqlite` the `design_deleted` table: a store
-/// stamped as the schema before it gets the table in one transaction, is
-/// stamped as today's schema, and must then equal a fresh database's schema
-/// or the transaction rolls back. A store already at today's stamp, or with
-/// no database, is left alone; any other stamp is refused. Delete this once it
-/// has run.
-pub fn migrate_design_deleted(places: &Places) -> Result<()> {
+/// Moves each project's `builds.sqlite` to today's schema: a store stamped as
+/// the schema before the `design_deleted` table gets that table, and a store
+/// stamped as either older schema gets a `hook_run_checks` that keeps a time
+/// only for a passed check (a failed check's time is dropped). The moves run in
+/// one transaction, the store is stamped as today's schema, and it must then
+/// equal a fresh database's schema or the transaction rolls back. A store
+/// already at today's stamp, or with no database, is left alone; any other
+/// stamp is refused. Delete this once it has run.
+pub fn migrate_stores(places: &Places) -> Result<()> {
     let entries = match std::fs::read_dir(&places.lists) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -164,12 +169,38 @@ pub fn migrate_design_deleted(places: &Places) -> Result<()> {
     }
     dirs.sort();
     for dir in dirs {
-        add_design_deleted(&dir.join(DATABASE))?;
+        move_store(&dir.join(DATABASE))?;
     }
     Ok(())
 }
 
-fn add_design_deleted(path: &Path) -> Result<()> {
+/// The statements that rebuild `hook_run_checks` as hook_stats.sql writes it,
+/// taking the table and its index from today's schema text so the result
+/// equals a fresh database's, and keeping a time only for a passed check.
+fn check_times() -> String {
+    let schema = db::schema();
+    let slice = |from: &str, end: &str| {
+        let start = schema.find(from).expect("the schema has it");
+        let stop = start + schema[start..].find(end).expect("it ends") + end.len();
+        schema[start..stop].to_string()
+    };
+    let table = slice(
+        "CREATE TABLE IF NOT EXISTS hook_run_checks",
+        "WITHOUT ROWID;",
+    );
+    let index = slice("CREATE INDEX IF NOT EXISTS idx_hook_run_checks_name", ";");
+    format!(
+        "ALTER TABLE hook_run_checks RENAME TO hook_run_checks_old;
+{table}
+INSERT INTO hook_run_checks (run_id, position, name, kind, outcome, files, crates, ms)
+    SELECT run_id, position, name, kind, outcome, files, crates, CASE WHEN outcome = 'passed' THEN ms END
+    FROM hook_run_checks_old;
+DROP TABLE hook_run_checks_old;
+{index}"
+    )
+}
+
+fn move_store(path: &Path) -> Result<()> {
     if !path.is_file() {
         return Ok(());
     }
@@ -181,9 +212,9 @@ fn add_design_deleted(path: &Path) -> Result<()> {
     if found == db::stamp() || found == 0 {
         return Ok(());
     }
-    if found != BEFORE_DESIGN_DELETED_STAMP {
+    if found != BEFORE_DESIGN_DELETED_STAMP && found != BEFORE_CHECK_TIMES_STAMP {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP} and {BEFORE_CHECK_TIMES_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -191,7 +222,10 @@ fn add_design_deleted(path: &Path) -> Result<()> {
     let tx = conn
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .sql()?;
-    tx.execute_batch(DESIGN_DELETED).sql()?;
+    if found == BEFORE_DESIGN_DELETED_STAMP {
+        tx.execute_batch(DESIGN_DELETED).sql()?;
+    }
+    tx.execute_batch(&check_times()).sql()?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     if db::schema_rows(&tx)? != db::schema_rows(&db::memory())? {
         fail!(
@@ -200,10 +234,7 @@ fn add_design_deleted(path: &Path) -> Result<()> {
         );
     }
     tx.commit().sql()?;
-    crate::text::note(format!(
-        "gave {}'s design changes a table of deleted boards",
-        path.display()
-    ));
+    crate::text::note(format!("moved {} to today's schema", path.display()));
     Ok(())
 }
 

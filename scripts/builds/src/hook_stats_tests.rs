@@ -643,3 +643,37 @@ fn a_run_where_one_check_fails_adds_its_passing_checks_and_no_run_time() {
         (1, 1_000, 1_000)
     );
 }
+
+#[test]
+fn a_failed_checks_time_is_not_stored_and_a_passed_checks_time_is() {
+    let scratch = Scratch::new("hook-db-failed-time");
+    let path = database(&scratch);
+    record(
+        &path,
+        &run(
+            1,
+            200_000,
+            false,
+            vec![
+                check("clippy", Outcome::Passed, Some(80_000)),
+                check("detekt", Outcome::Failed, Some(100_000)),
+            ],
+        ),
+    )
+    .unwrap();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let times: Vec<(String, Option<i64>)> = conn
+        .prepare("SELECT name, ms FROM hook_run_checks ORDER BY position")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        times,
+        vec![
+            ("clippy".to_string(), Some(80_000)),
+            ("detekt".to_string(), None)
+        ]
+    );
+}

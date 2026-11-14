@@ -116,9 +116,11 @@ pub struct CheckRecord {
     /// `Kind::Check` or `Kind::Fix`.
     pub kind: Kind,
     pub outcome: Outcome,
-    /// The staged files and the workspace crates it was handed, and its
-    /// time; None for a skipped one.
+    /// The staged files and the workspace crates it was handed; None for a
+    /// skipped one.
     pub handed: Option<(u32, u32)>,
+    /// Its time. `record` keeps it only for a passed check: a failed check's
+    /// time says nothing about how long the check takes.
     pub ms: Option<u64>,
 }
 
@@ -215,7 +217,8 @@ pub fn record(path: &Path, run: &Run) -> Result<()> {
                     c.outcome.word(),
                     files,
                     crates,
-                    c.ms.map(|ms| ms as i64)
+                    c.ms.filter(|_| c.outcome == Outcome::Passed)
+                        .map(|ms| ms as i64)
                 ])
                 .context(what)?;
         }
@@ -830,6 +833,23 @@ pub fn dashboard_json(places: &crate::places::Places) -> String {
         Err(error) => serde_json::json!({ "error": error.text() }),
     };
     value.to_string()
+}
+
+/// Every run recorded for <repo>, newest first, whether or not it passed: for
+/// tests of what `record` wrote (the figures read passing runs only).
+#[cfg(test)]
+pub fn recorded_runs(path: &Path, repo: &str) -> Vec<Run> {
+    let conn = open_for_reading(path)
+        .unwrap()
+        .expect("something was recorded");
+    runs_where(
+        &conn,
+        "started_at >= ?1 AND repo = ?2 ORDER BY started_at DESC, id DESC",
+        (0, repo),
+        usize::MAX >> 1,
+        path,
+    )
+    .unwrap()
 }
 
 /// The tables hook_stats.rs owns.
