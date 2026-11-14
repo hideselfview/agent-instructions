@@ -140,10 +140,6 @@ the hook's build instead of making another copy of every crate:
 bae-bridge. Another feature set is another copy; use one only to check that
 feature set itself.
 
-`scripts/check.sh` serializes every non-Windows CI gate on one machine. Run it
-only when explicitly validating the complete non-Windows system locally, not as
-the routine local gate before a commit or push.
-
 ## The spec moves with every commit
 
 `spec/bae.md` states what bae does. Every commit checks whether it changes, or
