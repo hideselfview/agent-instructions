@@ -120,24 +120,35 @@ fn is_empty_dir(dir: &Path) -> Result<bool> {
     Ok(std::fs::read_dir(dir).context(|| format!("listing {}", dir.display()))?.next().is_none())
 }
 
-/// The blob git has for Cargo.lock at <rev> in <dir>, or "" when it has none.
-fn lock_blob(dir: &Path, rev: &str) -> String {
-    Command::new("git")
+/// The blob git has for Cargo.lock at <rev> in <dir>, or "" when <rev> has
+/// none. `rev-parse --verify -q` exits 1, silently, for a name that resolves
+/// to nothing; any other way for git to fail (it did not start, another exit
+/// status, a signal, a broken repo) is an error, never read as "no lock".
+fn lock_blob(dir: &Path, rev: &str) -> Result<String> {
+    let output = Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(["rev-parse", "--verify", "-q", &format!("{rev}:Cargo.lock")])
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
         .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
-        .unwrap_or_default()
+        .context(|| format!("running git in {}", dir.display()))?;
+    match output.status.code() {
+        Some(0) => Ok(String::from_utf8_lossy(&output.stdout).trim().to_string()),
+        Some(1) if output.stderr.is_empty() => Ok(String::new()),
+        _ => fail!(
+            "git failed to find Cargo.lock at {rev} in {}: {} {}",
+            dir.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+    }
 }
 
 /// Every other checkout of <checkout>'s repo whose `target` could be cloned
 /// into a folder capped at <cap_kib>, unranked.
 fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Candidate>> {
     let dest_root = checkout.build_root(&tool.places);
-    let wanted = lock_blob(&checkout.top, "origin/main");
+    let wanted = lock_blob(&checkout.top, "origin/main")?;
     let mut found: Vec<(Root, Checkout)> = Vec::new();
     for root in tool.roots()? {
         let Some(live) = root.live.clone() else { continue };
@@ -163,7 +174,7 @@ fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Cand
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0, |since| since.as_secs() as i64);
         candidates.push(Candidate {
-            same_lock: lock_blob(&live.top, "HEAD") == wanted,
+            same_lock: lock_blob(&live.top, "HEAD")? == wanted,
             root: root.path,
             finished,
         });

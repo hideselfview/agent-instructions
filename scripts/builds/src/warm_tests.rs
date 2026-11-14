@@ -165,3 +165,25 @@ fn a_source_a_hand_run_cargo_holds_is_passed_over() {
 fn candidate_at(root: &Path) -> Candidate {
     Candidate { root: root.to_path_buf(), same_lock: true, finished: 0 }
 }
+
+#[test]
+fn a_revision_without_a_lock_is_empty_and_git_failing_is_an_error() {
+    let scratch = Scratch::new("warm-lock-blob");
+    let main = scratch.dir.join("demo");
+    repo(&main, "target 1G\n");
+    assert_eq!(lock_blob(&main, "HEAD").unwrap(), "");
+    assert_eq!(lock_blob(&main, "origin/main").unwrap(), "");
+    std::fs::write(main.join("Cargo.lock"), "# lock\n").unwrap();
+    git(&main, &["add", "Cargo.lock"]);
+    git(&main, &["commit", "-q", "-m", "Lock"]);
+    assert_eq!(lock_blob(&main, "HEAD").unwrap().len(), 40);
+
+    let not_a_repo = scratch.dir.join("plain");
+    std::fs::create_dir_all(&not_a_repo).unwrap();
+    let fault = lock_blob(&not_a_repo, "HEAD").unwrap_err().text();
+    assert!(fault.contains("git failed to find Cargo.lock at HEAD"), "{fault}");
+
+    std::fs::write(main.join(".git/HEAD"), "garbage\n").unwrap();
+    let broken = lock_blob(&main, "HEAD").unwrap_err().text();
+    assert!(broken.contains("git failed to find Cargo.lock at HEAD"), "{broken}");
+}
