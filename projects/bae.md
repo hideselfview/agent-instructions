@@ -160,7 +160,9 @@ duplicate types to make a split compile.
 ## Reads and fast values
 
 Everything a screen shows comes from SQL, except values that change many times a
-second, which travel on keyed latest-value streams.
+second, which travel on keyed latest-value streams, and state that lives only on
+screen (hover, focus, an open popover or menu, a drag in progress), which the
+view holds and SQL never sees.
 
 A read that must follow changes (a reactive screen, or a subscriber in the
 bridge, automation or MCP) is a plain coven live query; any other read is a

@@ -1,5 +1,5 @@
 ---
-digest: Everything a bae screen shows comes from SQL, with two exceptions: values that change many times a second (keyed latest-value streams), and state that lives only on screen, such as hover, focus, an open popover or menu, or a drag in progress (held by the view, never in SQL). A read that must follow changes is a plain coven live query, a one-off read a plain SQL read; nothing is kept in Rust memory between reads, no side pass, no field written to force a rerun, no size cutoff between read paths, and Rust never filters, sorts, joins, groups, counts or derives what a screen shows.
+digest: Everything a bae screen shows comes from SQL, with two exceptions, values that change many times a second (keyed latest-value streams), and state that lives only on screen, such as hover, focus, an open popover or menu, or a drag in progress (held by the view, never in SQL). A read that must follow changes is a plain coven live query, a one-off read a plain SQL read; nothing is kept in Rust memory between reads, no side pass, no field written to force a rerun, no size cutoff between read paths, and Rust never filters, sorts, joins, groups, counts or derives what a screen shows.
 paths:
   - bae-store/src/**/*.rs
   - bae-views/src/**/*.rs
