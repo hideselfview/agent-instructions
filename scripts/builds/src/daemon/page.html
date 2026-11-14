@@ -79,12 +79,49 @@ section.repo { display: flex; flex-direction: column; gap: 12px; }
 .pinned-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: 12px; align-items: stretch; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; align-items: stretch; }
 article { min-width: 0; display: flex; flex-direction: column; }
+.wcard { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; gap: 4px; }
+.wcard .cbar { margin: -12px -16px 6px; border-radius: 12px 12px 0 0; padding: 6px 16px; background: var(--line-soft); color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 12px; }
+.wcard .cbar.building { background: var(--working-bg); color: var(--working); }
+.wcard .grp { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; }
+.wcard .dsk, .alane-head .dsk { margin-left: auto; font: 500 13px var(--mono); }
+.wcard .t { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.wcard .t > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wcard .t b { font-weight: 700; font-size: 15px; }
+.wcard .br { font: 400 13px var(--mono); color: var(--muted); margin-left: 4px; }
+.wcard .what { color: var(--text-2); font-size: 14px; }
+.wcard > *:has(+ .foot) { margin-bottom: 6px; }
+.wcard .foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+.wcard .tree { margin-left: auto; }
+.wcard .ic { display: inline-flex; align-items: center; gap: 5px; }
+.wcard .ic svg { flex: none; }
+.wcard .procs { background: color-mix(in srgb, var(--working-bg) 55%, transparent); color: var(--working); border-radius: 8px; padding: 6px 10px; font: 12px var(--mono); overflow-wrap: anywhere; }
+.wcard .procs .ic { display: inline; font: inherit; }
+.wcard .procs .ic svg { vertical-align: -2px; margin-right: 5px; }
+.wcard .land { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.wcard .land .c { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; align-items: baseline; }
+.wcard .land .c .mono { color: var(--muted); font-size: 12px; }
+.wcard .land summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.wcard .land details .c { margin-top: 2px; }
+.alane { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); display: flex; flex-direction: column; overflow: hidden; }
+.alane-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.alane-head > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.alane-head b { font-size: 15px; font-weight: 700; }
+.alane-head .br { font: 400 12px var(--mono); color: var(--muted); margin-left: 4px; }
+.alane-head .dsk { font: 500 13px var(--mono); color: var(--muted); }
+.alane-now { padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
+.alane-now.building { background: var(--working-bg); color: var(--working); }
+.alane-now .who { font-weight: 600; }
+.alane-now.building .procs { font: 12px var(--mono); }
+.alane-now .procs .ic { display: inline-flex; align-items: center; gap: 5px; }
+.alane-now .use { font: 12px var(--mono); }
+.alane-now.stuck .who { color: var(--text); }
+.alane-now .procs-plain { font: 12px var(--mono); color: var(--muted); }
+.alane-q { padding: 10px 16px; display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
+.alane-q .qn { font: 500 20px var(--mono); color: var(--text); line-height: 1; }
 .pinned { background: var(--pinned); border: 1px solid var(--pinned-line); border-radius: 12px; padding: 14px 16px; gap: 10px; }
 /* Cards in a row stretch to the tallest; the title, agent and note stay at the
    top and the foot sits at the bottom. The min-height fits a usual card: title
    line, agent line, a two-line note and the foot. */
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; gap: 10px; min-height: 176px; }
-.card .foot { margin-top: auto; }
 .row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .ident { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .name { font-size: 15px; font-weight: 700; white-space: nowrap; }
@@ -505,59 +542,6 @@ function counts(cs) {
   return n;
 }
 
-function totalBlock(b) {
-  if (!b || b.total === null) return h("div", {class: "total"}, h("span", {class: "of"}, "measuring…"));
-  return h("div", {class: "total"}, h("span", {class: "big"}, size(b.total)), h("span", {class: "of"}, "of build output"));
-}
-// Short names for the build folders; any other shows its path. The chip's
-// title holds the path.
-const FOLDER_NAMES = {
-  "bae-macos/bae/.build": "Xcode build",
-  "bae-ios/bae/.build": "iOS Xcode build",
-  "bae-android/app/build": "Android app",
-  "bae-android/bridge/build": "Android bridge",
-  "bae-android/fastvalues/build": "Android fastvalues",
-  "bae-android/screensubscription/build": "Android screensubscription",
-  "bae-android/.gradle": "Gradle",
-  "bae-android/debug-symbols": "Android symbols",
-  "BaeKit/Frameworks": "BaeKit",
-  "BaeKit/.build": "BaeKit build",
-  "bae-avalonia/bin": "Avalonia bin",
-  "bae-avalonia/obj": "Avalonia obj",
-  "bae-avalonia/bae-avalonia.Tests/bin": "Avalonia tests bin",
-  "bae-avalonia/bae-avalonia.Tests/obj": "Avalonia tests obj",
-};
-function folderName(path) {
-  const proof = /^spec\/proofs\/([^/]+)\/\.lake$/.exec(path);
-  return FOLDER_NAMES[path] || (proof ? "Lean " + proof[1] + " proofs" : path);
-}
-// The 3 largest folders inline; the rest behind a disclosure.
-const INLINE_CHIPS = 3;
-function chips(b) {
-  if (!b) return null;
-  const chip = f => h("span", {class: "chip" + (f.over ? " over" : ""), title: f.path}, folderName(f.path) + " ",
-    h("span", {class: "mono"}, (f.kib === null ? "measuring…" : size(f.kib)) + (f.over ? " over cap" : "")));
-  const problems = b.links.map(p => h("span", {class: "chip over"}, p));
-  const rest = b.chips.slice(INLINE_CHIPS);
-  return [
-    b.chips.length || problems.length ? h("div", {class: "chips"}, b.chips.slice(0, INLINE_CHIPS).map(chip), problems) : null,
-    rest.length ? h("details", {class: "more-folders"},
-      h("summary", {}, "+" + plural(rest.length, "more folder", "more folders")),
-      h("div", {class: "chips"}, rest.map(chip))) : null];
-}
-function mainLine(repo) {
-  return "Your checkout. No agent works or builds here.";
-}
-function appLine(lock, b, appLane) {
-  if (lock.held) {
-    return "An agent is building here under the " + appLane + " app lock" +
-      (lock.holder.minutes ? " (held " + lock.holder.minutes + "m)" : "") +
-      (lock.waiting ? "; " + lock.waiting + " waiting for whichever " + appLane + " checkout frees first." : ".");
-  }
-  return "Where agents build the " + appLane + " app, one at a time under the " + appLane + " app lock." +
-    (b && b.newest ? " Last build " + when(new Date(b.newest * 1000)) + "." : "");
-}
-
 // Who waits for the app lock, next first, each with the buttons that move it.
 function queuedName(q) {
   return q.command.includes("build-app") ? "Your test app" : (q.started_from || "?").split("/").pop();
@@ -706,66 +690,113 @@ function buildsView() {
   if (els.length !== box.children.length || els.some((el, i) => box.children[i] !== el)) box.replaceChildren(...els);
 }
 
-function pinnedMain(repo, c) {
-  const b = built(c);
-  return h("article", {class: "pinned"},
-    h("div", {class: "row1"},
-      h("div", {class: "ident"}, h("span", {class: "name"}, "main"),
-        h("span", {class: "where"}, tilde(c.path) + " · " + (c.branch || "detached"))),
-      pill("Yours", "s-free")),
-    h("span", {class: "line"}, mainLine(repo)),
-    activityLine(c),
-    totalBlock(b), chips(b));
+// An item's icons, each with its explanation on hover.
+const ICONS = {
+  commit: ["Last commit", "Last commit: time since the newest commit on this checkout's branch.", '<circle cx="8" cy="8" r="2.75"/><path d="M1 8h4.25M10.75 8H15"/>'],
+  write: ["Last write", "Last write: time since a file in this worktree last changed, committed or not. A recent write means the agent is still editing.", '<path d="M10.5 2.5l3 3L6 13H3v-3z"/><path d="M9 4l3 3"/>'],
+  claim: ["Claimed", "Claimed: how long an agent has owned this worktree for its task. Nobody else works here until the task lands and the claim is released.", '<circle cx="8" cy="5.25" r="2.75"/><path d="M2.75 14c.6-2.9 2.8-4.5 5.25-4.5s4.65 1.6 5.25 4.5"/>'],
+  build: ["Building", "Building: how long the build running in this worktree has run, and the programs it runs.", '<g transform="rotate(-40 8 8)"><path d="M3.5 2.5h7.5a1.5 1.5 0 0 1 1.5 1.5v1.5H3.5l-1-1.5z"/><path d="M7.25 5.5h1.5V14.5h-1.5z"/></g>'],
+};
+function icon(name, epoch, text) {
+  const [label, title, paths] = ICONS[name];
+  const el = h("span", {class: "ic", title}, text === undefined ? agoSpan(epoch) : text);
+  const svgEl = document.createElementNS(SVG, "svg");
+  for (const [k, v] of Object.entries({viewBox: "0 0 16 16", width: "14", height: "14", fill: "none", stroke: "currentColor",
+    "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-label": label})) svgEl.setAttribute(k, v);
+  svgEl.innerHTML = paths;
+  el.prepend(svgEl);
+  return el;
 }
-function pinnedApp(repo, c) {
-  const b = built(c), lock = lockOf(repo, c);
-  return h("article", {class: "pinned"},
-    h("div", {class: "row1"},
-      h("div", {class: "ident"}, h("span", {class: "name"}, "App build · " + c.app_lane),
-        h("span", {class: "where"}, c.name + " · " + detachedAt(c))),
-      lock.held ? pill("Lock held", "s-working") : pill("Lock free", "s-free")),
-    h("span", {class: "line"}, appLine(lock, b, c.app_lane)),
-    lock.held ? commands(lock) : null,
-    activityLine(c),
-    c.claim ? h("div", {class: "who-block"}, h("span", {class: "who"}, c.claim.who),
-      c.claim.note ? h("span", {class: "note"}, c.claim.note) : null) : null,
-    totalBlock(b), chips(b));
+function diskSpan(c) {
+  return h("span", {class: "dsk", title: "Disk: the build output this worktree holds on the build volume."},
+    c.total_kib === null ? "…" : size(c.total_kib));
 }
-
-function waitingBox(c, max) {
-  const ahead = c.git && !c.git.error ? c.git.ahead : [];
-  if (!ahead.length) return null;
-  return h("div", {class: "waiting"},
-    h("span", {class: "label"}, plural(ahead.length, "commit", "commits") + " waiting to land"),
-    ahead.slice(0, max).map(x => h("div", {class: "commit"}, h("span", {class: "sha"}, x.sha), h("span", {class: "subject"}, x.subject))),
-    ahead.length > max ? h("span", {class: "more"}, "and " + (ahead.length - max) + " more") : null);
+function programs(names) {
+  return names.map(p => p.count > 1 ? p.name + " ×" + p.count : p.name).join(", ");
 }
-function buildFact(b) {
-  if (!b || b.total === null) return h("span", {}, "build size measuring…");
-  if (b.over.length) return h("span", {class: "bad", title: b.over.join("; ")}, "build " + size(b.total) + " over cap");
-  return h("span", {}, "build " + size(b.total));
+function buildingBox(c) {
+  const a = c.activity;
+  if (!a.processes.length) return null;
+  const counts = [];
+  for (const p of a.processes) {
+    const found = counts.find(x => x.name === p.name);
+    if (found) found.count++; else counts.push({name: p.name, count: 1});
+  }
+  return h("div", {class: "procs"}, icon("build", a.started), " · " + programs(counts));
 }
-function card(c) {
-  const st = stateOf(c), g = c.git, b = built(c);
+function cardLine(c) {
+  const g = c.git;
   const foot = [];
-  if (g && g.head) foot.push(agoSpan(g.head.time, "last commit ", " ago"));
-  if (g && !g.error) foot.push(g.uncommitted ? h("span", {}, plural(g.uncommitted, "file", "files") + " changed") : h("span", {}, "clean"));
-  if (g && g.last_write) foot.push(agoSpan(g.last_write, "last write ", " ago"));
+  if (g && g.head) foot.push(icon("commit", g.head.time));
+  if (g && g.last_write) foot.push(icon("write", g.last_write));
+  if (c.claim) {
+    const t = Date.parse(c.claim.since.replace(" ", "T"));
+    if (!isNaN(t)) foot.push(icon("claim", t / 1000));
+  }
+  const b = built(c);
   if (quiet(c)) foot.push(h("span", {class: "quiet", title: "Uncommitted files, and none written for 30 minutes"}, "quiet"));
-  foot.push(buildFact(b));
+  if (b && b.over.length) foot.push(h("span", {class: "bad", title: b.over.join("; ")}, "build over cap"));
   if (b) for (const p of b.links) foot.push(h("span", {class: "bad"}, p));
-  if (c.claim) foot.push(h("span", {}, "since " + since(c.claim.since)));
-  return h("article", {class: "card"},
-    h("div", {class: "row1"},
-      h("div", {class: "ident"}, h("span", {class: "name"}, c.name), h("span", {class: "where", title: detachedAt(c)}, detachedAt(c))),
-      pill(st.label, st.cls)),
-    h("div", {class: "who-block"},
-      h("span", {class: "who"}, c.claim ? c.claim.who : "Unclaimed"),
-      c.claim && c.claim.note ? h("span", {class: "note"}, c.claim.note) : null),
+  if (c.words.tree) foot.push(h("span", {class: "tree"}, c.words.tree));
+  return h("div", {class: "foot"}, foot);
+}
+function chipClass(label) {
+  return label === "Waiting on you" ? "s-you" : label === "Ready to land" ? "s-ready" : "s-working";
+}
+// A worktree's card, the way the board draws one: a bar with what it is
+// doing and its disk, its title, one plain line, what builds in it, the
+// commits waiting to land, and a footer of times and tree state. The daemon
+// words the chip, the line and the tree (cards.rs).
+function worktreeCard(c) {
+  const g = c.git, building = c.activity.processes.length > 0;
+  const ahead = g && !g.error ? g.ahead : [];
+  const land = ahead.length ? h("div", {class: "land"},
+    h("div", {class: "c"}, ahead.slice(0, 3).flatMap(x => [h("span", {class: "mono"}, x.sha), h("span", {}, x.subject)])),
+    ahead.length > 3 ? h("details", {}, h("summary", {}, (ahead.length - 3) + " more"),
+      h("div", {class: "c"}, ahead.slice(3).flatMap(x => [h("span", {class: "mono"}, x.sha), h("span", {}, x.subject)]))) : null) : null;
+  return h("article", {class: "wcard"},
+    h("div", {class: "cbar" + (building ? " building" : "")},
+      h("span", {class: "grp"}, c.words.chip ? pill(c.words.chip, chipClass(c.words.chip)) : null,
+        building ? h("span", {}, Math.round(c.activity.cpu) + "% CPU · " + bytes(c.activity.memory)) : null),
+      diskSpan(c)),
+    h("div", {class: "t"}, h("span", {}, h("b", {}, c.name), " ", h("span", {class: "br", title: detachedAt(c)}, detachedAt(c)))),
+    h("div", {class: "what"}, c.words.line),
     g && g.error ? h("div", {class: "error"}, g.error) : null,
-    activityLine(c),
-    waitingBox(c, 10),
-    h("div", {class: "foot"}, foot));
+    buildingBox(c),
+    land,
+    cardLine(c));
+}
+function hours(minutes) {
+  return minutes >= 120 ? Math.round(minutes / 60) + " hours" : minutes === 1 ? "1 minute" : minutes + " minutes";
+}
+// An app checkout's card, the board's lane: nobody owns it and builds take
+// turns, so it shows who builds now, what runs, and who waits. The daemon
+// decides whether a held lock still belongs to a running build (app_builds.rs).
+function appCard(repo, c) {
+  const ab = repo.app_builds.find(x => x.checkout === c.name && x.lane === c.app_lane);
+  if (!ab) return worktreeCard(c);
+  const lane = c.app_lane.charAt(0).toUpperCase() + c.app_lane.slice(1);
+  const now = ab.now;
+  let nowEl;
+  if (now.state === "building") {
+    nowEl = h("div", {class: "alane-now building"},
+      h("div", {class: "who"}, now.who + " is building"),
+      h("div", {class: "procs"}, icon("build", 0, now.minutes + "m"), " · " + programs(now.programs)),
+      h("div", {class: "use"}, Math.round(now.cpu) + "% CPU · " + bytes(now.memory)));
+  } else if (now.state === "stuck") {
+    nowEl = h("div", {class: "alane-now stuck"},
+      h("div", {class: "who"}, "Lock held " + hours(now.minutes) + " by a build that no longer runs"),
+      now.running.length ? h("div", {class: "procs-plain"}, now.running.join(", ")) : null);
+  } else {
+    nowEl = h("div", {class: "alane-now"}, h("div", {class: "who"}, "Nobody is building here."));
+  }
+  return h("article", {class: "alane"},
+    h("div", {class: "alane-head"},
+      h("span", {}, h("b", {}, lane + " app builds"), " ", h("span", {class: "br"}, ab.checkout + " · " + ab.checked_out)),
+      h("span", {class: "dsk"}, ab.disk_kib === null ? "…" : size(ab.disk_kib))),
+    nowEl,
+    ab.waiting.length ? h("div", {class: "alane-q"}, h("span", {class: "qn"}, String(ab.waiting.length)),
+      h("span", {}, "waiting: " + ab.waiting.join(", "))) : null);
 }
 
 function summary(parts) { return parts.filter(Boolean).join(" · "); }
@@ -825,10 +856,10 @@ function reposView(root) {
     section.querySelector(".repo-head span").textContent =
       summary([agents ? plural(agents, "agent", "agents") : null, ...stateCounts(sides), goneLine(gone)]) || "no side worktrees";
     const pinned = [];
-    if (main) pinned.push({key: "main", data: [repo.lanes, main], make: () => pinnedMain(repo, main)});
-    for (const app of apps) pinned.push({key: "app " + app.app_lane + " " + app.name, data: [repo.locks, repo.queues, app], make: () => pinnedApp(repo, app)});
+    if (main) pinned.push({key: "main", data: main, make: () => worktreeCard(main)});
+    for (const app of apps) pinned.push({key: "app " + app.app_lane + " " + app.name, data: [repo.app_builds, app], make: () => appCard(repo, app)});
     patch(section.querySelector(".pinned-grid"), pinned);
-    patch(section.querySelector(".cards"), shown(sides).map(c => ({key: c.name, data: c, make: () => card(c)})));
+    patch(section.querySelector(".cards"), shown(sides).map(c => ({key: c.name, data: c, make: () => worktreeCard(c)})));
     return section;
   });
   // Only their order and presence: each one's insides were patched above.

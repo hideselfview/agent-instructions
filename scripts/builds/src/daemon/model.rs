@@ -365,11 +365,11 @@ impl Model {
                 Claim::read(&checkout.claim_file())
             };
             let branch = checkout.branch();
-            let git = if checkout.is_main() {
-                None
+            let git = Some(if checkout.is_main() {
+                crate::side_git::read_head(&checkout.top)
             } else {
-                Some(crate::side_git::read(&checkout.top))
-            };
+                crate::side_git::read(&checkout.top)
+            });
             (root.path.clone(), manifest, claim, branch, git)
         });
         {
@@ -711,6 +711,7 @@ impl Model {
                             .unwrap_or_default()
                     }),
                     name: repo_name.clone(),
+                    app_builds: Vec::new(),
                     checkouts: Vec::new(),
                 });
             }
@@ -723,6 +724,7 @@ impl Model {
                     .filter(|b| b.place == at)
                     .map(|b| ProcessPage {
                         pid: b.pid,
+                        started: b.started,
                         name: b.name.clone(),
                         cpu: state.cpu_percent.get(&b.pid).copied(),
                         memory: b.footprint,
@@ -757,8 +759,10 @@ impl Model {
                         activity: Activity {
                             cpu: processes.iter().filter_map(|p| p.cpu).sum(),
                             memory: processes.iter().map(|p| p.memory).sum(),
+                            started: processes.iter().map(|p| p.started).min(),
                             processes,
                         },
+                        words: Default::default(),
                     }
                 }
                 None => CheckoutPage {
@@ -776,6 +780,7 @@ impl Model {
                     folders: None,
                     total_kib: facts.gone_kib,
                     activity: Activity::default(),
+                    words: Default::default(),
                 },
             };
             repos
@@ -784,6 +789,14 @@ impl Model {
                 .expect("added above")
                 .checkouts
                 .push(checkout);
+        }
+        for repo in &mut repos {
+            repo.app_builds = super::app_builds::build(repo);
+            for checkout in &mut repo.checkouts {
+                if checkout.live && !checkout.app_checkout {
+                    checkout.words = super::cards::words(checkout);
+                }
+            }
         }
         Ok(Page {
             version: state.version,
@@ -982,6 +995,8 @@ pub struct RepoPage {
     pub queues: Vec<crate::health::LaneQueue>,
     /// The latest build-app run the page started in each lane.
     pub runs: Vec<RunPage>,
+    /// The app checkouts as build lanes (app_builds.rs).
+    pub app_builds: Vec<super::app_builds::AppBuild>,
     pub checkouts: Vec<CheckoutPage>,
 }
 
@@ -1003,6 +1018,9 @@ pub struct CheckoutPage {
     /// None while a folder is still being walked.
     pub total_kib: Option<u64>,
     pub activity: Activity,
+    /// The words of the worktree's card (cards.rs); empty for a gone root
+    /// and an app checkout, which have no card.
+    pub words: super::cards::Words,
 }
 
 #[derive(Default, Serialize)]
@@ -1011,11 +1029,14 @@ pub struct Activity {
     /// CPU in percent of one core, summed.
     pub cpu: f64,
     pub memory: u64,
+    /// When the oldest of the processes started, seconds since 1970.
+    pub started: Option<i64>,
 }
 
 #[derive(Serialize)]
 pub struct ProcessPage {
     pub pid: i32,
+    pub started: i64,
     pub name: String,
     /// Percent of one core since the last sample; None on a process's first.
     pub cpu: Option<f64>,

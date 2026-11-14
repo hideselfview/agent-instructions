@@ -6,7 +6,9 @@
 //! A question is one JSON line, a `Question`; the answer one JSON line, a
 //! `Reply`.
 
+pub mod app_builds;
 pub mod board;
+pub mod cards;
 pub mod client;
 pub mod fsevents;
 pub mod http;
