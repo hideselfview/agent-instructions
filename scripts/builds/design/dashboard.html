@@ -200,6 +200,10 @@ h3 { margin: 6px 0 0; font-size: 12px; font-weight: 600; color: var(--muted-2); 
 .bar .bar-procs .ic svg { vertical-align: -2px; margin-right: 5px; }
 .bar.ready { background: var(--ready-bg); color: var(--ready); }
 .bar.ready .disk { color: var(--ready); }
+.wt-card:has(> .bar.ready) { border-color: color-mix(in srgb, var(--ready) 30%, var(--line)); }
+.wt-card:has(> .bar.building) { border-color: color-mix(in srgb, var(--working) 30%, var(--line)); }
+.wt-card > .bar.ready, .wt-card > .bar.building { margin: -13px -17px 6px; padding: 7px 17px; }
+.bar.ready .pill, .bar.building .pill { background: transparent; padding: 0; }
 </style></head>
 <body>
 <div class="page full">
