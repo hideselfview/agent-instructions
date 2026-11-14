@@ -92,16 +92,21 @@ Never, in either kind of read, in Rust or in the apps:
 - **A live query read once.** No subscribing to take the first value and end the
   subscription: a read that need not follow changes is a plain SQL read.
 - **Rust or the app doing SQL's work.** No filtering, sorting, joining,
-  grouping, counting, summing or deriving anything from rows a query returned.
-  If a screen shows it, SQL produced it. A second statement keyed by a value the
-  first one returned, or by keys picked out of returned rows, is a join done in
-  Rust: one statement reads both.
+  grouping, counting (a length or an emptiness test is a count), summing or
+  deriving anything from rows a query returned. If a screen shows it, SQL
+  produced it. A second statement keyed by a value the first one returned, or by
+  keys picked out of returned rows, is a join done in Rust: one statement reads
+  both.
 - **Answers from the rows a screen has loaded.** No test of whether an id is
   among the loaded rows, whether they are empty, or where a row sits among them,
   even when the answer only decides state the view owns (a drop's hold, a
   removal animation, a menu's targets). The loaded windows are the part of the
   list the screen happens to hold, so the answer changes with scrolling. SQL
   answers the question, or the view keeps the ids it acted on.
+
+A row in the hook's `frozen` lists records a violation not yet fixed; it is
+never permission. A change that touches a frozen site and keeps the shape still
+breaks this rule.
 
 SQLite is local: write the plain query first, the GROUP BY, COUNT, JOIN or
 window function that says what the screen shows, read straight from the domain's
