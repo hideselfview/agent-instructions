@@ -134,8 +134,8 @@ rules = [
 principles = []
 
 [[group]]
-name = "words on screen"
-question = "Are the words people read plain, literal, active, said once, spelled as the product spells them and kept in every language?"
+name = "words people read"
+question = "Is every sentence a person reads plain, literal, active, said once, spelled as the product spells them and kept in every language, in app strings, notifications, errors, titles, commit messages, docs and the comments and doc comments in code?"
 model = "sonnet"
 rules = [
   "write-plain-literal-active-sentences",
