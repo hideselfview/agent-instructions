@@ -1,6 +1,9 @@
 //! `builds checks run|list|tests`: picks the lines of a repo's `.checks`
 //! (checks.rs) that some changed files match and runs or prints them.
 //!
+//! `whole` runs the `whole` lines on the tree as it is, the way `builds land`
+//! runs them on a landing's result.
+//!
 //! `run` is what the pre-commit hook calls, over the staged files. Every
 //! picked `check` and `fix` runs, in file order, even after one fails; the run
 //! fails at the end if any did. A program's output is kept and shown only when
@@ -33,12 +36,14 @@ use crate::lists::store::{Store, project_of};
 use crate::places::Places;
 use crate::text::note;
 
-const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]";
+const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks whole [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]";
 
 pub fn cmd_checks(args: &[String]) -> Result<()> {
     match args {
         [sub] if sub == "run" => hook(&top_of(Path::new("."))?),
         [sub, worktree] if sub == "run" => hook(&top_of(Path::new(worktree))?),
+        [sub] if sub == "whole" => whole(&top_of(Path::new("."))?),
+        [sub, worktree] if sub == "whole" => whole(&top_of(Path::new(worktree))?),
         [sub, rest @ ..] if sub == "stats" => stats(rest),
         [sub] if sub == "list" => {
             print!("{}", list_staged(&top_of(Path::new("."))?)?);
@@ -62,6 +67,27 @@ pub fn cmd_checks(args: &[String]) -> Result<()> {
             tests(&top_of(Path::new("."))?, since, run)
         }
         _ => fail!("{USAGE}"),
+    }
+}
+
+/// `whole`: the checks `builds land` runs on a landing's result, run on the
+/// tree at <top> as it is now.
+fn whole(top: &Path) -> Result<()> {
+    let failed = run_whole(top, &mut std::io::stdout())?;
+    for f in &failed {
+        eprintln!("--- {}\n{}", f.name, f.output.trim_end());
+    }
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(Fail::Message(format!(
+            "failed: {}",
+            failed
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )))
     }
 }
 
@@ -473,8 +499,8 @@ pub struct WholeFailure {
 }
 
 /// Runs every `whole` line of the repo's `.checks` on the tree at <top>,
-/// whatever changed, printing each one's name, result and time to <out>. Every
-/// line runs even after one fails. A repo with no `.checks` has none to run.
+/// whatever changed, all at the same time, printing each one's name, result and
+/// time to <out>. Every line runs even after one fails. A repo with no `.checks` has none to run.
 pub fn run_whole(top: &Path, out: &mut dyn std::io::Write) -> Result<Vec<WholeFailure>> {
     if !top.join(CONFIG).is_file() {
         return Ok(Vec::new());
@@ -485,9 +511,21 @@ pub fn run_whole(top: &Path, out: &mut dyn std::io::Write) -> Result<Vec<WholeFa
         .into_iter()
         .filter(|planned| planned.line.whole)
         .collect();
+    // The checks only read the tree, so they run at the same time; each one's
+    // time is its own, and the results print in file order.
+    let ran_all: Vec<Result<Ran>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = picked
+            .iter()
+            .map(|planned| scope.spawn(move || execute(top, planned, false)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("a check's thread does not panic"))
+            .collect()
+    });
     let mut failed = Vec::new();
-    for planned in &picked {
-        let ran = execute(top, planned, false)?;
+    for (planned, ran) in picked.iter().zip(ran_all) {
+        let ran = ran?;
         let _ = writeln!(
             out,
             "whole {}: {}, {}",

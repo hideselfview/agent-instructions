@@ -433,6 +433,12 @@ runs whole whenever a matching file is staged.
                               the total. A run that can't be recorded says so
                               on stderr and ends as the checks decided; a repo
                               in no project records nothing
+  builds checks whole [<worktree>]
+                              run every `whole` line on the tree as it is,
+                              the checks `builds land` runs on a landing's
+                              result, printing each one's time and result
+                              (a failing one's output too); the exit status
+                              is non-zero if any failed
   builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]
                               read the recorded runs back (the project of the
                               current repo unless --project names one; a
