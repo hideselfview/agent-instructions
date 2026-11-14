@@ -645,7 +645,12 @@ impl Model {
         let board = crate::design_render::review_board(&design, n)?;
         Some(
             crate::design_render::source_of(&design, side).and_then(|from| {
-                crate::design_render::render_board(from, &board.board, board.theme)
+                crate::design_render::render_board(
+                    from,
+                    &board.board,
+                    board.theme,
+                    &self.places.design_system_cache(),
+                )
             }),
         )
     }
@@ -663,7 +668,14 @@ impl Model {
         let board = crate::design_render::deleted_board(&design, k)?;
         Some(
             crate::design_render::source_of(&design, crate::design_render::Side::Now).and_then(
-                |from| crate::design_render::render_board(from, board, crate::lists::Theme::Dark),
+                |from| {
+                    crate::design_render::render_board(
+                        from,
+                        board,
+                        crate::lists::Theme::Dark,
+                        &self.places.design_system_cache(),
+                    )
+                },
             ),
         )
     }

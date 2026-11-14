@@ -27,6 +27,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
@@ -189,6 +190,241 @@ impl Source<'_> {
     }
 }
 
+/// The design system's generated files, the paths each is read from.
+const GENERATED: [&str; 3] = [
+    "design/system/tokens.css",
+    "design/system/components/bundle.css",
+    "design/system/components/bundle.js",
+];
+/// The folders the generators read, and the scripts that run in them.
+const GENERATOR_INPUTS: [&str; 2] = ["design/system", "scripts/design"];
+const GENERATORS: [&str; 2] = [
+    "scripts/design/tokens-css.py",
+    "design/system/build-bundle.py",
+];
+
+static WORK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+impl Source<'_> {
+    /// The design system's tokens.css, bundle.css and bundle.js. A directory
+    /// has them on disk. No commit holds them (they are generated and
+    /// ignored), so a commit's are generated from its own sources and kept in
+    /// <cache> under the hash of the folders they come from: one build per
+    /// distinct design system.
+    fn design_system(&self, cache: &Path) -> Result<[String; 3]> {
+        let Source::Commit { repo, rev } = self else {
+            let [a, b, c] = GENERATED.map(|rel| self.read(rel, "the design system's"));
+            return Ok([a?, b?, c?]);
+        };
+        let inputs = generator_inputs(repo, rev).map_err(|error| {
+            fail::Fail::Message(format!(
+                "the design system of {rev} cannot be generated: {}",
+                error.text()
+            ))
+        })?;
+        let mut key = Vec::new();
+        for input in &inputs {
+            let hash = git_text(
+                git(repo).args(["rev-parse", "--verify", &format!("{rev}:{input}")]),
+                &format!("find {rev}:{input}"),
+            )?;
+            key.push(hash.trim().to_string());
+        }
+        // One folder name for the inputs' hashes: git's hash of the list of them.
+        let entry = cache.join(git_hash(repo, &key.join("\n"))?);
+        if !entry.is_dir() {
+            self.generate(&inputs, cache, &entry)?;
+        }
+        let read = |rel: &str| {
+            let name = rel.rsplit('/').next().expect("a path has a name");
+            std::fs::read_to_string(entry.join(name))
+                .context(|| format!("reading the generated {name} of {rev}"))
+        };
+        Ok([
+            read(GENERATED[0])?,
+            read(GENERATED[1])?,
+            read(GENERATED[2])?,
+        ])
+    }
+
+    /// Exports <inputs> at the revision, runs the generators in the export
+    /// and moves the three files to <entry>.
+    fn generate(&self, inputs: &[String], cache: &Path, entry: &Path) -> Result<()> {
+        let Source::Commit { repo, rev } = self else {
+            unreachable!("only a commit is generated")
+        };
+        let work = cache.join(format!(
+            ".work-{}-{}",
+            std::process::id(),
+            WORK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let result = (|| -> Result<()> {
+            std::fs::create_dir_all(&work).context(|| format!("making {}", work.display()))?;
+            let archive = git(repo)
+                .arg("archive")
+                .arg(rev)
+                .arg("--")
+                .args(inputs)
+                .stdin(Stdio::null())
+                .output()
+                .context(|| format!("running git to export the design system of {rev}"))?;
+            if !archive.status.success() {
+                fail!(
+                    "git failed to export the design system of {rev}: {}",
+                    String::from_utf8_lossy(&archive.stderr).trim()
+                );
+            }
+            let mut tar = Command::new("tar")
+                .arg("-x")
+                .arg("-C")
+                .arg(&work)
+                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .context(|| "running tar to unpack the design system".to_string())?;
+            std::io::Write::write_all(
+                &mut tar.stdin.take().expect("tar's stdin is piped"),
+                &archive.stdout,
+            )
+            .context(|| "feeding tar".to_string())?;
+            let unpacked = tar
+                .wait_with_output()
+                .context(|| "waiting for tar".to_string())?;
+            if !unpacked.status.success() {
+                fail!(
+                    "tar failed to unpack the design system of {rev}: {}",
+                    String::from_utf8_lossy(&unpacked.stderr).trim()
+                );
+            }
+            for script in GENERATORS {
+                let ran = Command::new("python3")
+                    .arg("-I")
+                    .arg(script)
+                    .current_dir(&work)
+                    .stdin(Stdio::null())
+                    .output()
+                    .context(|| format!("running python3 {script} for {rev}"))?;
+                if !ran.status.success() {
+                    fail!(
+                        "{script} failed on the design system of {rev}: {}",
+                        String::from_utf8_lossy(&ran.stderr).trim()
+                    );
+                }
+            }
+            let out = work.join("out");
+            std::fs::create_dir_all(&out).context(|| format!("making {}", out.display()))?;
+            for rel in GENERATED {
+                let name = rel.rsplit('/').next().expect("a path has a name");
+                let from = work.join(rel);
+                if !from.is_file() {
+                    fail!("{} did not write {rel} for {rev}", GENERATORS.join(" and "));
+                }
+                std::fs::rename(&from, out.join(name))
+                    .context(|| format!("moving {}", from.display()))?;
+            }
+            // A build that finished first for the same design system wins;
+            // both hold the same files.
+            if let Err(error) = std::fs::rename(&out, entry)
+                && !entry.is_dir()
+            {
+                fail!(
+                    "moving the design system of {rev} to {}: {error}",
+                    entry.display()
+                );
+            }
+            Ok(())
+        })();
+        let _ = std::fs::remove_dir_all(&work);
+        result
+    }
+}
+
+/// The paths at <rev> the generators read: the generator folders, and what a
+/// symbolic link in them points at inside the repo (bae's sheep logo links
+/// to the repo's icon source), followed until no new path turns up.
+fn generator_inputs(repo: &Path, rev: &str) -> Result<Vec<String>> {
+    let mut inputs: Vec<String> = GENERATOR_INPUTS.iter().map(|s| s.to_string()).collect();
+    let mut next = 0;
+    while next < inputs.len() {
+        let listing = git_text(
+            git(repo).args(["ls-tree", "-r", "-z", rev, "--", &inputs[next]]),
+            &format!("list {rev}:{}", inputs[next]),
+        )?;
+        next += 1;
+        if listing.is_empty() {
+            fail!("{rev} has no {}", inputs[next - 1]);
+        }
+        for entry in listing.split('\0').filter(|e| !e.is_empty()) {
+            let Some((meta, path)) = entry.split_once('\t') else {
+                continue;
+            };
+            if !meta.starts_with("120000 ") {
+                continue;
+            }
+            let target = git_text(
+                git(repo).args(["cat-file", "blob", &format!("{rev}:{path}")]),
+                &format!("read the link {rev}:{path}"),
+            )?;
+            let Some(resolved) = resolve_link(path, target.trim_end_matches('\n')) else {
+                fail!("the link {rev}:{path} points outside the repo");
+            };
+            let covered = inputs
+                .iter()
+                .any(|input| resolved == *input || resolved.starts_with(&format!("{input}/")));
+            if !covered {
+                inputs.push(resolved);
+            }
+        }
+    }
+    Ok(inputs)
+}
+
+/// The repo path that link <path> pointing at <target> names; None for one
+/// outside the repo or an absolute target.
+fn resolve_link(path: &str, target: &str) -> Option<String> {
+    if target.starts_with('/') {
+        return None;
+    }
+    let mut parts: Vec<&str> = path.split('/').collect();
+    parts.pop();
+    for part in target.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            name => parts.push(name),
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// Git's object hash of <text>, as `git hash-object --stdin` writes it.
+fn git_hash(repo: &Path, text: &str) -> Result<String> {
+    let mut child = git(repo)
+        .args(["hash-object", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context(|| "running git to hash the design system's inputs".to_string())?;
+    std::io::Write::write_all(
+        &mut child.stdin.take().expect("git's stdin is piped"),
+        text.as_bytes(),
+    )
+    .context(|| "feeding git".to_string())?;
+    let output = child
+        .wait_with_output()
+        .context(|| "waiting for git".to_string())?;
+    if !output.status.success() {
+        fail!(
+            "git failed to hash the design system's inputs: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 fn board_rel(name: &str) -> String {
     format!("{MOCKS}/{name}{BOARD_SUFFIX}")
 }
@@ -263,8 +499,9 @@ fn script_safe(js: &str) -> String {
 }
 
 /// Board <board> of <from> as one page of HTML in <theme>, drawn with the
-/// design system of <from>.
-pub fn render_board(from: Source, board: &str, theme: Theme) -> Result<String> {
+/// design system of <from>; a commit's is generated into <cache>
+/// (`Places::design_system_cache`).
+pub fn render_board(from: Source, board: &str, theme: Theme, cache: &Path) -> Result<String> {
     from.check()?;
     if is_plain_page(board) {
         return from.read(board, "the page");
@@ -294,9 +531,7 @@ pub fn render_board(from: Source, board: &str, theme: Theme) -> Result<String> {
         }
         parts.insert(key, part);
     }
-    let tokens_css = from.read("design/system/tokens.css", "the design system's")?;
-    let bundle_css = from.read("design/system/components/bundle.css", "the design system's")?;
-    let bundle_js = from.read("design/system/components/bundle.js", "the design system's")?;
+    let [tokens_css, bundle_css, bundle_js] = from.design_system(cache)?;
     let styles: String = parts.values().map(|p| p.style.as_str()).collect();
     let templates: String = parts
         .iter()

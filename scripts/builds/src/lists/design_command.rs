@@ -54,7 +54,7 @@ pub fn run_in_session(
         "landed" => landed(tool, rest, &cwd),
         "show" => show(tool, rest, &cwd),
         "list" => list(tool, rest, &cwd),
-        "render" => render(rest),
+        "render" => render(tool, rest),
         other => fail!("unknown design command {other}\n{USAGE}"),
     }
 }
@@ -443,7 +443,7 @@ fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 /// as it is; `--now` reads it as it stands on origin/main, and `--at REV` as
 /// it is at commit or branch REV (a change's branch, to look at its proposed
 /// board with nothing checked out).
-fn render(args: &[String]) -> Result<String> {
+fn render(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &["theme", "at"], &["now"])?;
     let [dir, board] = args.exactly(2, USAGE)? else {
         unreachable!("exactly two")
@@ -463,5 +463,5 @@ fn render(args: &[String]) -> Result<String> {
         (false, Some(rev)) => crate::design_render::Source::Commit { repo: dir, rev },
         (false, None) => crate::design_render::Source::Dir(dir),
     };
-    crate::design_render::render_board(source, board, theme)
+    crate::design_render::render_board(source, board, theme, &tool.places.design_system_cache())
 }

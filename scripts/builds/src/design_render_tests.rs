@@ -2,37 +2,34 @@ use super::*;
 use crate::lists::design::ReviewSection;
 use crate::lists::fixtures::{db, design_drawn, design_tipped, read};
 use crate::lists::view::design_view;
-use crate::testing::{Scratch, git, repo};
+use crate::testing::{Scratch, design_system, git, repo};
 use std::path::PathBuf;
 
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
     result.unwrap_err().text()
 }
 
-/// A worktree with the design system's generated files, a board `A` that
-/// mounts a board `B`, and a value its script gives. The files are written,
-/// not committed.
+/// Where a test keeps the design systems it generates for commits.
+fn cache(scratch: &Scratch) -> PathBuf {
+    scratch.dir.join("design-systems")
+}
+
+/// A worktree with a board `A` that mounts a board `B` and a value its
+/// script gives, and a design system as the bae repo holds one: its sources
+/// and the two scripts that generate tokens.css and the bundles from them,
+/// with the generated files ignored by git. The generated files are on disk
+/// too, as a worktree that ran the scripts has them. Nothing is committed.
 fn tree(scratch: &Scratch) -> PathBuf {
     let dir = scratch.dir.join("wt");
     repo(&dir, "");
     let mocks = dir.join("design/mocks");
     std::fs::create_dir_all(&mocks).unwrap();
-    std::fs::create_dir_all(dir.join("design/system/components")).unwrap();
-    std::fs::write(
-        dir.join("design/system/tokens.css"),
+    design_system(
+        &dir,
         ":root { --tokens: 1; }",
-    )
-    .unwrap();
-    std::fs::write(
-        dir.join("design/system/components/bundle.css"),
         ".bundle { color: red; }",
-    )
-    .unwrap();
-    std::fs::write(
-        dir.join("design/system/components/bundle.js"),
         "window.Bae = { BUNDLE_MARK: 1 };",
-    )
-    .unwrap();
+    );
     std::fs::write(
         mocks.join("A.dc.html"),
         r#"<x-dc><helmet><style>.a-only { margin: 0 }</style></helmet>
@@ -50,9 +47,10 @@ fn tree(scratch: &Scratch) -> PathBuf {
     dir
 }
 
-/// Commits everything in <dir> and returns the commit.
+/// Commits everything in <dir> that git does not ignore and returns the
+/// commit.
 fn commit(dir: &Path) -> String {
-    git(dir, &["add", "design"]);
+    git(dir, &["add", "design", "scripts"]);
     git(dir, &["commit", "-q", "-m", "boards"]);
     crate::lists::design_paths::full_sha(dir, "HEAD").unwrap()
 }
@@ -61,7 +59,7 @@ fn commit(dir: &Path) -> String {
 fn a_board_renders_with_its_imported_board_its_values_and_the_design_system() {
     let scratch = Scratch::new("render-board");
     let dir = tree(&scratch);
-    let page = render_board(Source::Dir(&dir), "A", Theme::Light).unwrap();
+    let page = render_board(Source::Dir(&dir), "A", Theme::Light, &cache(&scratch)).unwrap();
     assert!(page.contains("<html data-theme=\"light\">"));
     for part in [
         "--tokens: 1",
@@ -81,7 +79,13 @@ fn a_board_renders_with_its_imported_board_its_values_and_the_design_system() {
         "helmets are cut out and every marker is filled"
     );
     // The board by its path, and in the dark.
-    let by_path = render_board(Source::Dir(&dir), "design/mocks/A.dc.html", Theme::Dark).unwrap();
+    let by_path = render_board(
+        Source::Dir(&dir),
+        "design/mocks/A.dc.html",
+        Theme::Dark,
+        &cache(&scratch),
+    )
+    .unwrap();
     assert!(by_path.contains("<html data-theme=\"dark\">"));
 }
 
@@ -90,25 +94,56 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
     let scratch = Scratch::new("render-board-missing");
     let dir = tree(&scratch);
     assert!(
-        message(render_board(Source::Dir(&dir), "Nope", Theme::Dark))
-            .contains("Nope.dc.html is not there")
+        message(render_board(
+            Source::Dir(&dir),
+            "Nope",
+            Theme::Dark,
+            &cache(&scratch)
+        ))
+        .contains("Nope.dc.html is not there")
     );
-    assert!(message(render_board(Source::Dir(&dir), "../A", Theme::Dark)).contains("is no board"));
+    assert!(
+        message(render_board(
+            Source::Dir(&dir),
+            "../A",
+            Theme::Dark,
+            &cache(&scratch)
+        ))
+        .contains("is no board")
+    );
     std::fs::write(
         dir.join("design/mocks/C.dc.html"),
         "<x-dc><dc-import name=\"Gone\"></dc-import></x-dc>",
     )
     .unwrap();
     assert!(
-        message(render_board(Source::Dir(&dir), "C", Theme::Dark))
-            .contains("mounts the board Gone, which is no file")
+        message(render_board(
+            Source::Dir(&dir),
+            "C",
+            Theme::Dark,
+            &cache(&scratch)
+        ))
+        .contains("mounts the board Gone, which is no file")
     );
     std::fs::write(dir.join("design/mocks/D.dc.html"), "no markup").unwrap();
-    assert!(message(render_board(Source::Dir(&dir), "D", Theme::Dark)).contains("has no <x-dc>"));
+    assert!(
+        message(render_board(
+            Source::Dir(&dir),
+            "D",
+            Theme::Dark,
+            &cache(&scratch)
+        ))
+        .contains("has no <x-dc>")
+    );
     std::fs::remove_file(dir.join("design/system/components/bundle.js")).unwrap();
     assert!(
-        message(render_board(Source::Dir(&dir), "A", Theme::Dark))
-            .contains("bundle.js is not there")
+        message(render_board(
+            Source::Dir(&dir),
+            "A",
+            Theme::Dark,
+            &cache(&scratch)
+        ))
+        .contains("bundle.js is not there")
     );
 }
 
@@ -234,7 +269,7 @@ fn now_is_origin_main_and_proposed_is_the_last_commit_each_with_its_own_design_s
     )
     .unwrap();
     std::fs::write(
-        dir.join("design/system/components/bundle.js"),
+        dir.join("design/system/components/src/bundle.js"),
         "window.Bae = { PROPOSED_MARK: 1 };",
     )
     .unwrap();
@@ -257,7 +292,7 @@ fn now_is_origin_main_and_proposed_is_the_last_commit_each_with_its_own_design_s
     );
     let draw = |side| {
         let from = source_of(&change, side).unwrap();
-        render_board(from, "A", Theme::Dark).unwrap()
+        render_board(from, "A", Theme::Dark, &cache(&scratch)).unwrap()
     };
     let now = draw(Side::Now);
     assert!(now.contains("hello from A") && now.contains("BUNDLE_MARK"));
@@ -334,6 +369,7 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
         source_of(&change, Side::Now).unwrap(),
         "design/mocks/Old.dc.html",
         Theme::Dark,
+        &cache(&scratch),
     )
     .unwrap();
     assert!(old.contains("the old board"));
@@ -385,15 +421,22 @@ fn a_board_is_read_at_a_commit_whatever_the_worktree_has_checked_out() {
     )
     .unwrap();
     std::fs::write(
-        dir.join("design/system/components/bundle.js"),
+        dir.join("design/system/components/src/bundle.js"),
         "window.Bae = { OTHER_MARK: 1 };",
     )
     .unwrap();
     let second = commit(&dir);
     std::fs::write(dir.join("design/mocks/A.dc.html"), "<x-dc>edited</x-dc>").unwrap();
 
-    let at =
-        |rev: &str| render_board(Source::Commit { repo: &dir, rev }, "A", Theme::Dark).unwrap();
+    let at = |rev: &str| {
+        render_board(
+            Source::Commit { repo: &dir, rev },
+            "A",
+            Theme::Dark,
+            &cache(&scratch),
+        )
+        .unwrap()
+    };
     let old = at(&first);
     assert!(old.contains("hello from A") && old.contains("BUNDLE_MARK"));
     assert!(!old.contains("another branch") && !old.contains("OTHER_MARK"));
@@ -409,6 +452,7 @@ fn a_board_is_read_at_a_commit_whatever_the_worktree_has_checked_out() {
         },
         "A",
         Theme::Dark,
+        &cache(&scratch),
     ));
     assert!(missing.contains("find the commit nope"), "{missing}");
     let absent = message(render_board(
@@ -418,6 +462,7 @@ fn a_board_is_read_at_a_commit_whatever_the_worktree_has_checked_out() {
         },
         "Nope",
         Theme::Dark,
+        &cache(&scratch),
     ));
     assert!(
         absent.contains(&format!("{first}:design/mocks/Nope.dc.html is not there")),
@@ -484,7 +529,10 @@ fn a_project_board_that_is_plain_html_is_drawn_as_the_file_and_sized_from_its_ow
     let board = "scripts/builds/design/dashboard.html";
     // The page is the file, at a commit or as the directory has it, in either theme.
     for theme in [Theme::Light, Theme::Dark] {
-        assert_eq!(render_board(Source::Dir(&dir), board, theme).unwrap(), html);
+        assert_eq!(
+            render_board(Source::Dir(&dir), board, theme, &cache(&scratch)).unwrap(),
+            html
+        );
         assert_eq!(
             render_board(
                 Source::Commit {
@@ -492,7 +540,8 @@ fn a_project_board_that_is_plain_html_is_drawn_as_the_file_and_sized_from_its_ow
                     rev: &tip
                 },
                 board,
-                theme
+                theme,
+                &cache(&scratch)
             )
             .unwrap(),
             html
@@ -502,7 +551,8 @@ fn a_project_board_that_is_plain_html_is_drawn_as_the_file_and_sized_from_its_ow
         message(render_board(
             Source::Dir(&dir),
             "scripts/x/none.html",
-            Theme::Dark
+            Theme::Dark,
+            &cache(&scratch)
         ))
         .contains("the page")
     );
@@ -531,4 +581,136 @@ fn review_of_empty() -> DesignChange {
     let db = db();
     let id = design_drawn(&db, "/nowhere", &[], vec![]);
     read(&db).design(id).unwrap().clone()
+}
+
+/// The design systems kept in <cache>, one folder each.
+fn kept(cache: &Path) -> usize {
+    std::fs::read_dir(cache)
+        .map(|entries| {
+            entries
+                .filter(|entry| {
+                    !entry
+                        .as_ref()
+                        .unwrap()
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with('.')
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+#[test]
+fn a_commits_design_system_is_generated_from_its_own_sources_once() {
+    let scratch = Scratch::new("render-generated");
+    let dir = tree(&scratch);
+    let first = commit(&dir);
+    let at = |rev: &str| {
+        render_board(
+            Source::Commit { repo: &dir, rev },
+            "A",
+            Theme::Dark,
+            &cache(&scratch),
+        )
+        .unwrap()
+    };
+    // The commit holds no generated file; the page carries what its sources generate.
+    assert!(!exists_in(&dir, &first, "design/system/tokens.css").unwrap());
+    let page = at(&first);
+    assert!(page.contains("--tokens: 1;") && page.contains(".bundle { color: red; }"));
+    assert!(page.contains("BUNDLE_MARK"));
+    assert_eq!(kept(&cache(&scratch)), 1);
+    // Drawing it again, or a commit that changes only a board, generates nothing new.
+    at(&first);
+    std::fs::write(
+        dir.join("design/mocks/B.dc.html"),
+        "<x-dc><p>B again</p></x-dc>",
+    )
+    .unwrap();
+    at(&commit(&dir));
+    assert_eq!(kept(&cache(&scratch)), 1);
+    // A commit that changes the tokens gets its own.
+    std::fs::write(
+        dir.join("design/system/tokens.json"),
+        r#"{"css": ":root { --tokens: 2; }"}"#,
+    )
+    .unwrap();
+    let second = commit(&dir);
+    assert!(at(&second).contains("--tokens: 2;"));
+    assert!(at(&first).contains("--tokens: 1;"));
+    assert_eq!(kept(&cache(&scratch)), 2);
+}
+
+#[test]
+fn a_commit_whose_design_system_cannot_be_generated_says_why() {
+    let scratch = Scratch::new("render-ungenerated");
+    let dir = tree(&scratch);
+    std::fs::write(dir.join("design/system/tokens.json"), "not json").unwrap();
+    let broken = commit(&dir);
+    let error = message(render_board(
+        Source::Commit {
+            repo: &dir,
+            rev: &broken,
+        },
+        "A",
+        Theme::Dark,
+        &cache(&scratch),
+    ));
+    assert!(
+        error.contains("scripts/design/tokens-css.py failed"),
+        "{error}"
+    );
+    git(&dir, &["rm", "-q", "-r", "scripts"]);
+    git(&dir, &["commit", "-q", "-m", "no generators"]);
+    let error = message(render_board(
+        Source::Commit {
+            repo: &dir,
+            rev: "HEAD",
+        },
+        "A",
+        Theme::Dark,
+        &cache(&scratch),
+    ));
+    assert!(error.contains("cannot be generated"), "{error}");
+    assert_eq!(kept(&cache(&scratch)), 0);
+}
+
+#[test]
+fn a_design_system_source_linked_from_elsewhere_in_the_repo_is_exported_with_it() {
+    let scratch = Scratch::new("render-linked");
+    let dir = tree(&scratch);
+    // The bundle's source is a link to a file at the repo's top, as bae's sheep logo is.
+    std::fs::write(dir.join("linked.js"), "window.Bae = { LINKED_MARK: 1 };").unwrap();
+    let source = dir.join("design/system/components/src/bundle.js");
+    std::fs::remove_file(&source).unwrap();
+    std::os::unix::fs::symlink("../../../../linked.js", &source).unwrap();
+    git(&dir, &["add", "linked.js"]);
+    let linked = commit(&dir);
+    let page = render_board(
+        Source::Commit {
+            repo: &dir,
+            rev: &linked,
+        },
+        "A",
+        Theme::Dark,
+        &cache(&scratch),
+    )
+    .unwrap();
+    assert!(page.contains("LINKED_MARK"));
+    // A change to the linked file is another design system.
+    std::fs::write(dir.join("linked.js"), "window.Bae = { RELINKED_MARK: 1 };").unwrap();
+    git(&dir, &["add", "linked.js"]);
+    git(&dir, &["commit", "-q", "-m", "relinked"]);
+    let page = render_board(
+        Source::Commit {
+            repo: &dir,
+            rev: "HEAD",
+        },
+        "A",
+        Theme::Dark,
+        &cache(&scratch),
+    )
+    .unwrap();
+    assert!(page.contains("RELINKED_MARK"));
 }

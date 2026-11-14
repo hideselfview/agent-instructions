@@ -117,6 +117,12 @@ impl Places {
         self.root.join(".trash.lock")
     }
 
+    /// Where the design systems generated for commits are kept, one folder
+    /// per distinct design system (design_render.rs).
+    pub fn design_system_cache(&self) -> PathBuf {
+        self.home.join("Library/Caches/builds/design-systems")
+    }
+
     pub fn derived_data(&self) -> PathBuf {
         self.root.join("DerivedData")
     }

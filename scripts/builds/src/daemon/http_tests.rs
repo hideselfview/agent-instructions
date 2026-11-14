@@ -250,14 +250,7 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
     use crate::lists::{ReviewBoard, Theme};
     let wt = scratch.dir.join("wt");
     std::fs::create_dir_all(wt.join("design/mocks")).unwrap();
-    std::fs::create_dir_all(wt.join("design/system/components")).unwrap();
-    std::fs::write(wt.join("design/system/tokens.css"), ":root{}").unwrap();
-    std::fs::write(wt.join("design/system/components/bundle.css"), "").unwrap();
-    std::fs::write(
-        wt.join("design/system/components/bundle.js"),
-        "window.Bae = {};",
-    )
-    .unwrap();
+    crate::testing::design_system(&wt, ":root{}", "", "window.Bae = {};");
     std::fs::write(
         wt.join("design/mocks/A.dc.html"),
         "<x-dc><p>board A as drawn {{yes}}</p></x-dc>",
@@ -269,7 +262,7 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
     )
     .unwrap();
     crate::testing::repo(&wt, "");
-    crate::testing::git(&wt, &["add", "design"]);
+    crate::testing::git(&wt, &["add", "design", "scripts"]);
     crate::testing::git(&wt, &["commit", "-q", "-m", "boards"]);
     crate::testing::git(&wt, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     let tip = String::from_utf8(

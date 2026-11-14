@@ -179,3 +179,44 @@ impl FakeInbox {
         self.lines.join().expect("the inbox thread ends")
     }
 }
+
+/// A design system in the worktree at <dir> as the bae repo holds one: its
+/// sources (tokens.json holding <tokens_css>, components/src/bundle.css and
+/// bundle.js) and the two scripts that generate tokens.css and the bundles
+/// from them, with the generated files ignored by git. The generated files
+/// are written too, as a worktree that ran the scripts has them. A commit of
+/// `design` and `scripts` holds the sources and scripts only.
+pub fn design_system(dir: &Path, tokens_css: &str, bundle_css: &str, bundle_js: &str) {
+    let system = dir.join("design/system");
+    let components = system.join("components");
+    std::fs::create_dir_all(components.join("src")).expect("creatable");
+    std::fs::create_dir_all(dir.join("scripts/design")).expect("creatable");
+    let write = |path: PathBuf, text: &str| std::fs::write(path, text).expect("writable");
+    write(
+        system.join(".gitignore"),
+        "tokens.css\ncomponents/bundle.css\ncomponents/bundle.js\n",
+    );
+    write(
+        system.join("tokens.json"),
+        &serde_json::json!({ "css": tokens_css }).to_string(),
+    );
+    write(components.join("src/bundle.css"), bundle_css);
+    write(components.join("src/bundle.js"), bundle_js);
+    write(
+        dir.join("scripts/design/tokens-css.py"),
+        "import json, pathlib\n\
+         system = pathlib.Path(__file__).resolve().parents[2] / 'design' / 'system'\n\
+         css = json.loads((system / 'tokens.json').read_text())['css']\n\
+         (system / 'tokens.css').write_text(css)\n",
+    );
+    write(
+        system.join("build-bundle.py"),
+        "import pathlib\n\
+         components = pathlib.Path(__file__).with_name('components')\n\
+         for name in ('bundle.css', 'bundle.js'):\n    \
+         (components / name).write_text((components / 'src' / name).read_text())\n",
+    );
+    write(system.join("tokens.css"), tokens_css);
+    write(components.join("bundle.css"), bundle_css);
+    write(components.join("bundle.js"), bundle_js);
+}

@@ -1072,14 +1072,10 @@ fn render_prints_a_board_of_a_worktree_as_one_page_in_the_theme_asked() {
 fn render_reads_a_board_at_origin_main_or_at_a_commit_each_with_its_design_system() {
     let w = world("design-render-at");
     let write = |board: &str, bundle: &str| {
-        let system = w.dir.join("design/system/components");
-        std::fs::create_dir_all(&system).unwrap();
         std::fs::create_dir_all(w.dir.join("design/mocks")).unwrap();
-        std::fs::write(w.dir.join("design/system/tokens.css"), ":root{}").unwrap();
-        std::fs::write(system.join("bundle.css"), "").unwrap();
-        std::fs::write(system.join("bundle.js"), bundle).unwrap();
+        crate::testing::design_system(&w.dir, ":root{}", "", bundle);
         std::fs::write(w.dir.join("design/mocks/mac.a.dc.html"), board).unwrap();
-        git(&w.dir, &["add", "design"]);
+        git(&w.dir, &["add", "design", "scripts"]);
         git(&w.dir, &["commit", "-q", "-m", "board"]);
         w.sha("HEAD")
     };
