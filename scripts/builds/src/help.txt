@@ -178,12 +178,15 @@ Commands:
                               look at while drawing; the dashboard serves a
                               design change's boards the same way:
                               `builds help lists`
-  builds dashboard [--port <port>]
+  builds dashboard [--port <port>] [--listen <address>]
                               run the daemon until killed: it follows the
                               volume and the checkouts through FSEvents,
                               keeps every folder's size and last write and
                               every checkout's git state and claim current,
-                              serves the page at http://127.0.0.1:7787/ and
+                              serves the page at http://127.0.0.1:7787/ (and
+                              at <address> too with --listen, such as this
+                              Mac's Wi-Fi address for a phone; anyone on
+                              that network can then use the page) and
                               the lists, which it follows too, at /api/lists
                               and in its `lists` events, and
                               answers the commands' questions about sizes

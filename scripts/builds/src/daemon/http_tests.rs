@@ -42,7 +42,13 @@ fn server_with(name: &str, prepare: impl FnOnce(&Scratch, &crate::places::Places
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let serving = model.clone();
-    std::thread::spawn(move || serve(listener, port, serving));
+    let names: Arc<[String]> = vec![
+        format!("127.0.0.1:{port}"),
+        format!("localhost:{port}"),
+        format!("{ALSO}:{port}"),
+    ]
+    .into();
+    std::thread::spawn(move || serve(listener, names, serving));
     Server {
         scratch,
         port,
@@ -83,6 +89,37 @@ impl Server {
 }
 
 const MAC: &str = r#"{"repo":"demo","lane":"mac","ref":"my-branch"}"#;
+
+/// The other address the test server answers for, as `--listen` gives one.
+const ALSO: &str = "192.0.2.7";
+
+#[test]
+fn the_page_answers_at_an_address_it_also_listens_on() {
+    let s = server("http-also");
+    let also = format!("{ALSO}:{}", s.port);
+    let origin = format!("http://{also}");
+    assert_ne!(
+        s.post(&also, Some(&origin), MAC).0,
+        403,
+        "the host and origin of the other address"
+    );
+    assert_eq!(
+        s.post(
+            &also,
+            Some(&format!("http://127.0.0.1:{}", s.port + 1)),
+            MAC
+        )
+        .0,
+        403,
+        "another origin at the other address"
+    );
+    assert_eq!(
+        s.post(&format!("192.0.2.8:{}", s.port), Some(&origin), MAC)
+            .0,
+        403,
+        "an address it doesn't listen on"
+    );
+}
 
 #[test]
 fn a_cross_site_post_starts_no_build() {

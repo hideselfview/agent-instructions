@@ -117,9 +117,10 @@ fn answer(model: &Model, given: &Path, stream: UnixStream) -> std::io::Result<()
     stream.write_all(b"\n")
 }
 
-/// `builds dashboard [--port <port>]`.
+/// `builds dashboard [--port <port>] [--listen <address>]`.
 pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     let mut port = DASHBOARD_PORT;
+    let mut listen: Option<std::net::IpAddr> = None;
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
@@ -130,7 +131,14 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
                     _ => fail!("dashboard: --port takes a port number"),
                 }
             }
-            _ => fail!("usage: builds dashboard [--port <port>]"),
+            "--listen" => {
+                let value = rest.next().map(String::as_str).unwrap_or("");
+                match value.parse() {
+                    Ok(address) => listen = Some(address),
+                    _ => fail!("dashboard: --listen takes an IP address, such as 192.168.1.20"),
+                }
+            }
+            _ => fail!("usage: builds dashboard [--port <port>] [--listen <address>]"),
         }
     }
     tool.places.require_volume()?;
@@ -140,6 +148,18 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
         Ok(web) => web,
         Err(error) => fail!("dashboard: can't listen on 127.0.0.1:{port}: {error}"),
     };
+    let mut names = vec![format!("127.0.0.1:{port}"), format!("localhost:{port}")];
+    let also = match listen {
+        Some(address) => match std::net::TcpListener::bind((address, port)) {
+            Ok(also) => {
+                names.push(std::net::SocketAddr::new(address, port).to_string());
+                Some(also)
+            }
+            Err(error) => fail!("dashboard: can't listen on {address}:{port}: {error}"),
+        },
+        None => None,
+    };
+    let names: std::sync::Arc<[String]> = names.into();
     let (socket, _claim) = bind(tool)?;
     let tracker = Tracker::start(&root, &tool.places.daemon_dir())
         .context(|| format!("following {}", root.display()))?;
@@ -166,11 +186,24 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
             }
         })
         .context(|| "starting a thread".to_string())?;
+    if let Some(also) = also {
+        let (names, model) = (names.clone(), model.clone());
+        std::thread::Builder::new()
+            .name("builds-page-also".into())
+            .spawn(move || http::serve(also, names, model))
+            .context(|| "starting a thread".to_string())?;
+    }
+    let at: Vec<String> = names
+        .iter()
+        .filter(|name| !name.starts_with("localhost:"))
+        .map(|name| format!("http://{name}/"))
+        .collect();
     note(format!(
-        "dashboard at http://127.0.0.1:{port}/ (pid {})",
+        "dashboard at {} (pid {})",
+        at.join(" and "),
         std::process::id()
     ));
-    http::serve(web, port, model);
+    http::serve(web, names, model);
     Ok(())
 }
 

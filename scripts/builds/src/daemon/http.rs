@@ -45,12 +45,16 @@ const MAX_BODY: usize = 4096;
 /// The least time between two events on one stream: pacing for the page.
 const EVENT_GAP: Duration = Duration::from_millis(250);
 
-pub fn serve(listener: TcpListener, port: u16, model: Arc<Model>) {
+/// Answers the page's requests on <listener>. <names> are the `host:port`
+/// names a request may give in its Host header, and the page's own origins:
+/// this machine's names, and any address the daemon also listens on.
+pub fn serve(listener: TcpListener, names: Arc<[String]>, model: Arc<Model>) {
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
         let model = model.clone();
+        let names = names.clone();
         std::thread::spawn(move || {
-            if let Err(error) = handle(stream, port, &model)
+            if let Err(error) = handle(stream, &names, &model)
                 && !matches!(
                     error.kind(),
                     std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
@@ -71,7 +75,7 @@ fn respond(stream: &mut TcpStream, status: &str, kind: &str, body: &[u8]) -> std
     stream.write_all(body)
 }
 
-fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()> {
+fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request = String::new();
@@ -98,18 +102,17 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
     reader.read_exact(&mut body)?;
     let mut parts = request.split_whitespace();
     let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-    let allowed = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
-    if !host.is_some_and(|host| allowed.contains(&host)) {
+    if !host.is_some_and(|host| names.contains(&host)) {
         return respond(
             &mut stream,
             "403 Forbidden",
             "text/plain; charset=utf-8",
-            b"only for this machine's own browser\n",
+            b"only at the addresses the dashboard listens on\n",
         );
     }
     let path = target.split('?').next().unwrap_or("");
     if method == "POST" && (path == "/api/queue" || path == "/api/build-app") {
-        if !from_own_page(origin.as_deref(), port) {
+        if !from_own_page(origin.as_deref(), names) {
             return respond(
                 &mut stream,
                 "403 Forbidden",
@@ -228,13 +231,13 @@ fn design_route(rest: &str) -> Option<DesignRoute> {
     }
 }
 
-/// Does the Origin header name this server's own page?
-fn from_own_page(origin: Option<&str>, port: u16) -> bool {
-    let own = [
-        format!("http://127.0.0.1:{port}"),
-        format!("http://localhost:{port}"),
-    ];
-    origin.is_some_and(|origin| own.iter().any(|own| own == origin))
+/// Does the Origin header name this server's own page, at one of <names>?
+fn from_own_page(origin: Option<&str>, names: &[String]) -> bool {
+    origin.is_some_and(|origin| {
+        origin
+            .strip_prefix("http://")
+            .is_some_and(|name| names.iter().any(|own| own == name))
+    })
 }
 
 #[derive(serde::Deserialize)]
