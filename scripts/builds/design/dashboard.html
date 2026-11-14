@@ -9,12 +9,14 @@
   --bg: #F6F6F3; --surface: #FFFFFF; --line: #E2E2DC; --line-soft: #F0F0EA;
   --text: #1A1A19; --text-2: #2B2B29; --muted: #5C5C57; --muted-2: #6B6B66;
   --accent: #1F4FB8; --on: #1A1A19; --on-text: #FFFFFF;
+  --app-bg: #ECF0F7; --app-line: #D3DBE8; --app-bar: #DFE6F1;
   --working-bg: #E7F2EA; --working: #1F5E38; --ready-bg: #E3ECFB; --ready: #1F4FB8;
 }
 @media (prefers-color-scheme: dark) { :root {
   --bg: #161615; --surface: #1F1F1D; --line: #34342F; --line-soft: #2B2B28;
   --text: #ECECE8; --text-2: #D9D9D3; --muted: #A6A69F; --muted-2: #9C9C95;
   --accent: #93B2FF; --on: #ECECE8; --on-text: #161615;
+  --app-bg: #1F2430; --app-line: #333B4D; --app-bar: #283042;
   --working-bg: #1C3324; --working: #93D8AE; --ready-bg: #1D2A45; --ready: #A9C3FF;
   color-scheme: dark; } }
 * { box-sizing: border-box; }
@@ -81,6 +83,11 @@ a { color: var(--accent); }
 .land .c .mono { color: var(--muted); }
 .land details summary { padding: 0; font-size: 12px; color: var(--muted); }
 .land details .c { margin-top: 2px; }
+h3 { margin: 6px 0 0; font-size: 12px; font-weight: 600; color: var(--muted-2); }
+.wt-card.app { background: var(--app-bg); border-color: var(--app-line); padding: 16px 20px; }
+.wt-card.app .bar { margin: -16px -20px 8px; padding: 7px 20px; background: var(--app-bar); }
+.wt-card.app .bar.building { background: var(--working-bg); }
+.wt-card.app .t b { font-size: 17px; }
 .note { font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 14px; }
 </style></head>
 <body>
@@ -124,14 +131,15 @@ a { color: var(--accent); }
 
   <div class="group">
     <h2>Worktrees</h2>
-    <div class="wts">
-      <div class="wt-card">
+    <h3>Your checkout and the app checkouts</h3>
+    <div class="wts apps">
+      <div class="wt-card app">
         <div class="bar"><span class="disk" title="Disk: the build output this worktree holds on the build volume.">4.1G</span></div>
         <div class="t"><span><b>main</b> <span class="br">main</span></span></div>
         <div class="what">Your checkout. No agent works or builds here.</div>
         <div class="foot"><span class="ic" title="Last commit: time since the newest commit on this checkout's branch."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Last commit"><circle cx="8" cy="8" r="2.75"/><path d="M1 8h4.25M10.75 8H15"/></svg>12m</span><span class="tree">clean</span></div>
       </div>
-      <div class="wt-card">
+      <div class="wt-card app">
         <div class="bar building"><span class="grp"><span>1% CPU · 614 MB</span></span><span class="disk" title="Disk: the build output this worktree holds on the build volume.">18.2G</span></div>
         <div class="t"><span><b>side-1</b> <span class="br">detached at 9e8d3d5</span></span></div>
         <div class="what">Mac app checkout. Building the Mac app for mac-alerts.</div>
@@ -139,13 +147,16 @@ a { color: var(--accent); }
         <details><summary>Folders</summary><div class="more"><dl class="facts"><dt>Xcode build</dt><dd class="mono">9.8G</dd><dt>target-macos</dt><dd class="mono">6.0G</dd><dt>BaeKit</dt><dd class="mono">1.7G</dd><dt>target</dt><dd class="mono">698M</dd></dl></div></details>
         <div class="foot"><span class="ic" title="App lock: how long one build has held this app checkout. Other agents wait in line for it; it is released when the build ends."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Lock held"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>6m</span></div>
       </div>
-      <div class="wt-card">
+      <div class="wt-card app">
         <div class="bar"><span class="disk" title="Disk: the build output this worktree holds on the build volume.">7.4G</span></div>
         <div class="t"><span><b>side-13</b> <span class="br">detached at 4d9ec6c</span></span></div>
         <div class="what">Android app checkout. Its lock is held by a priming build that is no longer building.</div>
         <div class="cmd">adb -L tcp:5037</div>
         <div class="foot"><span class="ic" title="App lock: how long one build has held this app checkout. Other agents wait in line for it; it is released when the build ends."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Lock held"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>37h</span></div>
       </div>
+    </div>
+    <h3>Agents' worktrees</h3>
+    <div class="wts">
       <div class="wt-card">
         <div class="bar"><span class="grp"><span class="pill s-ready">Ready to land</span></span><span class="disk" title="Disk: the build output this worktree holds on the build volume.">9.8G</span></div>
         <div class="t"><span><b>side-3</b> <span class="br">lists-page-by-cursor</span></span></div>
@@ -174,10 +185,9 @@ a { color: var(--accent); }
         <div class="t"><span><b>side-8</b> <span class="br">detached at 531e618</span></span></div>
         <div class="what">Free: no claim, every commit landed.</div>
         <div class="foot"><span class="tree">clean</span></div>
-      </div>
     </div>
   </div>
 
-  <div class="note">Three tabs, each with its count in its label: Waiting on you, Running, Queue. Design changes fold in: one waiting on review is in Waiting on you, one being drawn is in Running. Decisions are not a tab. Each line is a title of five to ten words with its worktree beside it; opening it shows what is happening now, its items, agent, branch, plan and short commits. Worktrees: one of each kind (your checkout, a Mac and an Android app checkout, an agent's worktree with a commit to land, one working, a free one). Each card's title is its worktree with what it has checked out beside it (a branch, or detached at a commit), on one line, then one plain line of what is happening, and a bar across the top with the build output's size on disk, and a footer of a commit mark with the time since the last commit, a pencil with the time since the last write, a person with how long an agent has claimed the worktree, a padlock with how long a build has held an app checkout's lock (each explained on hover), and the tree state on its own at the right; what is building shows in that bar, which turns green: its CPU and memory; a hammer with how long it has run and the programs it runs, with their counts, sit in a light green box under the card's line; commits waiting to land show, with no heading, at most three in a quiet box, the rest behind a disclosure; folders fold away. An agent's worktree shows its Ready to land or Working chip in the top bar; a lock that is stuck says so in its line.</div>
+  <div class="note">Three tabs, each with its count in its label: Waiting on you, Running, Queue. Design changes fold in: one waiting on review is in Waiting on you, one being drawn is in Running. Decisions are not a tab. Each line is a title of five to ten words with its worktree beside it; opening it shows what is happening now, its items, agent, branch, plan and short commits. Worktrees, in two groups: your checkout and the app checkouts first, on a blue-grey ground and a size larger, since nobody owns an app checkout and a build only borrows it; then the agents' worktrees. One of each kind (your checkout, a Mac and an Android app checkout, an agent's worktree with a commit to land, one working, a free one). Each card's title is its worktree with what it has checked out beside it (a branch, or detached at a commit), on one line, then one plain line of what is happening, and a bar across the top with the build output's size on disk, and a footer of a commit mark with the time since the last commit, a pencil with the time since the last write, a person with how long an agent has claimed the worktree, a padlock with how long a build has held an app checkout's lock (each explained on hover), and the tree state on its own at the right; what is building shows in that bar, which turns green: its CPU and memory; a hammer with how long it has run and the programs it runs, with their counts, sit in a light green box under the card's line; commits waiting to land show, with no heading, at most three in a quiet box, the rest behind a disclosure; folders fold away. An agent's worktree shows its Ready to land or Working chip in the top bar; a lock that is stuck says so in its line.</div>
 </div>
 </body></html>
