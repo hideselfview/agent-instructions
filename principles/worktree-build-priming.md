@@ -76,26 +76,40 @@ a failed build leaves the installed one as it was; a commit on main that touches
   async-trait 28 s). The source is the repo's other checkout (main's is only
   read) with a built debug profile and a `target` within the new folder's cap,
   preferring one whose committed `Cargo.lock` is origin/main's, then the one
-  whose last `builds cargo` build finished latest (`.after-build.log`). The
-  clone is taken holding the source's guard and every `.cargo-lock` of its
-  folder, exclusively and without waiting, so it is a state cargo left; a source
-  a build holds is passed over, and when all are building the call waits on the
-  best one's guard (no time limit, no retry), which `builds cargo` drops when
-  its cargo exits. The clone is made beside the folder and renamed over the
-  empty one, so the folder is empty or whole; then the usual prune deletes its
-  incremental folders. Sizes count a clone's blocks in its own folder like any
-  other, so a fresh clone reads as the source's size: an upper bound on the
-  blocks it owns, below the cap by the choice of source, and the free-space
-  floor reads the volume's real free space. A free worktree handed out again
-  keeps a `target` that holds anything. Measured 2026-11-13 on bae (hook clippy
-  of bae-library, `--tests`): an empty `target` compiled 88 third-party crates
-  (198 s of CPU); a clone of another worktree's compiled 3, aws-lc-sys and the
-  two crates above it (43 s of CPU). Cargo reruns a build script whose recorded
-  environment changed, and aws-lc-sys's records `PKG_CONFIG_PATH`, which bae's
-  `.cargo/config.toml` sets to `<checkout>/bae-ffmpeg/dist/...`: a different
-  value in every checkout, so that chain rebuilds there however the folder was
-  filled. The fix is a checkout-independent value in bae, not something `new`
-  can do to the clone.
+  with the most units built (entries in `debug/.fingerprint`: a target a recent
+  build of one small crate touched holds about 200, one that ran the hook's
+  clippy over several feature sets holds 2000 and more, and a unit built for
+  another feature set is not fresh), then the one whose last `builds cargo`
+  build finished latest (`.after-build.log`). Cargo calls a source file changed
+  when its mtime is newer than the build's record, and a fresh checkout stamps
+  every file with its own time, so after the clone every tracked file of the new
+  worktree that is byte for byte the source checkout's gets the source's mtime
+  (a file that differs keeps its own and is rebuilt). Without that, each
+  workspace crate's build script (bae's `../bae-util/build.rs` names no
+  `rerun-if-changed`) reran and every crate above it was compiled again, which
+  sccache keys by path and so misses in a new worktree. Measured 2026-11-13 on
+  bae (hook clippy of bae-library, load 22-45): a clone of a sparse target 181
+  s, of a warm one without the mtimes 87 s, with them 54 s and 92 s (17 s of CPU
+  each; the rest is sccache answering at load, one unit after another down the
+  chain coven-storage, coven-sync, coven, bae-util). The clone is taken holding
+  the source's guard and every `.cargo-lock` of its folder, exclusively and
+  without waiting, so it is a state cargo left; a source a build holds is passed
+  over, and when all are building the call waits on the best one's guard (no
+  time limit, no retry), which `builds cargo` drops when its cargo exits. The
+  clone is made beside the folder and renamed over the empty one, so the folder
+  is empty or whole; then the usual prune deletes its incremental folders. Sizes
+  count a clone's blocks in its own folder like any other, so a fresh clone
+  reads as the source's size: an upper bound on the blocks it owns, below the
+  cap by the choice of source, and the free-space floor reads the volume's real
+  free space. A free worktree handed out again keeps a `target` that holds
+  anything. Measured 2026-11-13 on bae (hook clippy of bae-library, `--tests`):
+  an empty `target` compiled 88 third-party crates (198 s of CPU); a clone of
+  another worktree's compiled 3, aws-lc-sys and the two crates above it (43 s of
+  CPU). Cargo reruns a build script whose recorded environment changed, and
+  aws-lc-sys's records `PKG_CONFIG_PATH`, which bae's `.cargo/config.toml` sets
+  to `<checkout>/bae-ffmpeg/dist/...`: a different value in every checkout, so
+  that chain rebuilds there however the folder was filled. The fix is a
+  checkout-independent value in bae, not something `new` can do to the clone.
 - `builds claim <checkout> <who>` and `builds release <checkout>` record and
   remove who works in a side worktree. Whoever hands a worktree out (a
   coordinator dispatching an agent, a person) claims it, and releases it when

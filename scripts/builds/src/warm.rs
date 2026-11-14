@@ -11,7 +11,8 @@
 //! Source choice: among the repo's other checkouts (main's `target` is only
 //! read) whose `target` holds a built debug profile and fits the new
 //! worktree's cap, the one whose committed Cargo.lock is origin/main's (same
-//! dependencies the new worktree will build), then the one whose last
+//! dependencies the new worktree will build), then the one with the most units
+//! built (fingerprints in `debug/.fingerprint`), then the one whose last
 //! `builds cargo` build finished most recently (`.after-build.log`, written as
 //! each build exits). A copy is taken while holding the source's guard
 //! (`units::GUARD`, what `builds cargo` holds while cargo runs) and every
@@ -20,6 +21,16 @@
 //! A source a build holds is passed over for the next; when every candidate is
 //! building, the call waits on the best one's guard, which `builds cargo`
 //! drops when its cargo exits (no time limit, no retry).
+//!
+//! Cargo calls a source file changed when its mtime is newer than the build's
+//! record, and a fresh checkout stamps every file with the checkout's time, so
+//! the cloned fingerprints would all read stale: every workspace crate's build
+//! script reruns, and each crate above it is compiled again (path crates are
+//! cached by sccache per path, so a new worktree misses). After the clone,
+//! every tracked file of the new worktree that is byte for byte the source
+//! checkout's gets the source's mtime, which makes the new tree look as the
+//! source's did when it was built; a file that differs keeps its new mtime and
+//! is rebuilt, as it must be.
 //!
 //! The clone is made beside its destination and renamed over the empty folder,
 //! so the folder is empty or whole. Incremental folders and the rest of what
@@ -47,17 +58,36 @@ use crate::units::{GUARD, Guard, lock_guard_creating};
 pub struct Candidate {
     /// Its build root.
     pub root: PathBuf,
+    /// Its working tree: the sources its `target` was built from.
+    pub top: PathBuf,
     /// Does its committed Cargo.lock equal origin/main's?
     pub same_lock: bool,
+    /// How many units its debug profile holds a fingerprint for: a target a
+    /// recent small build touched holds a few hundred, one that has run the
+    /// hook's clippy holds the whole dependency tree.
+    pub units: usize,
     /// When its last `builds cargo` build finished, in seconds since 1970; 0
     /// when none is recorded.
     pub finished: i64,
 }
 
-/// Best source first: origin/main's dependencies, then the newest build.
+/// Best source first: origin/main's dependencies, then the most units built
+/// (the clone saves what was built, so a recent build of one small crate must
+/// not outrank a target that holds the whole tree), then the newest build.
 pub fn rank(candidates: &mut [Candidate]) {
     candidates.sort_by(|a, b| {
-        (!a.same_lock, -a.finished, &a.root).cmp(&(!b.same_lock, -b.finished, &b.root))
+        (
+            !a.same_lock,
+            std::cmp::Reverse(a.units),
+            -a.finished,
+            &a.root,
+        )
+            .cmp(&(
+                !b.same_lock,
+                std::cmp::Reverse(b.units),
+                -b.finished,
+                &b.root,
+            ))
     });
 }
 
@@ -194,13 +224,69 @@ fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Cand
             .ok()
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0, |since| since.as_secs() as i64);
+        let units = std::fs::read_dir(target_of(&root.path).join("debug/.fingerprint"))
+            .context(|| format!("listing the fingerprints of {}", root.path.display()))?
+            .count();
         candidates.push(Candidate {
+            top: live.top.clone(),
+            units,
             same_lock: lock_blob(&live.top, "HEAD")? == wanted,
             root: root.path,
             finished,
         });
     }
     Ok(candidates)
+}
+
+/// Gives each tracked file of <dest_top> that is byte for byte the same file of
+/// <source_top> that file's mtime. A file the source lacks, a link, or a file
+/// whose content differs keeps its own.
+fn match_times(source_top: &Path, dest_top: &Path) -> Result<()> {
+    let listed = Command::new("git")
+        .arg("-C")
+        .arg(dest_top)
+        .args(["ls-files", "-z"])
+        .stdin(Stdio::null())
+        .output()
+        .context(|| format!("listing the files of {}", dest_top.display()))?;
+    if !listed.status.success() {
+        fail!(
+            "git ls-files in {}: {} {}",
+            dest_top.display(),
+            listed.status,
+            String::from_utf8_lossy(&listed.stderr).trim()
+        );
+    }
+    for name in listed
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|n| !n.is_empty())
+    {
+        let name = Path::new(std::ffi::OsStr::from_bytes(name));
+        let (from, to) = (source_top.join(name), dest_top.join(name));
+        let (Ok(from_meta), Ok(to_meta)) = (
+            std::fs::symlink_metadata(&from),
+            std::fs::symlink_metadata(&to),
+        ) else {
+            continue;
+        };
+        if !from_meta.is_file() || !to_meta.is_file() || from_meta.len() != to_meta.len() {
+            continue;
+        }
+        let (Ok(from_bytes), Ok(to_bytes)) = (std::fs::read(&from), std::fs::read(&to)) else {
+            continue;
+        };
+        if from_bytes != to_bytes {
+            continue;
+        }
+        let when = from_meta
+            .modified()
+            .context(|| format!("reading the mtime of {}", from.display()))?;
+        File::open(&to)
+            .and_then(|file| file.set_modified(when))
+            .context(|| format!("setting the mtime of {}", to.display()))?;
+    }
+    Ok(())
 }
 
 /// Fills <checkout>'s host `target` from a warm checkout's when it is empty
@@ -239,6 +325,9 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(error);
     }
+    // The source's files are read while its guard is held: no build there
+    // writes them, so their mtimes are what its fingerprints were made from.
+    match_times(&held.candidate.top, &checkout.top)?;
     drop(held);
     note(format!(
         "cloned {} into {}",

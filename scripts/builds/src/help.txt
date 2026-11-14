@@ -89,7 +89,11 @@ Commands:
                               is empty it clones another checkout's warm
                               target into it (copy-on-write, taken while no
                               build runs there; the one with origin/main's
-                              Cargo.lock, then the newest build). It claims what it hands out,
+                              Cargo.lock, then the most units built, then
+                              the newest build), and gives the new files the
+                              source's mtimes where their bytes match, so
+                              cargo finds the cloned builds fresh. It claims
+                              what it hands out,
                               for <who> (--for) or "builds new", under a lock
                               on the repo (claims: below)
   builds claim <checkout> <who>

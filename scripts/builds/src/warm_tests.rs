@@ -10,6 +10,8 @@ use crate::worktree::{cmd_new, cmd_retire};
 fn candidate(name: &str, same_lock: bool, finished: i64) -> Candidate {
     Candidate {
         root: PathBuf::from(name),
+        top: PathBuf::from(name),
+        units: 0,
         same_lock,
         finished,
     }
@@ -32,6 +34,17 @@ fn the_source_has_origin_mains_dependencies_then_the_newest_build() {
         names,
         ["/v/r/main", "/v/r/side-3", "/v/r/side-2", "/v/r/side-1"]
     );
+}
+
+#[test]
+fn a_target_holding_more_units_outranks_a_newer_sparse_one() {
+    let mut sparse = candidate("/v/r/side-1", true, 900);
+    sparse.units = 216;
+    let mut warm = candidate("/v/r/side-2", true, 100);
+    warm.units = 2000;
+    let mut candidates = vec![sparse, warm];
+    rank(&mut candidates);
+    assert_eq!(candidates[0].root, PathBuf::from("/v/r/side-2"));
 }
 
 /// A repo "demo" with a pushed origin and a main checkout whose build root
@@ -210,6 +223,8 @@ fn a_source_a_hand_run_cargo_holds_is_passed_over() {
 fn candidate_at(root: &Path) -> Candidate {
     Candidate {
         root: root.to_path_buf(),
+        top: root.to_path_buf(),
+        units: 0,
         same_lock: true,
         finished: 0,
     }
@@ -241,4 +256,39 @@ fn a_revision_without_a_lock_is_empty_and_git_failing_is_an_error() {
         broken.contains("git failed to find Cargo.lock at HEAD"),
         "{broken}"
     );
+}
+
+#[test]
+fn a_new_tree_takes_the_sources_mtimes_for_the_files_that_match() {
+    let scratch = Scratch::new("warm-match-times");
+    let (source, dest) = (scratch.dir.join("source"), scratch.dir.join("dest"));
+    for top in [&source, &dest] {
+        repo(top, "target 1G\n");
+        std::fs::write(top.join("same.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(top.join("changed.rs"), format!("// {}\n", top.display())).unwrap();
+        std::fs::write(top.join("only-here-or-there.rs"), "x\n").unwrap();
+        git(
+            top,
+            &["add", "same.rs", "changed.rs", "only-here-or-there.rs"],
+        );
+        git(top, &["commit", "-q", "-m", "Files"]);
+    }
+    std::fs::remove_file(source.join("only-here-or-there.rs")).unwrap();
+    let built = std::time::UNIX_EPOCH + std::time::Duration::new(1_000_000, 123_456_789);
+    for name in ["same.rs", "changed.rs"] {
+        File::open(source.join(name))
+            .unwrap()
+            .set_modified(built)
+            .unwrap();
+    }
+    match_times(&source, &dest).unwrap();
+    let mtime = |name: &str| {
+        std::fs::metadata(dest.join(name))
+            .unwrap()
+            .modified()
+            .unwrap()
+    };
+    assert_eq!(mtime("same.rs"), built);
+    assert_ne!(mtime("changed.rs"), built);
+    assert_ne!(mtime("only-here-or-there.rs"), built);
 }
