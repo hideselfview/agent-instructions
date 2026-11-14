@@ -23,7 +23,7 @@ pub const DATABASE: &str = "builds.sqlite";
 /// Each owner's SQL, in the order the schema is read: a table points at ones
 /// earlier or later (SQLite resolves foreign keys when rows are written), but
 /// the order is the one to read it in.
-const LISTS_PARTS: [&str; 11] = [
+const LISTS_PARTS: [&str; 10] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -34,7 +34,6 @@ const LISTS_PARTS: [&str; 11] = [
     include_str!("lists/landing.sql"),
     include_str!("lists/design.sql"),
     include_str!("lists/store.sql"),
-    include_str!("review/record.sql"),
 ];
 const HOOK_PART: &str = include_str!("hook_stats.sql");
 /// The app-build timing tables (app_timing.sql), the last part of the schema.
@@ -52,10 +51,18 @@ const BUSY: Duration = Duration::from_millis(i32::MAX as u64);
 /// the schema.
 pub const SHOT_FINDINGS_PART: &str = include_str!("shot_findings.sql");
 
+/// The review's tables (review/record.sql), the last part of the schema.
+pub const REVIEW_PART: &str = include_str!("review/record.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
-/// stored shot findings.
+/// stored shot findings, then the review's.
 pub fn schema() -> String {
+    format!("{}\n{REVIEW_PART}", schema_before_review())
+}
+
+/// The schema as it was before the review's tables joined it.
+pub fn schema_before_review() -> String {
     format!("{}\n{SHOT_FINDINGS_PART}", schema_before_shot_findings())
 }
 

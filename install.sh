@@ -95,6 +95,13 @@ fi
 
 for subdir in rules principles; do
   mkdir -p "$HOME/.claude/$subdir"
+  # A link to a file since removed or merged into another is dropped.
+  for link in "$HOME/.claude/$subdir"/*.md; do
+    if [[ -L "$link" && ! -e "$link" && "$(readlink "$link")" == "$repo/$subdir"/* ]]; then
+      rm "$link"
+      echo "Removed ~/.claude/$subdir/$(basename "$link") (its file is gone)"
+    fi
+  done
   for f in "$repo/$subdir"/*.md; do
     [[ -f "$f" ]] || continue
     name="$(basename "$f")"

@@ -529,3 +529,54 @@ fn the_shot_findings_stamp_is_the_schema_before_shot_findings() {
         BEFORE_SHOT_FINDINGS_STAMP
     );
 }
+
+/// A store as the schema before the review's tables made it: that schema's
+/// text, its stamp, one run.
+fn store_before_review(dir: &std::path::Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&db::schema_before_review()).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_REVIEW_STAMP)
+        .unwrap();
+    plant_run(&conn);
+    path
+}
+
+#[test]
+fn a_store_from_before_the_review_gains_its_tables_keeps_its_runs_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-review");
+    let places = scratch.places();
+    let path = store_before_review(&places.lists.join("bae"));
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let tables: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('review_landing', 'review_run', 'review_call', 'review_text', 'review_exchange', 'review_verdict', 'review_finding')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(tables, 7);
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the old run is kept");
+}
+
+#[test]
+fn the_review_stamp_is_the_schema_before_the_review() {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in db::schema_before_review().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    assert_eq!(
+        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        BEFORE_REVIEW_STAMP
+    );
+}
