@@ -179,7 +179,11 @@ forced rerun, no size cutoff between read paths. A long list pages by cursor
 (its request carries the sort values of the row at the screen's edge, sought
 through the order's index) and jumps by offset, with an index for the jump only
 when it measures slow enough to warrant one. The full rule is
-`projects/bae-rules/reactive-screens-read-plain-live-queries.md`.
+`projects/bae-rules/reactive-screens-read-plain-live-queries.md`. bae's
+pre-commit hook refuses the shapes a static check can see (the ownership check's
+`read-shapes` rule and the app row pass), with `frozen` lists that only shrink
+and `allowed` lists for uses over values that are not a read's rows; review
+still covers what the check cannot catch, which the rule file lists.
 
 A value that changes many times a second (playback position, transfer bytes,
 rates, levels) travels on a keyed latest-value stream and is drawn by a native
