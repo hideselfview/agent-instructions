@@ -27,6 +27,9 @@ figure { margin: 0; }
 figcaption { margin-bottom: 6px; font-weight: 600; max-width: 700px; }
 figcaption .meta { font-weight: 400; color: var(--dim); font-size: 12px; margin-left: 6px; }
 figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-left: 6px; }
+.pair { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; }
+.side h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--dim); }
+.note { color: var(--dim); border: 1px dashed var(--line); border-radius: 6px; padding: 8px 12px; max-width: 700px; }
 .frame { overflow: hidden; border: 1px solid var(--line); background: #000; }
 .frame iframe { display: block; border: 0; background: transparent; transform-origin: 0 0; }
 .problem { color: var(--bad); border: 1px solid var(--bad); border-radius: 6px; padding: 8px 12px; max-width: 700px; }
@@ -97,21 +100,40 @@ const state = document.getElementById("state");
 state.textContent = data.approved ? "approved" : "waiting on your review";
 if (!data.approved) state.classList.add("waiting");
 
-// Each board is its rendered page in a frame, drawn at the size the canvas
+// Each drawing is a rendered page in a frame, drawn at the size the canvas
 // gives it and scaled; the frame stays live HTML, so zooming shows it sharp.
+// A board shows its now and its proposed side by side, each with the design
+// system of its own commit.
 let zoom = "fit";
 const frames = [];
+function side(label, d, absent) {
+  const body = !d ? h("div", {class: "note"}, absent)
+    : d.error ? h("div", {class: "problem"}, d.error)
+    : d.absent ? h("div", {class: "note"}, absent)
+    : drawn(d);
+  return h("div", {class: "side"}, h("h3", {}, label), body);
+}
+function drawn(d) {
+  const frame = h("iframe", {src: d.src, sandbox: "allow-scripts", title: d.src, width: d.w, height: d.h});
+  const box = h("div", {class: "frame"}, frame);
+  frames.push({b: d, frame, box});
+  return box;
+}
 function board(b) {
   const caption = h("figcaption", {}, b.caption, h("span", {class: "meta"}, b.theme),
     b.link ? h("a", {href: b.link, target: "_blank", rel: "noopener"}, "on the canvas") : null);
-  if (b.error) return h("figure", {}, caption, h("div", {class: "problem"}, b.error));
-  const frame = h("iframe", {src: b.src, sandbox: "allow-scripts", title: b.caption, width: b.w, height: b.h});
-  const box = h("div", {class: "frame"}, frame);
-  frames.push({b, frame, box});
-  return h("figure", {}, caption, box);
+  return h("figure", {}, caption, h("div", {class: "pair"},
+    side("Now (origin/main)", b.now, "This board is new: it has no now."),
+    side("Proposed (the change)", b.proposed, "")));
+}
+function gone(d) {
+  return h("figure", {}, h("figcaption", {}, h("code", {}, d.path)),
+    h("div", {class: "pair"}, side("Now (origin/main)", d.now, "This board is not on origin/main."),
+      h("div", {class: "side"}, h("h3", {}, "Proposed (the change)"), h("div", {class: "note"}, "The change deletes this board."))));
 }
 function scaleOf(b) {
-  if (zoom === "fit") return Math.min(1, (document.documentElement.clientWidth - 42) / b.w);
+  const room = (document.documentElement.clientWidth - 42 - 16) / 2;
+  if (zoom === "fit") return Math.min(1, room / b.w);
   return Number(zoom);
 }
 function layout() {
@@ -130,7 +152,7 @@ for (const s of data.sections) {
 }
 if (data.deleted.length) {
   main.append(h("section", {}, h("h2", {}, "Deleted boards"),
-    h("ul", {class: "work"}, data.deleted.map(path => h("li", {}, h("code", {}, path))))));
+    h("div", {class: "boards"}, data.deleted.map(gone))));
 }
 if (data.places.length || data.no_app_place) {
   main.append(h("section", {}, h("h2", {}, "App work"),

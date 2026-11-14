@@ -171,11 +171,17 @@ fn page_data(page: &str) -> Value {
     serde_json::from_str(text).unwrap()
 }
 
+/// Makes <commit> what origin/main is at.
+fn set_origin_main(dir: &Path, commit: &str) {
+    git(dir, &["update-ref", "refs/remotes/origin/main", commit]);
+}
+
 #[test]
-fn a_review_page_has_its_sections_and_each_board_sized_from_the_canvas() {
+fn a_review_page_has_its_sections_and_each_board_now_and_proposed_sized_from_the_canvas() {
     let scratch = Scratch::new("render-review");
     let dir = tree(&scratch);
     let tip = commit(&dir);
+    set_origin_main(&dir, &tip);
     let (change, view) = review_of(&dir, &tip);
     let page = review_page(&change, &view).unwrap();
     assert!(
@@ -186,54 +192,168 @@ fn a_review_page_has_its_sections_and_each_board_sized_from_the_canvas() {
     assert_eq!(data["sections"][0]["heading"], json!("A </script> heading"));
     assert_eq!(data["sections"][1]["boards"], json!([]));
     let boards = &data["sections"][0]["boards"];
+    let id = change.id.0;
+    for side in ["now", "proposed"] {
+        assert_eq!(
+            boards[0][side],
+            json!({ "w": 400, "h": 300, "src": format!("/design/{id}/board/0/{side}") }),
+            "{side}"
+        );
+    }
     assert_eq!(
-        (
-            &boards[0]["w"],
-            &boards[0]["h"],
-            &boards[0]["src"],
-            &boards[0]["theme"],
-            &boards[0]["link"]
-        ),
-        (
-            &json!(400),
-            &json!(300),
-            &json!(format!("/design/{}/board/0", change.id.0)),
-            &json!("dark"),
-            &json!("https://canvas.example/#A")
-        )
+        (&boards[0]["theme"], &boards[0]["link"]),
+        (&json!("dark"), &json!("https://canvas.example/#A"))
     );
-    assert!(
-        boards[1]["error"]
-            .as_str()
-            .unwrap()
-            .contains("no width and height for B.dc.html"),
-        "{}",
-        boards[1]
-    );
-    assert!(
-        boards[2]["error"]
-            .as_str()
-            .unwrap()
-            .contains("no width and height for Z.dc.html"),
-        "{}",
-        boards[2]
-    );
-    assert_eq!(boards[1]["src"], Value::Null);
+    for side in ["now", "proposed"] {
+        let error = boards[1][side]["error"].as_str().unwrap();
+        assert!(
+            error.contains("no width and height for B.dc.html"),
+            "{error}"
+        );
+        assert_eq!(boards[1][side]["src"], Value::Null);
+    }
+    // Z is no file anywhere: the change's own drawing of it is a problem, origin/main's is an absence.
+    let error = boards[2]["proposed"]["error"].as_str().unwrap();
+    assert!(error.contains("Z.dc.html is no file"), "{error}");
+    assert_eq!(boards[2]["now"], json!({ "absent": true }));
     // The board a frame loads is the one the page counts as its <n>th.
     assert_eq!(review_board(&change, 1).unwrap().caption, "no size");
     assert!(review_board(&change, 3).is_none());
 }
 
 #[test]
-fn a_review_page_names_the_boards_the_change_deletes_without_drawing_them() {
-    let scratch = Scratch::new("render-review-deleted");
+fn now_is_origin_main_and_proposed_is_the_last_commit_each_with_its_own_design_system() {
+    let scratch = Scratch::new("render-now-proposed");
     let dir = tree(&scratch);
+    let main = commit(&dir);
+    set_origin_main(&dir, &main);
+    git(&dir, &["checkout", "-q", "-b", "change"]);
+    std::fs::write(
+        dir.join("design/mocks/A.dc.html"),
+        "<x-dc><p>board A proposed</p></x-dc>",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("design/system/components/bundle.js"),
+        "window.Bae = { PROPOSED_MARK: 1 };",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("design/mocks/canvas.json"),
+        r#"{"v": 3, "boards": {"A.dc.html": {"w": 900, "h": 700}}}"#,
+    )
+    .unwrap();
+    let tip = commit(&dir);
+    let (change, view) = review_of(&dir, &tip);
+    let data = page_data(&review_page(&change, &view).unwrap());
+    let board = &data["sections"][0]["boards"][0];
+    assert_eq!(
+        (&board["now"]["w"], &board["now"]["h"]),
+        (&json!(400), &json!(300))
+    );
+    assert_eq!(
+        (&board["proposed"]["w"], &board["proposed"]["h"]),
+        (&json!(900), &json!(700))
+    );
+    let draw = |side| {
+        let from = source_of(&change, side).unwrap();
+        render_board(from, "A", Theme::Dark).unwrap()
+    };
+    let now = draw(Side::Now);
+    assert!(now.contains("hello from A") && now.contains("BUNDLE_MARK"));
+    assert!(!now.contains("proposed") && !now.contains("PROPOSED_MARK"));
+    let proposed = draw(Side::Proposed);
+    assert!(proposed.contains("board A proposed") && proposed.contains("PROPOSED_MARK"));
+    assert!(!proposed.contains("BUNDLE_MARK"));
+}
+
+#[test]
+fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
+    let scratch = Scratch::new("render-added-deleted");
+    let dir = tree(&scratch);
+    std::fs::write(
+        dir.join("design/mocks/Old.dc.html"),
+        "<x-dc><p>the old board</p></x-dc>",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("design/mocks/canvas.json"),
+        r#"{"v": 3, "boards": {"A.dc.html": {"w": 400, "h": 300}, "Old.dc.html": {"w": 50, "h": 60}, "New.dc.html": {"w": 70, "h": 80}}}"#,
+    )
+    .unwrap();
+    let main = commit(&dir);
+    set_origin_main(&dir, &main);
+    git(&dir, &["checkout", "-q", "-b", "change"]);
+    git(&dir, &["rm", "-q", "design/mocks/Old.dc.html"]);
+    std::fs::write(
+        dir.join("design/mocks/New.dc.html"),
+        "<x-dc><p>new</p></x-dc>",
+    )
+    .unwrap();
     let tip = commit(&dir);
     let (mut change, _) = review_of(&dir, &tip);
+    change.review[0].boards = vec![
+        ReviewBoard {
+            board: "design/mocks/A.dc.html".into(),
+            caption: "the A".into(),
+            theme: Theme::Dark,
+        },
+        ReviewBoard {
+            board: "design/mocks/New.dc.html".into(),
+            caption: "the new one".into(),
+            theme: Theme::Light,
+        },
+    ];
     change.deleted.insert("design/mocks/Old.dc.html".into());
     let view = design_view(&crate::lists::fixtures::read(&db()), &change, None);
     let data = page_data(&review_page(&change, &view).unwrap());
-    assert_eq!(data["deleted"], json!(["design/mocks/Old.dc.html"]));
+    let id = change.id.0;
+    let boards = &data["sections"][0]["boards"];
+    assert_eq!(
+        boards[0]["now"]["src"],
+        json!(format!("/design/{id}/board/0/now"))
+    );
+    assert_eq!(boards[1]["now"], json!({ "absent": true }));
+    assert_eq!(
+        boards[1]["proposed"],
+        json!({ "w": 70, "h": 80, "src": format!("/design/{id}/board/1/proposed") })
+    );
+    // The deleted board has a now, drawn from origin/main, and no proposed.
+    assert_eq!(
+        data["deleted"],
+        json!([{
+            "path": "design/mocks/Old.dc.html",
+            "now": { "w": 50, "h": 60, "src": format!("/design/{id}/deleted/0/now") }
+        }])
+    );
+    assert_eq!(
+        deleted_board(&change, 0).map(String::as_str),
+        Some("design/mocks/Old.dc.html")
+    );
+    let old = render_board(
+        source_of(&change, Side::Now).unwrap(),
+        "design/mocks/Old.dc.html",
+        Theme::Dark,
+    )
+    .unwrap();
+    assert!(old.contains("the old board"));
+}
+
+#[test]
+fn a_review_page_with_no_origin_main_says_so_at_each_now() {
+    let scratch = Scratch::new("render-no-origin");
+    let dir = tree(&scratch);
+    let tip = commit(&dir);
+    let (change, view) = review_of(&dir, &tip);
+    let data = page_data(&review_page(&change, &view).unwrap());
+    let board = &data["sections"][0]["boards"][0];
+    assert!(
+        board["now"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("find the commit origin/main")
+    );
+    assert_eq!(board["proposed"]["w"], json!(400));
 }
 
 #[test]
@@ -245,7 +365,7 @@ fn a_review_page_of_a_commit_with_no_canvas_file_says_so_at_each_board() {
     let (change, view) = review_of(&dir, &tip);
     let data = page_data(&review_page(&change, &view).unwrap());
     assert!(
-        data["sections"][0]["boards"][0]["error"]
+        data["sections"][0]["boards"][0]["proposed"]["error"]
             .as_str()
             .unwrap()
             .contains("canvas.json is not there")
@@ -321,7 +441,7 @@ fn two_changes_in_one_worktree_each_draw_their_own_last_commit() {
     let boards = |tip: &str| {
         let (change, view) = review_of(&dir, tip);
         let data = page_data(&review_page(&change, &view).unwrap());
-        data["sections"][0]["boards"][0].clone()
+        data["sections"][0]["boards"][0]["proposed"].clone()
     };
     let (one, two) = (boards(&first), boards(&second));
     assert_eq!((&one["w"], &one["h"]), (&json!(400), &json!(300)));
@@ -336,6 +456,8 @@ fn a_review_page_of_a_change_with_no_last_commit_says_to_amend_it() {
     let (mut change, view) = review_of(&dir, "0000000");
     change.tip = None;
     let data = page_data(&review_page(&change, &view).unwrap());
-    let error = data["sections"][0]["boards"][0]["error"].as_str().unwrap();
+    let error = data["sections"][0]["boards"][0]["proposed"]["error"]
+        .as_str()
+        .unwrap();
     assert!(error.contains("amend it"), "{error}");
 }

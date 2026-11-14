@@ -188,12 +188,14 @@ Commands:
   builds lists ...            the decision stack, work queue, design changes
                               and decision log of a project, in a store
                               outside every repo: `builds help lists`
-  builds design render DIR BOARD [--theme light|dark] [--at REV]
-                              a board of worktree DIR (or, with --at, of
-                              a commit or branch of its repo) as one page
-                              of HTML, drawn with its design system, to open and
+  builds design render DIR BOARD [--theme light|dark] [--now | --at REV]
+                              a board of worktree DIR (--now: as it stands
+                              on origin/main; --at REV: as it is at a commit
+                              or branch of its repo) as one page of HTML,
+                              drawn with its design system, to open and
                               look at while drawing; the dashboard serves a
-                              design change's boards the same way:
+                              design change's boards, now and proposed, the
+                              same way:
                               `builds help lists`
   builds dashboard [--port <port>] [--listen <address>]
                               run the daemon until killed: it follows the

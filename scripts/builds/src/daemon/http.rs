@@ -24,9 +24,11 @@
 //!                   as the `hooks` event carries them
 //!     /design/<design id>
 //!                   the review page of an open design change, drawn now
-//!     /design/<design id>/board/<n>
-//!                   the <n>th board of that page, drawn now from the
-//!                   change's worktree; the page's frames load these
+//!     /design/<design id>/board/<n>/now and /proposed
+//!     /design/<design id>/deleted/<k>/now
+//!                   a board of that page as it stands on origin/main (now)
+//!                   or at the change's last commit (proposed), drawn now;
+//!                   the page's frames load these
 //!     /events       `state` events: the whole state on connect and each time
 //!                   it changes, at most four a second; `lists` events: the
 //!                   lists JSON on connect and each time it changes, never
@@ -38,6 +40,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::model::Model;
+use crate::design_render::Side;
 
 const PAGE: &str = include_str!("page.html");
 /// The most a POST's body may hold.
@@ -180,7 +183,8 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         _ if path.starts_with("/design/") => {
             let drawn = design_route(&path["/design/".len()..]).and_then(|route| match route {
                 DesignRoute::Page(id) => model.design_page(id),
-                DesignRoute::Board(id, n) => model.design_board(id, n),
+                DesignRoute::Board(id, n, side) => model.design_board(id, n, side),
+                DesignRoute::Deleted(id, k) => model.design_deleted_board(id, k),
             });
             match drawn {
                 Some(Ok(page)) => respond(
@@ -217,16 +221,29 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
 enum DesignRoute {
     /// The review page of design change <id>.
     Page(u32),
-    /// The <n>th board of its review page.
-    Board(u32, usize),
+    /// The now or proposed drawing of the <n>th board of its review page.
+    Board(u32, usize, Side),
+    /// The now of the <k>th board it deletes.
+    Deleted(u32, usize),
 }
 
-/// <rest> is the path after `/design/`: `<id>` or `<id>/board/<n>`.
+/// <rest> is the path after `/design/`: `<id>`, `<id>/board/<n>/now`,
+/// `<id>/board/<n>/proposed` or `<id>/deleted/<k>/now`.
 fn design_route(rest: &str) -> Option<DesignRoute> {
     let parts: Vec<&str> = rest.split('/').collect();
     match parts.as_slice() {
         [id] => Some(DesignRoute::Page(id.parse().ok()?)),
-        [id, "board", n] => Some(DesignRoute::Board(id.parse().ok()?, n.parse().ok()?)),
+        [id, "board", n, "now"] => Some(DesignRoute::Board(
+            id.parse().ok()?,
+            n.parse().ok()?,
+            Side::Now,
+        )),
+        [id, "board", n, "proposed"] => Some(DesignRoute::Board(
+            id.parse().ok()?,
+            n.parse().ok()?,
+            Side::Proposed,
+        )),
+        [id, "deleted", k, "now"] => Some(DesignRoute::Deleted(id.parse().ok()?, k.parse().ok()?)),
         _ => None,
     }
 }

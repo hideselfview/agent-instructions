@@ -243,6 +243,7 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
     crate::testing::repo(&wt, "");
     crate::testing::git(&wt, &["add", "design"]);
     crate::testing::git(&wt, &["commit", "-q", "-m", "boards"]);
+    crate::testing::git(&wt, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     let tip = String::from_utf8(
         std::process::Command::new("git")
             .arg("-C")
@@ -295,7 +296,8 @@ fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes
         page.contains("\"heading\":\"The change\"") && page.contains("/design/1/board/0"),
         "{page}"
     );
-    let (status, kind, board) = s.get("/design/1/board/0");
+    assert!(page.contains("/design/1/board/0/now") && page.contains("/design/1/board/0/proposed"));
+    let (status, kind, board) = s.get("/design/1/board/0/proposed");
     assert_eq!((status, kind.as_str()), (200, "text/html; charset=utf-8"));
     assert!(
         board.contains("board A as drawn") && board.contains("data-theme=\"light\""),
@@ -309,23 +311,34 @@ fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes
     std::fs::write(&file, "<x-dc><p>board A redrawn</p></x-dc>").unwrap();
     crate::testing::git(&wt, &["checkout", "-q", "-b", "other"]);
     crate::testing::git(&wt, &["commit", "-q", "-a", "-m", "another board"]);
-    let (_, _, board) = s.get("/design/1/board/0");
+    let (_, _, board) = s.get("/design/1/board/0/proposed");
     assert!(
         board.contains("board A as drawn") && !board.contains("redrawn"),
         "{board}"
     );
+    // The now is origin/main, which has moved on to that other board.
+    assert!(
+        s.get("/design/1/board/0/now")
+            .2
+            .contains("board A as drawn")
+    );
+    crate::testing::git(&wt, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let (_, _, now) = s.get("/design/1/board/0/now");
+    assert!(now.contains("board A redrawn"), "{now}");
 
     // A board that is no file is its own problem, said where the frame is.
-    let (status, _, problem) = s.get("/design/1/board/1");
+    let (status, _, problem) = s.get("/design/1/board/1/proposed");
     assert_eq!(status, 500);
     assert!(problem.contains("Gone.dc.html is not there"), "{problem}");
     // No such change, board or route; and the image route is gone.
     for path in [
         "/design/9",
-        "/design/1/board/2",
+        "/design/1/board/2/now",
+        "/design/1/board/0",
+        "/design/1/deleted/0/now",
         "/design/x",
         "/design/1/other/0",
-        "/design/1/board/0/1",
+        "/design/1/board/0/1/2",
         "/api/design-render/1/0",
     ] {
         assert_eq!(s.get(path).0, 404, "{path}");
@@ -335,15 +348,30 @@ fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes
 #[test]
 fn a_design_path_is_a_page_or_a_board_of_a_page() {
     assert_eq!(design_route("7"), Some(DesignRoute::Page(7)));
-    assert_eq!(design_route("7/board/3"), Some(DesignRoute::Board(7, 3)));
+    assert_eq!(
+        design_route("7/board/3/now"),
+        Some(DesignRoute::Board(7, 3, Side::Now))
+    );
+    assert_eq!(
+        design_route("7/board/3/proposed"),
+        Some(DesignRoute::Board(7, 3, Side::Proposed))
+    );
+    assert_eq!(
+        design_route("7/deleted/2/now"),
+        Some(DesignRoute::Deleted(7, 2))
+    );
     for bad in [
         "",
         "7/",
         "a",
         "7/board",
-        "7/board/-1",
+        "7/board/-1/now",
+        "7/board/3",
+        "7/board/3/then",
+        "7/deleted/2",
+        "7/deleted/2/proposed",
         "7/boards/1",
-        "7/board/1/2",
+        "7/board/1/2/3",
     ] {
         assert_eq!(design_route(bad), None, "{bad:?}");
     }

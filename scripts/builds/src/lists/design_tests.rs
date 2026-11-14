@@ -1069,6 +1069,45 @@ fn render_prints_a_board_of_a_worktree_as_one_page_in_the_theme_asked() {
 }
 
 #[test]
+fn render_reads_a_board_at_origin_main_or_at_a_commit_each_with_its_design_system() {
+    let w = world("design-render-at");
+    let write = |board: &str, bundle: &str| {
+        let system = w.dir.join("design/system/components");
+        std::fs::create_dir_all(&system).unwrap();
+        std::fs::create_dir_all(w.dir.join("design/mocks")).unwrap();
+        std::fs::write(w.dir.join("design/system/tokens.css"), ":root{}").unwrap();
+        std::fs::write(system.join("bundle.css"), "").unwrap();
+        std::fs::write(system.join("bundle.js"), bundle).unwrap();
+        std::fs::write(w.dir.join("design/mocks/mac.a.dc.html"), board).unwrap();
+        git(&w.dir, &["add", "design"]);
+        git(&w.dir, &["commit", "-q", "-m", "board"]);
+        w.sha("HEAD")
+    };
+    let first = write(
+        "<x-dc><p>the old board</p></x-dc>",
+        "window.Bae = { OLD: 1 };",
+    );
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let second = write(
+        "<x-dc><p>the new board</p></x-dc>",
+        "window.Bae = { NEW: 1 };",
+    );
+    let wt = w.worktree();
+    let now = w.run(&format!("render {wt} mac.a --now")).unwrap();
+    assert!(now.contains("the old board") && now.contains("OLD: 1") && !now.contains("NEW"));
+    let at = w.run(&format!("render {wt} mac.a --at {second}")).unwrap();
+    assert!(at.contains("the new board") && at.contains("NEW: 1") && !at.contains("OLD"));
+    let earlier = w.run(&format!("render {wt} mac.a --at {first}")).unwrap();
+    assert!(earlier.contains("the old board"));
+    let as_checked_out = w.run(&format!("render {wt} mac.a")).unwrap();
+    assert!(as_checked_out.contains("the new board"));
+    let both = message(w.run(&format!("render {wt} mac.a --now --at {first}")));
+    assert!(both.contains("give one"), "{both}");
+    let bad = message(w.run(&format!("render {wt} mac.a --at nope")));
+    assert!(bad.contains("find the commit nope"), "{bad}");
+}
+
+#[test]
 fn every_named_constraint_of_the_design_tables_refuses_its_row() {
     use crate::lists::fixtures::{Refusals, db, item, row, v};
     use crate::lists::record::open;

@@ -628,16 +628,34 @@ impl Model {
         Some(crate::design_render::review_page(&design, &view))
     }
 
-    /// The <n>th board of open design change <id>'s review page, drawn now at
-    /// the change's last commit; None when there is no such change or board.
-    pub fn design_board(&self, id: u32, n: usize) -> Option<crate::fail::Result<String>> {
+    /// <side> of the <n>th board of open design change <id>'s review page,
+    /// drawn now; None when there is no such change or board.
+    pub fn design_board(
+        &self,
+        id: u32,
+        n: usize,
+        side: crate::design_render::Side,
+    ) -> Option<crate::fail::Result<String>> {
         let (_, snapshot) = self.lists.current();
         let (design, _) = super::lists::open_design(&snapshot, id)?;
         let board = crate::design_render::review_board(&design, n)?;
         Some(
-            crate::design_render::source_of(&design).and_then(|from| {
+            crate::design_render::source_of(&design, side).and_then(|from| {
                 crate::design_render::render_board(from, &board.board, board.theme)
             }),
+        )
+    }
+
+    /// The now of the <k>th board open design change <id> deletes, drawn now;
+    /// None when there is no such change or board.
+    pub fn design_deleted_board(&self, id: u32, k: usize) -> Option<crate::fail::Result<String>> {
+        let (_, snapshot) = self.lists.current();
+        let (design, _) = super::lists::open_design(&snapshot, id)?;
+        let board = crate::design_render::deleted_board(&design, k)?;
+        Some(
+            crate::design_render::source_of(&design, crate::design_render::Side::Now).and_then(
+                |from| crate::design_render::render_board(from, board, crate::lists::Theme::Dark),
+            ),
         )
     }
 

@@ -79,11 +79,14 @@ are drawn and waits on the person's review: it shows in the sidebar's Waiting
 on you tab as a light card (its title, the items it blocks, who recorded it)
 with a Details toggle that opens its review page in a modal over the dashboard,
 until the person approves it. The review page is the change's words under
-their headings, with every board of the change drawn in a frame the person can
-zoom (never an image) from the files at the last commit of the change's range;
-the dashboard serves it at /design/N and draws each board again on every
-request, reading the files with git, so a worktree with another branch checked
-out does not change what the page shows, and a redraw shows on reload. builds land --design N refuses it before approval; landing closes it, so
+their headings, with every board of the change drawn twice, side by side, in
+frames the person can zoom (never an image): now, the board as it stands on
+origin/main, and proposed, the board at the last commit of the change's range,
+each drawn with its own commit's design system. A board the change adds says it
+has no now; a board it deletes shows only its now. The dashboard serves the
+page at /design/N and draws each board again on every request, reading the
+files with git at those commits, so a worktree with another branch checked out
+does not change what the page shows, and a redraw shows on reload. builds land --design N refuses it before approval; landing closes it, so
 it leaves the tab. The design session lands through builds land like everyone else,
 from bae's landing worktree (side-7).
 
@@ -141,10 +144,10 @@ rebased, since places are compared by path.
       change did not touch may be there to compare). Every board place of the
       change must be on the page. A board file the range deletes needs no
       answer, link or place on the page: it is listed as deleted, and the
-      review page names it without a drawing. `worktree` and the range's last
+      review page shows it with its now only. `worktree` and the range's last
       commit are stored with the change: the dashboard reads each board of the
-      page from that repo at that commit, so the commit must stay in the repo
-      while the change is open; an amend stores the new last commit. A change
+      page from that repo at that commit (proposed) and at origin/main (now),
+      so the commit must stay in the repo while the change is open; an amend stores the new last commit. A change
       recorded before the last commit was kept draws nothing until it is
       amended. That commit needs the design system's generated files
       (design/system/tokens.css and design/system/components/bundle.css and
@@ -184,10 +187,11 @@ rebased, since places are compared by path.
   builds design show N | builds design list
       One design change, open or landed; the open ones, one line each.
 
-  builds design render DIR BOARD [--theme light|dark] [--at REV]
+  builds design render DIR BOARD [--theme light|dark] [--now | --at REV]
       Prints board BOARD of worktree DIR as one page of HTML (dark unless
-      asked; DIR's files as they are, or with --at REV the files at that
-      commit or branch, read with git, with the design system at that commit), the way the design canvas draws it: BOARD is the name
+      asked; DIR's files as they are, with --now the board as it stands on
+      origin/main, with --at REV the board at that commit or branch, read
+      with git, each with the design system at that commit), the way the design canvas draws it: BOARD is the name
       (`mac.welcome.open-failed`) or the path
       (`design/mocks/mac.welcome.open-failed.dc.html`). It follows the boards
       the board mounts (`dc-import`), applies each board's own values

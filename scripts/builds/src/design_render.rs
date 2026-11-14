@@ -10,11 +10,13 @@
 //! changes can share a worktree and a change is drawn from its own branch.
 //!
 //! A design change's review page (`design_render/review.html`) shows the
-//! change's words under their headings with each board in a frame that loads
-//! the board's own page, so the daemon draws it on every request and the page
-//! shows a redraw on reload. Each board is read at the last commit of the
-//! change's range, with that commit's design system. The sizes of the frames
-//! come from that commit's `design/mocks/canvas.json`.
+//! change's words under their headings, and each board twice, side by side in
+//! frames that load the board's own pages: now, the board as it stands on
+//! origin/main, and proposed, the board at the last commit of the change's
+//! range, each drawn with its own commit's design system. A board the change
+//! adds has no now, and a board it deletes has only a now. The daemon draws
+//! each frame on every request, so the page shows a redraw on reload. The
+//! sizes of the frames come from each commit's `design/mocks/canvas.json`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -84,6 +86,9 @@ pub fn board_name(board: &str) -> Result<String> {
     }
     Ok(name.to_string())
 }
+
+/// The revision the boards of "now" are drawn at.
+pub const NOW: &str = "origin/main";
 
 /// Where a board's files are read from.
 #[derive(Clone, Copy)]
@@ -313,39 +318,68 @@ pub fn review_board(design: &DesignChange, n: usize) -> Option<&ReviewBoard> {
         .nth(n)
 }
 
-/// Where <design>'s boards are read from: its last commit, in the repo of its
-/// worktree, whatever branch the worktree has checked out.
-pub fn source_of(design: &DesignChange) -> Result<Source<'_>> {
-    match &design.tip {
-        Some(tip) => Ok(Source::Commit {
-            repo: Path::new(&design.worktree),
-            rev: tip,
-        }),
-        None => fail!(
+/// The <k>th board <design> deletes, in path order.
+pub fn deleted_board(design: &DesignChange, k: usize) -> Option<&String> {
+    design.deleted.iter().nth(k)
+}
+
+/// Which drawing of a board.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    /// The board as it stands on origin/main.
+    Now,
+    /// The board at the last commit of the change's range.
+    Proposed,
+}
+
+impl Side {
+    pub fn word(self) -> &'static str {
+        match self {
+            Side::Now => "now",
+            Side::Proposed => "proposed",
+        }
+    }
+}
+
+/// Where <side>'s files of <design> are read from. The change's repo is read
+/// through its worktree, whatever branch the worktree has checked out.
+pub fn source_of(design: &DesignChange, side: Side) -> Result<Source<'_>> {
+    let repo = Path::new(&design.worktree);
+    match (side, &design.tip) {
+        (Side::Now, _) => Ok(Source::Commit { repo, rev: NOW }),
+        (Side::Proposed, Some(tip)) => Ok(Source::Commit { repo, rev: tip }),
+        (Side::Proposed, None) => fail!(
             "design change {} was recorded before its last commit was kept; amend it to draw its boards",
             design.id.0
         ),
     }
 }
 
-/// How board <board> shows on the review page: its frame (`w`, `h` and the
-/// `src` the frame loads) or the `error` that stops it.
-fn drawing(design: &DesignChange, board: &str, src: &str) -> Value {
+/// How <side> of board <board> shows on the review page: its frame (`w`, `h`
+/// and the `src` the frame loads), `absent` (the board is no file there), or
+/// the `error` that stops it.
+fn drawing(design: &DesignChange, side: Side, board: &str, src: &str) -> Value {
     let drawn = (|| -> Result<Value> {
-        let from = source_of(design)?;
+        let from = source_of(design, side)?;
         from.check()?;
         let name = board_name(board)?;
-        let canvas_rel = format!("{MOCKS}/canvas.json");
-        let text = from.read(&canvas_rel, "the canvas file")?;
-        let canvas: Value = serde_json::from_str(&text)
-            .context(|| format!("reading {}", from.label(&canvas_rel)))?;
-        let (w, h) = canvas_size(&canvas, &name)?;
         if !from.has(&board_rel(&name))? {
-            fail!("{board} is no file at {}", from.label(MOCKS));
+            return Ok(json!({ "absent": true }));
         }
-        Ok(json!({ "w": w, "h": h, "src": src }))
+        let text = from.read(&format!("{MOCKS}/canvas.json"), "the canvas file")?;
+        let canvas: Value = serde_json::from_str(&text)
+            .context(|| format!("reading {}", from.label(&format!("{MOCKS}/canvas.json"))))?;
+        let (w, h) = canvas_size(&canvas, &name)?;
+        Ok(json!({ "w": w, "h": h, "src": format!("{src}/{}", side.word()) }))
     })();
-    drawn.unwrap_or_else(|error| json!({ "error": error.text() }))
+    // A board that is no file where the change draws it is that change's fault, not an absence.
+    match drawn {
+        Ok(value) if side == Side::Proposed && value.get("absent").is_some() => {
+            json!({ "error": format!("{board} is no file at the change's last commit") })
+        }
+        Ok(value) => value,
+        Err(error) => json!({ "error": error.text() }),
+    }
 }
 
 /// <design>'s review page. <view> is the design as the dashboard's lists JSON
@@ -358,29 +392,33 @@ pub fn review_page(design: &DesignChange, view: &DesignView) -> Result<String> {
     for section in &design.review {
         let mut boards = Vec::new();
         for board in &section.boards {
-            let shown = drawing(
-                design,
-                &board.board,
-                &format!("/design/{}/board/{n}", design.id.0),
-            );
-            let mut entry = json!({
+            let src = format!("/design/{}/board/{n}", design.id.0);
+            boards.push(json!({
                 "path": board.board,
                 "caption": board.caption,
                 "theme": board.theme.word(),
                 "link": design.boards.get(&board.board).map(|b| b.link.clone()),
-            });
-            entry
-                .as_object_mut()
-                .expect("an object")
-                .extend(shown.as_object().expect("an object").clone());
-            boards.push(entry);
+                "now": drawing(design, Side::Now, &board.board, &src),
+                "proposed": drawing(design, Side::Proposed, &board.board, &src),
+            }));
             n += 1;
         }
         sections
             .push(json!({ "heading": section.heading, "words": section.words, "boards": boards }));
     }
+    let deleted: Vec<Value> = design
+        .deleted
+        .iter()
+        .enumerate()
+        .map(|(k, path)| {
+            let src = format!("/design/{}/deleted/{k}", design.id.0);
+            // A deleted board is a file on origin/main, so it is never `absent` there.
+            json!({ "path": path, "now": drawing(design, Side::Now, path, &src) })
+        })
+        .collect();
     let mut data = serde_json::to_value(view).expect("the view serializes");
     data["sections"] = Value::Array(sections);
+    data["deleted"] = Value::Array(deleted);
     // `<` never appears in the JSON as itself, so no text can end the script.
     let data = data.to_string().replace('<', "\\u003c");
     Ok(fill(REVIEW_PAGE, &[("DATA", &data)]))
