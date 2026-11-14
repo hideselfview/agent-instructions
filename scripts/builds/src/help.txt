@@ -254,6 +254,26 @@ Commands:
   builds review show <landing>
                               every run of a landing under review: groups,
                               findings, how each was settled
+  builds review replay [--groups FILE] [--case NAME]... [--rules-root DIR] [--reviewer PROGRAM]
+                              run a grouping (FILE, default the checkout's
+                              review/groups.toml) over every case of
+                              review/cases (a change as `git format-patch`
+                              output, and expected.toml: the findings it
+                              must produce by rule and file, and the rules
+                              that must raise no blocking finding on it) and
+                              print each case's findings found and missed,
+                              then recall, false blocking findings on clean
+                              cases and tokens; each replayed case is recorded
+                              in its project's store
+  builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR [--name NAME]
+                              add the change of a confirmed finding as a case
+                              expecting it, written in the agent-instructions
+                              worktree --rules-root names (never a default:
+                              the main checkout is the person's)
+  builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR
+                              add a confirmed miss the same way;
+                              --clean-for SLUG in place of --rule and --file
+                              adds a change that rule must stay quiet on
   builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
                               list the groups of rules a review hands to one
                               reviewer each and fail naming every rule that is

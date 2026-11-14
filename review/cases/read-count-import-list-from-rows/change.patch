@@ -1,0 +1,707 @@
+From 29f25a6c20ed2aaf41e9a1590beef1c565ce1330 Mon Sep 17 00:00:00 2001
+From: Dmitry Minkovsky <dminkovsky@gmail.com>
+Date: Sat, 14 Nov 2026 12:52:27 -0500
+Subject: [PATCH] Show a search's rows as its window arrives and its count when
+ it arrives
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A searching import list read its key at a position down one of two paths,
+chosen by comparing a cost constant with the search's match count. The list
+now reads one way at every size, and its count is a live query of its own.
+The macOS list used to wait for the first window and the count before it
+drew any row; it now draws the window when it arrives, stands the rows read
+so far in for the count, and draws "… of …" in the filter field until the
+count arrives.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019wwAR8vet2nCM1HhYR5VRz
+---
+ .../BaeKit/Services/PaginatedList.swift       | 24 +++++--
+ bae-import/src/tables/import_list/order.rs    | 13 +---
+ .../src/tables/import_list/order_tests.rs     | 43 +++++-------
+ bae-import/src/tables/import_list/read.rs     |  4 +-
+ .../src/tables/import_list/read_tests.rs      | 55 ++++++++++++++++
+ bae-import/src/tables/import_list/summary.rs  | 49 +-------------
+ bae-import/src/tables/import_list/views.sql   | 23 +------
+ bae-import/src/tables/import_list_tests.rs    | 20 +++---
+ .../bae/bae/Services/ImportListSlot.swift     |  4 +-
+ .../Candidates/ImportListFilterField.swift    | 22 +++++--
+ .../MacImportSidebarContainer.swift           |  8 ++-
+ .../bae/baeTests/PaginatedListTests.swift     | 65 +++++++++++++++++--
+ owner-construction-check.toml                 |  1 -
+ spec/bae.md                                   |  7 +-
+ 14 files changed, 192 insertions(+), 146 deletions(-)
+
+diff --git a/BaeKit/Sources/BaeKit/Services/PaginatedList.swift b/BaeKit/Sources/BaeKit/Services/PaginatedList.swift
+index 99280adf19..c296d5b7a2 100644
+--- a/BaeKit/Sources/BaeKit/Services/PaginatedList.swift
++++ b/BaeKit/Sources/BaeKit/Services/PaginatedList.swift
+@@ -21,7 +21,9 @@ private let logger = Logger.bae("PaginatedList")
+ @Observable
+ public final class PaginatedList<Row: Identifiable & Sendable & Equatable>
+ where Row.ID: Sendable {
+-    /// How many rows the list has, from its count's last value.
++    /// How many rows the list has, from its count's last value. While a
++    /// reopened list's count is out, the end of the rows its windows hold, so
++    /// the rows draw as they arrive and the count when it does.
+     public private(set) var totalCount: Int = 0
+ 
+     /// What the list's count carries beside its rows, as its last value gave
+@@ -116,20 +118,24 @@ where Row.ID: Sendable {
+ 
+     // MARK: - Loading
+ 
+-    /// Read the top of the list and its count, and wait for both. Called when
+-    /// the list is first mounted, and again to retry a failed first read.
++    /// Read the top of the list and its count, and wait for the first window;
++    /// the count is drawn when it arrives. Called when the list is first
++    /// mounted, and again to retry a failed first read.
+     public func loadInitial() async {
+         await reopen(at: nil, position: 0)
+     }
+ 
+     /// Read the list again from `key` (its top when nil), standing `position`
+     /// in for the count of rows before it until that count answers, and wait
+-    /// for the first window and the count. The windows, the count and the
++    /// for the first window, not the count. The windows, the count and the
+     /// headings read before are dropped for new ones, so every value that
+     /// answers was read after whatever write made the reopen necessary.
+     public func reopen(at key: [BridgeSortValue]?, position: Int) async {
+         initialLoadError = nil
+-        countAnswered = false
++        // The count read before is not this read's: the list holds none until
++        // the new one answers.
++        (countAnswered, totalCount, countExtra) = (false, 0, nil)
++        contentRevision += 1
+         jump?.cancel()
+         jump = nil
+         jumpId = UUID()
+@@ -137,7 +143,7 @@ where Row.ID: Sendable {
+         openSections()
+         startChain(at: key, position: position)
+         await firstAnswerWaiting.wait(
+-            unless: (firstAnswered && countAnswered) || initialLoadError != nil
++            unless: firstAnswered || initialLoadError != nil
+         )
+     }
+ 
+@@ -247,6 +253,10 @@ where Row.ID: Sendable {
+     private func take(_ next: [Placed<Row>]) {
+         guard next != placed else { return }
+         placed = next
++        if !countAnswered {
++            // The rows read so far stand for the count until it answers.
++            totalCount = next.last.map { $0.start + $0.rows.count } ?? 0
++        }
+         contentRevision += 1
+     }
+ 
+@@ -348,7 +358,7 @@ where Row.ID: Sendable {
+     /// Something landed: let go of everything it answers.
+     private func settled() {
+         rowWaiting.release(where: isSatisfied)
+-        if (firstAnswered && countAnswered) || initialLoadError != nil {
++        if firstAnswered || initialLoadError != nil {
+             firstAnswerWaiting.releaseAll()
+         }
+     }
+diff --git a/bae-import/src/tables/import_list/order.rs b/bae-import/src/tables/import_list/order.rs
+index 2d6d9522d8..2b33c2ec39 100644
+--- a/bae-import/src/tables/import_list/order.rs
++++ b/bae-import/src/tables/import_list/order.rs
+@@ -284,9 +284,6 @@ pub(super) enum Shown<'a> {
+     /// What the list shows under its view, its tab's rows read in order and
+     /// each tested; Found's in runs that pass no folded group's members.
+     View,
+-    /// What a searching list shows, read from the rows its search finds and
+-    /// sorted: the same items as `View`.
+-    Found,
+     /// What `tab` shows with the filters cleared and the group `opened`
+     /// folded open: the view a release is revealed in, its other folds kept.
+     Revealing { opened: Option<&'a FolderReleaseDecisionKey> },
+@@ -361,10 +358,6 @@ impl<'a> Items<'a> {
+                 "import_list_item AS i",
+                 "i.list_id = :list AND i.tab = :tab",
+             ),
+-            Shown::Found => (
+-                "import_list_found_item AS i",
+-                "i.list_id = :list AND i.tab = :tab",
+-            ),
+             Shown::Revealing { .. } => (
+                 "import_list_placement AS i",
+                 "i.tab = :tab \
+@@ -381,8 +374,7 @@ impl<'a> Items<'a> {
+     /// Found's rows read in runs, each member in its header's place, by the
+     /// rows and the members under their headers each run reads: a header's
+     /// members only while the list does not fold it, or while it is the
+-    /// group being opened. `None` for a search's rows, which are sorted, and
+-    /// for Done and Skipped, which hold no group.
++    /// group being opened. `None` for Done and Skipped, which hold no group.
+     fn run_sources(&self) -> Option<(&'static str, &'static str)> {
+         if self.tab != TriageTab::Pending {
+             return None;
+@@ -409,7 +401,6 @@ impl<'a> Items<'a> {
+                                          AND c.watched_folder_path = h.watched_folder_path \
+                                          AND c.group_folder = h.key))",
+             )),
+-            Shown::Found => None,
+         }
+     }
+ 
+@@ -478,7 +469,7 @@ impl<'a> Items<'a> {
+                 Some(coven::path_bytes(&opened.watched_folder_path)),
+                 Some(opened.relative_folder.as_bytes().to_vec()),
+             ),
+-            Shown::Revealing { opened: None } | Shown::View | Shown::Found => (None, None),
++            Shown::Revealing { opened: None } | Shown::View => (None, None),
+         };
+         let tab = tab_column(self.tab);
+         let mut named: Vec<(&str, &dyn ToSql)> = vec![
+diff --git a/bae-import/src/tables/import_list/order_tests.rs b/bae-import/src/tables/import_list/order_tests.rs
+index acaa5a54e1..8721591de6 100644
+--- a/bae-import/src/tables/import_list/order_tests.rs
++++ b/bae-import/src/tables/import_list/order_tests.rs
+@@ -480,24 +480,16 @@ impl ImportTables {
+             .await
+     }
+ 
+-    /// The plans a searching list's counts and its windows read from the
+-    /// rows its search finds are read by, one line per step, the counts
+-    /// first: what a test holds them to the search index with.
+-    async fn import_list_search_plans(
+-        &self,
+-        list: ImportListId,
+-    ) -> Result<Vec<Vec<String>>, DbError> {
++    /// The plan a searching list's counts are read by, one line per step:
++    /// what a test holds them to the search index with.
++    async fn import_list_search_plan(&self, list: ImportListId) -> Result<Vec<String>, DbError> {
+         self.store
+             .read(move |sql| {
+-                let row = list_row(&sql, list)?.expect("the test's list is open");
+-                let counts = sql.query(
++                Ok(sql.query(
+                     &format!("EXPLAIN QUERY PLAN {}", summary::SEARCH_COUNTS),
+                     named_params! { ":list": list.0 },
+                     |row| row.get::<_, String>(3),
+-                )?;
+-                let mut plans = vec![counts];
+-                plans.extend(row.items(Shown::Found).window_plans(&sql)?.concat());
+-                Ok(plans)
++                )?)
+             })
+             .await
+     }
+@@ -551,9 +543,9 @@ async fn every_order_reads_its_windows_off_its_index() {
+     }
+ }
+ 
+-/// A search's counts and its windows read from the rows it finds reach them
+-/// through the search index, each row by its number: none reads the tab's
+-/// rows to test them.
++/// A search's counts read from the rows it finds reach them through the
++/// search index, each row by its number: they read none of the tab's rows to
++/// test them.
+ #[tokio::test]
+ async fn a_search_reads_the_rows_its_index_finds() {
+     let lib = Library::new().await;
+@@ -562,16 +554,15 @@ async fn a_search_reads_the_rows_its_index_finds() {
+     for tab in [TriageTab::Pending, TriageTab::Done, TriageTab::Skipped] {
+         let list =
+             lib.open(ImportListView { filter_text: "wanted".to_string(), ..view(tab) }).await;
+-        for plan in tables.import_list_search_plans(list).await.unwrap() {
+-            assert!(
+-                plan.iter().any(|step| step.contains("VIRTUAL TABLE INDEX") && step.contains(":G")),
+-                "{tab:?}: {plan:?}"
+-            );
+-            assert!(
+-                !plan.iter().any(|step| step.contains("(tab=?)")),
+-                "{tab:?} reads its tab: {plan:?}"
+-            );
+-        }
++        let plan = tables.import_list_search_plan(list).await.unwrap();
++        assert!(
++            plan.iter().any(|step| step.contains("VIRTUAL TABLE INDEX") && step.contains(":G")),
++            "{tab:?}: {plan:?}"
++        );
++        assert!(
++            !plan.iter().any(|step| step.contains("(tab=?)")),
++            "{tab:?} reads its tab: {plan:?}"
++        );
+     }
+ }
+ 
+diff --git a/bae-import/src/tables/import_list/read.rs b/bae-import/src/tables/import_list/read.rs
+index 02b72b3b1e..aeb991dbc0 100644
+--- a/bae-import/src/tables/import_list/read.rs
++++ b/bae-import/src/tables/import_list/read.rs
+@@ -161,9 +161,7 @@ impl ImportTables {
+                 let Some(row) = list_row(&sql, list)? else {
+                     return Ok(None);
+                 };
+-                let tabs = summary::tab_counts_on(&sql)?;
+-                let listed = summary::listed(&sql, &row, &tabs)?;
+-                Ok(Some(row.items(listed.shown(position)).key_at(&sql, position)?))
++                Ok(Some(row.items(Shown::View).key_at(&sql, position)?))
+             })
+             .await?
+             .ok_or(ImportListError::Closed(list))
+diff --git a/bae-import/src/tables/import_list/read_tests.rs b/bae-import/src/tables/import_list/read_tests.rs
+index 590c21c258..e2d12046f1 100644
+--- a/bae-import/src/tables/import_list/read_tests.rs
++++ b/bae-import/src/tables/import_list/read_tests.rs
+@@ -220,6 +220,61 @@ async fn a_scan_item_reruns_the_windows_and_the_count() {
+     assert_eq!(candidate_names(&grown.read.rows), ["A", "A0", "B", "C"]);
+ }
+ 
++/// A searching list's folders, scanned, and the list showing the ones whose
++/// name holds "wanted".
++async fn searching_list(names: &[&str]) -> (Library, ImportListId) {
++    let lib = Library::new().await;
++    lib.run(scanned_with_states(&lib, names)).await;
++    let list = lib
++        .open(crate::ImportListView {
++            filter_text: "wanted".to_string(),
++            ..ordered(crate::TriageTab::Pending, crate::ImportListOrder::PathAscending)
++        })
++        .await;
++    (lib, list)
++}
++
++/// A search's window is a live query of its own: it delivers the matching
++/// rows with no count subscribed, and the count, read after, holds the same
++/// rows.
++#[tokio::test]
++async fn a_search_window_delivers_without_its_count() {
++    let (lib, list) =
++        searching_list(&["A wanted", "B other", "C wanted", "D other", "E wanted"]).await;
++    let tables = lib.tables();
++    let mut window = tables.subscribe_import_window(list, first(50));
++    let delivered = window.next().await.expect("the query stays open").result.unwrap();
++    assert_eq!(candidate_names(&delivered.read.rows), ["A wanted", "C wanted", "E wanted"]);
++    let count = tables.subscribe_import_count(list).next().await.unwrap().unwrap();
++    assert_eq!(count.rows, 3);
++}
++
++/// A scan item that matches a search reruns the count and the window whose
++/// range holds it, and the other windows too, as for a list with no search
++/// (`a_scan_item_reruns_the_windows_and_the_count`).
++#[tokio::test]
++async fn a_scan_item_reruns_the_search_window_holding_it_and_the_count() {
++    let (lib, list) =
++        searching_list(&["A wanted", "B wanted", "C wanted", "D wanted", "E wanted", "F wanted"])
++            .await;
++    let tables = lib.tables();
++    let middle = tables.import_key_at(list, 3).await.unwrap().unwrap();
++    let mut above = tables.subscribe_import_window(list, until(&middle));
++    let mut below = tables.subscribe_import_window(list, from(&middle, 50));
++    let mut count = tables.subscribe_import_count(list);
++    settled(&mut above).await;
++    settled(&mut below).await;
++    count.next().await.expect("the query stays open").unwrap();
++
++    lib.run(lib.scan("Z wanted")).await;
++    assert!(below.is_marked_for_rerun(), "Z wanted lands in the lower window's range");
++    assert!(above.is_marked_for_rerun(), "coven bounds neither window's read by its range");
++    assert!(count.is_marked_for_rerun());
++    let grown = below.next().await.expect("the query stays open").result.unwrap();
++    assert_eq!(candidate_names(&grown.read.rows).last().map(String::as_str), Some("Z wanted"));
++    assert_eq!(count.next().await.expect("the query stays open").unwrap().rows, 7);
++}
++
+ /// A commit that touches a table the windows do not read does not read them
+ /// again: the tab does not re-render for a write it cannot show.
+ #[tokio::test]
+diff --git a/bae-import/src/tables/import_list/summary.rs b/bae-import/src/tables/import_list/summary.rs
+index b311ce7b60..f2e279dc2b 100644
+--- a/bae-import/src/tables/import_list/summary.rs
++++ b/bae-import/src/tables/import_list/summary.rs
+@@ -97,8 +97,6 @@ pub(super) fn closed(list: ImportListId) -> DbError {
+ pub(super) struct Listed {
+     pub(super) total: u64,
+     pub(super) narrowed: Option<NarrowedCount>,
+-    /// What decides where its windows are read from.
+-    reads: Reads,
+ }
+ 
+ /// What [`SEARCH_COUNTS`] counts for a searching list: how many releases its
+@@ -108,45 +106,6 @@ struct SearchCounts {
+     items: i64,
+ }
+ 
+-/// What a list's windows are read by, as its counts say.
+-#[derive(Clone, Copy)]
+-enum Reads {
+-    /// Its search narrows it.
+-    Search,
+-    /// Its tab's order.
+-    Order,
+-}
+-
+-/// What a row read from a search's matches costs against a row the tab's
+-/// order passes: it is reached through the search index, its item worked out
+-/// by its number, and sorted with the rest, about three times as much as a
+-/// row read in order and tested.
+-const FOUND_ROW_COST: u128 = 3;
+-
+-impl Listed {
+-    /// The rows the item at `position` is read from by its offset. A
+-    /// search's item is read from the rows the search finds, sorted, when
+-    /// reading them costs less than passing the tab's rows its order would
+-    /// pass to reach the item from the list's top or end: about the items it
+-    /// passes times the tab's releases over the releases the search keeps.
+-    /// Otherwise, and for every other list, it is read from the tab's rows
+-    /// in order, each tested. A window of the list always has a key to start
+-    /// from, so it never passes a row.
+-    pub(super) fn shown(&self, position: u64) -> Shown<'static> {
+-        let narrowed = match (self.reads, self.narrowed) {
+-            (Reads::Search, Some(narrowed)) => narrowed,
+-            (Reads::Search, None) | (Reads::Order, _) => return Shown::View,
+-        };
+-        let kept = u128::from(narrowed.shown);
+-        let end = position.saturating_add(1);
+-        let passed = u128::from(position.min(self.total.saturating_sub(end)));
+-        match FOUND_ROW_COST * kept * kept < passed * u128::from(narrowed.total) {
+-            true => Shown::Found,
+-            false => Shown::View,
+-        }
+-    }
+-}
+-
+ /// How many releases a searching list's filters keep, and how many items it
+ /// holds, both counted over the rows its search finds, which are read once:
+ /// the kept releases outside the groups it folds shut, and the headers among
+@@ -184,11 +143,7 @@ pub(super) fn listed(
+         let found = sql.query_row(SEARCH_COUNTS, named_params! { ":list": list.id.0 }, |row| {
+             Ok(SearchCounts { kept: row.get(0)?, items: row.get(1)? })
+         })?;
+-        return Ok(Listed {
+-            total: total(found.items)?,
+-            narrowed: Some(narrowed(found.kept)?),
+-            reads: Reads::Search,
+-        });
++        return Ok(Listed { total: total(found.items)?, narrowed: Some(narrowed(found.kept)?) });
+     }
+     let items = match list.keeps_all {
+         true => sql.query_row(
+@@ -236,7 +191,7 @@ pub(super) fn listed(
+         )?)?),
+         false => None,
+     };
+-    Ok(Listed { total: total(items)?, narrowed, reads: Reads::Order })
++    Ok(Listed { total: total(items)?, narrowed })
+ }
+ 
+ /// Where the candidate at `key` sits in `list` once revealed: `None` for a
+diff --git a/bae-import/src/tables/import_list/views.sql b/bae-import/src/tables/import_list/views.sql
+index 77f28ff753..65960b2a30 100644
+--- a/bae-import/src/tables/import_list/views.sql
++++ b/bae-import/src/tables/import_list/views.sql
+@@ -77,8 +77,8 @@ FROM import_list_view AS v
+ JOIN import_list_placement AS p ON +p.tab = v.tab;
+ 
+ -- Each searching list's rows whose shown text matches its search's pattern,
+--- every tab's, as the search index finds them: what a search's counts and
+--- windows read instead of testing every row of the tab.
++-- every tab's, as the search index finds them: what a search's counts read
++-- instead of testing every row of the tab.
+ CREATE VIEW IF NOT EXISTS import_list_found AS
+ SELECT l.id AS list_id, s.rowid AS entry
+ FROM import_list AS l
+@@ -101,25 +101,6 @@ WHERE j.keeps_all
+                           AND m.group_folder = j.key)
+            ELSE j.kept AND NOT j.folded END;
+ 
+--- Each searching list's items, read from its search's matches rather than
+--- from every row of its tab: the matched releases among its items, and the
+--- headers among them of the groups holding a release its filters keep. The
+--- same items `import_list_item` holds for the list. Each row is reached
+--- from its match (`CROSS JOIN` keeps that order), never the tab scanned for
+--- its matches.
+-CREATE VIEW IF NOT EXISTS import_list_found_item AS
+-SELECT i.* FROM import_list_found AS f
+-CROSS JOIN import_list_item AS i ON i.list_id = f.list_id AND i.entry = f.entry
+-UNION ALL
+-SELECT h.*
+-FROM (SELECT DISTINCT m.list_id, m.watched_folder_path, m.group_folder
+-      FROM import_list_found AS f
+-      CROSS JOIN import_list_matching AS m ON m.list_id = f.list_id AND m.entry = f.entry
+-      WHERE m.group_folder IS NOT NULL) AS g
+-CROSS JOIN import_list_item AS h
+-    ON h.list_id = g.list_id AND h.watched_folder_path = g.watched_folder_path
+-   AND h.item = 'group' AND h.key = g.group_folder;
+-
+ -- Each list's releases it shows.
+ CREATE VIEW IF NOT EXISTS import_list_shown AS
+ SELECT * FROM import_list_item WHERE item <> 'group';
+diff --git a/bae-import/src/tables/import_list_tests.rs b/bae-import/src/tables/import_list_tests.rs
+index 6dc4008605..e4c4fcf9cf 100644
+--- a/bae-import/src/tables/import_list_tests.rs
++++ b/bae-import/src/tables/import_list_tests.rs
+@@ -316,9 +316,8 @@ impl Library {
+         self.tables().open_import_list(view).await.unwrap()
+     }
+ 
+-    /// One read of `list` through one window over every item. A searching
+-    /// or folded list's items read from its tab's rows and by its other read
+-    /// must agree, since its windows are read by either.
++    /// One read of `list` through one window over every item. Found's items
++    /// read in runs and read sorted must agree.
+     pub(crate) async fn read(&self, list: ImportListId) -> ImportListRead {
+         let tables = self.tables();
+         let read = tables.read_import_list_for_test(list).await.unwrap();
+@@ -624,10 +623,10 @@ impl ImportTables {
+     }
+ 
+     /// Every item a list shows, read from its tab's rows in order — Found's
+-    /// in runs — and another way: from the rows its search finds, or, on
+-    /// Found, its items sorted with each member in its header's place. The
+-    /// two reads, which a test holds to agree. `None` for a list on Done or
+-    /// Skipped that does not search, whose rows are only read in order.
++    /// in runs — and another way: on Found, its items sorted with each member
++    /// in its header's place. The two reads, which a test holds to agree.
++    /// `None` for a list on Done or Skipped, whose rows are only read in
++    /// order.
+     pub(crate) async fn import_list_read_both_ways(
+         &self,
+         list: ImportListId,
+@@ -646,9 +645,8 @@ impl ImportTables {
+                         .map(|item| format!("{:?} {}", item.item, hex::encode(&item.key)))
+                         .collect())
+                 };
+-                let other = match (row.filters_text, row.view.tab) {
+-                    (true, _) => keys(Shown::Found)?,
+-                    (false, crate::TriageTab::Pending) => sql
++                let other = match row.view.tab {
++                    crate::TriageTab::Pending => sql
+                         .query(
+                             &format!(
+                                 "SELECT i.item, i.key FROM import_list_item AS i {join} \
+@@ -664,7 +662,7 @@ impl ImportTables {
+                             Ok(format!("{:?} {}", order::Item::of(&item)?, hex::encode(key)))
+                         })
+                         .collect::<Result<_, DbError>>()?,
+-                    (false, _) => return Ok(None),
++                    crate::TriageTab::Done | crate::TriageTab::Skipped => return Ok(None),
+                 };
+                 Ok(Some((keys(Shown::View)?, other)))
+             })
+diff --git a/bae-macos/bae/bae/Services/ImportListSlot.swift b/bae-macos/bae/bae/Services/ImportListSlot.swift
+index 5843914ae1..7211629e74 100644
+--- a/bae-macos/bae/bae/Services/ImportListSlot.swift
++++ b/bae-macos/bae/bae/Services/ImportListSlot.swift
+@@ -181,8 +181,8 @@ final class ImportListSlot {
+ 
+     /// How many of the tab's rows the list shows, when the list's count was
+     /// read for `narrowing` — the filter the field holds now — and nothing
+-    /// while it was read for another: a count stands only beside the filter
+-    /// it is for.
++    /// while it was read for another or has not arrived: a count stands only
++    /// beside the filter it is for.
+     func narrowedCount(
+         under narrowing: BridgeImportListNarrowing
+     ) -> BridgeNarrowedCount? {
+diff --git a/bae-macos/bae/bae/Views/Import/Candidates/ImportListFilterField.swift b/bae-macos/bae/bae/Views/Import/Candidates/ImportListFilterField.swift
+index aa54a42ca1..5092ce2469 100644
+--- a/bae-macos/bae/bae/Views/Import/Candidates/ImportListFilterField.swift
++++ b/bae-macos/bae/bae/Views/Import/Candidates/ImportListFilterField.swift
+@@ -9,6 +9,8 @@ struct ImportListFilterField: View {
+     var focused: FocusState<Bool>.Binding
+     /// The count for the filter the field holds now; `nil` while nothing
+     /// narrows the list, and while core has not counted under this filter.
++    /// Typed text narrows the list, so text with no count is a count still
++    /// being read, drawn as "… of …".
+     let narrowed: BridgeNarrowedCount?
+ 
+     var body: some View {
+@@ -21,13 +23,13 @@ struct ImportListFilterField: View {
+                 .themeText(.body)
+                 .focused(focused)
+             if let narrowed {
+-                Text(
+-                    "\(narrowed.shown.formatted()) of \(narrowed.total.formatted())"
++                narrowedText(
++                    shown: narrowed.shown.formatted(),
++                    total: narrowed.total.formatted()
+                 )
+-                .themeText(.detail)
+-                .monospacedDigit()
+-                .foregroundStyle(.secondary)
+-                .fixedSize()
++            }
++            else if !text.isEmpty {
++                narrowedText(shown: "…", total: "…")
+             }
+             if !text.isEmpty {
+                 Button {
+@@ -42,4 +44,12 @@ struct ImportListFilterField: View {
+             }
+         }
+     }
++
++    private func narrowedText(shown: String, total: String) -> some View {
++        Text("\(shown) of \(total)")
++            .themeText(.detail)
++            .monospacedDigit()
++            .foregroundStyle(.secondary)
++            .fixedSize()
++    }
+ }
+diff --git a/bae-macos/bae/bae/Views/Import/Candidates/MacImportSidebarContainer.swift b/bae-macos/bae/bae/Views/Import/Candidates/MacImportSidebarContainer.swift
+index 057251eb19..7b7f951ebe 100644
+--- a/bae-macos/bae/bae/Views/Import/Candidates/MacImportSidebarContainer.swift
++++ b/bae-macos/bae/bae/Views/Import/Candidates/MacImportSidebarContainer.swift
+@@ -342,8 +342,10 @@ private struct ImportCoverWarmer: View {
+ }
+ 
+ /// The list's table, or the empty tab, or a narrowed list with no matches. A
+-/// plain surface stands in until the list and the summary have landed, and
+-/// while the rows are another view's: a list not read yet is not an empty one.
++/// plain surface stands in until the list and the summary have landed, while
++/// the rows are another view's, and while the count is out with no row to
++/// show: a list not read yet is not an empty one, and the count says whether
++/// a search narrows it.
+ /// A view of its own so that the list's count and the summary are read here
+ /// and not by the list's chrome.
+ private struct ImportCandidateListSwitch<Table: View>: View {
+@@ -357,7 +359,7 @@ private struct ImportCandidateListSwitch<Table: View>: View {
+             if list.totalCount > 0 {
+                 table()
+             }
+-            else if listSlot.answersView {
++            else if listSlot.answersView, list.countExtra != nil {
+                 ContentUnavailableView {
+                     Text(
+                         list.isNarrowed ? "No matches" : "Nothing here yet"
+diff --git a/bae-macos/bae/baeTests/PaginatedListTests.swift b/bae-macos/bae/baeTests/PaginatedListTests.swift
+index 16ae7e8d1f..0e0a7cbb2e 100644
+--- a/bae-macos/bae/baeTests/PaginatedListTests.swift
++++ b/bae-macos/bae/baeTests/PaginatedListTests.swift
+@@ -22,6 +22,7 @@ private final class ProbeList: @unchecked Sendable {
+     private var open: [Window] = []
+     private let counts = Feed<BridgeListCount>()
+     private var keyReads: [UInt64] = []
++    private var countHeld = false
+ 
+     init(_ ids: [String]) {
+         albums = ids.map { makeBridgeAlbum(id: $0) }
+@@ -35,6 +36,19 @@ private final class ProbeList: @unchecked Sendable {
+ 
+     var keyAtReads: [UInt64] { lock.withLock { keyReads } }
+ 
++    /// Answer no count until `releaseCount`: the windows answer, and the
++    /// count is still being read.
++    func holdCount() { lock.withLock { countHeld = true } }
++
++    /// Answer the count a held read waits for.
++    func releaseCount() {
++        let count = lock.withLock {
++            countHeld = false
++            return albums.count
++        }
++        counts.emit(BridgeListCount(rows: UInt64(count), extra: .none))
++    }
++
+     /// Replace the list's rows and deliver the change to every window and the
+     /// count.
+     func set(_ ids: [String]) {
+@@ -106,12 +120,12 @@ private final class ProbeList: @unchecked Sendable {
+                 )
+             },
+             count: { [self] in
+-                counts.emit(
+-                    BridgeListCount(
+-                        rows: UInt64(lock.withLock { albums.count }),
+-                        extra: .none
++                let (held, rows) = lock.withLock { (countHeld, albums.count) }
++                if !held {
++                    counts.emit(
++                        BridgeListCount(rows: UInt64(rows), extra: .none)
+                     )
+-                )
++                }
+                 return PulledValues(read: { try await self.counts.next() })
+             },
+             position: { [self] key in
+@@ -210,6 +224,47 @@ struct PaginatedListTests {
+         #expect(idsAt(list, 30...30) == [nil])
+     }
+ 
++    @MainActor
++    @Test(
++        "a list shows its first window before its count arrives",
++        .timeLimit(.minutes(1))
++    )
++    func windowBeforeCount() async throws {
++        let probe = ProbeList(ids(0...199))
++        probe.holdCount()
++        let list = PaginatedList(
++            queries: probe.queries,
++            onError: { Issue.record("List failed: \($0)") }
++        )
++        await list.loadInitial()
++
++        #expect(idsAt(list, 0...49) == ids(0...49).map(Optional.init))
++        #expect(
++            list.totalCount == 50,
++            "the rows read so far stand for the count"
++        )
++        #expect(list.countExtra == nil)
++
++        probe.releaseCount()
++        try await Wait.until { list.countExtra != nil }
++        #expect(list.totalCount == 200)
++        list.cancel()
++    }
++
++    @MainActor
++    @Test("reopening a list drops the count it held until the new one arrives")
++    func reopenDropsCount() async {
++        let probe = ProbeList(ids(0...199))
++        let list = await open(probe)
++        #expect(list.totalCount == 200)
++
++        probe.holdCount()
++        await list.reopen(at: nil, position: 0)
++        #expect(list.totalCount == 50)
++        #expect(list.countExtra == nil)
++        list.cancel()
++    }
++
+     @MainActor
+     @Test("repeated rows keep the distinct count the list's count carries")
+     func distinctItemCount() async {
+diff --git a/owner-construction-check.toml b/owner-construction-check.toml
+index a92febae3d..8306667cf3 100644
+--- a/owner-construction-check.toml
++++ b/owner-construction-check.toml
+@@ -1691,7 +1691,6 @@ frozen = [
+     { path = "bae-import/src/tables/import_list/pane.rs", item = "draft_rows_on", shape = "query-per-row", count = 1, finding = "the candidate pane runs about twelve statements and derives the draft, offered covers and album choice in Rust" },
+     { path = "bae-import/src/tables/import_list/pane.rs", item = "load_candidate_detail_on", shape = "filter", count = 1, finding = "the candidate pane runs about twelve statements and derives the draft, offered covers and album choice in Rust" },
+     { path = "bae-import/src/tables/import_list/selection.rs", item = "selection", shape = "aggregate", count = 1, finding = "adds the selection groups' counts into the total in Rust" },
+-    { path = "bae-import/src/tables/import_list/summary.rs", item = "Listed::shown", shape = "cutoff", count = 1, finding = "picks the search window's read path, from the matches or from the tab's order, by a cost comparison against a constant" },
+     { path = "bae-import/src/tables/import_list/window.rs", item = "ImportedReads::of", shape = "filter", count = 1, finding = "joins the keyed statements' rows back to the window by position and `HashMap`, and computes the blank cover in Rust" },
+     { path = "bae-import/src/tables/import_list/window.rs", item = "ImportedReads::of", shape = "group", count = 2, finding = "joins the keyed statements' rows back to the window by position and `HashMap`, and computes the blank cover in Rust" },
+     { path = "bae-import/src/tables/import_list/window.rs", item = "header_rows", shape = "filter", count = 1, finding = "joins the keyed statements' rows back to the window by position and `HashMap`, and computes the blank cover in Rust" },
+diff --git a/spec/bae.md b/spec/bae.md
+index fb2f5569de..2790c55fb7 100644
+--- a/spec/bae.md
++++ b/spec/bae.md
+@@ -1176,9 +1176,10 @@ queued uploads are the first part, its other rows the second, every other tab
+ one), so a range may start in one part and end in another. A jump to a
+ position reads the key of the item there by offset from the top of the tab,
+ once, and starts a chain of windows from it. A search reads each
+-row the list's order passes and tests it; a jump of a search that finds few
+-rows reads the key from the rows it finds instead, sorted, when that reads fewer
+-rows than the order would pass from the top or end of the list.
++row the list's order passes and tests it, at every size: its windows and its
++jumps read one way, and its count is a live query of its own, so the screen
++draws a search's rows as its first window arrives and its "N of M" and length
++when the count arrives, showing the placeholder in their place meanwhile.
+ A member of a group names its header by the header's stable key, and a window
+ that starts inside a group delivers that header beside its rows (the leading
+ header), so the pinned header has it whichever windows are loaded and no read
+-- 
+2.50.1 (Apple Git-155)
+

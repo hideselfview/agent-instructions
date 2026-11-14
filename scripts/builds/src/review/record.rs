@@ -41,12 +41,14 @@ pub struct NewCall {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Review,
+    Replay,
 }
 
 impl Kind {
     pub fn word(self) -> &'static str {
         match self {
             Kind::Review => "review",
+            Kind::Replay => "replay",
         }
     }
 }
@@ -251,6 +253,15 @@ pub fn findings_of_landing(db: &Connection, landing: i64) -> Result<Vec<Finding>
     let mut statement = db.prepare(&sql).sql()?;
     let rows = statement.query_map(params![landing], finding_from).sql()?;
     rows.map(|row| row.sql()).collect()
+}
+
+/// Finding <id> as the store holds it.
+pub fn finding_of(db: &Connection, id: i64) -> Result<Finding> {
+    let sql = format!("SELECT {FINDING_COLUMNS} {FINDING_FROM} WHERE f.id = ?1");
+    db.query_row(&sql, params![id], finding_from)
+        .optional()
+        .sql()?
+        .ok_or_else(|| crate::fail::Fail::Message(format!("there is no finding {id}")))
 }
 
 /// The calls of <landing>'s runs, in the order made.

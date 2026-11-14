@@ -1,0 +1,122 @@
+//! A stand-in for `claude` and the checkout of rules it reviews against,
+//! for the tests of the review.
+
+use std::path::{Path, PathBuf};
+
+/// A reviewer stand-in and the checkout of rules it reviews against, in the
+/// scratch folder of <demo>.
+pub struct Fake {
+    pub root: PathBuf,
+    pub dir: PathBuf,
+    pub program: PathBuf,
+}
+
+pub const GROUPS: &str = r#"
+[[group]]
+name = "alpha"
+question = "q"
+model = "sonnet"
+rules = ["rule-a"]
+
+[[group]]
+name = "beta"
+question = "q"
+model = "opus"
+rules = ["rule-b"]
+"#;
+
+pub fn fake(scratch: &Path) -> Fake {
+    let root = scratch.join("instructions");
+    let dir = scratch.join("reviewer");
+    for sub in ["rules", "review", "projects", "principles"] {
+        std::fs::create_dir_all(root.join(sub)).unwrap();
+    }
+    std::fs::create_dir_all(dir.join("calls")).unwrap();
+    let rule = |slug: &str, glob: &str, blocking: bool, body: &str| {
+        std::fs::write(
+            root.join("rules").join(format!("{slug}.md")),
+            format!("---\ndigest: d\npaths:\n  - '{glob}'\nblocking: {blocking}\n---\n\n{body}\n"),
+        )
+        .unwrap();
+    };
+    rule(
+        "rule-a",
+        "**/*.rs",
+        true,
+        "**Rule A.** Never do the bad thing here.",
+    );
+    rule(
+        "rule-b",
+        "**/*.swift",
+        false,
+        "**Rule B.** Never do the other thing.",
+    );
+    std::fs::write(root.join("review/groups.toml"), GROUPS).unwrap();
+    std::fs::write(root.join("projects/demo.md"), "Demo project facts.\n").unwrap();
+    let program = dir.join("claude");
+    let script = format!(
+        "#!/bin/bash\nD='{d}'\ncat > \"$D/calls/$$.prompt\"\ngroup=$(sed -n 's/^Group: //p' \"$D/calls/$$.prompt\" | head -1)\nif [ -f \"$D/fail-$group\" ]; then echo boom >&2; exit 3; fi\ncat \"$D/answer-$group.json\"\n",
+        d = dir.display()
+    );
+    std::fs::write(&program, script).unwrap();
+    std::fs::set_permissions(
+        &program,
+        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+    )
+    .unwrap();
+    let fake = Fake { root, dir, program };
+    fake.answer("alpha", &[("rule-a", None)]);
+    fake.answer("beta", &[("rule-b", None)]);
+    fake
+}
+
+/// A finding as a reviewer words it: clause, file, line, code, problem.
+pub type Raised = (&'static str, &'static str, i64, &'static str, &'static str);
+
+impl Fake {
+    /// What the reviewer of <group> answers: a verdict per rule.
+    pub fn answer(&self, group: &str, rules: &[(&str, Option<Raised>)]) {
+        let entries: Vec<serde_json::Value> = rules
+            .iter()
+            .map(|(rule, finding)| match finding {
+                None => serde_json::json!({"rule": rule, "verdict": "none", "findings": []}),
+                Some((clause, file, line, code, problem)) => serde_json::json!({
+                    "rule": rule, "verdict": "finding",
+                    "findings": [{"clause": clause, "file": file, "line": line, "code": code, "problem": problem}]
+                }),
+            })
+            .collect();
+        let body = serde_json::json!({
+            "is_error": false,
+            "usage": {"input_tokens": 100, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 10},
+            "structured_output": {"rules": entries}
+        });
+        std::fs::write(
+            self.dir.join(format!("answer-{group}.json")),
+            body.to_string(),
+        )
+        .unwrap();
+    }
+
+    pub fn fail(&self, group: &str) {
+        std::fs::write(self.dir.join(format!("fail-{group}")), "").unwrap();
+    }
+
+    /// The prompts the reviewer was run with since the last call of this, by group.
+    pub fn prompts(&self) -> Vec<(String, String)> {
+        let mut prompts = Vec::new();
+        for entry in std::fs::read_dir(self.dir.join("calls")).unwrap() {
+            let path = entry.unwrap().path();
+            let text = std::fs::read_to_string(&path).unwrap();
+            let group = text
+                .lines()
+                .find_map(|l| l.strip_prefix("Group: "))
+                .unwrap()
+                .to_string();
+            prompts.push((group, text));
+            std::fs::remove_file(path).unwrap();
+        }
+        prompts.sort();
+        prompts
+    }
+}

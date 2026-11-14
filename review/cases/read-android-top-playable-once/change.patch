@@ -1,0 +1,1228 @@
+From 79e8032042b004e49fb6f18ecf62d4fe16fd9bc3 Mon Sep 17 00:00:00 2001
+From: Dmitry Minkovsky <dminkovsky@gmail.com>
+Date: Sat, 14 Nov 2026 11:39:37 -0500
+Subject: [PATCH] Read what Android Auto and the Shuffle gate need from core
+
+The library search names the track a spoken play plays (first track found,
+else the first track of the first album found) and the album grid's count says
+whether the library has a track to shuffle, so Android Auto's lookups and the
+Mac menu stop working them out from other values. An album's main release is
+its first release, and Android Auto's single lookups read once instead of
+keeping a cache of live queries.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019wwAR8vet2nCM1HhYR5VRz
+---
+ .../BaeKit/Services/FixedQueries.swift        |   9 +-
+ .../BaeKit/Services/PaginatedList.swift       |  12 +-
+ .../main/java/fm/bae/app/AlbumMainRelease.kt  |  19 ---
+ .../java/fm/bae/app/MissingMainRelease.kt     |  12 ++
+ .../fm/bae/app/playback/FixedParentPages.kt   |   4 +-
+ .../fm/bae/app/playback/LibraryBrowseTree.kt  |  45 ++----
+ .../bae/app/playback/LiveBrowseProjection.kt  |  19 +--
+ .../bae/app/playback/LiveProjectionCache.kt   | 134 ------------------
+ .../main/java/fm/bae/app/ui/PreviewData.kt    |   1 +
+ .../app/ui/albumdetail/AlbumDetailScreen.kt   |   4 +-
+ .../test/java/fm/bae/app/BridgeFixtures.kt    |   3 +
+ .../playback/BaeLibrarySessionCallbackTest.kt |   3 +-
+ .../test/java/fm/bae/app/playback/FakeList.kt |   2 +-
+ .../bae/app/playback/LibraryBrowseTreeTest.kt |  13 +-
+ .../app/playback/LiveProjectionCacheTest.kt   |  75 ----------
+ bae-app/src/app_services/list_reads.rs        |   5 +-
+ bae-bridge/src/handle/library_projection.rs   |   7 +
+ bae-bridge/src/handle_tests.rs                |   5 +-
+ bae-bridge/src/screens/lists.rs               |   4 +-
+ bae-bridge/src/types/configuration/library.rs |  11 ++
+ bae-bridge/src/types/live_results.rs          |   2 +
+ .../bae/Fixtures/PreviewData+Queue.swift      |   1 +
+ .../bae/Services/LibraryBrowseSession.swift   |  12 +-
+ .../bae/bae/Shell/MainWindowController.swift  |   7 +-
+ .../baeTests/LibraryMenuCommandsTests.swift   |   4 +-
+ .../LibrarySubscriptionOwnershipTests.swift   |   3 +-
+ .../bae/baeTests/LibraryValueTests.swift      |   3 +-
+ bae-views/src/album.rs                        |  45 +++++-
+ bae-views/src/album/listing_tests.rs          |  52 ++++++-
+ bae-views/src/album_detail/search.rs          |   8 +-
+ bae-views/src/album_tests.rs                  |  66 ++++++++-
+ bae-views/src/browse.rs                       |   4 +-
+ bae-views/src/models.rs                       |  10 ++
+ spec/bae.md                                   |   8 ++
+ 34 files changed, 296 insertions(+), 316 deletions(-)
+ delete mode 100644 bae-android/app/src/main/java/fm/bae/app/AlbumMainRelease.kt
+ create mode 100644 bae-android/app/src/main/java/fm/bae/app/MissingMainRelease.kt
+ delete mode 100644 bae-android/app/src/main/java/fm/bae/app/playback/LiveProjectionCache.kt
+ delete mode 100644 bae-android/app/src/test/java/fm/bae/app/playback/LiveProjectionCacheTest.kt
+
+diff --git a/BaeKit/Sources/BaeKit/Services/FixedQueries.swift b/BaeKit/Sources/BaeKit/Services/FixedQueries.swift
+index 64c6baaf84..26976eb811 100644
+--- a/BaeKit/Sources/BaeKit/Services/FixedQueries.swift
++++ b/BaeKit/Sources/BaeKit/Services/FixedQueries.swift
+@@ -254,6 +254,7 @@
+             _ rows: [Row],
+             answers: UnansweredCount,
+             itemCount: Int? = nil,
++            canShuffle: Bool? = nil,
+             sections: [BridgeLibraryBrowseSection] = [],
+             extra countExtra: BridgeListCountExtra? = nil,
+             leadingHeader: @escaping @Sendable (_ position: Int) -> Row? = {
+@@ -262,9 +263,11 @@
+         ) -> BridgeListQueries<Row> {
+             let extra: BridgeListCountExtra =
+                 countExtra
+-                ?? itemCount.map {
+-                    BridgeListCountExtra.albumGrid(albums: UInt64($0))
+-                }
++                ?? (itemCount != nil || canShuffle != nil
++                    ? BridgeListCountExtra.albumGrid(
++                        albums: UInt64(itemCount ?? rows.count),
++                        canShuffle: canShuffle ?? false
++                    ) : nil)
+                 ?? BridgeListCountExtra.none
+             let window = Self.fixedWindow(
+                 of: rows,
+diff --git a/BaeKit/Sources/BaeKit/Services/PaginatedList.swift b/BaeKit/Sources/BaeKit/Services/PaginatedList.swift
+index fe03b39a70..99280adf19 100644
+--- a/BaeKit/Sources/BaeKit/Services/PaginatedList.swift
++++ b/BaeKit/Sources/BaeKit/Services/PaginatedList.swift
+@@ -34,10 +34,20 @@ where Row.ID: Sendable {
+     /// answered.
+     public var itemCount: Int? {
+         guard let countExtra else { return nil }
+-        if case .albumGrid(let albums) = countExtra { return Int(albums) }
++        if case .albumGrid(let albums, _) = countExtra { return Int(albums) }
+         return totalCount
+     }
+ 
++    /// Whether the library holds a track to shuffle, as the album grid's
++    /// count says; `nil` until it has answered, and for a list that is not
++    /// the album grid.
++    public var canShuffle: Bool? {
++        guard case .albumGrid(_, let canShuffle) = countExtra else {
++            return nil
++        }
++        return canShuffle
++    }
++
+     /// The artist headings of the album grid grouped by artist, from their own
+     /// read.
+     public private(set) var sections: [BridgeLibraryBrowseSection] = []
+diff --git a/bae-android/app/src/main/java/fm/bae/app/AlbumMainRelease.kt b/bae-android/app/src/main/java/fm/bae/app/AlbumMainRelease.kt
+deleted file mode 100644
+index 31778f2385..0000000000
+--- a/bae-android/app/src/main/java/fm/bae/app/AlbumMainRelease.kt
++++ /dev/null
+@@ -1,19 +0,0 @@
+-package fm.bae.app
+-
+-import uniffi.bae_bridge.BridgeAlbumDetail
+-import uniffi.bae_bridge.BridgeRelease
+-
+-/**
+- * The release the album names as its main one. Core names one of the album's
+- * own releases, so null is a broken guarantee: the caller reports it as a bug
+- * ([MissingMainRelease]) rather than standing another release in for it.
+- */
+-internal fun BridgeAlbumDetail.mainRelease(): BridgeRelease? = releases.firstOrNull { it.id == album.primaryReleaseId }
+-
+-/** An album whose named main release isn't among its releases. */
+-internal class MissingMainRelease(
+-    detail: BridgeAlbumDetail,
+-) : IllegalStateException(
+-        "album ${detail.album.id} names main release ${detail.album.primaryReleaseId}, " +
+-            "which isn't among its releases ${detail.releases.map { it.id }}",
+-    )
+diff --git a/bae-android/app/src/main/java/fm/bae/app/MissingMainRelease.kt b/bae-android/app/src/main/java/fm/bae/app/MissingMainRelease.kt
+new file mode 100644
+index 0000000000..b4544d1236
+--- /dev/null
++++ b/bae-android/app/src/main/java/fm/bae/app/MissingMainRelease.kt
+@@ -0,0 +1,12 @@
++package fm.bae.app
++
++import uniffi.bae_bridge.BridgeAlbumDetail
++
++/**
++ * An album with no releases. Core lists an album's releases with its main one first, and an album
++ * has at least one, so the first release is the main one and none is a broken guarantee: the
++ * caller reports it as a bug rather than standing something else in for it.
++ */
++internal class MissingMainRelease(
++    detail: BridgeAlbumDetail,
++) : IllegalStateException("album ${detail.album.id} has no releases, so no main one")
+diff --git a/bae-android/app/src/main/java/fm/bae/app/playback/FixedParentPages.kt b/bae-android/app/src/main/java/fm/bae/app/playback/FixedParentPages.kt
+index 0e11f058d4..836788dde3 100644
+--- a/bae-android/app/src/main/java/fm/bae/app/playback/FixedParentPages.kt
++++ b/bae-android/app/src/main/java/fm/bae/app/playback/FixedParentPages.kt
+@@ -3,7 +3,6 @@ package fm.bae.app.playback
+ import androidx.media3.common.MediaItem
+ import fm.bae.app.data.Library
+ import fm.bae.app.data.LiveQueryEvent
+-import fm.bae.app.mainRelease
+ import kotlinx.coroutines.flow.Flow
+ import kotlinx.coroutines.flow.map
+ import uniffi.bae_bridge.BridgeAlbumDetail
+@@ -64,7 +63,8 @@ private fun albumPage(
+     nodes: BrowseNodeFactory,
+     reportBug: (operation: String, error: Throwable) -> Unit,
+ ): LiveQueryEvent<BrowsePage> {
+-    val release = detail?.let { it.mainRelease() ?: return LiveQueryEvent.Error(missingMainRelease(it, reportBug)) }
++    val release =
++        detail?.let { it.releases.firstOrNull() ?: return LiveQueryEvent.Error(missingMainRelease(it, reportBug)) }
+     val tracks = release?.let { it.tracks.map { track -> nodes.track(it, track) } }.orEmpty()
+     return LiveQueryEvent.Value(BrowsePage(tracks, tracks.size))
+ }
+diff --git a/bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt b/bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt
+index 747b8924b6..e1fba2ce2a 100644
+--- a/bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt
++++ b/bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt
+@@ -7,7 +7,6 @@ import fm.bae.app.MissingMainRelease
+ import fm.bae.app.data.Library
+ import fm.bae.app.data.LibrarySearch
+ import fm.bae.app.data.LiveQueryEvent
+-import fm.bae.app.mainRelease
+ import fm.bae.screensubscription.pullEach
+ import kotlinx.coroutines.CompletableDeferred
+ import kotlinx.coroutines.CoroutineScope
+@@ -224,11 +223,6 @@ internal class LibraryBrowseTree<Owner : Any>(
+     private val parentsByOwner = mutableMapOf<Owner, ParentInterests>()
+     private val fixedParents = mutableMapOf<String, FixedProjection<BrowsePage>>()
+     private val searchesByOwner = mutableMapOf<Owner, OwnerSearch>()
+-    private val albumDetails = exactProjectionCache(scope, library::albumDetails, onQueryError)
+-    private val composerDetails = exactProjectionCache(scope, library::composerDetails, onQueryError)
+-    private val workDetails = exactProjectionCache(scope, library::workDetails, onQueryError)
+-    private val releaseDetails = exactProjectionCache(scope, library::releaseDetails, onQueryError)
+-    private val spokenSearches = exactProjectionCache(scope, library::searchResults, onQueryError)
+     private var albums: ListProjection<BridgeAlbumAppearance, BridgeAlbum>? = null
+     private var composers: ListProjection<BridgeComposerSummary, BridgeComposerSummary>? = null
+ 
+@@ -317,19 +311,21 @@ internal class LibraryBrowseTree<Owner : Any>(
+             }
+ 
+             is BrowseId.Album -> {
+-                albumDetails.value(id.albumId)?.let { nodes.album(it.album.id, it.album.title, it.album.cover) }
++                readOnce(library.albumDetails(id.albumId), onQueryError)?.let {
++                    nodes.album(it.album.id, it.album.title, it.album.cover)
++                }
+             }
+ 
+             is BrowseId.Composer -> {
+-                composerDetails.value(id.artistId)?.let { nodes.composer(it.composer) }
++                readOnce(library.composerDetails(id.artistId), onQueryError)?.let { nodes.composer(it.composer) }
+             }
+ 
+             is BrowseId.Work -> {
+-                workDetails.value(id.workId)?.let { nodes.work(it.work) }
++                readOnce(library.workDetails(id.workId), onQueryError)?.let { nodes.work(it.work) }
+             }
+ 
+             is BrowseId.Track -> {
+-                releaseDetails.value(id.releaseId)?.let { release ->
++                readOnce(library.releaseDetails(id.releaseId), onQueryError)?.let { release ->
+                     release.tracks.firstOrNull { it.id == id.trackId }?.let { nodes.track(release, it) }
+                 }
+             }
+@@ -348,7 +344,7 @@ internal class LibraryBrowseTree<Owner : Any>(
+             return null
+         }
+         val search = synchronized(lock) { searchesByOwner.values.firstOrNull { it.query == query } }
+-        val results = search?.results() ?: spokenSearches.value(query)
++        val results = search?.results() ?: readOnce(library.searchResults(query), onQueryError)
+         return BrowsePaging.paginate(results.albums.map { nodes.album(it.id, it.title, it.cover) }, page, pageSize)
+     }
+ 
+@@ -454,25 +450,8 @@ internal class LibraryBrowseTree<Owner : Any>(
+ 
+     suspend fun searchTopPlayable(query: String): BrowseId.Track? {
+         checkOpen()
+-        val results = spokenSearches.value(query)
+-        val firstTrack = results.tracks.firstOrNull()
+-        val firstAlbum = results.albums.firstOrNull()
+-        return when {
+-            firstTrack != null -> {
+-                BrowseId.Track(firstTrack.releaseId, firstTrack.id)
+-            }
+-
+-            firstAlbum != null -> {
+-                albumDetails.value(firstAlbum.id)?.let { detail ->
+-                    val release = detail.mainRelease() ?: throw missingMainRelease(detail, reportBug)
+-                    release.tracks.firstOrNull()?.let { BrowseId.Track(release.id, it.id) }
+-                }
+-            }
+-
+-            else -> {
+-                null
+-            }
+-        }
++        val top = readOnce(library.searchResults(query), onQueryError).topPlayable
++        return top?.let { BrowseId.Track(it.releaseId, it.trackId) }
+     }
+ 
+     fun close() = runBlocking { closeSuspending() }
+@@ -498,12 +477,6 @@ internal class LibraryBrowseTree<Owner : Any>(
+         state.second.forEach { it.close() }
+         pages.forEach { it.close() }
+         state.third.forEach { it.close() }
+-        val error = treeClosedError()
+-        albumDetails.cancelAll(error)
+-        composerDetails.cancelAll(error)
+-        workDetails.cancelAll(error)
+-        releaseDetails.cancelAll(error)
+-        spokenSearches.cancelAll(error)
+     }
+ 
+     private fun albumProjection(): ListProjection<BridgeAlbumAppearance, BridgeAlbum> =
+diff --git a/bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt b/bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt
+index 2d8b7e102f..e722907094 100644
+--- a/bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt
++++ b/bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt
+@@ -7,18 +7,21 @@ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.cancelAndJoin
+ import kotlinx.coroutines.flow.Flow
+ import kotlinx.coroutines.flow.collect
++import kotlinx.coroutines.flow.first
+ import kotlinx.coroutines.launch
+ import uniffi.bae_bridge.BridgeException
+ 
+-private const val MAXIMUM_EXACT_SUBSCRIPTIONS = 24
+-
+-internal fun <Key, Value> exactProjectionCache(
+-    scope: CoroutineScope,
+-    flow: (Key) -> Flow<LiveQueryEvent<Value>>,
++/**
++ * The value a live read answers first, for a request that needs it once: the read is opened for the request and
++ * ended with it, and a failure is reported to [onError] and thrown.
++ */
++internal suspend fun <Value> readOnce(
++    read: Flow<LiveQueryEvent<Value>>,
+     onError: (BridgeException) -> Unit,
+-): LiveProjectionCache<Key, Value> =
+-    LiveProjectionCache(scope, MAXIMUM_EXACT_SUBSCRIPTIONS, flow) { _, event, _ ->
+-        (event as? LiveQueryEvent.Error)?.let { onError(it.error) }
++): Value =
++    when (val event = read.first()) {
++        is LiveQueryEvent.Value -> event.value
++        is LiveQueryEvent.Error -> throw event.error.also(onError)
+     }
+ 
+ /**
+diff --git a/bae-android/app/src/main/java/fm/bae/app/playback/LiveProjectionCache.kt b/bae-android/app/src/main/java/fm/bae/app/playback/LiveProjectionCache.kt
+deleted file mode 100644
+index 1ae2a32848..0000000000
+--- a/bae-android/app/src/main/java/fm/bae/app/playback/LiveProjectionCache.kt
++++ /dev/null
+@@ -1,134 +0,0 @@
+-package fm.bae.app.playback
+-
+-import fm.bae.app.data.LiveQueryEvent
+-import kotlinx.coroutines.CompletableDeferred
+-import kotlinx.coroutines.CoroutineScope
+-import kotlinx.coroutines.Job
+-import kotlinx.coroutines.flow.Flow
+-import kotlinx.coroutines.flow.launchIn
+-import kotlinx.coroutines.flow.onEach
+-import java.util.LinkedHashMap
+-
+-internal class LiveProjectionCache<Key, Value>(
+-    private val scope: CoroutineScope,
+-    private val maximumCount: Int,
+-    private val flow: (Key) -> Flow<LiveQueryEvent<Value>>,
+-    private val onEvent: (Key, LiveQueryEvent<Value>, isInitial: Boolean) -> Unit,
+-) {
+-    private class Entry<Value>(
+-        val identity: Any = Any(),
+-        var waiters: Int = 0,
+-        var latest: LiveQueryEvent<Value>? = null,
+-        var changed: CompletableDeferred<Unit> = CompletableDeferred(),
+-        var job: Job? = null,
+-        var retired: Exception? = null,
+-    )
+-
+-    private val lock = Any()
+-    private val entries = LinkedHashMap<Key, Entry<Value>>(16, 0.75f, true)
+-
+-    suspend fun value(key: Key): Value =
+-        when (val event = event(key)) {
+-            is LiveQueryEvent.Value -> event.value
+-            is LiveQueryEvent.Error -> throw event.error
+-        }
+-
+-    suspend fun event(key: Key): LiveQueryEvent<Value> {
+-        val entry = acquire(key)
+-        try {
+-            while (true) {
+-                val awaited =
+-                    synchronized(lock) {
+-                        entry.retired?.let { throw it }
+-                        entry.latest to entry.changed
+-                    }
+-                awaited.first?.let { return it }
+-                awaited.second.await()
+-            }
+-        } finally {
+-            release(key, entry)
+-        }
+-    }
+-
+-    fun cancelAll(error: Exception) {
+-        val removed =
+-            synchronized(lock) {
+-                entries.values.toList().also { values ->
+-                    entries.clear()
+-                    values.forEach { entry ->
+-                        entry.retired = error
+-                        entry.changed.complete(Unit)
+-                    }
+-                }
+-            }
+-        removed.forEach { it.job?.cancel() }
+-    }
+-
+-    private fun acquire(key: Key): Entry<Value> {
+-        var created = false
+-        val entry =
+-            synchronized(lock) {
+-                (
+-                    entries[key] ?: Entry<Value>().also {
+-                        entries[key] = it
+-                        created = true
+-                    }
+-                ).also { it.waiters++ }
+-            }
+-        if (created) start(key, entry)
+-        trim()
+-        return entry
+-    }
+-
+-    private fun start(
+-        key: Key,
+-        entry: Entry<Value>,
+-    ) {
+-        var initial = true
+-        val job =
+-            flow(key)
+-                .onEach { event ->
+-                    val accepted =
+-                        synchronized(lock) {
+-                            if (entries[key] !== entry || entry.retired != null) {
+-                                false
+-                            } else {
+-                                entry.latest = event
+-                                entry.changed.complete(Unit)
+-                                entry.changed = CompletableDeferred()
+-                                true
+-                            }
+-                        }
+-                    if (accepted) {
+-                        onEvent(key, event, initial)
+-                        initial = false
+-                    }
+-                }.launchIn(scope)
+-        synchronized(lock) {
+-            if (entries[key] === entry) entry.job = job else job.cancel()
+-        }
+-    }
+-
+-    private fun release(
+-        key: Key,
+-        entry: Entry<Value>,
+-    ) {
+-        synchronized(lock) {
+-            if (entries[key] === entry) entry.waiters--
+-        }
+-        trim()
+-    }
+-
+-    private fun trim() {
+-        val removed =
+-            synchronized(lock) {
+-                buildList {
+-                    while (entries.size > maximumCount) {
+-                        val candidate = entries.entries.firstOrNull { it.value.waiters == 0 } ?: break
+-                        entries.remove(candidate.key)?.let(::add)
+-                    }
+-                }
+-            }
+-        removed.forEach { it.job?.cancel() }
+-    }
+-}
+diff --git a/bae-android/app/src/main/java/fm/bae/app/ui/PreviewData.kt b/bae-android/app/src/main/java/fm/bae/app/ui/PreviewData.kt
+index 4818dc7ef7..893e5d9225 100644
+--- a/bae-android/app/src/main/java/fm/bae/app/ui/PreviewData.kt
++++ b/bae-android/app/src/main/java/fm/bae/app/ui/PreviewData.kt
+@@ -280,6 +280,7 @@ object PreviewData {
+             tracks = tracks,
+             composers = composers,
+             works = works,
++            topPlayable = null,
+         )
+ 
+     fun downloadOp(
+diff --git a/bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt b/bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt
+index dcef8ca0e4..f0f99d7ffb 100644
+--- a/bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt
++++ b/bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt
+@@ -44,7 +44,6 @@ import fm.bae.app.creditLineText
+ import fm.bae.app.data.LiveQueryState
+ import fm.bae.app.displayError
+ import fm.bae.app.labelsLineText
+-import fm.bae.app.mainRelease
+ import fm.bae.app.pressingLineText
+ import fm.bae.app.text
+ import fm.bae.app.ui.appearance.ThemeRadius
+@@ -144,7 +143,8 @@ fun AlbumDetailScreen(
+                 }
+                 // Derived rather than stored, so a release list that arrives
+                 // later needs no correction: the one chosen, else the main one.
+-                val release = loaded.releases.firstOrNull { it.id == selectedReleaseId } ?: loaded.mainRelease()
++                val release =
++                    loaded.releases.firstOrNull { it.id == selectedReleaseId } ?: loaded.releases.firstOrNull()
+                 if (release == null) {
+                     MissingMainReleaseNotice(loaded)
+                 } else {
+diff --git a/bae-android/app/src/test/java/fm/bae/app/BridgeFixtures.kt b/bae-android/app/src/test/java/fm/bae/app/BridgeFixtures.kt
+index 2c4dde44aa..4f8805c1f6 100644
+--- a/bae-android/app/src/test/java/fm/bae/app/BridgeFixtures.kt
++++ b/bae-android/app/src/test/java/fm/bae/app/BridgeFixtures.kt
+@@ -60,6 +60,7 @@ import uniffi.bae_bridge.BridgeStorageLocation
+ import uniffi.bae_bridge.BridgeStoragePart
+ import uniffi.bae_bridge.BridgeSubsonicConfig
+ import uniffi.bae_bridge.BridgeSubsonicNetwork
++import uniffi.bae_bridge.BridgeTopPlayable
+ import uniffi.bae_bridge.BridgeTrackGroup
+ import uniffi.bae_bridge.BridgeTrackSearchResult
+ import uniffi.bae_bridge.BridgeWorkSummary
+@@ -261,6 +262,7 @@ object BridgeFixtures {
+         tracks: List<BridgeTrackSearchResult> = emptyList(),
+         composers: List<BridgeComposerSummary> = emptyList(),
+         works: List<BridgeWorkSummary> = emptyList(),
++        topPlayable: BridgeTopPlayable? = null,
+     ): BridgeSearchResults =
+         BridgeSearchResults(
+             albums = albums,
+@@ -268,6 +270,7 @@ object BridgeFixtures {
+             tracks = tracks,
+             composers = composers,
+             works = works,
++            topPlayable = topPlayable,
+         )
+ 
+     fun downloadOp(
+diff --git a/bae-android/app/src/test/java/fm/bae/app/playback/BaeLibrarySessionCallbackTest.kt b/bae-android/app/src/test/java/fm/bae/app/playback/BaeLibrarySessionCallbackTest.kt
+index 77e2109e80..34c0128698 100644
+--- a/bae-android/app/src/test/java/fm/bae/app/playback/BaeLibrarySessionCallbackTest.kt
++++ b/bae-android/app/src/test/java/fm/bae/app/playback/BaeLibrarySessionCallbackTest.kt
+@@ -23,6 +23,7 @@ import org.junit.runner.RunWith
+ import org.robolectric.RuntimeEnvironment
+ import org.robolectric.annotation.Config
+ import uniffi.bae_bridge.BridgeListWindow
++import uniffi.bae_bridge.BridgeTopPlayable
+ import java.util.concurrent.TimeUnit
+ 
+ @RunWith(BaeRobolectricTestRunner::class)
+@@ -151,7 +152,7 @@ class BaeLibrarySessionCallbackTest {
+     fun aSpokenQueryResolvesToTheTopTrack() {
+         val handle =
+             FakeAppHandle(searchResults = {
+-                BridgeFixtures.searchResults(tracks = listOf(BridgeFixtures.trackSearchResult(id = "trk-1", releaseId = "rel-1")))
++                BridgeFixtures.searchResults(topPlayable = BridgeTopPlayable(releaseId = "rel-1", trackId = "trk-1"))
+             })
+         val tree = tree(handle)
+         val callback = BaeLibrarySessionCallback(tree, grants(), CoroutineScope(Dispatchers.Unconfined)) { "not found: $it" }
+diff --git a/bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt b/bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt
+index 02a1eb6fc9..ea8033f573 100644
+--- a/bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt
++++ b/bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt
+@@ -212,7 +212,7 @@ internal class FakeAlbumList(
+         albums,
+         idOf = { it.id },
+         wrap = { held -> BridgeListRows.Albums(held.map { BridgeAlbumAppearance(album = it, creditedWith = null) }) },
+-        extra = { BridgeListCountExtra.AlbumGrid(it.toULong()) },
++        extra = { BridgeListCountExtra.AlbumGrid(it.toULong(), it > 0) },
+         deliverImmediately = deliverImmediately,
+         windowFailure = windowFailure,
+     ) {
+diff --git a/bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt b/bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt
+index 6984df9e1b..e52d2523c0 100644
+--- a/bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt
++++ b/bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt
+@@ -57,7 +57,7 @@ class LibraryBrowseTreeTest {
+     @Test
+     fun anAlbumsChildrenAreItsMainReleasesTracks() =
+         runBlocking {
+-            val album = BridgeFixtures.album(id = "album-1", primaryReleaseId = "rel-main", releaseIds = listOf("rel-other", "rel-main"))
++            val album = BridgeFixtures.album(id = "album-1", primaryReleaseId = "rel-main", releaseIds = listOf("rel-main", "rel-other"))
+             val other =
+                 PreviewData.release(
+                     id = "rel-other",
+@@ -70,7 +70,7 @@ class LibraryBrowseTreeTest {
+                     albumId = "album-1",
+                     trackGroups = listOf(PreviewData.trackGroup(listOf(PreviewData.track("trk-main")))),
+                 )
+-            val tree = tree(FakeAppHandle(albumDetails = mapOf("album-1" to BridgeFixtures.albumDetail(album, listOf(other, main)))))
++            val tree = tree(FakeAppHandle(albumDetails = mapOf("album-1" to BridgeFixtures.albumDetail(album, listOf(main, other)))))
+ 
+             val children = tree.children(BrowseId.Album("album-1").mediaId, 0, 20)!!
+ 
+@@ -78,13 +78,12 @@ class LibraryBrowseTreeTest {
+             tree.close()
+         }
+ 
+-    /** An album naming a main release it doesn't hold is a bug: reported, and an error, not the first release. */
++    /** An album with no releases has no main one: that is a bug, reported, and an error. */
+     @Test
+-    fun anAlbumWhoseMainReleaseIsMissingIsReportedAndAnError() =
++    fun anAlbumWithNoReleasesIsReportedAndAnError() =
+         runBlocking {
+-            val album = BridgeFixtures.album(id = "album-1", primaryReleaseId = "rel-gone", releaseIds = listOf("rel-other"))
+-            val other = PreviewData.release(id = "rel-other", albumId = "album-1")
+-            val tree = tree(FakeAppHandle(albumDetails = mapOf("album-1" to BridgeFixtures.albumDetail(album, listOf(other)))))
++            val album = BridgeFixtures.album(id = "album-1", releaseIds = emptyList())
++            val tree = tree(FakeAppHandle(albumDetails = mapOf("album-1" to BridgeFixtures.albumDetail(album, emptyList()))))
+ 
+             assertThrows(BridgeException::class.java) {
+                 runBlocking { tree.children(BrowseId.Album("album-1").mediaId, 0, 20) }
+diff --git a/bae-android/app/src/test/java/fm/bae/app/playback/LiveProjectionCacheTest.kt b/bae-android/app/src/test/java/fm/bae/app/playback/LiveProjectionCacheTest.kt
+deleted file mode 100644
+index 9372c19f9e..0000000000
+--- a/bae-android/app/src/test/java/fm/bae/app/playback/LiveProjectionCacheTest.kt
++++ /dev/null
+@@ -1,75 +0,0 @@
+-package fm.bae.app.playback
+-
+-import fm.bae.app.HANG_GUARD
+-import fm.bae.app.data.LiveQueryEvent
+-import kotlinx.coroutines.CompletableDeferred
+-import kotlinx.coroutines.CoroutineScope
+-import kotlinx.coroutines.Dispatchers
+-import kotlinx.coroutines.SupervisorJob
+-import kotlinx.coroutines.async
+-import kotlinx.coroutines.channels.Channel
+-import kotlinx.coroutines.flow.emitAll
+-import kotlinx.coroutines.flow.flow
+-import kotlinx.coroutines.flow.receiveAsFlow
+-import kotlinx.coroutines.runBlocking
+-import kotlinx.coroutines.withTimeout
+-import org.junit.Assert.assertEquals
+-import org.junit.Assert.assertTrue
+-import org.junit.Test
+-import uniffi.bae_bridge.BridgeErrorCategory
+-import uniffi.bae_bridge.BridgeException
+-
+-class LiveProjectionCacheTest {
+-    @Test
+-    fun cancelAllCompletesAnActiveWaiterWithTheCloseError() =
+-        runBlocking {
+-            val events = Channel<LiveQueryEvent<Int>>(Channel.UNLIMITED)
+-            val subscribed = CompletableDeferred<Unit>()
+-            val cache =
+-                LiveProjectionCache<String, Int>(
+-                    scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+-                    maximumCount = 1,
+-                    flow = {
+-                        flow {
+-                            subscribed.complete(Unit)
+-                            emitAll(events.receiveAsFlow())
+-                        }
+-                    },
+-                    onEvent = { _, _, _ -> },
+-                )
+-            val waiter = async(Dispatchers.IO) { runCatching { cache.value("projection") }.exceptionOrNull() }
+-            withTimeout(HANG_GUARD) { subscribed.await() }
+-
+-            val error = queryFailure()
+-            cache.cancelAll(error)
+-
+-            assertEquals(error, withTimeout(HANG_GUARD) { waiter.await() })
+-        }
+-
+-    @Test
+-    fun evictedProjectionRejectsItsQueuedEvent() =
+-        runBlocking {
+-            val first = Channel<LiveQueryEvent<Int>>(Channel.UNLIMITED)
+-            val second = Channel<LiveQueryEvent<Int>>(Channel.UNLIMITED)
+-            val accepted = mutableListOf<Int>()
+-            val cache =
+-                LiveProjectionCache<String, Int>(
+-                    scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+-                    maximumCount = 1,
+-                    flow = { key -> if (key == "first") first.receiveAsFlow() else second.receiveAsFlow() },
+-                    onEvent = { _, event, _ ->
+-                        (event as? LiveQueryEvent.Value)?.let { accepted += it.value }
+-                    },
+-                )
+-            first.send(LiveQueryEvent.Value(1))
+-            assertEquals(1, cache.value("first"))
+-            second.send(LiveQueryEvent.Value(2))
+-            assertEquals(2, cache.value("second"))
+-
+-            first.send(LiveQueryEvent.Value(99))
+-
+-            assertTrue(99 !in accepted)
+-        }
+-
+-    private fun queryFailure(): BridgeException = BridgeException.Diagnostic(BridgeErrorCategory.Database, "query failed")
+-}
+diff --git a/bae-app/src/app_services/list_reads.rs b/bae-app/src/app_services/list_reads.rs
+index c91739f59e..825613c52c 100644
+--- a/bae-app/src/app_services/list_reads.rs
++++ b/bae-app/src/app_services/list_reads.rs
+@@ -28,7 +28,10 @@ impl AppServices {
+             self.inner.views.subscribe_album_count(group_by_artist).process(|counts| {
+                 Ok(bae_views::ListCount {
+                     rows: counts.rows,
+-                    extra: bae_views::ListCountExtra::AlbumGrid { albums: counts.albums },
++                    extra: bae_views::ListCountExtra::AlbumGrid {
++                        albums: counts.albums,
++                        can_shuffle: counts.can_shuffle,
++                    },
+                 })
+             }),
+         )
+diff --git a/bae-bridge/src/handle/library_projection.rs b/bae-bridge/src/handle/library_projection.rs
+index 309b8f57f4..5d28ac1b43 100644
+--- a/bae-bridge/src/handle/library_projection.rs
++++ b/bae-bridge/src/handle/library_projection.rs
+@@ -239,9 +239,16 @@ mirror_struct! {
+         tracks: (each BridgeTrackSearchResult),
+         composers: (each BridgeComposerSummary),
+         works: (each BridgeWorkSummary),
++        top_playable: (opt crate::types::BridgeTopPlayable),
+     },
+ }
+ 
++mirror_struct! {
++    crate::types::BridgeTopPlayable = bae_views::DbTopPlayable,
++    from_core: pub(crate) fn,
++    fields: { release_id, track_id },
++}
++
+ mirror_struct! {
+     BridgeStorageRow = bae_views::album_detail::StorageRow,
+     from_core: pub(crate) fn,
+diff --git a/bae-bridge/src/handle_tests.rs b/bae-bridge/src/handle_tests.rs
+index e53f479880..ab5cb5cb1b 100644
+--- a/bae-bridge/src/handle_tests.rs
++++ b/bae-bridge/src/handle_tests.rs
+@@ -292,7 +292,10 @@ fn an_album_count_pulls_before_any_window() {
+     let count = handle.handle().subscribe_list_count(flat_albums());
+     let value = handle.handle().runtime.block_on(count.clone().next()).expect("album count");
+     assert_eq!(value.rows, 0);
+-    assert!(matches!(value.extra, crate::types::BridgeListCountExtra::AlbumGrid { albums: 0 }));
++    assert!(matches!(
++        value.extra,
++        crate::types::BridgeListCountExtra::AlbumGrid { albums: 0, can_shuffle: false }
++    ));
+ }
+ 
+ #[test]
+diff --git a/bae-bridge/src/screens/lists.rs b/bae-bridge/src/screens/lists.rs
+index 0df532bd94..7d8eb9062f 100644
+--- a/bae-bridge/src/screens/lists.rs
++++ b/bae-bridge/src/screens/lists.rs
+@@ -184,8 +184,8 @@ impl BridgeListCount {
+             rows: count.rows,
+             extra: match count.extra {
+                 bae_views::ListCountExtra::None => BridgeListCountExtra::None,
+-                bae_views::ListCountExtra::AlbumGrid { albums } => {
+-                    BridgeListCountExtra::AlbumGrid { albums }
++                bae_views::ListCountExtra::AlbumGrid { albums, can_shuffle } => {
++                    BridgeListCountExtra::AlbumGrid { albums, can_shuffle }
+                 }
+                 bae_views::ListCountExtra::Storage { total_size, searching } => {
+                     BridgeListCountExtra::Storage { total_size, searching }
+diff --git a/bae-bridge/src/types/configuration/library.rs b/bae-bridge/src/types/configuration/library.rs
+index b7722f76cc..d60f64e0cc 100644
+--- a/bae-bridge/src/types/configuration/library.rs
++++ b/bae-bridge/src/types/configuration/library.rs
+@@ -7,6 +7,17 @@ pub struct BridgeSearchResults {
+     pub tracks: Vec<BridgeTrackSearchResult>,
+     pub composers: Vec<BridgeComposerSummary>,
+     pub works: Vec<BridgeWorkSummary>,
++    /// The track a spoken "play" of the search plays: the first track found,
++    /// else the first track of the first album found; `None` when the search
++    /// finds neither.
++    pub top_playable: Option<BridgeTopPlayable>,
++}
++
++/// A track to play, with the release it is on.
++#[derive(Debug, Clone, uniffi::Record)]
++pub struct BridgeTopPlayable {
++    pub release_id: String,
++    pub track_id: String,
+ }
+ 
+ #[derive(Debug, Clone, uniffi::Record)]
+diff --git a/bae-bridge/src/types/live_results.rs b/bae-bridge/src/types/live_results.rs
+index 45eb234c9b..0f9cfdc461 100644
+--- a/bae-bridge/src/types/live_results.rs
++++ b/bae-bridge/src/types/live_results.rs
+@@ -151,6 +151,8 @@ pub enum BridgeListCountExtra {
+     /// rows.
+     AlbumGrid {
+         albums: u64,
++        /// Whether the library holds a track, which shuffling it plays.
++        can_shuffle: bool,
+     },
+     /// The Storage Manager's total size of its releases' files, and whether
+     /// a search narrows the list.
+diff --git a/bae-macos/bae/Fixtures/PreviewData+Queue.swift b/bae-macos/bae/Fixtures/PreviewData+Queue.swift
+index 3b03de4d20..0886d1f4a9 100644
+--- a/bae-macos/bae/Fixtures/PreviewData+Queue.swift
++++ b/bae-macos/bae/Fixtures/PreviewData+Queue.swift
+@@ -624,6 +624,7 @@ extension PreviewData {
+                     representativeCover: nil
+                 )
+             ],
++            topPlayable: nil
+         ),
+         query: "placeholder"
+     )
+diff --git a/bae-macos/bae/bae/Services/LibraryBrowseSession.swift b/bae-macos/bae/bae/Services/LibraryBrowseSession.swift
+index 28846582df..994fe3a14b 100644
+--- a/bae-macos/bae/bae/Services/LibraryBrowseSession.swift
++++ b/bae-macos/bae/bae/Services/LibraryBrowseSession.swift
+@@ -196,14 +196,18 @@ final class LibraryBrowseSession {
+ 
+     /// How many albums the open library holds, as the album list's query
+     /// counted them, or `nil` before it has. Read by chrome that has no list
+-    /// of its own (the Playback menu's Shuffle Library item disables at zero,
+-    /// and an empty composer or artist list says why). Albums are the proxy
+-    /// the UI owns for "anything to play": core's shuffle no-ops on zero
+-    /// *tracks*, but the UI never loads a track count.
++    /// of its own: an empty composer or artist list says why it is empty.
+     var albumTotal: Int? {
+         albums.list?.itemCount
+     }
+ 
++    /// Whether the library holds a track to shuffle, as the album list's
++    /// count says it, or `nil` before it has counted. The Playback menu's
++    /// Shuffle Library item is enabled by it.
++    var canShuffle: Bool? {
++        albums.list?.canShuffle
++    }
++
+     func start() {
+         albums.startLoad()
+     }
+diff --git a/bae-macos/bae/bae/Shell/MainWindowController.swift b/bae-macos/bae/bae/Shell/MainWindowController.swift
+index 6f692eb85b..637a8b951a 100644
+--- a/bae-macos/bae/bae/Shell/MainWindowController.swift
++++ b/bae-macos/bae/bae/Shell/MainWindowController.swift
+@@ -116,11 +116,8 @@ final class MainWindowController: HostingWindowController, NSMenuItemValidation
+             // Both go from the current value, unknown until core says it.
+             return target.playbackStore.settings != nil
+         case #selector(shuffleLibrary(_:)):
+-            // No total while the library's albums are not counted yet.
+-            guard let albumTotal = target.libraryBrowseSession.albumTotal else {
+-                return false
+-            }
+-            return albumTotal > 0
++            // Not known while the library is not counted yet.
++            return target.libraryBrowseSession.canShuffle ?? false
+         default:
+             return true
+         }
+diff --git a/bae-macos/bae/baeTests/LibraryMenuCommandsTests.swift b/bae-macos/bae/baeTests/LibraryMenuCommandsTests.swift
+index a3c0119ee0..c0cdc5c608 100644
+--- a/bae-macos/bae/baeTests/LibraryMenuCommandsTests.swift
++++ b/bae-macos/bae/baeTests/LibraryMenuCommandsTests.swift
+@@ -57,7 +57,7 @@ struct LibraryMenuCommandsTests {
+         // Not counted yet, then counted.
+         #expect(try !valid("shuffleLibrary:"))
+         target.libraryBrowseSession.start()
+-        try await Wait.until { target.libraryBrowseSession.albumTotal == 3 }
++        try await Wait.until { target.libraryBrowseSession.canShuffle == true }
+         #expect(try valid("shuffleLibrary:"))
+ 
+         let fullWidth = try MenuLookup.item(menu, "fullWidthLibrary:")
+@@ -119,7 +119,7 @@ struct LibraryMenuCommandsTests {
+             ),
+             libraryBrowseSession: LibraryBrowseSession(
+                 library: Library(albumList: { _, _ in
+-                    .fixed(albums, answers: UnansweredCount())
++                    .fixed(albums, answers: UnansweredCount(), canShuffle: true)
+                 }),
+                 uiStore: uiStore
+             ),
+diff --git a/bae-macos/bae/baeTests/LibrarySubscriptionOwnershipTests.swift b/bae-macos/bae/baeTests/LibrarySubscriptionOwnershipTests.swift
+index d81389aa19..f9d2f4abfc 100644
+--- a/bae-macos/bae/baeTests/LibrarySubscriptionOwnershipTests.swift
++++ b/bae-macos/bae/baeTests/LibrarySubscriptionOwnershipTests.swift
+@@ -126,7 +126,8 @@ private final class SearchProbe: @unchecked Sendable {
+                         artists: [],
+                         tracks: [],
+                         composers: [],
+-                        works: []
++                        works: [],
++                        topPlayable: nil
+                     ),
+                     requestRevision: 1
+                 )
+diff --git a/bae-macos/bae/baeTests/LibraryValueTests.swift b/bae-macos/bae/baeTests/LibraryValueTests.swift
+index 46f2a14602..261ffbcae7 100644
+--- a/bae-macos/bae/baeTests/LibraryValueTests.swift
++++ b/bae-macos/bae/baeTests/LibraryValueTests.swift
+@@ -145,7 +145,8 @@ struct SearchResultsTests {
+                         representativeReleaseId: "release-a",
+                         representativeCover: nil
+                     )
+-                ]
++                ],
++                topPlayable: nil
+             ),
+             query: "work"
+         )
+diff --git a/bae-views/src/album.rs b/bae-views/src/album.rs
+index 2ce2be4b36..8b11329de7 100644
+--- a/bae-views/src/album.rs
++++ b/bae-views/src/album.rs
+@@ -138,7 +138,9 @@ impl LibraryViews {
+         self.store.subscribe(move |sql| {
+             let albums = album_count_on(&sql)?;
+             let rows = if group_by_artist { album_appearance_count_on(&sql)? } else { albums };
+-            Ok(AlbumCounts { albums, rows })
++            let can_shuffle =
++                sql.query_row("SELECT EXISTS (SELECT 1 FROM tracks)", [], |row| row.get(0))?;
++            Ok(AlbumCounts { albums, rows, can_shuffle })
+         })
+     }
+ 
+@@ -469,7 +471,40 @@ fn search_library_on(
+         params![pattern, limit],
+         row_to_work_summary,
+     )?;
+-    Ok(LibrarySearchRows { albums, artists, tracks, composers, works })
++    // The first track found, and failing that the first track of the first
++    // album found: one row, whichever kind of hit ranks first.
++    let top_playable: Option<(String, Option<String>)> = sql
++        .query_row(
++            &format!(
++                r#"
++                SELECT release_id, track_id FROM (
++                    SELECT t.release_id AS release_id, t.id AS track_id, 0 AS kind,
++                           {track_key} AS found_key, t.id AS tie
++                    FROM tracks t
++                    WHERE t.id IN (SELECT track_id FROM track_search WHERE title GLOB ?1)
++                    UNION ALL
++                    SELECT a.release_id, (SELECT id FROM tracks
++                                          WHERE release_id = a.release_id
++                                          ORDER BY position, id LIMIT 1),
++                           1, {album_key}, a.id
++                    FROM (SELECT a.id, a.title, {primary_release} AS release_id
++                          FROM albums a WHERE {album_matches}) a
++                )
++                ORDER BY kind, found_key, tie LIMIT 1
++                "#,
++                track_key = crate::name_sort::sort_key_sql("t.title"),
++                album_key = crate::name_sort::sort_key_sql("a.title"),
++                primary_release = album_primary_release_sql(),
++                album_matches = album_matches_sql("a.id", "?1"),
++            ),
++            params![pattern],
++            |row| Ok((row.get(0)?, row.get(1)?)),
++        )
++        .optional()?;
++    let top_playable = top_playable.and_then(|(release_id, track_id)| {
++        track_id.map(|track_id| DbTopPlayable { release_id, track_id })
++    });
++    Ok(LibrarySearchRows { albums, artists, tracks, composers, works, top_playable })
+ }
+ 
+ #[derive(Clone, PartialEq)]
+@@ -489,6 +524,7 @@ struct LibrarySearchRows {
+     tracks: Vec<DbTrackSearchResult>,
+     composers: Vec<DbComposerSummary>,
+     works: Vec<DbWorkSummary>,
++    top_playable: Option<DbTopPlayable>,
+ }
+ 
+ impl LibrarySearchRows {
+@@ -513,6 +549,7 @@ impl LibrarySearchRows {
+             tracks: self.tracks,
+             composers: self.composers,
+             works: self.works,
++            top_playable: self.top_playable,
+         })
+     }
+ }
+@@ -581,7 +618,7 @@ impl AlbumDetailRows {
+     }
+ }
+ 
+-/// How many rows the album grid has.
++/// How many rows the album grid has, and whether the library has a track to shuffle.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub struct AlbumCounts {
+     /// The albums.
+@@ -589,6 +626,8 @@ pub struct AlbumCounts {
+     /// The grid's rows: the albums, or grouped by artist an appearance of
+     /// each album under each of its artists.
+     pub rows: u64,
++    /// Whether the library holds a track, which shuffling it plays.
++    pub can_shuffle: bool,
+ }
+ 
+ #[derive(Debug, Clone, PartialEq)]
+diff --git a/bae-views/src/album/listing_tests.rs b/bae-views/src/album/listing_tests.rs
+index 55bba06339..867276167d 100644
+--- a/bae-views/src/album/listing_tests.rs
++++ b/bae-views/src/album/listing_tests.rs
+@@ -91,6 +91,46 @@ async fn counts_of(db: &Store, group_by_artist: bool) -> AlbumCounts {
+         .unwrap()
+ }
+ 
++const SHUFFLE_ARTIST: &str = "1f5e2a30-5b7e-4a52-9c3a-6a0f1d2b3c01";
++const SHUFFLE_ALBUM: &str = "1f5e2a30-5b7e-4a52-9c3a-6a0f1d2b3c02";
++const SHUFFLE_RELEASE: &str = "1f5e2a30-5b7e-4a52-9c3a-6a0f1d2b3c03";
++const SHUFFLE_ALBUM_WITH_TRACK: &str = "1f5e2a30-5b7e-4a52-9c3a-6a0f1d2b3c05";
++const SHUFFLE_RELEASE_WITH_TRACK: &str = "1f5e2a30-5b7e-4a52-9c3a-6a0f1d2b3c06";
++const SHUFFLE_TRACK: &str = "1f5e2a30-5b7e-4a52-9c3a-6a0f1d2b3c04";
++
++/// Shuffling the library plays tracks, so the grid's count says whether the
++/// library holds one: not for an empty library, nor for albums whose releases
++/// hold none, and from the first track on, flat or grouped.
++#[tokio::test]
++async fn the_grid_count_says_whether_the_library_has_a_track_to_shuffle() {
++    let (db, _tmp) = temp_db(crate::TEST_SCHEMA).await;
++    for grouped in [false, true] {
++        assert!(!counts_of(&db, grouped).await.can_shuffle, "an empty library");
++    }
++
++    RecordsFixture::new()
++        .artist(SHUFFLE_ARTIST, "Shuffle Artist Name")
++        .album(SHUFFLE_ALBUM, "Shuffle Album Title", Some(2026), &[SHUFFLE_ARTIST])
++        .release(SHUFFLE_ALBUM, SHUFFLE_RELEASE)
++        .write(&test_records(&db))
++        .await;
++    for grouped in [false, true] {
++        let counts = counts_of(&db, grouped).await;
++        assert_eq!(counts.albums, 1);
++        assert!(!counts.can_shuffle, "an album with no tracks");
++    }
++
++    RecordsFixture::new()
++        .album(SHUFFLE_ALBUM_WITH_TRACK, "Shuffle Track Album", Some(2026), &[SHUFFLE_ARTIST])
++        .release(SHUFFLE_ALBUM_WITH_TRACK, SHUFFLE_RELEASE_WITH_TRACK)
++        .tracks(SHUFFLE_RELEASE_WITH_TRACK, &[(SHUFFLE_TRACK, "Shuffle Track Title")])
++        .write(&test_records(&db))
++        .await;
++    for grouped in [false, true] {
++        assert!(counts_of(&db, grouped).await.can_shuffle, "a library with a track");
++    }
++}
++
+ /// The key of the grid's row at `position`.
+ async fn key_of_row(
+     db: &Store,
+@@ -310,7 +350,8 @@ async fn artist_sections_cover_unloaded_albums_and_match_page_and_reveal_order()
+         let value = window_under(&db, &sort, true, from_key(at_two, 1)).await;
+         assert_eq!(value.rows.len(), 1);
+         let counts = counts_of(&db, true).await;
+-        assert_eq!(counts, AlbumCounts { albums: 5, rows: 5 });
++        assert_eq!(counts.rows, 5);
++        assert_eq!(counts.albums, 5);
+         let sections = sections_under(&db, &sort).await;
+         assert_eq!(sections.len(), 3);
+         let page = LibraryViews::new(db.clone()).get_album_page(&sort, 0, 10).await.unwrap();
+@@ -425,7 +466,8 @@ async fn collaborations_appear_under_each_credit_but_count_once() {
+     let sort =
+         [AlbumSortCriterion { field: AlbumSortField::Title, direction: SortDirection::Descending }];
+     let value = window_under(&db, &sort, true, top(20)).await;
+-    assert_eq!(counts_of(&db, true).await, AlbumCounts { albums: 5, rows: 6 });
++    let counts = counts_of(&db, true).await;
++    assert_eq!((counts.albums, counts.rows), (5, 6));
+     let rows = &value.rows;
+     let mut appearances = Vec::new();
+     let sections = sections_under(&db, &sort).await;
+@@ -444,10 +486,12 @@ async fn collaborations_appear_under_each_credit_but_count_once() {
+         rows.iter().position(|row| row.album.id == album_id).map(|i| i as u64)
+     );
+     let flat = window_under(&db, &sort, false, top(20)).await;
+-    assert_eq!(counts_of(&db, false).await, AlbumCounts { albums: 5, rows: 5 });
++    let counts = counts_of(&db, false).await;
++    assert_eq!((counts.albums, counts.rows), (5, 5));
+     assert_eq!(flat.rows.iter().filter(|row| row.album.id == album_id).count(), 1);
+     records.credit_album_for_test(album_id, &[ARTIST_A]).await.unwrap();
+-    assert_eq!(counts_of(&db, true).await, AlbumCounts { albums: 5, rows: 5 });
++    let counts = counts_of(&db, true).await;
++    assert_eq!((counts.albums, counts.rows), (5, 5));
+ }
+ 
+ /// An album crediting A twice, then B, lists once under each; once A and B
+diff --git a/bae-views/src/album_detail/search.rs b/bae-views/src/album_detail/search.rs
+index ee8875c630..ed32760aff 100644
+--- a/bae-views/src/album_detail/search.rs
++++ b/bae-views/src/album_detail/search.rs
+@@ -3,7 +3,9 @@
+ //! that produce them.
+ 
+ use super::*;
+-use crate::{DbArtistSummary, DbComposerSummary, DbLibrarySearchResults, DbWorkSummary};
++use crate::{
++    DbArtistSummary, DbComposerSummary, DbLibrarySearchResults, DbTopPlayable, DbWorkSummary,
++};
+ 
+ #[derive(Debug, Clone, Default)]
+ pub struct SearchResults {
+@@ -12,6 +14,9 @@ pub struct SearchResults {
+     pub tracks: Vec<TrackSearchResult>,
+     pub composers: Vec<DbComposerSummary>,
+     pub works: Vec<DbWorkSummary>,
++    /// The track a spoken "play" of the search plays: the first track found,
++    /// else the first track of the first album found.
++    pub top_playable: Option<DbTopPlayable>,
+ }
+ 
+ impl SearchResults {
+@@ -52,6 +57,7 @@ impl SearchResults {
+             artists: raw.artists,
+             composers: raw.composers,
+             works: raw.works,
++            top_playable: raw.top_playable,
+         }
+     }
+ }
+diff --git a/bae-views/src/album_tests.rs b/bae-views/src/album_tests.rs
+index 0a00c5e550..0de5094f41 100644
+--- a/bae-views/src/album_tests.rs
++++ b/bae-views/src/album_tests.rs
+@@ -54,7 +54,7 @@ async fn album_window_delivers_rows_count_and_cover_versions() {
+     let views = crate::LibraryViews::new(db.clone());
+     let mut live = views.subscribe_album_window(&[], false, top(50));
+     let counts = views.subscribe_album_count(false).next().await.unwrap().unwrap();
+-    assert_eq!(counts, AlbumCounts { albums: 1, rows: 1 });
++    assert_eq!((counts.albums, counts.rows), (1, 1));
+ 
+     let initial = live.next().await.expect("the query stays open").result.unwrap();
+     assert_eq!(initial.rows[0].album.title, "Album Title");
+@@ -499,6 +499,70 @@ async fn search_library_treats_like_metacharacters_as_literals() {
+     assert_eq!(underscore_results.tracks[0].id, TRACK_UNDERSCORE);
+ }
+ 
++const NEEDLE_ARTIST: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a1111";
++const ALBUM_FOO: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a2001";
++const RELEASE_FOO: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a2002";
++const TRACK_FOO_FIRST: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a2003";
++const TRACK_FOO_SECOND: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a2004";
++const ALBUM_NEEDLE_FIRST: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a3001";
++const RELEASE_NEEDLE_FIRST: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a3002";
++const TRACK_NEEDLE_FIRST: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a3003";
++const ALBUM_NEEDLE_LAST: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a4001";
++const RELEASE_NEEDLE_LAST: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a4002";
++const TRACK_NEEDLE_SONG: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a4003";
++
++/// What a spoken "play" of a search plays is the search's own `top_playable`:
++/// the first track found, else the first track of the first album found, and
++/// nothing when the search finds neither, as the library's SQL orders them.
++#[tokio::test]
++async fn a_search_names_the_track_a_spoken_play_plays() {
++    let (db, _tmp) = temp_db(crate::TEST_SCHEMA).await;
++    RecordsFixture::new()
++        .artist(NEEDLE_ARTIST, "Needle Artist Name")
++        .album(ALBUM_FOO, "Foo Album Title", Some(2026), &[NEEDLE_ARTIST])
++        .release(ALBUM_FOO, RELEASE_FOO)
++        .tracks(
++            RELEASE_FOO,
++            &[(TRACK_FOO_FIRST, "Opening Title"), (TRACK_FOO_SECOND, "Second Title")],
++        )
++        .album(ALBUM_NEEDLE_FIRST, "Needle Aardvark Album", Some(2026), &[NEEDLE_ARTIST])
++        .release(ALBUM_NEEDLE_FIRST, RELEASE_NEEDLE_FIRST)
++        .tracks(RELEASE_NEEDLE_FIRST, &[(TRACK_NEEDLE_FIRST, "Zzz Title")])
++        .album(ALBUM_NEEDLE_LAST, "Zed Needle Album", Some(2026), &[NEEDLE_ARTIST])
++        .release(ALBUM_NEEDLE_LAST, RELEASE_NEEDLE_LAST)
++        .tracks(RELEASE_NEEDLE_LAST, &[(TRACK_NEEDLE_SONG, "Needle Song")])
++        .write(&test_records(&db))
++        .await;
++    let top = |query: &'static str| {
++        let views = crate::LibraryViews::new(db.clone());
++        async move {
++            views
++                .search_rows(query, 10)
++                .await
++                .unwrap()
++                .top_playable
++                .map(|top| (top.release_id, top.track_id))
++        }
++    };
++
++    assert_eq!(
++        top("Second Title").await,
++        Some((RELEASE_FOO.to_string(), TRACK_FOO_SECOND.to_string())),
++        "a track found is the track to play"
++    );
++    assert_eq!(
++        top("Foo Album").await,
++        Some((RELEASE_FOO.to_string(), TRACK_FOO_FIRST.to_string())),
++        "an album found plays its main release's first track"
++    );
++    assert_eq!(
++        top("Needle").await,
++        Some((RELEASE_NEEDLE_LAST.to_string(), TRACK_NEEDLE_SONG.to_string())),
++        "a track found outranks the albums found, whatever their order"
++    );
++    assert_eq!(top("Nothing Matches This").await, None);
++}
++
+ const SEARCHED_ARTIST: &str = "0373bb67-3abb-48e7-8a5b-6d29ef24308e";
+ const SEARCHED_MUSICBRAINZ_ARTIST: &str = "mb-artist-asel";
+ const SEARCHED_ALBUM: &str = "e307f0f5-e518-4d5e-bea8-83e439780ca0";
+diff --git a/bae-views/src/browse.rs b/bae-views/src/browse.rs
+index 8cd410ed51..2cfa867fc8 100644
+--- a/bae-views/src/browse.rs
++++ b/bae-views/src/browse.rs
+@@ -82,9 +82,11 @@ pub struct ListCount {
+ pub enum ListCountExtra {
+     None,
+     /// The album grid's album count, which grouped by artist is not its row
+-    /// count: an album shows once under each of its artists.
++    /// count: an album shows once under each of its artists, and whether the
++    /// library holds a track to shuffle.
+     AlbumGrid {
+         albums: u64,
++        can_shuffle: bool,
+     },
+     /// The Storage Manager's total size of its releases' files, and whether
+     /// a search narrows the list.
+diff --git a/bae-views/src/models.rs b/bae-views/src/models.rs
+index c7f0d83deb..34098b7f00 100644
+--- a/bae-views/src/models.rs
++++ b/bae-views/src/models.rs
+@@ -14,6 +14,16 @@ pub struct DbLibrarySearchResults {
+     pub tracks: Vec<DbTrackSearchResult>,
+     pub composers: Vec<DbComposerSummary>,
+     pub works: Vec<DbWorkSummary>,
++    /// The track a spoken "play" of the search plays: the first track found,
++    /// else the first track of the first album found.
++    pub top_playable: Option<DbTopPlayable>,
++}
++
++/// A track to play, with the release it is on.
++#[derive(Debug, Clone, PartialEq)]
++pub struct DbTopPlayable {
++    pub release_id: String,
++    pub track_id: String,
+ }
+ 
+ /// Raw album search-result row; `artist_line` is the album's credit line,
+diff --git a/spec/bae.md b/spec/bae.md
+index 1ed4116ef5..fb2f5569de 100644
+--- a/spec/bae.md
++++ b/spec/bae.md
+@@ -4487,6 +4487,14 @@ removable, reorderable and skipped to on its own.
+ | Clear up next | empties Up next only |
+ | Clear playing from | drops what's playing from; the current track plays on, then Up next, then playback stops |
+ 
++*Shuffle library* is offered while the library holds a track: the album grid's
++count says it, as it says how many albums there are.
++
++A spoken request to play something ("play" and a name, from a car's controls)
++plays the first track the library search finds, else the first track of the
++first album it finds, on that album's main release. The search says which, and
++nothing plays when it finds neither.
++
+ Every play (a release, several, a list of tracks, the library shuffled)
+ answers whoever asked with what it did, and the app shows it in words unless
+ it played everything named:
+-- 
+2.50.1 (Apple Git-155)
+

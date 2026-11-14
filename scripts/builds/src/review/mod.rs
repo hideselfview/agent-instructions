@@ -7,6 +7,8 @@
 //! builds review settle FINDING confirmed|dropped --why TEXT
 //! builds review show LANDING
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
+//! builds review replay [--groups FILE] [--case NAME]... [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review case add ...
 //! ```
 //!
 //! `run` reviews the worktree's commits past BASE (default `origin/main`). The
@@ -16,7 +18,10 @@
 //! It exits 1 when a blocking finding stands or a reviewer failed.
 
 mod call;
+mod cases;
 mod check;
+#[cfg(test)]
+mod fakes;
 mod groups;
 mod prompt;
 mod record;
@@ -29,7 +34,7 @@ use std::path::{Path, PathBuf};
 use crate::checkout::{Checkout, git};
 use crate::db;
 use crate::fail;
-use crate::fail::{Fail, Result};
+use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of, resolve_by};
@@ -38,7 +43,7 @@ use crate::tool::Tool;
 use prompt::Settled;
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -61,6 +66,8 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
         "settle" => settle(tool, rest),
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
+        "replay" => replay(tool, rest),
+        "case" => case_command(tool, rest),
         _ => run_command(tool, args),
     }
 }
@@ -385,6 +392,176 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
             )
         );
     }
+    Ok(())
+}
+
+/// `builds review replay`: runs a grouping over every case of the checkout's
+/// `review/cases` and prints the recall, the false blocking findings and the
+/// tokens. Each replayed case is recorded in its project's store.
+fn replay(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &["groups", "case", "rules-root", "reviewer"], &[])?;
+    args.exactly(0, USAGE)?;
+    let root = rules_root(&args)?;
+    let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let mut all = cases::load(&root)?;
+    let wanted = args.values("case");
+    if !wanted.is_empty() {
+        for name in &wanted {
+            if !all.iter().any(|c| c.name == *name) {
+                fail!("there is no case {name}");
+            }
+        }
+        all.retain(|c| wanted.contains(&c.name.as_str()));
+    }
+    if all.is_empty() {
+        fail!("{} holds no cases", root.join(cases::DIR).display());
+    }
+    let alternative = match args.value("groups")? {
+        Some(file) => Some(groups::Groups::parse(
+            &std::fs::read_to_string(file).context(|| format!("reading {file}"))?,
+        )?),
+        None => None,
+    };
+    let cwd = current_dir()?;
+    let stamp = Stamp::resolve(tool.now, &args, &cwd)?;
+    let mut materials: Vec<(String, run::Material)> = Vec::new();
+    let mut results = Vec::new();
+    for case in &all {
+        if !materials
+            .iter()
+            .any(|(project, _)| *project == case.project)
+        {
+            let mut material = run::Material::load(&root, &case.project)?;
+            if let Some(groups) = &alternative {
+                material = material.with_groups(groups.clone())?;
+            }
+            materials.push((case.project.clone(), material));
+        }
+        let (_, material) = materials
+            .iter()
+            .find(|(project, _)| *project == case.project)
+            .expect("loaded above");
+        let result = cases::replay_case(material, &reviewer, case);
+        let store = Store::named(&tool.places, &case.project)?;
+        store.write(&stamp, &format!("review replay {}", case.name), |db| {
+            record::add_run(db, &cases::run_of(case, stamp.at), &result.calls).map(|_| ())
+        })?;
+        results.push(result);
+    }
+    print!("{}", cases::report(&results));
+    if cases::totals(&results).failed_calls > 0 {
+        return Err(Fail::Exit(1));
+    }
+    Ok(())
+}
+
+/// `builds review case add`: the case a confirmed finding or a confirmed miss
+/// makes, written into the checkout named by --rules-root (never a default:
+/// the main checkout is the person's).
+fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
+    let Some((sub, rest)) = args.split_first() else {
+        fail!("{USAGE}")
+    };
+    if sub != "add" {
+        fail!("unknown review case command {sub}\n{USAGE}");
+    }
+    let args = Args::parse(
+        rest,
+        &[
+            "repo-dir",
+            "rules-root",
+            "name",
+            "rule",
+            "file",
+            "commits",
+            "clean-for",
+        ],
+        &[],
+    )?;
+    let Some(root) = args.value("rules-root")? else {
+        fail!("name the agent-instructions worktree to write the case in with --rules-root");
+    };
+    let repo_dir = PathBuf::from(args.require("repo-dir")?);
+    let patch_of = |base: &str, head: &str| -> Result<String> {
+        let output = git(&repo_dir)
+            .args(["format-patch", "--stdout", &format!("{base}..{head}")])
+            .output()
+            .context(|| "running git format-patch".to_string())?;
+        if !output.status.success() {
+            fail!(
+                "git format-patch {base}..{head} failed in {}: {}",
+                repo_dir.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    };
+    let (project, patch, addition, default_name) = match args.positional() {
+        [landing, finding] => {
+            let cwd = current_dir()?;
+            let store = Store::resolve(&tool.places, &args, &cwd)?;
+            let Some(conn) = db::open_reader(&store.database())? else {
+                fail!("there is no store for project {}", store.project);
+            };
+            let landing: i64 = landing
+                .parse()
+                .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
+            let finding: i64 = finding
+                .parse()
+                .map_err(|_| Fail::Message(format!("'{finding}' is not a finding number")))?;
+            let found = record::finding_of(&conn, finding)?;
+            if found.landing_id != Some(landing) {
+                fail!("finding {finding} is not in landing {landing}");
+            }
+            if !matches!(&found.settled, Some((how, _)) if how == "confirmed") {
+                fail!(
+                    "finding {finding} is not settled as confirmed; only a confirmed finding becomes a case"
+                );
+            }
+            let run = record::runs_of_landing(&conn, landing)?
+                .into_iter()
+                .find(|r| r.id == found.run_id)
+                .expect("a finding's run belongs to its landing");
+            (
+                store.project.clone(),
+                patch_of(&run.base, &run.head)?,
+                (found.rule, Some(found.file)),
+                format!("{}-{}", short(&run.head), found.group.replace(' ', "-")),
+            )
+        }
+        [] => {
+            let commits = args.require("commits")?;
+            let Some((base, head)) = commits.split_once("..") else {
+                fail!("--commits is BASE..HEAD");
+            };
+            let (rule, file, word) = match args.value("clean-for")? {
+                Some(rule) => (rule.to_string(), None, "clean"),
+                None => (
+                    args.require("rule")?.to_string(),
+                    Some(args.require("file")?.to_string()),
+                    "miss",
+                ),
+            };
+            (
+                args.require("project")?.to_string(),
+                patch_of(base, head)?,
+                (rule, file),
+                format!("{}-{word}", short(head)),
+            )
+        }
+        _ => fail!("{USAGE}"),
+    };
+    let name = args
+        .value("name")?
+        .map(str::to_string)
+        .unwrap_or(default_name);
+    let (rule, file) = addition;
+    let addition = match &file {
+        Some(file) => cases::Addition::Finding { rule: &rule, file },
+        None => cases::Addition::Clean { rule: &rule },
+    };
+    let dir = cases::add(Path::new(root), &name, &project, &patch, addition)?;
+    println!("case {name} written in {}; commit it", dir.display());
     Ok(())
 }
 

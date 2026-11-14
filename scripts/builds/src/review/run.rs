@@ -43,6 +43,15 @@ impl Material {
         })
     }
 
+    /// The same material with <groups> in place of the checkout's own, after
+    /// checking that every rule of the checkout is in one of them.
+    pub fn with_groups(mut self, groups: Groups) -> Result<Material> {
+        let every = rules::load(&self.root, None)?;
+        crate::review::groups::require_whole(&groups, &every)?;
+        self.groups = groups;
+        Ok(self)
+    }
+
     fn principle(&self, name: &str) -> (String, String) {
         let path = self.root.join("principles").join(format!("{name}.md"));
         (
@@ -79,12 +88,13 @@ pub fn diff_of(worktree: &Path, base: &str) -> Result<Diff> {
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     };
-    let range = format!("{base}...HEAD");
+    let merge_base = text_of(&["merge-base", base, "HEAD"])?.trim().to_string();
+    let range = format!("{merge_base}...HEAD");
     let text = text_of(&["diff", "--no-color", "--no-ext-diff", &range])?;
     let names = text_of(&["diff", "--no-color", "--name-only", &range])?;
     let head = text_of(&["rev-parse", "HEAD"])?.trim().to_string();
     Ok(Diff {
-        base: base.to_string(),
+        base: merge_base,
         head,
         text,
         changed: names.lines().map(str::to_string).collect(),

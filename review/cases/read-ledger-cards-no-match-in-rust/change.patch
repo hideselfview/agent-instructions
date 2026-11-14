@@ -1,0 +1,286 @@
+From d97dc4f07c31dfb4ed090860eca9a1eedc49bf53 Mon Sep 17 00:00:00 2001
+From: Dmitry Minkovsky <dminkovsky@gmail.com>
+Date: Sat, 14 Nov 2026 09:59:19 -0500
+Subject: [PATCH] Read a ledger cell's cards from its stored layout
+
+A ledger cell's releases were grouped into pressing rows and cards again
+every time a verdict or run was read. The ledger statement now selects each
+answered cell's cards, and the count of its pressing rows, from the layout
+the ledger's write stored.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019wwAR8vet2nCM1HhYR5VRz
+---
+ .../src/tables/import_state/cards_read.rs     | 34 +++++++++++++++
+ .../src/tables/import_state/ledger_rows.rs    | 40 ++++++++++++++----
+ .../tables/import_state/ledger_rows_tests.rs  | 42 +++++++++++++++----
+ .../src/tables/import_state/verdict_rows.rs   |  7 ++--
+ spec/bae.md                                   |  2 +-
+ 5 files changed, 103 insertions(+), 22 deletions(-)
+
+diff --git a/bae-import/src/tables/import_state/cards_read.rs b/bae-import/src/tables/import_state/cards_read.rs
+index 829c9150bc..c3832b8401 100644
+--- a/bae-import/src/tables/import_state/cards_read.rs
++++ b/bae-import/src/tables/import_state/cards_read.rs
+@@ -157,6 +157,40 @@ pub(super) fn search_cards_sql(search_run: &str) -> String {
+     )
+ }
+ 
++/// The SQL of a scalar subquery reading the cards of the ledger cell the
++/// lookup row `lookup` names, a column of a read over the ledger's lookups.
++pub(super) fn cell_cards_sql(lookup: &str) -> String {
++    let owner = format!(
++        "{{table}}.content_hash IS {lookup}.content_hash \
++         AND {{table}}.identify_run IS {lookup}.identify_run \
++         AND {{table}}.step = {lookup}.step AND {{table}}.position = {lookup}.position \
++         AND {{table}}.cell = {lookup}.cell"
++    );
++    cards_sql(
++        &format!(
++            "SELECT found.ordinal AS ord, found.match_position AS position, found.card, \
++                    found.pressing, found.record_order, 'answered' AS kind, matched.source, \
++                    matched.release_id, matched.title, matched.year, matched.source_group_id, \
++                    matched.album_links, matched.cover_url, matched.cover_standing, \
++                    (SELECT json_group_array(json_object('catalog', link.catalog, \
++                                                         'key', link.key) \
++                                             ORDER BY link.ordinal) \
++                     FROM import_candidate_match_album_link AS link \
++                     WHERE link.content_hash IS matched.content_hash \
++                       AND link.identify_run IS matched.identify_run \
++                       AND link.position = matched.position) AS links \
++             FROM import_candidate_lookup_release AS found \
++             JOIN import_candidate_match AS matched \
++               ON matched.content_hash IS found.content_hash \
++              AND matched.identify_run IS found.identify_run \
++              AND matched.position = found.match_position \
++             WHERE {found}",
++            found = owner.replace("{table}", "found")
++        ),
++        &owner.replace("{table}", "t"),
++    )
++}
++
+ /// One card as [`cards_sql`] answers it.
+ #[derive(serde::Deserialize)]
+ pub(super) struct StoredCard {
+diff --git a/bae-import/src/tables/import_state/ledger_rows.rs b/bae-import/src/tables/import_state/ledger_rows.rs
+index 8055f63857..e8d275b93f 100644
+--- a/bae-import/src/tables/import_state/ledger_rows.rs
++++ b/bae-import/src/tables/import_state/ledger_rows.rs
+@@ -13,6 +13,7 @@
+ 
+ pub(super) const SQL: &str = include_str!("ledger_rows.sql");
+ 
++use super::cards_read::{cell_cards_sql, groups_from, StoredCard};
+ use super::layout::{store_list_text, ListLayout, ListOwner};
+ use super::lookup_failure_columns::{failure_columns, failure_of};
+ use super::verdict_rows::Owner;
+@@ -360,8 +361,11 @@ fn column(index: usize) -> Result<i64, DbError> {
+ /// the step columns, and the ledger's lists riding on them as JSON arrays —
+ /// the providers, the ISRCs and the offered catalog numbers in order, and
+ /// the rows in order, each with its lookups in cell order and each lookup
+-/// with the match positions of the releases it found in its order.
+-pub(super) const LEDGER_COLUMNS: &str = "verdict.disc_id_step AS ledger_disc_id_step, \
++/// with the match positions of the releases it found in its order, how many
++/// pressings they are and the cards they make.
++pub(super) fn ledger_columns() -> String {
++    format!(
++    "verdict.disc_id_step AS ledger_disc_id_step, \
+      verdict.barcode_step AS ledger_barcode_step, \
+      verdict.catalog_step AS ledger_catalog_step, verdict.isrc_step AS ledger_isrc_step, \
+      verdict.search_step AS ledger_search_step, verdict.search_album AS ledger_search_album, \
+@@ -388,7 +392,14 @@ pub(super) const LEDGER_COLUMNS: &str = "verdict.disc_id_step AS ledger_disc_id_
+                                 WHERE found.content_hash IS lookup.content_hash AND found.identify_run IS lookup.identify_run \
+                                   AND found.step = lookup.step \
+                                   AND found.position = lookup.position \
+-                                  AND found.cell = lookup.cell))) \
++                                  AND found.cell = lookup.cell)), \
++              'count', (SELECT COUNT(DISTINCT found.pressing) \
++                        FROM import_candidate_lookup_release AS found \
++                        WHERE found.content_hash IS lookup.content_hash AND found.identify_run IS lookup.identify_run \
++                          AND found.step = lookup.step \
++                          AND found.position = lookup.position \
++                          AND found.cell = lookup.cell), \
++              'cards', json({cards})) \
+               ORDER BY lookup.cell) \
+               FROM import_candidate_lookup AS lookup \
+               WHERE lookup.content_hash IS ledger_row.content_hash AND lookup.identify_run IS ledger_row.identify_run \
+@@ -396,9 +407,12 @@ pub(super) const LEDGER_COLUMNS: &str = "verdict.disc_id_step AS ledger_disc_id_
+                 AND lookup.position = ledger_row.position))) \
+           ORDER BY ledger_row.step, ledger_row.position) \
+       FROM import_candidate_lookup_value AS ledger_row \
+-      WHERE ledger_row.content_hash IS verdict.content_hash AND ledger_row.identify_run IS verdict.identify_run) AS ledger_rows";
++      WHERE ledger_row.content_hash IS verdict.content_hash AND ledger_row.identify_run IS verdict.identify_run) AS ledger_rows",
++    cards = cell_cards_sql("lookup"),
++    )
++}
+ 
+-/// One verdict's [`LEDGER_COLUMNS`] as SQLite hands them over, its lists
++/// One verdict's [`ledger_columns`] as SQLite hands them over, its lists
+ /// still JSON.
+ pub(super) struct StoredLedger {
+     disc_id: Option<String>,
+@@ -430,7 +444,7 @@ pub(super) fn read_ledger(row: &Row<'_>) -> rusqlite::Result<StoredLedger> {
+     })
+ }
+ 
+-/// One ledger row as [`LEDGER_COLUMNS`] holds it.
++/// One ledger row as [`ledger_columns`] holds it.
+ #[derive(serde::Deserialize)]
+ struct StoredRow {
+     step: String,
+@@ -439,7 +453,7 @@ struct StoredRow {
+     cells: Vec<StoredLookup>,
+ }
+ 
+-/// One lookup as [`LEDGER_COLUMNS`] holds it.
++/// One lookup as [`ledger_columns`] holds it.
+ #[derive(serde::Deserialize)]
+ struct StoredLookup {
+     catalog: Option<String>,
+@@ -448,6 +462,9 @@ struct StoredLookup {
+     failure: Option<String>,
+     status: Option<i64>,
+     releases: Vec<i64>,
++    /// How many pressing rows the releases are.
++    count: u32,
++    cards: Vec<StoredCard>,
+ }
+ 
+ impl StoredLedger {
+@@ -726,7 +743,8 @@ fn lookup_of(
+     stored: StoredLookup,
+     matches: &HashMap<i64, &MetadataResult>,
+ ) -> Result<LookupView, DbError> {
+-    let StoredLookup { catalog: _, answer, reason, failure, status, releases } = stored;
++    let StoredLookup { catalog: _, answer, reason, failure, status, releases, count, cards } =
++        stored;
+     if answer != "answered" && !releases.is_empty() {
+         return Err(DbError::unreadable(
+             format!("the releases a {answer} lookup of {content_hash} found"),
+@@ -768,7 +786,11 @@ fn lookup_of(
+                     })
+                 })
+                 .collect::<Result<Vec<_>, DbError>>()?;
+-            Ok(LookupView::answered(&found))
++            if found.is_empty() {
++                return Ok(LookupView::NoMatch);
++            }
++            let list: Vec<&MetadataResult> = found.iter().collect();
++            Ok(LookupView::Found { count, groups: groups_from(cards, &list)? })
+         }
+         other => Err(DbError::unreadable("a stored lookup answer", other)),
+     }
+diff --git a/bae-import/src/tables/import_state/ledger_rows_tests.rs b/bae-import/src/tables/import_state/ledger_rows_tests.rs
+index 5b0e4513fc..d4d18ac7a2 100644
+--- a/bae-import/src/tables/import_state/ledger_rows_tests.rs
++++ b/bae-import/src/tables/import_state/ledger_rows_tests.rs
+@@ -258,12 +258,9 @@ async fn a_settled_ledger_with_a_lookup_under_way_is_a_bug() {
+     assert!(bug.contains("a lookup under way"), "{bug}");
+ }
+ 
+-/// A cell's list is laid out with the ledger's write: the MusicBrainz and the
+-/// Discogs release a lookup found that print one barcode are one row under
+-/// one card, the MusicBrainz record leading, the card names its title and
+-/// label once, and the row lists what its records state.
+-#[tokio::test]
+-async fn ledger_cell_cards_are_stored_with_the_ledger() {
++/// A found verdict whose barcode lookup found a MusicBrainz and a Discogs
++/// release that print one barcode, and one that prints another.
++fn paired_cell_verdict() -> TerminalVerdict {
+     use bae_identify::{
+         BarcodeStepView, CatalogStepView, IsrcStepView, ProviderCell, SearchStepView,
+         SignalValueRow,
+@@ -283,7 +280,7 @@ async fn ledger_cell_cards_are_stored_with_the_ledger() {
+     };
+     let found =
+         LookupView::answered(&vec![discogs.clone(), elsewhere.clone(), musicbrainz.clone()]);
+-    let verdict = TerminalVerdict::Found {
++    TerminalVerdict::Found {
+         findings: Findings {
+             matches: vec![musicbrainz.clone(), discogs.clone()],
+             pressings: vec![0, 0],
+@@ -305,9 +302,16 @@ async fn ledger_cell_cards_are_stored_with_the_ledger() {
+             isrc: IsrcStepView::Absent,
+             search: SearchStepView::NoTitle,
+         }),
+-    };
++    }
++}
+ 
+-    let (db, hash, _tmp) = stored_verdict(&verdict).await;
++/// A cell's list is laid out with the ledger's write: the MusicBrainz and the
++/// Discogs release a lookup found that print one barcode are one row under
++/// one card, the MusicBrainz record leading, the card names its title and
++/// label once, and the row lists what its records state.
++#[tokio::test]
++async fn ledger_cell_cards_are_stored_with_the_ledger() {
++    let (db, hash, _tmp) = stored_verdict(&paired_cell_verdict()).await;
+     let (placed, text, statements): (Vec<String>, Vec<String>, Vec<String>) = db
+         .read(move |sql| {
+             let query = |statement: &str| {
+@@ -349,3 +353,23 @@ async fn ledger_cell_cards_are_stored_with_the_ledger() {
+         "{statements:?}"
+     );
+ }
++
++/// A cell reads back the cards the rules made of what it found: one statement
++/// over the stored layout answers the cards, their rows and each row's
++/// records, and it is the cell the run recorded.
++#[tokio::test]
++async fn ledger_cell_cards_read_back_as_the_rules_made_them() {
++    let verdict = paired_cell_verdict();
++
++    let (read, _listings) = stored_and_read(&verdict).await;
++
++    assert_eq!(read, verdict);
++    let BarcodeStepView::Rows { rows, .. } = &read.ledger().expect("a ledger").barcode else {
++        panic!("the barcode step read rows");
++    };
++    let LookupView::Found { count, groups } = &rows[0].cells[0].lookup else {
++        panic!("the lookup found releases");
++    };
++    assert_eq!(*count, 2, "the paired releases are one row and the other release is one");
++    assert_eq!(groups.len(), 2);
++}
+diff --git a/bae-import/src/tables/import_state/verdict_rows.rs b/bae-import/src/tables/import_state/verdict_rows.rs
+index 06faf512cf..e980c38b2c 100644
+--- a/bae-import/src/tables/import_state/verdict_rows.rs
++++ b/bae-import/src/tables/import_state/verdict_rows.rs
+@@ -14,8 +14,8 @@
+ pub(super) const SQL: &str = include_str!("verdict_rows.sql");
+ 
+ use super::ledger_rows::{
+-    delete_ledger, read_ledger, step_columns, store_ledger, MatchPositions, StoredLedger,
+-    LEDGER_COLUMNS,
++    delete_ledger, ledger_columns, read_ledger, step_columns, store_ledger, MatchPositions,
++    StoredLedger,
+ };
+ use super::match_rows::{store_match, Listing, MatchOwner, StoredMatches, Written};
+ use super::*;
+@@ -355,7 +355,8 @@ pub(super) fn verdict_columns() -> String {
+          verdict.failures_json AS verdict_failures_json, \
+          verdict.error_detail AS verdict_error_detail, \
+          verdict.medium_conflict AS verdict_medium_conflict, \
+-         verdict.kept_own_draft AS verdict_kept_own_draft, {LEDGER_COLUMNS}"
++         verdict.kept_own_draft AS verdict_kept_own_draft, {ledger}",
++        ledger = ledger_columns(),
+     )
+ }
+ 
+diff --git a/spec/bae.md b/spec/bae.md
+index 3b4d12e14b..363f8be012 100644
+--- a/spec/bae.md
++++ b/spec/bae.md
+@@ -6169,7 +6169,7 @@ Beside them, keyed by the release an import made:
+ | `import_candidate_lookup_choices`, `import_candidate_chosen_catalog`, `import_candidate_discounted_catalog`, `import_candidate_excluded_barcode` | what the person let the lookups use |
+ | `import_candidate_verdict` | what a run concluded: found, not found, manual only, failed or error; how each clue stood in the run it laid out; a medium conflict. Owned by a candidate's files, or by a run in flight (A.5), whose row may be `running`; this table, its matches and its ledger rows name their owner the same way |
+ | `import_candidate_match` and its `_label`, `_barcode`, `_cover_copy`, `_link`, `_album_link`, `_medium` tables | every release a run returned, once: the ones it offers, the ones set aside, and the ones a lookup found that neither lists, with the pressing row of a listed one; each label with the catalog ids the lookup gave it. A typed search's releases are rows too, owned by the search and each under the catalog part that returned it, held only while that part stands answered (A.5). A search's release states its pressing row, its card (the list place of the card's first release) and its place among its row's records; a ledger cell's release states the same for the cell's own list. A match's album's first year is not kept: it is read from the stored catalog release the match names (A.8), as that release is stored now |
+-| `import_candidate_lookup_value`, `import_candidate_lookup`, `import_candidate_lookup_release` | the run's rows (each Disc ID, barcode and catalog number, the ISRCs, the title search), each row's lookups by catalog with what each answered, and the releases each found, as the match rows holding them; a release a Disc ID's lookup found is what its Disc ID agreement is read from |
++| `import_candidate_lookup_value`, `import_candidate_lookup`, `import_candidate_lookup_release` | the run's rows (each Disc ID, barcode and catalog number, the ISRCs, the title search), each row's lookups by catalog with what each answered, and the releases each found, as the match rows holding them; a release a Disc ID's lookup found is what its Disc ID agreement is read from. The pane reads each answered cell's cards from the layout stored with it, in the one statement that reads the ledger |
+ | `import_candidate_card_text`, `import_candidate_row_statement` | what the rules decided of a list of releases, stored where the list is laid out: the titles, artists and labels each card names, and what each row lists where its records state a fact (years, label lines with their catalog numbers, barcodes, areas, media), each value once with the catalogs that state it where the records differ. A typed search's list and each ledger cell's list have them |
+ | `import_candidate_lookup_provider`, `import_candidate_lookup_isrc`, `import_candidate_lookup_offered_catalog` | the catalogs the run asked, the ISRCs it looked up, and the catalog numbers it offered to pick |
+ 
+-- 
+2.50.1 (Apple Git-155)
+

@@ -1,0 +1,222 @@
+use super::*;
+use crate::review::fakes::{Raised, fake};
+use crate::testing::Scratch;
+
+const PATCH: &str = "From 1234 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] x\n\n---\n a.rs | 1 +\n\ndiff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1 @@\n+a.rs\n-- \n2.50\n";
+
+const BAD: Raised = (
+    "Never do the bad thing here.",
+    "a.rs",
+    1,
+    "a.rs",
+    "The file does the bad thing.",
+);
+
+#[test]
+fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_the_name() {
+    let scratch = Scratch::new("case-add");
+    let root = scratch.dir.join("root");
+    add(
+        &root,
+        "one",
+        "demo",
+        PATCH,
+        Addition::Finding {
+            rule: "rule-a",
+            file: "a.rs",
+        },
+    )
+    .unwrap();
+    add(
+        &root,
+        "one",
+        "demo",
+        PATCH,
+        Addition::Finding {
+            rule: "rule-b",
+            file: "a.rs",
+        },
+    )
+    .unwrap();
+    add(
+        &root,
+        "one",
+        "demo",
+        PATCH,
+        Addition::Finding {
+            rule: "rule-b",
+            file: "a.rs",
+        },
+    )
+    .unwrap();
+    let cases = load(&root).unwrap();
+    assert_eq!(cases.len(), 1);
+    assert_eq!(cases[0].project, "demo");
+    assert_eq!(cases[0].expected.len(), 2);
+    add(
+        &root,
+        "quiet",
+        "demo",
+        PATCH,
+        Addition::Clean { rule: "rule-a" },
+    )
+    .unwrap();
+    let quiet = load(&root)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.name == "quiet")
+        .unwrap();
+    assert_eq!(quiet.clean_for, ["rule-a"]);
+    assert!(quiet.expected.is_empty());
+    let other = PATCH.replace("+a.rs", "+b");
+    let refused = add(
+        &root,
+        "one",
+        "demo",
+        &other,
+        Addition::Finding {
+            rule: "rule-a",
+            file: "a.rs",
+        },
+    )
+    .unwrap_err()
+    .text();
+    assert!(refused.contains("another change"), "{refused}");
+    let refused = add(
+        &root,
+        "two",
+        "demo",
+        PATCH,
+        Addition::Finding {
+            rule: "rule-a",
+            file: "z.rs",
+        },
+    )
+    .unwrap_err()
+    .text();
+    assert!(refused.contains("does not change z.rs"), "{refused}");
+}
+
+#[test]
+fn a_case_that_expects_nothing_or_a_file_the_patch_leaves_alone_is_refused() {
+    let scratch = Scratch::new("case-load");
+    let root = scratch.dir.join("root");
+    let dir = root.join(DIR).join("bad");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(PATCH_FILE), PATCH).unwrap();
+    std::fs::write(dir.join("expected.toml"), "project = \"demo\"\n").unwrap();
+    assert!(load(&root).unwrap_err().text().contains("expects nothing"));
+    std::fs::write(
+        dir.join("expected.toml"),
+        "project = \"demo\"\n[[finding]]\nrule = \"r\"\nfile = \"z.rs\"\n",
+    )
+    .unwrap();
+    assert!(load(&root).unwrap_err().text().contains("does not change"));
+}
+
+const PATCH_FILE: &str = "change.patch";
+
+fn material(fake: &crate::review::fakes::Fake) -> Material {
+    Material::load(&fake.root, "demo").unwrap()
+}
+
+#[test]
+fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
+    let scratch = Scratch::new("case-replay");
+    let fake = fake(&scratch.dir);
+    add(
+        &fake.root,
+        "hit",
+        "demo",
+        PATCH,
+        Addition::Finding {
+            rule: "rule-a",
+            file: "a.rs",
+        },
+    )
+    .unwrap();
+    let case = load(&fake.root).unwrap().remove(0);
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let found = replay_case(&material(&fake), &fake.program, &case);
+    assert_eq!(
+        (found.expected, found.found, found.false_blocking),
+        (1, 1, 0)
+    );
+    assert_eq!(found.tokens(), (100, 10));
+    fake.answer("alpha", &[("rule-a", None)]);
+    let missed = replay_case(&material(&fake), &fake.program, &case);
+    assert_eq!((missed.found, missed.missed.len()), (0, 1));
+    // A finding whose code is not in the patch does not count as found.
+    fake.answer(
+        "alpha",
+        &[(
+            "rule-a",
+            Some(("Never do the bad thing here.", "a.rs", 1, "not in it", "p")),
+        )],
+    );
+    assert_eq!(replay_case(&material(&fake), &fake.program, &case).found, 0);
+    // On a clean case, a blocking finding of the quiet rule is a false one.
+    let clean = Case {
+        name: "clean".to_string(),
+        project: "demo".to_string(),
+        patch: PATCH.to_string(),
+        clean_for: vec!["rule-a".to_string()],
+        expected: Vec::new(),
+    };
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    assert_eq!(
+        replay_case(&material(&fake), &fake.program, &clean).false_blocking,
+        1
+    );
+    fake.answer("alpha", &[("rule-a", None)]);
+    let quiet = replay_case(&material(&fake), &fake.program, &clean);
+    assert_eq!(quiet.false_blocking, 0);
+    let text = report(&[found, missed, quiet]);
+    assert!(
+        text.contains("recall 1 of 2 expected findings (50%), 0 false blocking findings"),
+        "{text}"
+    );
+    assert!(text.contains("missed rule-a in a.rs"));
+}
+
+#[test]
+fn a_failed_call_in_a_replay_is_counted_and_named() {
+    let scratch = Scratch::new("case-replay-failed");
+    let fake = fake(&scratch.dir);
+    add(
+        &fake.root,
+        "hit",
+        "demo",
+        PATCH,
+        Addition::Finding {
+            rule: "rule-a",
+            file: "a.rs",
+        },
+    )
+    .unwrap();
+    let case = load(&fake.root).unwrap().remove(0);
+    fake.fail("alpha");
+    let result = replay_case(&material(&fake), &fake.program, &case);
+    let t = totals(std::slice::from_ref(&result));
+    assert_eq!((t.failed_calls, t.found), (1, 0));
+    assert!(report(&[result]).contains("group alpha failed"));
+}
+
+#[test]
+fn the_committed_cases_load_and_each_names_a_rule_that_exists() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cases = load(&root).unwrap();
+    assert!(cases.len() >= 14, "{} cases", cases.len());
+    let rules = crate::review::rules::load(&root, None).unwrap();
+    for case in &cases {
+        for slug in case.expected.iter().map(|e| &e.rule).chain(&case.clean_for) {
+            assert!(
+                rules.iter().any(|r| &r.slug == slug),
+                "case {} names {slug}, which is no rule",
+                case.name
+            );
+        }
+    }
+    let quiet = cases.iter().filter(|c| c.expected.is_empty()).count();
+    assert_eq!(quiet, 5);
+}

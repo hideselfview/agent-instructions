@@ -1,0 +1,1322 @@
+From 9167c636c5870991e4df0f180f39c9847f353fa9 Mon Sep 17 00:00:00 2001
+From: Dmitry Minkovsky <dminkovsky@gmail.com>
+Date: Sat, 14 Nov 2026 08:07:52 -0500
+Subject: [PATCH] Seed a folder's blank draft in SQL, and again when its
+ imported release goes
+
+A folder this device did not import read as its blank draft when it held no draft row, so the pane and the window rebuilt it from the files on every read. The scan now stores the folder's blank cover with its files, seeds the blank draft from the stored audio units, and deleting this device's release of a folder seeds it again (a trigger, since coven applies another device's deletion too). Every such state holds a draft row, and the pane fails on a missing one.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019wwAR8vet2nCM1HhYR5VRz
+---
+ bae-import/src/cover_art.rs                   |  16 ++-
+ bae-import/src/handle/draft_source.rs         |   5 +-
+ bae-import/src/handle/verdict_write_tests.rs  |   2 +-
+ bae-import/src/pane.rs                        |   9 +-
+ bae-import/src/release_candidate.rs           |  18 ---
+ bae-import/src/service/importing_tests.rs     |  24 ++--
+ bae-import/src/tables.rs                      |   2 +-
+ bae-import/src/tables/folder_scans.sql        |   4 +
+ bae-import/src/tables/folder_scans/units.rs   |  16 +++
+ .../src/tables/folder_scans/units_tests.rs    |  61 ++++----
+ bae-import/src/tables/folder_scans/write.rs   |  24 ++--
+ bae-import/src/tables/folder_scans_tests.rs   |  35 +++++
+ .../src/tables/import_list/pane_tests.rs      |  17 +++
+ bae-import/src/tables/import_list/window.rs   |  48 ++-----
+ .../src/tables/import_list/window_tests.rs    |  21 +--
+ bae-import/src/tables/import_state.rs         |   6 +-
+ .../tables/import_state/blank_draft_rows.rs   | 133 ++++++++++++++++++
+ .../tables/import_state/blank_draft_rows.sql  | 101 +++++++++++++
+ .../src/tables/import_state/pane_rows.rs      |  85 ++++++-----
+ .../src/tables/import_state/pane_rows.sql     |  12 +-
+ .../src/tables/import_state/seed_rows.rs      |  53 +++----
+ .../tables/import_state/seed_rows_tests.rs    |  42 ++++++
+ owner-construction-check.toml                 |  29 ----
+ spec/bae.md                                   |  20 +--
+ 24 files changed, 523 insertions(+), 260 deletions(-)
+ create mode 100644 bae-import/src/tables/import_state/blank_draft_rows.rs
+ create mode 100644 bae-import/src/tables/import_state/blank_draft_rows.sql
+
+diff --git a/bae-import/src/cover_art.rs b/bae-import/src/cover_art.rs
+index 32ab6f8dc7..5f06d30252 100644
+--- a/bae-import/src/cover_art.rs
++++ b/bae-import/src/cover_art.rs
+@@ -179,8 +179,7 @@ pub(crate) fn embedded_cover_selection(
+ /// `None` when the folder has none of them.
+ ///
+ /// One rule, run wherever a candidate's cover comes from its folder: the
+-/// scan that creates its state stores it, and a candidate holding no draft
+-/// row, whose blank cover no row stores, reads it from its scanned files.
++/// scan that creates its state stores it.
+ pub(crate) fn folder_cover<'a>(
+     embedded: Option<PreparedCover>,
+     artwork: impl IntoIterator<Item = &'a ScannedFile>,
+@@ -192,6 +191,19 @@ pub(crate) fn folder_cover<'a>(
+         .or_else(|| default_local_cover_file(artwork).map(local_selection))
+ }
+ 
++/// The file of the folder the cover rules pick when no tag is read: what
++/// [`folder_cover`] picks with nothing embedded. The scan stores it with the
++/// folder's files (`scan_candidate.blank_cover_file`), where the blank draft
++/// reads it.
++pub(crate) fn blank_cover_file<'a>(
++    artwork: impl IntoIterator<Item = &'a ScannedFile>,
++) -> Option<String> {
++    let artwork = artwork.into_iter().collect::<Vec<_>>();
++    front_cover_file(artwork.iter().copied())
++        .or_else(|| default_local_cover_file(artwork))
++        .map(|file| file.relative_path.clone())
++}
++
+ /// The cover applying a folder's file tags selects: the tags' embedded
+ /// artwork, unless the folder holds an image named as the front cover, which
+ /// [`folder_cover`] ranks ahead of it. `None` when the tags embed nothing, so
+diff --git a/bae-import/src/handle/draft_source.rs b/bae-import/src/handle/draft_source.rs
+index 03a7d97c5d..efea840079 100644
+--- a/bae-import/src/handle/draft_source.rs
++++ b/bae-import/src/handle/draft_source.rs
+@@ -49,7 +49,10 @@ impl ImportServiceHandle {
+     ) -> Result<u64, crate::ImportError> {
+         let (candidate, current) = self.metadata_write_base(&candidate_key).await?;
+         let content_hash = candidate.files.content_hash();
+-        let mut draft = candidate.blank_draft();
++        let mut draft =
++            self.services.tables.load_blank_draft(&content_hash).await?.ok_or_else(|| {
++                crate::tables::CandidateStateRefusal::NoState(content_hash.clone())
++            })?;
+         crate::pane::keep_row_identities(&mut draft.tracks, &current.metadata.draft.tracks)?;
+         let _commit = self
+             .commit_lock_for_revision(
+diff --git a/bae-import/src/handle/verdict_write_tests.rs b/bae-import/src/handle/verdict_write_tests.rs
+index 060b9a5171..1563d2dc09 100644
+--- a/bae-import/src/handle/verdict_write_tests.rs
++++ b/bae-import/src/handle/verdict_write_tests.rs
+@@ -58,7 +58,7 @@ impl Fixture {
+             .await
+             .expect("the candidate state is readable")
+             .expect("the scanned candidate is answerable");
+-        let mut draft = candidate.blank_draft();
++        let mut draft = crate::pane::blank_candidate_draft(&candidate.files);
+         draft.album_title = "Album".to_string();
+         draft.album_artist_assignments =
+             vec![crate::Credited::plain(crate::ArtistAssignment::Credit {
+diff --git a/bae-import/src/pane.rs b/bae-import/src/pane.rs
+index 2b5514f74f..80f42fba9c 100644
+--- a/bae-import/src/pane.rs
++++ b/bae-import/src/pane.rs
+@@ -21,10 +21,11 @@ pub(crate) fn candidate_track_id(position: usize) -> String {
+     format!("{CANDIDATE_TRACK_ID_PREFIX}-{position}")
+ }
+ 
+-/// The source-less editable draft created with a discovered candidate.
+-/// Candidate files determine only which audio units exist, and their discs
+-/// and numbers; their names and tags do not become metadata until a source is
+-/// explicitly applied.
++/// The draft a test starts from: one blank track per audio unit of the
++/// folder, on the medium of its disc. The scan stores the same draft with the
++/// folder (`blank_draft_*` views); this builds it from files held in memory,
++/// and a test checks the two are one draft.
++#[cfg(test)]
+ pub(crate) fn blank_candidate_draft(files: &CategorizedFiles) -> CandidateDraft {
+     let layout = crate::audio_layout::folder_tracks(files);
+     let numbering: Vec<_> = layout.iter().map(|track| (track.disc, Some(track.number))).collect();
+diff --git a/bae-import/src/release_candidate.rs b/bae-import/src/release_candidate.rs
+index db72773a53..ddb6e7c356 100644
+--- a/bae-import/src/release_candidate.rs
++++ b/bae-import/src/release_candidate.rs
+@@ -40,24 +40,6 @@ impl FolderCandidate {
+         Ok(values)
+     }
+ 
+-    /// The draft a release starts from before anyone describes it: one blank
+-    /// track per audio unit, in the release's own track layout. A release
+-    /// read from several folders starts titled by the name it is listed as —
+-    /// no one folder's name speaks for it on its own.
+-    pub(crate) fn blank_draft(&self) -> super::CandidateDraft {
+-        let mut draft = super::pane::blank_candidate_draft(&self.files);
+-        if self.grouping.is_some() {
+-            draft.album_title.clone_from(&self.name);
+-        }
+-        draft
+-    }
+-
+-    /// The cover a release starts from before anyone describes it: the image
+-    /// of its own the folder's cover rules pick, if it holds one.
+-    pub(crate) fn blank_cover(&self) -> Option<super::cover_art::PreparedCover> {
+-        super::cover_art::folder_cover(None, self.files.artwork())
+-    }
+-
+     pub fn source(&self) -> CandidateSource {
+         CandidateSource {
+             path: self.file_root.clone(),
+diff --git a/bae-import/src/service/importing_tests.rs b/bae-import/src/service/importing_tests.rs
+index 1b0b897cc4..a070e8832f 100644
+--- a/bae-import/src/service/importing_tests.rs
++++ b/bae-import/src/service/importing_tests.rs
+@@ -449,13 +449,12 @@ async fn shown_row(test: &TestService) -> Vec<String> {
+         .unwrap()
+ }
+ 
+-/// An imported candidate holds no draft, and a scan seeds none for it. Once
+-/// its release is deleted the folder is back in Found as a new one is when
+-/// its tags are not read: its blank draft, which no row holds and nobody
+-/// wrote, under its folder's name, until the first write to its draft
+-/// stores the row.
++/// An imported candidate holds no draft, and a scan seeds none for it. The
++/// write that deletes its release seeds the folder's blank draft and cover,
++/// so the folder is back in Found as a new one is when its tags are not read:
++/// its blank draft, which nobody wrote, under its folder's name.
+ #[tokio::test]
+-async fn a_folder_whose_release_is_deleted_reads_as_its_blank_draft() {
++async fn deleting_an_imported_release_seeds_the_folder_blank_draft_and_cover() {
+     let test = setup_import_service().await;
+     let tables = test.service.tables.clone();
+     let (folder, candidate_key, expectation) = spent_rows_candidate(&test).await;
+@@ -484,6 +483,13 @@ async fn a_folder_whose_release_is_deleted_reads_as_its_blank_draft() {
+     // Under another name, so the scan writes the folder's row anew.
+     rescan_folder(&test, &folder, "Box Set Renamed").await;
+     assert_eq!(drafts().await, 0, "a scan seeds no draft for files imported here");
++    let covers = || async {
++        test.db
++            .count_rows_for_test("import_candidate_cover", "content_hash", &content_hash)
++            .await
++            .unwrap()
++    };
++    assert_eq!(covers().await, 0, "or cover");
+ 
+     let release_id = test
+         .service
+@@ -497,6 +503,8 @@ async fn a_folder_whose_release_is_deleted_reads_as_its_blank_draft() {
+         &release_id,
+     )
+     .await;
++    assert_eq!(drafts().await, 1, "the deletion seeds the blank draft");
++    assert_eq!(covers().await, 1, "and the folder's cover");
+     assert_eq!(shown_row(&test).await, vec!["pending|Box Set Renamed|-".to_string()]);
+     let pane = tables
+         .load_import_candidate(&candidate_key)
+@@ -515,7 +523,7 @@ async fn a_folder_whose_release_is_deleted_reads_as_its_blank_draft() {
+         "the folder's own cover"
+     );
+     rescan_folder(&test, &folder, "Box Set").await;
+-    assert_eq!(drafts().await, 0, "the scan leaves a stored state as it is");
++    assert_eq!(drafts().await, 1, "the scan leaves a stored state as it is");
+     assert_eq!(shown_row(&test).await, vec!["pending|Box Set|-".to_string()]);
+ 
+     prepare_named_candidate(
+@@ -527,7 +535,7 @@ async fn a_folder_whose_release_is_deleted_reads_as_its_blank_draft() {
+         "Box Set Again",
+     )
+     .await;
+-    assert_eq!(drafts().await, 1, "the first write stores the draft");
++    assert_eq!(drafts().await, 1, "the first write changes the draft in place");
+     assert_eq!(shown_row(&test).await, vec!["pending|Box Set Again|Artist Name".to_string()]);
+ }
+ 
+diff --git a/bae-import/src/tables.rs b/bae-import/src/tables.rs
+index 1a89a8e5e1..8b6f4e6d46 100644
+--- a/bae-import/src/tables.rs
++++ b/bae-import/src/tables.rs
+@@ -24,9 +24,9 @@ pub const SCHEMA_PARTS: &[bae_store::SchemaPart] = &[
+     skipped_candidates::SCHEMA,
+     folder_scans::SCHEMA,
+     release_groupings::SCHEMA,
++    import_origin::SCHEMA,
+     import_state::SCHEMA,
+     source_releases::SCHEMA,
+-    import_origin::SCHEMA,
+     import_list::SCHEMA,
+     cover_gallery::SCHEMA,
+ ];
+diff --git a/bae-import/src/tables/folder_scans.sql b/bae-import/src/tables/folder_scans.sql
+index 5e31d02da0..5a169bda85 100644
+--- a/bae-import/src/tables/folder_scans.sql
++++ b/bae-import/src/tables/folder_scans.sql
+@@ -83,6 +83,10 @@ CREATE TABLE IF NOT EXISTS scan_candidate (
+     -- 'grouping' for a release a grouping with no anchor builds from its
+     -- members.
+     source_kind                    TEXT NOT NULL DEFAULT 'folder' CHECK (source_kind IN ('folder', 'grouping')),
++    -- The relative path of the image the folder's cover rules pick when no
++    -- tag is read (`cover_art::folder_cover`), NULL when it holds none;
++    -- written with the files, which it is a fact of.
++    blank_cover_file               TEXT,
+     PRIMARY KEY (watched_folder_path, path),
+     FOREIGN KEY (watched_folder_path) REFERENCES folder_scan_roots (watched_folder_path) ON DELETE CASCADE,
+     -- A release a grouping reads as one leaves the queue with its grouping.
+diff --git a/bae-import/src/tables/folder_scans/units.rs b/bae-import/src/tables/folder_scans/units.rs
+index 04a98b505a..1ff2a72ade 100644
+--- a/bae-import/src/tables/folder_scans/units.rs
++++ b/bae-import/src/tables/folder_scans/units.rs
+@@ -148,6 +148,22 @@ pub(crate) struct StoredUnit {
+ 
+ #[cfg(test)]
+ impl crate::tables::ImportTables {
++    /// The blank cover stored for the candidates reading `content_hash`'s
++    /// files.
++    pub(crate) async fn blank_cover_file_for_test(&self, content_hash: &str) -> Option<String> {
++        let content_hash = content_hash.to_owned();
++        self.store
++            .read(move |sql| {
++                Ok(sql.query_row(
++                    "SELECT blank_cover_file FROM scan_candidate WHERE content_hash = ?",
++                    [content_hash],
++                    |row| row.get(0),
++                )?)
++            })
++            .await
++            .unwrap()
++    }
++
+     /// The units stored for the candidates reading `content_hash`'s files, in
+     /// play order.
+     pub(crate) async fn load_units_for_test(&self, content_hash: &str) -> Vec<StoredUnit> {
+diff --git a/bae-import/src/tables/folder_scans/units_tests.rs b/bae-import/src/tables/folder_scans/units_tests.rs
+index a280c87d41..f2c15d48fd 100644
+--- a/bae-import/src/tables/folder_scans/units_tests.rs
++++ b/bae-import/src/tables/folder_scans/units_tests.rs
+@@ -1,45 +1,10 @@
+ //! The layout a scan stores with a candidate's files.
+ 
+ use super::units::StoredUnit;
+-use crate::mapping::tests::{cue_sheet_text, scan, write_flac};
++use crate::mapping::tests::{cue_sheet_text, write_flac};
++use crate::tables::folder_scans::tests::stored_folder;
+ use crate::tables::tests::*;
+ use crate::tables::ImportTables;
+-use bae_store::Store;
+-
+-/// Scan the folder `name` below `root`, holding the files `setup` writes,
+-/// and store it as a valid candidate; its content hash.
+-async fn stored_folder(
+-    db: &Store,
+-    root: &std::path::Path,
+-    name: &str,
+-    setup: impl FnOnce(&std::path::Path),
+-) -> String {
+-    let folder = root.join(name);
+-    std::fs::create_dir_all(&folder).unwrap();
+-    setup(&folder);
+-    let files = scan(&folder);
+-    let candidate = crate::folder_scanner::FolderCandidate {
+-        path: folder.clone(),
+-        file_root: folder.clone(),
+-        name: name.to_owned(),
+-        files,
+-        watched_folder_path: root.to_path_buf(),
+-        scope: crate::folder_scanner::ReleaseFileScope::Recursive,
+-        file_edit_revision: 0,
+-        relative_folder: crate::RelativeFolder::of(std::path::Path::new(name)).unwrap(),
+-        grouping: None,
+-    };
+-    let hash = candidate.files.content_hash();
+-    let tables = ImportTables::new(db.clone());
+-    tables.add_watched_import_folder(root).await.unwrap();
+-    let generation = tables.begin_folder_scan(root, crate::VolumeKind::Local).await.unwrap();
+-    tables
+-        .save_folder_scan_item(root, generation, &crate::folder_scanner::ScanItem::Valid(candidate))
+-        .await
+-        .unwrap();
+-    tables.finish_folder_scan(root, generation, None).await.unwrap();
+-    hash
+-}
+ 
+ /// A loose bonus track and a disc image carved by its sheet into three.
+ fn bonus_and_disc(folder: &std::path::Path) {
+@@ -83,3 +48,25 @@ async fn units_time_each_cue_slice_to_the_next_boundary_or_the_container_end() {
+     );
+     assert_eq!(units[0].duration_ms, 1000, "a loose file plays for its own length");
+ }
++
++/// The folder's front-cover-named image is the blank cover the scan stores
++/// with its files, over a file the cover rules rank lower; a folder with no
++/// image has none.
++#[tokio::test]
++async fn scan_stores_the_front_cover_named_file_as_the_blank_cover() {
++    let with_art = |folder: &std::path::Path| {
++        write_flac(&folder.join("01.flac"));
++        std::fs::write(folder.join("back.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
++        std::fs::write(folder.join("Front.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
++    };
++    let without_art = |folder: &std::path::Path| write_flac(&folder.join("01.flac"));
++    let (db, _tmp, root) = watched_root().await;
++    let covered = stored_folder(&db, &root, "Covered", with_art).await;
++    assert_eq!(
++        ImportTables::new(db).blank_cover_file_for_test(&covered).await,
++        Some("Front.jpg".to_string())
++    );
++    let (db, _tmp, root) = watched_root().await;
++    let bare = stored_folder(&db, &root, "Bare", without_art).await;
++    assert_eq!(ImportTables::new(db).blank_cover_file_for_test(&bare).await, None);
++}
+diff --git a/bae-import/src/tables/folder_scans/write.rs b/bae-import/src/tables/folder_scans/write.rs
+index 3bcfde40f6..0915fee123 100644
+--- a/bae-import/src/tables/folder_scans/write.rs
++++ b/bae-import/src/tables/folder_scans/write.rs
+@@ -166,18 +166,11 @@ fn insert_candidate(
+ ) -> Result<(), DbError> {
+     insert_candidate_row(sql, watched_folder_path, generation, kind, source_kind, candidate)?;
+     let path = candidate.key();
+-    let blank;
+-    use crate::tables::import_state::{ensure_candidate_state, CandidateStateSeed};
+-    let seed = match file_metadata {
+-        Some(seed) => CandidateStateSeed::FileMetadata(seed),
+-        None => {
+-            blank = candidate.blank_draft();
+-            CandidateStateSeed::Blank { draft: &blank, cover: candidate.blank_cover() }
+-        }
+-    };
+-    // File rows first: the file-tag reading references them.
++    use crate::tables::import_state::ensure_candidate_state;
++    // File rows first: the file-tag reading references them, and the blank
++    // draft is read from the units stored with them.
+     insert_candidate_files(sql, watched_folder_path, &path, &candidate.files)?;
+-    ensure_candidate_state(sql, &path, &candidate.path, &candidate.files, seed)?;
++    ensure_candidate_state(sql, &path, &candidate.path, &candidate.files, file_metadata)?;
+     // The reading belongs to the scan row, so a seed always stores it, while
+     // its draft only fills a candidate that has none.
+     if let Some(seed) = file_metadata {
+@@ -355,6 +348,15 @@ pub(crate) fn insert_candidate_files(
+             )?;
+         }
+     }
++    sql.execute(
++        "UPDATE scan_candidate SET blank_cover_file = ? \
++         WHERE watched_folder_path = ? AND path = ?",
++        params![
++            crate::cover_art::blank_cover_file(files.artwork()),
++            coven::path_bytes(watched_folder_path),
++            candidate_path
++        ],
++    )?;
+     super::units::insert_units(sql, watched_folder_path, candidate_path, files)
+ }
+ 
+diff --git a/bae-import/src/tables/folder_scans_tests.rs b/bae-import/src/tables/folder_scans_tests.rs
+index b6e677468e..6c77d99749 100644
+--- a/bae-import/src/tables/folder_scans_tests.rs
++++ b/bae-import/src/tables/folder_scans_tests.rs
+@@ -809,3 +809,38 @@ pub struct DbFolderScanSnapshot {
+ 
+ #[path = "folder_scans_tests/write_cost.rs"]
+ mod write_cost;
++
++/// Scan the folder `name` below `root`, holding the files `setup` writes,
++/// and store it as a valid candidate; its content hash.
++pub(crate) async fn stored_folder(
++    db: &bae_store::Store,
++    root: &std::path::Path,
++    name: &str,
++    setup: impl FnOnce(&std::path::Path),
++) -> String {
++    let folder = root.join(name);
++    std::fs::create_dir_all(&folder).unwrap();
++    setup(&folder);
++    let files = crate::mapping::tests::scan(&folder);
++    let candidate = crate::folder_scanner::FolderCandidate {
++        path: folder.clone(),
++        file_root: folder.clone(),
++        name: name.to_owned(),
++        files,
++        watched_folder_path: root.to_path_buf(),
++        scope: crate::folder_scanner::ReleaseFileScope::Recursive,
++        file_edit_revision: 0,
++        relative_folder: crate::RelativeFolder::of(std::path::Path::new(name)).unwrap(),
++        grouping: None,
++    };
++    let hash = candidate.files.content_hash();
++    let tables = ImportTables::new(db.clone());
++    tables.add_watched_import_folder(root).await.unwrap();
++    let generation = tables.begin_folder_scan(root, crate::VolumeKind::Local).await.unwrap();
++    tables
++        .save_folder_scan_item(root, generation, &crate::folder_scanner::ScanItem::Valid(candidate))
++        .await
++        .unwrap();
++    tables.finish_folder_scan(root, generation, None).await.unwrap();
++    hash
++}
+diff --git a/bae-import/src/tables/import_list/pane_tests.rs b/bae-import/src/tables/import_list/pane_tests.rs
+index 1089263842..39e28daecc 100644
+--- a/bae-import/src/tables/import_list/pane_tests.rs
++++ b/bae-import/src/tables/import_list/pane_tests.rs
+@@ -668,3 +668,20 @@ async fn pane_folder_check_reads_the_stored_draft_validity() {
+         "the pane reads the validity the draft row stores"
+     );
+ }
++
++/// Every state of a folder this device did not import holds a draft row, so
++/// the pane never builds a draft from the files: a state with none is a
++/// damaged row, and the pane refuses to read it.
++#[tokio::test]
++async fn pane_reads_no_draft_from_files() {
++    let (db, tmp, root) = watched_root().await;
++    let tables = crate::tables::ImportTables::new(db.clone());
++    let (candidate, _) = scanned_with_a_ruled_out_verdict(&db, &root).await;
++    let key = crate::CandidateKey::folder(&candidate.path);
++    assert!(tables.load_import_candidate(&key).await.unwrap().is_some(), "the pane reads");
++
++    crate::tables::ImportTables::plant_missing_drafts_for_test(tmp.path()).await;
++
++    let refused = tables.load_import_candidate(&key).await.expect_err("the pane has no draft");
++    assert!(refused.to_string().contains("import_candidate_edit"), "{refused}");
++}
+diff --git a/bae-import/src/tables/import_list/window.rs b/bae-import/src/tables/import_list/window.rs
+index ff63aaab3e..3282dc7d1e 100644
+--- a/bae-import/src/tables/import_list/window.rs
++++ b/bae-import/src/tables/import_list/window.rs
+@@ -22,7 +22,7 @@ use crate::tables::import_state::{
+     cover_read_columns, read_cover, read_provenance, read_release_link, RuntimeFactColumns,
+     PROVENANCE_COLUMNS, RELEASE_LINK_COLUMNS, RUNTIME_FACT_COLUMNS,
+ };
+-use crate::tables::release_groupings::{block_of, release_of_stored};
++use crate::tables::release_groupings::block_of;
+ use crate::tables::source_releases::load_releases_records_on;
+ use crate::triage::{
+     import_status_of, TriageGroup, TriageMetadataSummary, TriageReading, TriageRow,
+@@ -52,7 +52,7 @@ pub(super) fn materialise(
+     let imported = ImportedReads::of(sql, &releases)?;
+     let linked = LinkedReads::of(sql, keys, &releases)?;
+     let mut scanned = scanned_items(sql, keys, &releases)?;
+-    let mut covers = row_covers(sql, keys, &releases, &mut scanned)?;
++    let mut covers = row_covers(sql, keys, &releases)?;
+     let mut releases = releases.into_iter().peekable();
+     keys.iter()
+         .enumerate()
+@@ -194,9 +194,6 @@ struct ReleaseRows {
+     /// Whether the candidate's state describes its current files, which is
+     /// when its draft, link, lookup and cover are its own.
+     current: bool,
+-    /// Whether that state holds a draft row; one that holds none holds its
+-    /// files' blank draft and the folder's own cover.
+-    drafted: bool,
+     imported: Option<ImportedRelease>,
+     /// The version of the imported release's library cover, if it has one.
+     library_cover: Option<String>,
+@@ -214,15 +211,6 @@ struct ReleaseRows {
+     cover: Option<CoverSelection>,
+ }
+ 
+-impl ReleaseRows {
+-    /// Whether the row is a current candidate this device did not import
+-    /// that holds no draft row, so it shows the folder's own cover its blank
+-    /// draft comes with, read from its scan.
+-    fn reads_blank_cover(&self) -> bool {
+-        self.imported.is_none() && self.current && !self.drafted
+-    }
+-}
+-
+ /// The releases of the window `keys`, in its order.
+ fn release_rows(
+     sql: &SqlReadContext<'_>,
+@@ -254,8 +242,6 @@ fn release_rows(
+                             WHERE chosen.list_id = :list AND chosen.key = p.key) AS selected, \
+                     p.group_folder AS group_folder, \
+                     w.value ->> 0 AS window_position, {library_cover} AS library_cover, \
+-                    EXISTS (SELECT 1 FROM import_candidate_edit AS drafted \
+-                            WHERE drafted.content_hash = s.content_hash) AS drafted, \
+                     {PROVENANCE_COLUMNS}, {RELEASE_LINK_COLUMNS}, {cover} \
+              FROM json_each(:keys) AS w \
+              JOIN import_list_placement AS p \
+@@ -312,7 +298,6 @@ fn release_rows(
+                     None => None,
+                 },
+                 library_cover: row.get("library_cover")?,
+-                drafted: row.get("drafted")?,
+                 block: (row.get(21)?, row.get(22)?, row.get(23)?),
+                 failure: match failed {
+                     true => Some(failure_reason_from_row(row)?),
+@@ -351,9 +336,8 @@ fn release_rows(
+ }
+ 
+ /// The scan items the window's rows read their files from, by key, read in
+-/// one statement: a folder that failed validation shows what its scan read,
+-/// and a current candidate holding no draft row shows its files' blank
+-/// cover. Only such a row reads its scan's files.
++/// one statement: a folder that failed validation shows what its scan read.
++/// Only such a row reads its scan's files.
+ fn scanned_items(
+     sql: &SqlReadContext<'_>,
+     keys: &[ItemKey],
+@@ -361,9 +345,7 @@ fn scanned_items(
+ ) -> Result<HashMap<CandidateKey, folder_scans::StoredScanItem>, DbError> {
+     let wanted: Vec<(&std::path::Path, &CandidateKey)> = releases
+         .iter()
+-        .filter(|release| {
+-            keys[release.position].item == Item::Invalid || release.reads_blank_cover()
+-        })
++        .filter(|release| keys[release.position].item == Item::Invalid)
+         .map(|release| (release.watched_folder_path.as_path(), &release.key))
+         .collect();
+     folder_scans::load_items_by_keys(sql, &wanted, folder_scans::RowSources::Any)
+@@ -568,33 +550,19 @@ impl LinkedRows {
+ }
+ 
+ /// The cover each row of a candidate this device did not import draws, by
+-/// the row's position in the window: its stored selection, or, for a state
+-/// holding no draft row, the folder's own cover its blank draft comes with,
+-/// read from its scan, which it takes out of `scanned`. The versions of the files the selections
+-/// name are read together.
++/// the row's position in the window: its stored selection. The versions of
++/// the files the selections name are read together.
+ fn row_covers(
+     sql: &SqlReadContext<'_>,
+     keys: &[ItemKey],
+     releases: &[ReleaseRows],
+-    scanned: &mut HashMap<CandidateKey, folder_scans::StoredScanItem>,
+ ) -> Result<HashMap<usize, crate::CoverImageSource>, DbError> {
+     let mut selections: Vec<(&ReleaseRows, CoverSelection)> = Vec::new();
+     for release in releases {
+         if keys[release.position].item == Item::Invalid || release.imported.is_some() {
+             continue;
+         }
+-        let selection = if release.reads_blank_cover() {
+-            let unreadable = || {
+-                DbError::unreadable(format!("the scan_candidate rows of listed {}", release.key), 0)
+-            };
+-            let stored = scanned.remove(&release.key).ok_or_else(unreadable)?;
+-            let (candidate, _) =
+-                release_of_stored(&release.watched_folder_path, stored)?.ok_or_else(unreadable)?;
+-            candidate.blank_cover().as_ref().map(crate::cover_art::PreparedCover::selection)
+-        } else {
+-            release.cover.clone()
+-        };
+-        if let Some(selection) = selection {
++        if let Some(selection) = release.cover.clone() {
+             selections.push((release, selection));
+         }
+     }
+diff --git a/bae-import/src/tables/import_list/window_tests.rs b/bae-import/src/tables/import_list/window_tests.rs
+index a898ac6ab2..1318b3ed7c 100644
+--- a/bae-import/src/tables/import_list/window_tests.rs
++++ b/bae-import/src/tables/import_list/window_tests.rs
+@@ -854,19 +854,21 @@ fn with_cover(root: &std::path::Path, name: &str) -> FolderCandidate {
+     )
+ }
+ 
+-/// With no draft row a candidate reads as its files' blank draft and the
+-/// folder's own cover, on its row and in its pane, and its first save stores
+-/// the draft and that cover. An import deletes them, and the release it wrote
+-/// deleted from the library puts the folder back in Found holding neither.
++/// An import deletes a candidate's draft and cover, and the release it wrote
++/// deleted from the library puts the folder back in Found holding its files'
++/// blank draft and the folder's own cover, on its row and in its pane.
+ #[tokio::test]
+-async fn a_candidate_holding_no_draft_row_reads_its_blank_draft_and_folder_cover() {
++async fn a_folder_whose_release_is_deleted_lists_its_blank_draft_and_folder_cover() {
+     let lib = Library::new().await;
+     let tables = crate::tables::ImportTables::new(lib.db.clone());
+     let candidate = with_cover(&lib.root, "Album");
+     let key = candidate.key();
+     let hash = candidate.files.content_hash();
+     let folder_cover = crate::cover_art::PreparedCover::Local("cover.jpg".to_string());
+-    assert_eq!(candidate.blank_cover(), Some(folder_cover.clone()));
++    assert_eq!(
++        crate::cover_art::blank_cover_file(candidate.files.artwork()),
++        Some("cover.jpg".to_string())
++    );
+     lib.run(
+         lib.store(ScanItem::Valid(candidate.clone()), None)
+             + lib.import_of(
+@@ -902,7 +904,10 @@ async fn a_candidate_holding_no_draft_row_reads_its_blank_draft_and_folder_cover
+     let pane =
+         tables.load_import_candidate(&key).await.unwrap().expect("the folder has a pane").resolve();
+     let draft = pane.draft().expect("a folder nobody imported holds a draft");
+-    assert_eq!(draft.metadata_draft, candidate.blank_draft().release_edit());
++    assert_eq!(
++        draft.metadata_draft,
++        crate::pane::blank_candidate_draft(&candidate.files).release_edit()
++    );
+     assert_eq!(draft.metadata_author, crate::MetadataAuthor::Nobody);
+     assert_eq!(
+         draft.cover.as_ref().map(|cover| cover.selection().clone()),
+@@ -919,6 +924,6 @@ async fn a_candidate_holding_no_draft_row_reads_its_blank_draft_and_folder_cover
+     assert_eq!(
+         lib.db.count_rows_for_test("import_candidate_cover", "content_hash", &hash).await.unwrap(),
+         1,
+-        "the first save stores the cover it read"
++        "the cover the deletion seeded is the one row"
+     );
+ }
+diff --git a/bae-import/src/tables/import_state.rs b/bae-import/src/tables/import_state.rs
+index 1af3035fe1..ce180675cb 100644
+--- a/bae-import/src/tables/import_state.rs
++++ b/bae-import/src/tables/import_state.rs
+@@ -26,6 +26,7 @@ pub(super) const SCHEMA: bae_store::SchemaPart = bae_store::SchemaPart::new(&[
+     verdict_rows::SQL,
+     match_rows::SQL,
+     ledger_rows::SQL,
++    blank_draft_rows::SQL,
+ ]);
+ 
+ use super::*;
+@@ -66,6 +67,7 @@ pub enum CandidateStateRefusal {
+ }
+ 
+ mod album_pick_rows;
++mod blank_draft_rows;
+ mod candidate_rows;
+ mod cover_rows;
+ mod draft_store;
+@@ -109,9 +111,7 @@ pub(crate) use preparation_rows::{
+ pub(super) use release_link_rows::{read_release_link, RELEASE_LINK_COLUMNS};
+ pub(super) use rows::load_states_on;
+ pub use rows::DbImportCandidateState;
+-pub(super) use seed_rows::{
+-    ensure_candidate_state, forget_at_or_below, restart_state_on, CandidateStateSeed,
+-};
++pub(super) use seed_rows::{ensure_candidate_state, forget_at_or_below, restart_state_on};
+ use session_rows::load_session_on;
+ use signal_rows::{delete_signals, store_signals};
+ pub(crate) use standing_rows::ImportClaim;
+diff --git a/bae-import/src/tables/import_state/blank_draft_rows.rs b/bae-import/src/tables/import_state/blank_draft_rows.rs
+new file mode 100644
+index 0000000000..b78973cf43
+--- /dev/null
++++ b/bae-import/src/tables/import_state/blank_draft_rows.rs
+@@ -0,0 +1,133 @@
++//! The blank draft of a folder, read from what its scan stored of the files.
++//! Its views are `blank_draft_rows.sql`, which every device's library holds.
++//!
++//! The scan seeds a new state with it, and deleting this device's release of
++//! a folder seeds it again (`local_release_origin_gone_seeds_blank_draft`, in
++//! `blank_draft_rows.sql`, which runs after `import_origin.sql` creates the
++//! table it fires on), so no state of a folder this device did not import
++//! lacks a draft row.
++
++pub(super) const SQL: &str = include_str!("blank_draft_rows.sql");
++
++use super::*;
++use crate::{CandidateDraft, CandidateTrack, RawTrackEdit, TrackArtistAssignments};
++
++/// Store the blank draft and cover of the candidate `content_hash`, which
++/// holds no draft row. Stores nothing for a state the scan holds no audio
++/// units of yet.
++pub(super) fn seed_blank_draft_on(sql: &CovenWrite<'_>, content_hash: &str) -> Result<(), DbError> {
++    sql.execute(
++        "INSERT INTO import_candidate_edit \
++             (content_hash, album_title, album_year, year, media, discogs_details, author, \
++              draft_blank, draft_valid) \
++         SELECT content_hash, album_title, album_year, year, media, discogs_details, author, \
++                draft_blank, draft_valid \
++         FROM blank_draft_edit WHERE content_hash = ?",
++        [content_hash],
++    )?;
++    sql.execute(
++        "INSERT INTO import_candidate_medium (content_hash, position, medium, side_count) \
++         SELECT content_hash, position, medium, side_count \
++         FROM blank_draft_medium WHERE content_hash = ?",
++        [content_hash],
++    )?;
++    sql.execute(
++        "INSERT INTO import_candidate_track \
++             (content_hash, track_id, position, title, artist_assignment_kind, medium, side, \
++              track_number, stated_length_ms, file_kind, file_id, sheet_id, slice_index) \
++         SELECT content_hash, track_id, position, title, artist_assignment_kind, medium, side, \
++                track_number, stated_length_ms, file_kind, file_id, sheet_id, slice_index \
++         FROM blank_draft_track WHERE content_hash = ?",
++        [content_hash],
++    )?;
++    sql.execute(
++        "INSERT INTO import_candidate_cover (content_hash, kind, file_id) \
++         SELECT content_hash, kind, file_id FROM blank_draft_cover WHERE content_hash = ?",
++        [content_hash],
++    )?;
++    Ok(())
++}
++
++/// The blank draft of the candidate `content_hash`, for a write that starts
++/// the draft over from the files. `None` when it has none: the scan holds no
++/// audio units of it, or this device imported its files.
++pub(crate) fn load_blank_draft_on(
++    sql: &impl coven::SqlRead,
++    content_hash: &str,
++) -> Result<Option<CandidateDraft>, DbError> {
++    let Some(album_title) = sql
++        .query_row(
++            "SELECT album_title FROM blank_draft_edit WHERE content_hash = ?",
++            [content_hash],
++            |row| row.get::<_, String>(0),
++        )
++        .optional()?
++    else {
++        return Ok(None);
++    };
++    let mediums = sql.query(
++        "SELECT position FROM blank_draft_medium WHERE content_hash = ? ORDER BY position",
++        [content_hash],
++        |row| row.get::<_, u16>(0),
++    )?;
++    let tracks = sql.query(
++        "SELECT track_id, medium, track_number, file_kind, file_id, sheet_id, slice_index \
++         FROM blank_draft_track WHERE content_hash = ? ORDER BY position",
++        [content_hash],
++        |row| {
++            let (kind, file_id, sheet_id, index) = (
++                row.get::<_, String>(3)?,
++                row.get::<_, String>(4)?,
++                row.get::<_, Option<String>>(5)?,
++                row.get::<_, Option<u32>>(6)?,
++            );
++            let file = match (kind.as_str(), sheet_id, index) {
++                ("standalone", None, None) => crate::AudioFile::Standalone { file_id },
++                ("sheet_slice", Some(sheet_id), Some(index)) => {
++                    crate::AudioFile::SheetSlice { file_id, sheet_id, index }
++                }
++                _ => return Err(rusqlite::Error::InvalidQuery),
++            };
++            let place = bae_types::mediums::TrackPlace {
++                medium: row.get(1)?,
++                side: std::num::NonZeroU8::MIN,
++                number: row.get(2)?,
++            };
++            Ok(CandidateTrack::unsourced(
++                RawTrackEdit {
++                    id: row.get(0)?,
++                    title: String::new(),
++                    artist_assignments: TrackArtistAssignments::AlbumArtists,
++                    file,
++                },
++                place,
++            ))
++        },
++    )?;
++    Ok(Some(CandidateDraft {
++        album_title,
++        album_artist_assignments: Vec::new(),
++        album_year: String::new(),
++        pressing: crate::RawPressingEdit::from_pressing(&bae_types::pressing::Pressing::blank()),
++        mediums: mediums
++            .iter()
++            .map(|_| bae_types::mediums::ReleaseMedium::one_sided(None))
++            .collect(),
++        tracks,
++        release_roles: Vec::new(),
++        works: Default::default(),
++    }))
++}
++
++impl crate::tables::ImportTables {
++    /// The blank draft of the candidate `content_hash`: what clearing its
++    /// metadata puts back. `None` when this device imported its files or the
++    /// scan holds no audio units of them.
++    pub(crate) async fn load_blank_draft(
++        &self,
++        content_hash: &str,
++    ) -> Result<Option<CandidateDraft>, DbError> {
++        let content_hash = content_hash.to_string();
++        self.store.read(move |sql| load_blank_draft_on(&sql, &content_hash)).await
++    }
++}
+diff --git a/bae-import/src/tables/import_state/blank_draft_rows.sql b/bae-import/src/tables/import_state/blank_draft_rows.sql
+new file mode 100644
+index 0000000000..384e066e76
+--- /dev/null
++++ b/bae-import/src/tables/import_state/blank_draft_rows.sql
+@@ -0,0 +1,101 @@
++-- The blank draft of every folder this device did not import, read from what
++-- its scan stored: one empty track per audio unit (`scan_candidate_unit`),
++-- each on the medium of its disc, files stating no disc first, every medium
++-- of unstated carrier and one side, every track numbered as its file states.
++-- A release a grouping builds is titled by the name it is listed as, and no
++-- one folder's name speaks for any other release. The cover is the image of
++-- its own the folder's rules pick (`scan_candidate.blank_cover_file`).
++--
++-- These views are the one definition of that draft. The scan seeds a state
++-- from them, and so does the write that deletes this device's release of the
++-- folder (`local_release_origin_gone_seeds_blank_draft`), which is why every
++-- state of a folder this device did not import holds a draft row. A state the
++-- scan holds no audio units of yet (a folder reported before its audio is
++-- read) has no rows in them.
++
++-- Each state, with the one scan copy of its files it names.
++CREATE VIEW IF NOT EXISTS blank_draft_candidate AS
++SELECT s.content_hash, scanned.watched_folder_path, scanned.path AS candidate_path,
++       CASE WHEN scanned.grouping_key IS NULL THEN '' ELSE scanned.name END AS album_title,
++       scanned.blank_cover_file
++FROM import_candidate_state AS s
++JOIN scan_candidate AS scanned
++    ON scanned.path = s.candidate_key AND scanned.content_hash = s.content_hash
++WHERE scanned.rowid = (
++        SELECT MIN(copy.rowid) FROM scan_candidate AS copy
++        WHERE copy.path = s.candidate_key AND copy.content_hash = s.content_hash)
++  AND EXISTS (SELECT 1 FROM scan_candidate_unit AS unit
++              WHERE unit.watched_folder_path = scanned.watched_folder_path
++                AND unit.candidate_path = scanned.path)
++  AND NOT EXISTS (SELECT 1 FROM local_release_origin AS origin
++                  WHERE origin.content_hash = s.content_hash);
++
++-- The draft row, in the columns of `import_candidate_edit`.
++CREATE VIEW IF NOT EXISTS blank_draft_edit AS
++SELECT content_hash, album_title, '' AS album_year, '' AS year, '[]' AS media,
++       '[]' AS discogs_details, 'nobody' AS author,
++       album_title = '' AS draft_blank, 0 AS draft_valid
++FROM blank_draft_candidate;
++
++-- The draft's tracks, in the columns of `import_candidate_track`. A track's
++-- medium counts the discs below its own among the unit's candidate, plus one
++-- for the files stating none.
++CREATE VIEW IF NOT EXISTS blank_draft_track AS
++SELECT candidate.content_hash, 'candidate-track-' || unit.position AS track_id,
++       unit.position, '' AS title, 'album_artists' AS artist_assignment_kind,
++       1 + (SELECT COUNT(DISTINCT other.disc) FROM scan_candidate_unit AS other
++            WHERE other.watched_folder_path = unit.watched_folder_path
++              AND other.candidate_path = unit.candidate_path AND other.disc < unit.disc)
++         + (unit.disc IS NOT NULL
++            AND EXISTS (SELECT 1 FROM scan_candidate_unit AS other
++                        WHERE other.watched_folder_path = unit.watched_folder_path
++                          AND other.candidate_path = unit.candidate_path
++                          AND other.disc IS NULL)) AS medium,
++       1 AS side, unit.number AS track_number, NULL AS stated_length_ms,
++       unit.file_kind, unit.file_id, unit.sheet_id, unit.slice_index
++FROM blank_draft_candidate AS candidate
++JOIN scan_candidate_unit AS unit
++    ON unit.watched_folder_path = candidate.watched_folder_path
++   AND unit.candidate_path = candidate.candidate_path;
++
++-- The draft's mediums, in the columns of `import_candidate_medium`.
++CREATE VIEW IF NOT EXISTS blank_draft_medium AS
++SELECT DISTINCT content_hash, medium AS position, NULL AS medium, 1 AS side_count
++FROM blank_draft_track;
++
++-- The draft's cover, in the columns of `import_candidate_cover`.
++CREATE VIEW IF NOT EXISTS blank_draft_cover AS
++SELECT content_hash, 'local' AS kind, blank_cover_file AS file_id
++FROM blank_draft_candidate
++WHERE blank_cover_file IS NOT NULL;
++
++-- A folder whose release this device deleted (or another device deleted, and
++-- coven applied here) is back in Found with the blank draft its files make:
++-- the import deleted its draft, and no bae write runs when the release goes,
++-- so the deletion seeds it. Every state of a folder this device did not
++-- import then holds a draft row. A state the scan holds no audio units for
++-- has no blank draft (the views above): the scan seeds it with its
++-- files.
++CREATE TRIGGER IF NOT EXISTS local_release_origin_gone_seeds_blank_draft
++AFTER DELETE ON local_release_origin
++WHEN NOT EXISTS (SELECT 1 FROM import_candidate_edit WHERE content_hash = OLD.content_hash)
++BEGIN
++    INSERT INTO import_candidate_edit
++        (content_hash, album_title, album_year, year, media, discogs_details, author,
++         draft_blank, draft_valid)
++    SELECT content_hash, album_title, album_year, year, media, discogs_details, author,
++           draft_blank, draft_valid
++    FROM blank_draft_edit WHERE content_hash = OLD.content_hash;
++    INSERT INTO import_candidate_medium (content_hash, position, medium, side_count)
++    SELECT content_hash, position, medium, side_count
++    FROM blank_draft_medium WHERE content_hash = OLD.content_hash;
++    INSERT INTO import_candidate_track
++        (content_hash, track_id, position, title, artist_assignment_kind, medium, side,
++         track_number, stated_length_ms, file_kind, file_id, sheet_id, slice_index)
++    SELECT content_hash, track_id, position, title, artist_assignment_kind, medium, side,
++           track_number, stated_length_ms, file_kind, file_id, sheet_id, slice_index
++    FROM blank_draft_track WHERE content_hash = OLD.content_hash;
++    INSERT INTO import_candidate_cover (content_hash, kind, file_id)
++    SELECT content_hash, kind, file_id
++    FROM blank_draft_cover WHERE content_hash = OLD.content_hash;
++END;
+diff --git a/bae-import/src/tables/import_state/pane_rows.rs b/bae-import/src/tables/import_state/pane_rows.rs
+index a377066b89..b2db803308 100644
+--- a/bae-import/src/tables/import_state/pane_rows.rs
++++ b/bae-import/src/tables/import_state/pane_rows.rs
+@@ -22,7 +22,6 @@ pub(crate) use provenance::{
+ };
+ 
+ use super::*;
+-use crate::cover_art::PreparedCover;
+ use crate::{
+     ArtistAssignment, AudioFile, CandidateDraft, CandidateTrack, CoverSelection, Credited,
+     MetadataAuthor, RawLabelEdit, RawPressingEdit, RawTrackEdit, TrackArtistAssignments,
+@@ -274,7 +273,7 @@ pub(crate) fn load_pane_rows_on(
+     content_hash: &str,
+ ) -> Result<DbCandidatePaneRows, DbError> {
+     let (draft, cover) = load_draft_and_cover_on(sql, content_hash)?;
+-    let (draft_blank, draft_valid) = load_draft_columns_on(sql, content_hash, &draft)?;
++    let (draft_blank, draft_valid) = load_draft_columns_on(sql, content_hash)?;
+     Ok(DbCandidatePaneRows {
+         cover,
+         draft,
+@@ -300,24 +299,17 @@ impl ImportTables {
+ 
+ /// Whether the draft of `content_hash` is blank and whether it would import,
+ /// as its row stores them beside its fields, in the write that stored them.
+-/// A candidate with no draft row reads as the blank draft its files make,
+-/// which `draft` is.
+ fn load_draft_columns_on(
+     sql: &impl coven::SqlRead,
+     content_hash: &str,
+-    draft: &CandidateDraft,
+ ) -> Result<(bool, bool), DbError> {
+-    Ok(sql
+-        .query_row(
+-            "SELECT draft_blank, draft_valid FROM import_candidate_edit WHERE content_hash = ?",
+-            [content_hash],
+-            |row| Ok((row.get(0)?, row.get(1)?)),
+-        )
+-        .optional()?
+-        .unwrap_or_else(|| {
+-            let edit = draft.release_edit();
+-            (edit.is_blank(), edit.shape().is_ok())
+-        }))
++    sql.query_row(
++        "SELECT draft_blank, draft_valid FROM import_candidate_edit WHERE content_hash = ?",
++        [content_hash],
++        |row| Ok((row.get(0)?, row.get(1)?)),
++    )
++    .optional()?
++    .ok_or_else(|| DbError::unreadable("import_candidate_edit of a stored draft", content_hash))
+ }
+ 
+ /// Whether the candidate `content_hash` holds a draft row.
+@@ -335,44 +327,25 @@ pub(super) fn has_draft_row_on(
+         .is_some())
+ }
+ 
+-/// The candidate's draft and cover: its rows', or, with no draft row, the
+-/// blank draft of its files and the folder's own cover, which a scan seeds a
+-/// new candidate with when it reads no tags. A candidate whose release this
+-/// device deleted holds no draft row, and reads as that until a write stores
+-/// one. The caller found in the same read that the candidate holds a state
+-/// row and was not imported, since one this device imported holds no draft.
++/// The candidate's draft and cover, from its rows. Every state of a candidate
++/// this device did not import holds a draft row (the scan seeds it, and
++/// deleting the release it imported seeds it again), so a state with none is
++/// a damaged one and the read fails. The caller found in the same read that
++/// the candidate holds a state row and was not imported, since one this device
++/// imported holds no draft.
+ pub(super) fn load_draft_and_cover_on(
+     sql: &impl coven::SqlRead,
+     content_hash: &str,
+ ) -> Result<(CandidateDraft, Option<CoverSelection>), DbError> {
+-    if let Some(draft) = load_drafts_on(sql, CandidateRows::One(content_hash))?.remove(content_hash)
+-    {
+-        return Ok((draft, super::cover_rows::load_cover_on(sql, content_hash)?));
+-    }
+-    let key: CandidateKey = sql
+-        .query_row(
+-            "SELECT candidate_key FROM import_candidate_state WHERE content_hash = ?",
+-            [content_hash],
+-            |row| row.get(0),
+-        )
+-        .optional()?
++    let draft = load_drafts_on(sql, CandidateRows::One(content_hash))?
++        .remove(content_hash)
+         .ok_or_else(|| {
+             DbError::unreadable(
+-                "import_candidate_state of a candidate its reader found stated",
++                "import_candidate_edit of a candidate not imported here",
+                 content_hash,
+             )
+         })?;
+-    // The state names a copy the scan holds of its files.
+-    let candidate = crate::tables::release_groupings::load_candidate_on(sql, &key)?
+-        .map(|stored| stored.candidate)
+-        .filter(|candidate| candidate.files.content_hash() == content_hash)
+-        .ok_or_else(|| {
+-            DbError::unreadable(
+-                format!("import_candidate_state.candidate_key of {content_hash}"),
+-                &key,
+-            )
+-        })?;
+-    Ok((candidate.blank_draft(), candidate.blank_cover().as_ref().map(PreparedCover::selection)))
++    Ok((draft, super::cover_rows::load_cover_on(sql, content_hash)?))
+ }
+ 
+ /// Every candidate's complete stored draft, or the one `only` names: one row
+@@ -891,6 +864,28 @@ impl ImportTables {
+         .await;
+     }
+ 
++    /// Plant damage for a test: every draft in the library under `directory`
++    /// is not its state's, though that state stays and its release was never
++    /// imported here. Every scan and the deletion of an imported release seed
++    /// the draft, so no write leaves a state without one.
++    pub(crate) async fn plant_missing_drafts_for_test(directory: &std::path::Path) {
++        let directory = directory.to_path_buf();
++        bae_util::test_blocking::on_blocking_pool(move || {
++            bae_store::test_fixtures::planted_damage::plant_in_library_file(
++                &directory,
++                "import_candidate_edit",
++                // Each draft row is renamed away from its state, since a
++                // delete would reach the track indexes' collation, which
++                // this connection lacks; the list's trigger that follows
++                // the row would run the list's functions.
++                "PRAGMA foreign_keys = OFF; \
++                 DROP TRIGGER IF EXISTS import_list_on_draft_changed; \
++                 UPDATE import_candidate_edit SET content_hash = 'planted-' || content_hash;",
++            )
++        })
++        .await;
++    }
++
+     /// Plant damage for a test: every draft track in the library under
+     /// `directory` plays the file `file_id`. A draft is written over its
+     /// folder's audio, so no write stores a track over a file the folder
+diff --git a/bae-import/src/tables/import_state/pane_rows.sql b/bae-import/src/tables/import_state/pane_rows.sql
+index c8fe653bea..9d861f251f 100644
+--- a/bae-import/src/tables/import_state/pane_rows.sql
++++ b/bae-import/src/tables/import_state/pane_rows.sql
+@@ -1,9 +1,9 @@
+--- The release-level metadata draft the import will write. A candidate this
+--- device did not import that has no row holds the blank draft of its files
+--- and the folder's own cover, as a scan seeds a new candidate it reads no
+--- tags of: a folder whose release was deleted is back in Found so, and the
+--- first write to its draft stores the row. An imported candidate holds no
+--- draft: the import deletes it, with its source, its cover and its link.
++-- The release-level metadata draft the import will write. Every state of a
++-- candidate this device did not import holds a draft row: a scan seeds a new
++-- state's, and deleting the release this device imported from the folder seeds
++-- the folder's blank draft and its own cover (`blank_draft_rows.sql`). An
++-- imported candidate holds no draft: the import deletes it, with its source,
++-- its cover and its link.
+ CREATE TABLE IF NOT EXISTS import_candidate_edit (
+     content_hash   TEXT PRIMARY KEY,
+     album_title    TEXT NOT NULL,
+diff --git a/bae-import/src/tables/import_state/seed_rows.rs b/bae-import/src/tables/import_state/seed_rows.rs
+index 0564fec561..aed885bcaa 100644
+--- a/bae-import/src/tables/import_state/seed_rows.rs
++++ b/bae-import/src/tables/import_state/seed_rows.rs
+@@ -7,27 +7,19 @@ pub(super) const SQL: &str = include_str!("seed_rows.sql");
+ 
+ use super::*;
+ 
+-/// What a new candidate's draft and cover are created from.
+-pub(crate) enum CandidateStateSeed<'a> {
+-    /// As many empty track slots as the folder has audio units, and the
+-    /// folder's own cover: what a candidate holding no draft row reads as.
+-    Blank { draft: &'a crate::CandidateDraft, cover: Option<crate::cover_art::PreparedCover> },
+-    /// The folder read as its own files describe it, with the reading it was
+-    /// projected from and the cover those tags embed.
+-    FileMetadata(&'a crate::file_metadata_seed::FileMetadataSeed),
+-}
+-
+ /// Make sure `files` has a state row, and record `folder` as a folder on disk
+ /// it was found at; the state lives while a watched folder covers one of
+-/// those folders. The write that creates the state seeds its draft and cover,
+-/// unless this device imported the files, whose candidate holds neither; a
+-/// state that already exists keeps what it holds, its draft row or none.
++/// those folders. A state that holds no draft row and whose files this device
++/// did not import is seeded with one: the folder read as its own files
++/// describe it when `file_metadata` holds that reading, and otherwise the
++/// blank draft its stored audio units make. A state that holds a draft keeps
++/// it.
+ pub(crate) fn ensure_candidate_state(
+     sql: &CovenWrite<'_>,
+     path: &CandidateKey,
+     folder: &std::path::Path,
+     files: &crate::folder_scanner::CategorizedFiles,
+-    seed: CandidateStateSeed<'_>,
++    file_metadata: Option<&crate::file_metadata_seed::FileMetadataSeed>,
+ ) -> Result<(), DbError> {
+     let content_hash = files.content_hash();
+     let created = sql.execute(
+@@ -46,32 +38,21 @@ pub(crate) fn ensure_candidate_state(
+          VALUES (?, ?) ON CONFLICT DO NOTHING",
+         params![content_hash, coven::path_bytes(folder)],
+     )?;
+-    if !created {
++    if crate::tables::import_origin::imported_release_on(sql, &content_hash)?.is_some()
++        || super::pane_rows::has_draft_row_on(sql, &content_hash)?
++    {
+         return Ok(());
+     }
+-    if crate::tables::import_origin::imported_release_on(sql, &content_hash)?.is_some() {
+-        return Ok(());
+-    }
+-    // The folder's own cover is stored with the candidate so readers never
+-    // recompute it; the picture the tags embed comes with the draft they
+-    // seed.
+-    let cover = match seed {
+-        CandidateStateSeed::Blank { draft, cover } => {
+-            super::pane_rows::insert_draft(
+-                sql,
+-                &content_hash,
+-                draft,
+-                crate::MetadataAuthor::Nobody,
+-            )?;
+-            cover
+-        }
+-        CandidateStateSeed::FileMetadata(seed) => {
++    match file_metadata {
++        Some(seed) => {
+             super::pane_rows::insert_file_tags_draft(sql, &content_hash, &seed.draft)?;
+-            crate::cover_art::folder_cover(seed.cover.clone(), files.artwork())
++            // The picture the tags embed comes with the draft they seed.
++            if let Some(cover) = crate::cover_art::folder_cover(seed.cover.clone(), files.artwork())
++            {
++                super::cover_rows::save_cover(sql, &content_hash, &cover)?;
++            }
+         }
+-    };
+-    if let Some(cover) = cover {
+-        super::cover_rows::save_cover(sql, &content_hash, &cover)?;
++        None => super::blank_draft_rows::seed_blank_draft_on(sql, &content_hash)?,
+     }
+     Ok(())
+ }
+diff --git a/bae-import/src/tables/import_state/seed_rows_tests.rs b/bae-import/src/tables/import_state/seed_rows_tests.rs
+index 7557359981..881d64c367 100644
+--- a/bae-import/src/tables/import_state/seed_rows_tests.rs
++++ b/bae-import/src/tables/import_state/seed_rows_tests.rs
+@@ -92,3 +92,45 @@ async fn a_named_copy_read_as_other_files_names_the_copy_that_stays() {
+     let state = tables.load_import_candidate_state(&content_hash).await.unwrap();
+     assert_eq!(state.expect("the state stays with a copy").candidate_key, second_candidate.key());
+ }
++
++/// A loose bonus track, a disc of two tracks carved by its sheet and a disc
++/// of three.
++fn bonus_and_two_discs(folder: &std::path::Path) {
++    use crate::mapping::tests::{cue_sheet_text, write_flac};
++    write_flac(&folder.join("a bonus.flac"));
++    write_flac(&folder.join("disc 1.flac"));
++    std::fs::write(folder.join("disc 1.cue"), cue_sheet_text("disc 1.flac", 2)).unwrap();
++    write_flac(&folder.join("disc 2.flac"));
++    std::fs::write(folder.join("disc 2.cue"), cue_sheet_text("disc 2.flac", 3)).unwrap();
++}
++
++/// The scan seeds a folder's draft from its stored audio units: one medium
++/// per disc the files state, loose audio (no disc) first, each track on its
++/// disc's medium and numbered as its unit is. The draft is the one the files
++/// make read in memory.
++#[tokio::test]
++async fn blank_draft_statement_puts_each_disc_on_its_own_medium_loose_audio_first() {
++    use crate::tables::folder_scans::tests::stored_folder;
++    let (db, _tmp, root) = watched_root().await;
++    let hash = stored_folder(&db, &root, "Album", bonus_and_two_discs).await;
++    let files = crate::mapping::tests::scan(&root.join("Album"));
++    let tables = crate::tables::ImportTables::new(db.clone());
++
++    let stored = tables.load_import_candidate_pane_rows(&hash).await.unwrap();
++    assert_eq!(
++        stored
++            .draft
++            .tracks
++            .iter()
++            .map(|track| (track.place.medium.get(), track.place.number.get()))
++            .collect::<Vec<_>>(),
++        [(1, 1), (2, 2), (2, 3), (3, 4), (3, 5), (3, 6)]
++    );
++    assert_eq!(stored.draft.mediums.len(), 3);
++    assert_eq!(stored.draft, crate::pane::blank_candidate_draft(&files));
++    assert_eq!(
++        tables.load_blank_draft(&hash).await.unwrap(),
++        Some(crate::pane::blank_candidate_draft(&files))
++    );
++    assert_eq!((stored.draft_blank, stored.draft_valid), (true, false));
++}
+diff --git a/owner-construction-check.toml b/owner-construction-check.toml
+index 498c49f89a..1213ad1efa 100644
+--- a/owner-construction-check.toml
++++ b/owner-construction-check.toml
+@@ -1670,18 +1670,8 @@ frozen = [
+     { path = "bae-identify/src/release_group/pressing_sets.rs", item = "gather_pressings", shape = "filter", count = 4, finding = "`gather_pressings` filters with `filter` (found by the check)" },
+     { path = "bae-identify/src/release_group/pressing_sets.rs", item = "gather_pressings", shape = "pick", count = 5, finding = "`gather_pressings` picks with `position` (found by the check)" },
+     { path = "bae-identify/src/release_group/pressing_sets.rs", item = "gather_pressings", shape = "sort", count = 3, finding = "`gather_pressings` sorts with `sort_by` (found by the check)" },
+-    { path = "bae-import/src/audio_layout.rs", item = "audio_layout", shape = "group", count = 3, finding = "`audio_layout` groups into a `HashMap` (found by the check)" },
+-    { path = "bae-import/src/audio_layout.rs", item = "audio_layout", shape = "sort", count = 1, finding = "`audio_layout` sorts with `sort_by` (found by the check)" },
+-    { path = "bae-import/src/audio_layout.rs", item = "folder_tracks", shape = "group", count = 3, finding = "`folder_tracks` groups into a `HashMap` (found by the check)" },
+     { path = "bae-import/src/candidate_runtime/snapshots.rs", item = "release_run", shape = "pick", count = 1, finding = "`release_run` picks with `find` (found by the check)" },
+     { path = "bae-import/src/candidate_search.rs", item = "CandidateSearch::read_groups", shape = "pick", count = 1, finding = "`CandidateSearch::read_groups` picks with `find` (found by the check)" },
+-    { path = "bae-import/src/cover_art.rs", item = "conventional_artwork_name", shape = "filter", count = 1, finding = "`conventional_artwork_name` filters with `filter` (found by the check)" },
+-    { path = "bae-import/src/cover_art.rs", item = "conventional_artwork_name", shape = "pick", count = 1, finding = "`conventional_artwork_name` picks with `any` (found by the check)" },
+-    { path = "bae-import/src/cover_art.rs", item = "default_local_cover_file", shape = "aggregate", count = 1, finding = "`default_local_cover_file` aggregates with `min_by` (found by the check)" },
+-    { path = "bae-import/src/cover_art.rs", item = "default_local_cover_file", shape = "filter", count = 1, finding = "`default_local_cover_file` filters with `filter` (found by the check)" },
+-    { path = "bae-import/src/cover_art.rs", item = "front_cover_file", shape = "aggregate", count = 1, finding = "`front_cover_file` aggregates with `min_by` (found by the check)" },
+-    { path = "bae-import/src/cover_art.rs", item = "front_cover_file", shape = "filter", count = 1, finding = "`front_cover_file` filters with `filter` (found by the check)" },
+-    { path = "bae-import/src/cue_sheet.rs", item = "CueSheet::playable_tracks", shape = "filter", count = 1, finding = "`CueSheet::playable_tracks` filters with `filter` (found by the check)" },
+     { path = "bae-import/src/folder_scan_status.rs", item = "FolderScansLive", shape = "kept-state", count = 1, finding = "`FolderScansLive` keeps `tables`, which holds `AtomicU64` state, beside its live query (found by the check)" },
+     { path = "bae-import/src/folder_scan_status.rs", item = "FolderScansLive::next", shape = "kept-state", count = 1, finding = "`FolderScansLive::next` writes `self.told` after construction (found by the check)" },
+     { path = "bae-import/src/folder_scanner/file_decisions.rs", item = "SheetBindingEdits::set_reference", shape = "group", count = 1, finding = "`SheetBindingEdits::set_reference` groups with `entry` (found by the check)" },
+@@ -1689,20 +1679,6 @@ frozen = [
+     { path = "bae-import/src/folder_scanner/file_reads.rs", item = "FileReads::stored", shape = "kept-state", count = 1, finding = "`FileReads::stored` reads through `FileReads`, which keeps `Mutex` state (found by the check)" },
+     { path = "bae-import/src/folder_scanner/file_reads.rs", item = "Known::learn", shape = "group", count = 1, finding = "`Known::learn` groups with `entry` (found by the check)" },
+     { path = "bae-import/src/folder_scanner/file_reads.rs", item = "Known::learn_skipped_tags", shape = "group", count = 1, finding = "`Known::learn_skipped_tags` groups with `entry` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/files.rs", item = "CategorizedFiles::artwork", shape = "filter", count = 1, finding = "`CategorizedFiles::artwork` filters with `filter` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/files.rs", item = "CategorizedFiles::audio", shape = "filter", count = 1, finding = "`CategorizedFiles::audio` filters with `filter` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/files.rs", item = "CategorizedFiles::bound_sheet", shape = "pick", count = 1, finding = "`CategorizedFiles::bound_sheet` picks with `find` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/files.rs", item = "CategorizedFiles::bound_sheets", shape = "filter", count = 1, finding = "`CategorizedFiles::bound_sheets` filters with `filter_map` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/files.rs", item = "CategorizedFiles::carving_sheets", shape = "filter", count = 1, finding = "`CategorizedFiles::carving_sheets` filters with `filter` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/files.rs", item = "CategorizedFiles::track_sheets", shape = "filter", count = 1, finding = "`CategorizedFiles::track_sheets` filters with `filter_map` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/files.rs", item = "part_of", shape = "aggregate", count = 1, finding = "`part_of` aggregates with `max_by_key` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/files.rs", item = "part_of", shape = "filter", count = 1, finding = "`part_of` filters with `filter` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/sheet_bindings.rs", item = "DiscLayout::of", shape = "aggregate", count = 4, finding = "`DiscLayout::of` adds up `next` in a loop (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/sheet_bindings.rs", item = "DiscLayout::of", shape = "filter", count = 2, finding = "`DiscLayout::of` filters with `filter` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/sheet_bindings.rs", item = "DiscLayout::of", shape = "group", count = 2, finding = "`DiscLayout::of` groups into a `HashSet` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/sheet_bindings.rs", item = "DiscLayout::of", shape = "kept-state", count = 1, finding = "`DiscLayout::of` assigns the captured `next` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/sheet_bindings.rs", item = "DiscLayout::of", shape = "pick", count = 1, finding = "`DiscLayout::of` picks with `any` (found by the check)" },
+-    { path = "bae-import/src/folder_scanner/sheet_bindings.rs", item = "resolved_audio_for", shape = "pick", count = 1, finding = "`resolved_audio_for` picks with `find` (found by the check)" },
+     { path = "bae-import/src/list/pending_filter.rs", item = "pending_filter_entries", shape = "aggregate", count = 1, finding = "builds the filter entries and sums them for All in Rust" },
+     { path = "bae-import/src/list/pending_filter.rs", item = "pending_filter_entries", shape = "filter", count = 1, finding = "builds the filter entries and sums them for All in Rust" },
+     { path = "bae-import/src/tables/album_link_rows.rs", item = "group_albums_of_on", shape = "group", count = 2, finding = "`group_albums_of_on` groups into a `HashMap` (found by the check)" },
+@@ -1736,7 +1712,6 @@ frozen = [
+     { path = "bae-import/src/tables/import_state/file_decision_rows.rs", item = "load_stored_candidate_edits_on", shape = "group", count = 1, finding = "`load_stored_candidate_edits_on` groups with `collect::<HashMap>` (found by the check)" },
+     { path = "bae-import/src/tables/import_state/match_rows.rs", item = "load_run_matches_on", shape = "group", count = 3, finding = "`load_run_matches_on` returns a `HashMap` (found by the check)" },
+     { path = "bae-import/src/tables/import_state/match_rows.rs", item = "load_search_matches_on", shape = "group", count = 3, finding = "`load_search_matches_on` returns a `HashMap` (found by the check)" },
+-    { path = "bae-import/src/tables/import_state/pane_rows.rs", item = "load_draft_and_cover_on", shape = "filter", count = 1, finding = "`load_draft_and_cover_on` filters with `filter` (found by the check)" },
+     { path = "bae-import/src/tables/import_state/pane_rows.rs", item = "load_drafts_on", shape = "group", count = 2, finding = "`load_drafts_on` returns a `HashMap` (found by the check)" },
+     { path = "bae-import/src/tables/import_state/rows.rs", item = "load_states_on", shape = "group", count = 1, finding = "`load_states_on` returns a `HashMap` (found by the check)" },
+     { path = "bae-import/src/tables/import_state/rows.rs", item = "load_states_rows_on", shape = "kept-state", count = 1, finding = "`load_states_rows_on` assigns the captured `previous` (found by the check)" },
+@@ -1805,10 +1780,6 @@ frozen = [
+     { path = "bae-sync-status/src/sync_status/pending.rs", item = "pending_rows_on", shape = "query-per-row", count = 1, finding = "`pending_rows_on` runs `moved_original_on`, which runs SQL, once for each row (found by the check)" },
+     { path = "bae-sync-status/src/sync_status/storage_setup.rs", item = "standing", shape = "pick", count = 2, finding = "`standing` picks with `any` (found by the check)" },
+     { path = "bae-transfers/src/queued_releases/tables.sql", item = "download_batch_number.number", shape = "counter", count = 1, finding = "`download_batch_number.number` is only ever counted up, never set to another value (found by the check)" },
+-    { path = "bae-types/src/mediums.rs", item = "Placer::place", shape = "group", count = 1, finding = "`Placer::place` groups with `entry` (found by the check)" },
+-    { path = "bae-types/src/mediums.rs", item = "by_disc", shape = "group", count = 1, finding = "`by_disc` groups into a `BTreeSet` (found by the check)" },
+-    { path = "bae-types/src/mediums.rs", item = "by_disc", shape = "kept-state", count = 1, finding = "`by_disc` changes the captured `placer` with `place` (found by the check)" },
+-    { path = "bae-types/src/mediums.rs", item = "by_disc", shape = "pick", count = 1, finding = "`by_disc` picks with `position` (found by the check)" },
+     { path = "bae-types/src/pressing/mod.rs", item = "ReleaseLabel::new", shape = "filter", count = 2, finding = "`ReleaseLabel::new` filters with `filter` (found by the check)" },
+     { path = "bae-types/src/pressing/mod.rs", item = "ReleaseLabel::with_ids", shape = "filter", count = 1, finding = "`ReleaseLabel::with_ids` filters with `filter` (found by the check)" },
+     { path = "bae-types/src/pressing/stated_media.rs", item = "StatedMedia::any", shape = "filter", count = 1, finding = "`StatedMedia::any` filters with `filter_map` (found by the check)" },
+diff --git a/spec/bae.md b/spec/bae.md
+index 93876671b9..053df2a302 100644
+--- a/spec/bae.md
++++ b/spec/bae.md
+@@ -716,10 +716,10 @@ taken, as it reads what to import or as it writes: it fails with the same
+ words and writes nothing. The release imported
+ first stands. Deleting the release deletes the
+ record with it, and the folder is back in Found as a folder whose tags bae
+-never read: an imported folder holds no draft (§3.7), so it holds its files'
+-blank draft and its own cover, and its row shows its folder's name (a release
+-read from several folders, the name it is listed as) until something is
+-written to its draft. It is identified like any folder in Found, and Reset to
++never read: an imported folder holds no draft (§3.7), so the write that
++deletes the release stores the folder's blank draft and its own cover, and its
++row shows its folder's name (a release read from several folders, the name it
++is listed as) until something is written to its draft. It is identified like any folder in Found, and Reset to
+ file metadata reads its tags again.
+ 
+ The hash reads no bytes, so it tells files apart by name, size and time alone.
+@@ -1742,10 +1742,10 @@ since no source said anything about it, and the draft keeps only the works its
+ tracks still perform.
+ 
+ Every draft records who wrote it: nobody yet, the folder's tags, an
+-identification, or the person. A folder this device did not import that
+-holds no stored draft, as one whose release was deleted does (§2.7), holds
+-its files' blank draft, which nobody wrote, and the first write to its draft
+-stores it whole, with the cover the folder came with. Every pane control is stored the moment it's
++identification, or the person. Every state of a folder this device did not
++import holds a draft row: the scan writes the blank draft, which nobody wrote,
++with the cover the folder came with, and the write that deletes this device's
++release of the folder (§2.7) writes it again. Every pane control is stored the moment it's
+ used, under the candidate's hash, so the person can leave a candidate half
+ done and come back to it, even after a restart. Where the pane was, such as a
+ half-typed search, is stored too. A folder this device imported holds no
+@@ -6100,7 +6100,7 @@ reads it again once.
+ | `skipped_import_candidates` | candidates the person dismissed |
+ | `folder_discovery` | when each folder was first seen, and its date |
+ | `folder_scan_generation_sequence`, `folder_scan_roots`, `folder_scan_directory` | each watched folder's last scan, with how it ended once it stored that, and the directories it saw; whether a scan is reading the folder is never stored (§3.1); the scans' progress reads every watched folder in order, by the index of their positions, with its root when a scan has stored one, and a scan's progress counts the folders its root's current generation holds from the candidates themselves, by an index of them |
+-| `scan_candidate`, `scan_candidate_file`, `scan_candidate_part` | the candidates a scan found, their files and their folders, with an index on each watched folder's candidates by the folder each reads its files from, by which a scan's write finds the candidates reading any of its files, so it costs the same however many the watched folder holds; each file by its name in the release and its path, a BLOB of coven's bytes for it |
++| `scan_candidate`, `scan_candidate_file`, `scan_candidate_part` | the candidates a scan found, their files and their folders, and for each the image the folder's cover rules pick when no tag is read (its blank cover, written with its files), with an index on each watched folder's candidates by the folder each reads its files from, by which a scan's write finds the candidates reading any of its files, so it costs the same however many the watched folder holds; each file by its name in the release and its path, a BLOB of coven's bytes for it |
+ | `scan_candidate_tag_snapshot`, `scan_candidate_file_tag` | the tags read from a candidate's audio that place, name and seed it (no ISRCs, labels, copyright lines or store markers, §3.3), or for a file whose tags don't parse, why, and its embedded cover |
+ | `scan_skipped_file`, `scan_skipped_tags` | a broken folder's files as the scan read them, and what its tags call it; two of its files can show one name, so each is unique by its path |
+ | `scan_sidecar`, `scan_sidecar_file` | files under a folder no release owns, each unique by its path |
+@@ -6121,7 +6121,7 @@ Keyed by the candidate's content hash.
+ | Table | Holds |
+ |---|---|
+ | `import_candidate_state`, `import_candidate_folder` | the candidate, its revisions, and where it was found, with an index on the candidates a file decision was made for, whose decisions a scan reads before it walks, and one on the folders they were found in, whose candidates a watched folder's removal forgets by the range of folders below it |
+-| `import_candidate_edit`, `import_candidate_edit_label`, `import_candidate_edit_barcode`, `import_candidate_album_artist_assignment`, `import_candidate_track`, `import_candidate_track_artist_assignment` | the draft's editable fields, its label and barcode rows as typed (a label row with the catalog ids its applied release gave it), each track's place and listed length (§3.6). Each draft write also stores whether the draft is blank and whether it would import; the pane and the list read those stored values and judge nothing again. No row: a folder this device did not import holds its files' blank draft and the folder's own cover; an imported one holds no draft, which the import deleted with its source, cover and link (§3.7) |
++| `import_candidate_edit`, `import_candidate_edit_label`, `import_candidate_edit_barcode`, `import_candidate_album_artist_assignment`, `import_candidate_track`, `import_candidate_track_artist_assignment` | the draft's editable fields, its label and barcode rows as typed (a label row with the catalog ids its applied release gave it), each track's place and listed length (§3.6). Each draft write also stores whether the draft is blank and whether it would import; the pane and the list read those stored values and judge nothing again. Every state of a folder this device did not import holds a draft row: the scan writes the blank one, and the write that deletes this device's release of the folder writes it again, from the folder's stored audio units; an imported one holds no draft, which the import deleted with its source, cover and link (§3.7) |
+ | `import_candidate_medium` | the draft's mediums |
+ | `import_candidate_track_role`, `import_candidate_release_role`, `import_candidate_work`, `import_candidate_work_credit`, `import_candidate_work_part`, `import_candidate_track_work` | the draft's roles and works, as values, each credit with its role, qualifiers and the name its catalog printed |
+ | `import_candidate_sheet_disc`, `import_candidate_sheet_reference` | the person's CUE decisions |
+-- 
+2.50.1 (Apple Git-155)
+
