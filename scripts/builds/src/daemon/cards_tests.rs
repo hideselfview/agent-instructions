@@ -202,3 +202,24 @@ fn a_design_branch_no_recorded_change_covers_says_it_waits_on_the_design_session
         "Waits on the design session to record its design change."
     );
 }
+
+#[test]
+fn a_design_branch_with_no_running_item_is_titled_by_its_design_change() {
+    let card = words(
+        &card(Some("waiting-on-you"), claim(Some("note")), Some(0)),
+        &[],
+        Some(&ItemWait::Review {
+            id: 1419,
+            title: "AirPlay PIN sheet".into(),
+        }),
+    );
+    assert_eq!(card.titles, ["AirPlay PIN sheet"]);
+    assert_eq!(card.line, "Waits on your review of design change 1419");
+}
+
+#[test]
+fn an_item_waiting_on_a_question_keeps_its_own_title_over_the_question() {
+    let card = waiting("waiting-on-you", ItemWait::Answer("Which port?".into()));
+    assert_eq!(card.titles, ["Reopen a copied library"]);
+    assert_eq!(card.line, "Waits on your answer: Which port?");
+}

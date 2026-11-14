@@ -33,11 +33,17 @@ impl ItemWait {
         matches!(self, ItemWait::Answer(_) | ItemWait::Review { .. })
     }
 
-    fn line(&self) -> String {
+    /// The words of the wait. <titled> says an item's title is already the
+    /// card's main line, so a design change's title belongs in the words;
+    /// without one, the change's title is the main line.
+    fn line(&self, titled: bool) -> String {
         match self {
             ItemWait::Answer(title) => format!("Waits on your answer: {title}"),
-            ItemWait::Review { id, title } => {
+            ItemWait::Review { id, title } if titled => {
                 format!("Waits on your review of design change {id}: {title}")
+            }
+            ItemWait::Review { id, .. } => {
+                format!("Waits on your review of design change {id}")
             }
             ItemWait::Item { id, title } => format!("Waits on #{id}: {title}"),
             ItemWait::Unrecorded => {
@@ -54,7 +60,8 @@ pub struct Words {
     /// or commits wait in has one.
     pub chip: Option<&'static str>,
     /// The titles of the items running here, the card's main lines: one per
-    /// item. They replace the claim note.
+    /// item. They replace the claim note. A design branch with no running
+    /// item shows its design change's title.
     pub titles: Vec<String>,
     /// The plain line of what the worktree waits on or does. With a title
     /// above it, the claim note is left out.
@@ -102,15 +109,15 @@ pub fn words(checkout: &CheckoutPage, titles: &[String], wait: Option<&ItemWait>
     let (chip, line) = match checkout.state {
         Some("waiting-on-you") if wait.is_some_and(ItemWait::needs_person) => (
             Some("Waiting on you"),
-            wait.map(ItemWait::line).unwrap_or_default(),
+            wait.map(|w| w.line(titled)).unwrap_or_default(),
         ),
         Some("ready-to-land") if wait == Some(&ItemWait::Unrecorded) => (
             Some("Ready to land"),
-            wait.map(ItemWait::line).unwrap_or_default(),
+            wait.map(|w| w.line(titled)).unwrap_or_default(),
         ),
         Some("working") if wait.is_some() => (
             Some("Working"),
-            wait.map(ItemWait::line).unwrap_or_default(),
+            wait.map(|w| w.line(titled)).unwrap_or_default(),
         ),
         Some("free") => (None, "Free: no claim, every commit landed.".to_string()),
         Some("ready-to-land") if checkout.claim.is_none() => (
@@ -144,7 +151,10 @@ pub fn words(checkout: &CheckoutPage, titles: &[String], wait: Option<&ItemWait>
     };
     Words {
         chip,
-        titles: titles.to_vec(),
+        titles: match wait {
+            Some(ItemWait::Review { title, .. }) if !titled => vec![title.clone()],
+            _ => titles.to_vec(),
+        },
         line,
         tree,
     }
