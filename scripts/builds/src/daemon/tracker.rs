@@ -92,6 +92,14 @@ pub struct Tracker {
     /// nothing.
     mark_wait: std::time::Duration,
     index: Mutex<Index>,
+    /// Which index the tracker holds: the number of times the supervisor has
+    /// put a fresh one in place. Whoever reads the disk into the index (an
+    /// applied batch, a whole-root rescan) holds this lock from the moment it
+    /// takes the index's entry ids to the last write that uses them, so the
+    /// supervisor never replaces the index under it, and drops a batch that
+    /// was queued for an index since replaced (the walk of the new index
+    /// reads what that batch changed).
+    epoch: Mutex<u64>,
     flags: Mutex<Flags>,
     wake: Condvar,
     stream: Mutex<Option<Stream>>,
@@ -173,6 +181,7 @@ impl Tracker {
                 delivered: Condvar::new(),
                 mark_wait,
                 index: Mutex::new(Index::new(root, &meta)),
+                epoch: Mutex::new(0),
                 flags: Mutex::new(Flags {
                     restart: true,
                     ..Flags::default()
@@ -240,7 +249,12 @@ impl Tracker {
                 );
                 continue;
             };
-            *self.index.lock().expect("no panic holding it") = Index::new(&self.root, &meta);
+            let epoch = {
+                let mut epoch = self.epoch.lock().expect("no panic holding it");
+                *epoch += 1;
+                *self.index.lock().expect("no panic holding it") = Index::new(&self.root, &meta);
+                *epoch
+            };
             self.flags.lock().expect("no panic holding it").followed =
                 Some((meta.dev(), meta.ino()));
             let me = Arc::downgrade(&self);
@@ -285,7 +299,7 @@ impl Tracker {
                     }
                     std::mem::take(&mut flags.pending)
                 };
-                self.apply(pending);
+                self.apply(pending, epoch);
             }
             self.tell(std::slice::from_ref(&self.root));
             let (entries, bytes) = self.size();
@@ -351,7 +365,8 @@ impl Tracker {
             .max()
             .unwrap_or(0);
         let paths: Vec<PathBuf> = events.iter().map(|event| event.path.clone()).collect();
-        self.handle(events);
+        let epoch = *self.epoch.lock().expect("no panic holding it");
+        self.handle(events, epoch);
         self.tell(&paths);
         if mark > 0 {
             let mut marks = self.marks.lock().expect("no panic holding it");
@@ -360,7 +375,7 @@ impl Tracker {
         }
     }
 
-    fn handle(&self, events: Vec<Event>) {
+    fn handle(&self, events: Vec<Event>, epoch: u64) {
         // The stream also says ROOT_CHANGED when a folder above the root
         // changes, the root itself staying where it was.
         let root_changed = events.iter().any(|event| {
@@ -394,13 +409,13 @@ impl Tracker {
             // Every other event in the batch came before the walk, which
             // reads what they changed.
             let flags = event.flags;
-            self.rewalk(&self.root.clone(), flags);
+            self.rewalk(&self.root.clone(), flags, epoch);
             return;
         }
         let (scans, others): (Vec<Event>, Vec<Event>) = events
             .into_iter()
             .partition(|event| event.flags & flags::MUST_SCAN_SUBDIRS != 0);
-        self.apply(others);
+        self.apply(others, epoch);
         // A folder under another one walked again is walked with it.
         let mut folders: Vec<(PathBuf, u32)> = scans
             .into_iter()
@@ -413,7 +428,7 @@ impl Tracker {
             if walked.iter().any(|done| folder.starts_with(done)) {
                 continue;
             }
-            self.rewalk(&folder, flags);
+            self.rewalk(&folder, flags, epoch);
             walked.push(folder);
         }
     }
@@ -422,7 +437,7 @@ impl Tracker {
     /// of its own and puts that in place of what the index held for it: the
     /// current index answers questions until then. Events that arrive
     /// meanwhile wait in the queue and are applied after.
-    fn rewalk(&self, folder: &Path, flags: u32) {
+    fn rewalk(&self, folder: &Path, flags: u32, epoch: u64) {
         let started = std::time::Instant::now();
         let meta = match std::fs::symlink_metadata(folder) {
             Ok(meta) if meta.is_dir() => meta,
@@ -433,10 +448,13 @@ impl Tracker {
             // Gone, or no longer a folder: what is there now is read like
             // any change.
             _ => {
-                self.apply(vec![Event {
-                    path: folder.to_path_buf(),
-                    flags: 0,
-                }]);
+                self.apply(
+                    vec![Event {
+                        path: folder.to_path_buf(),
+                        flags: 0,
+                    }],
+                    epoch,
+                );
                 return;
             }
         };
@@ -445,6 +463,11 @@ impl Tracker {
             walk(&fresh, 0, &self.root, WORKERS);
             let fresh = fresh.into_inner().expect("no panic holding it");
             let entries = fresh.len();
+            // A restart since this walk began put a newer index in place.
+            let held = self.epoch.lock().expect("no panic holding it");
+            if *held != epoch {
+                return;
+            }
             *self.index.lock().expect("no panic holding it") = fresh;
             let mut state = self.flags.lock().expect("no panic holding it");
             state.walks += 1;
@@ -459,15 +482,22 @@ impl Tracker {
                 .is_none()
             {
                 // A folder the index doesn't hold yet: applying it walks it.
-                self.apply(vec![Event {
-                    path: folder.to_path_buf(),
-                    flags: 0,
-                }]);
+                self.apply(
+                    vec![Event {
+                        path: folder.to_path_buf(),
+                        flags: 0,
+                    }],
+                    epoch,
+                );
                 return;
             }
             let fresh = Mutex::new(Index::of_folder(folder, &meta));
             walk(&fresh, 0, folder, WORKERS);
             let fresh = fresh.into_inner().expect("no panic holding it");
+            let held = self.epoch.lock().expect("no panic holding it");
+            if *held != epoch {
+                return;
+            }
             let mut index = self.index.lock().expect("no panic holding it");
             match index.lookup(folder) {
                 Some(id) if index.is_dir(id) => index.graft(id, &fresh),
@@ -497,7 +527,11 @@ impl Tracker {
     }
 
     /// Lists each changed folder and records what it holds now.
-    fn apply(&self, events: Vec<Event>) {
+    fn apply(&self, events: Vec<Event>, epoch: u64) {
+        let held = self.epoch.lock().expect("no panic holding it");
+        if *held != epoch {
+            return;
+        }
         // Each folder once, parents before children.
         let folders: BTreeSet<PathBuf> = events
             .into_iter()

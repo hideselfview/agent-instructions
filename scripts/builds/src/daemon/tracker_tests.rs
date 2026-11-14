@@ -211,6 +211,30 @@ fn a_replaced_root_is_walked_again() {
     );
 }
 
+/// A restart puts a fresh index in place while the apply thread may still hold
+/// entry ids of the old one (a batch from the old stream, applied while the
+/// root is being replaced). Each replacement is followed again, however the
+/// batches and restarts interleave; before the fix, an old id indexed past the
+/// new index's end, panicked the thread holding the index lock, and every
+/// later restart died on the poisoned lock.
+#[test]
+fn a_root_replaced_again_and_again_is_followed_each_time() {
+    for round in 0..12u64 {
+        let scratch = Scratch::new("tracker-replaced");
+        let base = std::fs::canonicalize(&scratch.dir).unwrap();
+        let root = base.join("volume");
+        fill(&root.join("demo/main/target/a"), 100);
+        let tracker = start(&root);
+        let new = base.join("new");
+        fill(&new.join("demo/main/target/b"), 300);
+        std::fs::create_dir_all(new.join(".builds-daemon")).unwrap();
+        std::fs::rename(&root, base.join("old")).unwrap();
+        std::thread::sleep(std::time::Duration::from_micros(round * 7919 % 20_000));
+        std::fs::rename(&new, &root).unwrap();
+        tracker.wait_following_current_root();
+    }
+}
+
 #[test]
 fn dropped_events_and_a_rescan_read_the_disk_again() {
     let scratch = Scratch::new("tracker-rescan");
