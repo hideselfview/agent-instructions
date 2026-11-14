@@ -1,6 +1,7 @@
 //! `builds.sqlite`, the one database in each project's store folder: the
-//! lists (every table of `lists/*.sql`), the hook-run stats (`hook_stats.sql`)
-//! and the app-build timings (`app_timing.sql`). This module does all opening:
+//! lists (every table of `lists/*.sql`), the hook-run stats (`hook_stats.sql`),
+//! the app-build timings (`app_timing.sql`) and the design changes' recording
+//! sessions (`lists/design_session.sql`). This module does all opening:
 //! the pragmas, the schema made whole in the first transaction of a new file,
 //! and the stamp.
 //!
@@ -38,13 +39,22 @@ const HOOK_PART: &str = include_str!("hook_stats.sql");
 /// The app-build timing tables (app_timing.sql), the last part of the schema.
 pub const APP_TIMING_PART: &str = include_str!("app_timing.sql");
 
+/// The design changes' recording sessions (lists/design_session.sql), the last
+/// part of the schema.
+pub const DESIGN_SESSION_PART: &str = include_str!("lists/design_session.sql");
+
 /// A busy store waits as `flock` did: until the other write ends. SQLite
 /// takes the wait as milliseconds in an `i32`.
 const BUSY: Duration = Duration::from_millis(i32::MAX as u64);
 
 /// The whole schema: the lists' tables, then the hook stats', then the
-/// app-build timings'.
+/// app-build timings', then the design changes' recording sessions'.
 pub fn schema() -> String {
+    format!("{}\n{DESIGN_SESSION_PART}", schema_before_design_session())
+}
+
+/// The schema as it was before the design sessions' table joined it.
+pub fn schema_before_design_session() -> String {
     format!("{}\n{APP_TIMING_PART}", schema_before_app_timing())
 }
 

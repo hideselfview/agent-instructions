@@ -18,6 +18,9 @@
 //!                   the daemon (runs.rs), 409 when the lane has a build
 //!                   queued or running; the runs are in `/api/state` and its
 //!                   events, with their output
+//!     POST /design/<design id>/approve  records the person's approval of that
+//!                   design change and tells the session that recorded it;
+//!                   only from this Mac (see `approve`)
 //!     /api/lists    the lists JSON (lists/view.rs, plus each running item's
 //!                   claim facts), as the `lists` event carries it
 //!     /api/hooks    the hook runs' figures and latest runs (hook_stats.rs),
@@ -105,7 +108,10 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
     reader.read_exact(&mut body)?;
     let mut parts = request.split_whitespace();
     let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-    if !host.is_some_and(|host| names.contains(&host)) {
+    if !host
+        .as_deref()
+        .is_some_and(|host| names.iter().any(|name| name == host))
+    {
         return respond(
             &mut stream,
             "403 Forbidden",
@@ -139,12 +145,31 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             queue_action(model, &body).map(|()| b"{}".to_vec()),
         );
     }
+    if method == "POST"
+        && let Some(id) = path
+            .strip_prefix("/design/")
+            .and_then(|rest| rest.strip_suffix("/approve"))
+            .and_then(|id| id.parse::<u32>().ok())
+    {
+        let here = stream.peer_addr().is_ok_and(|peer| peer.ip().is_loopback());
+        return approve(
+            &mut stream,
+            model,
+            id,
+            Approver {
+                here,
+                host: host.as_deref(),
+                origin: origin.as_deref(),
+                names,
+            },
+        );
+    }
     if method != "GET" {
         return respond(
             &mut stream,
             "405 Method Not Allowed",
             "text/plain; charset=utf-8",
-            b"GET only, and POST /api/queue and /api/build-app\n",
+            b"GET only, and POST /api/queue, /api/build-app and /design/N/approve\n",
         );
     }
     match path {
@@ -255,6 +280,65 @@ fn from_own_page(origin: Option<&str>, names: &[String]) -> bool {
             .strip_prefix("http://")
             .is_some_and(|name| names.iter().any(|own| own == name))
     })
+}
+
+/// Who is asking to approve a design change.
+struct Approver<'a> {
+    /// The connection came from a loopback address, which no request from
+    /// another machine does whatever headers it sends.
+    here: bool,
+    host: Option<&'a str>,
+    origin: Option<&'a str>,
+    names: &'a [String],
+}
+
+/// Is <name> (`host:port`) this Mac, as 127.0.0.1 or localhost?
+fn is_this_mac(name: &str) -> bool {
+    let host = name.rsplit_once(':').map_or(name, |(host, _)| host);
+    host == "127.0.0.1" || host == "localhost"
+}
+
+/// Records the person's approval of design change <id> and tells the session
+/// that recorded it (`POST /design/N/approve`). Only the person at this Mac
+/// approves: the connection must come from a loopback address, with the page
+/// served at 127.0.0.1 or localhost as both its Host and its Origin, so a
+/// browser on another machine, or a web page, cannot. Answers `{"approved":
+/// true, "already": bool, "session": null|"unrecorded"|"told"|"ended"}`.
+fn approve(
+    stream: &mut TcpStream,
+    model: &Model,
+    id: u32,
+    by: Approver<'_>,
+) -> std::io::Result<()> {
+    let this_mac = by.here
+        && by.host.is_some_and(is_this_mac)
+        && from_own_page(by.origin, by.names)
+        && by
+            .origin
+            .and_then(|origin| origin.strip_prefix("http://"))
+            .is_some_and(is_this_mac);
+    if !this_mac {
+        return respond(
+            stream,
+            "403 Forbidden",
+            "application/json",
+            serde_json::json!({ "error": "approval is only on this Mac, from the dashboard at 127.0.0.1 or localhost" })
+                .to_string()
+                .as_bytes(),
+        );
+    }
+    use crate::lists::design_session::Approval;
+    let answer = super::approve::approve_design(&model.places, super::model::now_seconds(), id)
+        .map(|approval| {
+            let (already, session) = match approval {
+                Approval::Already => (true, None),
+                Approval::Recorded(session) => (false, Some(session)),
+            };
+            serde_json::json!({ "approved": true, "already": already, "session": session })
+                .to_string()
+                .into_bytes()
+        });
+    json(stream, answer)
 }
 
 #[derive(serde::Deserialize)]

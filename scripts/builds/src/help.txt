@@ -205,7 +205,10 @@ Commands:
                               serves the page at http://127.0.0.1:7787/ (and
                               at <address> too with --listen, such as this
                               Mac's Wi-Fi address for a phone; anyone on
-                              that network can then use the page) and
+                              that network can then use the page, except
+                              the Approve button of a design change's review
+                              page, which works only at 127.0.0.1 or
+                              localhost on this Mac: `builds help lists`) and
                               the lists, which it follows too, at /api/lists
                               and in its `lists` events, and
                               answers the commands' questions about sizes

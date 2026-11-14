@@ -128,6 +128,8 @@ pub struct DesignView {
     pub no_app_place: Option<String>,
     /// The person's review: None while it waits on them.
     pub approved: Option<Stamp>,
+    /// Whether the session that recorded it was told of the approval.
+    pub session: crate::lists::design_session::SessionState,
     pub opened: Stamp,
     pub landed: Vec<crate::lists::DesignLanding>,
     /// When it landed, for one that did in the last `FLOW_DAYS` days.
@@ -335,6 +337,7 @@ pub fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) 
             .collect(),
         no_app_place: design.no_app_place.clone(),
         approved: design.approved.clone(),
+        session: design.session,
         opened: design.opened.clone(),
         landed: design.landed.clone(),
         closed,

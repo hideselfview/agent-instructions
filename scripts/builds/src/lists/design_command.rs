@@ -14,6 +14,7 @@ use crate::fail::{Context, Result};
 use crate::lists::args::{Args, read_request};
 use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer};
 use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
+use crate::lists::design_session::{self, Messaging};
 use crate::lists::store::{self, Store, project_of};
 use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
@@ -28,6 +29,12 @@ pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
 
 /// A design command's output, which `cmd_design` prints.
 pub fn run_to_text(tool: &Tool, args: &[String]) -> Result<String> {
+    run_in_session(tool, args, Messaging::from_env()?)
+}
+
+/// A design command run by the session whose inbox is <session>, if any: the
+/// commands that record a change keep it as the session to tell.
+pub fn run_in_session(tool: &Tool, args: &[String], session: Option<Messaging>) -> Result<String> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
     let Some((command, rest)) = args.split_first() else {
         fail!("{USAGE}")
@@ -35,8 +42,8 @@ pub fn run_to_text(tool: &Tool, args: &[String]) -> Result<String> {
     match command.as_str() {
         "places" => places(tool, rest),
         "only" => only(tool, rest),
-        "record" => record(tool, rest, &cwd),
-        "amend" => amend(tool, rest, &cwd),
+        "record" => record(tool, rest, &cwd, session.as_ref()),
+        "amend" => amend(tool, rest, &cwd, session.as_ref()),
         "approve" => approve(tool, rest, &cwd),
         "check" => check(tool, rest),
         "landed" => landed(tool, rest, &cwd),
@@ -236,7 +243,7 @@ fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, cleared:
     out
 }
 
-fn record(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
+fn record(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) -> Result<String> {
     let args = Args::parse(args, &["request"], &[])?;
     args.exactly(0, USAGE)?;
     let request: DesignRequest = read_request(args.require("request")?)?;
@@ -261,6 +268,7 @@ fn record(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
             &affected,
             &stamp,
         )?;
+        design_session::keep(db, recorded.design, session)?;
         let title = store::read(db)?
             .design(recorded.design)
             .expect("just recorded")
@@ -271,7 +279,7 @@ fn record(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     Ok(recorded_words("recorded", &recorded, &title, false))
 }
 
-fn amend(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
+fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) -> Result<String> {
     let args = Args::parse(args, &["request"], &[])?;
     let [id] = args.exactly(1, USAGE)? else {
         unreachable!("exactly one")
@@ -305,6 +313,7 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
                     &affected,
                     &stamp,
                 )?;
+                design_session::keep(db, id, session)?;
                 let title = store::read(db)?.design(id).expect("open").title.clone();
                 Ok((recorded, title, was_approved))
             })?;

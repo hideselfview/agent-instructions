@@ -16,6 +16,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::design_paths::{Changes, PlaceKind};
+use crate::lists::design_session::{self, SessionState};
 use crate::lists::item::{ItemDraft, Origin, add_item};
 use crate::lists::record;
 use crate::lists::store;
@@ -117,6 +118,8 @@ pub struct DesignChange {
     /// The person's review: set by `design approve`, cleared by an amend,
     /// since the person approved what was drawn before it.
     pub approved: Option<Stamp>,
+    /// The session that recorded it, and whether the approval reached it.
+    pub session: SessionState,
     pub opened: Stamp,
     pub landed: Vec<DesignLanding>,
 }
@@ -1057,6 +1060,7 @@ pub fn read(
         let (design, stamp) = row.sql()?;
         approvals.insert(design, stamp);
     }
+    let mut sessions = design_session::states(db)?;
     let mut statement = db
         .prepare("SELECT id, title, details, repo, worktree, no_app_place FROM design ORDER BY id")
         .sql()?;
@@ -1095,6 +1099,7 @@ pub fn read(
             review: review.remove(&id).unwrap_or_default(),
             no_app_place,
             approved: approvals.remove(&id),
+            session: sessions.remove(&id).unwrap_or(SessionState::Unrecorded),
             opened: opened[&id].clone(),
             landed,
         });
@@ -1104,8 +1109,9 @@ pub fn read(
 
 /// The tables design.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 8] = [
+const TABLES: [&str; 9] = [
     "design",
+    "design_session",
     "design_tip",
     "design_approval",
     "design_place",

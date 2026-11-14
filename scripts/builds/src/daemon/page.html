@@ -1202,6 +1202,11 @@ function queueItems() {
 // A design change is a light card, like a question's: what it blocks, who
 // recorded it and when. Details opens its review page over the dashboard; one
 // that landed has no page, only its words.
+const sessionNote = {
+  unrecorded: "No session is recorded for it, so the next design session lands it.",
+  told: "The session that recorded it was told to land it.",
+  ended: "The session that recorded it has ended, so the next design session lands it.",
+};
 function designRow(g) {
   const direct = g.blocks.length;
   const body = () => h("div", {class: "l-plain"},
@@ -1209,7 +1214,8 @@ function designRow(g) {
       fact("Blocks", plural(direct, "item", "items") + ":"),
       h("ul", {class: "l-list"}, g.blocks.map(b => h("li", {}, recLink(b.id, b.title))))) : fact("Blocks nothing."),
     g.landed.length ? fact("Landed:", g.landed.map(l => l.commits.join(" ") + " " + stamp(l.at)).join("; ")) : null,
-    g.approved ? fact("Approved:", stamp(g.approved.at)) : null,
+    g.approved ? fact("Approved, waiting to land:", stamp(g.approved.at)) : null,
+    g.approved && sessionNote[g.session] ? fact(sessionNote[g.session]) : null,
     h("span", {class: "l-sub"}, "#" + g.id + " · ", opened(g, "Recorded")),
     g.closed ? md(g.details) : h("button", {type: "button", class: "l-details", onclick: () => openReview(g)}, "Details"));
   return fold("g:" + g.id, g.id,

@@ -90,6 +90,29 @@ does not change what the page shows, and a redraw shows on reload. builds land -
 it leaves the tab. The design session lands through builds land like everyone else,
 from bae's landing worktree (side-7).
 
+The review page has an Approve button, which records the approval as
+`builds design approve N --by-person` does, and the card then says "approved,
+waiting to land" until the change lands. The button works only from the page
+served at 127.0.0.1 or localhost, on this Mac (the dashboard may also listen on
+the Wi-Fi's address, where anyone could reach it): the daemon refuses an
+approval from a connection that is not from this Mac or whose page or origin
+is another address, and a page served at another address says approval is only
+on this Mac. The approval then sends "Design change #N approved: land it." to
+the session that recorded the change, which lands it (builds land, then
+publishes the canvas, which only a Claude session can do). `design record` and
+`design amend` keep the inbox of the session that runs them, from its
+environment: CLAUDE_CODE_MESSAGING_SOCKET and CLAUDE_CODE_MESSAGING_TOKEN (a
+session that bypasses permission prompts holds a message unless its token
+comes with it). The token is a per-session secret that stays in the lists
+store: nothing prints it, logs it, puts it on a page or returns it in JSON. The
+message goes to the socket once, as the protocol of
+https://code.claude.com/docs/en/cross-session-messaging.md ("The session's
+inbox socket") says: a line `{"type":"auth","token":"..."}`, then a line
+`{"type":"user","message":{"role":"user","content":"..."}}`. When no session
+listens on the socket any more, the card says the session that recorded the
+change has ended and the next design session lands it; nothing sends again. An
+amend clears what the session was told, along with the approval.
+
 A repo's design files are the globs given to `lists init`. --design-places:
 a board file (`design/mocks/*.dc.html`) is a place, and so is a component
 folder (`design/system/components/*/`), counted once however many files in it
@@ -171,7 +194,9 @@ rebased, since places are compared by path.
   builds design approve N --by-person
       Records the person's approval, which only they give (say "--by-person"
       once they have said to land it, never on your own judgment). The same
-      approval again writes nothing.
+      approval again writes nothing. The person usually approves with the
+      Approve button on the review page instead (see below); this command
+      sends nothing to any session.
 
   builds design check N DIR SHA...
       Every place the commits change is resolved in open change N, shared

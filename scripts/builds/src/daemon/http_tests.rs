@@ -427,3 +427,103 @@ fn the_daemon_serves_the_hook_runs_with_their_over_limit_runs() {
     assert_eq!(repo["over"][0]["total_ms"], 90_000);
     assert_eq!(s.get("/api/hooks/impact?project=demo").0, 404);
 }
+
+impl Server {
+    /// The status code and body of a POST with no body to <path>.
+    fn post_empty(&self, path: &str, host: &str, origin: Option<&str>) -> (u16, String) {
+        let origin = origin
+            .map(|o| format!("Origin: {o}\r\n"))
+            .unwrap_or_default();
+        let request =
+            format!("POST {path} HTTP/1.1\r\nHost: {host}\r\n{origin}Content-Length: 0\r\n\r\n");
+        let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        stream.write_all(request.as_bytes()).unwrap();
+        let mut reply = String::new();
+        stream.read_to_string(&mut reply).unwrap();
+        let status = reply.split_whitespace().nth(1).unwrap().parse().unwrap();
+        (status, reply.split_once("\r\n\r\n").unwrap().1.to_string())
+    }
+}
+
+#[test]
+fn the_approve_button_works_only_from_the_page_at_this_mac_and_tells_the_recording_session_once() {
+    use crate::lists::design_session::{Messaging, keep};
+    use crate::lists::fixtures::{NOON, stamp};
+    let mut inbox = None;
+    let s = server_with("http-approve", |scratch, places| {
+        design_store(scratch, places);
+        let socket = scratch.dir.join("s.sock");
+        inbox = Some(crate::testing::FakeInbox::listen(&socket));
+        let messaging = Messaging::new(socket.to_str().unwrap(), Some("tok-9c1d")).unwrap();
+        crate::lists::store::Store::named(places, "demo")
+            .unwrap()
+            .write(&stamp(NOON), "design record", |db| {
+                keep(db, crate::lists::Id(1), Some(&messaging))
+            })
+            .unwrap();
+    });
+    let approved = || {
+        let store = crate::lists::store::Store::named(&s.model.places, "demo").unwrap();
+        store
+            .load()
+            .unwrap()
+            .design(crate::lists::Id(1))
+            .unwrap()
+            .approved
+            .is_some()
+    };
+    let local = format!("127.0.0.1:{}", s.port);
+    let this_mac = format!("http://{local}");
+    let also = format!("{ALSO}:{}", s.port);
+    let other_page = format!("http://{also}");
+
+    // From the page served at another address, from another site, or with no
+    // Origin: refused, nothing approved.
+    for (host, origin) in [
+        (also.as_str(), Some(other_page.as_str())),
+        (local.as_str(), Some("http://evil.example")),
+        (local.as_str(), Some(other_page.as_str())),
+        (local.as_str(), None),
+        (also.as_str(), Some(this_mac.as_str())),
+    ] {
+        let (status, body) = s.post_empty("/design/1/approve", host, origin);
+        assert_eq!(status, 403, "{host} {origin:?}");
+        assert!(body.contains("only on this Mac"), "{body}");
+    }
+    assert!(!approved());
+
+    // A change no project has.
+    let (status, body) = s.post_empty("/design/9/approve", &local, Some(&this_mac));
+    assert_eq!(status, 500, "{body}");
+    assert!(body.contains("no project has design change"), "{body}");
+
+    let (status, body) = s.post_empty("/design/1/approve", &local, Some(&this_mac));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body).unwrap(),
+        serde_json::json!({"approved": true, "already": false, "session": "told"})
+    );
+    assert!(!body.contains("tok-9c1d"));
+    let lines = inbox.take().unwrap().received();
+    assert!(
+        lines[0].contains("tok-9c1d") && lines[1].contains("Design change #1 approved: land it.")
+    );
+
+    // Again: already approved, nothing sent (the inbox took one connection and is gone).
+    let (status, body) = s.post_empty("/design/1/approve", &local, Some(&this_mac));
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"already\":true"), "{body}");
+    assert!(approved());
+    // The page served at localhost is this Mac too.
+    let localhost = format!("localhost:{}", s.port);
+    let (status, body) = s.post_empty(
+        "/design/1/approve",
+        &localhost,
+        Some(&format!("http://{localhost}")),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"already\":true"), "{body}");
+    // The page's own data never carries the token.
+    let (_, _, page) = s.get("/design/1");
+    assert!(!page.contains("tok-9c1d"));
+}

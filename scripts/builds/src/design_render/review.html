@@ -13,6 +13,10 @@ header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; a
 header h1 { margin: 0; font-size: 17px; font-weight: 650; }
 header .id, header .repo, header .state { color: var(--dim); font-size: 13px; }
 header .state.waiting { color: var(--accent); font-weight: 600; }
+header .approve { font: inherit; font-weight: 600; color: var(--bg); background: var(--accent); border: 1px solid var(--accent); border-radius: 6px; padding: 3px 14px; cursor: pointer; }
+header .approve:disabled { opacity: 0.6; cursor: default; }
+header .approval { color: var(--dim); font-size: 13px; }
+header .approval.problem { color: var(--bad); border: 0; padding: 0; }
 .tools { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--dim); font-size: 13px; }
 .tools button { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
 .tools button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
@@ -41,6 +45,7 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 <body>
 <header>
   <h1 id="title"></h1><span class="id" id="id"></span><span class="repo" id="repo"></span><span class="state" id="state"></span>
+  <span id="approve-here"></span><span class="approval" id="approval"></span>
   <div class="tools" id="tools">Zoom
     <button type="button" data-zoom="fit" aria-pressed="true">Fit</button>
     <button type="button" data-zoom="0.5" aria-pressed="false">50%</button>
@@ -97,8 +102,44 @@ document.getElementById("title").textContent = data.title;
 document.getElementById("id").textContent = "#" + data.id;
 document.getElementById("repo").textContent = data.repo;
 const state = document.getElementById("state");
-state.textContent = data.approved ? "approved" : "waiting on your review";
-if (!data.approved) state.classList.add("waiting");
+// What the person and the session that recorded the change are told once it
+// is approved. The Approve button works only on the page served at 127.0.0.1
+// or localhost, and the daemon refuses an approval from anywhere else.
+const here = ["127.0.0.1", "localhost"].includes(location.hostname);
+const sessionWords = {
+  unrecorded: "No session is recorded for this change, so the next design session lands it.",
+  waiting: "",
+  told: "The session that recorded it was told to land it.",
+  ended: "The session that recorded it has ended, so the next design session lands it.",
+};
+const approvalLine = document.getElementById("approval");
+function showApproval(problem) {
+  state.textContent = data.approved ? "approved, waiting to land" : "waiting on your review";
+  state.classList.toggle("waiting", !data.approved);
+  const slot = document.getElementById("approve-here");
+  slot.replaceChildren();
+  approvalLine.classList.toggle("problem", !!problem);
+  if (problem) { approvalLine.textContent = problem; return; }
+  if (data.approved) { approvalLine.textContent = sessionWords[data.session] || ""; return; }
+  if (!here) { approvalLine.textContent = "Approval is only on this Mac."; return; }
+  approvalLine.textContent = "";
+  const button = h("button", {type: "button", class: "approve"}, "Approve");
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      const response = await fetch(location.pathname.replace(/\/$/, "") + "/approve", {method: "POST"});
+      const answer = await response.json();
+      if (!response.ok) { showApproval(answer.error || "approving failed"); return; }
+      data.approved = true;
+      data.session = answer.session || data.session;
+      showApproval();
+    } catch (error) {
+      showApproval("approving failed: " + error);
+    }
+  });
+  slot.append(button);
+}
+showApproval();
 
 // Each drawing is a rendered page in a frame, drawn at the size the canvas
 // gives it and scaled; the frame stays live HTML, so zooming shows it sharp.

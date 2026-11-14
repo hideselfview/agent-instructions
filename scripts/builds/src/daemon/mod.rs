@@ -7,6 +7,7 @@
 //! `Reply`.
 
 pub mod app_builds;
+pub mod approve;
 pub mod board;
 pub mod cards;
 pub mod client;

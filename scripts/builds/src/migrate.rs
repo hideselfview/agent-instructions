@@ -144,6 +144,9 @@ const BEFORE_DESIGN_TIP_STAMP: i64 = 915_872_331;
 /// The stamp of the schema before the app-build timing tables were added.
 const BEFORE_APP_TIMING_STAMP: i64 = 431_659_017;
 
+/// The stamp of the schema before the design sessions' table was added.
+const BEFORE_DESIGN_SESSION_STAMP: i64 = 687_463_914;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -156,8 +159,10 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// stamped as either older schema gets a `hook_run_checks` that keeps a time
 /// only for a passed check (a failed check's time is dropped), and every store
 /// gets the empty `design_tip` table (a design change has no last commit until
-/// it is amended), and every store older than today's gets the app-build timing
-/// tables. The moves run in
+/// it is amended), every store older than the app-build timings gets their
+/// tables, and every store older than today's gets the empty
+/// `design_session` table (a design change has no session to tell until it is
+/// recorded or amended). The moves run in
 /// one transaction, the store is stamped as today's schema, and it must then
 /// equal a fresh database's schema or the transaction rolls back. A store
 /// already at today's stamp, or with no database, is left alone; any other
@@ -237,11 +242,12 @@ fn move_store(path: &Path) -> Result<()> {
         BEFORE_CHECK_TIMES_STAMP,
         BEFORE_DESIGN_TIP_STAMP,
         BEFORE_APP_TIMING_STAMP,
+        BEFORE_DESIGN_SESSION_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP} and {BEFORE_APP_TIMING_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP} and {BEFORE_DESIGN_SESSION_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -252,13 +258,17 @@ fn move_store(path: &Path) -> Result<()> {
     if found == BEFORE_DESIGN_DELETED_STAMP {
         tx.execute_batch(DESIGN_DELETED).sql()?;
     }
-    if found != BEFORE_DESIGN_TIP_STAMP && found != BEFORE_APP_TIMING_STAMP {
+    let has_tip_and_times = [BEFORE_APP_TIMING_STAMP, BEFORE_DESIGN_SESSION_STAMP].contains(&found);
+    if found != BEFORE_DESIGN_TIP_STAMP && !has_tip_and_times {
         tx.execute_batch(&check_times()).sql()?;
     }
-    if found != BEFORE_APP_TIMING_STAMP {
+    if !has_tip_and_times {
         tx.execute_batch(&design_tip()).sql()?;
     }
-    tx.execute_batch(db::APP_TIMING_PART).sql()?;
+    if found != BEFORE_DESIGN_SESSION_STAMP {
+        tx.execute_batch(db::APP_TIMING_PART).sql()?;
+    }
+    tx.execute_batch(db::DESIGN_SESSION_PART).sql()?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     if db::schema_rows(&tx)? != db::schema_rows(&db::memory())? {
         fail!(

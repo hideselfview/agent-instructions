@@ -66,10 +66,25 @@ draws them with its own parts.
   Fixes that only make boards follow the design system's measures, or correct a
   drawing mistake in the session's own work, need no review: the session judges
   them and lands them (the person, 2026-11-14).
-- Once the person says to land it, the session approves it
-  (`builds design approve N --by-person`) and lands with
-  `builds land <worktree> --design N <sha>...`. The change closes and leaves the
-  tab. Changing the boards again (`builds design amend N`) clears the approval.
+- The person approves with the Approve button on the review page (the person,
+  2026-11-14), not by telling the session "land it". The button works only from
+  the page served at 127.0.0.1 or localhost on the person's Mac (the dashboard
+  may also listen on the Wi-Fi's address, where anyone could reach it); at
+  another address the page says approval is only on this Mac. The card then says
+  "approved, waiting to land" until the change lands.
+- `builds design record` and `amend` keep the inbox of the session that runs
+  them (its `CLAUDE_CODE_MESSAGING_SOCKET` and `CLAUDE_CODE_MESSAGING_TOKEN`).
+  The token is that session's secret: it stays in the lists store, and the
+  session never prints it, logs it or puts it in a page or a board.
+- Approving sends "Design change #N approved: land it." to that inbox, once. A
+  message that arrives like that is the cue to land: the session lands with
+  `builds land <worktree> --design N <sha>...` (the approval is already
+  recorded; never run `builds design approve` for it), then publishes the
+  canvas, which only a Claude session can do. The change closes and leaves the
+  tab. When the session has ended, the card says so and the next design session
+  lands the change. `builds design approve N --by-person` stays for an approval
+  the person gives the session in words; it sends nothing. Changing the boards
+  again (`builds design amend N`) clears the approval.
 - Landing also publishes the canvas. The commit on main is the record of what
   landed; the published canvas lets anyone look at the landed boards.
 

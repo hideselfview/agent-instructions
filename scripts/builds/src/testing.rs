@@ -152,3 +152,30 @@ pub fn stale_socket(path: &Path) {
         assert_eq!(bound, 0, "the socket binds");
     }
 }
+
+/// A session's inbox socket at <path> for a test, served by a thread: it takes
+/// one connection, reads it to its end and keeps its lines. Never a real
+/// session's socket.
+pub struct FakeInbox {
+    lines: std::thread::JoinHandle<Vec<String>>,
+}
+
+impl FakeInbox {
+    pub fn listen(path: &Path) -> FakeInbox {
+        let listener = std::os::unix::net::UnixListener::bind(path).expect("the socket binds");
+        let lines = std::thread::spawn(move || {
+            use std::io::BufRead;
+            let (stream, _) = listener.accept().expect("a connection comes");
+            std::io::BufReader::new(stream)
+                .lines()
+                .map(|line| line.expect("a line reads"))
+                .collect()
+        });
+        FakeInbox { lines }
+    }
+
+    /// The lines the connection sent, once it has closed.
+    pub fn received(self) -> Vec<String> {
+        self.lines.join().expect("the inbox thread ends")
+    }
+}
