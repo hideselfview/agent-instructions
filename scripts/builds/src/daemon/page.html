@@ -229,6 +229,17 @@ a.l-ref { color: var(--accent); text-decoration: underline dotted; text-underlin
 a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .l-note { background: var(--waiting-bg); border-radius: 8px; padding: 6px 10px; font-size: 13px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
 .l-empty { font-size: 13px; color: var(--muted); padding: 4px 2px; }
+.rlist { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.rline + .rline { border-top: 1px solid var(--line-soft); }
+.rline > summary { list-style: none; cursor: pointer; padding: 11px 16px; font-weight: 500; color: var(--text); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.rline > summary::-webkit-details-marker { display: none; }
+.rline > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 12px; }
+.rline .wt { font: 400 12px var(--mono); color: var(--muted-2); white-space: nowrap; }
+.rmore { padding: 0 16px 14px; font-size: 13px; color: var(--text-2); display: flex; flex-direction: column; gap: 8px; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 14px; margin: 0; align-items: baseline; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.facts dd.mono { font: 12px var(--mono); }
 .tools { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
 .tools > summary { cursor: pointer; font-size: 14px; font-weight: 600; }
 .tools .controls { margin-top: 10px; }
@@ -1112,20 +1123,17 @@ function stackCard(q, n, top) {
 function reviews() { return lists.designs.filter(g => !g.closed && !g.approved); }
 // Design changes the person approved that the design session has not landed.
 function approvedDesigns() { return lists.designs.filter(g => !g.closed && g.approved); }
-// The running items of the works the board puts under <tab>.
-function itemsIn(tab) {
-  const ids = new Set(lists.board.works.filter(w => w.tab === tab).flatMap(w => w.items));
-  return lists.items.filter(it => ids.has(it.id));
-}
+// The works (the running items of one worktree) the board puts under <tab>.
+function worksIn(tab) { return lists.board.works.filter(w => w.tab === tab); }
 function waitingItems() {
-  const own = lists.stack, review = reviews(), work = itemsIn("waiting");
+  const own = lists.stack, review = reviews(), work = worksIn("waiting");
   const out = [];
   if (review.length) out.push({key: "reviews", data: review, make: () => section("Design changes to review", review.length,
     h("div", {class: "l-rows"}, review.map(designCard)))});
   if (own.length) out.push({key: "questions", data: own, make: () => section("Questions and steps for you", own.length,
     h("div", {class: "l-rows"}, own.map((q, i) => stackCard(q, i + 1, i === 0))))});
   if (work.length) out.push({key: "held-work", data: work, make: () => section("Work held on you", work.length,
-    h("div", {class: "l-rows"}, work.map(runningCard)))});
+    workList(work))});
   return out.length ? out : [empty("Nothing waits on you.")];
 }
 
@@ -1166,32 +1174,45 @@ function itemRow(it) {
       sub ? h("span", {class: "l-sub"}, sub) : null],
     () => itemBody(it), "l-row");
 }
-function runningCard(it) {
-  const first = it.running[0];
-  // One group of facts per worktree: an item that spans repos runs in one of each.
-  const where = it.running.flatMap(r => [
-    fact("Agent", h("strong", {}, r.agent || "unclaimed")),
-    fact("Worktree", mono(r.repo + " " + r.checkout), " on ", mono(r.branch)),
-    r.waiting_to_land ? fact("Waiting to land:", plural(r.waiting_to_land, "commit", "commits")) : null]);
-  return h("article", {class: "l-card"},
-    h("div", {class: "l-row1"}, h("span", {class: "l-title"}, it.title), h("span", {class: "l-id"}, "#" + it.id), itemPill(it)),
-    h("div", {class: "l-facts"},
-      ...where,
-      first.brief ? fact("Brief", mono(first.brief)) : null,
-      fact("Since", stamp(first.since.at) + " by " + first.since.by),
-      it.landed.length ? fact("Already landed:", it.landed.map(l => l.repo + " " + l.commits.join(" ")).join("; ")) : null,
-      unmet(it).length ? fact("Held on", unmet(it).map(waitLink).flatMap((el, i) => i ? ["; ", el] : [el])) : null),
-    ...it.running.map(r => r.note ? h("div", {class: "l-note"}, r.note, r.note_state ? " " : null, r.note_state ? pill(r.note_state, "s-winding") : null) : null),
-    fold("i:" + it.id, it.id, "Details and notes", () => itemBody(it)));
+// A work is one line: its title with its worktree beside it in grey. Opening
+// it shows what is happening now, its items, agent, branch, plan and landed
+// commits.
+function workLine(w) {
+  const held = lists.items.filter(it => w.items.some(i => i.id === it.id)).flatMap(unmet);
+  const names = [...new Set(held.map(waitName))];
+  return h("details", {class: "rline", "data-rec": String(w.items[0].id)},
+    h("summary", {}, h("span", {}, w.title), h("span", {class: "wt"}, w.repo + " " + w.checkout)),
+    h("div", {class: "rmore"},
+      h("div", {}, w.now || "No note yet."),
+      h("dl", {class: "facts"},
+        h("dt", {}, "Items"), h("dd", {}, w.items.map(i => i.title).join(", ")),
+        h("dt", {}, "Agent"), h("dd", {}, (w.agent || "unclaimed") + ", since " + stamp(w.since.at)),
+        h("dt", {}, "Branch"), h("dd", {class: "mono"}, w.branch),
+        h("dt", {}, "Plan"), h("dd", {class: "mono"}, w.plan),
+        names.length ? [h("dt", {}, "Held on"), h("dd", {}, names.join("; "))] : null,
+        w.landed.length ? [h("dt", {}, "Landed"), h("dd", {class: "mono"}, w.landed.join(" "))] : null)));
+}
+function approvedLine(g) {
+  return h("details", {class: "rline", "data-rec": String(g.id)},
+    h("summary", {}, h("span", {}, g.title), h("span", {class: "wt"}, g.repo + " design")),
+    h("div", {class: "rmore"},
+      h("div", {}, "You approved it; the design session has not landed it yet."),
+      g.blocks.length ? h("dl", {class: "facts"}, h("dt", {}, "Items"), h("dd", {}, g.blocks.map(b => b.title).join(", "))) : null));
+}
+function workList(works, lines) {
+  return h("div", {class: "rlist"}, (lines || works.map(workLine)));
 }
 function rows(its, one) { return h("div", {class: "l-rows"}, its.map(one || itemRow)); }
 function runningItems() {
-  const running = itemsIn("running").sort((a, b) => a.running[0].since.at - b.running[0].since.at);
-  const approved = approvedDesigns();
+  const bySince = (a, b) => a.since.at - b.since.at;
+  const running = worksIn("running").sort(bySince);
+  const group = name => running.filter(w => w.group === name);
+  const working = group("working"), ready = group("ready-to-land"), approved = approvedDesigns();
   const out = [];
-  if (running.length) out.push({key: "running", data: running, make: () => section("Running", running.length, rows(running, runningCard))});
-  if (approved.length) out.push({key: "approved", data: approved, make: () => section("Design changes approved, not yet landed", approved.length,
-    h("div", {class: "l-rows"}, approved.map(designCard)))});
+  if (working.length || approved.length) out.push({key: "working", data: [working, approved],
+    make: () => section("Working", working.length + approved.length,
+      workList(null, working.map(workLine).concat(approved.map(approvedLine))))});
+  if (ready.length) out.push({key: "ready", data: ready, make: () => section("Ready to land", ready.length, workList(ready))});
   return out.length ? out : [empty("No work is running.")];
 }
 function queueItems() {
@@ -1245,7 +1266,7 @@ function indexLists() {
   index = new Map();
   for (const q of lists.stack) index.set(q.id, {tab: "waiting", key: "q:" + q.id, title: q.title});
   for (const it of lists.items) {
-    const work = lists.board.works.find(w => w.items.includes(it.id));
+    const work = lists.board.works.find(w => w.items.some(i => i.id === it.id));
     index.set(it.id, {tab: work ? work.tab : "queue", key: "i:" + it.id, title: it.title});
   }
   for (const g of lists.designs) if (!g.closed) index.set(g.id, {tab: g.approved ? "running" : "waiting", key: "g:" + g.id, title: g.title});

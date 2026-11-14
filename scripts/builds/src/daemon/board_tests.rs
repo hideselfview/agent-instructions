@@ -1,8 +1,8 @@
 use super::*;
-use crate::lists::Running;
 use crate::lists::Wait;
 use crate::lists::fixtures::{NOON, blocks_something, db, design, item, question, read, stamp};
 use crate::lists::view::ClaimFacts;
+use crate::lists::{Id, Running};
 
 fn start(db: &rusqlite::Connection, item: Id, checkout: &str) {
     crate::lists::running::start(
@@ -79,7 +79,10 @@ fn each_tab_counts_what_it_holds() {
     assert_eq!(tab_of("side-2"), Tab::Waiting);
     assert_eq!(tab_of("side-3"), Tab::Running);
     let shared = board.works.iter().find(|w| w.checkout == "side-3").unwrap();
-    assert_eq!(shared.items, vec![first, second]);
+    assert_eq!(
+        shared.items.iter().map(|i| i.id).collect::<Vec<_>>(),
+        vec![first, second]
+    );
 }
 
 #[test]
@@ -101,4 +104,59 @@ fn a_wait_on_another_item_is_not_the_persons() {
     start(&db, waits, "side-1");
     let board = board_of(&db, &[]);
     assert_eq!((board.waiting, board.running), (0, 1));
+}
+
+#[test]
+fn a_work_says_what_it_is_and_which_group_holds_it() {
+    let db = db();
+    let ready = item(&db, vec![]);
+    start(&db, ready, "side-1");
+    crate::lists::landing::add_part(
+        &db,
+        ready,
+        crate::lists::LandedPart {
+            repo: "bae".into(),
+            commits: vec![
+                "c562692e826cd7a1b2c3d4e5f60718293a4b5c6d".into(),
+                "6848a15b2c3d4e5f60718293a4b5c6d7e8f90a1b".into(),
+            ],
+            at: NOON,
+        },
+    )
+    .unwrap();
+    let working = item(&db, vec![]);
+    start(&db, working, "side-2");
+    let held = item(&db, vec![]);
+    start(&db, held, "side-3");
+    let mut view = View::build(&read(&db), NOON);
+    for item in &mut view.items {
+        for running in &mut item.running {
+            let (waiting, state) = match running.checkout.as_str() {
+                "side-1" => (2, None),
+                "side-3" => (2, Some("held")),
+                _ => (0, None),
+            };
+            running.claim = Some(ClaimFacts {
+                agent: Some("circle-raise".into()),
+                note: Some("fixing the tests".into()),
+                note_state: state.map(str::to_string),
+                waiting_to_land: waiting,
+            });
+        }
+    }
+    let board = build(&view);
+    let work = |checkout: &str| board.works.iter().find(|w| w.checkout == checkout).unwrap();
+    assert_eq!(work("side-1").group, Group::ReadyToLand);
+    assert_eq!(work("side-2").group, Group::Working);
+    assert_eq!(work("side-3").group, Group::Working);
+    let first = work("side-1");
+    assert_eq!(first.title, read(&db).item(ready).unwrap().title);
+    assert_eq!(first.now.as_deref(), Some("fixing the tests"));
+    assert_eq!(first.agent.as_deref(), Some("circle-raise"));
+    assert_eq!(first.branch, "side-1-branch");
+    assert_eq!(first.plan, "plans/briefs/x.md");
+    assert_eq!(
+        first.landed,
+        vec!["c562692".to_string(), "6848a15".to_string()]
+    );
 }
