@@ -503,6 +503,8 @@ pub struct Claimed {
     pub claim: Claim,
     pub branch: Option<String>,
     pub git: SideGit,
+    /// Do its commits wait on the person's review of a design change?
+    pub awaiting_review: bool,
 }
 
 /// A side worktree with no claim that holds commits missing from origin/main:
@@ -583,6 +585,7 @@ pub fn assess(
         claim,
         branch,
         git,
+        awaiting_review,
     } in claimed
     {
         let building: Vec<BuildProcess> = machine
@@ -599,9 +602,11 @@ pub fn assess(
             .filter_map(|lock| lock.holder.as_ref())
             .find(|h| h.builds_for(&label, &git))
             .map(|h| h.pid);
-        // A held claim is quiet on purpose: its note says why.
+        // A held claim is quiet on purpose: its note says why. A worktree
+        // whose design change waits on the person's review is waiting on them.
         let held = claim.note_state.as_deref() == Some("held");
         if !held
+            && !awaiting_review
             && building.is_empty()
             && app_build.is_none()
             && quiet_minutes.is_none_or(|m| m >= QUIET_MINUTES)
@@ -692,6 +697,26 @@ pub fn locks_of(places: &crate::places::Places, roots: &[Root]) -> Result<Vec<Ap
     Ok(locks)
 }
 
+/// What the lists say about the claimed worktrees, one line each: the
+/// running-item and held-work findings (lists/running.rs, lists/held.rs). Also
+/// marks the worktrees whose design change waits on the person's review, so
+/// <claimed> is judged with that known.
+pub fn lists_findings(
+    places_in: &crate::places::Places,
+    loaded: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
+    places: &[Place],
+    claimed: &mut [Claimed],
+    worktrees: &[crate::lists::held::Worktree],
+) -> Result<Vec<String>> {
+    let reviewing = crate::lists::held::awaiting_review(loaded, worktrees);
+    for one in claimed.iter_mut() {
+        one.awaiting_review = reviewing.contains(&places[one.place].label);
+    }
+    let mut lists = crate::lists::running::findings(places_in, loaded)?;
+    lists.extend(crate::lists::held::findings(loaded, worktrees));
+    Ok(lists)
+}
+
 /// Gathers the machine's health now, reading everything itself.
 pub fn health(tool: &Tool) -> Result<Health> {
     let now = tool.now;
@@ -733,6 +758,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
     });
     let mut judged = Vec::new();
     let mut held_worktrees = Vec::new();
+    let loaded = crate::lists::store::load_all(&tool.places);
     for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
         held_worktrees.push(crate::lists::held::Worktree {
             label: places[place].label.clone(),
@@ -750,11 +776,10 @@ pub fn health(tool: &Tool) -> Result<Health> {
             claim,
             branch: checkout.branch()?,
             git,
+            awaiting_review: false,
         });
     }
-    let loaded = crate::lists::store::load_all(&tool.places);
-    let mut lists = crate::lists::running::findings(&tool.places, &loaded)?;
-    lists.extend(crate::lists::held::findings(&loaded, &held_worktrees));
+    let lists = lists_findings(&tool.places, &loaded, &places, &mut judged, &held_worktrees)?;
     Ok(assess(
         now,
         tool.disk_space()?,
@@ -997,7 +1022,8 @@ mod tests {
     }
 
     /// A claim with no change for hours and no build is idle, unless its
-    /// note says it is held.
+    /// note says it is held or its design change waits on the person's review
+    /// (the third claim).
     #[test]
     fn a_held_claim_is_not_idle() {
         let now = 1_800_000_000;
@@ -1037,6 +1063,7 @@ mod tests {
                 last_write: Some(now - 3 * 3600),
                 error: None,
             },
+            awaiting_review: n == 3,
         };
         let health = assess(
             now,
@@ -1046,8 +1073,8 @@ mod tests {
                 hard_floor_kib: 10 << 20,
             },
             machine,
-            &[place(1), place(2)],
-            vec![claimed(1, None), claimed(2, Some("held"))],
+            &[place(1), place(2), place(3)],
+            vec![claimed(1, None), claimed(2, Some("held")), claimed(3, None)],
             Vec::new(),
             Vec::new(),
         );
@@ -1059,7 +1086,7 @@ mod tests {
             "{:?}",
             health.findings
         );
-        assert_eq!(health.worktrees.len(), 2);
+        assert_eq!(health.worktrees.len(), 3);
     }
 
     /// An unclaimed worktree holding commits missing from origin/main is

@@ -307,14 +307,17 @@ commit); an absolute path is itself.
       Refused when it would make items wait on each other in a circle, or on a
       closed record. A condition is met only by --off.
   builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2]
-                    --brief P [--as design-session]
+                    --brief P [--as design-session] [--held WHY]
       W is a claimed side worktree of a project repo (the claim names the
       agent; the item stores none) and B a branch of it. Work that spans
       repos names one worktree and branch per repo, the nth --branch for the
       nth --worktree; the item runs in all of them. Refused for an item that
       waits, one already running (stop it first), a design-session item
       without --as design-session, a worktree already running another
-      branch, and two worktrees of one repo.
+      branch, and two worktrees of one repo. --held WHY takes an item that
+      waits on an open question, item, design change or condition (and only
+      one that does), and notes each worktree held with WHY in the same
+      write: work kept for an answer, with no agent running.
   builds item handoff N --brief P      A running item's next agent's brief
                                        (in every worktree it runs in).
   builds item stop N --why WHY         Back to the queue, out of every

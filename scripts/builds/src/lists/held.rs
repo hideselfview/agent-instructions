@@ -34,7 +34,7 @@ pub fn wait_open(lists: &Lists, wait: &Wait) -> bool {
     )
 }
 
-fn waits_on_open(lists: &Lists, item: &Item) -> bool {
+pub fn waits_on_open(lists: &Lists, item: &Item) -> bool {
     item.waits.iter().any(|wait| wait_open(lists, wait))
 }
 
@@ -122,6 +122,56 @@ fn covers(design: &DesignChange, changes: &Changes) -> bool {
         && crate::lists::design::needs_answer(design, changes, "the commits").is_ok()
 }
 
+/// The open design change of <repo> that holds every place <changes> changes.
+fn covering<'a>(lists: &'a Lists, repo: &str, changes: &Changes) -> Option<&'a DesignChange> {
+    lists.designs.iter().find(|design| {
+        design.repo == repo
+            && matches!(
+                lists.locate(design.id),
+                Some(Located {
+                    standing: Standing::Open,
+                    ..
+                })
+            )
+            && covers(design, changes)
+    })
+}
+
+/// The labels of the worktrees whose commits an open design change covers
+/// and that waits on the person's review: they wait on the person, so they
+/// are not quiet. Once the person approves, the change waits on landing and
+/// the worktree is quiet again.
+pub fn awaiting_review(
+    loaded: &std::result::Result<Vec<Loaded>, String>,
+    worktrees: &[Worktree],
+) -> Vec<String> {
+    let Ok(loaded) = loaded else {
+        return Vec::new();
+    };
+    worktrees
+        .iter()
+        .filter(|worktree| {
+            let Some(lists) = loaded
+                .iter()
+                .filter_map(|project| project.lists.as_ref().ok())
+                .find(|lists| lists.repos.contains(&worktree.repo))
+            else {
+                return false;
+            };
+            let globs = Globs::of(lists, &worktree.repo);
+            if worktree.ahead.is_empty() || (globs.places.is_empty() && globs.sources.is_empty()) {
+                return false;
+            }
+            changes_of(&worktree.top, &globs, &worktree.ahead)
+                .ok()
+                .filter(Changes::is_design_change)
+                .and_then(|changes| covering(lists, &worktree.repo, &changes))
+                .is_some_and(|design| design.approved.is_none())
+        })
+        .map(|worktree| worktree.label.clone())
+        .collect()
+}
+
 /// What `builds health` says about held work, one line each: a held worktree
 /// whose item waits on nothing open (the record it waited on closed, or
 /// nothing runs there), and a branch whose commits change design files that
@@ -168,18 +218,7 @@ pub fn findings(
                 error.text()
             )),
             Ok(changes) if changes.is_design_change() => {
-                let covered = lists.designs.iter().any(|design| {
-                    design.repo == worktree.repo
-                        && matches!(
-                            lists.locate(design.id),
-                            Some(Located {
-                                standing: Standing::Open,
-                                ..
-                            })
-                        )
-                        && covers(design, &changes)
-                });
-                if !covered {
+                if covering(lists, &worktree.repo, &changes).is_none() {
                     let named: Vec<&str> = changes
                         .resolvable()
                         .into_iter()

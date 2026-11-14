@@ -14,6 +14,7 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::Args;
 use crate::lists::draft::require_brief_from;
+use crate::lists::held::waits_on_open;
 use crate::lists::item::open_item;
 use crate::lists::item_command::blocking_words;
 use crate::lists::running::{Running, running_in, start};
@@ -22,7 +23,7 @@ use crate::lists::{Audience, Id, Stamp};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2] --brief P [--as design-session]";
+const USAGE: &str = "builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2] --brief P [--as design-session] [--held WHY]";
 
 /// Does branch <branch> exist in the repo of <top>?
 fn branch_exists(top: &Path, branch: &str) -> Result<bool> {
@@ -51,7 +52,7 @@ struct Place {
 }
 
 pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["worktree", "branch", "brief", "as"], &[])?;
+    let args = Args::parse(args, &["worktree", "branch", "brief", "as", "held"], &[])?;
     if args.positional().is_empty() {
         fail!("usage: {USAGE}");
     }
@@ -87,6 +88,13 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         );
     }
     let brief = args.require("brief")?.to_string();
+    let held = args.value("held")?.map(str::to_string);
+    if let Some(why) = &held {
+        if why.trim().is_empty() {
+            fail!("--held needs the words that say what the work waits on");
+        }
+        crate::claim::require_one_line("--held", why)?;
+    }
 
     let mut places: Vec<Place> = Vec::new();
     for (worktree, branch) in worktrees.into_iter().zip(branches) {
@@ -151,6 +159,12 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 (Audience::Coordinator, true) => fail!("{id} is the coordinator's; --as design-session takes only the design session's items"),
                 _ => {}
             }
+            if held.is_some() {
+                if !waits_on_open(lists, item) {
+                    fail!("{id} waits on nothing open, so there is nothing to hold it for; take it without --held");
+                }
+                continue;
+            }
             let blocking = blocking_words(lists, item);
             if !blocking.is_empty() {
                 fail!("{id} waits on {}; it can be taken once they are met", blocking.join("; "));
@@ -165,7 +179,21 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 since: stamp.clone(),
             })
             .collect();
-        start(db, &ids, &running)
+        start(db, &ids, &running)?;
+        // Last, so a refusal above leaves the claims as they were.
+        if let Some(why) = &held {
+            for place in &places {
+                let file = place.checkout.claim_file();
+                let claim = Claim::read(&file)?.expect("read above");
+                Claim {
+                    note: Some(why.clone()),
+                    note_state: Some("held".into()),
+                    ..claim
+                }
+                .write(&file)?;
+            }
+        }
+        Ok(())
     })?;
     let named: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
     let wheres: Vec<String> = places

@@ -546,8 +546,15 @@ impl Model {
         while state.load.len() > LOAD_KEPT {
             state.load.pop_front();
         }
-        let claimed = claimed_of(&roots, &state.facts, &places)?;
+        let (mut claimed, held) = claimed_of(&self.places, &roots, &state.facts, &places)?;
         let unclaimed = unclaimed_of(&self.places, &roots, &state.facts, &places)?;
+        let lists = crate::health::lists_findings(
+            &self.places,
+            &self.lists.current().1,
+            &places,
+            &mut claimed,
+            &held,
+        )?;
         let health = assess(
             now,
             self.rules.disk_space(free_kib),
@@ -555,7 +562,7 @@ impl Model {
             &places,
             claimed,
             unclaimed,
-            crate::lists::running::findings(&self.places, &self.lists.current().1)?,
+            lists,
         );
         state.machine = Some(machine);
         state.health = Some(health.clone());
@@ -874,11 +881,13 @@ fn folder_facts(
 }
 
 fn claimed_of(
+    tool_places: &Places,
     roots: &[Root],
     facts: &HashMap<PathBuf, Facts>,
     places: &[Place],
-) -> crate::fail::Result<Vec<Claimed>> {
+) -> crate::fail::Result<(Vec<Claimed>, Vec<crate::lists::held::Worktree>)> {
     let mut claimed = Vec::new();
+    let mut held = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
         if checkout.is_main() {
@@ -897,14 +906,25 @@ fn claimed_of(
         let Some(place) = places.iter().position(|p| p.root == root.path) else {
             continue;
         };
+        held.push(crate::lists::held::Worktree {
+            label: places[place].label.clone(),
+            top: checkout.top.clone(),
+            repo: checkout.repo(),
+            claim: claim.clone(),
+            app_checkout: tool_places
+                .app_lane_of(&checkout.repo(), &checkout.name())?
+                .is_some(),
+            ahead: git.ahead.iter().rev().map(|c| c.full.clone()).collect(),
+        });
         claimed.push(Claimed {
             place,
             claim: claim.clone(),
             branch: facts.branch.clone(),
             git: git.clone(),
+            awaiting_review: false,
         });
     }
-    Ok(claimed)
+    Ok((claimed, held))
 }
 
 fn unclaimed_of(

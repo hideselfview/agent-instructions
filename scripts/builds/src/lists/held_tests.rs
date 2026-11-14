@@ -260,3 +260,88 @@ fn an_app_checkout_is_held_with_no_item_and_health_leaves_it() {
     tree.app_checkout = true;
     assert!(findings(&loaded(read(&db())), &[tree]).is_empty());
 }
+
+fn take_held(demo: &Demo, id: &str, top: &std::path::Path, extra: &[&str]) -> Result<()> {
+    let brief = demo.brief("brief.md");
+    let top = top.display().to_string();
+    let mut args = vec![
+        "take",
+        id,
+        "--worktree",
+        &top,
+        "--branch",
+        "work",
+        "--brief",
+        &brief,
+    ];
+    args.extend_from_slice(extra);
+    crate::lists::cmd_item(&demo.tool, &crate::lists::item_fixtures::words(&args))
+}
+
+#[test]
+fn an_item_waiting_on_the_persons_question_is_taken_held_and_health_leaves_it() {
+    let demo = demo("held-take");
+    let top = demo.add_side(1, "agent", "work");
+    demo.store
+        .write(&stamp(NOON), "wait", |db| {
+            let q = question(db);
+            item(db, vec![Wait::Question(q)]);
+            Ok(())
+        })
+        .unwrap();
+    // Without --held an item that waits is refused.
+    assert!(refusal(take_held(&demo, "2", &top, &[])).contains("waits on"));
+    take_held(
+        &demo,
+        "2",
+        &top,
+        &["--held", "waits on the answer to question 1"],
+    )
+    .unwrap();
+    let claim = claim_of(&top);
+    assert_eq!(claim.note_state.as_deref(), Some("held"));
+    assert_eq!(
+        claim.note.as_deref(),
+        Some("waits on the answer to question 1")
+    );
+    let lists = demo.store.load().unwrap();
+    assert_eq!(running_in(&lists, &top.display().to_string()).len(), 1);
+    let mut tree = worktree(&top, "agent", Some("held"), Vec::new());
+    tree.repo = "demo".into();
+    assert!(findings(&loaded(lists), &[tree]).is_empty());
+}
+
+#[test]
+fn held_takes_only_an_item_that_waits_on_something_open() {
+    let demo = demo("held-take-nothing");
+    let top = demo.add_side(1, "agent", "work");
+    demo.store
+        .write(&stamp(NOON), "item", |db| {
+            item(db, Vec::new());
+            Ok(())
+        })
+        .unwrap();
+    let fault = refusal(take_held(&demo, "1", &top, &["--held", "why"]));
+    assert!(fault.contains("waits on nothing open"), "{fault}");
+    assert!(claim_of(&top).note.is_none());
+}
+
+#[test]
+fn a_worktree_whose_design_change_waits_on_review_awaits_review_until_approved() {
+    let (_demo, tree, mut lists) = design_branch("held-review", true);
+    let trees = [tree];
+    assert_eq!(
+        awaiting_review(&loaded(lists.clone()), &trees),
+        vec!["demo/side-1".to_string()]
+    );
+    for design in &mut lists.designs {
+        design.approved = Some(stamp(NOON));
+    }
+    assert!(awaiting_review(&loaded(lists), &trees).is_empty());
+}
+
+#[test]
+fn a_worktree_with_no_design_change_does_not_await_review() {
+    let (_demo, tree, lists) = design_branch("held-review-none", false);
+    assert!(awaiting_review(&loaded(lists), &[tree]).is_empty());
+}

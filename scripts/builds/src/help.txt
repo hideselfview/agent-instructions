@@ -181,7 +181,9 @@ Commands:
                               claim, a held worktree whose item waits on
                               nothing open (the record it waited on closed),
                               and commits that change design files that no
-                              open design change covers;
+                              open design change covers; a worktree whose
+                              commits an open design change covers, still
+                              waiting on the person's review, is not quiet;
                               exits 1 when something needs acting on. Asks the daemon when one runs
   builds lists ...            the decision stack, work queue, design changes
                               and decision log of a project, in a store
