@@ -2,6 +2,17 @@ use super::*;
 use crate::host::tests::fake_ssh;
 use crate::testing::{Scratch, git};
 
+/// Runs a job that nothing stops.
+fn run_job(
+    places: &Places,
+    ssh: &Ssh,
+    host: &Host,
+    source: &Path,
+    request: &Request,
+) -> Result<i32> {
+    super::run_job(places, ssh, host, source, request, &AtomicBool::new(false))
+}
+
 fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| w.to_string()).collect()
 }
@@ -272,6 +283,8 @@ fn a_stop_signal_stops_the_command_on_the_host() {
             &format!("touch {}; exec tail -f /dev/null", marker.display()),
         ],
     );
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let stopper = stop.clone();
     let waiting = marker.clone();
     let signaller = std::thread::spawn(move || {
         while !waiting.exists() {
@@ -279,9 +292,9 @@ fn a_stop_signal_stops_the_command_on_the_host() {
         }
         // Give run_command a moment to record the pid, then stop.
         std::thread::sleep(Duration::from_millis(300));
-        note_stop(0);
+        stopper.store(true, Ordering::SeqCst);
     });
-    let code = run_job(&places, &s.ssh, &s.host, &s.source, &job).unwrap();
+    let code = super::run_job(&places, &s.ssh, &s.host, &s.source, &job, &stop).unwrap();
     signaller.join().unwrap();
     assert_eq!(code, STOPPED_EXIT);
     assert!(!s.home.join("dev/demo-worktrees/remote-1.job").exists());

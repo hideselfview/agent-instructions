@@ -33,11 +33,23 @@ const JOBS_REF: &str = "refs/builds/jobs";
 /// The exit status builds gives a job a signal stopped.
 const STOPPED_EXIT: i32 = 130;
 
-/// Set by the signal handler: the person or a parent stopped this command.
+/// Set by the signal handler `stop_on_signals` installs: the person or a
+/// parent stopped this command. `cmd_remote` hands it to the job; every other
+/// caller gives its job a flag of its own.
 static STOPPED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn note_stop(_: libc::c_int) {
     STOPPED.store(true, Ordering::SeqCst);
+}
+
+/// Makes SIGTERM, SIGINT and SIGHUP set `STOPPED`.
+fn stop_on_signals() -> &'static AtomicBool {
+    unsafe {
+        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+            libc::signal(signal, note_stop as *const () as libc::sighandler_t);
+        }
+    }
+    &STOPPED
 }
 
 /// What a job runs.
@@ -314,14 +326,13 @@ fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
 
 /// Runs the job's command on the host, passing its output through, and
 /// returns its exit status. A stop signal stops the command on the host.
-fn run_command(transport: &Transport, worktree: &str, command: &[String]) -> Result<i32> {
+fn run_command(
+    transport: &Transport,
+    stop: &AtomicBool,
+    worktree: &str,
+    command: &[String],
+) -> Result<i32> {
     use std::os::unix::process::{CommandExt, ExitStatusExt};
-    STOPPED.store(false, Ordering::SeqCst);
-    unsafe {
-        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
-            libc::signal(signal, note_stop as *const () as libc::sighandler_t);
-        }
-    }
     let mut child = transport
         .command(&run_script(transport.host, worktree, command))
         .stdin(Stdio::null())
@@ -338,7 +349,7 @@ fn run_command(transport: &Transport, worktree: &str, command: &[String]) -> Res
         {
             break status;
         }
-        if STOPPED.load(Ordering::SeqCst) && !stopped {
+        if stop.load(Ordering::SeqCst) && !stopped {
             stopped = true;
             if let Err(error) = transport.capture(&stop_script(worktree), "stopping the command") {
                 note(error.text());
@@ -374,6 +385,7 @@ pub fn run_job(
     host: &Host,
     source: &Path,
     request: &Request,
+    stop: &AtomicBool,
 ) -> Result<i32> {
     let sha = commit_of(source, &request.what)?;
     let id = format!(
@@ -392,7 +404,7 @@ pub fn run_job(
             "claiming a worktree",
         )?;
         let worktree = worktree_in(&claimed)?;
-        let code = run_command(&transport, &worktree, &request.command);
+        let code = run_command(&transport, stop, &worktree, &request.command);
         Ok::<_, Fail>((worktree, code))
     })();
     let worktree = ran.as_ref().ok().map(|(worktree, _)| worktree.as_str());
@@ -452,7 +464,14 @@ pub fn cmd_remote(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         request.host.as_deref(),
     )?;
     note(why);
-    match run_job(&tool.places, ssh, &host, &source, &request)? {
+    match run_job(
+        &tool.places,
+        ssh,
+        &host,
+        &source,
+        &request,
+        stop_on_signals(),
+    )? {
         0 => Ok(()),
         code => Err(Fail::Exit(code)),
     }
