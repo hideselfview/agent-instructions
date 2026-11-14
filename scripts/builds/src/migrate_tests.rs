@@ -139,28 +139,38 @@ fn plant_run(conn: &Connection) {
     .unwrap();
 }
 
-/// A store as the schema before `hook_runs.base` made it: that schema's text, its stamp, one run.
-fn store_before_hook_base(dir: &std::path::Path) -> std::path::PathBuf {
+/// The schema's text before `design_deleted`: today's without that table and
+/// the comment above it.
+fn schema_before_design_deleted() -> String {
+    let schema = db::schema();
+    let from = schema
+        .find("\n-- A board the change deletes")
+        .expect("the table's comment");
+    let table = from + schema[from..].find("CREATE TABLE design_deleted").unwrap();
+    let end = "WITHOUT ROWID;\n";
+    let to = table + schema[table..].find(end).unwrap() + end.len();
+    format!("{}{}", &schema[..from], &schema[to..])
+}
+
+/// A store as the schema before `design_deleted` made it: that schema's text, its stamp, one run.
+fn store_before_design_deleted(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(
-        &db::schema().replace("\n, base TEXT CHECK (base <> '')) STRICT;", "\n) STRICT;"),
-    )
-    .unwrap();
-    conn.pragma_update(None, "user_version", BEFORE_HOOK_BASE_STAMP)
+    conn.execute_batch(&schema_before_design_deleted()).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_DESIGN_DELETED_STAMP)
         .unwrap();
     plant_run(&conn);
     path
 }
 
 #[test]
-fn a_store_of_the_schema_before_the_base_column_gains_it_keeps_its_runs_and_equals_a_fresh_schema()
-{
-    let scratch = Scratch::new("move-base");
+fn a_store_of_the_schema_before_deleted_boards_gains_the_table_keeps_its_runs_and_equals_a_fresh_schema()
+ {
+    let scratch = Scratch::new("move-deleted");
     let places = scratch.places();
-    let path = store_before_hook_base(&places.lists.join("bae"));
-    migrate_hook_base(&places).unwrap();
+    let path = store_before_design_deleted(&places.lists.join("bae"));
+    migrate_design_deleted(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -169,14 +179,10 @@ fn a_store_of_the_schema_before_the_base_column_gains_it_keeps_its_runs_and_equa
         db::schema_rows(&db::memory()).unwrap()
     );
     let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
-    assert_eq!(
-        (stats.runs, stats.recent[0].base.clone()),
-        (1, None),
-        "the old run is kept, with no base"
-    );
-    // A run written now records its base, and a second install changes nothing.
+    assert_eq!(stats.runs, 1, "the old run is kept");
+    // A second install changes nothing.
     let before = db::schema_rows(&conn).unwrap();
-    migrate_hook_base(&places).unwrap();
+    migrate_design_deleted(&places).unwrap();
     assert_eq!(
         db::schema_rows(&Connection::open(&path).unwrap()).unwrap(),
         before
@@ -188,61 +194,60 @@ fn a_store_of_the_schema_before_the_base_column_gains_it_keeps_its_runs_and_equa
 }
 
 #[test]
-fn a_store_with_a_stamp_the_base_move_does_not_know_is_refused_and_left_as_it_was() {
-    let scratch = Scratch::new("move-base-unknown");
+fn a_store_with_a_stamp_the_deleted_boards_move_does_not_know_is_refused_and_left_as_it_was() {
+    let scratch = Scratch::new("move-deleted-unknown");
     let places = scratch.places();
-    let path = store_before_hook_base(&places.lists.join("bae"));
+    let path = store_before_design_deleted(&places.lists.join("bae"));
     Connection::open(&path)
         .unwrap()
         .pragma_update(None, "user_version", 1234)
         .unwrap();
-    let refused = migrate_hook_base(&places).unwrap_err().text();
+    let refused = migrate_design_deleted(&places).unwrap_err().text();
     assert!(
         refused.contains("stamp 1234") && refused.contains("does not know"),
         "{refused}"
     );
     let conn = Connection::open(&path).unwrap();
-    let columns: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('hook_runs') WHERE name = 'base'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(columns, 0);
+    assert!(!has_design_deleted(&conn));
 }
 
 #[test]
-fn a_base_move_that_would_not_equal_a_fresh_schema_rolls_back() {
-    let scratch = Scratch::new("move-base-drift");
+fn a_deleted_boards_move_that_would_not_equal_a_fresh_schema_rolls_back() {
+    let scratch = Scratch::new("move-deleted-drift");
     let places = scratch.places();
-    let path = store_before_hook_base(&places.lists.join("bae"));
+    let path = store_before_design_deleted(&places.lists.join("bae"));
     Connection::open(&path)
         .unwrap()
         .execute_batch("DROP INDEX idx_hook_runs_started")
         .unwrap();
-    let refused = migrate_hook_base(&places).unwrap_err().text();
+    let refused = migrate_design_deleted(&places).unwrap_err().text();
     assert!(
         refused.contains("not the one this builds makes"),
         "{refused}"
     );
     let conn = Connection::open(&path).unwrap();
-    let columns: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('hook_runs') WHERE name = 'base'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
     assert_eq!(
-        (columns, db::stamp_of(&conn, &path).unwrap()),
-        (0, BEFORE_HOOK_BASE_STAMP)
+        (
+            has_design_deleted(&conn),
+            db::stamp_of(&conn, &path).unwrap()
+        ),
+        (false, BEFORE_DESIGN_DELETED_STAMP)
     );
 }
 
+fn has_design_deleted(conn: &Connection) -> bool {
+    conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_schema WHERE name = 'design_deleted'",
+        [],
+        |r| r.get::<_, i64>(0),
+    )
+    .unwrap()
+        > 0
+}
+
 #[test]
-fn the_previous_stamp_is_the_schema_without_the_base_column() {
-    let text = db::schema().replace("\n, base TEXT CHECK (base <> '')) STRICT;", "\n) STRICT;");
+fn the_previous_stamp_is_the_schema_without_the_deleted_boards_table() {
+    let text = schema_before_design_deleted();
     let mut hash: u32 = 0x811c_9dc5;
     for byte in text.bytes() {
         hash ^= u32::from(byte);
@@ -250,6 +255,6 @@ fn the_previous_stamp_is_the_schema_without_the_base_column() {
     }
     assert_eq!(
         i64::from(hash % (i32::MAX as u32 - 2)) + 2,
-        BEFORE_HOOK_BASE_STAMP
+        BEFORE_DESIGN_DELETED_STAMP
     );
 }

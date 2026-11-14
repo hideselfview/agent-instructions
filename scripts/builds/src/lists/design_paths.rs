@@ -9,7 +9,8 @@
 //! in (`design/`) is a shared design file: it belongs to no board or
 //! component.
 //!
-//! Three more kinds of path belong to a design change. A source glob names
+//! A board file the commits delete is no place that needs an answer: it is
+//! listed as deleted. Three more kinds of path belong to a design change. A source glob names
 //! the shared design-system sources (the component sources, the tokens): any
 //! of them can change any component's drawing, so they are listed apart and
 //! the design change names the components that change. A spec glob names the
@@ -91,6 +92,10 @@ pub struct Changes {
     /// Changed files under the globs' root directories that are none of
     /// the above.
     pub shared: BTreeSet<String>,
+    /// Board files the commits delete: a board place that is no file at the
+    /// last commit. It needs no answer, canvas link or place on the review
+    /// page, and is not among `places`.
+    pub deleted: BTreeSet<String>,
     /// Changed paths that are no design file.
     pub outside: BTreeSet<String>,
     /// Changed spec files, before their sections are read.
@@ -101,7 +106,10 @@ impl Changes {
     /// Do the commits change design files at all? A spec file alone is no
     /// design change: the spec moves with every commit.
     pub fn is_design_change(&self) -> bool {
-        !(self.places.is_empty() && self.sources.is_empty() && self.shared.is_empty())
+        !(self.places.is_empty()
+            && self.deleted.is_empty()
+            && self.sources.is_empty()
+            && self.shared.is_empty())
     }
 
     /// Every place the design change must resolve: the places and the spec
@@ -358,6 +366,20 @@ pub fn changes_of(top: &Path, globs: &Globs, shas: &[String]) -> Result<Changes>
         paths.extend(changed);
     }
     let mut changes = classify(globs, &paths);
+    if let Some(tip) = shas.last() {
+        let boards: Vec<String> = changes
+            .places
+            .iter()
+            .filter(|place| PlaceKind::of(place) == PlaceKind::Board)
+            .cloned()
+            .collect();
+        for board in boards {
+            if !exists_in(top, tip, &board)? {
+                changes.places.remove(&board);
+                changes.deleted.insert(board);
+            }
+        }
+    }
     if changes.is_design_change() {
         for (sha, changed) in per_commit {
             for path in changed.iter().filter(|p| changes.spec_files.contains(*p)) {

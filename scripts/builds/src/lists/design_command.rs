@@ -105,6 +105,7 @@ fn lines(paths: impl IntoIterator<Item = String>) -> String {
 
 /// Every design path the commits change, one per line: `place <path>` (a
 /// component folder once), `source <path>` (a shared design-system source),
+/// `deleted <path>` (a board file the commits delete, which needs no answer),
 /// `spec <path>#<heading>` (a spec section, when the commits are a design
 /// change) or `shared <path>`; nothing when none.
 fn places(tool: &Tool, args: &[String]) -> Result<String> {
@@ -121,7 +122,14 @@ fn places(tool: &Tool, args: &[String]) -> Result<String> {
     let sources = c.sources.into_iter().map(|p| format!("source {p}"));
     let spec = c.spec.into_iter().map(|p| format!("spec {p}"));
     let shared = c.shared.into_iter().map(|p| format!("shared {p}"));
-    Ok(lines(places.chain(sources).chain(spec).chain(shared)))
+    let deleted = c.deleted.into_iter().map(|p| format!("deleted {p}"));
+    Ok(lines(
+        places
+            .chain(deleted)
+            .chain(sources)
+            .chain(spec)
+            .chain(shared),
+    ))
 }
 
 /// `only DIR SHA...`: prints nothing and succeeds when every path the

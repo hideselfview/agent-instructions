@@ -295,7 +295,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     }
     let home = &tool.places.home;
     crate::migrate::migrate_app_files(&tool.places)?;
-    crate::migrate::migrate_hook_base(&tool.places)?;
+    crate::migrate::migrate_design_deleted(&tool.places)?;
     let replaced = put_on_path(home)?;
     tool.places.require_volume()?;
     let caches = tool.places.caches();

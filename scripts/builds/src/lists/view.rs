@@ -121,6 +121,8 @@ pub struct DesignView {
     pub details: String,
     pub repo: String,
     pub places: Vec<PlaceView>,
+    /// The board files it deletes.
+    pub deleted: Vec<String>,
     /// The open items that wait on it.
     pub blocks: Vec<Named>,
     pub no_app_place: Option<String>,
@@ -321,6 +323,7 @@ pub fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) 
                 },
             })
             .collect(),
+        deleted: design.deleted.iter().cloned().collect(),
         blocks: lists
             .items
             .iter()

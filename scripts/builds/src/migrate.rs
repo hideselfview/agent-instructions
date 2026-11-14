@@ -133,16 +133,23 @@ fn waiting_in(queue: &Path) -> Result<bool> {
     Ok(false)
 }
 
-/// The stamp of the schema before `hook_runs.base` was added.
-const BEFORE_HOOK_BASE_STAMP: i64 = 119_742_261;
+/// The stamp of the schema before the `design_deleted` table was added.
+const BEFORE_DESIGN_DELETED_STAMP: i64 = 155_110_266;
 
-/// Gives each project's `builds.sqlite` the `hook_runs.base` column: a store
-/// stamped as the schema before it gets the column in one transaction, is
+/// The table as design.sql writes it.
+const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
+    design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
+    path TEXT NOT NULL CONSTRAINT design_deleted_path_is_a_board_file CHECK (path NOT GLOB '*#*' AND path NOT GLOB '*/'),
+    PRIMARY KEY (design_id, path)
+) STRICT, WITHOUT ROWID";
+
+/// Gives each project's `builds.sqlite` the `design_deleted` table: a store
+/// stamped as the schema before it gets the table in one transaction, is
 /// stamped as today's schema, and must then equal a fresh database's schema
 /// or the transaction rolls back. A store already at today's stamp, or with
 /// no database, is left alone; any other stamp is refused. Delete this once it
 /// has run.
-pub fn migrate_hook_base(places: &Places) -> Result<()> {
+pub fn migrate_design_deleted(places: &Places) -> Result<()> {
     let entries = match std::fs::read_dir(&places.lists) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -157,12 +164,12 @@ pub fn migrate_hook_base(places: &Places) -> Result<()> {
     }
     dirs.sort();
     for dir in dirs {
-        add_hook_base(&dir.join(DATABASE))?;
+        add_design_deleted(&dir.join(DATABASE))?;
     }
     Ok(())
 }
 
-fn add_hook_base(path: &Path) -> Result<()> {
+fn add_design_deleted(path: &Path) -> Result<()> {
     if !path.is_file() {
         return Ok(());
     }
@@ -174,9 +181,9 @@ fn add_hook_base(path: &Path) -> Result<()> {
     if found == db::stamp() || found == 0 {
         return Ok(());
     }
-    if found != BEFORE_HOOK_BASE_STAMP {
+    if found != BEFORE_DESIGN_DELETED_STAMP {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_HOOK_BASE_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -184,8 +191,7 @@ fn add_hook_base(path: &Path) -> Result<()> {
     let tx = conn
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .sql()?;
-    tx.execute_batch("ALTER TABLE hook_runs ADD COLUMN base TEXT CHECK (base <> '')")
-        .sql()?;
+    tx.execute_batch(DESIGN_DELETED).sql()?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     if db::schema_rows(&tx)? != db::schema_rows(&db::memory())? {
         fail!(
@@ -194,7 +200,10 @@ fn add_hook_base(path: &Path) -> Result<()> {
         );
     }
     tx.commit().sql()?;
-    crate::text::note(format!("gave {}'s hook runs a base commit", path.display()));
+    crate::text::note(format!(
+        "gave {}'s design changes a table of deleted boards",
+        path.display()
+    ));
     Ok(())
 }
 

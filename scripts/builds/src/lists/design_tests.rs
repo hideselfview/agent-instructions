@@ -164,6 +164,75 @@ fn base_request(world: &World, places: serde_json::Value) -> serde_json::Value {
             "places": places, "boards": boards, "review": review })
 }
 
+/// Commits boards <paths>, tags the commit `base` where `world` tagged the
+/// first, then deletes <gone> in one more commit.
+fn delete_boards(w: &World, gone: &[&str]) -> String {
+    for path in gone {
+        git(&w.dir, &["rm", "-q", path]);
+    }
+    git(&w.dir, &["commit", "-q", "-m", "delete boards"]);
+    w.sha("HEAD")
+}
+
+#[test]
+fn a_deleted_board_needs_no_answer_no_link_and_no_place_on_the_review_page() {
+    let w = world("design-deleted");
+    let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+    w.commit(&[a, b]);
+    git(&w.dir, &["tag", "-f", "base"]);
+    delete_boards(&w, &[a]);
+    w.commit(&[b]);
+    let wt = w.worktree();
+    let request = base_request(&w, json!({ b: { "matches": "the app shows it" } }));
+    w.request(request).unwrap();
+    let state = w.state();
+    let design = state.design(Id(1)).unwrap();
+    assert_eq!(design.deleted, BTreeSet::from([a.to_string()]));
+    assert_eq!(design.places.keys().collect::<Vec<_>>(), vec![b]);
+    assert_eq!(design.boards.keys().collect::<Vec<_>>(), vec![b]);
+    let shown = w.run("show 1").unwrap();
+    assert!(shown.contains(&format!("deleted {a}")), "{shown}");
+    w.approve(1);
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let head = w.sha("HEAD");
+    let first = w.sha("HEAD~1");
+    assert!(w.run(&format!("check 1 {wt} {first} {head}")).is_ok());
+}
+
+#[test]
+fn a_range_that_only_deletes_boards_records_with_a_review_page_of_words() {
+    let w = world("design-deleted-only");
+    let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+    w.commit(&[a, b]);
+    git(&w.dir, &["tag", "-f", "base"]);
+    let sha = delete_boards(&w, &[a, b]);
+    let wt = w.worktree();
+    assert!(w.run(&format!("only {wt} {sha}")).is_ok());
+    assert_eq!(
+        w.run(&format!("places {wt} {sha}")).unwrap(),
+        format!("deleted {a}\ndeleted {b}\n")
+    );
+    let request = base_request(&w, json!({}));
+    w.request(request).unwrap();
+    let state = w.state();
+    let design = state.design(Id(1)).unwrap();
+    assert_eq!(
+        design.deleted,
+        BTreeSet::from([a.to_string(), b.to_string()])
+    );
+    assert!(design.places.is_empty() && design.boards.is_empty());
+    // An amend over a range that draws one of them again takes it back as a place.
+    let back = w.commit(&[a]);
+    let mut request = base_request(&w, json!({ a: { "matches": "drawn again" } }));
+    request["range"] = json!("base..HEAD");
+    w.amend(1, request).unwrap();
+    let state = w.state();
+    let design = state.design(Id(1)).unwrap();
+    assert_eq!(design.deleted, BTreeSet::from([b.to_string()]));
+    assert!(design.places.contains_key(a));
+    let _ = back;
+}
+
 #[test]
 fn places_prints_each_place_once_and_nothing_when_there_are_none() {
     let w = world("design-places");
@@ -1100,6 +1169,16 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
         refused.check(
             "design_board_path_is_a_board_file",
             plant(&db, "design_board", &row(&board, &[("path", v(path))])),
+        );
+    }
+    let deleted = [
+        ("design_id", v(good.0)),
+        ("path", v("design/mocks/Old.dc.html")),
+    ];
+    for path in ["design/system/components/B/", "spec/x.md#Heading"] {
+        refused.check(
+            "design_deleted_path_is_a_board_file",
+            plant(&db, "design_deleted", &row(&deleted, &[("path", v(path))])),
         );
     }
     refused.check(

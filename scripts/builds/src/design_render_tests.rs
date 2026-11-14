@@ -206,6 +206,17 @@ fn a_review_page_has_its_sections_and_each_board_sized_from_the_canvas() {
 }
 
 #[test]
+fn a_review_page_names_the_boards_the_change_deletes_without_drawing_them() {
+    let scratch = Scratch::new("render-review-deleted");
+    let dir = tree(&scratch);
+    let (mut change, _) = review_of(&dir);
+    change.deleted.insert("design/mocks/Old.dc.html".into());
+    let view = design_view(&crate::lists::fixtures::read(&db()), &change, None);
+    let data = page_data(&review_page(&change, &view).unwrap());
+    assert_eq!(data["deleted"], json!(["design/mocks/Old.dc.html"]));
+}
+
+#[test]
 fn a_review_page_of_a_worktree_with_no_canvas_file_says_so_at_each_board() {
     let scratch = Scratch::new("render-review-nocanvas");
     let dir = tree(&scratch);

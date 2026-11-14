@@ -64,3 +64,12 @@ CREATE TABLE review_board (
     PRIMARY KEY (design_id, section, position),
     CONSTRAINT review_board_is_on_a_section FOREIGN KEY (design_id, section) REFERENCES review_section (design_id, position) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
+
+-- A board the change deletes: a board place of its range that is no file at the
+-- range's last commit. It needs no answer, canvas link or place on the review
+-- page, which names it as deleted.
+CREATE TABLE design_deleted (
+    design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
+    path TEXT NOT NULL CONSTRAINT design_deleted_path_is_a_board_file CHECK (path NOT GLOB '*#*' AND path NOT GLOB '*/'),
+    PRIMARY KEY (design_id, path)
+) STRICT, WITHOUT ROWID;

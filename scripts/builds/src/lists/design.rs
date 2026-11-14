@@ -103,6 +103,9 @@ pub struct DesignChange {
     pub places: BTreeMap<String, Resolution>,
     /// Each board place's canvas link, by the board's path.
     pub boards: BTreeMap<String, Board>,
+    /// The board files the change deletes: they need no answer or link, and
+    /// the review page names them without a drawing.
+    pub deleted: BTreeSet<String>,
     /// How the review page reads: its headings, words and boards, in order.
     pub review: Vec<ReviewSection>,
     /// Why shared design files changed and no drawing did.
@@ -212,6 +215,9 @@ fn resolve(
         fail!("the range {} changes no design files", request.range);
     }
     let changed = changes.resolvable();
+    if let Some(path) = request.places.keys().find(|p| changes.deleted.contains(*p)) {
+        fail!("`places` names {path}, which the range deletes; a deleted board needs no answer");
+    }
     let stray: Vec<&str> = request
         .places
         .keys()
@@ -290,6 +296,7 @@ fn resolve(
     for section in &mut design.review {
         section.boards.retain(|b| !dropped.contains(&b.board));
     }
+    design.deleted = changes.deleted.clone();
     design.places.extend(resolutions);
     design.boards.extend(request.boards.clone());
     if let Some(review) = &request.review {
@@ -473,6 +480,18 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
         db.execute(
             "INSERT INTO design_place (design_id, path, item_id, matches) VALUES (?1, ?2, ?3, ?4)",
             params![design.id, path, item, matches],
+        )
+        .sql()?;
+    }
+    db.execute(
+        "DELETE FROM design_deleted WHERE design_id = ?1",
+        [design.id],
+    )
+    .sql()?;
+    for path in &design.deleted {
+        db.execute(
+            "INSERT INTO design_deleted (design_id, path) VALUES (?1, ?2)",
+            params![design.id, path],
         )
         .sql()?;
     }
@@ -782,6 +801,9 @@ fn describe(lists: &Lists, design: &DesignChange, landed: Option<&crate::lists::
     for (path, resolution) in &design.places {
         let _ = writeln!(out, "  {path}  {}", resolution_words(lists, resolution));
     }
+    for path in &design.deleted {
+        let _ = writeln!(out, "  deleted {path}");
+    }
     for (path, board) in &design.boards {
         let _ = writeln!(out, "  board {path}  {}", board.link);
     }
@@ -915,6 +937,19 @@ pub fn read(
             .or_default()
             .insert(path, Board { link });
     }
+    let mut deleted: BTreeMap<Id, BTreeSet<String>> = BTreeMap::new();
+    let mut statement = db
+        .prepare("SELECT design_id, path FROM design_deleted")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?))
+        })
+        .sql()?
+    {
+        let (design, path) = row.sql()?;
+        deleted.entry(design).or_default().insert(path);
+    }
     let mut review: BTreeMap<Id, Vec<ReviewSection>> = BTreeMap::new();
     let mut statement = db
         .prepare(
@@ -1021,6 +1056,7 @@ pub fn read(
             worktree,
             places: places.remove(&id).unwrap_or_default(),
             boards: boards.remove(&id).unwrap_or_default(),
+            deleted: deleted.remove(&id).unwrap_or_default(),
             review: review.remove(&id).unwrap_or_default(),
             no_app_place,
             approved: approvals.remove(&id),
@@ -1033,11 +1069,12 @@ pub fn read(
 
 /// The tables design.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 6] = [
+const TABLES: [&str; 7] = [
     "design",
     "design_approval",
     "design_place",
     "design_board",
+    "design_deleted",
     "review_section",
     "review_board",
 ];

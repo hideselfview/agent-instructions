@@ -102,7 +102,8 @@ rebased, since places are compared by path.
   builds design places DIR SHA...
       Prints every design path the commits change, one per line: `place PATH`
       (a component folder once, with a trailing /), `source PATH`,
-      `spec PATH#HEADING` or `shared PATH`; nothing when none. land.sh
+      `deleted PATH` (a board file the commits delete), `spec PATH#HEADING` or
+      `shared PATH`; nothing when none. land.sh
       requires --design N whenever this prints anything.
 
   builds design only DIR SHA...
@@ -137,7 +138,9 @@ rebased, since places are compared by path.
       that exists in `worktree`, with its caption and the theme it is drawn in
       (a board may be on the page twice, once per theme, and a board the
       change did not touch may be there to compare). Every board place of the
-      change must be on the page. `worktree` is stored with the change: the
+      change must be on the page. A board file the range deletes needs no
+      answer, link or place on the page: it is listed as deleted, and the
+      review page names it without a drawing. `worktree` is stored with the change: the
       dashboard draws every board of the page from it, each request, so it
       must hold the boards while the change is open. Boards need the design
       system's generated files (design/system/tokens.css and

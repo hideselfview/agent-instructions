@@ -155,6 +155,36 @@ fn changes_come_from_each_commit_and_a_range_names_its_commits() {
 }
 
 #[test]
+fn a_board_the_commits_delete_is_listed_as_deleted_and_is_no_place() {
+    let scratch = Scratch::new("design-paths-deleted");
+    let dir = scratch.dir.join("bae");
+    repo(&dir, "target 1\n");
+    commit(
+        &dir,
+        &[
+            ("design/mocks/A.dc.html", "1"),
+            ("design/mocks/B.dc.html", "1"),
+        ],
+        "boards",
+    );
+    git(&dir, &["tag", "drawn"]);
+    git(&dir, &["rm", "-q", "design/mocks/A.dc.html"]);
+    git(&dir, &["commit", "-q", "-m", "delete A"]);
+    let deleted = full_sha(&dir, "HEAD").unwrap();
+    let changes = changes_of(&dir, &globs(), std::slice::from_ref(&deleted)).unwrap();
+    assert!(changes.places.is_empty());
+    assert_eq!(changes.deleted, set(&["design/mocks/A.dc.html"]));
+    assert!(changes.resolvable().is_empty());
+    assert!(changes.is_design_change());
+    assert!(changes.only_design());
+    // A board a later commit of the range draws again is no deleted board.
+    let back = commit(&dir, &[("design/mocks/A.dc.html", "2")], "draw A again");
+    let changes = changes_of(&dir, &globs(), &[deleted, back]).unwrap();
+    assert_eq!(changes.places, set(&["design/mocks/A.dc.html"]));
+    assert!(changes.deleted.is_empty());
+}
+
+#[test]
 fn a_name_with_odd_characters_comes_through_whole() {
     let scratch = Scratch::new("design-paths-odd");
     let dir = scratch.dir.join("bae");
