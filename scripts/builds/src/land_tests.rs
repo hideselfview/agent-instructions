@@ -108,11 +108,14 @@ struct Cues {
     places: &'static str,
     refuse: &'static str,
     says: &'static str,
+    /// Keeps the `review sample` call in the commands returned.
+    keep_sample: bool,
 }
 
 /// Lands <args> in the fixture's landing clone with a stand-in `builds`.
 /// Returns the exit status, what the landing said and the commands it ran.
 fn run_land(f: &Fixture, args: &[&str], cues: Cues) -> (i32, String, Vec<String>) {
+    let keep_sample = cues.keep_sample;
     let stub = f.scratch.dir.join("stub-builds");
     let log = f.scratch.dir.join("calls.log");
     let script = format!(
@@ -137,9 +140,12 @@ fn run_land(f: &Fixture, args: &[&str], cues: Cues) -> (i32, String, Vec<String>
         Err(Fail::Exit(code)) => code,
         Err(Fail::Message(message)) => panic!("landing failed: {message}"),
     };
-    let calls = std::fs::read_to_string(&log)
+    let mut calls: Vec<String> = std::fs::read_to_string(&log)
         .map(|text| text.lines().map(str::to_string).collect())
         .unwrap_or_default();
+    if !keep_sample {
+        calls.retain(|call| !call.starts_with("review sample"));
+    }
     // The next landing in this fixture starts a fresh log.
     let _ = std::fs::remove_file(&log);
     (code, String::from_utf8_lossy(&out).into_owned(), calls)
@@ -699,4 +705,65 @@ fn a_failing_check_stops_the_landing_before_the_review_and_a_repo_in_no_project_
     let (code, _, calls) = run_land(&g, &[&a], Cues::default());
     assert_eq!(code, 0);
     assert!(!calls.iter().any(|c| c.starts_with("review")));
+}
+
+#[test]
+fn a_landing_that_went_through_asks_for_an_audit_sample_and_a_failing_sample_does_not_fail_it() {
+    let f = fixture("land-sample", "true\n", None);
+    let (a, b) = two_sibling_commits(&f);
+    let land = f.land.display();
+    let (code, _, calls) = run_land(
+        &f,
+        &["--done", "7", &a],
+        Cues {
+            keep_sample: true,
+            ..project()
+        },
+    );
+    assert_eq!(code, 0);
+    let record = calls
+        .iter()
+        .position(|c| c.starts_with("item landed"))
+        .unwrap();
+    assert_eq!(
+        calls[record + 1],
+        format!("review sample --project bae --landing items:7 --repo-dir {land}")
+    );
+    let (code, out, calls) = run_land(
+        &f,
+        &["--done", "8", &b],
+        Cues {
+            keep_sample: true,
+            ..project()
+        },
+    );
+    assert_eq!(code, 0, "{out}");
+    assert!(calls.iter().any(|c| c.starts_with("review sample")));
+    let g = fixture("land-sample-none", "true\n", None);
+    let (a, _b) = two_sibling_commits(&g);
+    let (_, _, calls) = run_land(
+        &g,
+        &[&a],
+        Cues {
+            keep_sample: true,
+            ..Cues::default()
+        },
+    );
+    assert!(!calls.iter().any(|c| c.starts_with("review")));
+}
+
+#[test]
+fn a_sample_that_fails_does_not_fail_the_landing() {
+    let f = fixture("land-sample-fails", "true\n", None);
+    let (a, _b) = two_sibling_commits(&f);
+    let (code, _, _) = run_land(
+        &f,
+        &["--done", "7", &a],
+        Cues {
+            refuse: "review sample",
+            ..project()
+        },
+    );
+    assert_eq!(code, 0);
+    assert_eq!(main_of(&f), a);
 }

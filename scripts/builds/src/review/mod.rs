@@ -8,6 +8,9 @@
 //! builds review show LANDING
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
 //! builds review replay [--groups FILE] [--case NAME]... [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review audit LANDING --repo-dir DIR
+//! builds review sample --landing KEY --repo-dir DIR
+//! builds review misses | rates
 //! builds review optimize --rules-root DIR [--reviewer PROGRAM] [--proposer PROGRAM]
 //! builds review case add ...
 //! ```
@@ -18,6 +21,7 @@
 //! found something (or failed) and passes them what the coordinator settled.
 //! It exits 1 when a blocking finding stands or a reviewer failed.
 
+mod audit;
 mod call;
 mod cases;
 mod check;
@@ -45,7 +49,7 @@ use crate::tool::Tool;
 use prompt::Settled;
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review optimize --rules-root DIR [--reviewer PROGRAM] [--proposer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review sample --landing KEY --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review optimize --rules-root DIR [--reviewer PROGRAM] [--proposer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -70,6 +74,10 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
         "run" => run_command(tool, rest),
         "replay" => replay(tool, rest),
         "optimize" => optimize(tool, rest),
+        "audit" => audit_command(tool, rest),
+        "sample" => sample(tool, rest),
+        "misses" => misses(tool, rest),
+        "rates" => rates(tool, rest),
         "case" => case_command(tool, rest),
         _ => run_command(tool, args),
     }
@@ -184,6 +192,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                         at: stamp.at,
                         base: &diff.base,
                         head: &diff.head,
+                        grouping: &material.grouping,
                     },
                     &calls,
                 )?;
@@ -384,6 +393,7 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
         kind,
         base,
         head,
+        ..
     } in record::runs_of_landing(&conn, id)?
     {
         println!("{kind} {run} over {}...{}", short(&base), short(&head));
@@ -437,6 +447,164 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", cases::report(&results));
     if cases::totals(&results).failed_calls > 0 {
         return Err(Fail::Exit(1));
+    }
+    Ok(())
+}
+
+/// The project's store for a command that names no worktree.
+fn store_of(tool: &Tool, args: &Args) -> Result<Store> {
+    Store::resolve(&tool.places, args, &current_dir()?)
+}
+
+/// `rule` mapped to the name of its group in the checkout's groups file.
+fn group_names(root: &Path) -> Result<impl Fn(&str) -> Option<String>> {
+    let groups = groups::Groups::load(root)?;
+    Ok(move |rule: &str| {
+        groups
+            .groups
+            .iter()
+            .find(|g| g.rules.iter().any(|r| r == rule))
+            .map(|g| g.name.clone())
+    })
+}
+
+/// `builds review audit LANDING --repo-dir DIR`: audits a landing that passed.
+fn audit_command(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &["repo-dir", "rules-root", "reviewer", "seed"], &[])?;
+    let [landing] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
+    let landing: i64 = landing
+        .parse()
+        .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
+    let store = store_of(tool, &args)?;
+    let root = rules_root(&args)?;
+    let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let repo_dir = PathBuf::from(args.require("repo-dir")?);
+    let stamp = Stamp {
+        at: tool.now,
+        by: args.value("by")?.unwrap_or("builds audit").to_string(),
+    };
+    let seed = match args.value("seed")? {
+        Some(seed) => seed
+            .parse()
+            .map_err(|_| Fail::Message(format!("'{seed}' is not a number")))?,
+        None => clock_bits(),
+    };
+    let text = audit::audit(&audit::Inputs {
+        store: &store,
+        project: &store.project,
+        repo_dir: &repo_dir,
+        landing,
+        root: &root,
+        reviewer: &reviewer,
+        stamp: &stamp,
+        seed,
+    })?;
+    print!("{text}");
+    Ok(())
+}
+
+/// Bits that differ from one run to the next.
+fn clock_bits() -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(1);
+    (now as u64) ^ (u64::from(std::process::id()) << 32)
+}
+
+/// `builds review sample --landing KEY --repo-dir DIR`: decides whether the
+/// landing's review is audited and, when it is, starts the audit in the
+/// background. It answers at once and never fails a landing.
+fn sample(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(
+        args,
+        &["landing", "repo-dir", "rules-root", "reviewer", "roll"],
+        &[],
+    )?;
+    args.exactly(0, USAGE)?;
+    let key = args.require("landing")?;
+    let store = store_of(tool, &args)?;
+    let root = rules_root(&args)?;
+    let Some(conn) = db::open_reader(&store.database())? else {
+        return Ok(());
+    };
+    let Some((landing, true)) = record::latest_landing(&conn, key)? else {
+        println!("no passed review of {key}: no audit");
+        return Ok(());
+    };
+    let roll = match args.value("roll")? {
+        Some(roll) => roll
+            .parse::<f64>()
+            .map_err(|_| Fail::Message(format!("'{roll}' is not a number")))?,
+        None => (clock_bits() % 1_000_000) as f64 / 1_000_000.0,
+    };
+    if !audit::sampled(&conn, landing, &group_names(&root)?, roll)? {
+        println!("landing {landing} ({key}) is not audited");
+        return Ok(());
+    }
+    let program = std::env::current_exe().context(|| "finding this program".to_string())?;
+    let mut command = std::process::Command::new(program);
+    command
+        .args(["review", "audit", &landing.to_string()])
+        .args(["--project", &store.project])
+        .args(["--repo-dir", args.require("repo-dir")?])
+        .args(["--rules-root", &root.display().to_string()])
+        .args(["--reviewer", args.value("reviewer")?.unwrap_or("claude")])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    command
+        .spawn()
+        .context(|| "starting the audit".to_string())?;
+    println!("landing {landing} ({key}) is audited in the background");
+    Ok(())
+}
+
+/// `builds review misses`: the candidate misses nobody has settled.
+fn misses(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &[], &[])?;
+    args.exactly(0, USAGE)?;
+    let store = store_of(tool, &args)?;
+    let Some(conn) = db::open_reader(&store.database())? else {
+        fail!("there is no store for project {}", store.project);
+    };
+    let mut count = 0;
+    for landing in record::audited_landings(&conn)? {
+        let findings = record::findings_of_landing(&conn, landing)?;
+        for finding in audit::candidate_misses(&findings)
+            .into_iter()
+            .filter(|f| f.settled.is_none())
+        {
+            println!("landing {landing}:");
+            print!("{}", render::finding_text(finding));
+            count += 1;
+        }
+    }
+    println!("{} unsettled", render::plural(count, "candidate miss"));
+    Ok(())
+}
+
+/// `builds review rates`: each group's audited miss rate.
+fn rates(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &["rules-root"], &[])?;
+    args.exactly(0, USAGE)?;
+    let store = store_of(tool, &args)?;
+    let root = rules_root(&args)?;
+    let Some(conn) = db::open_reader(&store.database())? else {
+        fail!("there is no store for project {}", store.project);
+    };
+    for rate in audit::rates(&conn, &group_names(&root)?)? {
+        println!(
+            "{}: {} audits, {} confirmed misses; the latest {}: {}{}",
+            rate.group,
+            rate.audits,
+            rate.misses,
+            rate.recent_audits,
+            rate.recent_misses,
+            if rate.risen() { " (risen)" } else { "" }
+        );
     }
     Ok(())
 }

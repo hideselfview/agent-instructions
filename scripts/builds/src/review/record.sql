@@ -14,7 +14,8 @@ CREATE TABLE review_landing (
 ) STRICT;
 CREATE INDEX review_landing_key ON review_landing (key);
 
--- One run over a diff: a landing's review, a replay of a test case, or an audit.
+-- One run over a diff: a landing's review, a replay of a test case, or an audit
+-- of a landing that passed.
 CREATE TABLE review_run (
     id INTEGER PRIMARY KEY,
     landing_id INTEGER REFERENCES review_landing (id),
@@ -24,7 +25,9 @@ CREATE TABLE review_run (
     at INTEGER NOT NULL,
     base TEXT NOT NULL,
     head TEXT NOT NULL,
-    CONSTRAINT review_run_review_has_a_landing CHECK (kind <> 'review' OR landing_id IS NOT NULL)
+    -- A hash of the groups file the run used, so a change of grouping shows in the record.
+    grouping TEXT NOT NULL,
+    CONSTRAINT review_run_review_has_a_landing CHECK (kind = 'replay' OR landing_id IS NOT NULL)
 ) STRICT;
 CREATE INDEX review_run_landing ON review_run (landing_id);
 

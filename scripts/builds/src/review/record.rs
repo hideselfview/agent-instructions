@@ -42,6 +42,7 @@ pub struct NewCall {
 pub enum Kind {
     Review,
     Replay,
+    Audit,
 }
 
 impl Kind {
@@ -49,6 +50,7 @@ impl Kind {
         match self {
             Kind::Review => "review",
             Kind::Replay => "replay",
+            Kind::Audit => "audit",
         }
     }
 }
@@ -58,6 +60,8 @@ impl Kind {
 pub struct Finding {
     pub id: i64,
     pub run_id: i64,
+    /// `review`, `replay` or `audit`.
+    pub kind: String,
     pub landing_id: Option<i64>,
     pub group: String,
     pub rule: String,
@@ -91,6 +95,7 @@ impl Finding {
 pub struct Call {
     pub id: i64,
     pub run_id: i64,
+    pub kind: String,
     pub group: String,
     pub model: String,
     pub tokens_in: i64,
@@ -137,14 +142,16 @@ pub struct NewRun<'a> {
     pub at: i64,
     pub base: &'a str,
     pub head: &'a str,
+    /// A hash of the groups file the run used.
+    pub grouping: &'a str,
 }
 
 /// Writes a run with its calls, verdicts and findings. Returns the run's id
 /// and, per call in order, the ids its findings got.
 pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64, Vec<Vec<i64>>)> {
     db.execute(
-        "INSERT INTO review_run (landing_id, kind, label, at, base, head) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head],
+        "INSERT INTO review_run (landing_id, kind, label, at, base, head, grouping) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.grouping],
     )
     .sql()?;
     let run = db.last_insert_rowid();
@@ -214,24 +221,25 @@ pub fn settle(db: &Connection, id: i64, how: &str, why: &str, now: i64, by: &str
     Ok(())
 }
 
-const FINDING_COLUMNS: &str = "f.id, c.run_id, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why";
+const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why";
 
 fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
-    let settled: Option<String> = row.get(12)?;
-    let why: Option<String> = row.get(13)?;
+    let settled: Option<String> = row.get(13)?;
+    let why: Option<String> = row.get(14)?;
     Ok(Finding {
         id: row.get(0)?,
         run_id: row.get(1)?,
-        landing_id: row.get(2)?,
-        group: row.get(3)?,
-        rule: row.get(4)?,
-        clause: row.get(5)?,
-        file: row.get(6)?,
-        line: row.get(7)?,
-        code: row.get(8)?,
-        problem: row.get(9)?,
-        blocking: row.get(10)?,
-        check_failed: row.get(11)?,
+        kind: row.get(2)?,
+        landing_id: row.get(3)?,
+        group: row.get(4)?,
+        rule: row.get(5)?,
+        clause: row.get(6)?,
+        file: row.get(7)?,
+        line: row.get(8)?,
+        code: row.get(9)?,
+        problem: row.get(10)?,
+        blocking: row.get(11)?,
+        check_failed: row.get(12)?,
         settled: settled.zip(why),
     })
 }
@@ -326,7 +334,7 @@ pub fn calls_of_run(db: &Connection, run: i64) -> Result<Vec<Call>> {
 
 fn calls_where(db: &Connection, condition: &str, value: i64) -> Result<Vec<Call>> {
     let sql = format!(
-        "SELECT c.id, c.run_id, c.group_name, c.model, c.tokens_in, c.tokens_out, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
+        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.tokens_in, c.tokens_out, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
     );
     let mut statement = db.prepare(&sql).sql()?;
     let rows = statement
@@ -334,11 +342,12 @@ fn calls_where(db: &Connection, condition: &str, value: i64) -> Result<Vec<Call>
             Ok(Call {
                 id: row.get(0)?,
                 run_id: row.get(1)?,
-                group: row.get(2)?,
-                model: row.get(3)?,
-                tokens_in: row.get(4)?,
-                tokens_out: row.get(5)?,
-                failure: row.get(6)?,
+                kind: row.get(2)?,
+                group: row.get(3)?,
+                model: row.get(4)?,
+                tokens_in: row.get(5)?,
+                tokens_out: row.get(6)?,
+                failure: row.get(7)?,
             })
         })
         .sql()?;
@@ -365,12 +374,13 @@ pub struct RunRow {
     pub kind: String,
     pub base: String,
     pub head: String,
+    pub grouping: String,
 }
 
 /// The runs of <landing>.
 pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
     let mut statement = db
-        .prepare("SELECT id, kind, base, head FROM review_run WHERE landing_id = ?1 ORDER BY id")
+        .prepare("SELECT id, kind, base, head, grouping FROM review_run WHERE landing_id = ?1 ORDER BY id")
         .sql()?;
     let rows = statement
         .query_map(params![landing], |row| {
@@ -379,9 +389,42 @@ pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
                 kind: row.get(1)?,
                 base: row.get(2)?,
                 head: row.get(3)?,
+                grouping: row.get(4)?,
             })
         })
         .sql()?;
+    rows.map(|row| row.sql()).collect()
+}
+
+/// The newest landing of <key> and whether a review of it passed.
+pub fn latest_landing(db: &Connection, key: &str) -> Result<Option<(i64, bool)>> {
+    db.query_row(
+        "SELECT id, closed_at IS NOT NULL FROM review_landing WHERE key = ?1 ORDER BY id DESC LIMIT 1",
+        params![key],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .sql()
+}
+
+/// How many landings had a review under the grouping <hash>.
+pub fn landings_under(db: &Connection, hash: &str) -> Result<i64> {
+    db.query_row(
+        "SELECT COUNT(DISTINCT landing_id) FROM review_run WHERE kind = 'review' AND grouping = ?1",
+        params![hash],
+        |row| row.get(0),
+    )
+    .sql()
+}
+
+/// The landings that had an audit, oldest first.
+pub fn audited_landings(db: &Connection) -> Result<Vec<i64>> {
+    let mut statement = db
+        .prepare(
+            "SELECT DISTINCT landing_id FROM review_run WHERE kind = 'audit' ORDER BY landing_id",
+        )
+        .sql()?;
+    let rows = statement.query_map([], |row| row.get(0)).sql()?;
     rows.map(|row| row.sql()).collect()
 }
 

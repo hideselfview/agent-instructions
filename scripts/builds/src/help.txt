@@ -265,6 +265,33 @@ Commands:
                               then recall, false blocking findings on clean
                               cases and tokens; each replayed case is recorded
                               in its project's store
+  builds review sample --landing <key> --repo-dir DIR [--project P] [--roll N] [--rules-root DIR] [--reviewer PROGRAM]
+                              what `builds land` runs after a push and its
+                              record: decide whether the landing's passed
+                              review is audited and, when it is, start
+                              `builds review audit` in the background; it
+                              answers at once and never fails a landing.
+                              About 5% of landings are audited; 25% when a
+                              group the landing ran has missed more in its
+                              latest 10 audits than before; every landing
+                              until 20 have been reviewed under the current
+                              groups file
+  builds review audit <landing> --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]
+                              audit a landing that passed its review, over
+                              the commits of DIR's repo: one reviewer per
+                              rule over every rule that covers a changed
+                              path, and one review with those rules shuffled
+                              into other groups. A finding either raises in
+                              a rule and file the landing's review did not
+                              raise is a candidate miss, printed with the
+                              command that settles it; `builds review misses`
+                              lists the unsettled ones. A confirmed miss
+                              becomes a case (`builds review case add`) and a
+                              fix item
+  builds review misses        the candidate misses nobody has settled
+  builds review rates [--rules-root DIR]
+                              each group's audited miss rate: audits,
+                              confirmed misses, and the latest 10 audits
   builds review optimize --rules-root DIR [--reviewer PROGRAM] [--proposer PROGRAM]
                               lower the review's token cost without losing
                               recall (the coordinator runs it every 20

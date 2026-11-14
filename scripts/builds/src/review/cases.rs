@@ -275,6 +275,7 @@ pub fn run_of<'a>(case: &'a Case, at: i64) -> NewRun<'a> {
         at,
         base: "",
         head: "",
+        grouping: "",
     }
 }
 

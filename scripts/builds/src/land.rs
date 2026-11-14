@@ -45,7 +45,9 @@
 //! findings and the `builds review settle` command are named, nothing is
 //! pushed, and the worktree goes back to origin/main. The landing goes
 //! through once the findings are fixed or settled as dropped; the rerun asks
-//! only the groups that found something.
+//! only the groups that found something. After the push and its record,
+//! `builds review sample` decides whether the review is audited later, in the
+//! background, and never fails the landing.
 //!
 //! The store's checks and records run as `builds` commands of this same
 //! program, so their output is held back and shown only when one fails.
@@ -486,6 +488,30 @@ impl Landing<'_> {
         Ok(())
     }
 
+    /// Asks `builds review sample` whether the review of this landing is
+    /// audited; it starts the audit in the background and answers at once. A
+    /// landing is already on main, so nothing here fails it.
+    fn sample_audit(&self) {
+        let Some(project) = &self.project else {
+            return;
+        };
+        let line = [
+            "review",
+            "sample",
+            "--project",
+            project,
+            "--landing",
+            &self.review_key(),
+            "--repo-dir",
+            &self.workdir.display().to_string(),
+        ];
+        let (ok, said) = self.builds(&line);
+        if !ok {
+            let _ = std::io::stderr()
+                .write_all(format!("builds: no audit sampled: {said}\n").as_bytes());
+        }
+    }
+
     /// What names this landing across its reviews: the items it names, else
     /// its design change. The commits change when an agent fixes a finding;
     /// these do not.
@@ -615,6 +641,7 @@ impl Landing<'_> {
                         .map(str::to_string)
                         .collect();
                 return if self.record(&on_main, out) {
+                    self.sample_audit();
                     Ok(())
                 } else {
                     Err(Fail::Exit(1))

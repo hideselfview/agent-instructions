@@ -18,6 +18,8 @@ use crate::review::rules::{self, Rule};
 /// What a review reads besides the diff.
 pub struct Material {
     pub groups: Groups,
+    /// A hash of the groups file's text, recorded with every run.
+    pub grouping: String,
     /// The rules of the project: `rules/` and its own.
     pub rules: Vec<Rule>,
     /// The project's always-loaded instructions, empty when it has none.
@@ -30,6 +32,9 @@ impl Material {
     /// checking that every rule of the checkout is in one group.
     pub fn load(root: &Path, project: &str) -> Result<Material> {
         let groups = Groups::load(root)?;
+        let grouping = hash(
+            &std::fs::read_to_string(root.join(crate::review::groups::FILE)).unwrap_or_default(),
+        );
         let every = rules::load(root, None)?;
         crate::review::groups::require_whole(&groups, &every)?;
         let rules = rules::load(root, Some(project))?;
@@ -37,6 +42,7 @@ impl Material {
         let project_text = std::fs::read_to_string(&project_file).unwrap_or_default();
         Ok(Material {
             groups,
+            grouping,
             rules,
             project_text,
             root: root.to_path_buf(),
@@ -48,6 +54,7 @@ impl Material {
     pub fn with_groups(mut self, groups: Groups) -> Result<Material> {
         let every = rules::load(&self.root, None)?;
         crate::review::groups::require_whole(&groups, &every)?;
+        self.grouping = "alternative".to_string();
         self.groups = groups;
         Ok(self)
     }
@@ -61,6 +68,16 @@ impl Material {
     }
 }
 
+/// FNV-1a of <text> as 16 hex digits.
+pub fn hash(text: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
 /// A change to review.
 pub struct Diff {
     pub base: String,
@@ -72,6 +89,11 @@ pub struct Diff {
 /// The change of the worktree's HEAD past <base> (from their common
 /// ancestor).
 pub fn diff_of(worktree: &Path, base: &str) -> Result<Diff> {
+    diff_between(worktree, base, "HEAD")
+}
+
+/// The change of <head> past <base> (from their common ancestor), in <worktree>'s repo.
+pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
     let text_of = |args: &[&str]| -> Result<String> {
         let output = git(worktree)
             .args(args)
@@ -88,11 +110,11 @@ pub fn diff_of(worktree: &Path, base: &str) -> Result<Diff> {
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     };
-    let merge_base = text_of(&["merge-base", base, "HEAD"])?.trim().to_string();
-    let range = format!("{merge_base}...HEAD");
+    let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
+    let range = format!("{merge_base}...{head}");
     let text = text_of(&["diff", "--no-color", "--no-ext-diff", &range])?;
     let names = text_of(&["diff", "--no-color", "--name-only", &range])?;
-    let head = text_of(&["rev-parse", "HEAD"])?.trim().to_string();
+    let head = text_of(&["rev-parse", head])?.trim().to_string();
     Ok(Diff {
         base: merge_base,
         head,
