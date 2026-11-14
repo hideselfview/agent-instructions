@@ -1,5 +1,5 @@
 ---
-digest: Every bae screen, and every bridge, automation and MCP read, is a plain coven live query (one SQL query, subscribed; a slow count is its own live query). SQLite filters, sorts, joins, counts and windows. Nothing is kept in Rust memory between reads, no side pass walks rows beside a live query, no field is written to force a rerun, no size cutoff switches a read between two paths.
+digest: A bae read that must follow changes (a reactive screen, or a subscriber in the bridge, automation or MCP) is a plain coven live query (one SQL query, subscribed; a slow count is its own live query); a read that need not follow changes is a plain one-shot SQL read. In both, SQLite filters, sorts, joins, counts and windows; nothing is kept in Rust memory between reads, no side pass walks rows beside a live query, no field is written to force a rerun, no size cutoff switches a read between two paths.
 paths:
   - bae-store/src/**/*.rs
   - bae-views/src/**/*.rs
@@ -16,14 +16,17 @@ paths:
 blocking: true
 ---
 
-## Screens read plain live queries
+## Reactive screens read plain live queries
 
-A screen's rows are one SQL query subscribed through coven (`subscribe`), which
-reruns it when a write changes what it read. Its count, when counting costs more
-than the rows, is a second live query, and the screen draws each as it arrives.
-That is the whole read path.
+A read that must follow changes, such as a reactive screen or a bridge,
+automation or MCP subscriber, is one SQL query subscribed through coven
+(`subscribe`), which reruns it when a write changes what it read. Its count,
+when counting costs more than the rows, is a second live query, and the screen
+draws each as it arrives. A read that need not follow changes (a one-off lookup,
+a command's check, an export) is a plain SQL read, not a live query. That is the
+whole read path.
 
-Never, in anything that serves a screen or a bridge, automation or MCP read:
+Never, in either kind of read:
 
 - **Memory kept between reads.** No places, counts, windows, last results or
   standings held in Rust (behind a `Mutex`, a `OnceLock`, an atomic, a field)
