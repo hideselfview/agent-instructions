@@ -9,7 +9,7 @@ use std::path::Path;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
-use crate::checkout::{Checkout, Root};
+use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::db::Sql;
 use crate::fail;
@@ -165,6 +165,15 @@ pub fn agent_of(running: &Running) -> Result<Agent> {
     agent_in(Checkout::at(path)?.as_ref())
 }
 
+/// The worktree at <path> when git says <path> is the top of a checkout; None
+/// when the folder is gone, is not a checkout, or is only inside one. Liveness
+/// is git's word, whatever builds output the repo has.
+fn live_worktree(path: &str) -> Result<Option<Checkout>> {
+    let path = Path::new(path);
+    let Ok(wanted) = path.canonicalize() else { return Ok(None) };
+    Ok(Checkout::at(&wanted)?.filter(|checkout| checkout.top == wanted))
+}
+
 /// The agent of an item running in <checkout> (None: no live worktree there).
 fn agent_in(checkout: Option<&Checkout>) -> Result<Agent> {
     let Some(checkout) = checkout else { return Ok(Agent::WorktreeGone) };
@@ -220,7 +229,6 @@ pub fn require_release_allowed(places: &Places, checkout: &Checkout) -> Result<(
 pub fn findings(
     places: &Places,
     loaded: &std::result::Result<Vec<Loaded>, String>,
-    roots: &[Root],
 ) -> Result<Vec<String>> {
     let loaded = match loaded {
         Ok(loaded) => loaded,
@@ -237,11 +245,8 @@ pub fn findings(
         };
         for item in &lists.items {
             for running in &item.running {
-                let live = roots
-                    .iter()
-                    .filter_map(|root| root.live.as_ref())
-                    .find(|checkout| checkout.top == Path::new(&running.worktree));
-                let fault = match agent_in(live)? {
+                let live = live_worktree(&running.worktree)?;
+                let fault = match agent_in(live.as_ref())? {
                     Agent::WorktreeGone => "is not a live worktree",
                     Agent::Unclaimed => "has no claim",
                     Agent::Claimed(_) => continue,

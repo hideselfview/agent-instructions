@@ -5,16 +5,21 @@ use crate::lists::fixtures::{NOON, db, item, read, stamp};
 use crate::testing::Scratch;
 use std::path::PathBuf;
 
-fn root_at(top: &Path, claimed: bool) -> Root {
-    let git_dir = top.join(".git-of-side");
-    std::fs::create_dir_all(&git_dir).unwrap();
-    let checkout = Checkout { top: top.to_path_buf(), main: top.to_path_buf(), git_dir };
+/// A worktree of a git repo, `<scratch>/<repo>-worktrees/side-1`. The repo has
+/// no build root, no `.build-dirs`, nothing on a build volume.
+fn live_worktree(scratch: &Scratch, claimed: bool) -> PathBuf {
+    let dir = scratch.dir.canonicalize().unwrap();
+    let main = dir.join("bae");
+    crate::testing::repo(&main, "target\n");
+    let top = dir.join("bae-worktrees/side-1");
+    crate::testing::git(&main, &["worktree", "add", "-q", "--detach", &top.display().to_string()]);
     if claimed {
+        let checkout = Checkout::at(&top).unwrap().unwrap();
         Claim { who: "agent".into(), since: "2026-11-13 10:00".into(), note: None, note_state: None }
             .write(&checkout.claim_file())
             .unwrap();
     }
-    Root { path: PathBuf::from("/volume/bae/side-1"), top: top.to_path_buf(), live: Some(checkout) }
+    top
 }
 
 fn loaded_running_in(worktree: &Path) -> Vec<Loaded> {
@@ -32,28 +37,38 @@ fn loaded_running_in(worktree: &Path) -> Vec<Loaded> {
 #[test]
 fn a_running_item_in_a_claimed_worktree_is_fine() {
     let scratch = Scratch::new("running-ok");
-    let top = scratch.dir.join("bae-worktrees/side-1");
-    let found = findings(&scratch.places(), &Ok(loaded_running_in(&top)), &[root_at(&top, true)]).unwrap();
+    let top = live_worktree(&scratch, true);
+    let found = findings(&scratch.places(), &Ok(loaded_running_in(&top))).unwrap();
     assert!(found.is_empty(), "{found:?}");
 }
 
 #[test]
 fn a_running_item_in_an_unclaimed_or_gone_worktree_is_named() {
     let scratch = Scratch::new("running-bad");
-    let top = scratch.dir.join("bae-worktrees/side-1");
-    let unclaimed = findings(&scratch.places(), &Ok(loaded_running_in(&top)), &[root_at(&top, false)]).unwrap();
+    let top = live_worktree(&scratch, false);
+    let unclaimed = findings(&scratch.places(), &Ok(loaded_running_in(&top))).unwrap();
     assert_eq!(unclaimed.len(), 1);
     assert!(unclaimed[0].contains("has no claim") && unclaimed[0].contains("`builds item stop 1`"), "{unclaimed:?}");
-    let gone = findings(&scratch.places(), &Ok(loaded_running_in(&top)), &[]).unwrap();
+    let gone = findings(&scratch.places(), &Ok(loaded_running_in(&scratch.dir.join("bae-worktrees/side-9")))).unwrap();
     assert!(gone[0].contains("is not a live worktree"), "{gone:?}");
+}
+
+#[test]
+fn a_folder_where_a_worktree_was_is_not_live() {
+    let scratch = Scratch::new("running-inside");
+    live_worktree(&scratch, true);
+    let leftover = scratch.dir.canonicalize().unwrap().join("bae-worktrees/side-2");
+    std::fs::create_dir_all(&leftover).unwrap();
+    let found = findings(&scratch.places(), &Ok(loaded_running_in(&leftover))).unwrap();
+    assert!(found[0].contains("is not a live worktree"), "{found:?}");
 }
 
 #[test]
 fn a_store_failing_its_check_is_a_finding() {
     let scratch = Scratch::new("running-check");
     let bad = vec![Loaded { project: "demo".into(), lists: Err("ids repeat".into()) }];
-    assert_eq!(findings(&scratch.places(), &Ok(bad), &[]).unwrap(), vec!["lists: project demo fails its check: ids repeat".to_string()]);
-    assert_eq!(findings(&scratch.places(), &Err("listing failed".into()), &[]).unwrap(), vec!["lists: listing failed".to_string()]);
+    assert_eq!(findings(&scratch.places(), &Ok(bad)).unwrap(), vec!["lists: project demo fails its check: ids repeat".to_string()]);
+    assert_eq!(findings(&scratch.places(), &Err("listing failed".into())).unwrap(), vec!["lists: listing failed".to_string()]);
 }
 
 #[test]

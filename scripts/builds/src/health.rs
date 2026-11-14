@@ -529,7 +529,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
     for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
         judged.push(Claimed { place, claim, branch: checkout.branch()?, git });
     }
-    let lists = crate::lists::running::findings(&tool.places, &crate::lists::store::load_all(&tool.places), &roots)?;
+    let lists = crate::lists::running::findings(&tool.places, &crate::lists::store::load_all(&tool.places))?;
     Ok(assess(now, tool.disk_space()?, machine, &places, judged, unclaimed, lists))
 }
 
