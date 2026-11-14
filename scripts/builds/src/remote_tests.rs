@@ -360,3 +360,63 @@ fn a_failing_post_checkout_fails_the_job_and_releases_the_claim() {
     assert!(!s.home.join("dev/demo-worktrees/remote-1.job").exists());
     assert_eq!(refs(&s.home.join("dev/demo")), "");
 }
+
+#[test]
+fn a_host_with_a_build_volume_uses_it_as_its_root() {
+    let s = setup("remote-volume-root");
+    std::fs::create_dir_all(s.home.join("volume")).unwrap();
+    let job = request(
+        What::Ref("main".to_string()),
+        &["sh", "-c", "echo \"$BUILDS_ROOT\" > ../run-root.txt"],
+    );
+    let places = s.scratch.places();
+    assert_eq!(
+        run_job(&places, &s.ssh, &s.host, &s.source, &job).unwrap(),
+        0
+    );
+    let seen = std::fs::read_to_string(s.home.join("dev/demo-worktrees/run-root.txt")).unwrap();
+    assert_eq!(seen.trim(), format!("{}/volume", s.home.display()));
+}
+
+#[test]
+fn a_remote_step_runs_with_the_hosts_root_and_path() {
+    let s = setup("remote-step-env");
+    let places = s.scratch.places();
+    let wt = s.home.join("dev/demo-worktrees/app-1");
+    std::fs::create_dir_all(wt.with_extension("job")).unwrap();
+    std::fs::create_dir_all(&wt).unwrap();
+    // The claim folder the step records its pid in sits beside the worktree.
+    std::fs::create_dir_all(format!("{}.job", wt.display())).unwrap();
+    let transport = Transport {
+        places: &places,
+        ssh: &s.ssh,
+        host: &s.host,
+    };
+    let command = args(&[
+        "sh",
+        "-c",
+        "echo \"$BUILDS_ROOT\" > env.txt; echo \"$PATH\" >> env.txt",
+    ]);
+    let code = run_command(
+        &transport,
+        &AtomicBool::new(false),
+        &wt.display().to_string(),
+        &command,
+    )
+    .unwrap();
+    assert_eq!(code, 0);
+    let seen = std::fs::read_to_string(wt.join("env.txt")).unwrap();
+    let mut lines = seen.lines();
+    assert_eq!(
+        lines.next().unwrap(),
+        format!("{}/builds-root", s.home.display())
+    );
+    let path = lines.next().unwrap();
+    assert!(
+        path.starts_with(&format!(
+            "{home}/.cargo/bin:{home}/.local/bin:",
+            home = s.home.display()
+        )),
+        "{path}"
+    );
+}

@@ -20,7 +20,7 @@ use std::time::Duration;
 use crate::checkout::{Checkout, git, git_text};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::host::{self, Host, REMOTE_ROOT, Ssh, choose, clone_path, sh_quote};
+use crate::host::{self, Host, REMOTE_ROOT, Ssh, VOLUME, choose, clone_path, sh_quote};
 use crate::places::Places;
 use crate::text::note;
 use crate::tool::Tool;
@@ -234,12 +234,22 @@ impl Transport<'_> {
     }
 }
 
-/// The lines that set the builds root for what follows: on a host other than
-/// this Mac, the folder in the host's home (it has no build volume); on this
-/// Mac, the root builds already runs with.
+/// The lines that set what every command builds runs on a host needs, so the
+/// host's shell needs no setup: the builds root, and a PATH holding cargo,
+/// `builds` itself (`~/.local/bin`), Homebrew and the tools there. A host with
+/// a build volume uses it as its root, as this Mac does; a host without one
+/// keeps the root in its home. `BUILDS_VOLUME` stands in for
+/// `/Volumes/Builds` so tests can name a volume that is there or is not.
+/// On this Mac builds already runs with its root and PATH.
 pub fn root_script(host: &Host) -> String {
     match host.target {
-        Some(_) => format!("BUILDS_ROOT=\"$HOME/{REMOTE_ROOT}\"\nexport BUILDS_ROOT\n"),
+        Some(_) => format!(
+            r#"if [ -d "${{BUILDS_VOLUME:-{VOLUME}}}" ]; then BUILDS_ROOT="${{BUILDS_VOLUME:-{VOLUME}}}"; else BUILDS_ROOT="$HOME/{REMOTE_ROOT}"; fi
+export BUILDS_ROOT
+PATH="$HOME/.cargo/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+"#
+        ),
         None => String::new(),
     }
 }
@@ -287,9 +297,7 @@ echo "worktree=$wt""#,
 pub fn run_script(host: &Host, worktree: &str, command: &[String]) -> String {
     let words: Vec<String> = command.iter().map(|word| sh_quote(word)).collect();
     format!(
-        r#"{root}PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
-export PATH
-# ssh's shell starts with macOS's default of 256 open files, which cargo's
+        r#"{root}# ssh's shell starts with macOS's default of 256 open files, which cargo's
 # tests (many stores open at once) exceed; a login shell here has more.
 ulimit -n 10240 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null
 set -m

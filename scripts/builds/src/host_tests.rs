@@ -28,7 +28,7 @@ if [ "$host" = unreachable ]; then
   echo "ssh: connect to host unreachable port 22: Connection refused" >&2
   exit 255
 fi
-cd '{home}' && HOME='{home}' exec sh -c "$*"
+cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/volume' exec sh -c "$*"
 "#,
             home = home.display()
         ),

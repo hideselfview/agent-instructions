@@ -382,10 +382,13 @@ pub fn probe_all(
 const USAGE: &str =
     "usage: builds host add <name> <ssh target> | setup <name> | list | remove <name>";
 
-/// The builds root on a remote host, relative to the host's home: the host
-/// has no build volume, so each `remote-N` worktree's build folders live in
-/// `<root>/<repo>/remote-N` there, as a side worktree's live under
-/// /Volumes/Builds here.
+/// The build volume, where a host that has one keeps its builds root, as this
+/// Mac does.
+pub const VOLUME: &str = "/Volumes/Builds";
+
+/// The builds root on a remote host without a build volume, relative to the
+/// host's home: each worktree's build folders live in `<root>/<repo>/<name>`
+/// there, as a side worktree's live under /Volumes/Builds here.
 pub const REMOTE_ROOT: &str = "builds-root";
 
 /// Copies this Mac's `builds` program to `~/.local/bin/builds` on <host> and
@@ -393,7 +396,7 @@ pub const REMOTE_ROOT: &str = "builds-root";
 /// `scripts/cargo.sh` find the program there, so a repo's hooks and scripts
 /// work on the host as they do here. Both Macs run arm64 macOS, so the same
 /// program runs on both.
-pub fn setup_host(ssh: &Ssh, host: &Host) -> Result<()> {
+pub fn setup_host(ssh: &Ssh, host: &Host) -> Result<String> {
     use std::io::Write;
     let Some(target) = &host.target else {
         fail!("{LOCAL} is this Mac and already has builds");
@@ -401,12 +404,13 @@ pub fn setup_host(ssh: &Ssh, host: &Host) -> Result<()> {
     let exe = std::env::current_exe().context(|| "finding this program".to_string())?;
     let program = std::fs::read(&exe).context(|| format!("reading {}", exe.display()))?;
     let script = format!(
-        "mkdir -p \"$HOME/.local/bin\" \"$HOME/{REMOTE_ROOT}\" && cat > \"$HOME/.local/bin/builds.part\" && chmod 755 \"$HOME/.local/bin/builds.part\" && mv \"$HOME/.local/bin/builds.part\" \"$HOME/.local/bin/builds\""
+        "{root}mkdir -p \"$HOME/.local/bin\" \"$BUILDS_ROOT\" && cat > \"$HOME/.local/bin/builds.part\" && chmod 755 \"$HOME/.local/bin/builds.part\" && mv \"$HOME/.local/bin/builds.part\" \"$HOME/.local/bin/builds\" && echo \"$BUILDS_ROOT\"",
+        root = crate::remote::root_script(host)
     );
     let mut child = ssh
         .command(target, &format!("sh -c {}", sh_quote(&script)))
         .stdin(Stdio::piped())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .context(|| format!("running {} to {}", ssh.program, host.name))?;
@@ -424,7 +428,8 @@ pub fn setup_host(ssh: &Ssh, host: &Host) -> Result<()> {
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    sent.context(|| format!("sending builds to host {}", host.name))
+    sent.context(|| format!("sending builds to host {}", host.name))?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
@@ -441,8 +446,8 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             let Some(host) = all(&tool.places)?.into_iter().find(|h| h.name == *name) else {
                 fail!("no host named {name} (`builds host list`)");
             };
-            setup_host(ssh, &host)?;
-            println!("installed builds on host {name}, with its builds root in ~/{REMOTE_ROOT}");
+            let root = setup_host(ssh, &host)?;
+            println!("installed builds on host {name}, with its builds root in {root}");
             Ok(())
         }
         [word, name] if word == "remove" => {

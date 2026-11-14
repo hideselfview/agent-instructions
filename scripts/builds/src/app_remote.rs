@@ -8,8 +8,8 @@
 //! The checkout on the host is the worktree `~/dev/<repo>-worktrees/<name>` of
 //! the host's clone of the repo, set up as a side worktree is here: made with
 //! `git worktree add` and then the repo's `scripts/hooks/post-checkout`, with
-//! BUILDS_ROOT in the host's own home so the build folders live under
-//! `~/builds-root/<repo>/<name>` there, and, in the android lane, a
+//! the host's builds root (`/Volumes/Builds` when the host has it, else
+//! `~/builds-root`) so the build folders live under `<root>/<repo>/<name>`, and, in the android lane, a
 //! `local.properties` pointing each Gradle project at the host's Android SDK.
 //! A build sends its commit to the host's clone as a job ref
 //! (`refs/builds/jobs/<id>`, never to GitHub), switches the checkout to it
@@ -333,9 +333,7 @@ const ANDROID_SETUP: &str = r#"  sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/
   done
 "#;
 
-const ENSURE: &str = r#"@ROOT@PATH="$HOME/.cargo/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
-export PATH
-set -e
+const ENSURE: &str = r#"@ROOT@set -e
 clone="$HOME/@CLONE@"
 if [ ! -e "$clone/.git" ]; then echo "no clone of @REPO@ at $clone" >&2; exit 90; fi
 wts="$HOME/dev/@REPO@-worktrees"
