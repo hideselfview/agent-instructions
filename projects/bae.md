@@ -185,10 +185,13 @@ forced rerun, no size cutoff between read paths. A long list pages by cursor
 through the order's index) and jumps by offset, with an index for the jump only
 when it measures slow enough to warrant one. The full rule is
 `projects/bae-rules/reactive-screens-read-plain-live-queries.md`. bae's
-pre-commit hook refuses the shapes a static check can see (the ownership check's
-`read-shapes` rule and the app row pass), with `frozen` lists that only shrink
-and `allowed` lists for uses over values that are not a read's rows; review
-still covers what the check cannot catch, which the rule file lists.
+pre-commit hook refuses the shapes a static check can see in Rust (the ownership
+check's `read-shapes` rule), with a `frozen` list that only shrinks and an
+`allowed` list for uses over values that are not a read's rows. No check reads
+the apps' Swift and Kotlin, because a static check cannot tell a screen's rows
+from the app's own state or from handler code; the landing review covers
+app-side row work, along with what the Rust check cannot catch, which the rule
+file lists.
 
 A value that changes many times a second (playback position, transfer bytes,
 rates, levels) travels on a keyed latest-value stream and is drawn by a native

@@ -125,22 +125,24 @@ shows its top rows first does it with two live queries (the window, and the
 count), not with a counting pass beside the live query that bumps a request
 field to force a reread and keeps block places in memory.
 
-bae's pre-commit hook refuses the shapes a static check can see. The ownership
-check's `read-shapes` rule reads Rust, and `scripts/ui-projection-boundary.py`
-reads the apps' Swift and Kotlin. They refuse a sort, filter, group, sum, count
+bae's pre-commit hook refuses the shapes a static check can see in Rust. The
+ownership check's `read-shapes` rule refuses a sort, filter, group, sum, count
 or pick of rows in read code, a query run once for each row, memory kept between
 reads, a column or request field counted up to rerun a query, and a comparison
-against a fixed limit that picks a read path. Today's violations sit in `frozen`
-lists (`read_shapes.frozen` in `owner-construction-check.toml`,
-`scripts/ui-row-work.toml`), keyed and counted exactly; a check
-(`scripts/check-frozen-shrinks.py`) fails a new row or a higher count, so the
-lists only shrink as the code is fixed. A use over values that are not a read's
-rows (a constant table, one name's characters, the audio engine's state) goes in
-`allowed` with what the values are. The check does not see Rust work after a
-value leaves read code (the bridge, services, watches over delivered values) or
-calls through receivers of unknown type; work without the named methods
-(`.len()` as a count, a loop that filters with `continue`); several statements
-combined in Rust without a map; memory outside a live-query holder; a counter
-Rust writes as a bound value; a threshold with no constant; or the apps' picks,
-membership tests, layout lengths and caches across deliveries. Review still
-covers those.
+against a fixed limit that picks a read path. Today's violations sit in
+`read_shapes.frozen` in `owner-construction-check.toml`, keyed and counted
+exactly; a check (`scripts/check-frozen-shrinks.py`) fails a new row or a higher
+count, so the list only shrinks as the code is fixed. A use over values that are
+not a read's rows (a constant table, one name's characters, the audio engine's
+state) goes in `allowed` with what the values are. No check reads the apps'
+Swift and Kotlin: a static check cannot tell a screen's rows from the app's own
+state (windows, menus, a view's selection) or from code in an action or event
+handler, and it pushed code into worse shapes. The landing review reads the
+apps' filters, searches, counts, sorts and picks over a screen's rows, and
+passes the same work over the app's own state and in handlers. The Rust check
+does not see work after a value leaves read code (the bridge, services, watches
+over delivered values) or calls through receivers of unknown type; work without
+the named methods (`.len()` as a count, a loop that filters with `continue`);
+several statements combined in Rust without a map; memory outside a live-query
+holder; a counter Rust writes as a bound value; or a threshold with no constant.
+Review still covers those.
