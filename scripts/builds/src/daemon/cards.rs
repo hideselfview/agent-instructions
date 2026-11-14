@@ -58,6 +58,19 @@ impl ItemWait {
     }
 }
 
+/// Does a card in <state> stay Working instead of Ready to land? Ready to
+/// land means commits past origin/main and nothing else going on: no agent
+/// shell active in the worktree (<shell>), no app build of its branch and no
+/// running item that waits on another (<wait>).
+pub fn keeps_working(state: Option<&str>, shell: bool, wait: Option<&ItemWait>) -> bool {
+    state == Some("ready-to-land")
+        && (shell
+            || matches!(
+                wait,
+                Some(ItemWait::AppBuild { .. } | ItemWait::Item { .. })
+            ))
+}
+
 /// What a card says in words.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Words {

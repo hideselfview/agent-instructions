@@ -442,3 +442,13 @@ fn a_cargo_with_a_compile_in_flight_is_not_idle() {
         vec![2]
     );
 }
+
+#[test]
+fn the_checkouts_of_shells_that_are_not_junk_are_active() {
+    let busy = shell(1, 90, &side(1), "scripts/cargo.sh build");
+    let busy_cargo = child(11, &busy, 4000.0, &["cargo", "build"]);
+    let stuck = shell(2, 171, &side(2), "sed -n 85,115p");
+    let found = judge_all(&[busy, busy_cargo, stuck]);
+    assert_eq!(found.active, vec!["demo/side-1".to_string()]);
+    assert_eq!(found.junk.len(), 1);
+}

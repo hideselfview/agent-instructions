@@ -841,24 +841,18 @@ impl Model {
                         _ => None,
                     };
                     let build = builds.get(&checkout.name).cloned();
+                    let shell = state.health.as_ref().is_some_and(|h| {
+                        h.shells
+                            .active
+                            .contains(&format!("{}/{}", repo.name, checkout.name))
+                    });
                     let wait = project
                         .and_then(|lists| super::lists::running_wait(lists, &checkout.path))
                         .into_iter()
                         .chain(design)
                         .chain(build)
                         .min_by_key(super::cards::ItemWait::rank);
-                    // Ready to land means nothing else is going on in the
-                    // worktree: an app build of its branch or an item that
-                    // waits on something keeps it Working.
-                    if checkout.state == Some("ready-to-land")
-                        && matches!(
-                            wait,
-                            Some(
-                                super::cards::ItemWait::AppBuild { .. }
-                                    | super::cards::ItemWait::Item { .. }
-                            )
-                        )
-                    {
+                    if super::cards::keeps_working(checkout.state, shell, wait.as_ref()) {
                         checkout.state = Some("working");
                     }
                     if wait

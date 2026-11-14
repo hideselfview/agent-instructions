@@ -240,3 +240,25 @@ fn a_branch_with_an_app_build_waits_on_it_and_is_not_ready_to_land() {
         "Waits on the Mac app build: place 2 in the queue"
     );
 }
+
+#[test]
+fn ready_to_land_needs_no_active_shell_no_app_build_and_no_waiting_item() {
+    let build = ItemWait::AppBuild {
+        lane: "Mac".into(),
+        how: "running for 1 minute".into(),
+    };
+    let item = ItemWait::Item {
+        id: 1,
+        title: "Other".into(),
+    };
+    assert!(!keeps_working(Some("ready-to-land"), false, None));
+    assert!(keeps_working(Some("ready-to-land"), true, None));
+    assert!(keeps_working(Some("ready-to-land"), false, Some(&build)));
+    assert!(keeps_working(Some("ready-to-land"), false, Some(&item)));
+    assert!(!keeps_working(
+        Some("ready-to-land"),
+        false,
+        Some(&ItemWait::Unrecorded)
+    ));
+    assert!(!keeps_working(Some("working"), true, None));
+}

@@ -35,6 +35,10 @@ const SHOWN: usize = 100;
 pub struct Shells {
     pub running: usize,
     pub junk: Vec<Junk>,
+    /// The checkouts (`repo/side-N`) an agent shell that is not junk runs
+    /// in, each once: an agent still works there.
+    #[serde(default)]
+    pub active: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -627,6 +631,12 @@ pub fn judge(
         };
         candidates[at].junk = junk;
     }
+    let mut active: Vec<String> = Vec::new();
+    for c in candidates.iter().filter(|c| c.junk.is_none()) {
+        if !active.contains(&c.worktree) {
+            active.push(c.worktree.clone());
+        }
+    }
     let mut junk: Vec<Junk> = candidates
         .into_iter()
         .filter_map(|c| {
@@ -641,7 +651,11 @@ pub fn judge(
         })
         .collect();
     junk.sort_by_key(|j| (std::cmp::Reverse(j.minutes), j.pid));
-    Shells { running, junk }
+    Shells {
+        running,
+        junk,
+        active,
+    }
 }
 
 /// The lines `builds health` prints for <shells>.
