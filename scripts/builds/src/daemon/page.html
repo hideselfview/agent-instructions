@@ -49,12 +49,6 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 .loading { font-size: 14px; color: var(--muted); }
 .bad { color: var(--bad); font-weight: 600; }
 .warn { color: var(--warn); font-weight: 600; }
-.pill { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; flex: none; }
-.s-working { background: var(--working-bg); color: var(--working); }
-.s-ready { background: var(--ready-bg); color: var(--ready); }
-.s-you { background: var(--you-bg); color: var(--you); }
-.s-winding { background: var(--winding-bg); color: var(--winding); }
-.s-free { background: var(--free-bg); color: var(--free); }
 
 /* The page: the checkouts on the left, the Lists panel on the right from 1200px (above them when narrower). */
 .page { padding: 24px 28px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; min-height: 100vh; align-content: start; }
@@ -230,22 +224,17 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-tabs .l-count { font: 500 12px var(--mono); white-space: nowrap; opacity: 0.85; }
 .l-body { display: flex; flex-direction: column; gap: 16px; }
 .l-section { display: flex; flex-direction: column; gap: 8px; }
-.l-section > h3 { margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; display: flex; gap: 8px; align-items: baseline; }
+.l-section > h3 { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); display: flex; gap: 8px; align-items: baseline; }
 .l-section > h3 .l-n { font: 500 12px var(--mono); text-transform: none; letter-spacing: 0; }
-.l-rows { display: flex; flex-direction: column; gap: 6px; }
-.l-card, .l-fold.l-row { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
 .l-works { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
 .l-works > .l-work { padding: 10px 12px; min-width: 0; }
 .l-works > .l-work + .l-work { border-top: 1px solid var(--line-soft); }
+.l-work > summary::before { display: none; }
 .l-work > summary { font-size: 14px; font-weight: 500; color: var(--text); justify-content: space-between; flex-wrap: nowrap; }
 .l-work > summary .l-title { font-weight: 500; flex: 1 1 auto; }
 .l-work > summary .l-wt { font: 400 12px var(--mono); color: var(--muted-2); white-space: nowrap; margin-left: auto; }
 .l-plain { display: flex; flex-direction: column; gap: 8px; }
-.l-card { display: flex; flex-direction: column; gap: 8px; }
-.l-row1 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.l-num { font: 500 13px var(--mono); color: var(--muted-2); }
 .l-title { font-size: 14px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
-.l-id { font: 12px var(--mono); color: var(--muted-2); }
 .l-sub { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .l-fact { font-size: 13px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
 .l-facts { display: flex; flex-direction: column; gap: 3px; }
@@ -259,7 +248,6 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-fold > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .l-fold > summary .l-sub { flex-basis: 100%; padding-left: 18px; }
 .l-fold > :not(summary) { margin-top: 8px; }
-.l-card > .l-fold { padding: 0; border: 0; background: transparent; }
 .l-md { display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.45; color: var(--text-2); overflow-wrap: anywhere; }
 .l-md p, .l-md h4 { margin: 0; }
 .l-md h4 { font-size: 13px; font-weight: 700; color: var(--text); }
@@ -324,16 +312,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 "use strict";
 // The states the daemon derives for each side worktree (worktree_state in
 // model.rs), in the order the cards sort.
-const STATES = {
-  "waiting-on-you": {label: "Waiting on you", cls: "s-you"},
-  "ready-to-land": {label: "Ready to land", cls: "s-ready"},
-  "winding-down": {label: "Winding down", cls: "s-winding"},
-  "working": {label: "Working", cls: "s-working"},
-  "held": {label: "Held", cls: "s-winding"},
-  "landing": {label: "Landing", cls: "s-free"},
-  "free": {label: "Free", cls: "s-free"},
-};
-const ORDER = Object.keys(STATES);
+const ORDER = ["waiting-on-you", "ready-to-land", "winding-down", "working", "held", "landing", "free"];
 const LISTS_HIDDEN_KEY = "builds-dashboard-lists-hidden";
 let state = null, streamError = "", connectionDown = false;
 let hooks = null, hooksError = "";
@@ -425,7 +404,6 @@ function built(c) {
   return out;
 }
 
-function pill(text, cls) { return h("span", {class: "pill " + cls}, text); }
 
 // An app lane has one queue for all its checkouts: who waits for whichever
 // lock frees first.
@@ -904,6 +882,7 @@ function render() {
     ...state.repos.map(r => hookFigure(r.name)));
   hookDetails();
   findingsView(state.health);
+  if (lists && !lists.error) renderLists();
   const root = document.getElementById("view");
   if (root.firstElementChild && !root.firstElementChild.dataset.key) root.replaceChildren();
   reposView(root);
@@ -1023,21 +1002,21 @@ const KINDS = {
   "your-step": "For you to do",
   "held": "Held until you start it",
 };
-function stackCard(q, n, top) {
+function questionRow(q, top) {
   const direct = q.blocks.length;
-  return h("article", {class: "l-card", "data-rec": String(q.id)},
-    h("div", {class: "l-row1"},
-      h("span", {class: "l-num"}, n + "."), h("span", {class: "l-title"}, q.title), h("span", {class: "l-id"}, "#" + q.id),
-      pill(KINDS[q.kind] || q.kind, "s-free"), top ? pill("Asking now", "s-you") : null),
-    direct ? h("div", {class: "l-facts"},
-      fact("Blocks", plural(Math.max(q.blocked_count, direct), "item", "items") +
-        (q.blocked_count > direct ? ", " + direct + " directly:" : ":")),
-      h("ul", {class: "l-list"}, q.blocks.map(b => h("li", {}, recLink(b.id, b.title))))) : null,
-    q.blocks_nothing ? fact("Blocks nothing:", q.blocks_nothing) : null,
-    q.placed ? fact("Placed " + q.placed.at + (q.placed.by_person ? " by you:" : ":"), q.placed.why) : null,
-    q.plan ? fact("Plan", mono(q.plan.path), " " + q.plan.number) : null,
-    opened(q, "Asked"),
-    fold("q:" + q.id, q.id, "Details", () => md(q.details)));
+  return fold("q:" + q.id, q.id,
+    [h("span", {class: "l-title"}, q.title), h("span", {class: "l-wt"}, top ? "Asking now" : KINDS[q.kind] || q.kind)],
+    () => h("div", {class: "l-plain"},
+      direct ? h("div", {class: "l-facts"},
+        fact("Blocks", plural(Math.max(q.blocked_count, direct), "item", "items") +
+          (q.blocked_count > direct ? ", " + direct + " directly:" : ":")),
+        h("ul", {class: "l-list"}, q.blocks.map(b => h("li", {}, recLink(b.id, b.title))))) : null,
+      q.blocks_nothing ? fact("Blocks nothing:", q.blocks_nothing) : null,
+      q.placed ? fact("Placed " + q.placed.at + (q.placed.by_person ? " by you:" : ":"), q.placed.why) : null,
+      q.plan ? fact("Plan", mono(q.plan.path), " " + q.plan.number) : null,
+      md(q.details),
+      h("span", {class: "l-sub"}, "#" + q.id + " · ", opened(q, "Asked"))),
+    "l-work");
 }
 // Design changes that wait on your review: recorded, not approved, not landed.
 function reviews() { return lists.designs.filter(g => !g.closed && !g.approved); }
@@ -1047,12 +1026,11 @@ function stackItems() {
   if (!own.length && !review.length && !held.length) return [empty("Nothing waits on you.")];
   const out = [];
   if (review.length) out.push({key: "reviews", data: review, make: () => section("Design changes to review", review.length,
-    h("div", {class: "l-rows"}, review.map(designCard)))});
+    h("div", {class: "l-works"}, review.map(designRow)))});
   if (held.length) out.push({key: "held", data: held, make: () => section("Running work held on you", held.length,
     h("div", {class: "l-works"}, held.map(workRow)))});
-  if (!review.length && !held.length) return own.map((q, i) => ({key: "q:" + q.id, data: [q, i], make: () => stackCard(q, i + 1, i === 0)}));
   if (own.length) out.push({key: "questions", data: own, make: () => section("Questions", own.length,
-    h("div", {class: "l-rows"}, own.map((q, i) => stackCard(q, i + 1, i === 0))))});
+    h("div", {class: "l-works"}, own.map((q, i) => questionRow(q, i === 0))))});
   return out;
 }
 
@@ -1062,12 +1040,6 @@ function isReady(it) { return !isRunning(it) && it.for === "coordinator" && it.s
 function unmet(it) { return it.waits.filter(w => !w.met); }
 function waitName(w) { return w.kind === "condition" ? w.text : w.title + " #" + w.id; }
 function waitLink(w) { return w.kind === "condition" ? document.createTextNode(w.text) : recLink(w.id, w.title + " #" + w.id); }
-function itemPill(it) {
-  if (isRunning(it)) return pill("running", "s-working");
-  if (it.for === "design-session") return pill("design session’s", "s-free");
-  if (it.state === "waiting") return pill("waiting", "s-winding");
-  return pill("ready", "s-ready");
-}
 function itemSub(it) {
   const waits = unmet(it);
   if (waits.length) return "waits on " + waits.map(waitName).join("; ");
@@ -1090,9 +1062,9 @@ function itemBody(it) {
 function itemRow(it) {
   const sub = itemSub(it);
   return fold("i:" + it.id, it.id,
-    [h("span", {class: "l-title"}, it.title), h("span", {class: "l-id"}, "#" + it.id), itemPill(it),
-      sub ? h("span", {class: "l-sub"}, sub) : null],
-    () => itemBody(it), "l-row");
+    [h("span", {class: "l-title"}, it.title), h("span", {class: "l-wt"}, "#" + it.id)],
+    () => h("div", {class: "l-plain"}, sub ? h("span", {class: "l-sub"}, sub) : null, itemBody(it)),
+    "l-work");
 }
 // A running work is one line: its title with its worktree beside it; opened,
 // what is happening now and its items, agent, branch, plan and landed commits.
@@ -1129,15 +1101,25 @@ function workHead() {
     flowLine("Today:", lists.flow.filter(d => d.day === today)),
     flowLine("Last " + RECENT_DAYS + " days:", lists.flow));
 }
-function rows(its, one) { return h("div", {class: "l-rows"}, its.map(one || itemRow)); }
+function rows(its, one) { return h("div", {class: "l-works"}, its.map(one || itemRow)); }
+// A running work whose worktree has commits waiting to land is Ready to land;
+// the rest are Working.
+function readyToLand(w) {
+  const repo = state && state.repos.find(r => r.name === w.repo);
+  const c = repo && repo.checkouts.find(x => x.name === w.checkout);
+  return !!c && c.state === "ready-to-land";
+}
 function runningItems() {
   const works = lists.board.works.filter(w => w.tab === "running");
+  const ready = works.filter(readyToLand), working = works.filter(w => !ready.includes(w));
   const drawn = lists.designs.filter(g => !g.closed && g.approved);
   const out = [];
-  if (works.length) out.push({key: "running", data: works, make: () => section("Running", works.length,
-    h("div", {class: "l-works"}, works.map(workRow)))});
+  if (working.length) out.push({key: "working", data: working, make: () => section("Working", working.length,
+    h("div", {class: "l-works"}, working.map(workRow)))});
+  if (ready.length) out.push({key: "ready", data: ready, make: () => section("Ready to land", ready.length,
+    h("div", {class: "l-works"}, ready.map(workRow)))});
   if (drawn.length) out.push({key: "drawn", data: drawn, make: () => section("Design changes being drawn", drawn.length,
-    h("div", {class: "l-rows"}, drawn.map(designCard)))});
+    h("div", {class: "l-works"}, drawn.map(designRow)))});
   return out.length ? out : [empty("Nothing is running.")];
 }
 function queueItems() {
@@ -1161,19 +1143,18 @@ function queueItems() {
 // A design change is a light card, like a question's: what it blocks, who
 // recorded it and when. Details opens its review page over the dashboard; one
 // that landed has no page, only its words.
-function designCard(g) {
-  const state = g.closed ? null : g.approved ? pill("approved", "s-ready") : pill("waiting on your review", "s-you");
+function designRow(g) {
   const direct = g.blocks.length;
-  return h("article", {class: "l-card", "data-rec": String(g.id)},
-    h("div", {class: "l-row1"}, h("span", {class: "l-title"}, g.title), h("span", {class: "l-id"}, "#" + g.id), pill(g.repo, "s-free"), state),
+  const body = () => h("div", {class: "l-plain"},
     direct ? h("div", {class: "l-facts"},
       fact("Blocks", plural(direct, "item", "items") + ":"),
       h("ul", {class: "l-list"}, g.blocks.map(b => h("li", {}, recLink(b.id, b.title))))) : fact("Blocks nothing."),
     g.landed.length ? fact("Landed:", g.landed.map(l => l.commits.join(" ") + " " + stamp(l.at)).join("; ")) : null,
     g.approved ? fact("Approved:", stamp(g.approved.at)) : null,
-    opened(g, "Recorded"),
-    g.closed ? fold("g:" + g.id, g.id, "Details", () => md(g.details))
-      : h("button", {type: "button", class: "l-details", onclick: () => openReview(g)}, "Details"));
+    h("span", {class: "l-sub"}, "#" + g.id + " · ", opened(g, "Recorded")),
+    g.closed ? md(g.details) : h("button", {type: "button", class: "l-details", onclick: () => openReview(g)}, "Details"));
+  return fold("g:" + g.id, g.id,
+    [h("span", {class: "l-title"}, g.title), h("span", {class: "l-wt"}, g.repo + " design")], body, "l-work");
 }
 const reviewDialog = document.getElementById("review"), reviewFrame = document.getElementById("rv-frame");
 // The review page of an open design change, drawn by the daemon from the
