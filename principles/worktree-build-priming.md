@@ -212,22 +212,46 @@ a failed build leaves the installed one as it was; a commit on main that touches
   changed. It answers the commands' questions on
   `/Volumes/Builds/.builds-daemon/socket` and serves a page called Builds at
   `http://127.0.0.1:7787/` (only on 127.0.0.1, only to a Host of 127.0.0.1 or
-  localhost) showing every checkout `status` lists. Its header shows the load
-  with a line of the last ten minutes against the core count, the volume's free
-  space as a bar against the 30 GiB warning floor and the 10 GiB hard floor, and
-  whether the page is live; under it, what `health` says needs acting on. Each
-  repo pins its main checkout and its app checkouts ("App build · mac", "App
-  build · android") first, each with its total build output and its 3 largest
-  build folders (short names such as "Xcode build" and "Android app", the path
-  in the chip's tooltip; the rest behind a "+N more folders" disclosure), and
-  for each App build whether its lane's lock is free or held, the command
-  holding it and how many wait, read without taking the lock (the `builds lock`
-  with the file open holds it, since a waiter waits inside `open`). Every other
-  side worktree is a card, as tall as its content: name, branch, state, the
-  claim's who and note, the commits waiting to land, its last commit's age, the
-  count of uncommitted files, its build size (flagged over a cap) and the
-  claim's date. A card where builds run says which (`cargo ×3, rustc`), with
-  their CPU and memory.
+  localhost) showing every checkout `status` lists, as the board in
+  `scripts/builds/design/dashboard.html` draws it. Under the title, one row of
+  figures, each on one line: the load averages beside a line of the last ten
+  minutes against the core count and the core count; the volume's free space,
+  red under the 30 GiB warning floor (the tooltip names it and the 10 GiB hard
+  floor); and one commit hook figure per repo ("bae commits", "coven commits"),
+  which shows the median time of the hook's whole passing runs and one bar per
+  recent run (amber over the 45 s limit, the limit dashed). A click on a hook
+  figure opens that repo's details under the figures: each check's median, its
+  median over its last 10 passes (green when faster than before, amber when
+  slower) and its slowest time, and the runs over the limit, slowest first, each
+  opening to its checks. A repo with no passing run shows an empty figure. The
+  page says only when it has lost its connection to the daemon, as a red line
+  under the title. Under the figures, the *Needs attention* box lists what
+  nothing else on the page shows: a worktree with commits waiting to land and no
+  claim, sccache clients waiting, leftover shells, and the lists store's own
+  findings. Then each repo has a heading, its app build lanes, its worktree
+  cards and one dashed "+N free worktrees" tile that opens the free worktrees'
+  cards and then reads "Hide N free worktrees". The main checkout has no card.
+  - **App build lanes.** Each app checkout is a lane one card wide: green all
+    over while a build holds its lock, clear while idle. It shows who builds,
+    the programs and how long they ran, their CPU and memory (or that the lock
+    is held by a build that no longer runs), and a bottom line "N waiting" that
+    opens the lane's queue (each waiting build can move to the top or take over)
+    and a Build… button that runs `builds build-app` for a ref (default
+    origin/main) with its status and output under the lane.
+  - **Worktree cards.** Every other side worktree is a card with no visible
+    border. Its top bar carries its state as plain text (green for Working, blue
+    for Ready to land, orange for Waiting on you) and its build size on disk; a
+    building card shows its CPU and memory there, and the hammer line (how long
+    the build ran and its programs) on the bar's second line. Below it: name,
+    branch, one plain line of what happens, at most one commit waiting to land
+    (the rest behind "N more"), and a footer of the last commit's age, the last
+    write, the claim's age and the tree state. A card where builds run says
+    which (`cargo ×3, rustc`).
+  - **The Lists panel** runs the full height of the window at 1200 px and wider,
+    stays in place while the checkouts scroll, and scrolls its lists inside it.
+    A button in its header hides it; then a Lists button at the right of the
+    title shows it again, and the page remembers the choice. Under 1200 px it
+    sits above the checkouts.
   - **States.** Each side worktree gets one, the first that matches: *Waiting on
     you* (the note's state says so), *Landing* (the claim's who ends in
     `(landing)`), *Held* (the note's state says so), *Ready to land* (commits
@@ -238,27 +262,16 @@ a failed build leaves the installed one as it was; a commit on main that touches
     (`git log --cherry-pick --right-only origin/main...HEAD`): a coordinator
     lands by rebasing or cherry-picking, so a branch's own commits stay off
     `origin/main` by hash after they land.
-  - **Two views,** switched by the two buttons in the header, the choice kept in
-    the browser: *By repo* (the default), a section per repo with its pinned
-    cards and then its worktrees, sorted by state; and *Lanes*, the pinned cards
-    in one row and then every worktree in a lane: Waiting on you, Ready to land,
-    Working (with Winding down, Held and Landing tagged), Free.
-  - **Order and quiet.** Within each state (and each lane) the worktrees sort by
-    last activity, newest first: the newer of HEAD's commit time and the newest
-    modification time among the uncommitted files (`status --porcelain -z`, each
-    listed path `lstat`ed; a directory listed as untracked counts by its own
-    time). A card shows "last write Nm ago" beside "last commit", and a worktree
-    with uncommitted files and no write in 30 minutes gets a muted "quiet" mark,
-    so a stalled agent stands out. The stats add about 2 ms to side-5's 177
-    changed files, whose `git status` takes 30-60 ms. When an app lock is held,
-    the page shows the holder's command as its script's file name, the full
-    command in the tooltip. The pinned row's cards share one height.
-  - **Hide free worktrees.** A checkbox in the header, kept in the browser like
-    the view, leaves out the Free worktrees (unclaimed, nothing waiting to land)
-    in both views: their cards in *By repo* and the Free lane in *Lanes*. The
-    header then says how many are hidden ("3 free hidden"). Main and the App
-    build stay shown, and an unclaimed worktree with commits waiting to land is
-    *Ready to land*, so it stays shown too.
+  - **Order and quiet.** Within each state the worktrees sort by last activity,
+    newest first: the newer of HEAD's commit time and the newest modification
+    time among the uncommitted files (`status --porcelain -z`, each listed path
+    `lstat`ed; a directory listed as untracked counts by its own time). A card
+    shows "last write Nm ago" beside "last commit", and a worktree with
+    uncommitted files and no write in 30 minutes gets a muted "quiet" mark, so a
+    stalled agent stands out. The stats add about 2 ms to side-5's 177 changed
+    files, whose `git status` takes 30-60 ms. When an app lock is held, the page
+    shows the holder's command as its script's file name, the full command in
+    the tooltip.
   - **Live.** The page asks for nothing: it holds one `/events` stream
     (server-sent events), and the daemon sends the whole state on it, at most
     four times a second, whenever anything in it changed, waiting 300 ms after a
@@ -506,15 +519,15 @@ build was not measured, and the default leaves it room. `builds build-app` and
 `builds lock` set no limit; `builds lock` stays for a command that is no repo's
 build.
 
-- The dashboard starts `builds build-app` too: each repo lane has a build-app
-  panel in the toolbar with a ref box (empty means the command's default,
-  origin/main after a fetch), a Build button, the run's output as it prints, and
-  how it ended (queued, running, finished, failed with its exit status). The
-  daemon runs `builds build-app <repo> <lane> [<ref>]` as its child, so the
-  lane's queue and lock order it like a typed one; a lane takes one run at a
-  time (a second start is refused with 409). The start is a POST to
-  `/api/build-app`, which only the page's own origin may make. Each lane's
-  latest run is kept in `/Volumes/Builds/.builds-daemon/runs/`
+- The dashboard starts `builds build-app` too: each app build lane has a Build…
+  button that opens a build-app panel under the lane with a ref box (empty means
+  the command's default, origin/main after a fetch), a Build button, the run's
+  output as it prints, and how it ended (queued, running, finished, failed with
+  its exit status). The daemon runs `builds build-app <repo> <lane> [<ref>]` as
+  its child, so the lane's queue and lock order it like a typed one; a lane
+  takes one run at a time (a second start is refused with 409). The start is a
+  POST to `/api/build-app`, which only the page's own origin may make. Each
+  lane's latest run is kept in `/Volumes/Builds/.builds-daemon/runs/`
   (`<repo>.<lane>.json`, `.log`); the child writes the log itself, so a daemon
   restart doesn't stop the build. The restarted daemon shows such a run as still
   running with its end unseen, or as gone with its end unknown, and never as

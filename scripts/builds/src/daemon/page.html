@@ -43,204 +43,191 @@
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
-.page { padding: 24px 28px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; min-height: 100vh; align-content: start; }
-.left { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
 .mono { font-family: var(--mono); }
-
-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
-.title { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; min-width: 0; }
-h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
-.sub { font-size: 14px; color: var(--muted); }
-.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.switch { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-.switch button { font: 600 13px var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 5px 12px; cursor: pointer; }
-.switch button[aria-pressed="true"] { background: var(--on); color: var(--on-text); }
-.switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.hide-free { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-3); cursor: pointer; }
-.hide-free input { margin: 0; accent-color: var(--on); cursor: pointer; }
-.disk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
-.disk .label { font-size: 13px; color: var(--muted); }
-.bar { position: relative; width: 140px; height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
-.bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ok); }
-.bar .mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--muted-2); }
-.disk .free { font: 500 13px var(--mono); }
-.disk .floors, .updated { font-size: 12px; color: var(--muted-2); }
-.disk .floors.warn { color: var(--warn); }
-.disk .floors.bad { color: var(--bad); }
 .error { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 8px 10px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .loading { font-size: 14px; color: var(--muted); }
-#view { display: flex; flex-direction: column; gap: 28px; }
-
-section.repo { display: flex; flex-direction: column; gap: 12px; }
-.repo-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
-.repo-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
-.repo-head span { font-size: 13px; color: var(--muted); }
-.pinned-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: 12px; align-items: stretch; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; align-items: stretch; }
-article { min-width: 0; display: flex; flex-direction: column; }
-.wcard { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; gap: 4px; }
-.wcard .cbar { margin: -12px -16px 6px; border-radius: 12px 12px 0 0; padding: 6px 16px; background: var(--line-soft); color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 12px; }
-.wcard .cbar.building { background: var(--working-bg); color: var(--working); }
-.wcard .grp { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; }
-.wcard .dsk, .alane-head .dsk { margin-left: auto; font: 500 13px var(--mono); }
-.wcard .t { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.wcard .t > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wcard .t b { font-weight: 700; font-size: 15px; }
-.wcard .br { font: 400 13px var(--mono); color: var(--muted); margin-left: 4px; }
-.wcard .what { color: var(--text-2); font-size: 14px; }
-.wcard > *:has(+ .foot) { margin-bottom: 6px; }
-.wcard .foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
-.wcard .tree { margin-left: auto; }
-.wcard .ic { display: inline-flex; align-items: center; gap: 5px; }
-.wcard .ic svg { flex: none; }
-.wcard .procs { background: color-mix(in srgb, var(--working-bg) 55%, transparent); color: var(--working); border-radius: 8px; padding: 6px 10px; font: 12px var(--mono); overflow-wrap: anywhere; }
-.wcard .procs .ic { display: inline; font: inherit; }
-.wcard .procs .ic svg { vertical-align: -2px; margin-right: 5px; }
-.wcard .land { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.wcard .land .c { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; align-items: baseline; }
-.wcard .land .c .mono { color: var(--muted); font-size: 12px; }
-.wcard .land summary { cursor: pointer; font-size: 12px; color: var(--muted); }
-.wcard .land details .c { margin-top: 2px; }
-.alane { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); display: flex; flex-direction: column; overflow: hidden; }
-.alane-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-.alane-head > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.alane-head b { font-size: 15px; font-weight: 700; }
-.alane-head .br { font: 400 12px var(--mono); color: var(--muted); margin-left: 4px; }
-.alane-head .dsk { font: 500 13px var(--mono); color: var(--muted); }
-.alane-now { padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
-.alane-now.building { background: var(--working-bg); color: var(--working); }
-.alane-now .who { font-weight: 600; }
-.alane-now.building .procs { font: 12px var(--mono); }
-.alane-now .procs .ic { display: inline-flex; align-items: center; gap: 5px; }
-.alane-now .use { font: 12px var(--mono); }
-.alane-now.stuck .who { color: var(--text); }
-.alane-now .procs-plain { font: 12px var(--mono); color: var(--muted); }
-.alane-q { padding: 10px 16px; display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
-.alane-q .qn { font: 500 20px var(--mono); color: var(--text); line-height: 1; }
-.pinned { background: var(--pinned); border: 1px solid var(--pinned-line); border-radius: 12px; padding: 14px 16px; gap: 10px; }
-/* Cards in a row stretch to the tallest; the title, agent and note stay at the
-   top and the foot sits at the bottom. The min-height fits a usual card: title
-   line, agent line, a two-line note and the foot. */
-.row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
-.ident { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.name { font-size: 15px; font-weight: 700; white-space: nowrap; }
-.where { font: 12px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; flex: none; }
+.bad { color: var(--bad); font-weight: 600; }
+.warn { color: var(--warn); font-weight: 600; }
+.pill { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; flex: none; }
 .s-working { background: var(--working-bg); color: var(--working); }
 .s-ready { background: var(--ready-bg); color: var(--ready); }
 .s-you { background: var(--you-bg); color: var(--you); }
 .s-winding { background: var(--winding-bg); color: var(--winding); }
 .s-free { background: var(--free-bg); color: var(--free); }
-.line { font-size: 14px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
-.total { display: flex; align-items: baseline; gap: 10px; }
-.total .big { font: 500 20px var(--mono); }
-.total .of { font-size: 12px; color: var(--muted); }
-.chips { display: flex; flex-wrap: wrap; gap: 6px 8px; }
-.chip { font-size: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; color: var(--text-3); overflow-wrap: anywhere; }
-.chip .mono { color: var(--text); }
-.more-folders summary { font-size: 12px; color: var(--muted); cursor: pointer; width: fit-content; }
-.more-folders summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.more-folders .chips { margin-top: 6px; }
-.chip.over { border-color: var(--bad); }
-.chip.over .mono { color: var(--bad); }
-.command { font: 12px/1.4 var(--mono); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; }
-.who-block { display: flex; flex-direction: column; gap: 3px; }
-.who { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
-.note { font-size: 14px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
-.waiting { background: var(--waiting-bg); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
-.waiting .label { font-size: 12px; font-weight: 600; color: var(--accent); }
+
+/* The page: the checkouts on the left, the Lists panel on the right from 1200px (above them when narrower). */
+.page { padding: 24px 28px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; min-height: 100vh; align-content: start; }
+.left { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.hdr { display: flex; flex-direction: column; gap: 12px; }
+.hdr .title { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.conn { color: var(--bad); font-size: 13px; font-weight: 600; margin-top: -6px; }
+.conn[hidden] { display: none; }
+.side-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; font: 600 13px var(--sans); color: var(--muted); cursor: pointer; }
+.side-toggle:hover { color: var(--text); border-color: var(--muted-2); }
+.side-toggle.show { display: none; }
+.page.no-lists .side-toggle.show { display: inline-flex; }
+.side-hide { margin-left: auto; background: transparent; border: 0; color: var(--muted); padding: 4px; border-radius: 6px; cursor: pointer; display: inline-flex; }
+.side-hide:hover { color: var(--text); background: var(--surface); }
+.side-toggle:focus-visible, .side-hide:focus-visible, .fig.hook:focus-visible, .more-wts:focus-visible, .qbtn:focus-visible, .qw:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The figures. */
+.top { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; }
+.fig { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; color: var(--muted-2); }
+.fig .h { font-size: 12px; color: var(--muted); }
+.fig .v { font: 500 18px var(--mono); color: var(--text); line-height: 1.1; }
+.fig .v small { font: 400 12px var(--sans); color: var(--muted-2); margin-left: 4px; }
+.fig .row { display: flex; align-items: flex-end; gap: 12px; }
+.fig.bad .v { color: var(--bad); }
+.fig.hook { cursor: pointer; }
+.fig.hook:hover { border-color: var(--muted-2); }
+.fig.hook.on { border-color: var(--accent); }
+.fig.hook.empty { cursor: default; }
+.fig.hook.empty:hover { border-color: var(--line); }
+.fig svg .b-ok { fill: var(--muted-2); opacity: .55; }
+.fig svg .b-over { fill: var(--warn); }
+.fig svg .limit { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 2; }
+.fig .spark { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.fig .cores { stroke: var(--muted-2); stroke-width: 1; stroke-dasharray: 2 2; }
+.fig.hook svg { width: 72px; height: 24px; }
+.fig .row svg[aria-label] { width: 64px; }
+.fig.line { flex-direction: row; align-items: center; padding: 6px 12px; }
+.fig.line .row { align-items: center; gap: 8px; }
+.fig.line .v { font-size: 16px; }
+.fig.line .h { white-space: nowrap; }
+.act { background: var(--you-bg); color: var(--you); border-radius: 10px; padding: 8px 14px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; overflow-wrap: anywhere; }
+.act b { font-weight: 700; }
+
+/* A repo's commit hook details, under the figures. */
+.hook-open { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.hook-open[hidden] { display: none; }
+.ho-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.ho-head > span { color: var(--muted); }
+.ho-close { margin-left: auto; background: transparent; border: 0; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.ho-close:hover { color: var(--text); }
+.ho-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); gap: 12px 24px; }
+.hook-open h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted-2); }
+.hook-open table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.hook-open th { text-align: left; font-weight: 600; color: var(--muted); padding: 3px 10px 3px 0; }
+.hook-open td { padding: 3px 10px 3px 0; border-top: 1px solid var(--line-soft); }
+.hook-open .n { text-align: right; font-variant-numeric: tabular-nums; }
+.hook-open .ok { color: var(--working); } .hook-open .warn { color: var(--warn); } .hook-open .bad { color: var(--bad); }
+.ho-more { font-size: 12px; color: var(--muted); padding-top: 4px; cursor: pointer; background: transparent; border: 0; text-align: left; font-family: var(--sans); }
+.ho-more:hover { color: var(--text); }
+.oruns { display: flex; flex-direction: column; }
+.orun { border-top: 1px solid var(--line-soft); }
+.orun summary { padding: 4px 0; font-size: 12px; display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; cursor: pointer; list-style: none; }
+.orun summary::-webkit-details-marker { display: none; }
+.orun .t { font: 500 12px var(--mono); color: var(--warn); min-width: 48px; }
+.orun .when, .orun .slow { color: var(--muted); }
+.orun .slow { flex-basis: 100%; padding-left: 58px; }
+.orun .checks { padding: 2px 0 6px 58px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 1px; }
+
+/* The checkouts, grouped by repo. */
+#findings:empty, #errors:empty { display: none; }
+#view { display: flex; flex-direction: column; gap: 20px; }
+.group { display: flex; flex-direction: column; gap: 8px; }
+.group h2 { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+.lanes, .wts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 10px; }
+.lanes { margin-bottom: 14px; }
+.lanes[hidden] { display: none; }
+.wts > .more-wts { align-self: start; }
+.more-wts { border: 1px dashed var(--line); border-radius: 12px; background: transparent; color: var(--muted); font: 600 14px var(--sans); padding: 12px 16px; display: flex; align-items: center; cursor: pointer; text-align: left; min-height: 48px; }
+.more-wts:hover { border-color: var(--muted-2); color: var(--text-2); }
+
+.wt-card { background: var(--surface); border: 1px solid var(--surface); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wt-card .t { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.wt-card .t > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-card .t b { font-weight: 700; font-size: 15px; }
+.wt-card .br { font: 400 13px var(--mono); color: var(--muted); margin-left: 4px; }
+.wt-card .what { color: var(--text-2); }
+.wt-card > *:has(+ .foot) { margin-bottom: 6px; }
+.wt-card .foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+.wt-card .tree { margin-left: auto; }
+.ic { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.ic svg { flex: none; }
+.quiet { color: var(--muted-2); font-style: italic; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
+.bar { margin: -13px -17px 6px; border-radius: 12px 12px 0 0; padding: 7px 17px; background: var(--line-soft); color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 12px; }
+.bar.building { background: var(--working-bg); color: var(--working); }
+.bar.ready { background: var(--ready-bg); color: var(--ready); }
+.bar.you { background: var(--you-bg); color: var(--you); }
+.bar .grp { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; }
+.bar .state { font-weight: 600; }
+.bar .disk { margin-left: auto; font: 500 13px var(--mono); }
+.bar.ready .disk { color: var(--ready); }
+.bar .bar-procs { flex-basis: 100%; font: 12px var(--mono); overflow-wrap: anywhere; }
+.bar .bar-procs .ic { display: inline; font: inherit; }
+.bar .bar-procs .ic svg { vertical-align: -2px; margin-right: 5px; }
+.land { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.land .c { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; align-items: baseline; }
+.land .c .mono { color: var(--muted-2); font-size: 12px; }
+.land .c > span:not(.mono) { color: var(--muted); }
+.land details summary { cursor: pointer; padding: 0; font-size: 12px; color: var(--muted); list-style: none; }
+.land details summary::-webkit-details-marker { display: none; }
+.land details .c { margin-top: 2px; }
+
+/* An app build lane: one card wide, green all over while it builds. */
+.lane { border: 1px solid var(--line); border-radius: 12px; background: transparent; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.lane.building { background: var(--working-bg); border-color: color-mix(in srgb, var(--working) 35%, transparent); color: var(--working); }
+.lane.building .lane-head, .lane.building .lane-q, .lane.building .lane-open { border-color: color-mix(in srgb, var(--working) 25%, transparent); }
+.lane.building .lane-head b, .lane.building .lane-q .qn { color: var(--working); }
+.lane.building .lane-head .br, .lane.building .lane-head .disk, .lane.building .lane-q { color: color-mix(in srgb, var(--working) 80%, transparent); }
+.lane-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.lane-head > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane-head b { font-size: 15px; font-weight: 700; }
+.lane-head .br { font: 400 12px var(--mono); color: var(--muted); margin-left: 4px; }
+.lane-head .disk { font: 500 13px var(--mono); color: var(--muted); }
+.lane-now { flex: 1; padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
+.lane-now .who { font-weight: 600; }
+.lane-now .use { font: 12px var(--mono); }
+.lane-now .procs { font: 12px var(--mono); overflow-wrap: anywhere; }
+.lane-now .procs .ic { display: inline; font: inherit; }
+.lane-now .procs .ic svg { vertical-align: -2px; margin-right: 5px; }
+.lane-now.stuck .who { color: var(--text); }
+.procs-plain { font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.lane-q { padding: 10px 16px; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
+.lane-q .qn { font: 500 20px var(--mono); color: var(--text); line-height: 1; }
+.lane-q .qw { min-width: 0; flex: 1; cursor: pointer; }
+.lane-q .qw:hover { text-decoration: underline; }
+.lane-open { padding: 10px 16px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); font-size: 13px; }
+.lane-open .label { font-size: 12px; font-weight: 600; }
 .qrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-.qrow .queued { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
-.queues { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.qmenu { position: relative; }
-.qmenu summary { list-style: none; display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; color: var(--muted); cursor: pointer; }
-.qmenu summary::-webkit-details-marker { display: none; }
-.qmenu summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.qmenu .count { font: 500 13px var(--mono); color: var(--text); }
-.qmenu[open] summary { border-color: var(--accent); }
-.qpanel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; min-width: 340px; max-width: min(420px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); font-size: 13px; color: var(--text-2); }
-.queues { position: relative; }
-@media (max-width: 700px) { .qmenu { position: static; } .qpanel { left: 0; right: 0; max-width: none; } }
-.qpanel .qrow { flex-wrap: nowrap; }
-.qpanel .qbtn { flex: none; white-space: nowrap; }
-.qpanel .label { font-size: 12px; font-weight: 600; color: var(--accent); }
-.qbtn { font: 600 12px var(--sans); color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.qrow .queued { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.qbtn { flex: none; font: 600 12px var(--sans); color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
 .qbtn.danger { color: var(--bad); }
-.qbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.qbtn:disabled { color: var(--muted); cursor: default; }
+.lane.building .qbtn { color: var(--working); border-color: color-mix(in srgb, var(--working) 35%, transparent); }
 .bform { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
 .bform input { flex: 1 1 140px; min-width: 0; font: 12px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 .bform input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.qbtn:disabled { color: var(--muted); cursor: default; }
 .bstatus { font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
 .bstatus.failed { color: var(--bad); }
 .boutput { margin: 0; font: 11px/1.4 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
-.commit { display: flex; gap: 8px; font-size: 13px; line-height: 1.35; min-width: 0; }
-.commit .sha { font-family: var(--mono); color: var(--accent); flex: none; }
-.commit .subject { color: var(--text-2); overflow-wrap: anywhere; min-width: 0; }
-.more { font-size: 12px; color: var(--muted); }
-.foot { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line-soft); padding-top: 8px; }
-.quiet { color: var(--muted-2); font-style: italic; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
-.bad { color: var(--bad); font-weight: 600; }
-.warn { color: var(--warn); font-weight: 600; }
-
-.pinned-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px; align-items: start; }
-.pinned.compact { padding: 12px 14px; gap: 6px; }
-.compact .row1 { align-items: baseline; }
-.compact .name { font-size: 14px; white-space: normal; }
-.compact .big { font: 500 16px var(--mono); white-space: nowrap; }
-.compact .line { font-size: 13px; color: var(--text-3); }
-.lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; align-items: start; }
-.lane { background: var(--pinned); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.lane-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; }
-.lane-head > div { display: flex; align-items: center; gap: 8px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-.lane h2 { margin: 0; font-size: 14px; font-weight: 700; }
-.lane .count { font: 13px var(--mono); color: var(--muted); }
-.lane .hint, .lane .none { font-size: 12px; color: var(--muted); padding: 0 4px; }
-.lcard { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; gap: 8px; }
-.lcard .row1 { align-items: baseline; }
-.lcard .name { font-size: 14px; }
-.lcard .age { font-size: 12px; color: var(--muted-2); white-space: nowrap; }
-.lcard .who { font-size: 13px; color: var(--text-3); }
-.lcard .note { font-size: 13px; color: var(--text); }
-.lcard .commits { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--line-soft); padding-top: 6px; }
-.lcard .commit { font-size: 12px; }
-.lcard .pill { align-self: flex-start; font-size: 11px; padding: 2px 8px; }
+.boutput[hidden] { display: none; }
 
 @media (max-width: 600px) {
   .page { padding: 16px 16px 40px; gap: 16px; }
-  .bar { width: 100px; }
 }
-.load { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; }
-.load .label { font-size: 13px; color: var(--muted); }
-.load .value { font: 500 13px var(--mono); }
-.load svg { display: block; }
-.load .spark { fill: none; stroke: var(--accent); stroke-width: 1.5; }
-.load .cores { stroke: var(--muted-2); stroke-width: 1; stroke-dasharray: 2 2; }
-.load .note { font-size: 12px; color: var(--muted-2); }
-.live { font-size: 12px; color: var(--muted-2); }
-.live.down { color: var(--bad); font-weight: 600; }
-.findings { background: var(--you-bg); color: var(--you); border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
-.findings .label { font-weight: 700; }
-.activity { font-size: 12px; color: var(--working); background: var(--working-bg); border-radius: 6px; padding: 4px 8px; overflow-wrap: anywhere; }
+
 
 /* The lists sidebar: wide and sticky from 1200px, above the checkouts below it. */
 .lists { order: -1; min-width: 0; background: var(--pinned); border: 1px solid var(--pinned-line); border-radius: 14px; padding: 0 12px 12px; max-height: 70vh; overflow: auto; }
+.page.no-lists .lists { display: none; }
 @media (min-width: 1200px) {
-  .page { grid-template-columns: minmax(0, 1fr) minmax(440px, 40%); gap: 28px; align-items: start; }
-  .lists { order: 0; position: sticky; top: 24px; max-height: calc(100vh - 48px); }
+  .page { grid-template-columns: minmax(0, 1fr) minmax(440px, 40%); gap: 28px; }
+  .page.no-lists { grid-template-columns: minmax(0, 1fr); }
+  .lists { order: 0; position: sticky; top: 24px; max-height: none; height: calc(100vh - 48px); }
 }
 .l-top { position: sticky; top: 0; z-index: 2; background: var(--pinned); padding: 12px 0 10px; display: flex; flex-direction: column; gap: 10px; }
-.l-head { display: flex; align-items: baseline; gap: 10px; }
+.l-head { display: flex; align-items: center; gap: 10px; }
 .l-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
-.l-meta { font-size: 12px; color: var(--muted-2); }
 .l-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
 .l-tabs[hidden] { display: none; }
-.l-tabs button { display: flex; flex-direction: column; align-items: center; gap: 1px; font: 600 13px var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 5px 4px; cursor: pointer; min-width: 0; }
+.l-tabs button { display: flex; flex-direction: row; justify-content: center; align-items: baseline; gap: 6px; font: 600 13px var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 5px 4px; cursor: pointer; min-width: 0; }
 .l-tabs button[aria-selected="true"] { background: var(--on); color: var(--on-text); }
 .l-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.l-tabs .l-count { font: 500 10px var(--mono); white-space: nowrap; opacity: 0.85; }
+.l-tabs .l-count { font: 500 12px var(--mono); white-space: nowrap; opacity: 0.85; }
 .l-body { display: flex; flex-direction: column; gap: 16px; }
 .l-section { display: flex; flex-direction: column; gap: 8px; }
 .l-section > h3 { margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; display: flex; gap: 8px; align-items: baseline; }
@@ -298,56 +285,28 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .rv-head a { color: var(--accent); }
 .rv-head button { font: 13px var(--sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 12px; cursor: pointer; }
 .rv-frame { flex: 1; border: 0; width: 100%; min-height: 0; background: var(--surface); }
-.hooks { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
-.hooks > summary { cursor: pointer; font-size: 14px; font-weight: 600; }
-.hooks > summary .h-meta { font-weight: 400; color: var(--muted); margin-left: 10px; }
-.hooks h3 { margin: 14px 0 6px; font-size: 13px; font-weight: 600; color: var(--text-3); }
-.hooks table { border-collapse: collapse; font-size: 12px; width: 100%; }
-.hooks th { text-align: left; font-weight: 600; color: var(--muted); padding: 3px 12px 3px 0; }
-.hooks td { padding: 3px 12px 3px 0; border-top: 1px solid var(--line-soft); vertical-align: top; }
-.hooks td.n, .hooks th.n { text-align: right; font-variant-numeric: tabular-nums; }
-.hooks .failed { color: var(--bad); }
-.hooks .slower { color: var(--warn); }
-.hooks .h-impactform { display: flex; gap: 8px; margin-bottom: 6px; }
-.hooks .h-impact { font-size: 12px; }
-.hooks .h-impact .h-meta { color: var(--muted); margin: 2px 0; }
-.hooks .h-runs { display: flex; flex-direction: column; font-size: 12px; }
-.hooks .h-run { border-top: 1px solid var(--line-soft); padding: 4px 0; }
-.hooks .h-run > summary { cursor: pointer; display: flex; gap: 14px; flex-wrap: wrap; }
-.hooks .h-checks { margin: 4px 0 4px 16px; color: var(--muted); }
 .l-flash { animation: l-flash 1.6s ease-out; }
 </style>
 </head>
 <body>
-<div class="page">
+<div class="page" id="page">
 <div class="left">
-<header>
+<header class="hdr">
   <div class="title">
     <h1>Builds</h1>
-    <span class="sub" id="sub">Worktrees, and the agents working and building in them</span>
+    <button class="side-toggle show" id="lists-show" type="button" title="Show the Lists panel"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/></svg><span>Lists</span></button>
   </div>
-  <div class="controls">
-    <div class="switch" role="group" aria-label="View">
-      <button type="button" data-view="repos" aria-pressed="true">By repo</button>
-      <button type="button" data-view="lanes" aria-pressed="false">Lanes</button>
-    </div>
-    <label class="hide-free"><input type="checkbox" id="hide-free"> Hide free worktrees</label>
-    <span class="updated" id="hidden-count"></span>
-    <div class="queues" id="queues"></div>
-    <div class="queues" id="builds"></div>
-    <div class="load" id="load"><span class="label">Load</span><span class="note">read while this page is open</span></div>
-    <div class="disk" id="disk"><span class="label">Disk</span><span class="floors">reading</span></div>
-    <span class="live" id="live">connecting</span>
-  </div>
+  <div class="conn" id="conn" hidden>Lost the connection to the daemon. This page reconnects by itself.</div>
+  <div class="top" id="top"></div>
+  <section class="hook-open" id="hook-open" hidden></section>
 </header>
 <div id="findings"></div>
 <div id="errors"></div>
 <main id="view"><div class="loading">Reading the checkouts</div></main>
-<div id="hooks-panels"></div>
 </div>
 <aside class="lists" id="lists" aria-label="Lists">
   <div class="l-top">
-    <div class="l-head"><h2>Lists</h2><span class="l-meta" id="l-meta"></span></div>
+    <div class="l-head"><h2>Lists</h2><button class="side-hide" id="lists-hide" type="button" title="Hide the Lists panel" aria-label="Hide the Lists panel"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/></svg></button></div>
     <div class="l-tabs" id="l-tabs" role="tablist" hidden>
       <button type="button" role="tab" data-tab="stack"><span class="l-name">Waiting on you</span><span class="l-count"></span></button>
       <button type="button" role="tab" data-tab="running"><span class="l-name">Running</span><span class="l-count"></span></button>
@@ -363,7 +322,6 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 </dialog>
 <script>
 "use strict";
-const SUBTITLE = "Worktrees, and the agents working and building in them";
 // The states the daemon derives for each side worktree (worktree_state in
 // model.rs), in the order the cards sort.
 const STATES = {
@@ -376,21 +334,15 @@ const STATES = {
   "free": {label: "Free", cls: "s-free"},
 };
 const ORDER = Object.keys(STATES);
-const LANES = [
-  {title: "Waiting on you", hint: "A question only you can answer, or a step only you can do.", dot: "--dot-you", states: ["waiting-on-you"]},
-  {title: "Ready to land", hint: "Commits on the branch whose change main doesn’t have yet.", dot: "--dot-ready", states: ["ready-to-land"]},
-  {title: "Working", hint: "Claimed, with no commit waiting and nothing asked.", dot: "--dot-working", states: ["winding-down", "working", "held", "landing"]},
-  {title: "Free", hint: "Unclaimed worktrees, ready for the next agent.", dot: "--dot-free", states: ["free"]},
-];
-const VIEW_KEY = "builds-dashboard-view";
-const HIDE_FREE_KEY = "builds-dashboard-hide-free";
-let state = null, streamError = "";
-let view = "repos", hideFree = false;
-try {
-  const saved = localStorage.getItem(VIEW_KEY);
-  if (saved === "repos" || saved === "lanes") view = saved;
-  hideFree = localStorage.getItem(HIDE_FREE_KEY) === "true";
-} catch (e) { /* no storage: the defaults */ }
+const LISTS_HIDDEN_KEY = "builds-dashboard-lists-hidden";
+let state = null, streamError = "", connectionDown = false;
+let hooks = null, hooksError = "";
+let openHook = null;           // the repo whose commit hook details are open
+const showFree = new Set();    // repos whose free worktrees are open
+const openQueue = new Set();   // "repo lane" of each lane whose queue is open
+const openBuild = new Set();   // "repo lane" of each lane whose build form is open
+const openRuns = new Set();    // hook runs opened to their checks
+const moreOf = new Set();      // which "N more" lines of the hook details are open
 
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
@@ -439,7 +391,6 @@ function since(text) {
   return isNaN(t) ? text : when(new Date(t));
 }
 function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
-function tilde(path) { return path.replace(/^\/Users\/[^/]+/, "~"); }
 // A worktree's last activity: the newer of its HEAD commit and its newest
 // uncommitted file, in epoch seconds; 0 when git said nothing.
 function activity(c) {
@@ -475,67 +426,31 @@ function built(c) {
 }
 
 function pill(text, cls) { return h("span", {class: "pill " + cls}, text); }
-function stateOf(c) { return STATES[c.state] || {label: c.state, cls: "s-free"}; }
-// A lock is per app checkout of an app lane (mac, android): each has its own
-// holder. A lane has one queue for all its locks, drawn once for the lane
-// (queueMenu) in the toolbar, not on a checkout.
+
+// An app lane has one queue for all its checkouts: who waits for whichever
+// lock frees first.
 function queueOf(repo, lane) {
   const q = repo.queues.find(x => x.lane === lane);
   return q ? q.queue : [];
 }
-function lockOf(repo, c) {
-  const lock = repo.locks.find(l => l.lane === c.app_lane && l.checkout === c.name);
-  return {repo: lock ? lock.repo : repo.name, held: !!(lock && lock.holder), waiting: queueOf(repo, c.app_lane).length,
-    holder: lock ? lock.holder : null};
-}
-// What holds the app lock, each command as its script's file name with the
-// whole command in the tooltip.
+// What holds the app lock, as its script's file name.
 function shortCommand(command) {
   const words = command.split(/\s+/).filter(Boolean);
   const script = words.find((w, i) => i > 0 && /\.(sh|py|rb|js)$/.test(w));
   const name = (script || words[0] || command).split("/").pop();
   return {name, rest: script ? "" : words.slice(1, 3).join(" ")};
 }
-function commands(lock) {
-  if (!lock.holder) return [];
-  const running = lock.holder.running.length ? lock.holder.running : [lock.holder.command];
-  return running.map(command => {
-    const short = shortCommand(command);
-    return h("div", {class: "command", title: command}, (short.name + " " + short.rest).trim());
-  });
-}
 function detachedAt(c) {
   if (c.branch) return c.branch;
   return c.git && c.git.head ? "detached at " + c.git.head.sha : "detached";
 }
 
-// The build processes at work in a checkout, as one line.
-function activityLine(c) {
-  const a = c.activity;
-  if (!a || !a.processes.length) return null;
-  const counts = {};
-  for (const p of a.processes) counts[p.name] = (counts[p.name] || 0) + 1;
-  const names = Object.entries(counts).map(([n, k]) => k > 1 ? n + " ×" + k : n).join(", ");
-  return h("div", {class: "activity", title: a.processes.map(p => p.name + " " + p.pid).join(", ")},
-    "Building: " + names + " · " + Math.round(a.cpu) + "% CPU · " + bytes(a.memory));
-}
-
-// Each repo's pinned checkouts (main, then an App build per app lane), its other live
-// side worktrees, and the build roots whose checkout is gone.
+// A repo's app checkouts (mac lane first) and its other live side worktrees,
+// in the order the cards sort. The main checkout has no card.
 function split(repo) {
-  const main = repo.checkouts.find(c => c.live && c.main);
-  // One App build per app lane, mac first.
-  const apps = repo.checkouts.filter(c => c.live && c.app_checkout).sort((a, b) => a.app_lane < b.app_lane ? 1 : a.app_lane > b.app_lane ? -1 : a.name < b.name ? -1 : 1);
   const sides = repo.checkouts.filter(c => c.live && !c.main && !c.app_checkout);
   sides.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || byActivity(a, b));
-  return {main, apps, sides, gone: repo.checkouts.filter(c => !c.live)};
-}
-// The side worktrees a view lists: all, or with the Free ones left out.
-function shown(sides) { return hideFree ? sides.filter(c => c.state !== "free") : sides; }
-function counts(cs) {
-  const n = {};
-  for (const c of cs) n[c.state] = (n[c.state] || 0) + 1;
-  return n;
+  return {sides};
 }
 
 // Who waits for the app lock, next first, each with the buttons that move it.
@@ -566,49 +481,26 @@ function takeOver(holders, free, lock, q) {
   }
   queueAction("takeover", lock, q);
 }
-// A lane's queue in the toolbar: a count that opens the waiters, each with
-// the buttons that move it. The open one survives the page's redraws.
-let openQueue = null;
-function queueMenu(repo, lane, label, queue) {
+// A lane's waiting builds, each with the buttons that move it.
+function queueList(repo, lane) {
+  const queue = queueOf(repo, lane);
   const lock = {repo: repo.name, holder: null};
   const locks = repo.locks.filter(l => l.lane === lane);
   const holders = locks.filter(l => l.holder);
   const free = holders.length < locks.length;
-  const el = h("details", {class: "qmenu"},
-    h("summary", {}, label + " queue", h("span", {class: "count"}, String(queue.length))),
-    h("div", {class: "qpanel"},
-      h("span", {class: "label"}, "Waiting for whichever " + lane + " checkout frees first"),
-      queue.length ? queue.map((q, i) => h("div", {class: "qrow"},
-        h("span", {class: "queued", title: q.command},
-          (i + 1) + ". " + queuedName(q) + (q.minutes ? " · " + q.minutes + "m" : "")),
-        i > 0 ? h("button", {type: "button", class: "qbtn", onclick: () => queueAction("top", lock, q)}, "Move to top") : null,
-        h("button", {type: "button", class: "qbtn danger", onclick: () => takeOver(holders, free, lock, q)}, "Take over")))
-        : h("span", {}, "Nothing waiting")));
-  const key = repo.name + " " + lane;
-  el.open = openQueue === key;
-  el.addEventListener("toggle", () => {
-    if (el.open) openQueue = key; else if (openQueue === key) openQueue = null;
-  });
-  return el;
-}
-function queuesView() {
-  const withApps = state.repos.filter(r => r.checkouts.some(c => c.live && c.app_checkout));
-  const menus = [];
-  for (const repo of withApps) {
-    const lanes = [...new Set(split(repo).apps.map(a => a.app_lane))];
-    for (const lane of lanes) {
-      const name = lane.charAt(0).toUpperCase() + lane.slice(1);
-      menus.push(queueMenu(repo, lane, (withApps.length > 1 ? repo.name + " " : "") + name, queueOf(repo, lane)));
-    }
-  }
-  document.getElementById("queues").replaceChildren(...menus);
+  return h("div", {class: "lane-open"},
+    h("span", {class: "label"}, "Waiting for whichever " + lane + " checkout frees first"),
+    queue.length ? queue.map((q, i) => h("div", {class: "qrow"},
+      h("span", {class: "queued", title: q.command}, (i + 1) + ". " + queuedName(q) + (q.minutes ? " · " + q.minutes + "m" : "")),
+      i > 0 ? h("button", {type: "button", class: "qbtn", onclick: () => queueAction("top", lock, q)}, "Move to top") : null,
+      h("button", {type: "button", class: "qbtn danger", onclick: () => takeOver(holders, free, lock, q)}, "Take over")))
+      : h("span", {}, "Nothing waiting"));
 }
 
-// build-app: a button per repo lane that runs `builds build-app <repo> <lane>
-// [<ref>]` in the daemon, and the run it started: queued or running, its
-// output as it goes, how it ended. Each lane's panel is made once and
-// updated in place, so the ref being typed and the open panel survive the
-// page's redraws.
+// build-app: runs `builds build-app <repo> <lane> [<ref>]` in the daemon, and
+// shows the run it started under its lane: queued or running, its output as
+// it goes, how it ended. Each lane's panel is made once and updated in place,
+// so the ref being typed survives the page's redraws.
 const buildPanels = new Map();
 const PHASES = {
   queued: "Queued: waiting for an app lock",
@@ -645,20 +537,16 @@ function buildPanel(repo, lane) {
   const button = h("button", {type: "button", class: "qbtn"}, "Build");
   const status = h("div", {class: "bstatus"});
   const output = h("pre", {class: "boutput"});
-  const summary = h("summary", {});
-  const el = h("details", {class: "qmenu"}, summary,
-    h("div", {class: "qpanel"}, h("span", {class: "label"}, "builds build-app " + repo.name + " " + lane),
-      h("div", {class: "bform"}, ref, button), status, output));
-  const panel = {el, ref, button, status, output, summary, repo, lane};
+  const el = h("div", {class: "lane-open"}, h("span", {class: "label"}, "builds build-app " + repo.name + " " + lane),
+    h("div", {class: "bform"}, ref, button), status, output);
+  const panel = {el, ref, button, status, output, repo, lane};
   button.addEventListener("click", () => startBuild(panel.repo, lane, ref.value.trim()));
   return panel;
 }
-function updateBuildPanel(panel, repo, lane, several) {
+function updateBuildPanel(panel, repo, lane) {
   panel.repo = repo;
   const run = repo.runs.find(r => r.lane === lane);
   const active = run && ["queued", "running", "detached"].includes(run.phase);
-  panel.summary.replaceChildren((several ? repo.name + " " : "") + lane.charAt(0).toUpperCase() + lane.slice(1) + " build-app",
-    h("span", {class: "count"}, run ? run.phase : "idle"));
   panel.button.disabled = !!active;
   panel.status.textContent = run ? phaseLine(run) : "No build started from this page.";
   panel.status.className = "bstatus" + (run && (run.phase === "failed" || run.phase === "lost") ? " failed" : "");
@@ -670,20 +558,12 @@ function updateBuildPanel(panel, repo, lane, several) {
     if (atEnd) panel.output.scrollTop = panel.output.scrollHeight;
   }
 }
-function buildsView() {
-  const withLanes = state.repos.filter(r => r.lanes.length);
-  const els = [];
-  for (const repo of withLanes) {
-    for (const {lane} of repo.lanes) {
-      const key = repo.name + " " + lane;
-      if (!buildPanels.has(key)) buildPanels.set(key, buildPanel(repo, lane));
-      const panel = buildPanels.get(key);
-      updateBuildPanel(panel, repo, lane, withLanes.length > 1);
-      els.push(panel.el);
-    }
-  }
-  const box = document.getElementById("builds");
-  if (els.length !== box.children.length || els.some((el, i) => box.children[i] !== el)) box.replaceChildren(...els);
+function buildPanelOf(repo, lane) {
+  const key = repo.name + " " + lane;
+  if (!buildPanels.has(key)) buildPanels.set(key, buildPanel(repo, lane));
+  const panel = buildPanels.get(key);
+  updateBuildPanel(panel, repo, lane);
+  return panel;
 }
 
 // An item's icons, each with its explanation on hover.
@@ -704,21 +584,19 @@ function icon(name, epoch, text) {
   return el;
 }
 function diskSpan(c) {
-  return h("span", {class: "dsk", title: "Disk: the build output this worktree holds on the build volume."},
+  return h("span", {class: "disk", title: "Disk: the build output this worktree holds on the build volume."},
     c.total_kib === null ? "…" : size(c.total_kib));
 }
 function programs(names) {
   return names.map(p => p.count > 1 ? p.name + " ×" + p.count : p.name).join(", ");
 }
-function buildingBox(c) {
-  const a = c.activity;
-  if (!a.processes.length) return null;
+function programCounts(processes) {
   const counts = [];
-  for (const p of a.processes) {
+  for (const p of processes) {
     const found = counts.find(x => x.name === p.name);
     if (found) found.count++; else counts.push({name: p.name, count: 1});
   }
-  return h("div", {class: "procs"}, icon("build", a.started), " · " + programs(counts));
+  return counts;
 }
 function cardLine(c) {
   const g = c.git;
@@ -736,73 +614,74 @@ function cardLine(c) {
   if (c.words.tree) foot.push(h("span", {class: "tree"}, c.words.tree));
   return h("div", {class: "foot"}, foot);
 }
-function chipClass(label) {
-  return label === "Waiting on you" ? "s-you" : label === "Ready to land" ? "s-ready" : "s-working";
+function commitCells(commits) {
+  return commits.flatMap(x => [h("span", {class: "mono"}, x.sha), h("span", {}, x.subject)]);
 }
-// A worktree's card, the way the board draws one: a bar with what it is
-// doing and its disk, its title, one plain line, what builds in it, the
-// commits waiting to land, and a footer of times and tree state. The daemon
-// words the chip, the line and the tree (cards.rs).
+// A worktree's card, the way the board draws one: a bar with its state and
+// its disk (green for Working, blue for Ready to land), what builds in it on
+// that bar's second line, its title, one plain line, the commit waiting to
+// land, and a footer of times and tree state. The daemon words the state, the
+// line and the tree (cards.rs).
 function worktreeCard(c) {
-  const g = c.git, building = c.activity.processes.length > 0;
+  const g = c.git, a = c.activity, building = a.processes.length > 0;
+  const chip = c.words.chip;
+  const tone = chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
   const ahead = g && !g.error ? g.ahead : [];
   const land = ahead.length ? h("div", {class: "land"},
-    h("div", {class: "c"}, ahead.slice(0, 3).flatMap(x => [h("span", {class: "mono"}, x.sha), h("span", {}, x.subject)])),
-    ahead.length > 3 ? h("details", {}, h("summary", {}, (ahead.length - 3) + " more"),
-      h("div", {class: "c"}, ahead.slice(3).flatMap(x => [h("span", {class: "mono"}, x.sha), h("span", {}, x.subject)]))) : null) : null;
-  return h("article", {class: "wcard"},
-    h("div", {class: "cbar" + (building ? " building" : "")},
-      h("span", {class: "grp"}, c.words.chip ? pill(c.words.chip, chipClass(c.words.chip)) : null,
-        building ? h("span", {}, Math.round(c.activity.cpu) + "% CPU · " + bytes(c.activity.memory)) : null),
-      diskSpan(c)),
+    h("div", {class: "c"}, commitCells(ahead.slice(0, 1))),
+    ahead.length > 1 ? h("details", {}, h("summary", {}, (ahead.length - 1) + " more"),
+      h("div", {class: "c"}, commitCells(ahead.slice(1)))) : null) : null;
+  return h("article", {class: "wt-card"},
+    h("div", {class: "bar" + tone},
+      h("span", {class: "grp"}, chip ? h("span", {class: "state"}, chip) : null,
+        building ? h("span", {}, Math.round(a.cpu) + "% CPU · " + bytes(a.memory)) : null),
+      diskSpan(c),
+      building ? h("span", {class: "bar-procs"}, icon("build", a.started), " · " + programs(programCounts(a.processes))) : null),
     h("div", {class: "t"}, h("span", {}, h("b", {}, c.name), " ", h("span", {class: "br", title: detachedAt(c)}, detachedAt(c)))),
     h("div", {class: "what"}, c.words.line),
     g && g.error ? h("div", {class: "error"}, g.error) : null,
-    buildingBox(c),
     land,
     cardLine(c));
 }
 function hours(minutes) {
   return minutes >= 120 ? Math.round(minutes / 60) + " hours" : minutes === 1 ? "1 minute" : minutes + " minutes";
 }
-// An app checkout's card, the board's lane: nobody owns it and builds take
-// turns, so it shows who builds now, what runs, and who waits. The daemon
-// decides whether a held lock still belongs to a running build (app_builds.rs).
-function appCard(repo, c) {
-  const ab = repo.app_builds.find(x => x.checkout === c.name && x.lane === c.app_lane);
-  if (!ab) return worktreeCard(c);
-  const lane = c.app_lane.charAt(0).toUpperCase() + c.app_lane.slice(1);
+// An app checkout as a build lane: nobody owns it and builds take turns, so
+// it shows who builds now, what runs, and the builds waiting for it. The
+// daemon decides whether a held lock still belongs to a running build
+// (app_builds.rs).
+function laneCard(repo, ab) {
+  const lane = ab.lane.charAt(0).toUpperCase() + ab.lane.slice(1);
+  const key = repo.name + " " + ab.lane;
   const now = ab.now;
   let nowEl;
   if (now.state === "building") {
-    nowEl = h("div", {class: "alane-now building"},
+    nowEl = h("div", {class: "lane-now"},
       h("div", {class: "who"}, now.who + " is building"),
       h("div", {class: "procs"}, icon("build", 0, now.minutes + "m"), " · " + programs(now.programs)),
       h("div", {class: "use"}, Math.round(now.cpu) + "% CPU · " + bytes(now.memory)));
   } else if (now.state === "stuck") {
-    nowEl = h("div", {class: "alane-now stuck"},
+    nowEl = h("div", {class: "lane-now stuck"},
       h("div", {class: "who"}, "Lock held " + hours(now.minutes) + " by a build that no longer runs"),
       now.running.length ? h("div", {class: "procs-plain"}, now.running.join(", ")) : null);
   } else {
-    nowEl = h("div", {class: "alane-now"}, h("div", {class: "who"}, "Nobody is building here."));
+    nowEl = h("div", {class: "lane-now"}, h("div", {class: "who"}, "Nobody is building here."));
   }
-  return h("article", {class: "alane"},
-    h("div", {class: "alane-head"},
+  const waiting = queueOf(repo, ab.lane).length;
+  const toggle = set => () => { if (!set.delete(key)) set.add(key); render(); };
+  return h("article", {class: "lane" + (now.state === "building" ? " building" : "")},
+    h("div", {class: "lane-head"},
       h("span", {}, h("b", {}, lane + " app builds"), " ", h("span", {class: "br"}, ab.checkout + " · " + ab.checked_out)),
-      h("span", {class: "dsk"}, ab.disk_kib === null ? "…" : size(ab.disk_kib))),
+      h("span", {class: "disk"}, ab.disk_kib === null ? "…" : size(ab.disk_kib))),
     nowEl,
-    ab.waiting.length ? h("div", {class: "alane-q"}, h("span", {class: "qn"}, String(ab.waiting.length)),
-      h("span", {}, "waiting: " + ab.waiting.join(", "))) : null);
-}
-
-function summary(parts) { return parts.filter(Boolean).join(" · "); }
-function stateCounts(cs) {
-  const n = counts(cs);
-  return ORDER.filter(s => n[s]).map(s => n[s] + " " + STATES[s].label.toLowerCase());
-}
-function goneLine(gone) {
-  return gone.length ? plural(gone.length, "build root whose checkout is gone", "build roots whose checkouts are gone") +
-    " (" + gone.map(c => c.name).join(", ") + "; builds prune deletes them)" : null;
+    h("div", {class: "lane-q"},
+      h("span", {class: "qn"}, String(waiting)),
+      h("span", {class: "qw", role: "button", tabindex: "0", title: "Click to reorder or take out a waiting build", onclick: toggle(openQueue),
+        onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(openQueue)(); } }}, "waiting"),
+      h("button", {type: "button", class: "qbtn", title: "builds build-app " + repo.name + " " + ab.lane + " [ref]: build a ref here, default origin/main",
+        onclick: toggle(openBuild)}, "Build…")),
+    openQueue.has(key) ? queueList(repo, ab.lane) : null,
+    openBuild.has(key) ? buildPanelOf(repo, ab.lane).el : null);
 }
 
 // Puts <items> ({key, data, make}) in <parent> in order, keeping each
@@ -839,128 +718,51 @@ function slot(parent, key, make) {
   return el;
 }
 
+function freeTile(repo, n, open) {
+  const word = n === 1 ? "worktree" : "worktrees";
+  return h("button", {type: "button", class: "more-wts", title: "Free worktrees: no claim, every commit landed. Click to show or hide them.",
+    onclick: () => { if (!showFree.delete(repo.name)) showFree.add(repo.name); render(); }},
+    open ? "Hide " + n + " free " + word : "+" + n + " free " + word);
+}
+// Each repo's group: its app build lanes, then its worktree cards, then one
+// tile that opens its free worktrees.
 function reposView(root) {
-  const items = state.repos.map(repo => ({key: "repo:" + repo.name, data: null, repo}));
-  // Sections are kept by repo; their insides are patched below.
-  const sections = items.map(item => {
-    const repo = item.repo;
-    const section = slot(root, item.key, () => h("section", {class: "repo"},
-      h("div", {class: "repo-head"}, h("h2", {}, repo.name), h("span", {})),
-      h("div", {class: "pinned-grid"}), h("div", {class: "cards"})));
-    const {main, apps, sides, gone} = split(repo);
-    const agents = sides.filter(c => c.claim && c.state !== "landing").length;
-    section.querySelector(".repo-head span").textContent =
-      summary([agents ? plural(agents, "agent", "agents") : null, ...stateCounts(sides), goneLine(gone)]) || "no side worktrees";
-    const pinned = [];
-    if (main) pinned.push({key: "main", data: main, make: () => worktreeCard(main)});
-    for (const app of apps) pinned.push({key: "app " + app.app_lane + " " + app.name, data: [repo.app_builds, app], make: () => appCard(repo, app)});
-    patch(section.querySelector(".pinned-grid"), pinned);
-    patch(section.querySelector(".cards"), shown(sides).map(c => ({key: c.name, data: c, make: () => worktreeCard(c)})));
-    return section;
+  const groups = state.repos.map(repo => {
+    const group = slot(root, "repo:" + repo.name, () => h("section", {class: "group"},
+      h("h2", {}, repo.name), h("div", {class: "lanes"}), h("div", {class: "wts"})));
+    const {sides} = split(repo);
+    const busy = sides.filter(c => c.state !== "free"), free = sides.filter(c => c.state === "free");
+    const open = showFree.has(repo.name) && free.length > 0;
+    const lanes = group.querySelector(".lanes");
+    lanes.hidden = repo.app_builds.length === 0;
+    patch(lanes, repo.app_builds.map(ab => ({key: "lane " + ab.lane + " " + ab.checkout,
+      data: [ab, queueOf(repo, ab.lane), openQueue.has(repo.name + " " + ab.lane), openBuild.has(repo.name + " " + ab.lane),
+        openQueue.has(repo.name + " " + ab.lane) ? repo.locks.filter(l => l.lane === ab.lane) : null],
+      make: () => laneCard(repo, ab)})));
+    const cards = [...busy, ...(open ? free : [])].map(c => ({key: c.name, data: c, make: () => worktreeCard(c)}));
+    if (free.length) cards.push({key: "free-tile", data: [free.length, open], make: () => freeTile(repo, free.length, open)});
+    patch(group.querySelector(".wts"), cards);
+    return group;
   });
-  // Only their order and presence: each one's insides were patched above.
-  patch(root, sections.map(s => ({key: s.dataset.key, data: null, make: () => s})));
+  patch(root, groups.map(g => ({key: g.dataset.key, data: null, make: () => g})));
 }
 
-function compactMain(repo, c) {
-  const b = built(c);
-  return h("article", {class: "pinned compact"},
-    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " main"), h("span", {class: "big"}, b && b.total !== null ? size(b.total) : "measuring…")),
-    h("span", {class: "line"}, "Yours. No agent works or builds here."),
-    activityLine(c));
-}
-function compactApp(repo, c) {
-  const b = built(c), lock = lockOf(repo, c);
-  const line = lock.held
-    ? "Lock held: an agent is building here" + (lock.waiting ? "; " + lock.waiting + " waiting for whichever " + c.app_lane + " checkout frees first." : ".")
-    : "Lock free. Agents build the apps here, one at a time.";
-  return h("article", {class: "pinned compact"},
-    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " App build · " + c.app_lane + " · " + c.name), h("span", {class: "big"}, b && b.total !== null ? size(b.total) : "measuring…")),
-    h("span", {class: "line"}, line),
-    lock.held ? commands(lock) : null,
-    activityLine(c));
-}
-function laneCard(repo, c) {
-  const g = c.git, b = built(c);
-  const tag = ["winding-down", "held", "landing"].includes(c.state) ? pill(stateOf(c).label, stateOf(c).cls) : null;
-  let note = c.claim && c.claim.note ? c.claim.note : null;
-  if (!c.claim) note = summary([detachedAt(c), b && b.total !== null ? size(b.total) + " build" : null]);
-  else if (b && b.over.length) note = (note ? note + " " : "") + "Build folder over its cap.";
-  return h("article", {class: "lcard"},
-    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " " + c.name),
-      h("span", {class: "age", title: "last activity: the newer of the last commit and the newest uncommitted file"},
-        activity(c) ? agoSpan(activity(c)) : "", quiet(c) ? " " : "", quiet(c) ? h("span", {class: "quiet"}, "quiet") : null)),
-    h("span", {class: "who"}, c.claim ? c.claim.who : "Unclaimed"),
-    tag,
-    note ? h("span", {class: "note"}, note) : null,
-    activityLine(c),
-    g && g.error ? h("div", {class: "error"}, g.error) : null,
-    g && !g.error && g.ahead.length ? h("div", {class: "commits"},
-      g.ahead.slice(0, 6).map(x => h("div", {class: "commit"}, h("span", {class: "sha"}, x.sha), h("span", {class: "subject"}, x.subject))),
-      g.ahead.length > 6 ? h("span", {class: "more"}, "and " + (g.ahead.length - 6) + " more") : null) : null);
-}
-function lanesView(root) {
-  const pinned = [], all = [], gone = [];
-  for (const repo of state.repos) {
-    const s = split(repo);
-    if (s.main) pinned.push({key: repo.name + " main", data: [s.main], make: () => compactMain(repo, s.main)});
-    for (const app of s.apps) pinned.push({key: repo.name + " app " + app.app_lane + " " + app.name, data: [repo.locks, repo.queues, app], make: () => compactApp(repo, app)});
-    for (const c of s.sides) all.push([repo, c]);
-    for (const c of s.gone) gone.push(c);
-  }
-  const pinnedRow = slot(root, "pinned", () => h("div", {class: "pinned-row"}));
-  patch(pinnedRow, pinned);
-  const goneEl = slot(root, "gone", () => h("div", {class: "loading"}));
-  goneEl.textContent = goneLine(gone) || "";
-  const lanes = slot(root, "lanes", () => h("div", {class: "lanes"}));
-  patch(lanes, LANES.filter(lane => !(hideFree && lane.states.includes("free"))).map(lane => ({
-    key: lane.title, data: null, lane,
-    make: () => h("section", {class: "lane"},
-      h("div", {class: "lane-head"},
-        h("div", {}, h("span", {class: "dot", style: "background: var(" + lane.dot + ")"}), h("h2", {}, lane.title)),
-        h("span", {class: "count"})),
-      h("span", {class: "hint"}, lane.hint),
-      h("div", {class: "lane-cards"})),
-  })));
-  for (const laneEl of lanes.children) {
-    const lane = LANES.find(l => l.title === laneEl.dataset.key);
-    const cards = all.filter(([, c]) => lane.states.includes(c.state));
-    cards.sort((a, b) => lane.states.indexOf(a[1].state) - lane.states.indexOf(b[1].state) || byActivity(a[1], b[1]));
-    laneEl.querySelector(".count").textContent = String(cards.length);
-    const holder = laneEl.querySelector(".lane-cards");
-    holder.style.display = "flex"; holder.style.flexDirection = "column"; holder.style.gap = "10px";
-    if (cards.length) patch(holder, cards.map(([repo, c]) => ({key: repo.name + " " + c.name, data: c, make: () => laneCard(repo, c)})));
-    else patch(holder, [{key: "none", data: null, make: () => h("span", {class: "none"}, "None.")}]);
-  }
-  for (const el of Array.from(root.children)) if (!["pinned", "gone", "lanes"].includes(el.dataset.key)) el.remove();
-}
-
-function disk(v) {
-  const gib = k => k / 1048576;
-  const scale = Math.max(gib(v.floor_kib) * 2, gib(v.free_kib) * 1.25);
-  const pct = x => Math.min(100, 100 * x / scale) + "%";
-  let color = "var(--ok)", note = h("span", {class: "floors"}, "warns " + wholeSize(v.floor_kib) + " · stops " + wholeSize(v.hard_floor_kib));
-  if (v.free_kib < v.hard_floor_kib) { color = "var(--bad)"; note = h("span", {class: "bad floors"}, "under " + wholeSize(v.hard_floor_kib) + ": builds stop"); }
-  else if (v.free_kib < v.floor_kib) { color = "var(--warn)"; note = h("span", {class: "warn floors"}, "under " + wholeSize(v.floor_kib) + ": builds warn · stop at " + wholeSize(v.hard_floor_kib)); }
-  return [h("span", {class: "label"}, "Disk"),
-    h("div", {class: "bar", role: "img", "aria-label": size(v.free_kib) + " free; builds warn under " + wholeSize(v.floor_kib) + " and stop under " + wholeSize(v.hard_floor_kib)},
-      h("span", {class: "fill", style: "width: " + pct(gib(v.free_kib)) + "; background: " + color}),
-      h("span", {class: "mark", style: "left: " + pct(gib(v.hard_floor_kib))}),
-      h("span", {class: "mark", style: "left: " + pct(gib(v.floor_kib))})),
-    h("span", {class: "free"}, size(v.free_kib) + " free"),
-    note];
-}
-
-// The load: now, and a line of the last ten minutes against the core count.
+// ---- The figures
 const SVG = "http://www.w3.org/2000/svg";
 function svg(tag, attrs) {
   const el = document.createElementNS(SVG, tag);
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
   return el;
 }
-function loadView(load) {
-  if (!load) return [h("span", {class: "label"}, "Load"), h("span", {class: "note"}, "reading")];
-  const width = 120, height = 24;
+function secs(ms) { return (ms / 1000).toFixed(1) + "s"; }
+function limitText(ms) { return ms / 1000 + " s"; }
+function figure(cls, title, ...kids) { return h("div", {class: "fig" + (cls ? " " + cls : ""), title}, ...kids); }
+
+// The load: the three averages, a line of the last ten minutes against the
+// core count (dashed), and the core count, on one line.
+function loadFigure(load) {
+  if (!load) return figure("line", "Load: 1, 5 and 15-minute averages, read while the daemon runs", h("span", {class: "h"}, "reading the load"));
+  const width = 120, height = 28;
   const points = load.history;
   const top = Math.max(load.cores * 1.25, ...points.map(p => p[1]), 1);
   const line = svg("svg", {width: String(width), height: String(height), viewBox: "0 0 " + width + " " + height, role: "img",
@@ -971,30 +773,119 @@ function loadView(load) {
     const t0 = points[0][0], span = Math.max(1, points[points.length - 1][0] - t0);
     line.append(svg("polyline", {class: "spark", points: points.map(p => ((p[0] - t0) / span * width).toFixed(1) + "," + y(p[1])).join(" ")}));
   }
-  return [h("span", {class: "label"}, "Load"),
-    h("span", {class: "value", title: "1, 5 and 15-minute load averages on " + load.cores + " cores"},
-      load.now.map(n => n.toFixed(1)).join(" ")),
-    line];
+  return figure("line", "Load: 1, 5 and 15-minute averages",
+    h("div", {class: "row"},
+      h("span", {class: "v", title: "1, 5 and 15-minute load averages on " + load.cores + " cores"}, load.now.map(n => n.toFixed(1)).join(" ")),
+      line,
+      h("span", {class: "h"}, load.cores + " cores")));
+}
+// Disk: the free space alone, red under the floor where builds warn.
+function diskFigure(v) {
+  const under = v.free_kib < v.floor_kib;
+  return figure((under ? "bad " : "") + "line",
+    "Free space on the build volume; red under its " + wholeSize(v.floor_kib) + " floor, where builds warn; they stop under " + wholeSize(v.hard_floor_kib),
+    h("span", {class: "v"}, wholeSize(v.free_kib), h("small", {}, "free")));
 }
 
-// A hook run over the limit, as one of the things needing action: the newest
-// run of its set of checks stays here until a newer run of that set is under
-// the limit (hook_stats.rs), which the `hooks` event carries.
-function hookFindings() {
-  if (!hooks || hooks.error) return [];
-  return hooks.projects.flatMap(p => (p.repos || []).map(r => Object.assign({project: p.project}, r))).flatMap(p => (p.over_limit || []).map(run => {
-    const slowest = run.checks.filter(c => c.ms != null).sort((a, b) => b.ms - a.ms).slice(0, 3).map(c => c.name + " " + secs(c.ms));
-    return "commit hook · " + p.project + " · " + p.repo + ": " + secs(run.total_ms) + " in " + run.worktree.split("/").pop() + " (" + (run.branch || "detached") +
-      "), over " + secs(p.limit_ms) + " · slowest " + slowest.join(", ") + " · handed " + plural(run.files, "file", "files") + ", " + plural(run.crates, "crate", "crates");
-  }));
+// ---- The commit hook figures
+const BAR_HEIGHT = 36, BAR_SECONDS = 90;   // a bar is full height at 90 s
+function hookOf(name) {
+  if (!hooks || hooks.error) return null;
+  for (const p of hooks.projects) for (const r of p.repos || []) if (r.repo === name) return r;
+  return null;
+}
+function hookFigure(name) {
+  const r = hookOf(name);
+  const title = name + " commits";
+  const limit = r && r.limit_ms ? r.limit_ms : 45000;
+  const chart = svg("svg", {width: "158", height: String(BAR_HEIGHT), viewBox: "0 0 158 " + BAR_HEIGHT, preserveAspectRatio: "none", "aria-hidden": "true"});
+  const y = BAR_HEIGHT - BAR_HEIGHT * Math.min(1, limit / 1000 / BAR_SECONDS);
+  chart.append(svg("line", {class: "limit", x1: "0", x2: "158", y1: String(y), y2: String(y)}));
+  if (!r || !r.runs || r.error) {
+    return h("div", {class: "fig hook line empty", title: "Commit hook runs in " + name + ": no passing run recorded yet, so there is nothing to draw."},
+      h("div", {class: "row"}, h("span", {class: "h"}, title), h("span", {class: "v"}, "–"), chart));
+  }
+  const runs = r.recent.slice().reverse();
+  runs.forEach((run, i) => {
+    const hgt = Math.min(BAR_HEIGHT, Math.max(2, run.total_ms / 1000 / BAR_SECONDS * BAR_HEIGHT));
+    const bar = svg("rect", {class: run.total_ms > limit ? "b-over" : "b-ok",
+      x: String(i * 8), y: (BAR_HEIGHT - hgt).toFixed(1), width: "6", height: hgt.toFixed(1), rx: "1.5"});
+    const tip = svg("title", {});
+    tip.textContent = secs(run.total_ms);
+    bar.append(tip);
+    chart.append(bar);
+  });
+  const open = openHook === name;
+  return h("div", {class: "fig hook line" + (open ? " on" : ""), tabindex: "0", role: "button", "aria-expanded": String(open),
+      title: "Median time, then one bar per run. Commit hook runs in " + name + ", oldest to newest. The dashed line is the " + limitText(limit) + " limit. Click for each run.",
+      onclick: () => { openHook = open ? null : name; render(); },
+      onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openHook = open ? null : name; render(); } }},
+    h("div", {class: "row"}, h("span", {class: "h"}, title), h("span", {class: "v"}, secs(r.median_ms)), chart));
 }
 
+// A repo's hook details, under the figures: each check, then the runs over the limit.
+const CHECKS_SHOWN = 8, OVER_SHOWN = 5;
+function moreToggle(key, label) {
+  return h("button", {type: "button", class: "ho-more", onclick: () => { if (!moreOf.delete(key)) moreOf.add(key); render(); }}, label);
+}
+function checkRow(c) {
+  let last = h("td", {class: "n"}, "");
+  if (c.recent_ms != null) {
+    const cls = c.recent_ms < c.earlier_ms ? "ok" : c.recent_ms > c.earlier_ms ? "warn" : "";
+    last = h("td", {class: "n"}, h("span", {class: cls}, secs(c.recent_ms)));
+  }
+  return h("tr", {}, h("td", {}, c.name), h("td", {class: "n"}, secs(c.median_ms)), last, h("td", {class: "n"}, secs(c.slowest_ms)));
+}
+function overRun(run, limit) {
+  const key = run.at + " " + run.worktree;
+  const ran = run.checks.filter(c => c.ms != null).sort((a, b) => b.ms - a.ms);
+  const el = h("details", {class: "orun"},
+    h("summary", {}, h("span", {class: "t"}, secs(run.total_ms)), h("span", {}, run.worktree.split("/").pop()),
+      h("span", {class: "mono"}, run.branch || "detached"), h("span", {class: "when"}, when(new Date(run.at * 1000))),
+      h("span", {class: "slow"}, ran.slice(0, 2).map(c => c.name + " " + secs(c.ms)).join(", "))),
+    h("div", {class: "checks"}, run.checks.map(c => h("span", {}, c.name + " " + (c.ms == null ? "skipped" : secs(c.ms))))));
+  el.open = openRuns.has(key);
+  el.addEventListener("toggle", () => { if (el.open) openRuns.add(key); else openRuns.delete(key); });
+  return el;
+}
+function hookDetails() {
+  const box = document.getElementById("hook-open");
+  const r = openHook ? hookOf(openHook) : null;
+  if (!r || !r.runs) { box.hidden = true; box.replaceChildren(); return; }
+  const limit = r.limit_ms;
+  const ranChecks = r.checks.filter(c => c.ran > 0);
+  const allChecks = moreOf.has("checks");
+  const checks = allChecks ? ranChecks : ranChecks.slice(0, CHECKS_SHOWN);
+  const hiddenChecks = ranChecks.length - CHECKS_SHOWN;
+  const allOver = moreOf.has("over");
+  const over = allOver ? r.over : r.over.slice(0, OVER_SHOWN);
+  const hiddenOver = r.over_count - OVER_SHOWN;
+  box.hidden = false;
+  box.replaceChildren(
+    h("div", {class: "ho-head"}, h("b", {}, openHook + " commits"),
+      h("span", {}, plural(r.runs, "passing run", "passing runs") + " · ",
+        h("span", {class: r.over_count ? "warn" : ""}, r.over_count + " over " + limitText(limit))),
+      h("button", {type: "button", class: "ho-close", title: "Close", "aria-label": "Close", onclick: () => { openHook = null; render(); }}, "×")),
+    h("div", {class: "ho-cols"},
+      h("div", {}, h("h3", {}, "Checks"),
+        h("table", {}, h("tr", {}, h("th", {}, "Check"), h("th", {class: "n"}, "Median"),
+          h("th", {class: "n", title: "Median of the last " + r.trend_runs + " runs; green when faster than before, amber when slower"}, "Last " + r.trend_runs),
+          h("th", {class: "n"}, "Slowest")), checks.map(checkRow)),
+        hiddenChecks > 0 ? moreToggle("checks", allChecks ? "Fewer checks" : hiddenChecks + " more " + (hiddenChecks === 1 ? "check" : "checks")) : null),
+      h("div", {}, h("h3", {}, "Over " + limitText(limit)),
+        over.length ? h("div", {class: "oruns"}, over.map(run => overRun(run, limit))) : h("div", {class: "l-empty"}, "No run went over."),
+        hiddenOver > 0 ? moreToggle("over", allOver ? "Fewer" : hiddenOver + " more") : null)));
+}
+
+// What needs attention and nothing else on the page shows: a worktree with
+// commits waiting to land and no claim, sccache clients waiting, leftover
+// shells (and the lists store's own findings). Disk, hook runs and a worktree
+// with no change show on their own figure or card.
+const ATTENTION = new Set(["sccache", "shells", "unclaimed", "lists"]);
 function findingsView(health) {
   const box = document.getElementById("findings");
-  const findings = (health ? health.findings : []).concat(hookFindings());
-  box.replaceChildren(...(findings.length ? [h("div", {class: "findings"},
-    h("span", {class: "label"}, plural(findings.length, "thing needs", "things need") + " acting on"),
-    findings.map(f => h("span", {}, f)))] : []));
+  const findings = (health ? health.findings : []).filter(f => ATTENTION.has(f.kind));
+  box.replaceChildren(...(findings.length ? [h("div", {class: "act"}, h("b", {}, "Needs attention"), findings.map(f => h("span", {}, f.text)))] : []));
 }
 
 function tick() {
@@ -1004,53 +895,41 @@ function tick() {
 }
 
 function render() {
-  for (const b of document.querySelectorAll(".switch button")) b.setAttribute("aria-pressed", String(b.dataset.view === view));
-  document.getElementById("errors").replaceChildren(...[streamError].filter(Boolean).map(e => h("div", {class: "error"}, e)));
+  document.getElementById("conn").hidden = !connectionDown;
+  const errors = [streamError, hooksError].filter(Boolean);
+  document.getElementById("errors").replaceChildren(...errors.map(e => h("div", {class: "error"}, e)));
   if (!state) return;
-  const sides = state.repos.flatMap(r => split(r).sides);
-  const n = counts(sides);
-  document.getElementById("hide-free").checked = hideFree;
-  document.getElementById("hidden-count").textContent = hideFree && n["free"] ? n["free"] + " free hidden" : "";
-  const working = (n["working"] || 0) + (n["winding-down"] || 0);
-  document.getElementById("sub").textContent = summary([SUBTITLE,
-    working ? working + " working" : null,
-    n["ready-to-land"] ? n["ready-to-land"] + " ready to land" : null,
-    n["waiting-on-you"] ? n["waiting-on-you"] + " waiting on you" : null]);
-  document.getElementById("disk").replaceChildren(...disk(state.volume).filter(Boolean));
-  document.getElementById("load").replaceChildren(...loadView(state.load));
+  for (const repo of state.repos) for (const {lane} of repo.lanes) buildPanelOf(repo, lane);
+  document.getElementById("top").replaceChildren(loadFigure(state.load), diskFigure(state.volume),
+    ...state.repos.map(r => hookFigure(r.name)));
+  hookDetails();
   findingsView(state.health);
-  queuesView();
-  buildsView();
   const root = document.getElementById("view");
-  if (root.dataset.view !== view) { root.replaceChildren(); root.dataset.view = view; }
-  if (view === "lanes") lanesView(root); else reposView(root);
+  if (root.firstElementChild && !root.firstElementChild.dataset.key) root.replaceChildren();
+  reposView(root);
   tick();
 }
 
-for (const b of document.querySelectorAll(".switch button")) {
-  b.addEventListener("click", () => {
-    view = b.dataset.view;
-    try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* kept for this page only */ }
-    render();
-  });
+// The Lists panel hides and shows from its own button and the title's; the
+// page remembers the choice.
+const page = document.getElementById("page");
+function setListsHidden(hidden) {
+  page.classList.toggle("no-lists", hidden);
+  try { localStorage.setItem(LISTS_HIDDEN_KEY, String(hidden)); } catch (e) { /* kept for this page only */ }
 }
-document.getElementById("hide-free").addEventListener("change", e => {
-  hideFree = e.target.checked;
-  try { localStorage.setItem(HIDE_FREE_KEY, String(hideFree)); } catch (err) { /* kept for this page only */ }
-  render();
-});
+try { page.classList.toggle("no-lists", localStorage.getItem(LISTS_HIDDEN_KEY) === "true"); } catch (e) { /* shown */ }
+document.getElementById("lists-hide").addEventListener("click", () => setListsHidden(true));
+document.getElementById("lists-show").addEventListener("click", () => setListsHidden(false));
 
 // The daemon pushes the whole state when it changes; EventSource reconnects
 // by itself after the daemon restarts.
-const live = document.getElementById("live");
 const events = new EventSource("/events");
-events.addEventListener("open", () => { live.textContent = "live"; live.classList.remove("down"); });
-events.addEventListener("error", () => { live.textContent = "reconnecting…"; live.classList.add("down"); });
+events.addEventListener("open", () => { connectionDown = false; render(); });
+events.addEventListener("error", () => { connectionDown = true; render(); });
 events.addEventListener("state", e => {
   state = JSON.parse(e.data);
   streamError = "";
-  live.textContent = "live";
-  live.title = "the daemon follows " + state.daemon.entries.toLocaleString() + " files and folders in " + bytes(state.daemon.memory_bytes) + " of memory";
+  connectionDown = false;
   render();
 });
 events.addEventListener("failure", e => { streamError = "state: " + JSON.parse(e.data).error; render(); });
@@ -1328,16 +1207,13 @@ function tabCounts() {
 }
 function renderLists() {
   const tabs = document.getElementById("l-tabs"), body = document.getElementById("l-body");
-  const meta = document.getElementById("l-meta");
   if (!lists || lists.error) {
     tabs.hidden = true;
-    meta.textContent = lists ? lists.project : "";
     body.dataset.tab = "";
     body.replaceChildren(lists ? h("div", {class: "error"}, "The lists store failed its check: " + lists.error)
       : h("div", {class: "l-empty"}, listsNote));
     return;
   }
-  meta.textContent = lists.project + " · version " + lists.version;
   tabs.hidden = false;
   const counts = tabCounts();
   for (const b of tabs.querySelectorAll("button")) {
@@ -1391,103 +1267,13 @@ fetch("/api/lists").then(async reply => {
   renderLists();
 });
 
-// ---- The commit hook panel: what the hook ran for each project, from the
-// `hooks` event (hook_stats.rs) and /api/hooks on load. ----
-let hooks = null;
-const openHooks = new Set();   // "project/repo" of each panel that is open; they outlive a redraw
-function secs(ms) { return (ms / 1000).toFixed(1) + "s"; }
-function kindsText(kinds) { return Object.entries(kinds).map(([k, n]) => k + " " + n).join(", "); }
-function hookRun(run) {
-  const when = new Date(run.at * 1000);
-  const summary = h("summary", null,
-    h("span", {class: "mono"}, localDay(when) + " " + hhmm(when)),
-    h("span", {class: "mono"}, secs(run.total_ms)),
-    h("span", null, run.branch || "(detached)"),
-    h("span", null, plural(run.files, "file", "files") + " +" + run.added + " -" + run.removed + " (" + kindsText(run.kinds) + ")"),
-    h("span", {class: run.passed ? "" : "failed"}, run.passed ? "passed" : "failed"));
-  const lines = run.checks.map(c => h("div", {class: c.outcome === "failed" ? "failed" : ""},
-    c.name + " (" + c.kind + "): " + (c.outcome === "skipped" ? "skipped" : c.outcome + ", " + secs(c.ms))));
-  lines.unshift(h("div", null, "planning: " + secs(run.plan_ms)));
-  return h("details", {class: "h-run"}, summary, h("div", {class: "h-checks"}, lines));
-}
-// A check's latest runs against the ones before: slower reads as a warning.
-function trendCell(c) {
-  if (c.recent_ms == null) return h("td", {class: "n"}, "");
-  const slower = c.recent_ms > c.earlier_ms * 1.2 && c.recent_ms - c.earlier_ms > 1000;
-  const faster = c.recent_ms < c.earlier_ms * 0.8 && c.earlier_ms - c.recent_ms > 1000;
-  return h("td", {class: "n" + (slower ? " slower" : "")}, (slower ? "▲ " : faster ? "▼ " : "") + secs(c.recent_ms) + " vs " + secs(c.earlier_ms));
-}
-// What a change did to the hook's times: the runs split by whether their tree
-// has the change (/api/hooks/impact). The rev stays in the field across redraws.
-const impactRevs = new Map();   // by "project/repo"
-function impactCell(c) { return c ? c.ran + " · " + c.median_crates + " cr · " + secs(c.median_ms) + " · " + secs(c.slowest_ms) : "–"; }
-function impactTable(r) {
-  const names = [];
-  for (const c of r.with.checks.concat(r.without.checks)) if (!names.some(n => n[0] === c.name && n[1] === c.kind)) names.push([c.name, c.kind]);
-  const find = (side, [name, kind]) => side.checks.find(c => c.name === name && c.kind === kind);
-  const notes = [];
-  if (r.without_by_time) notes.push(plural(r.without_by_time, "run", "runs") + " without it were recorded before the hook kept its base commit; counted as without because they started before the change was committed");
-  if (r.unplaced_by_time) notes.push(plural(r.unplaced_by_time, "run", "runs") + " left out: recorded before the hook kept its base commit, started after the change was committed");
-  if (r.unplaced_by_base) notes.push(plural(r.unplaced_by_base, "run", "runs") + " left out: their base commit is gone from the repo");
-  return [h("div", {class: "h-meta"}, "with: " + plural(r.with.runs, "run", "runs") + ", median " + secs(r.with.median_ms) + ", slowest " + secs(r.with.slowest_ms) +
-      " · without: " + plural(r.without.runs, "run", "runs") + ", median " + secs(r.without.median_ms) + ", slowest " + secs(r.without.slowest_ms)),
-    h("table", null, h("tr", null, h("th", null, "check"), h("th", null, "with (ran · crates · median · slowest)"), h("th", null, "without")),
-      names.map(n => h("tr", null, h("td", null, n[0]), h("td", null, impactCell(find(r.with, n))), h("td", null, impactCell(find(r.without, n)))))),
-    notes.map(t => h("div", {class: "h-meta"}, t))];
-}
-function impactForm(project, repo) {
-  const input = h("input", {type: "text", placeholder: "commit, e.g. 711e9cd12c", size: "24"});
-  const key = project + "/" + repo;
-  input.value = impactRevs.get(key) || "";
-  const out = h("div", {class: "h-impact"});
-  const ask = async () => {
-    const rev = input.value.trim();
-    impactRevs.set(key, rev);
-    if (!rev) { out.replaceChildren(); return; }
-    out.replaceChildren(h("div", {class: "h-meta"}, "reading…"));
-    try {
-      const reply = await fetch("/api/hooks/impact?project=" + encodeURIComponent(project) + "&repo=" + encodeURIComponent(repo) + "&change=" + encodeURIComponent(rev));
-      const body = await reply.json();
-      out.replaceChildren(...(body.error ? [h("div", {class: "error"}, body.error)] : body.runs === 0 ? [h("div", {class: "h-meta"}, "no runs recorded")] : impactTable(body)));
-    } catch (e) { out.replaceChildren(h("div", {class: "error"}, String(e))); }
-  };
-  input.addEventListener("keydown", e => { if (e.key === "Enter") ask(); });
-  const button = h("button", null, "Split runs");
-  button.addEventListener("click", ask);
-  if (input.value) ask();
-  return h("div", null, h("h3", null, "What a change did"), h("div", {class: "h-impactform"}, input, button), out);
-}
-function hookRepo(project, p) {
-  const key = project + "/" + p.repo;
-  const open = openHooks.has(key);
-  const meta = p.error ? "" : p.runs === 0 ? "no runs recorded"
-    : plural(p.runs, "run", "runs") + " · " + p.failed + " failed · median " + secs(p.median_ms) + " · slowest " + secs(p.slowest_ms);
-  const box = h("details", {class: "hooks"}, h("summary", null, "Commit hook · " + project + " · " + p.repo, h("span", {class: "h-meta"}, meta)));
-  box.open = open;
-  box.addEventListener("toggle", () => { if (box.open) openHooks.add(key); else openHooks.delete(key); });
-  if (p.error) { box.append(h("div", {class: "error"}, p.error)); return box; }
-  if (p.runs === 0) return box;
-  box.append(h("h3", null, "Per check"),
-    h("table", null,
-      h("tr", null, h("th", null, "check"), h("th", null, "kind"), h("th", {class: "n"}, "ran"), h("th", {class: "n"}, "failed"),
-        h("th", {class: "n"}, "skipped"), h("th", {class: "n"}, "median"), h("th", {class: "n"}, "slowest"),
-        h("th", {class: "n", title: "median of the latest " + p.trend_runs + " runs of the check, against the " + p.trend_runs + " before them"}, "latest vs before")),
-      p.checks.map(c => h("tr", null, h("td", null, c.name), h("td", null, c.kind), h("td", {class: "n"}, String(c.ran)),
-        h("td", {class: "n" + (c.failed ? " failed" : "")}, String(c.failed)), h("td", {class: "n"}, String(c.skipped)),
-        h("td", {class: "n"}, secs(c.median_ms)), h("td", {class: "n"}, secs(c.slowest_ms)), trendCell(c)))),
-    impactForm(project, p.repo),
-    h("h3", null, "Slowest runs"), h("div", {class: "h-runs"}, p.slowest.map(hookRun)),
-    h("h3", null, "Latest runs"), h("div", {class: "h-runs"}, p.recent.map(hookRun)));
-  return box;
-}
+// ---- The commit hook figures read what the hook ran for each project, from
+// the `hooks` event (hook_stats.rs) and /api/hooks on load. ----
 function setHooks(next) {
   hooks = next;
-  const panels = document.getElementById("hooks-panels");
-  if (hooks.error) panels.replaceChildren(h("div", {class: "error"}, "The hook runs: " + hooks.error));
-  else panels.replaceChildren(...hooks.projects.flatMap(p => p.error
-    ? [h("div", {class: "error"}, "The hook runs of " + p.project + ": " + p.error)]
-    : p.repos.map(r => hookRepo(p.project, r))));
-  findingsView(state ? state.health : null);
+  const errors = hooks.error ? [hooks.error] : hooks.projects.filter(p => p.error).map(p => p.project + ": " + p.error);
+  hooksError = errors.length ? "The hook runs: " + errors.join("; ") : "";
+  render();
 }
 events.addEventListener("hooks", e => setHooks(JSON.parse(e.data)));
 fetch("/api/hooks").then(async reply => {
