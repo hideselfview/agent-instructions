@@ -217,6 +217,7 @@ pub fn optimize(
             rates,
             &cases::report(&baseline_results),
         ),
+        None,
     );
     let proposals = match asked.body.and_then(|body| parse_proposals(&body)) {
         Ok(proposals) => proposals,

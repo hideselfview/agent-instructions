@@ -124,6 +124,7 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
         source: Some(Source {
             repo: worktree.to_path_buf(),
             rev: head.clone(),
+            in_place: true,
         }),
         base: merge_base,
         head,
@@ -154,6 +155,12 @@ pub fn ask_groups(
 ) -> Vec<NewCall> {
     let files = parse_diff(&diff.text);
     let by_file = files::split(&diff.text);
+    // The reviewers read the repository at the commit under review.
+    let checkout = match diff.source.as_ref().map(files::Source::checkout) {
+        Some(Ok(checkout)) => Some(checkout),
+        Some(Err(why)) => return failed_all(picked, &why.text()),
+        None => None,
+    };
     let mut units: Vec<Unit> = Vec::new();
     for (group, members) in picked {
         if group.enumerate {
@@ -201,7 +208,14 @@ pub fn ask_groups(
             context: &context,
         });
         let names = prompt::answer_names(group, unit.members);
-        let output = call::run(reviewer, &group.model, &names, group.enumerate, &parts);
+        let output = call::run(
+            reviewer,
+            &group.model,
+            &names,
+            group.enumerate,
+            &parts,
+            checkout.as_ref().map(|c| c.path.as_path()),
+        );
         checked(
             group,
             unit.members,
@@ -240,6 +254,27 @@ pub fn ask_groups(
         }
     }
     calls
+}
+
+/// A failed call for each group of <picked>, because the checkout the
+/// reviewers read could not be made.
+fn failed_all(picked: &[(&Group, Vec<&Rule>)], why: &str) -> Vec<NewCall> {
+    picked
+        .iter()
+        .map(|(group, members)| NewCall {
+            group: group.name.clone(),
+            model: group.model.clone(),
+            rules: prompt::answer_names(group, members),
+            tokens_in: 0,
+            tokens_out: 0,
+            tokens_cached: 0,
+            tokens_written: 0,
+            sites: None,
+            failure: Some(why.to_string()),
+            verdicts: Vec::new(),
+            findings: Vec::new(),
+        })
+        .collect()
 }
 
 /// <held> with <more>: tokens added, verdicts joined (`finding` when either

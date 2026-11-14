@@ -51,25 +51,40 @@ pub struct Invoked {
     pub body: Result<Value, String>,
 }
 
-/// Runs <program> as `claude` is run for a review: `-p` with <schema> and no
-/// tools, <prompt> on standard input.
+/// Runs <program> as `claude` is run for a review: `-p` with <schema>,
+/// <prompt> on standard input. With a <checkout> the reviewer runs in it with
+/// read-only tools (Read, Grep, Glob); without one it has no tools. It never
+/// loads the person's CLAUDE.md files: everything it is told is in the prompt.
 pub fn invoke(
     program: &Path,
     model: &str,
     schema: &Value,
     system: &str,
     prompt_text: &str,
+    checkout: Option<&Path>,
 ) -> Invoked {
     let schema = schema.to_string();
     let mut command = Command::new(program);
     command
         .args(["-p", "--output-format", "json", "--json-schema", &schema])
-        .args(["--model", model, "--tools", ""])
+        .args(["--model", model])
         .args(["--no-session-persistence", "--disable-slash-commands"])
         .args(["--strict-mcp-config", "--system-prompt", system])
+        .env("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    match checkout {
+        Some(dir) => {
+            command
+                .args(["--tools", "Read,Grep,Glob"])
+                .args(["--allowedTools", "Read", "Grep", "Glob"])
+                .current_dir(dir);
+        }
+        None => {
+            command.args(["--tools", ""]);
+        }
+    }
     let failed = |why: String| Invoked {
         tokens_in: 0,
         tokens_out: 0,
@@ -154,6 +169,7 @@ pub fn run(
     names: &[String],
     enumerate: bool,
     parts: &prompt::Parts,
+    checkout: Option<&Path>,
 ) -> Output {
     let invoked = invoke(
         program,
@@ -161,6 +177,7 @@ pub fn run(
         &prompt::schema(),
         &parts.system,
         &parts.message,
+        checkout,
     );
     output_of(invoked, names, enumerate)
 }

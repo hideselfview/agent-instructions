@@ -50,6 +50,7 @@ fn the_system_prompt_holds_the_shared_part_and_the_message_holds_the_change() {
         assert!(first.system.contains(part), "{part}");
     }
     assert!(!first.system.contains("+x") && !first.system.contains("let x = 1"));
+    assert!(first.system.contains("open it before judging"));
     assert!(first.message.contains("+x") && first.message.contains("7: let x = 1;"));
     assert!(!first.message.contains("Rule A body.") && !first.message.contains("Project facts."));
     // Two calls of one group differ only in the message.

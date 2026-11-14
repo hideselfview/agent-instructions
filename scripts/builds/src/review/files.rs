@@ -2,7 +2,10 @@
 //! the groups that review one file per call.
 
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
+
+use crate::fail;
+use crate::fail::{Context, Result};
 
 use crate::checkout::git;
 
@@ -14,6 +17,67 @@ const AROUND: i64 = 40;
 pub struct Source {
     pub repo: PathBuf,
     pub rev: String,
+    /// Whether <repo> is a checkout of <rev> to read in place. When it is
+    /// not, `checkout` unpacks <rev> into a folder of its own.
+    pub in_place: bool,
+}
+
+/// A folder holding the repository as it is at the reviewed commit.
+pub struct Checkout {
+    pub path: PathBuf,
+    owned: bool,
+}
+
+impl Drop for Checkout {
+    fn drop(&mut self) {
+        if self.owned {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
+impl Source {
+    /// The checkout the reviewers read: the repo itself when it is one, else
+    /// a copy of the files of <rev> (`git archive`) in a folder removed when
+    /// the checkout is dropped.
+    pub fn checkout(&self) -> Result<Checkout> {
+        if self.in_place {
+            return Ok(Checkout {
+                path: self.repo.clone(),
+                owned: false,
+            });
+        }
+        let name = format!("builds-review-{}-{}", std::process::id(), &self.rev);
+        let path = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&path).context(|| format!("creating {}", path.display()))?;
+        let mut archive = git(&self.repo)
+            .args(["archive", &self.rev])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context(|| format!("running git archive {}", self.rev))?;
+        let tar = Command::new("tar")
+            .arg("-x")
+            .arg("-C")
+            .arg(&path)
+            .stdin(archive.stdout.take().expect("stdout is piped"))
+            .output()
+            .context(|| "running tar".to_string())?;
+        let archived = archive
+            .wait_with_output()
+            .context(|| "waiting for git archive".to_string())?;
+        if !archived.status.success() || !tar.status.success() {
+            let _ = std::fs::remove_dir_all(&path);
+            fail!(
+                "unpacking {} of {} failed: {} {}",
+                self.rev,
+                self.repo.display(),
+                String::from_utf8_lossy(&archived.stderr).trim(),
+                String::from_utf8_lossy(&tar.stderr).trim()
+            );
+        }
+        Ok(Checkout { path, owned: true })
+    }
 }
 
 /// One file's part of a diff: its path in the new tree and its diff text.

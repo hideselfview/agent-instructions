@@ -10,7 +10,7 @@ use crate::review::rules::Rule;
 /// The name the group's project-facts verdict goes by.
 pub const PROJECT_FACTS: &str = "project-facts";
 
-pub const SYSTEM: &str = "You review one change against one group of rules. You have no tools: everything you need is in the message. Answer with the JSON the schema asks for and nothing else. Write plain, literal, active sentences.";
+pub const SYSTEM: &str = "You review one change against one group of rules. The message holds the change. When you have read-only tools, they read the repository as it is at the commit under review. Answer with the JSON the schema asks for and nothing else. Write plain, literal, active sentences.";
 
 /// A finding the coordinator already settled, passed to a rerun so the
 /// reviewer does not raise it again, reworded.
@@ -179,6 +179,9 @@ pub fn group_part(input: &Input) -> String {
              - Do not raise again a finding listed under \"Findings already settled\".\n",
         );
     }
+    out.push_str(
+        "- When a site's verdict depends on a function or file outside the diff, open it before judging.\n",
+    );
     if let Some(extra) = &group.instructions {
         out.push_str(&format!("- {extra}\n"));
     }

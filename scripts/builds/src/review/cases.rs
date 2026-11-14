@@ -206,6 +206,7 @@ pub fn replay_case(
             Some(Source {
                 repo: repo.to_path_buf(),
                 rev: commit_of(&case.patch)?,
+                in_place: false,
             })
         }),
         base: String::new(),

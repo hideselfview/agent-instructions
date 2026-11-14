@@ -22,3 +22,26 @@ fn hunks_read_new_ranges_with_and_without_a_count() {
 fn no_source_gives_no_context() {
     assert_eq!(context(None, "a.rs", DIFF), "");
 }
+
+#[test]
+fn a_checkout_of_a_revision_holds_its_files_and_is_removed_when_dropped() {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source = Source {
+        repo: repo.to_path_buf(),
+        rev: "HEAD".to_string(),
+        in_place: false,
+    };
+    let checkout = source.checkout().unwrap();
+    let path = checkout.path.clone();
+    assert!(path.join("Cargo.toml").is_file());
+    drop(checkout);
+    assert!(!path.exists());
+    let here = Source {
+        in_place: true,
+        ..source
+    };
+    let in_place = here.checkout().unwrap();
+    assert_eq!(in_place.path, repo);
+    drop(in_place);
+    assert!(repo.exists(), "a checkout read in place is never removed");
+}
