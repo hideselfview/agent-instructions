@@ -1,4 +1,4 @@
-//! The running work the sidebar's Work tab lists, computed from the lists the
+//! The running work and tab counts the sidebar lists, computed from the lists the
 //! daemon has read and the claim facts joined to each running item: one work
 //! per worktree, with what is happening now and what landed. The
 //! page draws these and groups nothing itself.
@@ -8,7 +8,28 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::lists::Stamp;
-use crate::lists::view::{Named, View};
+use crate::lists::view::{ItemView, Named, View};
+
+/// The tab a running work is under.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Tab {
+    /// The person has to act before the work goes on.
+    Waiting,
+    Running,
+}
+
+/// The three tabs' counts. Waiting on you holds the stack's questions, the
+/// design changes waiting on review and the running work held on the person;
+/// Running holds the running work and the design changes being drawn (the
+/// person approved them); Queue holds the items nobody has started.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct Board {
+    pub waiting: usize,
+    pub running: usize,
+    pub queue: usize,
+    pub works: Vec<Work>,
+}
 
 /// The running items of one worktree: the work an agent does there.
 #[derive(Clone, Debug, Serialize)]
@@ -21,6 +42,7 @@ pub struct Work {
     pub now: Option<String>,
     pub agent: Option<String>,
     pub since: Stamp,
+    pub tab: Tab,
     pub branch: String,
     /// The brief's path in the repo.
     pub plan: String,
@@ -32,6 +54,32 @@ pub struct Work {
 
 fn short(commit: &str) -> String {
     commit.chars().take(7).collect()
+}
+
+/// Does <item> wait on an answer or a review? A wait on another item or a
+/// condition is not the person's.
+fn waits_on_person(item: &ItemView) -> bool {
+    item.waits
+        .iter()
+        .any(|wait| !wait.met && matches!(wait.kind, "question" | "design"))
+}
+
+/// The tab counts of <view>.
+pub fn board(view: &View) -> Board {
+    let works = works(view);
+    let count = |tab| works.iter().filter(|work| work.tab == tab).count();
+    let open = |approved: bool| {
+        view.designs
+            .iter()
+            .filter(|design| design.closed.is_none() && design.approved.is_some() == approved)
+            .count()
+    };
+    Board {
+        waiting: view.stack.len() + open(false) + count(Tab::Waiting),
+        running: count(Tab::Running) + open(true),
+        queue: view.items.iter().filter(|i| i.running.is_empty()).count(),
+        works,
+    }
 }
 
 /// The works of <view>, whose running items carry their claim facts, oldest
@@ -49,11 +97,18 @@ pub fn works(view: &View) -> Vec<Work> {
                     now: running.claim.as_ref().and_then(|c| c.note.clone()),
                     agent: running.claim.as_ref().and_then(|c| c.agent.clone()),
                     since: running.since.clone(),
+                    tab: Tab::Running,
                     branch: running.branch.clone(),
                     plan: running.brief.clone(),
                     items: Vec::new(),
                     landed: Vec::new(),
                 });
+            if waits_on_person(item)
+                || running.claim.as_ref().and_then(|c| c.note_state.as_deref())
+                    == Some("waiting-on-you")
+            {
+                work.tab = Tab::Waiting;
+            }
             work.items.push(Named {
                 id: item.id,
                 title: item.title.clone(),

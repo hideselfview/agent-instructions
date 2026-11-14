@@ -235,14 +235,12 @@ article { min-width: 0; display: flex; flex-direction: column; }
 .l-head { display: flex; align-items: baseline; gap: 10px; }
 .l-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .l-meta { font-size: 12px; color: var(--muted-2); }
-.l-tabs { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.6fr) minmax(0, 0.8fr) minmax(0, 1fr); gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.l-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
 .l-tabs[hidden] { display: none; }
 .l-tabs button { display: flex; flex-direction: column; align-items: center; gap: 1px; font: 600 13px var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 5px 4px; cursor: pointer; min-width: 0; }
 .l-tabs button[aria-selected="true"] { background: var(--on); color: var(--on-text); }
 .l-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .l-tabs .l-count { font: 500 10px var(--mono); white-space: nowrap; opacity: 0.85; }
-.l-filter input { width: 100%; font: 13px var(--sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
-.l-filter input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .l-body { display: flex; flex-direction: column; gap: 16px; }
 .l-section { display: flex; flex-direction: column; gap: 8px; }
 .l-section > h3 { margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; display: flex; gap: 8px; align-items: baseline; }
@@ -352,11 +350,9 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
     <div class="l-head"><h2>Lists</h2><span class="l-meta" id="l-meta"></span></div>
     <div class="l-tabs" id="l-tabs" role="tablist" hidden>
       <button type="button" role="tab" data-tab="stack"><span class="l-name">Waiting on you</span><span class="l-count"></span></button>
-      <button type="button" role="tab" data-tab="work"><span class="l-name">Work</span><span class="l-count"></span></button>
-      <button type="button" role="tab" data-tab="design"><span class="l-name">Design</span><span class="l-count"></span></button>
-      <button type="button" role="tab" data-tab="decisions"><span class="l-name">Decisions</span><span class="l-count"></span></button>
+      <button type="button" role="tab" data-tab="running"><span class="l-name">Running</span><span class="l-count"></span></button>
+      <button type="button" role="tab" data-tab="queue"><span class="l-name">Queue</span><span class="l-count"></span></button>
     </div>
-    <div class="l-filter" id="l-filter" hidden><input type="search" id="l-filter-input" placeholder="Filter decisions by title and body" aria-label="Filter decisions"></div>
   </div>
   <div class="l-body" id="l-body"><div class="l-empty">Reading the lists</div></div>
 </aside>
@@ -1064,11 +1060,11 @@ events.addEventListener("failure", e => { streamError = "state: " + JSON.parse(e
 // `builds` commands. ----
 const TAB_KEY = "builds-dashboard-lists-tab";
 const OPEN_KEY = "builds-dashboard-lists-open";
-const TABS = ["stack", "work", "design", "decisions"];
+const TABS = ["stack", "running", "queue"];
 const RECENT_DAYS = 14;
 let lists = null;              // the last lists JSON
 let listsNote = "Reading the lists";   // what the sidebar says while there are none
-let tab = "stack", filter = "";
+let tab = "stack";
 let index = new Map();         // record id -> {tab, key, title}
 const openRecs = new Set();    // keys of the open folds; they outlive a redraw
 try {
@@ -1166,15 +1162,17 @@ function stackCard(q, n, top) {
 }
 // Design changes that wait on your review: recorded, not approved, not landed.
 function reviews() { return lists.designs.filter(g => !g.closed && !g.approved); }
+function heldWorks() { return lists.board.works.filter(w => w.tab === "waiting"); }
 function stackItems() {
-  const own = lists.stack, review = reviews();
-  if (!own.length && !review.length) return [empty("Nothing waits on you.")];
+  const own = lists.stack, review = reviews(), held = heldWorks();
+  if (!own.length && !review.length && !held.length) return [empty("Nothing waits on you.")];
   const out = [];
   if (review.length) out.push({key: "reviews", data: review, make: () => section("Design changes to review", review.length,
     h("div", {class: "l-rows"}, review.map(designCard)))});
-  const cards = own.map((q, i) => ({key: "q:" + q.id, data: [q, i], make: () => stackCard(q, i + 1, i === 0)}));
-  if (!review.length) return cards;
-  if (cards.length) out.push({key: "questions", data: own, make: () => section("Questions", own.length,
+  if (held.length) out.push({key: "held", data: held, make: () => section("Running work held on you", held.length,
+    h("div", {class: "l-works"}, held.map(workRow)))});
+  if (!review.length && !held.length) return own.map((q, i) => ({key: "q:" + q.id, data: [q, i], make: () => stackCard(q, i + 1, i === 0)}));
+  if (own.length) out.push({key: "questions", data: own, make: () => section("Questions", own.length,
     h("div", {class: "l-rows"}, own.map((q, i) => stackCard(q, i + 1, i === 0))))});
   return out;
 }
@@ -1253,7 +1251,17 @@ function workHead() {
     flowLine("Last " + RECENT_DAYS + " days:", lists.flow));
 }
 function rows(its, one) { return h("div", {class: "l-rows"}, its.map(one || itemRow)); }
-function workItems() {
+function runningItems() {
+  const works = lists.board.works.filter(w => w.tab === "running");
+  const drawn = lists.designs.filter(g => !g.closed && g.approved);
+  const out = [];
+  if (works.length) out.push({key: "running", data: works, make: () => section("Running", works.length,
+    h("div", {class: "l-works"}, works.map(workRow)))});
+  if (drawn.length) out.push({key: "drawn", data: drawn, make: () => section("Design changes being drawn", drawn.length,
+    h("div", {class: "l-rows"}, drawn.map(designCard)))});
+  return out.length ? out : [empty("Nothing is running.")];
+}
+function queueItems() {
   const all = lists.items;
   const out = [{key: "head", data: [lists.flow], make: workHead}];
   const design = all.filter(it => !isRunning(it) && it.for === "design-session");
@@ -1263,8 +1271,6 @@ function workItems() {
   const part = (key, title, its, one) => {
     if (its.length) out.push({key, data: its, make: () => section(title, its.length, rows(its, one))});
   };
-  if (lists.works.length) out.push({key: "running", data: lists.works, make: () => section("Running", lists.works.length,
-    h("div", {class: "l-works"}, lists.works.map(workRow)))});
   part("first", "First", first);
   for (const area of lists.areas) part("area:" + area, area, rest.filter(it => it.area === area));
   part("design-session", "Design session’s", design);
@@ -1303,50 +1309,13 @@ function openReview(g) {
 document.getElementById("rv-close").addEventListener("click", () => reviewDialog.close());
 reviewDialog.addEventListener("click", e => { if (e.target === reviewDialog) reviewDialog.close(); });
 reviewDialog.addEventListener("close", () => { reviewFrame.src = "about:blank"; });
-function designItems() {
-  // The daemon sends `closed` only for a change that landed in the last 14 days.
-  const open = lists.designs.filter(g => !g.closed);
-  const landed = lists.designs.filter(g => g.closed).sort((a, b) => b.closed.at - a.closed.at);
-  const out = [];
-  if (open.length) out.push({key: "open", data: open, make: () => section("Open", open.length, h("div", {class: "l-rows"}, open.map(g => designCard(g))))});
-  if (landed.length) out.push({key: "landed", data: landed, make: () => section("Landed in the last " + RECENT_DAYS + " days", landed.length,
-    h("div", {class: "l-rows"}, landed.map(g => designCard(g))))});
-  return out.length ? out : [empty("No design change is waiting to land.")];
-}
-
-// ---- Decisions
-function decisionMatches(d, words) {
-  const text = (d.title + "\n" + d.body).toLowerCase();
-  return words.every(w => text.includes(w));
-}
-function sortedDecisions() { return lists.decisions.slice().sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id); }
-function decisionRow(d) {
-  const links = [];
-  if (d.question !== null && d.question !== undefined) links.push(fact("Answers", recLink(d.question)));
-  if (d.work.length) links.push(fact("Made", d.work.flatMap((w, i) => [i ? ", " : "", recLink(w.id, w.title + " #" + w.id), w.open ? "" : " (closed)"])));
-  if (d.replaces !== null && d.replaces !== undefined) links.push(fact("Replaces", recLink(d.replaces)));
-  if (d.replaced_by !== null && d.replaced_by !== undefined) links.push(fact("Replaced by", recLink(d.replaced_by)));
-  if (d.plan) links.push(fact("Plan", mono(d.plan.path), " " + d.plan.number));
-  return fold("d:" + d.id, d.id,
-    [h("span", {class: "l-id"}, d.date), h("span", {class: "l-title"}, d.title), h("span", {class: "l-sub", style: "flex-basis: auto; padding: 0"}, d.by)],
-    () => h("div", {class: "l-plain"}, md(d.body), links.length ? h("div", {class: "l-facts"}, links) : null),
-    "l-row");
-}
-function decisionItems() {
-  const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
-  const all = sortedDecisions();
-  const shownDecisions = all.filter(d => decisionMatches(d, words));
-  if (!shownDecisions.length) return [empty(all.length ? "No decision matches." : "No decisions yet.")];
-  return shownDecisions.map(d => ({key: "d:" + d.id, data: d, make: () => decisionRow(d)}));
-}
-
 // ---- The sidebar
 function indexLists() {
   index = new Map();
   for (const q of lists.stack) index.set(q.id, {tab: "stack", key: "q:" + q.id, title: q.title});
-  for (const it of lists.items) index.set(it.id, {tab: "work", key: "i:" + it.id, title: it.title});
-  for (const g of lists.designs) index.set(g.id, {tab: "design", key: "g:" + g.id, title: g.title});
-  for (const d of lists.decisions) index.set(d.id, {tab: "decisions", key: "d:" + d.id, title: d.title});
+  for (const it of lists.items) index.set(it.id, {tab: "queue", key: "i:" + it.id, title: it.title});
+  for (const w of lists.board.works) for (const i of w.items) index.set(i.id, {tab: w.tab === "waiting" ? "stack" : "running", key: "i:" + w.items[0].id, title: i.title});
+  for (const g of lists.designs) if (!g.closed) index.set(g.id, {tab: g.approved ? "running" : "stack", key: "g:" + g.id, title: g.title});
 }
 function setLists(next) {
   lists = next;
@@ -1354,18 +1323,14 @@ function setLists(next) {
   renderLists();
 }
 function tabCounts() {
-  return {
-    stack: String(lists.stack.length + reviews().length),
-    work: lists.items.filter(isReady).length + " ready · " + lists.items.filter(isRunning).length + " running",
-    design: lists.designs.filter(g => !g.closed).length + " open",
-    decisions: String(lists.decisions.length),
-  };
+  const b = lists.board;
+  return {stack: String(b.waiting), running: String(b.running), queue: String(b.queue)};
 }
 function renderLists() {
   const tabs = document.getElementById("l-tabs"), body = document.getElementById("l-body");
-  const box = document.getElementById("l-filter"), meta = document.getElementById("l-meta");
+  const meta = document.getElementById("l-meta");
   if (!lists || lists.error) {
-    tabs.hidden = true; box.hidden = true;
+    tabs.hidden = true;
     meta.textContent = lists ? lists.project : "";
     body.dataset.tab = "";
     body.replaceChildren(lists ? h("div", {class: "error"}, "The lists store failed its check: " + lists.error)
@@ -1379,9 +1344,8 @@ function renderLists() {
     b.setAttribute("aria-selected", String(b.dataset.tab === tab));
     b.querySelector(".l-count").textContent = counts[b.dataset.tab];
   }
-  box.hidden = tab !== "decisions";
   if (body.dataset.tab !== tab) { body.replaceChildren(); body.dataset.tab = tab; }
-  const items = {stack: stackItems, work: workItems, design: designItems, decisions: decisionItems}[tab]();
+  const items = {stack: stackItems, running: runningItems, queue: queueItems}[tab]();
   patch(body, items);
   tick();
 }
@@ -1390,12 +1354,6 @@ function showRecord(id) {
   if (!rec) return;
   tab = rec.tab;
   try { localStorage.setItem(TAB_KEY, tab); } catch (e) { /* kept for this page only */ }
-  if (tab === "decisions" && filter) {
-    const d = lists.decisions.find(x => x.id === id);
-    if (!decisionMatches(d, filter.toLowerCase().split(/\s+/).filter(Boolean))) {
-      filter = ""; document.getElementById("l-filter-input").value = "";
-    }
-  }
   openRecs.add(rec.key); saveOpen();
   renderLists();
   const el = document.getElementById("l-body").querySelector('[data-rec="' + id + '"]');
@@ -1418,7 +1376,6 @@ document.getElementById("l-body").addEventListener("click", e => {
   e.preventDefault();
   showRecord(Number(a.dataset.ref));
 });
-document.getElementById("l-filter-input").addEventListener("input", e => { filter = e.target.value; renderLists(); });
 renderLists();
 events.addEventListener("lists", e => setLists(JSON.parse(e.data)));
 // The first read; the `lists` event takes over once it arrives. A daemon that

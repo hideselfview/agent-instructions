@@ -183,7 +183,8 @@ pub fn open_design(snapshot: &Snapshot, id: u32) -> Option<(DesignChange, Design
 pub fn compose(snapshot: &Snapshot, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) -> Composed {
     let view = compose_view(snapshot, now, claims);
     let works = super::board::works(&view);
-    Composed { view, works }
+    let board = super::board::board(&view);
+    Composed { view, works, board }
 }
 
 /// The lists JSON: the view `lists show --json` prints, and the running work
@@ -194,6 +195,7 @@ pub struct Composed {
     #[serde(flatten)]
     pub view: View,
     pub works: Vec<super::board::Work>,
+    pub board: super::board::Board,
 }
 
 fn compose_view(snapshot: &Snapshot, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) -> View {

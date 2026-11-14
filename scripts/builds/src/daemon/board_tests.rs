@@ -77,3 +77,90 @@ fn a_work_says_what_it_is() {
         vec!["c562692".to_string(), "6848a15".to_string()]
     );
 }
+
+fn facts_of(note_state: Option<&str>) -> ClaimFacts {
+    ClaimFacts {
+        agent: Some("agent".into()),
+        note: None,
+        note_state: note_state.map(str::to_string),
+        waiting_to_land: 0,
+    }
+}
+
+fn board_of(db: &rusqlite::Connection, claims: &[(&str, Option<&str>)]) -> Board {
+    let mut view = View::build(&read(db), NOON);
+    for item in &mut view.items {
+        for running in &mut item.running {
+            let state = claims
+                .iter()
+                .find(|(checkout, _)| *checkout == running.checkout)
+                .and_then(|(_, state)| *state);
+            running.claim = Some(facts_of(state));
+        }
+    }
+    board(&view)
+}
+
+#[test]
+fn each_tab_counts_what_it_holds() {
+    use crate::lists::Wait;
+    use crate::lists::fixtures::{blocks_something, design, question};
+    let db = db();
+    // Waiting on you: a question, a design change to review, a worktree whose
+    // note says so, and one whose item waits on a question.
+    let asked = question(&db);
+    blocks_something(&db, asked);
+    design(&db);
+    let noted = item(&db, vec![]);
+    start(&db, noted, "side-1");
+    let held = item(&db, vec![Wait::Question(asked)]);
+    start(&db, held, "side-2");
+    // Running: one worktree with two items counts once.
+    let first = item(&db, vec![]);
+    let second = item(&db, vec![]);
+    start(&db, first, "side-3");
+    start(&db, second, "side-3");
+    // Queue: items nobody has started.
+    item(&db, vec![]);
+    item(&db, vec![Wait::Condition("a quiet machine".into())]);
+
+    let board = board_of(&db, &[("side-1", Some("waiting-on-you"))]);
+    assert_eq!(
+        (board.waiting, board.running, board.queue),
+        (1 + 1 + 2, 1, 2)
+    );
+    let tab_of = |checkout: &str| {
+        board
+            .works
+            .iter()
+            .find(|work| work.checkout == checkout)
+            .unwrap()
+            .tab
+    };
+    assert_eq!(tab_of("side-1"), Tab::Waiting);
+    assert_eq!(tab_of("side-2"), Tab::Waiting);
+    assert_eq!(tab_of("side-3"), Tab::Running);
+}
+
+#[test]
+fn a_design_change_waits_on_review_until_approved_and_then_runs() {
+    use crate::lists::fixtures::design;
+    let db = db();
+    let id = design(&db);
+    let before = board_of(&db, &[]);
+    assert_eq!((before.waiting, before.running), (1, 0));
+    crate::lists::design::approve(&db, id, &stamp(NOON)).unwrap();
+    let after = board_of(&db, &[]);
+    assert_eq!((after.waiting, after.running), (0, 1));
+}
+
+#[test]
+fn a_wait_on_another_item_is_not_the_persons() {
+    use crate::lists::Wait;
+    let db = db();
+    let other = item(&db, vec![]);
+    let waits = item(&db, vec![Wait::Item(other)]);
+    start(&db, waits, "side-1");
+    let board = board_of(&db, &[]);
+    assert_eq!((board.waiting, board.running, board.queue), (0, 1, 1));
+}
