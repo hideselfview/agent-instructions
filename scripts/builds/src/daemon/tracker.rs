@@ -98,6 +98,10 @@ pub struct Tracker {
     /// Events delivered and not yet applied.
     queue: Mutex<Vec<Event>>,
     queued: Condvar,
+    /// How many events the root's stream has delivered, for a failing test to
+    /// print.
+    #[cfg(test)]
+    heard: std::sync::atomic::AtomicU64,
     /// Follows the root's parent, to learn the root came back.
     _parent: Option<Stream>,
 }
@@ -177,6 +181,8 @@ impl Tracker {
                 stream: Mutex::new(None),
                 queue: Mutex::new(Vec::new()),
                 queued: Condvar::new(),
+                #[cfg(test)]
+                heard: std::sync::atomic::AtomicU64::new(0),
                 _parent: parent,
             }
         });
@@ -245,6 +251,10 @@ impl Tracker {
                 0.2,
                 Box::new(move |events| {
                     if let Some(tracker) = me.upgrade() {
+                        #[cfg(test)]
+                        tracker
+                            .heard
+                            .fetch_add(events.len() as u64, std::sync::atomic::Ordering::SeqCst);
                         tracker
                             .queue
                             .lock()
@@ -779,6 +789,30 @@ impl Tracker {
     pub fn size(&self) -> (usize, usize) {
         let index = self.index.lock().expect("no panic holding it");
         (index.len(), index.footprint())
+    }
+
+    /// What decides whether a question gets an answer, for a failing test to
+    /// print.
+    #[cfg(test)]
+    pub fn describe(&self) -> String {
+        let flags = self.flags.lock().expect("no panic holding it");
+        let marks = self.marks.lock().expect("no panic holding it");
+        let now = std::fs::symlink_metadata(&self.root)
+            .ok()
+            .map(|meta| (meta.dev(), meta.ino()));
+        format!(
+            "ready {}, restart {}, followed {:?}, root now {now:?}, pending {}, walks {}, \
+             marks taken {} seen {}, queued {}, events heard {}",
+            flags.ready,
+            flags.restart,
+            flags.followed,
+            flags.pending.len(),
+            flags.walks,
+            marks.taken,
+            marks.seen,
+            self.queue.lock().expect("no panic holding it").len(),
+            self.heard.load(std::sync::atomic::Ordering::SeqCst),
+        )
     }
 
     /// Blocks until the whole root is followed.

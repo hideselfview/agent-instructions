@@ -46,16 +46,29 @@ impl Handled {
     }
 }
 
-/// The tracker's answer for each of <paths> equals a fresh walk's.
+/// The tracker's answer for each of <paths>, after FSEvents has delivered
+/// every write made so far, equals a fresh walk's.
 fn agrees(tracker: &Tracker, paths: &[PathBuf], when: &str) {
-    let answers = tracker.measure(paths, true);
+    agrees_with(tracker, paths, when, true);
+}
+
+/// Like `agrees`, for a state the test made without FSEvents (a synchronous
+/// rescan, or a root whole before the tracker saw it): the answer needs no
+/// wait for the stream, which a loaded machine can hold back for minutes.
+fn agrees_now(tracker: &Tracker, paths: &[PathBuf], when: &str) {
+    agrees_with(tracker, paths, when, false);
+}
+
+fn agrees_with(tracker: &Tracker, paths: &[PathBuf], when: &str, fresh: bool) {
+    let answers = tracker.measure(paths, fresh);
     for (path, answer) in paths.iter().zip(answers) {
         let walked = walk_and_measure(path).unwrap();
         assert_eq!(
             answer,
             Some(walked),
-            "{when}: {} differs from a walk",
-            path.display()
+            "{when}: {} differs from a walk; tracker: {}",
+            path.display(),
+            tracker.describe()
         );
     }
 }
@@ -183,11 +196,15 @@ fn a_replaced_root_is_walked_again() {
     let tracker = start(&root);
     tracker.wait_ready();
     // The volume goes and another comes back in its place.
+    // The new one is whole before it takes the old one's place, so no walk
+    // of it sees half of it.
+    let new = base.join("new");
+    fill(&new.join("demo/main/target/b"), 300);
+    std::fs::create_dir_all(new.join(".builds-daemon")).unwrap();
     std::fs::rename(&root, base.join("old")).unwrap();
-    fill(&root.join("demo/main/target/b"), 300);
-    std::fs::create_dir_all(root.join(".builds-daemon")).unwrap();
+    std::fs::rename(&new, &root).unwrap();
     tracker.wait_following_current_root();
-    agrees(
+    agrees_now(
         &tracker,
         &[root.join("demo/main/target"), root.join("demo")],
         "after the root came back",
@@ -207,7 +224,7 @@ fn dropped_events_and_a_rescan_read_the_disk_again() {
         path: root.join("demo/side-1"),
         flags: flags::MUST_SCAN_SUBDIRS,
     }]);
-    agrees(
+    agrees_now(
         &tracker,
         &[root.join("demo/side-1/target")],
         "after a rescan of a subtree",
@@ -219,7 +236,7 @@ fn dropped_events_and_a_rescan_read_the_disk_again() {
         path: root.join("demo/side-2"),
         flags: flags::MUST_SCAN_SUBDIRS | flags::USER_DROPPED,
     }]);
-    agrees(
+    agrees_now(
         &tracker,
         &[root.join("demo/side-2/target"), root.join("demo")],
         "after events lost under a folder",
@@ -235,7 +252,7 @@ fn dropped_events_and_a_rescan_read_the_disk_again() {
         path: root.clone(),
         flags: flags::USER_DROPPED,
     }]);
-    agrees(
+    agrees_now(
         &tracker,
         &[root.join("demo/side-2/target"), root.join("demo")],
         "after dropped events",
