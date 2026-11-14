@@ -8,7 +8,6 @@
 
 pub mod app_builds;
 pub mod board;
-pub mod cards;
 pub mod client;
 pub mod fsevents;
 pub mod http;

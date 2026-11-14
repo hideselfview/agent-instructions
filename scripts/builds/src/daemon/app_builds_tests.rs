@@ -32,7 +32,6 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
         folders: Some(Vec::new()),
         total_kib: Some(18_000_000),
         activity: Activity::default(),
-        words: Default::default(),
     }
 }
 
@@ -66,7 +65,6 @@ fn lock(checkout: &str, minutes: i64, from: &str, running: &[&str]) -> LockHealt
 fn process(name: &str) -> ProcessPage {
     ProcessPage {
         pid: 1,
-        started: 0,
         name: name.into(),
         cpu: Some(1.0),
         memory: 100,
@@ -109,7 +107,6 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
         ],
         cpu: 210.0,
         memory: 6_000,
-        started: Some(0),
     };
     let mut agent = checkout("side-5", None, Some("mac-alerts-branch"));
     agent.claim = Some(claimed("mac-alerts"));

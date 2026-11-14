@@ -156,28 +156,6 @@ fn uncommitted(top: &Path) -> Result<(usize, Option<i64>), String> {
 
 /// HEAD, the commits waiting to land, the uncommitted count and their newest
 /// write in the side worktree at <top>; on a failure, what git said.
-/// Only HEAD's commit, for a main checkout: its working tree is the person's
-/// and is never asked about, so no uncommitted files, writes or commits
-/// waiting to land.
-pub fn read_head(top: &Path) -> SideGit {
-    match commits(top, &["-1", "HEAD"]) {
-        Ok(found) => SideGit {
-            head: found.into_iter().next(),
-            ahead: Vec::new(),
-            uncommitted: None,
-            last_write: None,
-            error: None,
-        },
-        Err(error) => SideGit {
-            head: None,
-            ahead: Vec::new(),
-            uncommitted: None,
-            last_write: None,
-            error: Some(error),
-        },
-    }
-}
-
 pub fn read(top: &Path) -> SideGit {
     let read = || -> Result<SideGit, String> {
         let head = commits(top, &["-1", "HEAD"])?.into_iter().next();

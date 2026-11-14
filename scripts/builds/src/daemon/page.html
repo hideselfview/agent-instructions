@@ -75,20 +75,43 @@ section.repo { display: flex; flex-direction: column; gap: 12px; }
 .repo-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
 .repo-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .repo-head span { font-size: 13px; color: var(--muted); }
+.pinned-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: 12px; align-items: stretch; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; align-items: stretch; }
+article { min-width: 0; display: flex; flex-direction: column; }
+.pinned { background: var(--pinned); border: 1px solid var(--pinned-line); border-radius: 12px; padding: 14px 16px; gap: 10px; }
 /* Cards in a row stretch to the tallest; the title, agent and note stay at the
    top and the foot sits at the bottom. The min-height fits a usual card: title
    line, agent line, a two-line note and the foot. */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; gap: 10px; min-height: 176px; }
+.card .foot { margin-top: auto; }
+.row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.ident { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.name { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.where { font: 12px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; flex: none; }
 .s-working { background: var(--working-bg); color: var(--working); }
 .s-ready { background: var(--ready-bg); color: var(--ready); }
+.s-you { background: var(--you-bg); color: var(--you); }
 .s-winding { background: var(--winding-bg); color: var(--winding); }
 .s-free { background: var(--free-bg); color: var(--free); }
-.s-you { background: var(--you-bg); color: var(--you); }
+.line { font-size: 14px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.total { display: flex; align-items: baseline; gap: 10px; }
+.total .big { font: 500 20px var(--mono); }
+.total .of { font-size: 12px; color: var(--muted); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px 8px; }
 .chip { font-size: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; color: var(--text-3); overflow-wrap: anywhere; }
 .chip .mono { color: var(--text); }
+.more-folders summary { font-size: 12px; color: var(--muted); cursor: pointer; width: fit-content; }
+.more-folders summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.more-folders .chips { margin-top: 6px; }
 .chip.over { border-color: var(--bad); }
 .chip.over .mono { color: var(--bad); }
+.command { font: 12px/1.4 var(--mono); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; }
+.who-block { display: flex; flex-direction: column; gap: 3px; }
+.who { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.note { font-size: 14px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.waiting { background: var(--waiting-bg); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.waiting .label { font-size: 12px; font-weight: 600; color: var(--accent); }
 .qrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .qrow .queued { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .queues { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
@@ -114,9 +137,38 @@ section.repo { display: flex; flex-direction: column; gap: 12px; }
 .bstatus { font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
 .bstatus.failed { color: var(--bad); }
 .boutput { margin: 0; font: 11px/1.4 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.commit { display: flex; gap: 8px; font-size: 13px; line-height: 1.35; min-width: 0; }
+.commit .sha { font-family: var(--mono); color: var(--accent); flex: none; }
+.commit .subject { color: var(--text-2); overflow-wrap: anywhere; min-width: 0; }
+.more { font-size: 12px; color: var(--muted); }
+.foot { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line-soft); padding-top: 8px; }
+.quiet { color: var(--muted-2); font-style: italic; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
 .bad { color: var(--bad); font-weight: 600; }
 .warn { color: var(--warn); font-weight: 600; }
 
+.pinned-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px; align-items: start; }
+.pinned.compact { padding: 12px 14px; gap: 6px; }
+.compact .row1 { align-items: baseline; }
+.compact .name { font-size: 14px; white-space: normal; }
+.compact .big { font: 500 16px var(--mono); white-space: nowrap; }
+.compact .line { font-size: 13px; color: var(--text-3); }
+.lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; align-items: start; }
+.lane { background: var(--pinned); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lane-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; }
+.lane-head > div { display: flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.lane h2 { margin: 0; font-size: 14px; font-weight: 700; }
+.lane .count { font: 13px var(--mono); color: var(--muted); }
+.lane .hint, .lane .none { font-size: 12px; color: var(--muted); padding: 0 4px; }
+.lcard { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; gap: 8px; }
+.lcard .row1 { align-items: baseline; }
+.lcard .name { font-size: 14px; }
+.lcard .age { font-size: 12px; color: var(--muted-2); white-space: nowrap; }
+.lcard .who { font-size: 13px; color: var(--text-3); }
+.lcard .note { font-size: 13px; color: var(--text); }
+.lcard .commits { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--line-soft); padding-top: 6px; }
+.lcard .commit { font-size: 12px; }
+.lcard .pill { align-self: flex-start; font-size: 11px; padding: 2px 8px; }
 
 @media (max-width: 600px) {
   .page { padding: 16px 16px 40px; gap: 16px; }
@@ -133,6 +185,7 @@ section.repo { display: flex; flex-direction: column; gap: 12px; }
 .live.down { color: var(--bad); font-weight: 600; }
 .findings { background: var(--you-bg); color: var(--you); border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
 .findings .label { font-weight: 700; }
+.activity { font-size: 12px; color: var(--working); background: var(--working-bg); border-radius: 6px; padding: 4px 8px; overflow-wrap: anywhere; }
 
 /* The lists: three tabs, each with its count. */
 .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
@@ -189,7 +242,6 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .facts dd.mono { font: 12px var(--mono); }
 .ab-lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 10px; }
 .ab-lanes:empty { display: none; }
-.ab-lanes { margin-bottom: 4px; }
 .ab { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); display: flex; flex-direction: column; overflow: hidden; }
 .ab-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .ab-head > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -206,31 +258,6 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .ab-now .ic svg { vertical-align: -2px; margin-right: 5px; }
 .ab-q { padding: 10px 16px; display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
 .ab-q .qn { font: 500 20px var(--mono); color: var(--text); line-height: 1; }
-.wts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 10px; }
-.wc { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.wc > *:has(+ .wc-foot) { margin-bottom: 6px; }
-.wc-bar { margin: -12px -16px 6px; border-radius: 12px 12px 0 0; padding: 6px 16px; background: var(--line-soft); color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 12px; }
-.wc-bar.building { background: var(--working-bg); color: var(--working); }
-.wc-bar .grp { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; }
-.wc-bar .disk { margin-left: auto; font: 500 13px var(--mono); background: none; border: 0; padding: 0; display: inline; }
-.wc-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wc-t > span { display: block; overflow: hidden; text-overflow: ellipsis; }
-.wc-t b { font-weight: 700; font-size: 15px; }
-.wc-t .br { font: 400 13px var(--mono); color: var(--muted); margin-left: 4px; }
-.wc-what { color: var(--text-2); }
-.wc-ic { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
-.wc-procs { background: color-mix(in srgb, var(--working-bg) 55%, transparent); color: var(--working); border-radius: 8px; padding: 6px 10px; font: 12px var(--mono); overflow-wrap: anywhere; }
-.wc-procs .wc-ic { display: inline; font: inherit; }
-.wc-procs .wc-ic svg { vertical-align: -2px; margin-right: 5px; }
-.land { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.land .c { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; align-items: baseline; }
-.land .c .mono { color: var(--muted); }
-.land details summary { padding: 0; font-size: 12px; color: var(--muted); cursor: pointer; }
-.land details .c { margin-top: 2px; }
-.wc-folders > summary { font-size: 12px; color: var(--muted); cursor: pointer; width: fit-content; }
-.wc-folders .chips { margin-top: 6px; }
-.wc-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
-.wc-tree { margin-left: auto; }
 .tools { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
 .tools > summary { cursor: pointer; font-size: 14px; font-weight: 600; }
 .tools .controls { margin-top: 10px; }
@@ -282,6 +309,10 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
   <div class="wt-head">
     <h2>Worktrees</h2>
     <div class="controls">
+      <div class="switch" role="group" aria-label="View">
+        <button type="button" data-view="repos" aria-pressed="true">By repo</button>
+        <button type="button" data-view="lanes" aria-pressed="false">Lanes</button>
+      </div>
       <label class="hide-free"><input type="checkbox" id="hide-free"> Hide free worktrees</label>
       <span class="updated" id="hidden-count"></span>
     </div>
@@ -309,11 +340,29 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 "use strict";
 // The states the daemon derives for each side worktree (worktree_state in
 // model.rs), in the order the cards sort.
-const ORDER = ["waiting-on-you", "ready-to-land", "winding-down", "working", "held", "landing", "free"];
+const STATES = {
+  "waiting-on-you": {label: "Waiting on you", cls: "s-you"},
+  "ready-to-land": {label: "Ready to land", cls: "s-ready"},
+  "winding-down": {label: "Winding down", cls: "s-winding"},
+  "working": {label: "Working", cls: "s-working"},
+  "held": {label: "Held", cls: "s-winding"},
+  "landing": {label: "Landing", cls: "s-free"},
+  "free": {label: "Free", cls: "s-free"},
+};
+const ORDER = Object.keys(STATES);
+const LANES = [
+  {title: "Waiting on you", hint: "A question only you can answer, or a step only you can do.", dot: "--dot-you", states: ["waiting-on-you"]},
+  {title: "Ready to land", hint: "Commits on the branch whose change main doesn’t have yet.", dot: "--dot-ready", states: ["ready-to-land"]},
+  {title: "Working", hint: "Claimed, with no commit waiting and nothing asked.", dot: "--dot-working", states: ["winding-down", "working", "held", "landing"]},
+  {title: "Free", hint: "Unclaimed worktrees, ready for the next agent.", dot: "--dot-free", states: ["free"]},
+];
+const VIEW_KEY = "builds-dashboard-view";
 const HIDE_FREE_KEY = "builds-dashboard-hide-free";
 let state = null, streamError = "";
-let hideFree = false;
+let view = "repos", hideFree = false;
 try {
+  const saved = localStorage.getItem(VIEW_KEY);
+  if (saved === "repos" || saved === "lanes") view = saved;
   hideFree = localStorage.getItem(HIDE_FREE_KEY) === "true";
 } catch (e) { /* no storage: the defaults */ }
 
@@ -364,6 +413,7 @@ function since(text) {
   return isNaN(t) ? text : when(new Date(t));
 }
 function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+function tilde(path) { return path.replace(/^\/Users\/[^/]+/, "~"); }
 // A worktree's last activity: the newer of its HEAD commit and its newest
 // uncommitted file, in epoch seconds; 0 when git said nothing.
 function activity(c) {
@@ -374,6 +424,13 @@ function activity(c) {
 function sideNumber(name) { const m = /(\d+)$/.exec(name); return m ? Number(m[1]) : 0; }
 // Most recent activity first.
 function byActivity(a, b) { return activity(b) - activity(a) || sideNumber(a.name) - sideNumber(b.name); }
+const QUIET_SECONDS = 30 * 60;
+// Uncommitted files and no write to them for 30 minutes: an agent that may have stalled.
+function quiet(c) {
+  const g = c.git;
+  return !!(g && !g.error && g.uncommitted && g.last_write && Date.now() / 1000 - g.last_write >= QUIET_SECONDS);
+}
+
 // What a checkout's build folders say.
 function built(c) {
   if (!c.folders) return null;
@@ -392,6 +449,7 @@ function built(c) {
 }
 
 function pill(text, cls) { return h("span", {class: "pill " + cls}, text); }
+function stateOf(c) { return STATES[c.state] || {label: c.state, cls: "s-free"}; }
 // A lock is per app checkout of an app lane (mac, android): each has its own
 // holder. A lane has one queue for all its locks, drawn once for the lane
 // (queueMenu) in the toolbar, not on a checkout.
@@ -413,8 +471,18 @@ function detachedAt(c) {
 }
 
 // The build processes at work in a checkout, as one line.
-// Each repo's main checkout, its other live side worktrees (app checkouts are
-// build lanes, not cards), and the build roots whose checkout is gone.
+function activityLine(c) {
+  const a = c.activity;
+  if (!a || !a.processes.length) return null;
+  const counts = {};
+  for (const p of a.processes) counts[p.name] = (counts[p.name] || 0) + 1;
+  const names = Object.entries(counts).map(([n, k]) => k > 1 ? n + " ×" + k : n).join(", ");
+  return h("div", {class: "activity", title: a.processes.map(p => p.name + " " + p.pid).join(", ")},
+    "Building: " + names + " · " + Math.round(a.cpu) + "% CPU · " + bytes(a.memory));
+}
+
+// Each repo's pinned checkouts (main, then an App build per app lane), its other live
+// side worktrees, and the build roots whose checkout is gone.
 function split(repo) {
   const main = repo.checkouts.find(c => c.live && c.main);
   // One App build per app lane, mac first.
@@ -431,6 +499,10 @@ function counts(cs) {
   return n;
 }
 
+function totalBlock(b) {
+  if (!b || b.total === null) return h("div", {class: "total"}, h("span", {class: "of"}, "measuring…"));
+  return h("div", {class: "total"}, h("span", {class: "big"}, size(b.total)), h("span", {class: "of"}, "of build output"));
+}
 // Short names for the build folders; any other shows its path. The chip's
 // title holds the path.
 const FOLDER_NAMES = {
@@ -453,11 +525,22 @@ function folderName(path) {
   const proof = /^spec\/proofs\/([^/]+)\/\.lake$/.exec(path);
   return FOLDER_NAMES[path] || (proof ? "Lean " + proof[1] + " proofs" : path);
 }
-// Every build folder, largest first, and each problem with a folder's link.
-function folderChips(b) {
+// The 3 largest folders inline; the rest behind a disclosure.
+const INLINE_CHIPS = 3;
+function chips(b) {
+  if (!b) return null;
   const chip = f => h("span", {class: "chip" + (f.over ? " over" : ""), title: f.path}, folderName(f.path) + " ",
     h("span", {class: "mono"}, (f.kib === null ? "measuring…" : size(f.kib)) + (f.over ? " over cap" : "")));
-  return h("div", {class: "chips"}, b.chips.map(chip), b.links.map(p => h("span", {class: "chip over"}, p)));
+  const problems = b.links.map(p => h("span", {class: "chip over"}, p));
+  const rest = b.chips.slice(INLINE_CHIPS);
+  return [
+    b.chips.length || problems.length ? h("div", {class: "chips"}, b.chips.slice(0, INLINE_CHIPS).map(chip), problems) : null,
+    rest.length ? h("details", {class: "more-folders"},
+      h("summary", {}, "+" + plural(rest.length, "more folder", "more folders")),
+      h("div", {class: "chips"}, rest.map(chip))) : null];
+}
+function mainLine(repo) {
+  return "Your checkout. No agent works or builds here.";
 }
 // Who waits for the app lock, next first, each with the buttons that move it.
 function queuedName(q) {
@@ -607,69 +690,58 @@ function buildsView() {
   if (els.length !== box.children.length || els.some((el, i) => box.children[i] !== el)) box.replaceChildren(...els);
 }
 
-
-const ICON = {
-  commit: '<circle cx="8" cy="8" r="2.75"/><path d="M1 8h4.25M10.75 8H15"/>',
-  write: '<path d="M10.5 2.5l3 3L6 13H3v-3z"/><path d="M9 4l3 3"/>',
-  claim: '<circle cx="8" cy="5.25" r="2.75"/><path d="M2.75 14c.6-2.9 2.8-4.5 5.25-4.5s4.65 1.6 5.25 4.5"/>',
-};
-function icon(kind, label) {
-  const n = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  for (const [k, v] of Object.entries({viewBox: "0 0 16 16", width: "14", height: "14", fill: "none", stroke: "currentColor",
-    "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-label": label})) n.setAttribute(k, v);
-  n.innerHTML = ICON[kind];
-  return n;
+function pinnedMain(repo, c) {
+  const b = built(c);
+  return h("article", {class: "pinned"},
+    h("div", {class: "row1"},
+      h("div", {class: "ident"}, h("span", {class: "name"}, "main"),
+        h("span", {class: "where"}, tilde(c.path) + " · " + (c.branch || "detached"))),
+      pill("Yours", "s-free")),
+    h("span", {class: "line"}, mainLine(repo)),
+    activityLine(c),
+    totalBlock(b), chips(b));
 }
-const CHIPS = {"Ready to land": "s-ready", "Working": "s-working", "Waiting on you": "s-you"};
-// What a footer figure measures, for its tooltip.
-const TIPS = {
-  commit: "Last commit: time since the newest commit on this checkout's branch.",
-  write: "Last write: time since a file in this worktree last changed, committed or not. A recent write means the agent is still editing.",
-  claim: "Claimed: how long an agent has owned this worktree for its task. Nobody else works here until the task lands and the claim is released.",
-};
-function figure(kind, epoch) { return h("span", {class: "wc-ic", title: TIPS[kind]}, icon(kind, TIPS[kind].split(":")[0]), agoSpan(epoch)); }
-// The commits waiting to land: three in a quiet box, the rest behind a disclosure.
-function landBox(ahead) {
+function waitingBox(c, max) {
+  const ahead = c.git && !c.git.error ? c.git.ahead : [];
   if (!ahead.length) return null;
-  const rows = list => h("div", {class: "c"}, list.flatMap(x => [h("span", {class: "mono"}, x.sha.slice(0, 7)), h("span", {}, x.subject)]));
-  return h("div", {class: "land"}, rows(ahead.slice(0, 3)),
-    ahead.length > 3 ? h("details", {}, h("summary", {}, (ahead.length - 3) + " more"), rows(ahead.slice(3))) : null);
+  return h("div", {class: "waiting"},
+    h("span", {class: "label"}, plural(ahead.length, "commit", "commits") + " waiting to land"),
+    ahead.slice(0, max).map(x => h("div", {class: "commit"}, h("span", {class: "sha"}, x.sha), h("span", {class: "subject"}, x.subject))),
+    ahead.length > max ? h("span", {class: "more"}, "and " + (ahead.length - max) + " more") : null);
 }
-// One worktree's card, its words from the daemon (cards.rs).
-function wtCard(c) {
-  const g = c.git, w = c.words, b = built(c), a = c.activity, building = a.processes.length > 0;
-  const folders = b && b.chips.length + b.links.length ? h("details", {class: "wc-folders"}, h("summary", {}, "Build folders"), folderChips(b)) : null;
-  const problems = b ? b.over.concat(b.links) : [];
+function buildFact(b) {
+  if (!b || b.total === null) return h("span", {}, "build size measuring…");
+  if (b.over.length) return h("span", {class: "bad", title: b.over.join("; ")}, "build " + size(b.total) + " over cap");
+  return h("span", {}, "build " + size(b.total));
+}
+function card(c) {
+  const st = stateOf(c), g = c.git, b = built(c);
   const foot = [];
-  if (g && g.head) foot.push(figure("commit", g.head.time));
-  if (g && g.last_write) foot.push(figure("write", g.last_write));
-  if (c.claim) { const t = Date.parse(c.claim.since.replace(" ", "T")); if (!isNaN(t)) foot.push(figure("claim", t / 1000)); }
-  return h("div", {class: "wc"},
-    h("div", {class: "wc-bar" + (building ? " building" : "")},
-      h("span", {class: "grp"}, w.chip ? pill(w.chip, CHIPS[w.chip]) : null,
-        building ? h("span", {}, Math.round(a.cpu) + "% CPU · " + memory(a.memory)) : null),
-      h("span", {class: "disk", title: "Disk: the build output this worktree holds on the build volume."},
-        b && b.total !== null ? size(b.total) : "measuring…")),
-    h("div", {class: "wc-t"}, h("span", {title: detachedAt(c)}, h("b", {}, c.name), h("span", {class: "br"}, detachedAt(c)))),
-    h("div", {class: "wc-what"}, w.line),
+  if (g && g.head) foot.push(agoSpan(g.head.time, "last commit ", " ago"));
+  if (g && !g.error) foot.push(g.uncommitted ? h("span", {}, plural(g.uncommitted, "file", "files") + " changed") : h("span", {}, "clean"));
+  if (g && g.last_write) foot.push(agoSpan(g.last_write, "last write ", " ago"));
+  if (quiet(c)) foot.push(h("span", {class: "quiet", title: "Uncommitted files, and none written for 30 minutes"}, "quiet"));
+  foot.push(buildFact(b));
+  if (b) for (const p of b.links) foot.push(h("span", {class: "bad"}, p));
+  if (c.claim) foot.push(h("span", {}, "since " + since(c.claim.since)));
+  return h("article", {class: "card"},
+    h("div", {class: "row1"},
+      h("div", {class: "ident"}, h("span", {class: "name"}, c.name), h("span", {class: "where", title: detachedAt(c)}, detachedAt(c))),
+      pill(st.label, st.cls)),
+    h("div", {class: "who-block"},
+      h("span", {class: "who"}, c.claim ? c.claim.who : "Unclaimed"),
+      c.claim && c.claim.note ? h("span", {class: "note"}, c.claim.note) : null),
     g && g.error ? h("div", {class: "error"}, g.error) : null,
-    building ? h("div", {class: "wc-procs"}, h("span", {class: "wc-ic", title: "Building: how long the build running in this worktree has run, and the programs it runs."},
-        HAMMER(), a.started ? agoSpan(a.started) : ""), " · " + programs(countNames(a.processes))) : null,
-    landBox(g && !g.error ? g.ahead : []),
-    problems.length ? h("div", {class: "bad"}, problems.join("; ")) : null,
-    folders,
-    h("div", {class: "wc-foot"}, foot, w.tree ? h("span", {class: "wc-tree"}, w.tree) : null));
-}
-function countNames(processes) {
-  const found = [];
-  for (const p of processes) {
-    const known = found.find(f => f.name === p.name);
-    if (known) known.count++; else found.push({name: p.name, count: 1});
-  }
-  return found;
+    activityLine(c),
+    waitingBox(c, 10),
+    h("div", {class: "foot"}, foot));
 }
 
 function summary(parts) { return parts.filter(Boolean).join(" · "); }
+function stateCounts(cs) {
+  const n = counts(cs);
+  return ORDER.filter(s => n[s]).map(s => n[s] + " " + STATES[s].label.toLowerCase());
+}
 function goneLine(gone) {
   return gone.length ? plural(gone.length, "build root whose checkout is gone", "build roots whose checkouts are gone") +
     " (" + gone.map(c => c.name).join(", ") + "; builds prune deletes them)" : null;
@@ -709,24 +781,87 @@ function slot(parent, key, make) {
   return el;
 }
 
-// Each repo's worktrees: its checkout, then the agents' by state and recent
-// activity; the build roots whose checkout is gone are named in a line.
 function reposView(root) {
   const items = state.repos.map(repo => ({key: "repo:" + repo.name, data: null, repo}));
+  // Sections are kept by repo; their insides are patched below.
   const sections = items.map(item => {
     const repo = item.repo;
     const section = slot(root, item.key, () => h("section", {class: "repo"},
-      state.repos.length > 1 ? h("div", {class: "repo-head"}, h("h2", {}, repo.name)) : null,
-      h("div", {class: "wts"}), h("div", {class: "loading gone"})));
-    const {main, sides, gone} = split(repo);
-    section.querySelector(".gone").textContent = goneLine(gone) || "";
-    const cards = [];
-    if (main) cards.push({key: "main", data: main, make: () => wtCard(main)});
-    for (const c of shown(sides)) cards.push({key: c.name, data: c, make: () => wtCard(c)});
-    patch(section.querySelector(".wts"), cards);
+      h("div", {class: "repo-head"}, h("h2", {}, repo.name), h("span", {})),
+      h("div", {class: "pinned-grid"}), h("div", {class: "cards"})));
+    const {main, apps, sides, gone} = split(repo);
+    const agents = sides.filter(c => c.claim && c.state !== "landing").length;
+    section.querySelector(".repo-head span").textContent =
+      summary([agents ? plural(agents, "agent", "agents") : null, ...stateCounts(sides), goneLine(gone)]) || "no side worktrees";
+    const pinned = [];
+    if (main) pinned.push({key: "main", data: [repo.lanes, main], make: () => pinnedMain(repo, main)});
+    patch(section.querySelector(".pinned-grid"), pinned);
+    patch(section.querySelector(".cards"), shown(sides).map(c => ({key: c.name, data: c, make: () => card(c)})));
     return section;
   });
+  // Only their order and presence: each one's insides were patched above.
   patch(root, sections.map(s => ({key: s.dataset.key, data: null, make: () => s})));
+}
+
+function compactMain(repo, c) {
+  const b = built(c);
+  return h("article", {class: "pinned compact"},
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " main"), h("span", {class: "big"}, b && b.total !== null ? size(b.total) : "measuring…")),
+    h("span", {class: "line"}, "Yours. No agent works or builds here."),
+    activityLine(c));
+}
+function laneCard(repo, c) {
+  const g = c.git, b = built(c);
+  const tag = ["winding-down", "held", "landing"].includes(c.state) ? pill(stateOf(c).label, stateOf(c).cls) : null;
+  let note = c.claim && c.claim.note ? c.claim.note : null;
+  if (!c.claim) note = summary([detachedAt(c), b && b.total !== null ? size(b.total) + " build" : null]);
+  else if (b && b.over.length) note = (note ? note + " " : "") + "Build folder over its cap.";
+  return h("article", {class: "lcard"},
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " " + c.name),
+      h("span", {class: "age", title: "last activity: the newer of the last commit and the newest uncommitted file"},
+        activity(c) ? agoSpan(activity(c)) : "", quiet(c) ? " " : "", quiet(c) ? h("span", {class: "quiet"}, "quiet") : null)),
+    h("span", {class: "who"}, c.claim ? c.claim.who : "Unclaimed"),
+    tag,
+    note ? h("span", {class: "note"}, note) : null,
+    activityLine(c),
+    g && g.error ? h("div", {class: "error"}, g.error) : null,
+    g && !g.error && g.ahead.length ? h("div", {class: "commits"},
+      g.ahead.slice(0, 6).map(x => h("div", {class: "commit"}, h("span", {class: "sha"}, x.sha), h("span", {class: "subject"}, x.subject))),
+      g.ahead.length > 6 ? h("span", {class: "more"}, "and " + (g.ahead.length - 6) + " more") : null) : null);
+}
+function lanesView(root) {
+  const pinned = [], all = [], gone = [];
+  for (const repo of state.repos) {
+    const s = split(repo);
+    if (s.main) pinned.push({key: repo.name + " main", data: [s.main], make: () => compactMain(repo, s.main)});
+    for (const c of s.sides) all.push([repo, c]);
+    for (const c of s.gone) gone.push(c);
+  }
+  const pinnedRow = slot(root, "pinned", () => h("div", {class: "pinned-row"}));
+  patch(pinnedRow, pinned);
+  const goneEl = slot(root, "gone", () => h("div", {class: "loading"}));
+  goneEl.textContent = goneLine(gone) || "";
+  const lanes = slot(root, "lanes", () => h("div", {class: "lanes"}));
+  patch(lanes, LANES.filter(lane => !(hideFree && lane.states.includes("free"))).map(lane => ({
+    key: lane.title, data: null, lane,
+    make: () => h("section", {class: "lane"},
+      h("div", {class: "lane-head"},
+        h("div", {}, h("span", {class: "dot", style: "background: var(" + lane.dot + ")"}), h("h2", {}, lane.title)),
+        h("span", {class: "count"})),
+      h("span", {class: "hint"}, lane.hint),
+      h("div", {class: "lane-cards"})),
+  })));
+  for (const laneEl of lanes.children) {
+    const lane = LANES.find(l => l.title === laneEl.dataset.key);
+    const cards = all.filter(([, c]) => lane.states.includes(c.state));
+    cards.sort((a, b) => lane.states.indexOf(a[1].state) - lane.states.indexOf(b[1].state) || byActivity(a[1], b[1]));
+    laneEl.querySelector(".count").textContent = String(cards.length);
+    const holder = laneEl.querySelector(".lane-cards");
+    holder.style.display = "flex"; holder.style.flexDirection = "column"; holder.style.gap = "10px";
+    if (cards.length) patch(holder, cards.map(([repo, c]) => ({key: repo.name + " " + c.name, data: c, make: () => laneCard(repo, c)})));
+    else patch(holder, [{key: "none", data: null, make: () => h("span", {class: "none"}, "None.")}]);
+  }
+  for (const el of Array.from(root.children)) if (!["pinned", "gone", "lanes"].includes(el.dataset.key)) el.remove();
 }
 
 const HAMMER = () => { const n = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -845,6 +980,7 @@ function tick() {
 }
 
 function render() {
+  for (const b of document.querySelectorAll(".switch button")) b.setAttribute("aria-pressed", String(b.dataset.view === view));
   document.getElementById("errors").replaceChildren(...[streamError].filter(Boolean).map(e => h("div", {class: "error"}, e)));
   if (!state) return;
   const sides = state.repos.flatMap(r => split(r).sides);
@@ -857,10 +993,19 @@ function render() {
   queuesView();
   buildsView();
   appBuildsView();
-  reposView(document.getElementById("view"));
+  const root = document.getElementById("view");
+  if (root.dataset.view !== view) { root.replaceChildren(); root.dataset.view = view; }
+  if (view === "lanes") lanesView(root); else reposView(root);
   tick();
 }
 
+for (const b of document.querySelectorAll(".switch button")) {
+  b.addEventListener("click", () => {
+    view = b.dataset.view;
+    try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* kept for this page only */ }
+    render();
+  });
+}
 document.getElementById("hide-free").addEventListener("change", e => {
   hideFree = e.target.checked;
   try { localStorage.setItem(HIDE_FREE_KEY, String(hideFree)); } catch (err) { /* kept for this page only */ }
