@@ -18,6 +18,7 @@ pub mod live;
 pub mod model;
 pub mod runs;
 pub mod tracker;
+pub mod vnode;
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};

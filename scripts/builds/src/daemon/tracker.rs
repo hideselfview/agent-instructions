@@ -30,9 +30,10 @@
 //!   question waits for its mark, which is applied after the walk, so its
 //!   answer counts every write; `status` and the page get the old sizes
 //!   meanwhile.
-//! - The root changing or its volume unmounting stops the stream; a stream
-//!   on the root's parent reports it coming back, and then the stream starts
-//!   again and the root is walked. Nothing polls.
+//! - The root changing or its volume unmounting stops the stream; a kqueue
+//!   watch on the root's parent (vnode.rs: FSEvents delivers too late to say
+//!   when the root came back) reports it coming back, and then the stream
+//!   starts again and the root is walked. Nothing polls.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::Metadata;
@@ -43,6 +44,7 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use super::fsevents::{Event, Stream, flags};
 use super::index::{Entry, Index, KindOf, Listed, NodeId, ROOT, gone, list_metadata, walk};
+use super::vnode::Watch;
 use crate::usage::Measure;
 
 const WORKERS: usize = 8;
@@ -53,9 +55,11 @@ struct Flags {
     ready: bool,
     /// Events that arrived while the index was being walked.
     pending: Vec<Event>,
-    /// The root's (dev, inode) when its stream started.
+    /// The root's (dev, inode) as the supervisor found it when it last took
+    /// up a restart; None when the root was gone then.
     followed: Option<(u64, u64)>,
-    /// The root's stream needs starting again.
+    /// The root is not the folder `followed` names (or came back), and the
+    /// supervisor has not yet taken that up.
     restart: bool,
     /// How many times the root has been walked whole.
     walks: u64,
@@ -111,7 +115,7 @@ pub struct Tracker {
     #[cfg(test)]
     heard: std::sync::atomic::AtomicU64,
     /// Follows the root's parent, to learn the root came back.
-    _parent: Option<Stream>,
+    _parent: Option<Watch>,
 }
 
 /// One folder's answer: its size and newest write, or None when the daemon
@@ -154,16 +158,18 @@ impl Tracker {
         let tracker = Arc::new_cyclic(|me: &std::sync::Weak<Tracker>| {
             let weak = me.clone();
             let parent = root.parent().and_then(|parent| {
-                Stream::start(
-                    &[parent],
-                    &[],
-                    0.5,
-                    Box::new(move |_| {
-                        if let Some(tracker) = weak.upgrade() {
-                            tracker.parent_changed();
-                        }
-                    }),
-                )
+                Watch::start(parent, move || {
+                    if let Some(tracker) = weak.upgrade() {
+                        tracker.parent_changed();
+                    }
+                })
+                .inspect_err(|error| {
+                    eprintln!(
+                        "builds: watching {}: {error}; a root that comes back goes unseen",
+                        parent.display()
+                    );
+                })
+                .ok()
             });
             Tracker {
                 root: root.to_path_buf(),
@@ -206,32 +212,44 @@ impl Tracker {
         Ok(tracker)
     }
 
-    fn signal_restart(&self, why: &str) {
-        eprintln!("builds: {} {why}; following it again", self.root.display());
+    /// The root's (dev, inode) now; None when it is gone.
+    fn root_identity(&self) -> Option<(u64, u64)> {
+        std::fs::symlink_metadata(&self.root)
+            .ok()
+            .map(|meta| (meta.dev(), meta.ino()))
+    }
+
+    /// Asks the supervisor to follow the root again when the folder at its
+    /// path is not the one the supervisor took up last (or came back after
+    /// it was gone), and says whether it asked. Every signal that reports the
+    /// same replacement (the root's stream, the parent's stream, events of
+    /// the old stream still queued) finds the supervisor already asked, or
+    /// already following the new folder, so one replacement is one restart.
+    /// The supervisor reads the root's identity under the same lock when it
+    /// takes up a restart, so a signal never sees a half-made change.
+    fn signal_restart(&self, why: &str) -> bool {
         let mut flags = self.flags.lock().expect("no panic holding it");
+        if flags.restart || self.root_identity() == flags.followed {
+            return false;
+        }
+        eprintln!("builds: {} {why}; following it again", self.root.display());
         flags.restart = true;
         flags.ready = false;
-        flags.followed = None;
         self.wake.notify_all();
+        true
     }
 
     /// Something changed beside the root: it may have come back, or been
     /// replaced.
     fn parent_changed(&self) {
-        let followed = self.flags.lock().expect("no panic holding it").followed;
-        let back = followed.is_none() && self.root.is_dir();
-        if back {
-            self.signal_restart("came back");
-        } else if followed.is_some() && self.root_replaced() {
-            self.signal_restart("was replaced");
-        }
+        self.signal_restart("changed beside it");
     }
 
     /// Starts the root's stream and walks the root whenever a restart is
     /// due and the root is there.
     fn supervise(self: Arc<Self>) {
         loop {
-            {
+            let meta = {
                 let mut flags = self.flags.lock().expect("no panic holding it");
                 while !flags.restart {
                     flags = self.wake.wait(flags).expect("no panic holding it");
@@ -239,10 +257,15 @@ impl Tracker {
                 flags.restart = false;
                 flags.ready = false;
                 flags.pending.clear();
-            }
-            *self.stream.lock().expect("no panic holding it") = None;
-            self.flags.lock().expect("no panic holding it").followed = None;
-            let Ok(meta) = std::fs::symlink_metadata(&self.root) else {
+                // Stops the old stream, and reads the root, with the flags
+                // held: a signal then sees the old folder followed and the
+                // restart pending, or this folder followed, never in between.
+                *self.stream.lock().expect("no panic holding it") = None;
+                let meta = std::fs::symlink_metadata(&self.root);
+                flags.followed = meta.as_ref().ok().map(|meta| (meta.dev(), meta.ino()));
+                meta
+            };
+            let Ok(meta) = meta else {
                 eprintln!(
                     "builds: {} is gone; waiting for it to come back",
                     self.root.display()
@@ -255,8 +278,6 @@ impl Tracker {
                 *self.index.lock().expect("no panic holding it") = Index::new(&self.root, &meta);
                 *epoch
             };
-            self.flags.lock().expect("no panic holding it").followed =
-                Some((meta.dev(), meta.ino()));
             let me = Arc::downgrade(&self);
             let trash = self.root.join(".trash");
             let stream = Stream::start(
@@ -323,15 +344,6 @@ impl Tracker {
         }
     }
 
-    /// Is the root no longer the folder its stream started on?
-    fn root_replaced(&self) -> bool {
-        let followed = self.flags.lock().expect("no panic holding it").followed;
-        let now = std::fs::symlink_metadata(&self.root)
-            .ok()
-            .map(|meta| (meta.dev(), meta.ino()));
-        now.is_none() || now != followed
-    }
-
     /// Applies the queued events, everything queued at once, for as long
     /// as the daemon runs.
     fn apply_loop(&self) {
@@ -382,8 +394,7 @@ impl Tracker {
             event.flags & (flags::ROOT_CHANGED | flags::UNMOUNT) != 0
                 && event.path.starts_with(&self.root)
         });
-        if root_changed && self.root_replaced() {
-            self.signal_restart("moved or unmounted");
+        if root_changed && self.signal_restart("moved or unmounted") {
             return;
         }
         {
@@ -856,10 +867,9 @@ impl Tracker {
     }
 
     /// Blocks until the whole root is walked and followed as the folder now
-    /// at the root's path. A replaced root restarts the tracker once for each
-    /// signal that reports it (the root's stream, the parent's stream, events
-    /// of the old stream still queued), so a count of walks does not say the
-    /// last restart is done; the folder's identity does.
+    /// at the root's path. A count of walks does not say the last restart is
+    /// done (a root replaced twice is walked twice); the folder's identity
+    /// does.
     #[cfg(test)]
     pub fn wait_following_current_root(&self) {
         let hang_guard = std::time::Instant::now() + std::time::Duration::from_secs(120);
@@ -872,7 +882,15 @@ impl Tracker {
                 return;
             }
             let left = hang_guard.saturating_duration_since(std::time::Instant::now());
-            assert!(!left.is_zero(), "the root was never followed again");
+            if left.is_zero() {
+                // Release the lock first: a panic holding it would poison it
+                // for every other thread and bury this failure under theirs.
+                drop(flags);
+                panic!(
+                    "the root was never followed again; tracker: {}",
+                    self.describe()
+                );
+            }
             flags = self
                 .wake
                 .wait_timeout(flags, left)
