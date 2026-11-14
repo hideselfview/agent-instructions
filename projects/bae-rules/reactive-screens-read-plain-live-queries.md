@@ -55,6 +55,12 @@ subscribe(SELECT COUNT(*) FROM ...)               -- the count
 -- A scan write reruns the count, and only the window the new row lands in.
 ```
 
+A window reads by cursor because coven reruns a live query when any row it read
+changes: `WHERE (sort) > (:edge) ORDER BY sort LIMIT 100` reads only its own
+rows, so an insert above it leaves it alone, while `LIMIT 100 OFFSET 200` steps
+over the 200 rows before it, so any insert above reruns it. A screen shows two
+or three windows, so that is two or three small queries.
+
 A window pages by cursor: the next or previous window starts from the sort
 values of the row at the screen's edge, which the screen sends in the request,
 and seeks through the order's index. A jump to a position (a scrollbar drag, an
