@@ -56,6 +56,12 @@ draws them with its own parts.
   page in a modal. Every board on that page is drawn live from the design
   session's worktree, in a frame the person can zoom, and drawn again on each
   load, so a redraw shows on reload. The session keeps no page of its own.
+- Everything the person reviews goes there: new boards, proposals, before and
+  after examples. Never a hand-made page (a `review.html`, a page in the
+  scratchpad) and never a new browser tab; the person reloads the review page.
+  Fixes that only make boards follow the design system's measures, or correct a
+  drawing mistake in the session's own work, need no review: the session judges
+  them and lands them (the person, 2026-11-14).
 - Once the person says to land it, the session approves it
   (`builds design approve N --by-person`) and lands with
   `builds land <worktree> --design N <sha>...`. The change closes and leaves the
