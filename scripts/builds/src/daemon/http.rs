@@ -21,17 +21,17 @@
 //!                   the daemon (runs.rs), 409 when the lane has a build
 //!                   queued or running; the runs are in `/api/state` and its
 //!                   events, with their output
-//!     POST /design/<design id>/approve  records the person's approval of that
+//!     POST /design/<project>/<design id>/approve  records the person's approval of that
 //!                   design change and tells the session that recorded it;
 //!                   only from this Mac (see `approve`)
 //!     /api/lists    the lists JSON (lists/view.rs, plus each running item's
 //!                   claim facts), as the `lists` event carries it
 //!     /api/hooks    the hook runs' figures and latest runs (hook_stats.rs),
 //!                   as the `hooks` event carries them
-//!     /design/<design id>
+//!     /design/<project>/<design id>
 //!                   the review page of an open design change, drawn now
-//!     /design/<design id>/board/<n>/now and /proposed
-//!     /design/<design id>/deleted/<k>/now
+//!     /design/<project>/<design id>/board/<n>/now and /proposed
+//!     /design/<project>/<design id>/deleted/<k>/now
 //!                   a board of that page as it stands on origin/main (now)
 //!                   or at the change's last commit (proposed), drawn now;
 //!                   the page's frames load these
@@ -152,16 +152,16 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         );
     }
     if method == "POST"
-        && let Some(id) = design_approve_id(path)
+        && let Some((project, id)) = design_approve_target(path)
     {
-        return approve(&mut stream, model, id);
+        return approve(&mut stream, model, project, id);
     }
     if method != "GET" {
         return respond(
             &mut stream,
             "405 Method Not Allowed",
             "text/plain; charset=utf-8",
-            b"GET only, and POST /api/queue, /api/build-app and /design/N/approve\n",
+            b"GET only, and POST /api/queue, /api/build-app and /design/PROJECT/N/approve\n",
         );
     }
     match path {
@@ -199,9 +199,11 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         "/events" => events(stream, model),
         _ if path.starts_with("/design/") => {
             let drawn = design_route(&path["/design/".len()..]).and_then(|route| match route {
-                DesignRoute::Page(id) => model.design_page(id),
-                DesignRoute::Board(id, n, side) => model.design_board(id, n, side),
-                DesignRoute::Deleted(id, k) => model.design_deleted_board(id, k),
+                DesignRoute::Page(project, id) => model.design_page(project, id),
+                DesignRoute::Board(project, id, n, side) => {
+                    model.design_board(project, id, n, side)
+                }
+                DesignRoute::Deleted(project, id, k) => model.design_deleted_board(project, id, k),
             });
             match drawn {
                 Some(Ok(page)) => respond(
@@ -235,32 +237,40 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
 
 /// What a `/design/...` path asks for.
 #[derive(Debug, PartialEq, Eq)]
-enum DesignRoute {
-    /// The review page of design change <id>.
-    Page(u32),
+enum DesignRoute<'a> {
+    /// The review page of design change <id> of the project.
+    Page(&'a str, u32),
     /// The now or proposed drawing of the <n>th board of its review page.
-    Board(u32, usize, Side),
+    Board(&'a str, u32, usize, Side),
     /// The now of the <k>th board it deletes.
-    Deleted(u32, usize),
+    Deleted(&'a str, u32, usize),
 }
 
-/// <rest> is the path after `/design/`: `<id>`, `<id>/board/<n>/now`,
-/// `<id>/board/<n>/proposed` or `<id>/deleted/<k>/now`.
-fn design_route(rest: &str) -> Option<DesignRoute> {
+/// <rest> is the path after `/design/`: `<project>/<id>`,
+/// `<project>/<id>/board/<n>/now`, `.../board/<n>/proposed` or
+/// `<project>/<id>/deleted/<k>/now`. Ids count per project, so the project
+/// is in every address.
+fn design_route(rest: &str) -> Option<DesignRoute<'_>> {
     let parts: Vec<&str> = rest.split('/').collect();
     match parts.as_slice() {
-        [id] => Some(DesignRoute::Page(id.parse().ok()?)),
-        [id, "board", n, "now"] => Some(DesignRoute::Board(
+        [project, id] => Some(DesignRoute::Page(project, id.parse().ok()?)),
+        [project, id, "board", n, "now"] => Some(DesignRoute::Board(
+            project,
             id.parse().ok()?,
             n.parse().ok()?,
             Side::Now,
         )),
-        [id, "board", n, "proposed"] => Some(DesignRoute::Board(
+        [project, id, "board", n, "proposed"] => Some(DesignRoute::Board(
+            project,
             id.parse().ok()?,
             n.parse().ok()?,
             Side::Proposed,
         )),
-        [id, "deleted", k, "now"] => Some(DesignRoute::Deleted(id.parse().ok()?, k.parse().ok()?)),
+        [project, id, "deleted", k, "now"] => Some(DesignRoute::Deleted(
+            project,
+            id.parse().ok()?,
+            k.parse().ok()?,
+        )),
         _ => None,
     }
 }
@@ -318,11 +328,13 @@ fn changes_state(method: &str) -> bool {
     method != "GET" && method != "HEAD"
 }
 
-/// The design change id of `/design/<id>/approve`.
-fn design_approve_id(path: &str) -> Option<u32> {
-    path.strip_prefix("/design/")
-        .and_then(|rest| rest.strip_suffix("/approve"))
-        .and_then(|id| id.parse().ok())
+/// The project and design change id of `/design/<project>/<id>/approve`.
+fn design_approve_target(path: &str) -> Option<(&str, u32)> {
+    let (project, id) = path
+        .strip_prefix("/design/")?
+        .strip_suffix("/approve")?
+        .split_once('/')?;
+    Some((project, id.parse().ok()?))
 }
 
 fn refuse_not_here(stream: &mut TcpStream) -> std::io::Result<()> {
@@ -337,21 +349,22 @@ fn refuse_not_here(stream: &mut TcpStream) -> std::io::Result<()> {
 }
 
 /// Records the person's approval of design change <id> and tells the session
-/// that recorded it (`POST /design/N/approve`). Only the person at this Mac
+/// that recorded it (`POST /design/PROJECT/N/approve`). Only the person at this Mac
 /// approves (`handle` checks `from_this_mac`). Answers `{"approved": true, "already": bool,
 /// "session": null|"unrecorded"|"told"|"ended"}`.
-fn approve(stream: &mut TcpStream, model: &Model, id: u32) -> std::io::Result<()> {
+fn approve(stream: &mut TcpStream, model: &Model, project: &str, id: u32) -> std::io::Result<()> {
     use crate::lists::design_session::Approval;
-    let answer = super::approve::approve_design(&model.places, super::model::now_seconds(), id)
-        .map(|approval| {
-            let (already, session) = match approval {
-                Approval::Already => (true, None),
-                Approval::Recorded(session) => (false, Some(session)),
-            };
-            serde_json::json!({ "approved": true, "already": already, "session": session })
-                .to_string()
-                .into_bytes()
-        });
+    let answer =
+        super::approve::approve_design(&model.places, super::model::now_seconds(), project, id)
+            .map(|approval| {
+                let (already, session) = match approval {
+                    Approval::Already => (true, None),
+                    Approval::Recorded(session) => (false, Some(session)),
+                };
+                serde_json::json!({ "approved": true, "already": already, "session": session })
+                    .to_string()
+                    .into_bytes()
+            });
     json(stream, answer)
 }
 

@@ -423,13 +423,13 @@ fn drawing(design: &DesignChange, side: Side, board: &str, src: &str) -> Value {
 /// has it, which holds the app work its places resolve to. A board whose size
 /// or file can't be read shows as that problem in its place, not as a page
 /// that fails whole.
-pub fn review_page(design: &DesignChange, view: &DesignView) -> Result<String> {
+pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> Result<String> {
     let mut n = 0;
     let mut sections = Vec::new();
     for section in &design.review {
         let mut boards = Vec::new();
         for board in &section.boards {
-            let src = format!("/design/{}/board/{n}", design.id.0);
+            let src = format!("/design/{project}/{}/board/{n}", design.id.0);
             boards.push(json!({
                 "path": board.board,
                 "caption": board.caption,
@@ -448,7 +448,7 @@ pub fn review_page(design: &DesignChange, view: &DesignView) -> Result<String> {
         .iter()
         .enumerate()
         .map(|(k, path)| {
-            let src = format!("/design/{}/deleted/{k}", design.id.0);
+            let src = format!("/design/{project}/{}/deleted/{k}", design.id.0);
             // A deleted board is a file on origin/main, so it is never `absent` there.
             json!({ "path": path, "now": drawing(design, Side::Now, path, &src) })
         })

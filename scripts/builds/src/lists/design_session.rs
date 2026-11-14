@@ -1,7 +1,7 @@
 //! The session that recorded a design change, and telling it the person
 //! approved: `design record` and `design amend` keep the recording session's
 //! inbox socket and token from their environment, and the dashboard's Approve
-//! button sends "Design change #N approved: land it." to that socket, once.
+//! button sends "Design change #N of project P approved: land it." to that socket, once.
 //! The table is `design_session.sql`; this is the only code that writes it.
 //!
 //! The token is a per-session secret. It lives in the table and in the
@@ -211,8 +211,11 @@ pub enum Approval {
 }
 
 /// The words the session is sent.
-pub fn approved_words(id: Id) -> String {
-    format!("Design change #{} approved: land it.", id.0)
+pub fn approved_words(project: &str, id: Id) -> String {
+    format!(
+        "Design change #{} of project {project} approved: land it.",
+        id.0
+    )
 }
 
 /// Records the person's approval of design change <id> in <store> as
@@ -238,7 +241,7 @@ pub fn approve_and_tell(store: &Store, id: Id, stamp: &Stamp) -> Result<Approval
     let Some(to) = to else {
         return Ok(Approval::Recorded(SessionState::Unrecorded));
     };
-    let told = match send(&to, &approved_words(id))? {
+    let told = match send(&to, &approved_words(&store.project, id))? {
         Sent::Delivered => "delivered",
         Sent::Gone => "ended",
     };

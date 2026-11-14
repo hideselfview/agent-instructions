@@ -625,22 +625,23 @@ impl Model {
 
     /// The review page of open design change <id>, drawn now; None when no
     /// open design change has that id.
-    pub fn design_page(&self, id: u32) -> Option<crate::fail::Result<String>> {
+    pub fn design_page(&self, project: &str, id: u32) -> Option<crate::fail::Result<String>> {
         let (_, snapshot) = self.lists.current();
-        let (design, view) = super::lists::open_design(&snapshot, id)?;
-        Some(crate::design_render::review_page(&design, &view))
+        let (design, view) = super::lists::open_design(&snapshot, project, id)?;
+        Some(crate::design_render::review_page(&design, &view, project))
     }
 
     /// <side> of the <n>th board of open design change <id>'s review page,
     /// drawn now; None when there is no such change or board.
     pub fn design_board(
         &self,
+        project: &str,
         id: u32,
         n: usize,
         side: crate::design_render::Side,
     ) -> Option<crate::fail::Result<String>> {
         let (_, snapshot) = self.lists.current();
-        let (design, _) = super::lists::open_design(&snapshot, id)?;
+        let (design, _) = super::lists::open_design(&snapshot, project, id)?;
         let board = crate::design_render::review_board(&design, n)?;
         Some(
             crate::design_render::source_of(&design, side).and_then(|from| {
@@ -651,9 +652,14 @@ impl Model {
 
     /// The now of the <k>th board open design change <id> deletes, drawn now;
     /// None when there is no such change or board.
-    pub fn design_deleted_board(&self, id: u32, k: usize) -> Option<crate::fail::Result<String>> {
+    pub fn design_deleted_board(
+        &self,
+        project: &str,
+        id: u32,
+        k: usize,
+    ) -> Option<crate::fail::Result<String>> {
         let (_, snapshot) = self.lists.current();
-        let (design, _) = super::lists::open_design(&snapshot, id)?;
+        let (design, _) = super::lists::open_design(&snapshot, project, id)?;
         let board = crate::design_render::deleted_board(&design, k)?;
         Some(
             crate::design_render::source_of(&design, crate::design_render::Side::Now).and_then(

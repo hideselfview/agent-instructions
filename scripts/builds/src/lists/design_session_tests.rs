@@ -63,7 +63,7 @@ fn approving_sends_the_auth_line_then_the_user_message_and_marks_the_session_tol
     let message: serde_json::Value = serde_json::from_str(&lines[1]).unwrap();
     assert_eq!(
         message,
-        serde_json::json!({"type": "user", "message": {"role": "user", "content": "Design change #1 approved: land it."}})
+        serde_json::json!({"type": "user", "message": {"role": "user", "content": "Design change #1 of project demo approved: land it."}})
     );
     assert_eq!(h.state(), SessionState::Told);
     let lists = h.store.load().unwrap();

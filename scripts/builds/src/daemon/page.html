@@ -1238,7 +1238,7 @@ const reviewDialog = document.getElementById("review"), reviewFrame = document.g
 // The review page of an open design change, drawn by the daemon from the
 // change's worktree each time it loads.
 function openReview(g) {
-  const url = "/design/" + g.id;
+  const url = "/design/" + encodeURIComponent(lists.project) + "/" + g.id;
   document.getElementById("rv-title").textContent = g.title + " (#" + g.id + ")";
   document.getElementById("rv-open").href = url;
   reviewFrame.src = url;

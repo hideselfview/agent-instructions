@@ -101,7 +101,7 @@ served at 127.0.0.1 or localhost, on this Mac (the dashboard may also listen on
 the Wi-Fi's address, where anyone could reach it): the daemon refuses an
 approval from a connection that is not from this Mac or whose page or origin
 is another address, and a page served at another address says approval is only
-on this Mac. The approval then sends "Design change #N approved: land it." to
+on this Mac. The approval then sends "Design change #N of project P approved: land it." to
 the session that recorded the change, which lands it (builds land, then
 publishes the canvas, which only a Claude session can do). `design record` and
 `design amend` keep the inbox of the session that runs them, from its

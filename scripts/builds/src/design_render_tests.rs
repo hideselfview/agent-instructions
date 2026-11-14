@@ -183,7 +183,7 @@ fn a_review_page_has_its_sections_and_each_board_now_and_proposed_sized_from_the
     let tip = commit(&dir);
     set_origin_main(&dir, &tip);
     let (change, view) = review_of(&dir, &tip);
-    let page = review_page(&change, &view).unwrap();
+    let page = review_page(&change, &view, "demo").unwrap();
     assert!(
         !page.contains("A </script> heading"),
         "text can't end the data script"
@@ -196,7 +196,7 @@ fn a_review_page_has_its_sections_and_each_board_now_and_proposed_sized_from_the
     for side in ["now", "proposed"] {
         assert_eq!(
             boards[0][side],
-            json!({ "w": 400, "h": 300, "src": format!("/design/{id}/board/0/{side}") }),
+            json!({ "w": 400, "h": 300, "src": format!("/design/demo/{id}/board/0/{side}") }),
             "{side}"
         );
     }
@@ -245,7 +245,7 @@ fn now_is_origin_main_and_proposed_is_the_last_commit_each_with_its_own_design_s
     .unwrap();
     let tip = commit(&dir);
     let (change, view) = review_of(&dir, &tip);
-    let data = page_data(&review_page(&change, &view).unwrap());
+    let data = page_data(&review_page(&change, &view, "demo").unwrap());
     let board = &data["sections"][0]["boards"][0];
     assert_eq!(
         (&board["now"]["w"], &board["now"]["h"]),
@@ -306,24 +306,24 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
     ];
     change.deleted.insert("design/mocks/Old.dc.html".into());
     let view = design_view(&crate::lists::fixtures::read(&db()), &change, None);
-    let data = page_data(&review_page(&change, &view).unwrap());
+    let data = page_data(&review_page(&change, &view, "demo").unwrap());
     let id = change.id.0;
     let boards = &data["sections"][0]["boards"];
     assert_eq!(
         boards[0]["now"]["src"],
-        json!(format!("/design/{id}/board/0/now"))
+        json!(format!("/design/demo/{id}/board/0/now"))
     );
     assert_eq!(boards[1]["now"], json!({ "absent": true }));
     assert_eq!(
         boards[1]["proposed"],
-        json!({ "w": 70, "h": 80, "src": format!("/design/{id}/board/1/proposed") })
+        json!({ "w": 70, "h": 80, "src": format!("/design/demo/{id}/board/1/proposed") })
     );
     // The deleted board has a now, drawn from origin/main, and no proposed.
     assert_eq!(
         data["deleted"],
         json!([{
             "path": "design/mocks/Old.dc.html",
-            "now": { "w": 50, "h": 60, "src": format!("/design/{id}/deleted/0/now") }
+            "now": { "w": 50, "h": 60, "src": format!("/design/demo/{id}/deleted/0/now") }
         }])
     );
     assert_eq!(
@@ -345,7 +345,7 @@ fn a_review_page_with_no_origin_main_says_so_at_each_now() {
     let dir = tree(&scratch);
     let tip = commit(&dir);
     let (change, view) = review_of(&dir, &tip);
-    let data = page_data(&review_page(&change, &view).unwrap());
+    let data = page_data(&review_page(&change, &view, "demo").unwrap());
     let board = &data["sections"][0]["boards"][0];
     assert!(
         board["now"]["error"]
@@ -363,7 +363,7 @@ fn a_review_page_of_a_commit_with_no_canvas_file_says_so_at_each_board() {
     std::fs::remove_file(dir.join("design/mocks/canvas.json")).unwrap();
     let tip = commit(&dir);
     let (change, view) = review_of(&dir, &tip);
-    let data = page_data(&review_page(&change, &view).unwrap());
+    let data = page_data(&review_page(&change, &view, "demo").unwrap());
     assert!(
         data["sections"][0]["boards"][0]["proposed"]["error"]
             .as_str()
@@ -440,7 +440,7 @@ fn two_changes_in_one_worktree_each_draw_their_own_last_commit() {
     // The worktree has the second change's branch checked out.
     let boards = |tip: &str| {
         let (change, view) = review_of(&dir, tip);
-        let data = page_data(&review_page(&change, &view).unwrap());
+        let data = page_data(&review_page(&change, &view, "demo").unwrap());
         data["sections"][0]["boards"][0]["proposed"].clone()
     };
     let (one, two) = (boards(&first), boards(&second));
@@ -455,7 +455,7 @@ fn a_review_page_of_a_change_with_no_last_commit_says_to_amend_it() {
     commit(&dir);
     let (mut change, view) = review_of(&dir, "0000000");
     change.tip = None;
-    let data = page_data(&review_page(&change, &view).unwrap());
+    let data = page_data(&review_page(&change, &view, "demo").unwrap());
     let error = data["sections"][0]["boards"][0]["proposed"]["error"]
         .as_str()
         .unwrap();

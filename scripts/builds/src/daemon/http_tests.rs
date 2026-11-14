@@ -318,14 +318,17 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
 fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes_last_commit_on_each_request()
  {
     let s = server_with("http-design", design_store);
-    let (status, kind, page) = s.get("/design/1");
+    let (status, kind, page) = s.get("/design/demo/1");
     assert_eq!((status, kind.as_str()), (200, "text/html; charset=utf-8"));
     assert!(
-        page.contains("\"heading\":\"The change\"") && page.contains("/design/1/board/0"),
+        page.contains("\"heading\":\"The change\"") && page.contains("/design/demo/1/board/0"),
         "{page}"
     );
-    assert!(page.contains("/design/1/board/0/now") && page.contains("/design/1/board/0/proposed"));
-    let (status, kind, board) = s.get("/design/1/board/0/proposed");
+    assert!(
+        page.contains("/design/demo/1/board/0/now")
+            && page.contains("/design/demo/1/board/0/proposed")
+    );
+    let (status, kind, board) = s.get("/design/demo/1/board/0/proposed");
     assert_eq!((status, kind.as_str()), (200, "text/html; charset=utf-8"));
     assert!(
         board.contains("board A as drawn") && board.contains("data-theme=\"light\""),
@@ -339,34 +342,36 @@ fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes
     std::fs::write(&file, "<x-dc><p>board A redrawn</p></x-dc>").unwrap();
     crate::testing::git(&wt, &["checkout", "-q", "-b", "other"]);
     crate::testing::git(&wt, &["commit", "-q", "-a", "-m", "another board"]);
-    let (_, _, board) = s.get("/design/1/board/0/proposed");
+    let (_, _, board) = s.get("/design/demo/1/board/0/proposed");
     assert!(
         board.contains("board A as drawn") && !board.contains("redrawn"),
         "{board}"
     );
     // The now is origin/main, which has moved on to that other board.
     assert!(
-        s.get("/design/1/board/0/now")
+        s.get("/design/demo/1/board/0/now")
             .2
             .contains("board A as drawn")
     );
     crate::testing::git(&wt, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
-    let (_, _, now) = s.get("/design/1/board/0/now");
+    let (_, _, now) = s.get("/design/demo/1/board/0/now");
     assert!(now.contains("board A redrawn"), "{now}");
 
     // A board that is no file is its own problem, said where the frame is.
-    let (status, _, problem) = s.get("/design/1/board/1/proposed");
+    let (status, _, problem) = s.get("/design/demo/1/board/1/proposed");
     assert_eq!(status, 500);
     assert!(problem.contains("Gone.dc.html is not there"), "{problem}");
     // No such change, board or route; and the image route is gone.
     for path in [
-        "/design/9",
-        "/design/1/board/2/now",
-        "/design/1/board/0",
-        "/design/1/deleted/0/now",
-        "/design/x",
-        "/design/1/other/0",
-        "/design/1/board/0/1/2",
+        "/design/demo/9",
+        "/design/1",
+        "/design/other/1",
+        "/design/demo/1/board/2/now",
+        "/design/demo/1/board/0",
+        "/design/demo/1/deleted/0/now",
+        "/design/demo/x",
+        "/design/demo/1/other/0",
+        "/design/demo/1/board/0/1/2",
         "/api/design-render/1/0",
     ] {
         assert_eq!(s.get(path).0, 404, "{path}");
@@ -375,31 +380,35 @@ fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes
 
 #[test]
 fn a_design_path_is_a_page_or_a_board_of_a_page() {
-    assert_eq!(design_route("7"), Some(DesignRoute::Page(7)));
+    assert_eq!(design_route("demo/7"), Some(DesignRoute::Page("demo", 7)));
     assert_eq!(
-        design_route("7/board/3/now"),
-        Some(DesignRoute::Board(7, 3, Side::Now))
+        design_route("demo/7/board/3/now"),
+        Some(DesignRoute::Board("demo", 7, 3, Side::Now))
     );
     assert_eq!(
-        design_route("7/board/3/proposed"),
-        Some(DesignRoute::Board(7, 3, Side::Proposed))
+        design_route("demo/7/board/3/proposed"),
+        Some(DesignRoute::Board("demo", 7, 3, Side::Proposed))
     );
     assert_eq!(
-        design_route("7/deleted/2/now"),
-        Some(DesignRoute::Deleted(7, 2))
+        design_route("demo/7/deleted/2/now"),
+        Some(DesignRoute::Deleted("demo", 7, 2))
     );
     for bad in [
         "",
-        "7/",
+        "demo/7/",
         "a",
-        "7/board",
-        "7/board/-1/now",
-        "7/board/3",
-        "7/board/3/then",
-        "7/deleted/2",
-        "7/deleted/2/proposed",
-        "7/boards/1",
-        "7/board/1/2/3",
+        "7",
+        "7/board/3/now",
+        "demo",
+        "demo/a",
+        "demo/7/board",
+        "demo/7/board/-1/now",
+        "demo/7/board/3",
+        "demo/7/board/3/then",
+        "demo/7/deleted/2",
+        "demo/7/deleted/2/proposed",
+        "demo/7/boards/1",
+        "demo/7/board/1/2/3",
     ] {
         assert_eq!(design_route(bad), None, "{bad:?}");
     }
@@ -514,18 +523,18 @@ fn the_approve_button_works_only_from_the_page_at_this_mac_and_tells_the_recordi
         (local.as_str(), None),
         (also.as_str(), Some(this_mac.as_str())),
     ] {
-        let (status, body) = s.post_empty("/design/1/approve", host, origin);
+        let (status, body) = s.post_empty("/design/demo/1/approve", host, origin);
         assert_eq!(status, 403, "{host} {origin:?}");
         assert!(body.contains("only on this Mac"), "{body}");
     }
     assert!(!approved());
 
     // A change no project has.
-    let (status, body) = s.post_empty("/design/9/approve", &local, Some(&this_mac));
+    let (status, body) = s.post_empty("/design/demo/9/approve", &local, Some(&this_mac));
     assert_eq!(status, 500, "{body}");
-    assert!(body.contains("no project has design change"), "{body}");
+    assert!(body.contains("project demo has no design change"), "{body}");
 
-    let (status, body) = s.post_empty("/design/1/approve", &local, Some(&this_mac));
+    let (status, body) = s.post_empty("/design/demo/1/approve", &local, Some(&this_mac));
     assert_eq!(status, 200, "{body}");
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&body).unwrap(),
@@ -534,25 +543,26 @@ fn the_approve_button_works_only_from_the_page_at_this_mac_and_tells_the_recordi
     assert!(!body.contains("tok-9c1d"));
     let lines = inbox.take().unwrap().received();
     assert!(
-        lines[0].contains("tok-9c1d") && lines[1].contains("Design change #1 approved: land it.")
+        lines[0].contains("tok-9c1d")
+            && lines[1].contains("Design change #1 of project demo approved: land it.")
     );
 
     // Again: already approved, nothing sent (the inbox took one connection and is gone).
-    let (status, body) = s.post_empty("/design/1/approve", &local, Some(&this_mac));
+    let (status, body) = s.post_empty("/design/demo/1/approve", &local, Some(&this_mac));
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"already\":true"), "{body}");
     assert!(approved());
     // The page served at localhost is this Mac too.
     let localhost = format!("localhost:{}", s.port);
     let (status, body) = s.post_empty(
-        "/design/1/approve",
+        "/design/demo/1/approve",
         &localhost,
         Some(&format!("http://{localhost}")),
     );
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"already\":true"), "{body}");
     // The page's own data never carries the token.
-    let (_, _, page) = s.get("/design/1");
+    let (_, _, page) = s.get("/design/demo/1");
     assert!(!page.contains("tok-9c1d"));
 }
 
@@ -652,5 +662,8 @@ fn a_peer_that_is_not_loopback_changes_nothing_on_any_route_that_changes_state()
     }
     // The routes that change state, by path: `handle` gates by method before it
     // looks at the path, so these are refused before they run.
-    assert_eq!(design_approve_id("/design/3/approve"), Some(3));
+    assert_eq!(
+        design_approve_target("/design/demo/3/approve"),
+        Some(("demo", 3))
+    );
 }

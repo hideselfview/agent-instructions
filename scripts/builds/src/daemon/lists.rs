@@ -232,20 +232,20 @@ pub fn running_wait(lists: &crate::lists::Lists, worktree: &str) -> Option<super
     found.into_iter().next()
 }
 
-/// Open design change <id>, as the lists JSON shows it; None when no open
-/// design change has that id, or when several projects each have one (ids
-/// count per project, and the review page's address carries only the id).
-pub fn open_design(snapshot: &Snapshot, id: u32) -> Option<(DesignChange, DesignView)> {
-    let stores = snapshot.as_deref().ok()?;
-    let mut found = stores.iter().filter_map(|loaded| {
-        let lists = loaded.lists.as_ref().ok()?;
-        let design = lists.designs.iter().find(|d| d.id.0 == id)?;
-        Some((lists, design))
-    });
-    let (lists, design) = found.next()?;
-    if found.next().is_some() {
-        return None;
-    }
+/// Open design change <id> of project <project>, as the lists JSON shows it;
+/// None when that project has no open design change with that id.
+pub fn open_design(
+    snapshot: &Snapshot,
+    project: &str,
+    id: u32,
+) -> Option<(DesignChange, DesignView)> {
+    let loaded = snapshot
+        .as_deref()
+        .ok()?
+        .iter()
+        .find(|loaded| loaded.project == project)?;
+    let lists = loaded.lists.as_ref().ok()?;
+    let design = lists.designs.iter().find(|d| d.id.0 == id)?;
     Some((design.clone(), design_view(lists, design, None)))
 }
 

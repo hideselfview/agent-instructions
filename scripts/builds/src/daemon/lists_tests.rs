@@ -177,13 +177,16 @@ fn an_open_design_change_is_found_by_id_with_its_view_and_a_landed_or_missing_on
     let db = db();
     let id = design(&db);
     let snapshot: Snapshot = Ok(vec![loaded("demo", Ok(read(&db)))]);
-    let (design, view) = open_design(&snapshot, id.0).expect("open");
+    let (design, view) = open_design(&snapshot, "demo", id.0).expect("open");
     assert_eq!(
         (design.id, design.worktree.as_str(), view.id),
         (id, "/d/bae-worktrees/side-2", id)
     );
-    assert!(open_design(&snapshot, id.0 + 1).is_none());
-    assert!(open_design(&Ok(vec![]), id.0).is_none());
+    assert!(open_design(&snapshot, "demo", id.0 + 1).is_none());
+    assert!(
+        open_design(&Ok(vec![]), "demo", id.0).is_none()
+            && open_design(&snapshot, "other", id.0).is_none()
+    );
 }
 
 #[test]
@@ -407,7 +410,7 @@ fn a_repo_two_projects_hold_resolves_by_the_name_a_claim_gives() {
 }
 
 #[test]
-fn a_design_change_id_both_projects_hold_opens_in_neither() {
+fn a_design_change_id_two_projects_both_hold_opens_by_its_project() {
     let with_design = |name: &str| {
         let db = db();
         design(&db);
@@ -415,11 +418,13 @@ fn a_design_change_id_both_projects_hold_opens_in_neither() {
         lists.project = name.to_string();
         loaded(name, Ok(lists))
     };
-    let one: Snapshot = Ok(vec![with_design("bae"), loaded("builds", Ok(read(&db())))]);
-    let id = lists_id_of_first_design(&one);
-    assert!(open_design(&one, id).is_some());
     let both: Snapshot = Ok(vec![with_design("bae"), with_design("builds")]);
-    assert!(open_design(&both, id).is_none());
+    let id = lists_id_of_first_design(&both);
+    assert!(open_design(&both, "bae", id).is_some());
+    assert!(open_design(&both, "builds", id).is_some());
+    assert!(open_design(&both, "coven", id).is_none());
+    let one: Snapshot = Ok(vec![with_design("bae"), loaded("builds", Ok(read(&db())))]);
+    assert!(open_design(&one, "builds", id).is_none());
 }
 
 fn lists_id_of_first_design(snapshot: &Snapshot) -> u32 {

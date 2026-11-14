@@ -9,30 +9,25 @@
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::design_session::{Approval, approve_and_tell};
-use crate::lists::store::{Store, stores};
+use crate::lists::store::Store;
 use crate::lists::{Id, Stamp};
 use crate::places::Places;
 
 /// Who the log names for an approval the dashboard records.
 pub const BY: &str = "person (dashboard)";
 
-/// Approves open design change <id> in the one project that holds it, at <now>.
-pub fn approve_design(places: &Places, now: i64, id: u32) -> Result<Approval> {
+/// Approves open design change <id> of project <project>, at <now>.
+pub fn approve_design(places: &Places, now: i64, project: &str, id: u32) -> Result<Approval> {
     let id = Id(id);
-    let mut holding: Vec<Store> = Vec::new();
-    for store in stores(places)? {
-        if store.load()?.design(id).is_some() {
-            holding.push(store);
-        }
+    let store = Store::named(places, project)?;
+    if store.load()?.design(id).is_none() {
+        fail!("project {project} has no design change {id}");
     }
-    let [store] = holding.as_slice() else {
-        fail!("no project has design change {id}");
-    };
     let stamp = Stamp {
         at: now,
         by: BY.to_string(),
     };
-    approve_and_tell(store, id, &stamp)
+    approve_and_tell(&store, id, &stamp)
 }
 
 #[cfg(test)]
