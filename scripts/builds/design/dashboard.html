@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Builds dashboard board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bg: #F6F6F3; --surface: #FFFFFF; --line: #E2E2DC; --line-soft: #F0F0EA;
+  --text: #1A1A19; --text-2: #2B2B29; --muted: #5C5C57; --muted-2: #6B6B66;
+  --accent: #1F4FB8; --on: #1A1A19; --on-text: #FFFFFF;
+  --working-bg: #E7F2EA; --working: #1F5E38; --ready-bg: #E3ECFB; --ready: #1F4FB8;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #161615; --surface: #1F1F1D; --line: #34342F; --line-soft: #2B2B28;
+  --text: #ECECE8; --text-2: #D9D9D3; --muted: #A6A69F; --muted-2: #9C9C95;
+  --accent: #93B2FF; --on: #ECECE8; --on-text: #161615;
+  --working-bg: #1C3324; --working: #93D8AE; --ready-bg: #1D2A45; --ready: #A9C3FF;
+  color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+.page { max-width: 820px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 22px; }
+.tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.tabs button { border: 0; background: transparent; color: var(--muted); border-radius: 9px; padding: 8px 6px; font: 600 14px var(--sans); }
+.tabs .n { font: 500 13px var(--mono); margin-left: 4px; opacity: .8; }
+.tabs button[aria-pressed="true"] { background: var(--on); color: var(--on-text); }
+.group { display: flex; flex-direction: column; gap: 8px; }
+h2 { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); display: flex; gap: 8px; align-items: baseline; }
+h2 span { font: 500 12px var(--mono); }
+.list { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+details + details { border-top: 1px solid var(--line-soft); }
+summary { list-style: none; cursor: pointer; padding: 11px 16px; font-weight: 500; color: var(--text); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+summary .wt { font: 400 12px var(--mono); color: var(--muted-2); white-space: nowrap; }
+summary::-webkit-details-marker { display: none; }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 12px; }
+.more { padding: 0 16px 14px; font-size: 13px; color: var(--text-2); display: flex; flex-direction: column; gap: 8px; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 14px; margin: 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.mono { font: 12px var(--mono); }
+a { color: var(--accent); }
+
+.wts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 10px; }
+.wt-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wt-card .t { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.wt-card .t b { font-weight: 700; font-size: 15px; }
+.wt-card .t > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-card .br { font: 400 13px var(--mono); color: var(--muted); margin-left: 4px; }
+.wt-card > *:has(+ .foot) { margin-bottom: 6px; }
+.wt-card .foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+.wt-card .t .size { font: 400 12px var(--mono); color: var(--muted-2); white-space: nowrap; }
+.wt-card .what { color: var(--text-2); }
+.wt-card .cmd { font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.wt-card details summary { padding: 0; font: 400 12px var(--sans); color: var(--muted); }
+.wt-card details .more { padding: 6px 0 0; }
+.pill { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.s-working { background: var(--working-bg); color: var(--working); }
+.s-ready { background: var(--ready-bg); color: var(--ready); }
+.wt-card .t .r { display: flex; gap: 10px; align-items: center; }
+.wt-card .tree { margin-left: auto; }
+.wt-card .ic { display: inline-flex; align-items: center; gap: 5px; }
+.wt-card .ic svg { flex: none; }
+.wt-card .big { font: 500 20px var(--mono); line-height: 1; }
+.note { font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 14px; }
+</style></head>
+<body>
+<div class="page">
+  <div class="tabs">
+    <button aria-pressed="false">Waiting on you <span class="n">11</span></button>
+    <button aria-pressed="true">Running <span class="n">6</span></button>
+    <button aria-pressed="false">Queue <span class="n">93</span></button>
+  </div>
+
+  <div class="group">
+    <h2>Working <span>5</span></h2>
+    <div class="list">
+      <details open>
+        <summary><span>Any circle reader upgrades its schema</span><span class="wt">coven side-4</span></summary>
+        <div class="more">
+          <div>Code and spec written; fixing the raise tests it broke.</div>
+          <dl class="facts">
+            <dt>Items</dt><dd>Any circle reader can upgrade its schema, Follow-ups to circle schema upgrades, Fresh install upgrades the store itself</dd>
+            <dt>Agent</dt><dd>circle-raise, since yesterday 11:22</dd>
+            <dt>Branch</dt><dd class="mono">circle-raise-rust</dd>
+            <dt>Plan</dt><dd class="mono">plans/briefs/coven-circle-raise.md</dd>
+            <dt>Landed</dt><dd class="mono">c562692 e826cd7 6848a15 d4f2716 1764da2 869b32c c425040</dd>
+          </dl>
+        </div>
+      </details>
+      <details><summary><span>Sync status names each real wait</span><span class="wt">coven side-10</span></summary></details>
+      <details><summary><span>Hook check refuses forbidden read shapes</span><span class="wt">bae side-9</span></summary></details>
+      <details><summary><span>Fix main branch CI failures, round two</span><span class="wt">bae side-10</span></summary></details>
+      <details><summary><span>Each list pages by its own cursor</span><span class="wt">bae side-3</span></summary></details>
+    </div>
+  </div>
+
+  <div class="group">
+    <h2>Ready to land <span>1</span></h2>
+    <div class="list">
+      <details><summary><span>Approval completes the join, first step</span><span class="wt">coven side-7</span></summary></details>
+    </div>
+  </div>
+
+
+  <div class="group">
+    <h2>Worktrees</h2>
+    <div class="wts">
+      <div class="wt-card">
+        <div class="t"><span><b>main</b> <span class="br">main</span></span><span class="r"><span class="big">4.1G</span></span></div>
+        <div class="what">Your checkout. No agent works or builds here.</div>
+        <div class="foot"><span class="ic" title="Last commit: time since the newest commit on this checkout's branch."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Last commit"><circle cx="8" cy="8" r="2.75"/><path d="M1 8h4.25M10.75 8H15"/></svg>12m</span><span class="tree">clean</span></div>
+      </div>
+      <div class="wt-card">
+        <div class="t"><span><b>side-1</b> <span class="br">detached at 9e8d3d5</span></span><span class="r"><span class="big">18.2G</span></span></div>
+        <div class="what">Mac app checkout. Building the Mac app for mac-alerts.</div>
+        <div class="cmd">xcodebuild · 1% CPU · 614M</div>
+        <details><summary>Folders</summary><div class="more"><dl class="facts"><dt>Xcode build</dt><dd class="mono">9.8G</dd><dt>target-macos</dt><dd class="mono">6.0G</dd><dt>BaeKit</dt><dd class="mono">1.7G</dd><dt>target</dt><dd class="mono">698M</dd></dl></div></details>
+        <div class="foot"><span class="ic" title="App lock: how long one build has held this app checkout. Other agents wait in line for it; it is released when the build ends."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Lock held"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>6m</span></div>
+      </div>
+      <div class="wt-card">
+        <div class="t"><span><b>side-13</b> <span class="br">detached at 4d9ec6c</span></span><span class="r"><span class="big">7.4G</span></span></div>
+        <div class="what">Android app checkout. Its lock is held by a priming build that is no longer building.</div>
+        <div class="cmd">adb -L tcp:5037</div>
+        <div class="foot"><span class="ic" title="App lock: how long one build has held this app checkout. Other agents wait in line for it; it is released when the build ends."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Lock held"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>37h</span></div>
+      </div>
+      <div class="wt-card">
+        <div class="t"><span><b>side-3</b> <span class="br">lists-page-by-cursor</span></span><span class="r"><span class="pill s-ready">Ready to land</span><span class="big">9.8G</span></span></div>
+        <div class="what">One commit waits to land: page the long lists by cursor.</div>
+        <details><summary>Details</summary><div class="more"><dl class="facts"><dt>Agent</dt><dd>coordinator</dd><dt>Commit</dt><dd><span class="mono">2246700</span> Page the long lists by cursor and drop the remembered places</dd></dl></div></details>
+        <div class="foot"><span class="ic" title="Last commit: time since the newest commit on this checkout's branch."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Last commit"><circle cx="8" cy="8" r="2.75"/><path d="M1 8h4.25M10.75 8H15"/></svg>1m</span><span class="ic" title="Claimed: how long an agent has owned this worktree for its task. Nobody else works here until the task lands and the claim is released."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Claimed"><circle cx="8" cy="5.25" r="2.75"/><path d="M2.75 14c.6-2.9 2.8-4.5 5.25-4.5s4.65 1.6 5.25 4.5"/></svg>1h</span><span class="tree">clean</span></div>
+      </div>
+      <div class="wt-card">
+        <div class="t"><span><b>side-12</b> <span class="br">naive-reads-baseline</span></span><span class="r"><span class="pill s-working">Working</span><span class="big">11.5G</span></span></div>
+        <div class="what">Measuring each screen read at 2k, 20k and 100k albums.</div>
+        <div class="foot"><span class="ic" title="Last commit: time since the newest commit on this checkout's branch."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Last commit"><circle cx="8" cy="8" r="2.75"/><path d="M1 8h4.25M10.75 8H15"/></svg>5m</span><span class="ic" title="Last write: time since a file in this worktree last changed, committed or not. A recent write means the agent is still editing."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Last write"><path d="M10.5 2.5l3 3L6 13H3v-3z"/><path d="M9 4l3 3"/></svg>3m</span><span class="ic" title="Claimed: how long an agent has owned this worktree for its task. Nobody else works here until the task lands and the claim is released."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Claimed"><circle cx="8" cy="5.25" r="2.75"/><path d="M2.75 14c.6-2.9 2.8-4.5 5.25-4.5s4.65 1.6 5.25 4.5"/></svg>21m</span><span class="tree">7 files changed</span></div>
+      </div>
+      <div class="wt-card">
+        <div class="t"><span><b>side-8</b> <span class="br">detached at 531e618</span></span><span class="r"><span class="big">0.9G</span></span></div>
+        <div class="what">Free: no claim, every commit landed.</div>
+        <div class="foot"><span class="tree">clean</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">Three tabs, each with its count in its label: Waiting on you, Running, Queue. Design changes fold in: one waiting on review is in Waiting on you, one being drawn is in Running. Decisions are not a tab. Each line is a title of five to ten words with its worktree beside it; opening it shows what is happening now, its items, agent, branch, plan and short commits. Worktrees: one of each kind (your checkout, a Mac and an Android app checkout, an agent's worktree with a commit to land, one working, a free one). Each card's title is its worktree with what it has checked out beside it (a branch, or detached at a commit), on one line, then one plain line of what is happening, and the build size large at the top right, and a footer of a commit mark with the time since the last commit, a pencil with the time since the last write, a person with how long an agent has claimed the worktree, a padlock with how long a build has held an app checkout's lock (each explained on hover), and the tree state on its own at the right; folders and commits fold away. An agent's worktree keeps its Ready to land or Working chip; a lock that is stuck says so in its line.</div>
+</div>
+</body></html>
