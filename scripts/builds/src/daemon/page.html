@@ -136,6 +136,8 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .wt-card .t b { font-weight: 700; font-size: 15px; }
 .wt-card .br { font: 400 13px var(--mono); color: var(--muted); margin-left: 4px; }
 .wt-card .what { color: var(--text-2); }
+.wt-card .title { color: var(--text); font-weight: 600; }
+.wt-card .title + .what { font-size: 13px; color: var(--muted); }
 .wt-card > *:has(+ .foot) { margin-bottom: 6px; }
 .wt-card .foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
 .wt-card .tree { margin-left: auto; }
@@ -616,7 +618,8 @@ function worktreeCard(c) {
       diskSpan(c),
       building ? h("span", {class: "bar-procs"}, icon("build", a.started), " · " + programs(programCounts(a.processes))) : null),
     h("div", {class: "t"}, h("span", {}, h("b", {}, c.name), " ", h("span", {class: "br", title: detachedAt(c)}, detachedAt(c)))),
-    h("div", {class: "what"}, c.words.line),
+    c.words.titles.map(title => h("div", {class: "title"}, title)),
+    c.words.line ? h("div", {class: "what"}, c.words.line) : null,
     g && g.error ? h("div", {class: "error"}, g.error) : null,
     land,
     cardLine(c));

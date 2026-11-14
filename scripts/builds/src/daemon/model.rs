@@ -659,6 +659,8 @@ impl Model {
     pub fn page(&self) -> crate::fail::Result<Page> {
         let space = volume_space(&self.places.root)?;
         let (entries, memory) = self.tracker.size();
+        let (_, snapshot) = self.lists.current();
+        let project = super::lists::project_lists(&snapshot);
         let state = self.state.lock().expect("no panic holding it");
         let places = places_of(&state.roots);
         let mut repos: Vec<RepoPage> = Vec::new();
@@ -789,7 +791,19 @@ impl Model {
             repo.app_builds = super::app_builds::build(repo);
             for checkout in &mut repo.checkouts {
                 if checkout.live && !checkout.app_checkout {
-                    checkout.words = super::cards::words(checkout);
+                    let titles = project
+                        .map(|lists| super::lists::running_titles(lists, &checkout.path))
+                        .unwrap_or_default();
+                    let wait =
+                        project.and_then(|lists| super::lists::running_wait(lists, &checkout.path));
+                    if wait
+                        .as_ref()
+                        .is_some_and(super::cards::ItemWait::needs_person)
+                        && !checkout.main
+                    {
+                        checkout.state = Some("waiting-on-you");
+                    }
+                    checkout.words = super::cards::words(checkout, &titles, wait.as_ref());
                 }
             }
         }

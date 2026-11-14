@@ -160,6 +160,57 @@ pub fn running_worktrees(snapshot: &Snapshot) -> Vec<String> {
     }
 }
 
+/// The lists of the one project there is; None for no project, several, or
+/// a store that fails its check.
+pub fn project_lists(snapshot: &Snapshot) -> Option<&crate::lists::Lists> {
+    match snapshot.as_deref() {
+        Ok(
+            [
+                Loaded {
+                    lists: Ok(lists), ..
+                },
+            ],
+        ) => Some(lists),
+        _ => None,
+    }
+}
+
+/// The titles of the items running in <worktree>, in the order the items
+/// are listed.
+pub fn running_titles(lists: &crate::lists::Lists, worktree: &str) -> Vec<String> {
+    lists
+        .items
+        .iter()
+        .filter(|item| item.running.iter().any(|r| r.worktree == worktree))
+        .map(|item| item.title.clone())
+        .collect()
+}
+
+/// What the running items of <worktree> wait on that is not met, the first
+/// that needs the person (a question, a design change), else an item.
+pub fn running_wait(lists: &crate::lists::Lists, worktree: &str) -> Option<super::cards::ItemWait> {
+    use super::cards::ItemWait;
+    use crate::lists::Wait;
+    let mut found: Vec<ItemWait> = Vec::new();
+    for item in lists
+        .items
+        .iter()
+        .filter(|item| item.running.iter().any(|r| r.worktree == worktree))
+    {
+        for wait in crate::lists::derive::unmet_waits(lists, item) {
+            let title = |id| lists.locate(id).map(|found| found.title.to_string());
+            found.extend(match wait {
+                Wait::Question(id) => title(*id).map(ItemWait::Answer),
+                Wait::Design(id) => title(*id).map(|title| ItemWait::Review { id: id.0, title }),
+                Wait::Item(id) => title(*id).map(|title| ItemWait::Item { id: id.0, title }),
+                Wait::Condition(_) => None,
+            });
+        }
+    }
+    found.sort_by_key(ItemWait::rank);
+    found.into_iter().next()
+}
+
 /// Open design change <id> of the one project there is, as the lists JSON
 /// shows it; None when no open design change has that id.
 pub fn open_design(snapshot: &Snapshot, id: u32) -> Option<(DesignChange, DesignView)> {
