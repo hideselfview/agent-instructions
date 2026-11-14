@@ -345,3 +345,33 @@ fn a_worktree_with_no_design_change_does_not_await_review() {
     let (_demo, tree, lists) = design_branch("held-review-none", false);
     assert!(awaiting_review(&loaded(lists), &[tree]).is_empty());
 }
+
+#[test]
+fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() {
+    let db = db();
+    let id = item(&db, vec![]);
+    running_in_db(&db, id, "/w/bae-worktrees/side-1");
+    let tree = bae_worktree(None);
+    assert!(findings(&loaded(read(&db)), std::slice::from_ref(&tree)).is_empty());
+    crate::lists::running::end(&db, id).unwrap();
+    let found = findings(&loaded(read(&db)), std::slice::from_ref(&tree));
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].contains("no item runs there") && found[0].contains("builds release"),
+        "{found:?}"
+    );
+    let mut waiting = bae_worktree(None);
+    waiting.ahead = vec!["abc".into()];
+    assert!(
+        findings(&loaded(read(&db)), &[waiting])
+            .iter()
+            .all(|line| !line.contains("no item runs there"))
+    );
+    let landing = worktree(
+        std::path::Path::new("/w/bae-worktrees/side-1"),
+        "coordinator (landing)",
+        None,
+        Vec::new(),
+    );
+    assert!(findings(&loaded(read(&db)), &[landing]).is_empty());
+}

@@ -365,6 +365,9 @@ pub fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let store = Store::resolve(&tool.places, &landing.args, top)?;
     let stamp = Stamp::resolve(tool.now, &landing.args, cwd)?;
     let repo = landing.checkout.repo();
+    // The worktrees each item that this landing finishes runs in, read before
+    // closing it ends them.
+    let mut ran_in: Vec<String> = Vec::new();
     let did = store.write(
         &stamp,
         &format!("item landed {}", commits.join(" ")),
@@ -375,6 +378,9 @@ pub fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                     && !item.running.is_empty()
                 {
                     running_in_repo(&item.running, &landing.checkout, named.id)?;
+                    if named.finishes {
+                        ran_in.extend(item.running.iter().map(|r| r.worktree.clone()));
+                    }
                 }
             }
             record(db, &landing.items, &repo, &commits, &stamp)
@@ -382,6 +388,45 @@ pub fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     )?;
     for line in did {
         note(line);
+    }
+    release_finished(&store, &ran_in)
+}
+
+/// Releases each worktree of <ran_in> that nothing runs in any more and
+/// that has nothing past origin/main: its agent has no work left there, so
+/// its claim and its note would only mislead. A worktree that is gone, has
+/// no claim, still runs an item or still has commits waiting to land keeps
+/// its claim.
+fn release_finished(store: &Store, ran_in: &[String]) -> Result<()> {
+    let lists = store.load()?;
+    let mut done: Vec<&String> = Vec::new();
+    for worktree in ran_in {
+        if !done.contains(&worktree) {
+            done.push(worktree);
+        }
+    }
+    for worktree in done {
+        if !Path::new(worktree).is_dir()
+            || !crate::lists::running::running_in(&lists, worktree).is_empty()
+        {
+            continue;
+        }
+        let checkout = Checkout::find(worktree)?;
+        let git = crate::side_git::read(&checkout.top);
+        if let Some(error) = &git.error {
+            fail!("reading git in {worktree} to release it: {error}");
+        }
+        if !git.ahead.is_empty() {
+            continue;
+        }
+        let file = checkout.claim_file();
+        let Some(claim) = crate::claim::Claim::read(&file)? else {
+            continue;
+        };
+        std::fs::remove_file(&file).map_err(|error| {
+            fail::Fail::Message(format!("removing {}: {error}", file.display()))
+        })?;
+        note(format!("released {worktree} (was {})", claim.text()));
     }
     Ok(())
 }

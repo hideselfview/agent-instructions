@@ -531,3 +531,37 @@ fn every_named_constraint_of_the_landing_tables_refuses_its_row() {
     plant(&db, "item_landing_commit", &commit).unwrap();
     refused.done();
 }
+
+fn claimed(l: &Landing) -> bool {
+    crate::checkout::Checkout::find(l.agent.to_str().unwrap())
+        .unwrap()
+        .claim_file()
+        .exists()
+}
+
+#[test]
+fn landing_the_last_item_releases_the_worktree_it_ran_in() {
+    let l = setup("landing-releases");
+    push(&l);
+    assert!(claimed(&l));
+    landed(&l, &["--done", "1", &l.commit]).unwrap();
+    assert!(claimed(&l), "item 2 still runs there");
+    landed(&l, &["--done", "2", &l.commit]).unwrap();
+    assert!(
+        !claimed(&l),
+        "no item runs there and nothing is past origin/main"
+    );
+}
+
+#[test]
+fn a_part_or_a_commit_still_waiting_keeps_the_claim() {
+    let l = setup("landing-keeps-claim");
+    push(&l);
+    landed(&l, &["--part", "1", "--done", "2", &l.commit]).unwrap();
+    assert!(claimed(&l), "item 1 still runs there");
+    let other = setup("landing-keeps-claim-ahead");
+    push(&other);
+    other.demo.commit(&other.agent, "b.txt");
+    landed(&other, &["--done", "1", "--done", "2", &other.commit]).unwrap();
+    assert!(claimed(&other), "a commit waits to land");
+}

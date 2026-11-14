@@ -172,7 +172,9 @@ pub fn awaiting_review(
         .collect()
 }
 
-/// What `builds health` says about held work, one line each: a held worktree
+/// What `builds health` says about held work, one line each: a claimed
+/// worktree whose items all closed and that has nothing past origin/main, a
+/// held worktree
 /// whose item waits on nothing open (the record it waited on closed, or
 /// nothing runs there), and a branch whose commits change design files that
 /// no open design change covers. A store that fails its check is named by
@@ -202,6 +204,16 @@ pub fn findings(
             found.push(format!(
                 "lists: {} is held, but {fault}; start its work again (builds item take/handoff), then clear the hold with `builds note {top} TEXT`",
                 worktree.label
+            ));
+        }
+        if !standing
+            && worktree.claim.note_state.as_deref() != Some("held")
+            && worktree.ahead.is_empty()
+            && running_in(lists, &top).is_empty()
+        {
+            found.push(format!(
+                "lists: {} is claimed by {}, but no item runs there and nothing waits to land; `builds release {top}` frees it",
+                worktree.label, worktree.claim.who
             ));
         }
         if is_landing(&worktree.claim.who) || worktree.ahead.is_empty() {
