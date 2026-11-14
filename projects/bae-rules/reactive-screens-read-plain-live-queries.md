@@ -37,13 +37,30 @@ query, and the screen draws each as it arrives. A read that need not follow
 changes (a one-off lookup, a command's check, an export) is a plain SQL read,
 not a live query. That is the whole read path.
 
-A long list is one live query whose request is the window the screen shows. It
-pages by cursor: the next or previous window starts from the sort values of the
-row at the screen's edge, which the screen sends in the request, and seeks
-through the order's index. A jump to a position (a scrollbar drag, an end key)
-reads by offset, and gets an index of its own only when it measures slow enough
-to warrant one. The cursor comes from the screen, never from rows Rust kept from
-an earlier read.
+A long list's window, its count and its section headers are separate live
+queries. Each window the screen shows is its own live query whose request is
+that window, so coven reruns only the window whose rows changed. The count is
+never in the same query as the rows: a count changes with every insert, so a
+query holding both rereads and resends every window on every write.
+
+```text
+-- Wrong: one query, count and windows together. A scan writes a row,
+-- the count moves, every window is reread and resent.
+subscribe(request = [window 0-99, window 100-199]) -> (count, rows, rows)
+
+-- Right: each its own live query.
+subscribe(request = {after: null, limit: 100})    -- rows 0-99
+subscribe(request = {after: <row 99>, limit: 100}) -- rows 100-199
+subscribe(SELECT COUNT(*) FROM ...)               -- the count
+-- A scan write reruns the count, and only the window the new row lands in.
+```
+
+A window pages by cursor: the next or previous window starts from the sort
+values of the row at the screen's edge, which the screen sends in the request,
+and seeks through the order's index. A jump to a position (a scrollbar drag, an
+end key) reads by offset, and gets an index of its own only when it measures
+slow enough to warrant one. The cursor comes from the screen, never from rows
+Rust kept from an earlier read.
 
 Never, in either kind of read:
 

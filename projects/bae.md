@@ -169,14 +169,16 @@ bridge, automation or MCP) is a plain coven live query; any other read is a
 plain SQL read. SQLite does the filtering, sorting, joining, grouping, counting
 and windowing, and everything a screen shows beside its rows (counts, totals,
 groups and section headers, "N of M", sums, facets) comes from SQL, in the same
-query or its own live query. SQLite is local, so the query is the plain one
-(GROUP BY, COUNT, JOIN straight from the domain's tables); a table of pre-added
-counts kept by triggers comes only after the plain query measures too slow.
-Nothing is kept in memory between reads, no side pass, no forced rerun, no size
-cutoff between read paths. A long list pages by cursor (its request carries the
-sort values of the row at the screen's edge, sought through the order's index)
-and jumps by offset, with an index for the jump only when it measures slow
-enough to warrant one. The full rule is
+query or its own live query; a long list's count, its headers and each of its
+windows are separate live queries, never one query holding the count beside the
+rows, which rereads every window on every insert. SQLite is local, so the query
+is the plain one (GROUP BY, COUNT, JOIN straight from the domain's tables); a
+table of pre-added counts kept by triggers comes only after the plain query
+measures too slow. Nothing is kept in memory between reads, no side pass, no
+forced rerun, no size cutoff between read paths. A long list pages by cursor
+(its request carries the sort values of the row at the screen's edge, sought
+through the order's index) and jumps by offset, with an index for the jump only
+when it measures slow enough to warrant one. The full rule is
 `projects/bae-rules/reactive-screens-read-plain-live-queries.md`.
 
 A value that changes many times a second (playback position, transfer bytes,
