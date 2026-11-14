@@ -5,11 +5,15 @@
 //! check fmt *.rs cargo fmt --check
 //! fix swift-format *.swift swift-format format --in-place {files}
 //! check clippy *.rs,Cargo.toml,Cargo.lock cargo clippy {crates} -- -D warnings
+//! whole frozen-lists owner.toml,scripts/check-frozen-shrinks.py python3 scripts/check-frozen-shrinks.py
 //! test loc-words scripts/loc-words.py,spec/words.md scripts/loc-words-test.sh
 //! ```
 //!
-//! `<kind> <name> <paths> <program> [<args>...]`. The program is not run by a
-//! shell. `checks_run.rs` picks the lines a set of changed files matches and
+//! `<kind> <name> <paths> <program> [<args>...]`. A `whole` line is a `check`
+//! that reads the whole tree and never takes `{files}` or `{crates}`: the hook
+//! runs it when a path matches, like any check, and `builds land` also runs it
+//! on every landing, since two commits that each pass the hook can break it
+//! together. The program is not run by a shell. `checks_run.rs` picks the lines a set of changed files matches and
 //! runs them; this file reads the lines and expands what a match hands the
 //! program.
 
@@ -51,6 +55,9 @@ pub struct Line {
     /// The program, relative to the repo when it names a path, and its
     /// arguments, `{files}` and `{crates}` not yet expanded.
     pub command: Vec<String>,
+    /// A `whole` line: a static check of the whole tree, which `builds land`
+    /// runs on every landing. Its kind is `Check`.
+    pub whole: bool,
 }
 
 /// A line that a set of changed files picked, with what it runs.
@@ -75,15 +82,27 @@ pub fn parse(text: &str) -> Result<Vec<Line>> {
         else {
             fail!("{CONFIG}: {raw:?} needs a kind, a name, paths and a command");
         };
+        let whole = kind == "whole";
         let kind = match kind.as_str() {
-            "check" => Kind::Check,
+            "check" | "whole" => Kind::Check,
             "fix" => Kind::Fix,
             "test" => Kind::Test,
-            other => fail!("{CONFIG}: {raw:?} starts with {other:?}, not check, fix or test"),
+            other => {
+                fail!("{CONFIG}: {raw:?} starts with {other:?}, not check, whole, fix or test")
+            }
         };
         let command: Vec<String> = words.collect();
         if command.is_empty() {
             fail!("{CONFIG}: {} {name} names no command", kind.word());
+        }
+        if whole
+            && command
+                .iter()
+                .any(|arg| arg == "{files}" || arg == "{crates}")
+        {
+            fail!(
+                "{CONFIG}: whole {name} names {{files}} or {{crates}}, but a whole check reads the whole tree; make it a check, or drop the placeholder"
+            );
         }
         if lines.iter().any(|line| line.name == name) {
             fail!("{CONFIG}: {name} is named twice");
@@ -101,6 +120,7 @@ pub fn parse(text: &str) -> Result<Vec<Line>> {
             name,
             paths,
             command,
+            whole,
         });
     }
     Ok(lines)

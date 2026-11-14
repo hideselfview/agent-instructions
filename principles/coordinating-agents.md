@@ -144,13 +144,13 @@ mode, and switching modes means telling every running agent.
 - Land from the claimed landing worktree with `builds land <worktree> <sha>...`:
   it fast-forwards when the commits sit on origin/main, else cherry-picks them,
   and retries a refused push. A cherry-picked result is a tree no hook has seen,
-  so before pushing it the command runs the commands in the repo's
-  `.land-checks` (one per line, run from the repo root: the cheap whole-tree
-  checks commits can break together, such as the file size cap), then the repo's
-  `.land-compile`, and refuses to push when one fails, leaving the worktree at
-  origin/main. A fast-forward runs both too, since a branch rebased after its
-  hook ran is a tree no hook has seen. No test step: tests stay with the
-  coordinator.
+  so before pushing it the command runs the repo's `whole` lines of `.checks`
+  (the hook's static checks that read the whole tree, which commits can break
+  together, such as the file size cap and the frozen lists; each is also a hook
+  check, so the two lists cannot drift apart), then the repo's `.land-compile`,
+  and refuses to push when one fails, leaving the worktree at origin/main. A
+  fast-forward runs both too, since a branch rebased after its hook ran is a
+  tree no hook has seen. No test step: tests stay with the coordinator.
 - In a project with lists,
   `builds land <worktree> --done N|--part N [--design N] <sha>...` names the
   items the commits finish (`--done`) or advance (`--part`), and checks them

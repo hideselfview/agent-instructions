@@ -466,6 +466,52 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
     }
 }
 
+/// A `whole` check that failed in `run_whole`, with what it printed.
+pub struct WholeFailure {
+    pub name: String,
+    pub output: String,
+}
+
+/// Runs every `whole` line of the repo's `.checks` on the tree at <top>,
+/// whatever changed, printing each one's name, result and time to <out>. Every
+/// line runs even after one fails. A repo with no `.checks` has none to run.
+pub fn run_whole(top: &Path, out: &mut dyn std::io::Write) -> Result<Vec<WholeFailure>> {
+    if !top.join(CONFIG).is_file() {
+        return Ok(Vec::new());
+    }
+    let started = Instant::now();
+    let lines = load(top)?;
+    let picked: Vec<Planned> = plan(top, &lines, &[Kind::Check], &[], true)?
+        .into_iter()
+        .filter(|planned| planned.line.whole)
+        .collect();
+    let mut failed = Vec::new();
+    for planned in &picked {
+        let ran = execute(top, planned, false)?;
+        let _ = writeln!(
+            out,
+            "whole {}: {}, {}",
+            planned.line.name,
+            if ran.ok { "ok" } else { "FAILED" },
+            seconds(ran.took)
+        );
+        if !ran.ok {
+            failed.push(WholeFailure {
+                name: planned.line.name.clone(),
+                output: ran.output,
+            });
+        }
+    }
+    let _ = writeln!(
+        out,
+        "{} whole checks run, {} failed, {}",
+        picked.len(),
+        failed.len(),
+        seconds(started.elapsed())
+    );
+    Ok(failed)
+}
+
 pub fn list_staged(top: &Path) -> Result<String> {
     let lines = load(top)?;
     let picked = plan(top, &lines, &[Kind::Check, Kind::Fix], &staged(top)?, false)?;

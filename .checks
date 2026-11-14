@@ -3,8 +3,9 @@
 #
 #   <kind> <name> <paths> <program> [args...]
 #
-# kind: `check` (static check) or `fix` (formatter; builds re-stages what it
-# changed). paths: the files the line reads, as comma-separated globs.
+# kind: `check` (static check), `whole` (a check of the whole tree, which
+# `builds land` also runs on every landing) or `fix` (formatter; builds
+# re-stages what it changed). paths: the files the line reads, as comma-separated globs.
 # `{files}` is the staged files that match. Formatting and static analysis
 # only: no tests.
 

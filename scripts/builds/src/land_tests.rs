@@ -2,8 +2,8 @@ use super::*;
 use crate::testing::Scratch;
 
 /// A fixture: a bare origin, an agent clone and a detached landing clone. The
-/// repo's .land-checks refuses a tree holding both a.txt and b.txt, which two
-/// commits that each pass alone reach only together.
+/// repo's `whole` check, a fake program, refuses a tree holding both a.txt and
+/// b.txt, which two commits that each pass alone reach only together.
 struct Fixture {
     scratch: Scratch,
     origin: PathBuf,
@@ -65,9 +65,14 @@ fn fixture(name: &str, checks: &str, compile: Option<&str>) -> Fixture {
         ],
     );
     identify(&agent);
-    std::fs::write(agent.join(".land-checks"), checks).unwrap();
+    std::fs::write(agent.join("fake-check.sh"), checks).unwrap();
+    std::fs::write(
+        agent.join(".checks"),
+        "whole fake * sh fake-check.sh\ncheck skipped-by-land * sh not-run.sh\n",
+    )
+    .unwrap();
     commit_file(&agent, "base.txt", "base\n", "base");
-    git_out(&agent, &["add", ".land-checks"]);
+    git_out(&agent, &["add", "fake-check.sh", ".checks"]);
     if let Some(compile) = compile {
         std::fs::write(agent.join(".land-compile"), compile).unwrap();
         git_out(&agent, &["add", ".land-compile"]);
@@ -574,4 +579,56 @@ fn landing_a_commit_already_on_main_says_so_and_records_its_copy() {
         calls.last().unwrap(),
         &format!("item landed {} --done 7 {a}", f.land.display())
     );
+}
+
+#[test]
+fn a_landing_runs_only_the_whole_lines_and_says_each_ones_time() {
+    // not-run.sh does not exist: a plain check line would fail if land ran it.
+    let f = fixture("land-whole-only", "true\n", None);
+    let (a, b) = two_sibling_commits(&f);
+    run_land(&f, &[&a], Cues::default());
+    let (code, out, _) = run_land(&f, &[&b], Cues::default());
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("whole fake: ok, "), "{out}");
+    assert!(!out.contains("skipped-by-land"), "{out}");
+}
+
+#[test]
+fn every_failing_whole_line_is_named_with_its_output() {
+    let f = fixture("land-whole-many", CHECK, None);
+    std::fs::write(
+        f.agent.join(".checks"),
+        "whole first * sh fake-check.sh\nwhole second * sh fake-check.sh\n",
+    )
+    .unwrap();
+    git_out(&f.agent, &["commit", "-q", "-a", "-m", "two checks"]);
+    git_out(&f.agent, &["push", "-q", "origin", "HEAD:main"]);
+    let (a, b) = two_sibling_commits(&f);
+    run_land(&f, &[&a], Cues::default());
+    let (code, out, _) = run_land(&f, &[&b], Cues::default());
+    assert!(
+        code == 1
+            && out.contains("nothing pushed: first, second")
+            && out.contains("--- first")
+            && out.contains("--- second")
+            && out.contains("whole first: FAILED, "),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_leftover_land_checks_file_refuses_the_landing() {
+    let f = fixture("land-old-file", "true\n", None);
+    let (a, _b) = two_sibling_commits(&f);
+    std::fs::write(f.agent.join(".land-checks"), "true\n").unwrap();
+    git_out(&f.agent, &["add", ".land-checks"]);
+    git_out(&f.agent, &["commit", "-q", "-m", "old file"]);
+    let old = git_out(&f.agent, &["rev-parse", "HEAD"]);
+    git_out(&f.agent, &["push", "-q", "origin", "HEAD:main"]);
+    let (code, out, _) = run_land(&f, &[&a], Cues::default());
+    assert!(
+        code == 1 && out.contains(".land-checks") && out.contains("`whole` line"),
+        "{out}"
+    );
+    assert_eq!(main_of(&f), old);
 }

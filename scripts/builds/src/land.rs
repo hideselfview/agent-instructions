@@ -25,11 +25,13 @@
 //! takes none of these flags and lands as before.
 //!
 //! A cherry-picked result is a tree no hook has seen, so before it is pushed
-//! the repo's whole-tree checks run: the commands in the repo's `.land-checks`
-//! (one per line, blank lines and lines starting with # skipped, each run with
-//! `sh -c` from the repo root). A failing check is named with its output,
-//! nothing is pushed, and the worktree goes back to origin/main (exit 1, no
-//! retry). Then the repo's `.land-compile`, if present, runs (`bash
+//! the repo's whole-tree checks run: every `whole` line of the repo's `.checks`
+//! (the static checks that read the whole tree, which the pre-commit hook
+//! also runs when a path matches; checks.rs says how a line is written), each
+//! with its time. Every one runs even after another fails; the failing ones
+//! are named with their output, nothing is pushed, and the worktree goes back
+//! to origin/main (exit 1, no retry). A leftover `.land-checks` file fails the
+//! landing the same way. Then the repo's `.land-compile`, if present, runs (`bash
 //! .land-compile` from the repo root, reading what the commits changed from
 //! `git diff origin/main HEAD`): the compile check of the result, which the
 //! static checks can't do, since two commits that each compile can break each
@@ -405,22 +407,39 @@ impl Landing<'_> {
             let _ = writeln!(out, "{headline}");
             refuse(out, said)
         };
-        if let Ok(checks) = std::fs::read_to_string(self.workdir.join(".land-checks")) {
-            for check in checks.lines() {
-                if check.is_empty() || check.starts_with('#') {
-                    continue;
-                }
-                let mut command = Command::new("sh");
-                command.arg("-c").arg(check).current_dir(&self.workdir);
-                let (ok, said) = merged(command);
-                if !ok {
-                    return Err(back(
-                        out,
-                        format!("CHECK FAILED on the result, nothing pushed: {check}"),
-                        said,
-                    ));
-                }
+        if self.workdir.join(".land-checks").exists() {
+            return Err(back(
+                out,
+                "CHECK FAILED on the result, nothing pushed: .land-checks".to_string(),
+                "the repo has a .land-checks file, which builds land no longer reads; \
+                 declare each of its commands as a `whole` line in .checks and delete the file"
+                    .to_string(),
+            ));
+        }
+        let failed = match crate::checks_run::run_whole(&self.workdir, out) {
+            Ok(failed) => failed,
+            Err(error) => {
+                return Err(back(
+                    out,
+                    "CHECK FAILED on the result, nothing pushed: .checks".to_string(),
+                    error.text(),
+                ));
             }
+        };
+        if !failed.is_empty() {
+            let names: Vec<&str> = failed.iter().map(|f| f.name.as_str()).collect();
+            let said: Vec<String> = failed
+                .iter()
+                .map(|f| format!("--- {}\n{}", f.name, f.output.trim_end()))
+                .collect();
+            return Err(back(
+                out,
+                format!(
+                    "CHECK FAILED on the result, nothing pushed: {}",
+                    names.join(", ")
+                ),
+                said.join("\n"),
+            ));
         }
         if self.workdir.join(".land-compile").is_file() {
             let mut command = Command::new("bash");

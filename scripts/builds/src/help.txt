@@ -124,11 +124,14 @@ Commands:
                               they sit on it, else a cherry-pick, trying a
                               refused push again from a fresh fetch (five
                               times). One landing runs in a worktree at a time.
-                              The repo's .land-checks (one shell command per
-                              line) and .land-compile run on the result before
-                              the push, fast-forward included; a failure
-                              names the check, pushes nothing and puts the
-                              worktree back on origin/main. In a repo of a
+                              The repo's `whole` lines of .checks (static checks
+                              of the whole tree, below) and its .land-compile
+                              (the compile check of the touched crates) run on
+                              the result before the push, fast-forward
+                              included; each whole check's time is printed. A
+                              failure names every failing check with its
+                              output, pushes nothing and puts the worktree
+                              back on origin/main. In a repo of a
                               project of the lists, --done N finishes an item
                               and --part N advances one (checked before
                               anything is fetched, recorded after the push);
@@ -394,7 +397,10 @@ Commit checks. A repo's `.checks` (at its root) declares the checks its
 pre-commit hook runs, one per line, `<kind> <name> <paths> <program>
 [<args>...]`: kind is `check` (a static check), `fix` (a formatter; the files
 it changed are staged again) or `test` (a checker's own test; CI runs it,
-never the hook). paths is a comma-separated list of globs over repo-relative
+never the hook) or `whole` (a `check` that reads the whole tree: the hook
+runs it when a path matches, and `builds land` also runs it on every landing,
+since two commits that each pass the hook can break it together; it names
+neither `{files}` nor `{crates}`). paths is a comma-separated list of globs over repo-relative
 paths: `*` stays inside one path segment, `**` is any number of segments, and
 a glob with no `/` matches the file name anywhere. The program is not run by a
 shell. As whole arguments, `{files}` is the matching staged files that still

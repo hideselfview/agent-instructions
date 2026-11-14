@@ -45,7 +45,9 @@ fn lines_parse_and_mistakes_name_the_line() {
     assert_eq!(lines[1].kind, Kind::Fix);
     assert_eq!(lines[2].kind, Kind::Test);
     for (bad, said) in [
-        ("lint a *.rs x", "not check, fix or test"),
+        ("lint a *.rs x", "not check, whole, fix or test"),
+        ("whole a *.rs x {files}", "reads the whole tree"),
+        ("whole a *.rs cargo c {crates}", "reads the whole tree"),
         ("check a *.rs", "names no command"),
         ("check a", "needs a kind"),
         ("check a *.rs x\ncheck a *.rs y", "named twice"),
@@ -53,6 +55,13 @@ fn lines_parse_and_mistakes_name_the_line() {
         let fail = parse(bad).unwrap_err().text();
         assert!(fail.contains(said), "{bad:?} said {fail:?}");
     }
+}
+
+#[test]
+fn a_whole_line_is_a_check_the_landing_marks() {
+    let lines = parse("whole a *.py x\ncheck b *.py y\n").unwrap();
+    assert_eq!((lines[0].kind, lines[0].whole), (Kind::Check, true));
+    assert_eq!((lines[1].kind, lines[1].whole), (Kind::Check, false));
 }
 
 fn workspace(scratch: &Scratch) -> std::path::PathBuf {
