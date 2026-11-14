@@ -60,7 +60,8 @@ draws them with its own parts.
   (`builds design approve N --by-person`) and lands with `land.sh --design N`.
   The change closes and leaves the tab. Changing the boards again
   (`builds design amend N`) clears the approval.
-- The published canvas is the record of what landed.
+- Landing also publishes the canvas. The commit on main is the record of what
+  landed; the published canvas lets anyone look at the landed boards.
 
 ## The boards are the target; the app follows them
 
