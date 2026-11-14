@@ -783,7 +783,7 @@ function hookFigure(name) {
   const y = BAR_HEIGHT - BAR_HEIGHT * Math.min(1, limit / 1000 / BAR_SECONDS);
   chart.append(svg("line", {class: "limit", x1: "0", x2: "158", y1: String(y), y2: String(y)}));
   if (!r || !r.runs || r.error) {
-    return h("div", {class: "fig hook line empty", title: "Commit hook runs in " + name + ": no passing run recorded yet, so there is nothing to draw."},
+    return h("div", {class: "fig hook line empty", title: "Commit hook runs in " + name + ": no passing run in the last 12 hours, so there is nothing to draw."},
       h("div", {class: "row"}, h("span", {class: "h"}, title), h("span", {class: "v"}, "–"), chart));
   }
   const runs = r.recent.slice().reverse();
@@ -844,7 +844,7 @@ function hookDetails() {
   box.hidden = false;
   box.replaceChildren(
     h("div", {class: "ho-head"}, h("b", {}, openHook + " commits"),
-      h("span", {}, plural(r.runs, "passing run", "passing runs") + " · ",
+      h("span", {}, plural(r.runs, "passing run", "passing runs") + " in the last 12 hours · ",
         h("span", {class: r.over_count ? "warn" : ""}, r.over_count + " over " + limitText(limit))),
       h("button", {type: "button", class: "ho-close", title: "Close", "aria-label": "Close", onclick: () => { openHook = null; render(); }}, "×")),
     h("div", {class: "ho-cols"},

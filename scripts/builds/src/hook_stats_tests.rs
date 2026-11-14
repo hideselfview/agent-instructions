@@ -313,7 +313,7 @@ fn the_dashboard_json_has_each_project_with_its_figures_and_the_latest_runs_firs
     let scratch = Scratch::new("hook-json");
     let places = scratch.places();
     let store = crate::lists::fixtures::make_store(&places, &["bae", "coven"]);
-    let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&dashboard_json_at(&places, 100)).unwrap();
     assert_eq!(json["projects"][0]["repos"], serde_json::json!([]));
     for at in 1..=25 {
         record(
@@ -327,7 +327,7 @@ fn the_dashboard_json_has_each_project_with_its_figures_and_the_latest_runs_firs
         )
         .unwrap();
     }
-    let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&dashboard_json_at(&places, 100)).unwrap();
     let project = &json["projects"][0]["repos"][0];
     assert_eq!(
         (
@@ -353,7 +353,7 @@ fn the_dashboard_json_has_each_project_with_its_figures_and_the_latest_runs_firs
         "not a database, and long enough to have a header of sorts",
     )
     .unwrap();
-    let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&dashboard_json_at(&places, 100)).unwrap();
     assert!(json["projects"][0]["error"].is_string(), "{json}");
 }
 
@@ -476,7 +476,7 @@ fn the_dashboard_json_carries_the_flags_and_the_trend() {
         &run(1, 99_000, true, check_set(&[("clippy", 90_000)])),
     )
     .unwrap();
-    let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&dashboard_json_at(&places, 100)).unwrap();
     let project = &json["projects"][0]["repos"][0];
     assert_eq!(project["limit_ms"], 45_000);
     assert_eq!(project["over_count"], 1);
@@ -514,7 +514,7 @@ fn each_repos_runs_are_kept_apart_in_the_figures_and_the_dashboard() {
     );
     let other = stats(&path, 0, "agent-instructions").unwrap().unwrap();
     assert_eq!((other.runs, other.over_limit.len()), (1, 1));
-    let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&dashboard_json_at(&places, 100)).unwrap();
     let panels = json["projects"][0]["repos"].as_array().unwrap();
     let names: Vec<&str> = panels.iter().map(|p| p["repo"].as_str().unwrap()).collect();
     assert_eq!(names, ["agent-instructions", "bae"]);
@@ -676,4 +676,33 @@ fn a_failed_checks_time_is_not_stored_and_a_passed_checks_time_is() {
             ("detekt".to_string(), None)
         ]
     );
+}
+
+#[test]
+fn the_dashboard_counts_only_runs_of_the_last_12_hours() {
+    let scratch = Scratch::new("hook-json-window");
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    let now = 10_000_000;
+    let hours = |n: i64| now - n * 3600;
+    // Yesterday's runs: one slow, one fast. Today's: one fast.
+    for (at, total) in [(hours(30), 99_000), (hours(13), 5_000), (hours(2), 7_000)] {
+        record(
+            &store.dir.join(DATABASE),
+            &run(at, total, true, check_set(&[("clippy", total)])),
+        )
+        .unwrap();
+    }
+    let json: serde_json::Value = serde_json::from_str(&dashboard_json_at(&places, now)).unwrap();
+    let repo = &json["projects"][0]["repos"][0];
+    assert_eq!(repo["runs"], 1);
+    assert_eq!(repo["over_count"], 0);
+    assert_eq!(repo["median_ms"], 7_000);
+    assert_eq!(repo["slowest_ms"], 7_000);
+    assert_eq!(repo["recent"].as_array().unwrap().len(), 1);
+    assert_eq!(repo["checks"][0]["ran"], 1);
+    // Twelve hours later, today's run is yesterday's too.
+    let later: serde_json::Value =
+        serde_json::from_str(&dashboard_json_at(&places, now + 11 * 3600)).unwrap();
+    assert_eq!(later["projects"][0]["repos"][0]["runs"], 0);
 }

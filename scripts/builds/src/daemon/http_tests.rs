@@ -347,10 +347,15 @@ fn hook_store(_scratch: &Scratch, places: &crate::places::Places) {
             ms: Some(clippy_ms),
         }],
     };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    // The first ran yesterday, which the panels leave out.
     for r in [
-        run(1, 80_000, 70_000),
-        run(2_000_000_000, 90_000, 85_000),
-        run(2_000_000_001, 20_000, 10_000),
+        run(now - 30 * 3600, 80_000, 70_000),
+        run(now - 2 * 3600, 90_000, 85_000),
+        run(now - 3600, 20_000, 10_000),
     ] {
         record(&store.dir.join(DATABASE), &r).unwrap();
     }
@@ -363,9 +368,9 @@ fn the_daemon_serves_the_hook_runs_with_their_over_limit_runs() {
     assert_eq!((status, kind.as_str()), (200, "application/json"));
     let hooks: serde_json::Value = serde_json::from_str(&body).unwrap();
     let repo = &hooks["projects"][0]["repos"][0];
-    // Two of the three runs took over the limit, the longest first.
-    assert_eq!(repo["over_count"], 2);
+    // Of the two runs in the last 12 hours, one took over the limit.
+    assert_eq!(repo["runs"], 2);
+    assert_eq!(repo["over_count"], 1);
     assert_eq!(repo["over"][0]["total_ms"], 90_000);
-    assert_eq!(repo["over"][1]["total_ms"], 80_000);
     assert_eq!(s.get("/api/hooks/impact?project=demo").0, 404);
 }

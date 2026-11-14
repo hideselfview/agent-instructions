@@ -781,10 +781,13 @@ pub(crate) fn run_json(run: &Run) -> serde_json::Value {
     })
 }
 
+/// The dashboard's panels count the runs of the last 12 hours.
+pub const DASHBOARD_WINDOW_SECONDS: i64 = 12 * 60 * 60;
+
 /// The dashboard's JSON for one repo of a project: its figures and latest
-/// runs, or `error` when the database can't be read.
-fn repo_json(repo: &str, path: &Path) -> serde_json::Value {
-    match stats(path, 0, repo) {
+/// runs since <since>, or `error` when the database can't be read.
+fn repo_json(repo: &str, path: &Path, since: i64) -> serde_json::Value {
+    match stats(path, since, repo) {
         Ok(None) => serde_json::json!({ "repo": repo, "runs": 0 }),
         Ok(Some(stats)) => serde_json::json!({
             "repo": repo,
@@ -809,11 +812,11 @@ fn repo_json(repo: &str, path: &Path) -> serde_json::Value {
 
 /// The dashboard's JSON for one project: each repo with runs in it, apart, or
 /// `error` when the database can't be read.
-fn project_json(project: &str, path: &Path) -> serde_json::Value {
+fn project_json(project: &str, path: &Path, since: i64) -> serde_json::Value {
     match repos(path) {
         Ok(repos) => serde_json::json!({
             "project": project,
-            "repos": repos.iter().map(|repo| repo_json(repo, path)).collect::<Vec<_>>(),
+            "repos": repos.iter().map(|repo| repo_json(repo, path, since)).collect::<Vec<_>>(),
         }),
         Err(error) => serde_json::json!({ "project": project, "error": error.text() }),
     }
@@ -822,11 +825,22 @@ fn project_json(project: &str, path: &Path) -> serde_json::Value {
 /// The dashboard's JSON for every project with a store: `{"projects": [...]}`,
 /// or `{"error"}` when the stores' folder can't be listed.
 pub fn dashboard_json(places: &crate::places::Places) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("the clock is after 1970")
+        .as_secs() as i64;
+    dashboard_json_at(places, now)
+}
+
+/// `dashboard_json` as of <now> (seconds since 1970): only runs that started
+/// in the 12 hours before it count.
+pub fn dashboard_json_at(places: &crate::places::Places, now: i64) -> String {
+    let since = now - DASHBOARD_WINDOW_SECONDS;
     let value = match crate::lists::store::stores(places) {
         Ok(stores) => {
             let projects: Vec<serde_json::Value> = stores
                 .iter()
-                .map(|store| project_json(&store.project, &store.dir.join(DATABASE)))
+                .map(|store| project_json(&store.project, &store.dir.join(DATABASE), since))
                 .collect();
             serde_json::json!({ "projects": projects })
         }
