@@ -291,23 +291,26 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     in), and the command fails if either lane does, saying which; a mac-only
     build and an android-only build don't wait on each other.
     `builds app-build bae --list` prints the steps with their lanes: `macos`
-    (build the app), `macos-tests` (compile its unit tests), `macos-tests-run`
-    (run them, without rebuilding; the UI tests are not among them),
-    `macos-tests-all` (build and run the unit and UI tests, signing the UI test
-    runner so Gatekeeper lets it launch) in the mac lane; `android-bridge` and
-    `android` (the bridge, then the Kotlin and both test targets),
-    `android-tests` (run the unit tests from that output) in the android lane. A
-    change to a bridge shape or to Swift code runs `macos` and `macos-tests`;
-    one to Kotlin runs `android-bridge` and `android`; a bridge shape runs both
-    sets, in one command. Then only the test class that proves the change, with
-    `--test mac <TestClass>` or `--test android <TestClass>` after the steps
-    (`.app-build` declares once per lane how a lane runs one class, the `test`
-    lines with `{class}` in them; no step is added per class, and with no step
-    named only the classes run). A screenshot area is picked the same way, with
-    `--shots mac <prefix>` or `--shots android <prefix>` (any number, the
-    `shots` lines with `{select}`; `mac-shots` and `android-shots` stay for a
-    whole platform, and `mac-window-shots` for the shots shown in their windows,
-    which bring the app to the front). Never `macos-tests-run`,
+    (build the signed app that `builds build-app` installs for the person),
+    `macos-tests` (compile the app unsigned with its unit tests and the shot
+    scenes), `macos-tests-run` (run them, without rebuilding; the UI tests are
+    not among them), `macos-tests-all` (build and run the unit and UI tests,
+    signing the UI test runner so Gatekeeper lets it launch) in the mac lane;
+    `android-bridge` and `android` (the bridge, then the Kotlin and both test
+    targets), `android-tests` (run the unit tests from that output) in the
+    android lane. A change to a bridge shape or to Swift code runs
+    `macos-tests`, never `macos`: the signed app builds into a folder of its own
+    with other settings, so it compiles every Swift file a second time and no
+    check reads it; one to Kotlin runs `android-bridge` and `android`; a bridge
+    shape runs both sets, in one command. Then only the test class that proves
+    the change, with `--test mac <TestClass>` or `--test android <TestClass>`
+    after the steps (`.app-build` declares once per lane how a lane runs one
+    class, the `test` lines with `{class}` in them; no step is added per class,
+    and with no step named only the classes run). A screenshot area is picked
+    the same way, with `--shots mac <prefix>` or `--shots android <prefix>` (any
+    number, the `shots` lines with `{select}`; `mac-shots` and `android-shots`
+    stay for a whole platform, and `mac-window-shots` for the shots shown in
+    their windows, which bring the app to the front). Never `macos-tests-run`,
     `macos-tests-all` or `android-tests` as a check, since they run every test
     and put windows on the person's screen. CI runs the suites. A step is a
     program, not a shell string: one that needs a shell is a script in the repo
