@@ -135,10 +135,6 @@ pub struct Holder {
     pub started_from: Option<String>,
     /// The app checkout's HEAD while it holds the lock: the commit it builds.
     pub app_head: Option<String>,
-    /// Does the `builds lock`, `build-app` or `app-build` process that took
-    /// the lock still run? False when only processes it started still have
-    /// the lock file open: the build is over and what is left keeps the lock.
-    pub driver_running: bool,
 }
 
 impl Holder {
@@ -323,7 +319,6 @@ pub fn sample(
         // A build whose `builds lock` was killed outright still holds the
         // lock: its processes have the file open. Found only when the lock is
         // taken, since reading every process's open files costs.
-        let driver_running = holding.is_some();
         if holding.is_none() && taken(path) {
             holding = topmost(&processes, uid, opened);
         }
@@ -339,7 +334,6 @@ pub fn sample(
                 .and_then(|dir| place_of(places, &dir))
                 .map(|at| places[at].label.clone()),
             app_head: app_top.as_deref().and_then(head_of),
-            driver_running,
         });
         held.push(LockHealth {
             repo: repo.clone(),

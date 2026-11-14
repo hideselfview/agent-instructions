@@ -240,24 +240,6 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .facts dd.mono { font: 12px var(--mono); }
-.ab-lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 10px; }
-.ab-lanes:empty { display: none; }
-.ab { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); display: flex; flex-direction: column; overflow: hidden; }
-.ab-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-.ab-head > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ab-head b { font-size: 15px; font-weight: 700; }
-.ab-head .br { font: 400 12px var(--mono); color: var(--muted); margin-left: 4px; }
-.ab-head .size { font: 500 13px var(--mono); color: var(--muted); }
-.ab-now { padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
-.ab-now.building { background: var(--working-bg); color: var(--working); }
-.ab-now .who { font-weight: 600; }
-.ab-now .use { font: 12px var(--mono); }
-.ab-now .procs { font: 12px var(--mono); }
-.ab-now .plain { font: 12px var(--mono); color: var(--muted); }
-.ab-now .ic { display: inline; font: inherit; }
-.ab-now .ic svg { vertical-align: -2px; margin-right: 5px; }
-.ab-q { padding: 10px 16px; display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
-.ab-q .qn { font: 500 20px var(--mono); color: var(--text); line-height: 1; }
 .tools { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
 .tools > summary { cursor: pointer; font-size: 14px; font-weight: 600; }
 .tools .controls { margin-top: 10px; }
@@ -317,7 +299,6 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
       <span class="updated" id="hidden-count"></span>
     </div>
   </div>
-  <div class="ab-lanes" id="app-builds"></div>
   <main id="view"><div class="loading">Reading the checkouts</div></main>
 </section>
 <details class="tools">
@@ -457,6 +438,11 @@ function queueOf(repo, lane) {
   const q = repo.queues.find(x => x.lane === lane);
   return q ? q.queue : [];
 }
+function lockOf(repo, c) {
+  const lock = repo.locks.find(l => l.lane === c.app_lane && l.checkout === c.name);
+  return {repo: lock ? lock.repo : repo.name, held: !!(lock && lock.holder), waiting: queueOf(repo, c.app_lane).length,
+    holder: lock ? lock.holder : null};
+}
 // What holds the app lock, each command as its script's file name with the
 // whole command in the tooltip.
 function shortCommand(command) {
@@ -464,6 +450,14 @@ function shortCommand(command) {
   const script = words.find((w, i) => i > 0 && /\.(sh|py|rb|js)$/.test(w));
   const name = (script || words[0] || command).split("/").pop();
   return {name, rest: script ? "" : words.slice(1, 3).join(" ")};
+}
+function commands(lock) {
+  if (!lock.holder) return [];
+  const running = lock.holder.running.length ? lock.holder.running : [lock.holder.command];
+  return running.map(command => {
+    const short = shortCommand(command);
+    return h("div", {class: "command", title: command}, (short.name + " " + short.rest).trim());
+  });
 }
 function detachedAt(c) {
   if (c.branch) return c.branch;
@@ -542,6 +536,16 @@ function chips(b) {
 function mainLine(repo) {
   return "Your checkout. No agent works or builds here.";
 }
+function appLine(lock, b, appLane) {
+  if (lock.held) {
+    return "An agent is building here under the " + appLane + " app lock" +
+      (lock.holder.minutes ? " (held " + lock.holder.minutes + "m)" : "") +
+      (lock.waiting ? "; " + lock.waiting + " waiting for whichever " + appLane + " checkout frees first." : ".");
+  }
+  return "Where agents build the " + appLane + " app, one at a time under the " + appLane + " app lock." +
+    (b && b.newest ? " Last build " + when(new Date(b.newest * 1000)) + "." : "");
+}
+
 // Who waits for the app lock, next first, each with the buttons that move it.
 function queuedName(q) {
   return q.command.includes("build-app") ? "Your test app" : (q.started_from || "?").split("/").pop();
@@ -701,6 +705,21 @@ function pinnedMain(repo, c) {
     activityLine(c),
     totalBlock(b), chips(b));
 }
+function pinnedApp(repo, c) {
+  const b = built(c), lock = lockOf(repo, c);
+  return h("article", {class: "pinned"},
+    h("div", {class: "row1"},
+      h("div", {class: "ident"}, h("span", {class: "name"}, "App build · " + c.app_lane),
+        h("span", {class: "where"}, c.name + " · " + detachedAt(c))),
+      lock.held ? pill("Lock held", "s-working") : pill("Lock free", "s-free")),
+    h("span", {class: "line"}, appLine(lock, b, c.app_lane)),
+    lock.held ? commands(lock) : null,
+    activityLine(c),
+    c.claim ? h("div", {class: "who-block"}, h("span", {class: "who"}, c.claim.who),
+      c.claim.note ? h("span", {class: "note"}, c.claim.note) : null) : null,
+    totalBlock(b), chips(b));
+}
+
 function waitingBox(c, max) {
   const ahead = c.git && !c.git.error ? c.git.ahead : [];
   if (!ahead.length) return null;
@@ -795,6 +814,7 @@ function reposView(root) {
       summary([agents ? plural(agents, "agent", "agents") : null, ...stateCounts(sides), goneLine(gone)]) || "no side worktrees";
     const pinned = [];
     if (main) pinned.push({key: "main", data: [repo.lanes, main], make: () => pinnedMain(repo, main)});
+    for (const app of apps) pinned.push({key: "app " + app.app_lane + " " + app.name, data: [repo.locks, repo.queues, app], make: () => pinnedApp(repo, app)});
     patch(section.querySelector(".pinned-grid"), pinned);
     patch(section.querySelector(".cards"), shown(sides).map(c => ({key: c.name, data: c, make: () => card(c)})));
     return section;
@@ -808,6 +828,17 @@ function compactMain(repo, c) {
   return h("article", {class: "pinned compact"},
     h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " main"), h("span", {class: "big"}, b && b.total !== null ? size(b.total) : "measuring…")),
     h("span", {class: "line"}, "Yours. No agent works or builds here."),
+    activityLine(c));
+}
+function compactApp(repo, c) {
+  const b = built(c), lock = lockOf(repo, c);
+  const line = lock.held
+    ? "Lock held: an agent is building here" + (lock.waiting ? "; " + lock.waiting + " waiting for whichever " + c.app_lane + " checkout frees first." : ".")
+    : "Lock free. Agents build the apps here, one at a time.";
+  return h("article", {class: "pinned compact"},
+    h("div", {class: "row1"}, h("span", {class: "name"}, repo.name + " App build · " + c.app_lane + " · " + c.name), h("span", {class: "big"}, b && b.total !== null ? size(b.total) : "measuring…")),
+    h("span", {class: "line"}, line),
+    lock.held ? commands(lock) : null,
     activityLine(c));
 }
 function laneCard(repo, c) {
@@ -834,6 +865,7 @@ function lanesView(root) {
   for (const repo of state.repos) {
     const s = split(repo);
     if (s.main) pinned.push({key: repo.name + " main", data: [s.main], make: () => compactMain(repo, s.main)});
+    for (const app of s.apps) pinned.push({key: repo.name + " app " + app.app_lane + " " + app.name, data: [repo.locks, repo.queues, app], make: () => compactApp(repo, app)});
     for (const c of s.sides) all.push([repo, c]);
     for (const c of s.gone) gone.push(c);
   }
@@ -862,51 +894,6 @@ function lanesView(root) {
     else patch(holder, [{key: "none", data: null, make: () => h("span", {class: "none"}, "None.")}]);
   }
   for (const el of Array.from(root.children)) if (!["pinned", "gone", "lanes"].includes(el.dataset.key)) el.remove();
-}
-
-const HAMMER = () => { const n = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  n.setAttribute("viewBox", "0 0 16 16"); n.setAttribute("width", "14"); n.setAttribute("height", "14"); n.setAttribute("fill", "none");
-  n.setAttribute("stroke", "currentColor"); n.setAttribute("stroke-width", "1.5"); n.setAttribute("stroke-linecap", "round");
-  n.setAttribute("stroke-linejoin", "round"); n.setAttribute("aria-label", "Building");
-  n.innerHTML = '<g transform="rotate(-40 8 8)"><path d="M3.5 2.5h7.5a1.5 1.5 0 0 1 1.5 1.5v1.5H3.5l-1-1.5z"/><path d="M7.25 5.5h1.5V14.5h-1.5z"/></g>';
-  return n; };
-// "6m" under two hours, then whole hours.
-function spell(minutes) { return minutes < 120 ? minutes + "m" : Math.round(minutes / 60) + "h"; }
-function memory(n) { return n < 1073741824 ? Math.round(n / 1048576) + " MB" : (n / 1073741824).toFixed(1) + " GB"; }
-function programs(list) { return list.map(p => p.count > 1 ? p.name + " ×" + p.count : p.name).join(", "); }
-// The app checkouts as build lanes (app_builds.rs): who builds in each now,
-// what runs, and who waits.
-function appBuildLane(repo, a, several) {
-  const title = (several ? repo + " " : "") + a.lane.charAt(0).toUpperCase() + a.lane.slice(1) + " app builds";
-  const now = a.now;
-  let box;
-  if (now.state === "building") {
-    box = h("div", {class: "ab-now building"},
-      h("div", {class: "who"}, now.who + " is building"),
-      h("div", {class: "procs"}, h("span", {class: "ic", title: "Building: how long the build holding this lock has run, and the programs it runs."}, HAMMER(), spell(now.minutes)),
-        now.programs.length ? " · " + programs(now.programs) : ""),
-      h("div", {class: "use"}, Math.round(now.cpu) + "% CPU · " + memory(now.memory)));
-  } else if (now.state === "stuck") {
-    const held = now.minutes < 120 ? now.minutes + " minutes" : Math.round(now.minutes / 60) + " hours";
-    box = h("div", {class: "ab-now"},
-      h("div", {class: "who"}, "Lock held " + held + " by a build that no longer runs"),
-      now.running.length ? h("div", {class: "plain"}, now.running.join(", ")) : null);
-  } else {
-    box = h("div", {class: "ab-now"}, h("div", {}, "No build runs here."));
-  }
-  return h("div", {class: "ab"},
-    h("div", {class: "ab-head"},
-      h("span", {}, h("b", {}, title), h("span", {class: "br"}, a.checkout + " · " + a.checked_out)),
-      h("span", {class: "size", title: "Disk: the build output this checkout holds on the build volume."}, a.disk_kib === null ? "measuring…" : size(a.disk_kib))),
-    box,
-    h("div", {class: "ab-q"}, h("span", {class: "qn"}, String(a.waiting.length)),
-      h("span", {}, a.waiting.length ? "waiting: " + a.waiting.join(", ") : "nothing waiting")));
-}
-function appBuildsView() {
-  const several = state.repos.filter(r => r.app_builds.length).length > 1;
-  const items = state.repos.flatMap(r => r.app_builds.map(a => ({key: r.name + " " + a.lane + " " + a.checkout, data: a,
-    make: () => appBuildLane(r.name, a, several)})));
-  patch(document.getElementById("app-builds"), items);
 }
 
 function disk(v) {
@@ -992,7 +979,6 @@ function render() {
   findingsView(state.health);
   queuesView();
   buildsView();
-  appBuildsView();
   const root = document.getElementById("view");
   if (root.dataset.view !== view) { root.replaceChildren(); root.dataset.view = view; }
   if (view === "lanes") lanesView(root); else reposView(root);

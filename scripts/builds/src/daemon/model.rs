@@ -711,7 +711,6 @@ impl Model {
                             .unwrap_or_default()
                     }),
                     name: repo_name.clone(),
-                    app_builds: Vec::new(),
                     checkouts: Vec::new(),
                 });
             }
@@ -785,9 +784,6 @@ impl Model {
                 .expect("added above")
                 .checkouts
                 .push(checkout);
-        }
-        for repo in &mut repos {
-            repo.app_builds = super::app_builds::build(repo);
         }
         Ok(Page {
             version: state.version,
@@ -986,8 +982,6 @@ pub struct RepoPage {
     pub queues: Vec<crate::health::LaneQueue>,
     /// The latest build-app run the page started in each lane.
     pub runs: Vec<RunPage>,
-    /// The app checkouts as build lanes (app_builds.rs).
-    pub app_builds: Vec<super::app_builds::AppBuild>,
     pub checkouts: Vec<CheckoutPage>,
 }
 
