@@ -444,7 +444,7 @@ Commit your work on your branch in your own side worktree, then run one command
 that holds the lock, moves the app checkout to your commit and builds. In bae:
 
 ```sh
-builds app-build bae <branch> [<step>...] [--test mac|android <Class>]...
+builds app-build bae <branch> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]...
 ```
 
 It queues for the locks of each lane the steps are in, takes the first free one,
@@ -466,14 +466,18 @@ One test class needs no step of its own: the repo declares once per lane, in a
 `test <lane> <program> [<args>...]` line with `{class}` where the class goes,
 how its lane runs a filtered class, and `--test <lane> <Class>` (any number,
 after the steps) runs that line for the class after the lane's steps, each run
-limited to 10 minutes. With `--test` and no step named, only the classes run,
-not every step; such a run tests what the app checkout holds, so it refuses,
-naming what was built, unless that checkout's last build (the commit and steps,
-in `<root>/<repo>/<checkout>/.last-app-build`, written when a run's steps all
+limited to 10 minutes. Screenshots are picked the same way: a
+`shots <lane> <program> [<args>...]` line with `{select}` where the prefix of
+the shots' names goes, and `--shots <lane> <prefix>` (any number, mixed with
+`--test` in any order) runs it once per prefix, each run limited to 20 minutes.
+With `--test` or `--shots` and no step named, only those runs happen, not every
+step; such a run tests what the app checkout holds, so it refuses, naming what
+was built, unless that checkout's last build (the commit and steps, in
+`<root>/<repo>/<checkout>/.last-app-build`, written when a run's steps all
 finish and removed when a run with steps starts) is of the commit named and the
-checkout is still on it. A class-only run may land on another checkout of the
-lane than the one that built; it is then refused too. The class is one argument,
-never read by a shell.
+checkout is still on it. A run of only picks may land on another checkout of the
+lane than the one that built; it is then refused too. The class or prefix is one
+argument, never read by a shell.
 
 A step has a time limit: 45 minutes, or what its `limit <step> <time>` line in
 `.app-build` says (`90s`, `30m`, `2h`). Past it the step's whole process group

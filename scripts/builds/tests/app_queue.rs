@@ -958,3 +958,56 @@ fn a_class_only_run_tests_the_commit_the_checkout_last_built() {
         "the class ran against the stale build"
     );
 }
+
+#[test]
+fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
+    let volume = Volume::new("shots-built");
+    volume.app_repo_with(
+        "step mac one ./one.sh\nstep mac two ./two.sh\nshots mac ./one.sh --select {select}\n",
+    );
+    let said = |output: &std::process::Output| String::from_utf8_lossy(&output.stderr).into_owned();
+    let none = volume.run(&[
+        "app-build",
+        "demo",
+        "main",
+        "--shots",
+        "mac",
+        "mac.welcome.",
+    ]);
+    assert!(
+        !none.status.success() && said(&none).contains("no finished build"),
+        "{}",
+        said(&none)
+    );
+    assert!(volume.log().is_empty(), "the shots ran: {:?}", volume.log());
+    std::fs::write(volume.dir.join("go-two"), "").unwrap();
+    let built = volume.run(&["app-build", "demo", "main", "two"]);
+    assert!(built.status.success(), "{}", said(&built));
+    std::fs::write(volume.dir.join("go-one"), "").unwrap();
+    let shot = volume.run(&[
+        "app-build",
+        "demo",
+        "main",
+        "--shots",
+        "mac",
+        "mac.welcome.",
+    ]);
+    assert!(shot.status.success(), "{}", said(&shot));
+    assert_eq!(
+        volume.log(),
+        lines(&["start two", "end two", "start one", "end one"])
+    );
+    let kept =
+        std::fs::read_to_string(volume.dir.join("volume/demo/side-1/.last-app-build")).unwrap();
+    assert_eq!(
+        kept.lines().nth(1),
+        Some("two"),
+        "a shots run leaves what was built as it was: {kept:?}"
+    );
+    let missing = volume.run(&["app-build", "demo", "main", "--shots", "android", "a."]);
+    assert!(
+        !missing.status.success() && said(&missing).contains("no `shots android ...` line"),
+        "{}",
+        said(&missing)
+    );
+}

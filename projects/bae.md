@@ -233,7 +233,7 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     then run, as a background task:
 
     ```sh
-    builds app-build bae <branch> [<step>...] [--test mac|android <Class>]...
+    builds app-build bae <branch> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]...
     ```
 
     It takes the queue for the locks of each lane the steps are in
@@ -259,10 +259,14 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     `--test mac <TestClass>` or `--test android <TestClass>` after the steps
     (`.app-build` declares once per lane how a lane runs one class, the `test`
     lines with `{class}` in them; no step is added per class, and with no step
-    named only the classes run): never `macos-tests-run`, `macos-tests-all` or
-    `android-tests` as a check, since they run every test and put windows on the
-    person's screen. CI runs the suites. A step is a program, not a shell
-    string: one that needs a shell is a script in the repo
+    named only the classes run). A screenshot area is picked the same way, with
+    `--shots mac <prefix>` or `--shots android <prefix>` (any number, the
+    `shots` lines with `{select}`; `mac-shots` and `android-shots` stay for a
+    whole platform, and `mac-window-shots` for the shots shown in their windows,
+    which bring the app to the front). Never `macos-tests-run`,
+    `macos-tests-all` or `android-tests` as a check, since they run every test
+    and put windows on the person's screen. CI runs the suites. A step is a
+    program, not a shell string: one that needs a shell is a script in the repo
     (`bae-android/compile-all.sh`). A step that runs past its time limit (45
     minutes, or its `limit <step> <time>` line in `.app-build`) is killed and
     fails the build, which gives the lock up. To build something else there

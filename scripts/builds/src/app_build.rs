@@ -19,14 +19,16 @@
 //! `run_in_group`, stopping at the first one that fails. A step has a time
 //! limit (app_config.rs): past it the step's process group is killed and the
 //! build fails, which gives up the lock.
-//! `builds app-build <repo> --list` prints the steps and the test lines.
+//! `builds app-build <repo> --list` prints the steps and the test and shots
+//! lines.
 //!
-//! `--test <lane> <Class>` (any number, after the steps) adds, to the end of
-//! that lane's steps, the lane's `test` line (app_config.rs) with the class in
-//! it, one run per class, each with `TEST_CLASS_LIMIT`. With `--test` and no
-//! step named, only the classes run, not every step.
+//! `--test <lane> <Class>` and `--shots <lane> <prefix>` (any number of each,
+//! in any order, after the steps) add, to the end of that lane's steps, the
+//! lane's `test` or `shots` line (app_config.rs) with the class or the prefix
+//! in it, one run per flag, each with the kind's limit. With such flags and
+//! no step named, only those runs happen, not every step.
 //!
-//! A class run with no step named tests what the checkout holds, so it
+//! A run of picks with no step named tests what the checkout holds, so it
 //! refuses unless the checkout's last build (`Built`, kept beside the lock's
 //! checkout folder, written when a run's steps all finish and removed when a
 //! run with steps starts) is of the commit it names and the checkout is still
@@ -44,8 +46,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::app_config::{
-    CONFIG, Config, Step, app_checkout_top, check_out, parse_config, run_command, run_git,
-    show_duration,
+    CONFIG, Config, PickKind, Step, app_checkout_top, check_out, parse_config, run_command,
+    run_git, show_duration,
 };
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -54,7 +56,7 @@ use crate::lock::{self, Ran, Within};
 use crate::places::Places;
 use crate::text::note;
 
-const USAGE: &str = "usage: builds app-build <repo> <ref> [<step>...] [--test mac|android <Class>]... | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]...";
+const USAGE: &str = "usage: builds app-build <repo> <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]... | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]...";
 
 /// Set by the parent in each lane's process: print the marker line below once
 /// the checkout is known.
@@ -107,66 +109,74 @@ fn chosen(config: &Config, lane: Lane, names: &[String]) -> Result<Vec<Step>> {
         .collect()
 }
 
-/// How long a test class may run, as the limit of a step; the time the
-/// per-class steps in bae's `.app-build` had.
-pub const TEST_CLASS_LIMIT: Duration = Duration::from_secs(10 * 60);
+/// A `--test <lane> <Class>` or `--shots <lane> <prefix>` flag.
+type Pick = (Lane, PickKind, String);
 
-/// The name <class>'s run goes by in messages and the dashboard's step lines.
-const TEST_STEP_PREFIX: &str = "test ";
+/// The kind of step <name> is, when it is the run of a pick.
+fn pick_kind_of(name: &str) -> Option<PickKind> {
+    PickKind::ALL
+        .into_iter()
+        .find(|kind| name.starts_with(kind.step_prefix()))
+}
 
-/// A `--test <lane> <Class>` flag.
-type ClassFlag = (Lane, String);
-
-/// <args> (the steps, then `--test <lane> <Class>` flags) as the step names
-/// and the lane and class of each flag.
-fn split_tests(args: &[String]) -> Result<(Vec<String>, Vec<ClassFlag>)> {
-    let at = args
-        .iter()
-        .position(|arg| arg == "--test")
-        .unwrap_or(args.len());
+/// <args> (the steps, then `--test` and `--shots` flags, each with a lane and
+/// an argument) as the step names and the flags.
+fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
+    let is_flag = |arg: &String| PickKind::ALL.iter().any(|kind| arg == kind.flag());
+    let at = args.iter().position(is_flag).unwrap_or(args.len());
     let (names, mut flags) = (args[..at].to_vec(), &args[at..]);
-    let mut tests = Vec::new();
+    let mut picks = Vec::new();
     while let Some((flag, rest)) = flags.split_first() {
-        let [lane, class, after @ ..] = rest else {
-            fail!("--test needs a lane and a class\n{USAGE}");
+        let Some(kind) = PickKind::ALL.into_iter().find(|kind| flag == kind.flag()) else {
+            fail!("{flag:?} where --test or --shots goes\n{USAGE}");
         };
-        if flag != "--test" {
-            fail!("{flag:?} where --test <lane> <Class> goes\n{USAGE}");
+        let [lane, arg, after @ ..] = rest else {
+            fail!(
+                "{} needs a lane and a {}\n{USAGE}",
+                kind.flag(),
+                kind.what()
+            );
+        };
+        if arg.is_empty() || arg.starts_with('-') || arg.contains(char::is_whitespace) {
+            fail!(
+                "{} {lane} takes one {} name, not {arg:?}",
+                kind.flag(),
+                kind.what()
+            );
         }
-        if class.is_empty() || class.starts_with('-') || class.contains(char::is_whitespace) {
-            fail!("--test {} takes one class name, not {class:?}", lane);
-        }
-        tests.push((Lane::parse_or_fail(lane)?, class.clone()));
+        picks.push((Lane::parse_or_fail(lane)?, kind, arg.clone()));
         flags = after;
     }
-    Ok((names, tests))
+    Ok((names, picks))
+}
+
+/// The refusal for a pick of a kind whose line <config> lacks in <lane>.
+fn missing_line(lane: Lane, kind: PickKind, arg: &str) -> Fail {
+    Fail::Message(format!(
+        "{CONFIG} has no `{} {} ...` line, so it cannot run the {} {arg}",
+        kind.line(),
+        lane.word(),
+        kind.what()
+    ))
 }
 
 /// What <lane> runs: its steps (<names>, or every one when none is named and
-/// no class is), then its `test` line for each of <classes> that is the lane's.
-fn lane_steps(
-    config: &Config,
-    lane: Lane,
-    names: &[String],
-    classes: &[ClassFlag],
-) -> Result<Vec<Step>> {
-    let mut steps = if names.is_empty() && !classes.is_empty() {
+/// no pick is), then the line of each of <picks> that is the lane's.
+fn lane_steps(config: &Config, lane: Lane, names: &[String], picks: &[Pick]) -> Result<Vec<Step>> {
+    let mut steps = if names.is_empty() && !picks.is_empty() {
         Vec::new()
     } else {
         chosen(config, lane, names)?
     };
-    for (_, class) in classes.iter().filter(|(own, _)| *own == lane) {
-        let Some(test) = config.class_test(lane) else {
-            fail!(
-                "{CONFIG} has no `test {} ...` line, so it cannot run the class {class}",
-                lane.word()
-            );
+    for (_, kind, arg) in picks.iter().filter(|(own, _, _)| *own == lane) {
+        let Some(picker) = config.picker(lane, *kind) else {
+            return Err(missing_line(lane, *kind, arg));
         };
         steps.push(Step {
-            name: format!("{TEST_STEP_PREFIX}{class}"),
+            name: format!("{}{arg}", kind.step_prefix()),
             lane,
-            command: test.command_for(class),
-            limit: Some(TEST_CLASS_LIMIT),
+            command: picker.command_for(arg),
+            limit: Some(kind.limit()),
         });
     }
     Ok(steps)
@@ -237,7 +247,7 @@ impl Built {
         }
     }
 
-    /// Whether a class run of <wanted> (named <asked> by the caller) may go
+    /// Whether a run of picks of <wanted> (named <asked> by the caller) may go
     /// ahead in <checkout>, which is on <head> and last built <built>.
     fn allows_class_run(
         built: Option<&Built>,
@@ -246,7 +256,7 @@ impl Built {
         wanted: &str,
         head: &str,
     ) -> Result<()> {
-        let hint = "name the steps that build it (a class-only run tests what the checkout holds)";
+        let hint = "name the steps that build it (a run of only --test or --shots flags tests what the checkout holds)";
         let Some(built) = built else {
             fail!("{checkout} has no finished build to test {asked} ({wanted}) against: {hint}");
         };
@@ -283,7 +293,7 @@ fn run_steps(top: &Path, steps: &[Step]) -> Result<Ran> {
             Ok(Within::Ran(Ran::Finished)) => {}
             Ok(Within::Ran(Ran::TakenOver)) => return Ok(Ran::TakenOver),
             Ok(Within::TimedOut) => {
-                let hint = if step.name.starts_with(TEST_STEP_PREFIX) {
+                let hint = if pick_kind_of(&step.name).is_some() {
                     String::new()
                 } else {
                     format!(
@@ -328,14 +338,14 @@ fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
 }
 
 /// Builds <commit> in <lane>'s app checkout on the lane's lock: <names> are
-/// the lane's steps to run, or all of them when none and no <classes>.
+/// the lane's steps to run, or all of them when none and no <picks>.
 fn run_lane(
     places: &Places,
     repo: &str,
     lane: Lane,
     commit: &str,
     names: &[String],
-    classes: &[ClassFlag],
+    picks: &[Pick],
 ) -> Result<()> {
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
@@ -352,7 +362,7 @@ fn run_lane(
             eprintln!("{CHECKOUT_MARKER}{}", held.checkout);
         }
         let built_file = places.app_built_file(repo, &held.checkout);
-        if names.is_empty() && !classes.is_empty() {
+        if names.is_empty() && !picks.is_empty() {
             run_git(&top, &["fetch", "-q", "origin"])?;
             let (wanted, head) = (resolve(&top, commit)?, resolve(&top, "HEAD")?);
             Built::allows_class_run(
@@ -367,13 +377,13 @@ fn run_lane(
             Built::clear(&built_file)?;
         }
         let config = check_out(&top, commit)?;
-        let steps = lane_steps(&config, lane, names, classes)?;
+        let steps = lane_steps(&config, lane, names, picks)?;
         if steps.is_empty() {
             fail!("{CONFIG} names no step in the {} lane", lane.word());
         }
         let (tests, builds): (Vec<Step>, Vec<Step>) = steps
             .into_iter()
-            .partition(|step| step.name.starts_with(TEST_STEP_PREFIX));
+            .partition(|step| pick_kind_of(&step.name).is_some());
         let mut ran = run_steps(&top, &builds)?;
         if ran == Ran::Finished && !builds.is_empty() {
             let steps = builds.iter().map(|step| step.name.clone()).collect();
@@ -451,7 +461,7 @@ fn run_lanes(
     repo: &str,
     commit: &str,
     lanes: &[(Lane, Vec<String>)],
-    classes: &[ClassFlag],
+    picks: &[Pick],
 ) -> Result<()> {
     let exe = std::env::current_exe().context(|| "finding the builds program".to_string())?;
     unsafe {
@@ -466,10 +476,10 @@ fn run_lanes(
             .args(["app-build", repo, "--lane", lane.word(), commit])
             .args(names)
             .args(
-                classes
+                picks
                     .iter()
-                    .filter(|(own, _)| own == lane)
-                    .flat_map(|(own, class)| ["--test", own.word(), class]),
+                    .filter(|(own, _, _)| own == lane)
+                    .flat_map(|(own, kind, arg)| [kind.flag(), own.word(), arg.as_str()]),
             )
             .env(PREFIXED, "1")
             .stdin(Stdio::null())
@@ -537,11 +547,13 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
                 step.command.join(" ")
             );
         }
-        for test in &config.tests {
+        for picker in &config.pickers {
             println!(
-                "{} --test <Class> {}",
-                test.lane.word(),
-                test.command.join(" ")
+                "{} {} <{}> {}",
+                picker.lane.word(),
+                picker.kind.flag(),
+                picker.kind.what(),
+                picker.command.join(" ")
             );
         }
         return Ok(());
@@ -550,14 +562,14 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
         && flag == "--lane"
         && !commit.starts_with('-')
     {
-        let (names, classes) = split_tests(names)?;
+        let (names, picks) = split_picks(names)?;
         return run_lane(
             places,
             repo,
             Lane::parse_or_fail(word)?,
             commit,
             &names,
-            &classes,
+            &picks,
         );
     }
     let [commit, tail @ ..] = rest else {
@@ -566,7 +578,7 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
     if commit.starts_with('-') {
         fail!("{USAGE}");
     }
-    let (names, classes) = split_tests(tail)?;
+    let (names, picks) = split_picks(tail)?;
     let names = &names[..];
     let config = config_at(places, repo, commit)?;
     for name in names {
@@ -575,32 +587,29 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
             fail!("{CONFIG} has no step {name} (it has: {})", known.join(", "));
         }
     }
-    for (lane, class) in &classes {
-        if config.class_test(*lane).is_none() {
-            fail!(
-                "{CONFIG} has no `test {} ...` line, so it cannot run the class {class}",
-                lane.word()
-            );
+    for (lane, kind, arg) in &picks {
+        if config.picker(*lane, *kind).is_none() {
+            return Err(missing_line(*lane, *kind, arg));
         }
     }
-    // The lanes the steps or classes are in: those with a step named, or with
-    // any step when none is named and no class is, each with its own names.
+    // The lanes the steps or picks are in: those with a step named, or with
+    // any step when none is named and no pick is, each with its own names.
     let lanes: Vec<(Lane, Vec<String>)> = Lane::ALL
         .into_iter()
         .map(|lane| (lane, names_in(&config, lane, names)))
         .filter(|(lane, own)| {
-            let classes_here = classes.iter().any(|(class_lane, _)| class_lane == lane);
-            if names.is_empty() && classes.is_empty() {
+            let picks_here = picks.iter().any(|(pick_lane, _, _)| pick_lane == lane);
+            if names.is_empty() && picks.is_empty() {
                 config.steps.iter().any(|step| step.lane == *lane)
             } else {
-                !own.is_empty() || classes_here
+                !own.is_empty() || picks_here
             }
         })
         .collect();
     if lanes.is_empty() {
         fail!("{CONFIG} names no step");
     }
-    run_lanes(repo, commit, &lanes, &classes)
+    run_lanes(repo, commit, &lanes, &picks)
 }
 
 #[cfg(test)]

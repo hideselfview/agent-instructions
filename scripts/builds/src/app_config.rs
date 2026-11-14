@@ -13,12 +13,15 @@
 //! limit macos 90m
 //! test mac ./bae-macos/test.sh --run-only {class}
 //! test android ./bae-android/gradle.sh :app:testFullDebugUnitTest --tests *{class}
+//! shots mac scripts/cargo.sh run -p bae-shots -- run --platform mac --select {select}
 //! ```
 //!
 //! A `test <lane> <command>` line, at most one per lane, is the command that
 //! runs one test class, `{class}` in a word standing for the class:
 //! `builds app-build <repo> <ref> --test <lane> <Class>` runs it, so a class
-//! needs no step of its own.
+//! needs no step of its own. A `shots <lane> <command>` line is the same for
+//! a selection of screenshots, `{select}` standing for the prefix of their
+//! names: `--shots <lane> <prefix>` runs it.
 //!
 //! A step belongs to a lane (`mac` or `android`, lane.rs), named first: the
 //! lane's app checkout and lock are where it runs.
@@ -56,34 +59,100 @@ pub struct Config {
     pub android: Option<AndroidApp>,
     /// What `builds app-build` runs, in the order written.
     pub steps: Vec<Step>,
-    /// How each lane runs one test class; at most one per lane.
-    pub tests: Vec<ClassTest>,
+    /// How each lane runs one test class and one selection of shots; at most
+    /// one of each per lane.
+    pub pickers: Vec<Picker>,
 }
 
 impl Config {
-    pub fn class_test(&self, lane: Lane) -> Option<&ClassTest> {
-        self.tests.iter().find(|test| test.lane == lane)
+    pub fn picker(&self, lane: Lane, kind: PickKind) -> Option<&Picker> {
+        self.pickers
+            .iter()
+            .find(|picker| picker.lane == lane && picker.kind == kind)
     }
 }
 
-/// The word in a `test` line's command that the class takes the place of.
-pub const CLASS_PLACEHOLDER: &str = "{class}";
+/// What a command-line flag picks to run through a `.app-build` line of the
+/// lane, in place of a step of its own.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum PickKind {
+    /// `--test <lane> <Class>`, run by the `test` line.
+    Class,
+    /// `--shots <lane> <prefix>`, run by the `shots` line.
+    Shots,
+}
 
-/// A `test <lane> <program> [<args>...]` line: the command, as for `Step`, that
-/// runs one test class of the lane, with `{class}` where the class goes.
+impl PickKind {
+    pub const ALL: [PickKind; 2] = [PickKind::Class, PickKind::Shots];
+
+    /// The `.app-build` line that runs it.
+    pub fn line(self) -> &'static str {
+        match self {
+            PickKind::Class => "test",
+            PickKind::Shots => "shots",
+        }
+    }
+
+    /// The command-line flag that picks it.
+    pub fn flag(self) -> &'static str {
+        match self {
+            PickKind::Class => "--test",
+            PickKind::Shots => "--shots",
+        }
+    }
+
+    /// What the flag's argument is called in messages.
+    pub fn what(self) -> &'static str {
+        match self {
+            PickKind::Class => "class",
+            PickKind::Shots => "prefix",
+        }
+    }
+
+    /// The text in the line's command that the argument takes the place of.
+    pub fn placeholder(self) -> &'static str {
+        match self {
+            PickKind::Class => "{class}",
+            PickKind::Shots => "{select}",
+        }
+    }
+
+    /// How long one run may take, as the limit of a step: the time the
+    /// per-class and per-area steps in bae's `.app-build` had.
+    pub fn limit(self) -> Duration {
+        match self {
+            PickKind::Class => Duration::from_secs(10 * 60),
+            PickKind::Shots => Duration::from_secs(20 * 60),
+        }
+    }
+
+    /// The start of the name a run goes by in messages and the dashboard's
+    /// step lines: `test Foo`, `shots mac.welcome.`.
+    pub fn step_prefix(self) -> &'static str {
+        match self {
+            PickKind::Class => "test ",
+            PickKind::Shots => "shots ",
+        }
+    }
+}
+
+/// A `test` or `shots` `<lane> <program> [<args>...]` line: the command, as for
+/// `Step`, that runs one pick of the lane, with the kind's placeholder where
+/// the argument goes.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct ClassTest {
+pub struct Picker {
     pub lane: Lane,
+    pub kind: PickKind,
     pub command: Vec<String>,
 }
 
-impl ClassTest {
-    /// The command with <class> in each word's `{class}`; the class stays one
-    /// argument, never read by a shell.
-    pub fn command_for(&self, class: &str) -> Vec<String> {
+impl Picker {
+    /// The command with <arg> in each word's placeholder; the argument stays
+    /// one argument, never read by a shell.
+    pub fn command_for(&self, arg: &str) -> Vec<String> {
         self.command
             .iter()
-            .map(|word| word.replace(CLASS_PLACEHOLDER, class))
+            .map(|word| word.replace(self.kind.placeholder(), arg))
             .collect()
     }
 }
@@ -158,7 +227,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let (mut mac_build, mut mac_app, mut bundle) = (None, None, None);
     let mut android = None;
     let mut steps: Vec<Step> = Vec::new();
-    let mut tests: Vec<ClassTest> = Vec::new();
+    let mut pickers: Vec<Picker> = Vec::new();
     let mut limits: Vec<(String, Duration)> = Vec::new();
     for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
         let (platform, field) = line.split_once(' ').unwrap_or((line, ""));
@@ -197,25 +266,39 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     limit: None,
                 });
             }
-            ("test", _) => {
+            (keyword @ ("test" | "shots"), _) => {
+                let kind = if keyword == "test" {
+                    PickKind::Class
+                } else {
+                    PickKind::Shots
+                };
+                let placeholder = kind.placeholder();
                 let Some(lane) = Lane::parse(name) else {
                     fail!(
-                        "{CONFIG}: {line:?}: a test line starts with its lane, mac or android, not {name:?}"
+                        "{CONFIG}: {line:?}: a {keyword} line starts with its lane, mac or android, not {name:?}"
                     );
                 };
                 let command = words(value);
                 if command.is_empty() {
-                    fail!("{CONFIG}: the test line for {name} names no command");
+                    fail!("{CONFIG}: the {keyword} line for {name} names no command");
                 }
-                if !command.iter().any(|word| word.contains(CLASS_PLACEHOLDER)) {
+                if !command.iter().any(|word| word.contains(placeholder)) {
                     fail!(
-                        "{CONFIG}: the test line for {name} has no {CLASS_PLACEHOLDER} for the class to go in"
+                        "{CONFIG}: the {keyword} line for {name} has no {placeholder} for the {} to go in",
+                        kind.what()
                     );
                 }
-                if tests.iter().any(|test| test.lane == lane) {
-                    fail!("{CONFIG}: two test lines for {name}");
+                if pickers
+                    .iter()
+                    .any(|picker| picker.lane == lane && picker.kind == kind)
+                {
+                    fail!("{CONFIG}: two {keyword} lines for {name}");
                 }
-                tests.push(ClassTest { lane, command });
+                pickers.push(Picker {
+                    lane,
+                    kind,
+                    command,
+                });
             }
             ("limit", _) => {
                 let Some(limit) = parse_duration(value) else {
@@ -244,7 +327,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
         mac,
         android,
         steps,
-        tests,
+        pickers,
     })
 }
 

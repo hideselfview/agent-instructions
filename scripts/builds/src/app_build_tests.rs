@@ -1,5 +1,5 @@
 use super::*;
-use crate::app_config::parse_config;
+use crate::app_config::{PickKind, parse_config};
 use std::time::Duration;
 
 fn config() -> Config {
@@ -154,27 +154,42 @@ fn args(words: &[&str]) -> Vec<String> {
 }
 
 #[test]
-fn test_flags_follow_the_steps_each_naming_a_lane_and_a_class() {
-    let (names, tests) = split_tests(&args(&[
-        "one", "two", "--test", "mac", "FooTests", "--test", "android", "BarTest",
+fn test_and_shots_flags_follow_the_steps_each_naming_a_lane_and_an_argument() {
+    let (names, picks) = split_picks(&args(&[
+        "one",
+        "two",
+        "--test",
+        "mac",
+        "FooTests",
+        "--shots",
+        "android",
+        "android.welcome.",
+        "--test",
+        "android",
+        "BarTest",
     ]))
     .unwrap();
     assert_eq!(names, args(&["one", "two"]));
     assert_eq!(
-        tests,
+        picks,
         vec![
-            (Lane::Mac, "FooTests".to_string()),
-            (Lane::Android, "BarTest".to_string())
+            (Lane::Mac, PickKind::Class, "FooTests".to_string()),
+            (
+                Lane::Android,
+                PickKind::Shots,
+                "android.welcome.".to_string()
+            ),
+            (Lane::Android, PickKind::Class, "BarTest".to_string()),
         ]
     );
     assert_eq!(
-        split_tests(&args(&["one"])).unwrap(),
+        split_picks(&args(&["one"])).unwrap(),
         (args(&["one"]), Vec::new())
     );
 }
 
 #[test]
-fn a_test_flag_needs_a_lane_and_a_class_that_is_one_plain_word() {
+fn a_flag_needs_a_lane_and_an_argument_that_is_one_plain_word() {
     for bad in [
         &["--test"][..],
         &["--test", "mac"],
@@ -183,28 +198,41 @@ fn a_test_flag_needs_a_lane_and_a_class_that_is_one_plain_word() {
         &["--test", "mac", "A B"],
         &["--test", "mac", ""],
         &["--test", "mac", "X", "stray"],
+        &["--shots"],
+        &["--shots", "mac"],
+        &["--shots", "ios", "mac.x."],
+        &["--shots", "mac", "--windows"],
+        &["--shots", "mac", "a b"],
+        &["--shots", "mac", "mac.x.", "stray"],
     ] {
-        assert!(split_tests(&args(bad)).is_err(), "{bad:?}");
+        assert!(split_picks(&args(bad)).is_err(), "{bad:?}");
     }
 }
 
 #[test]
-fn a_lane_runs_its_steps_then_its_classes_and_only_the_classes_when_no_step_is_named() {
-    let config =
-        parse_config("step mac one ./one\ntest mac ./t {class}\ntest android ./g {class}\n")
-            .unwrap();
-    let classes = [
-        (Lane::Mac, "A".to_string()),
-        (Lane::Android, "B".to_string()),
-        (Lane::Mac, "C".to_string()),
+fn a_lane_runs_its_steps_then_its_picks_and_only_the_picks_when_no_step_is_named() {
+    let config = parse_config(
+        "step mac one ./one\ntest mac ./t {class}\ntest android ./g {class}\nshots mac ./s --select {select}\n",
+    )
+    .unwrap();
+    let picks = [
+        (Lane::Mac, PickKind::Class, "A".to_string()),
+        (Lane::Android, PickKind::Class, "B".to_string()),
+        (Lane::Mac, PickKind::Shots, "mac.welcome.".to_string()),
+        (Lane::Mac, PickKind::Class, "C".to_string()),
     ];
-    let steps = lane_steps(&config, Lane::Mac, &args(&["one"]), &classes).unwrap();
-    assert_eq!(names(&steps), vec!["one", "test A", "test C"]);
+    let steps = lane_steps(&config, Lane::Mac, &args(&["one"]), &picks).unwrap();
+    assert_eq!(
+        names(&steps),
+        vec!["one", "test A", "shots mac.welcome.", "test C"]
+    );
     assert_eq!(steps[1].command, args(&["./t", "A"]));
-    assert_eq!(steps[1].limit(), TEST_CLASS_LIMIT);
-    let only = lane_steps(&config, Lane::Mac, &[], &classes).unwrap();
-    assert_eq!(names(&only), vec!["test A", "test C"]);
-    let android = lane_steps(&config, Lane::Android, &[], &classes).unwrap();
+    assert_eq!(steps[1].limit(), PickKind::Class.limit());
+    assert_eq!(steps[2].command, args(&["./s", "--select", "mac.welcome."]));
+    assert_eq!(steps[2].limit(), PickKind::Shots.limit());
+    let only = lane_steps(&config, Lane::Mac, &[], &picks).unwrap();
+    assert_eq!(names(&only), vec!["test A", "shots mac.welcome.", "test C"]);
+    let android = lane_steps(&config, Lane::Android, &[], &picks).unwrap();
     assert_eq!(names(&android), vec!["test B"]);
     assert_eq!(
         names(&lane_steps(&config, Lane::Mac, &[], &[]).unwrap()),
@@ -213,14 +241,33 @@ fn a_lane_runs_its_steps_then_its_classes_and_only_the_classes_when_no_step_is_n
 }
 
 #[test]
-fn a_lane_without_a_test_line_refuses_a_class() {
-    let config = parse_config("step mac one ./one\n").unwrap();
-    let Err(Fail::Message(message)) =
-        lane_steps(&config, Lane::Mac, &[], &[(Lane::Mac, "A".to_string())])
-    else {
+fn a_lane_without_the_line_refuses_a_pick() {
+    let config = parse_config("step mac one ./one\ntest mac ./t {class}\n").unwrap();
+    let Err(Fail::Message(message)) = lane_steps(
+        &config,
+        Lane::Mac,
+        &[],
+        &[(Lane::Mac, PickKind::Shots, "mac.x.".to_string())],
+    ) else {
         panic!("refused")
     };
-    assert!(message.contains("no `test mac ...` line"), "{message}");
+    assert!(message.contains("no `shots mac ...` line"), "{message}");
+    let Err(Fail::Message(message)) = lane_steps(
+        &config,
+        Lane::Android,
+        &[],
+        &[(Lane::Android, PickKind::Class, "A".to_string())],
+    ) else {
+        panic!("refused")
+    };
+    assert!(message.contains("no `test android ...` line"), "{message}");
+}
+
+#[test]
+fn a_pick_step_is_known_by_its_name() {
+    assert_eq!(pick_kind_of("test Foo"), Some(PickKind::Class));
+    assert_eq!(pick_kind_of("shots mac.x."), Some(PickKind::Shots));
+    assert_eq!(pick_kind_of("macos"), None);
 }
 
 fn built(commit: &str, steps: &[&str]) -> Built {

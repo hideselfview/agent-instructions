@@ -221,7 +221,7 @@ Commands:
                               pid names its lane, and with none and builds
                               waiting in both lanes, --lane does.
                               The dashboard's queue has both as buttons
-  builds app-build <repo> <ref> [<step>...] [--test mac|android <Class>]...
+  builds app-build <repo> <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]...
                               check out <ref> in a free app checkout of each
                               lane the steps are in (every step's lane when
                               none is named), on that checkout's app lock, and run the
@@ -241,16 +241,22 @@ Commands:
                               steps) runs the lane's `test <lane> <command>`
                               line of .app-build with the class in its
                               {class}, after the lane's steps, one run per
-                              class, each limited to 10 minutes; with no step
-                              named, only the classes run, and only when
-                              the app checkout's last build finished and is
-                              of <ref> (else it refuses, naming what was
-                              built). The line is required, and one class is
-                              one argument, never read by a shell
+                              class, each limited to 10 minutes.
+                              --shots <lane> <prefix> (any number, mixed with
+                              --test in any order) does the same through the
+                              lane's `shots <lane> <command>` line with the
+                              prefix of the shots' names in its {select},
+                              each run limited to 20 minutes. With no step
+                              named, only the --test and --shots runs happen,
+                              and only when the app checkout's last build
+                              finished and is of <ref> (else it refuses,
+                              naming what was built). The line is required,
+                              and a class or prefix is one argument, never
+                              read by a shell
   builds app-build <repo> --list
                               print the steps (lane, name, command) and each
-                              lane's test line
-  builds app-build <repo> --lane mac|android <ref> [<step>...] [--test <lane> <Class>]...
+                              lane's test and shots lines
+  builds app-build <repo> --lane mac|android <ref> [<step>...] [--test <lane> <Class>]... [--shots <lane> <prefix>]...
                               one lane's part of the above, in this process
   builds build-app <repo> mac|android [<ref>]
                               on one of that lane's app locks, check out <ref>

@@ -39,7 +39,7 @@ fn a_config_names_each_platforms_build() {
                 build: words("./a.sh --x")
             }),
             steps: Vec::new(),
-            tests: Vec::new(),
+            pickers: Vec::new(),
         }
     );
 }
@@ -171,26 +171,31 @@ fn a_test_line_gives_a_lane_the_command_that_runs_one_class() {
         parse_config("test mac ./t.sh --run-only {class}\ntest android ./g.sh --tests *{class}\n")
             .unwrap();
     assert_eq!(
-        config.tests,
+        config.pickers,
         vec![
-            ClassTest {
+            Picker {
                 lane: Lane::Mac,
+                kind: PickKind::Class,
                 command: words("./t.sh --run-only {class}")
             },
-            ClassTest {
+            Picker {
                 lane: Lane::Android,
+                kind: PickKind::Class,
                 command: words("./g.sh --tests *{class}")
             },
         ]
     );
     assert_eq!(
-        config.class_test(Lane::Android).unwrap().command[2],
+        config
+            .picker(Lane::Android, PickKind::Class)
+            .unwrap()
+            .command[2],
         "*{class}"
     );
     assert!(
         parse_config("step mac s ./a\n")
             .unwrap()
-            .class_test(Lane::Mac)
+            .picker(Lane::Mac, PickKind::Class)
             .is_none()
     );
 }
@@ -214,8 +219,9 @@ fn a_test_line_needs_a_lane_a_class_placeholder_and_to_be_the_only_one_of_its_la
 
 #[test]
 fn the_class_fills_each_word_it_stands_in() {
-    let test = ClassTest {
+    let test = Picker {
         lane: Lane::Mac,
+        kind: PickKind::Class,
         command: words("./g.sh --tests *{class}"),
     };
     assert_eq!(
@@ -276,5 +282,55 @@ fn a_switch_stopped_by_a_signal_to_its_group_still_ends_on_the_new_commit() {
     assert_eq!(
         std::fs::read_to_string(top.join("a.slow")).unwrap(),
         "new\n"
+    );
+}
+
+#[test]
+fn a_shots_line_gives_a_lane_the_command_that_runs_a_selection_of_shots() {
+    let config = parse_config(
+        "test mac ./t {class}\nshots mac ./s run --select {select}\nshots android ./a --select={select}\n",
+    )
+    .unwrap();
+    let mac = config.picker(Lane::Mac, PickKind::Shots).unwrap();
+    assert_eq!(
+        mac.command_for("mac.welcome."),
+        words("./s run --select mac.welcome.")
+    );
+    assert_eq!(
+        config
+            .picker(Lane::Android, PickKind::Shots)
+            .unwrap()
+            .command_for("android.x."),
+        words("./a --select=android.x.")
+    );
+    assert_eq!(
+        config.picker(Lane::Mac, PickKind::Class).unwrap().command,
+        words("./t {class}"),
+        "a lane's test and shots lines are kept apart"
+    );
+}
+
+#[test]
+fn a_shots_line_needs_a_lane_a_select_placeholder_and_to_be_the_only_one_of_its_lane() {
+    assert!(
+        parse_config("shots mac ./s --select\n").is_err(),
+        "no {{select}}"
+    );
+    assert!(
+        parse_config("shots mac ./s {class}\n").is_err(),
+        "the test line's placeholder"
+    );
+    assert!(parse_config("shots mac\n").is_err(), "no command");
+    assert!(
+        parse_config("shots ios ./s {select}\n").is_err(),
+        "a lane there is none of"
+    );
+    assert!(
+        parse_config("shots mac ./a {select}\nshots mac ./b {select}\n").is_err(),
+        "two for a lane"
+    );
+    assert!(
+        parse_config("test mac ./a {class}\nshots mac ./b {select}\n").is_ok(),
+        "one of each"
     );
 }
