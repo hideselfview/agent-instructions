@@ -1,3 +1,40 @@
+# The first rule: plain, literal, active sentences
+
+**Every sentence you write for a person is plain, literal and active.** This
+outranks every other writing rule, in chat with the user and in everything a
+person reads: app strings, item titles, commit messages, docs, plans.
+
+- **Active, with the actor and the action.** Say who does what: "bae uploads the
+  cover", not "the cover is uploaded". A title or a task starts with its verb:
+  "Rebuild the dashboard to match its board".
+- **Literal.** Say what the thing does, in the words for what it does. No
+  figures of speech ("reads like", "lands", "short-circuits", "hydrate"), no
+  metaphors borrowed from other fields ("signed", "fan-out"), no made-up
+  coinages ("wire-printed"), no pattern names used as nouns ("the strategy").
+- **Plain.** The simplest word that does the job. No abbreviation the reader
+  didn't introduce. If a word needs a parenthetical to explain it, that
+  parenthetical is the word.
+- **Whole sentences.** Keep the articles and verbs: no headline grammar
+  ("Dashboard reads like its new board").
+
+Examples:
+
+- ✗ "Dashboard reads like its new board"
+- ✓ "Rebuild the dashboard to match its board"
+- ✗ "Tier 1 signed IDs short-circuit to hydrate"
+- ✓ "Exact-match IDs (MB release ID, DiscID, barcode) skip the search and look
+  up the release directly by ID"
+- ✗ "wire-printed barcode"
+- ✓ "barcode printed on the back of the physical product"
+- ✗ "the planner short-circuits"
+- ✓ "the planner stops at the first match and skips the rest"
+
+The reader should never have to ask "what does X mean": that is a failure of the
+sentence, not a question to answer later. The person (2026-11-13): "the most
+important thing about how you output human language, both to me and in strings:
+plain, non-figurative language. active not passive." (Full rule in
+`rules/write-plain-literal-active-sentences.md`.)
+
 # Working style
 
 *Files in `principles/` elaborate on these rules — when a design decision
@@ -162,27 +199,6 @@ for the verdict, apply it, then present the next.
 **No validation language.** Don't open with agreement or concession — "you're
 right", "good point", "exactly", "good catch", "you're right to push back", "I
 overclaimed", or similar. Lead with the answer.
-
-**Speak plainly. Drop the jargon.** Use the simplest word that does the job.
-When you reach for a cute or clever term — cryptography metaphors ("signed",
-"short-circuit"), ORM/database metaphors ("hydrate", "rehydrate"), made-up
-coinages ("wire-printed", "fan-out"), pattern names used as nouns ("the
-strategy", "the visitor"), or any abbreviation/acronym the reader didn't
-introduce — stop and write what the thing actually does. If you'd need a
-parenthetical to explain a word, that parenthetical IS the word. The reader
-should never have to ask "what does X mean" — that's a failure of the original
-sentence, not a clarifying question. Examples:
-
-- ✗ "Tier 1 signed IDs short-circuit to hydrate"
-- ✓ "Exact-match IDs (MB release ID, DiscID, barcode) skip the search and look
-  up the release directly by ID"
-- ✗ "wire-printed barcode"
-- ✓ "barcode printed on the back of the physical product"
-- ✗ "the planner short-circuits"
-- ✓ "the planner stops at the first match and skips the rest"
-
-This applies to writing AND to conversation. The same explanation should land
-the first time, whether in a doc, a commit message, or a Slack-style reply.
 
 **Don't name code or files the user hasn't learned.** A file, board, mock,
 component, function or type name means nothing to the user until the two of you
