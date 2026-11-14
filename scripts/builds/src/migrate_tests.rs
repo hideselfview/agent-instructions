@@ -720,16 +720,29 @@ fn each_derived_field_that_disagrees_with_what_it_is_derived_from_is_refused() {
     }
 }
 
+/// The one hook run both stores below hold.
+fn plant_run(conn: &Connection) {
+    crate::hook_stats::plant(
+        conn,
+        "hook_runs",
+        &[
+            ("started_at", 5_i64.into()),
+            ("repo", "bae".to_string().into()),
+            ("worktree", "/d/bae".to_string().into()),
+            ("passed", 1_i64.into()),
+            ("plan_ms", 1_i64.into()),
+            ("total_ms", 9_i64.into()),
+        ],
+    )
+    .unwrap();
+}
+
 /// A database the first hook stats made: only their tables, under their first stamp, holding one run.
 fn hook_only_database(path: &std::path::Path) {
     let conn = Connection::open(path).unwrap();
     conn.execute_batch(include_str!("hook_stats.sql")).unwrap();
     conn.pragma_update(None, "user_version", 1).unwrap();
-    conn.execute(
-        "INSERT INTO hook_runs (started_at, repo, worktree, passed, plan_ms, total_ms) VALUES (5, 'bae', '/d/bae', 1, 1, 9)",
-        [],
-    )
-    .unwrap();
+    plant_run(&conn);
 }
 
 #[test]
@@ -818,7 +831,7 @@ fn store_before_hook_base(dir: &std::path::Path) -> std::path::PathBuf {
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_HOOK_BASE_STAMP)
         .unwrap();
-    conn.execute("INSERT INTO hook_runs (started_at, repo, worktree, passed, plan_ms, total_ms) VALUES (5, 'bae', '/d/bae', 1, 1, 9)", []).unwrap();
+    plant_run(&conn);
     path
 }
 

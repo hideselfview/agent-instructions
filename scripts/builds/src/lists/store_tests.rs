@@ -590,14 +590,18 @@ fn the_integrity_checks_name_a_row_that_points_at_nothing_and_one_that_breaks_a_
     let db = db::open(&store.database(), Make::Never).unwrap();
     db.execute_batch("PRAGMA foreign_keys = OFF; PRAGMA ignore_check_constraints = ON")
         .unwrap();
-    db.execute(
-        "INSERT INTO item_wait_item (item_id, on_item) VALUES (41, 42)",
-        [],
+    crate::lists::item::plant(
+        &db,
+        "item_wait_item",
+        &[("item_id", 41_i64.into()), ("on_item", 42_i64.into())],
     )
     .unwrap();
-    db.execute(
-        "UPDATE area SET name = 'two\nlines' WHERE name = 'Beta'",
-        [],
+    crate::lists::area::plant(
+        &db,
+        &[
+            ("name", "two\nlines".to_string().into()),
+            ("position", 9_i64.into()),
+        ],
     )
     .unwrap();
     drop(db);

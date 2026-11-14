@@ -779,6 +779,21 @@ pub fn dashboard_json(places: &crate::places::Places) -> String {
     value.to_string()
 }
 
+/// The tables hook_stats.rs owns.
+#[cfg(test)]
+const TABLES: [&str; 3] = ["hook_runs", "hook_run_files", "hook_run_checks"];
+
+/// Writes a row of one of hook_stats.rs's tables as given, the constraints
+/// still holding: for tests that need a row of a store they build by hand.
+#[cfg(test)]
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
+    crate::db::plant_row(db, &TABLES, table, columns)
+}
+
 #[cfg(test)]
 #[path = "hook_stats_tests.rs"]
 mod tests;
