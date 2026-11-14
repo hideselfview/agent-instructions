@@ -119,6 +119,11 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .orun .slow { flex-basis: 100%; padding-left: 58px; }
 .orun .checks { padding: 2px 0 6px 58px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 1px; }
 
+/* The app builds' times, under the hook figures' details. */
+.app-timing .at-repo { display: flex; flex-direction: column; gap: 8px; }
+.app-timing .at-repo + .at-repo { border-top: 1px solid var(--line); padding-top: 10px; }
+.app-timing .lane-col { color: var(--muted); }
+
 /* The checkouts, grouped by repo. */
 #findings:empty, #errors:empty { display: none; }
 #view { display: flex; flex-direction: column; gap: 20px; }
@@ -293,6 +298,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 </header>
 <div id="findings"></div>
 <div id="errors"></div>
+<section class="hook-open app-timing" id="app-timing" hidden></section>
 <main id="view"><div class="loading">Reading the checkouts</div></main>
 </div>
 <aside class="lists" id="lists" aria-label="Lists">
@@ -859,6 +865,54 @@ function hookDetails() {
         hiddenOver > 0 ? moreToggle("over", allOver ? "Fewer" : hiddenOver + " more") : null)));
 }
 
+// ---- The app builds' times: each step's median, last runs and slowest, each
+// lane's queue wait, and the runs that waited longest, over the trailing 12
+// hours (app_timing.rs, in each project's `app_builds` of the hooks JSON).
+function appBuildRepos() {
+  if (!hooks || hooks.error) return [];
+  const out = [];
+  for (const p of hooks.projects) {
+    const a = p.app_builds;
+    if (!a) continue;
+    if (a.error) out.push({error: p.project + ": " + a.error});
+    else for (const r of a.repos) out.push({repo: r, window: a.window_seconds, last: a.last_runs});
+  }
+  return out;
+}
+function waitRow(w) {
+  return h("tr", {}, h("td", {class: "n"}, secs(w.wait_ms)), h("td", {class: "lane-col"}, w.lane + " " + w.checkout),
+    h("td", {}, w.ref), h("td", {class: "lane-col"}, w.who || ""), h("td", {class: "lane-col"}, when(new Date(w.at * 1000))));
+}
+function appBuildRepo({repo, window, last}) {
+  const hours = window / 3600;
+  const steps = repo.steps;
+  const lanes = repo.lanes;
+  return h("div", {class: "at-repo"},
+    h("div", {class: "ho-head"}, h("b", {}, repo.repo + " app builds"),
+      h("span", {}, plural(repo.runs, "run", "runs") + " in the last " + plural(hours, "hour", "hours"))),
+    h("div", {class: "ho-cols"},
+      h("div", {}, h("h3", {}, "Steps that passed"),
+        h("table", {}, h("tr", {}, h("th", {}, "Step"), h("th", {}, "Lane"), h("th", {class: "n"}, "Runs"), h("th", {class: "n"}, "Median"),
+          h("th", {class: "n", title: "Median of the last " + last + " runs"}, "Last " + last), h("th", {class: "n"}, "Slowest"),
+          h("th", {class: "n", title: "Median CPU time of the step's processes"}, "CPU")),
+          steps.map(s => h("tr", {}, h("td", {}, s.name), h("td", {class: "lane-col"}, s.lane), h("td", {class: "n"}, String(s.ran)),
+            h("td", {class: "n"}, secs(s.median_ms)), h("td", {class: "n"}, secs(s.last_median_ms)),
+            h("td", {class: "n"}, secs(s.slowest_ms)), h("td", {class: "n"}, secs(s.cpu_median_ms)))))),
+      h("div", {}, h("h3", {}, "Wait in the lane's queue"),
+        h("table", {}, h("tr", {}, h("th", {}, "Lane"), h("th", {class: "n"}, "Runs"), h("th", {class: "n"}, "Median"), h("th", {class: "n"}, "Slowest")),
+          lanes.map(l => h("tr", {}, h("td", {}, l.lane), h("td", {class: "n"}, String(l.runs)),
+            h("td", {class: "n"}, secs(l.median_ms)), h("td", {class: "n"}, secs(l.slowest_ms))))),
+        h("h3", {}, "Runs that waited longest"),
+        h("table", {}, repo.longest_waits.map(waitRow)))));
+}
+function appBuildPanel() {
+  const box = document.getElementById("app-timing");
+  const found = appBuildRepos();
+  if (!found.length) { box.hidden = true; box.replaceChildren(); return; }
+  box.hidden = false;
+  box.replaceChildren(...found.map(f => f.error ? h("div", {class: "error"}, "The app build times: " + f.error) : appBuildRepo(f)));
+}
+
 // What needs attention and nothing else on the page shows: a worktree with
 // commits waiting to land and no claim, sccache clients waiting, leftover
 // shells (and the lists store's own findings). Disk, hook runs and a worktree
@@ -885,6 +939,7 @@ function render() {
   document.getElementById("top").replaceChildren(loadFigure(state.load), diskFigure(state.volume),
     ...state.repos.map(r => hookFigure(r.name)));
   hookDetails();
+  appBuildPanel();
   findingsView(state.health);
   if (lists && !lists.error) renderLists();
   const root = document.getElementById("view");

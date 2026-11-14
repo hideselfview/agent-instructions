@@ -43,12 +43,15 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::app_config::{
     CONFIG, Config, PickKind, Step, app_checkout_top, check_out, parse_config, run_command,
     run_git, show_duration,
 };
+use crate::app_timing::{self, RunRecord, StepKind, StepRecord, StepResult, Timer};
+use crate::checkout::Checkout;
+use crate::claim::Claim;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lane::Lane;
@@ -285,11 +288,26 @@ fn resolve(top: &Path, rev: &str) -> Result<String> {
 }
 
 /// Runs <steps> in the checkout <top> in order, stopping at the first that
-/// fails; `TakenOver` when a takeover stopped one.
-fn run_steps(top: &Path, steps: &[Step]) -> Result<Ran> {
+/// fails; `TakenOver` when a takeover stopped one. Each step it starts is
+/// timed into <log> (app_timing.rs).
+fn run_steps(top: &Path, steps: &[Step], log: &mut Vec<StepRecord>) -> Result<Ran> {
     for step in steps {
         note(format!("step {}", step.name));
-        match run_command(top, &step.command, Some(step.limit())) {
+        let kind = match pick_kind_of(&step.name) {
+            Some(PickKind::Class) => StepKind::Test,
+            Some(PickKind::Shots) => StepKind::Shots,
+            None => StepKind::Step,
+        };
+        let timer = Timer::start();
+        let outcome = run_command(top, &step.command, Some(step.limit()));
+        let result = match &outcome {
+            Ok(Within::Ran(Ran::Finished)) => StepResult::Passed,
+            Ok(Within::Ran(Ran::TakenOver)) => StepResult::TakenOver,
+            Ok(Within::TimedOut) => StepResult::TimedOut,
+            Err(_) => StepResult::Failed,
+        };
+        log.push(timer.finish(&step.name, kind, result));
+        match outcome {
             Ok(Within::Ran(Ran::Finished)) => {}
             Ok(Within::Ran(Ran::TakenOver)) => return Ok(Ran::TakenOver),
             Ok(Within::TimedOut) => {
@@ -337,8 +355,66 @@ fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
     parse_config(&run_git(&top, &["show", &format!("{commit}:{CONFIG}")])?)
 }
 
+/// What a lane's run has timed so far, for `record` to write when it ends.
+struct Timing {
+    started_at: i64,
+    wait: Duration,
+    checkout: Option<String>,
+    steps: Vec<StepRecord>,
+}
+
+impl Timing {
+    fn start() -> Timing {
+        Timing {
+            started_at: app_timing::now(),
+            wait: Duration::ZERO,
+            checkout: None,
+            steps: Vec::new(),
+        }
+    }
+
+    /// Writes the run to the repo's project store when it took a checkout. A
+    /// repo in no project, or a write that fails, is said and changes nothing
+    /// about the build's result.
+    fn record(self, places: &Places, repo: &str, lane: Lane, built_ref: &str, passed: bool) {
+        let Some(checkout) = self.checkout else {
+            return;
+        };
+        let written = app_timing::database_of(places, repo).and_then(|database| {
+            let Some(database) = database else {
+                return Ok(());
+            };
+            app_timing::record(
+                &database,
+                &RunRecord {
+                    started_at: self.started_at,
+                    repo: repo.to_string(),
+                    lane,
+                    checkout,
+                    built_ref: built_ref.to_string(),
+                    who: who_asked(),
+                    wait_ms: self.wait.as_millis() as u64,
+                    passed,
+                    steps: self.steps,
+                },
+            )
+        });
+        if let Err(error) = written {
+            note(format!("this run was not recorded: {}", error.text()));
+        }
+    }
+}
+
+/// The claim of the worktree this process runs in: who asked for the build.
+fn who_asked() -> Option<String> {
+    let checkout = Checkout::at(Path::new(".")).ok()??;
+    let claim = Claim::read(&checkout.claim_file()).ok()??;
+    Some(claim.who).filter(|who| !who.is_empty())
+}
+
 /// Builds <commit> in <lane>'s app checkout on the lane's lock: <names> are
-/// the lane's steps to run, or all of them when none and no <picks>.
+/// the lane's steps to run, or all of them when none and no <picks>. The run
+/// and its steps are timed and recorded (app_timing.rs).
 fn run_lane(
     places: &Places,
     repo: &str,
@@ -347,12 +423,31 @@ fn run_lane(
     names: &[String],
     picks: &[Pick],
 ) -> Result<()> {
+    let mut timing = Timing::start();
+    let result = build_lane(places, repo, lane, commit, names, picks, &mut timing);
+    let passed = result.is_ok();
+    timing.record(places, repo, lane, commit, passed);
+    result
+}
+
+fn build_lane(
+    places: &Places,
+    repo: &str,
+    lane: Lane,
+    commit: &str,
+    names: &[String],
+    picks: &[Pick],
+    timing: &mut Timing,
+) -> Result<()> {
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
         lane.word()
     ));
+    let waiting = Instant::now();
     let mut held = lock::take(places, repo, lane)?;
+    timing.wait += waiting.elapsed();
     loop {
+        timing.checkout = Some(held.checkout.clone());
         let top = app_checkout_top(places, repo, &held.checkout)?;
         note(format!("building in {}", held.checkout));
         if std::env::var_os(PREFIXED).is_some() {
@@ -384,7 +479,7 @@ fn run_lane(
         let (tests, builds): (Vec<Step>, Vec<Step>) = steps
             .into_iter()
             .partition(|step| pick_kind_of(&step.name).is_some());
-        let mut ran = run_steps(&top, &builds)?;
+        let mut ran = run_steps(&top, &builds, &mut timing.steps)?;
         if ran == Ran::Finished && !builds.is_empty() {
             let steps = builds.iter().map(|step| step.name.clone()).collect();
             Built {
@@ -394,7 +489,7 @@ fn run_lane(
             .write(&built_file)?;
         }
         if ran == Ran::Finished {
-            ran = run_steps(&top, &tests)?;
+            ran = run_steps(&top, &tests, &mut timing.steps)?;
         }
         match ran {
             Ran::Finished => return Ok(()),
@@ -402,7 +497,9 @@ fn run_lane(
                 note(format!(
                     "the build was stopped for a takeover; building {commit} again after it"
                 ));
+                let waiting = Instant::now();
                 held = held.requeue()?;
+                timing.wait += waiting.elapsed();
             }
         }
     }

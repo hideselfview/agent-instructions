@@ -1,5 +1,7 @@
 use super::*;
 use crate::app_config::{PickKind, parse_config};
+use crate::app_timing::{StepKind, StepResult};
+use crate::testing::Scratch;
 use std::time::Duration;
 
 fn config() -> Config {
@@ -92,7 +94,7 @@ fn steps_stop_at_the_first_failure() {
         step("c", &["touch", "c"]),
     ];
     assert!(matches!(
-        run_steps(&scratch.dir, &steps),
+        run_steps(&scratch.dir, &steps, &mut Vec::new()),
         Err(Fail::Exit(1))
     ));
     assert!(scratch.dir.join("a").exists());
@@ -100,7 +102,10 @@ fn steps_stop_at_the_first_failure() {
         !scratch.dir.join("c").exists(),
         "the step after the failure did not run"
     );
-    assert_eq!(run_steps(&scratch.dir, &steps[..1]).unwrap(), Ran::Finished);
+    assert_eq!(
+        run_steps(&scratch.dir, &steps[..1], &mut Vec::new()).unwrap(),
+        Ran::Finished
+    );
 }
 
 #[test]
@@ -121,7 +126,8 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         limit: None,
     };
     let started = std::time::Instant::now();
-    let Err(Fail::Message(message)) = run_steps(&scratch.dir, &[slow, after]) else {
+    let Err(Fail::Message(message)) = run_steps(&scratch.dir, &[slow, after], &mut Vec::new())
+    else {
         panic!("fails")
     };
     assert!(
@@ -315,4 +321,108 @@ fn what_was_built_is_kept_in_a_file_and_cleared_by_the_next_run() {
     Built::clear(&file).unwrap();
     assert_eq!(Built::read(&file).unwrap(), None);
     Built::clear(&file).unwrap();
+}
+
+fn fake(name: &str, command: &[&str], limit: Option<Duration>) -> Step {
+    Step {
+        name: name.to_string(),
+        lane: Lane::Mac,
+        command: command.iter().map(|w| w.to_string()).collect(),
+        limit,
+    }
+}
+
+#[test]
+fn running_fake_steps_times_each_one_with_its_kind_and_result() {
+    let scratch = Scratch::new("timing-steps");
+    let steps = [
+        fake("build", &["true"], None),
+        fake("test Foo", &["true"], None),
+        fake("shots mac.a.", &["false"], None),
+        fake("never", &["true"], None),
+    ];
+    let mut log = Vec::new();
+    let _ = run_steps(&scratch.dir, &steps, &mut log);
+    let seen: Vec<(&str, StepKind, StepResult)> = log
+        .iter()
+        .map(|s| (s.name.as_str(), s.kind, s.result))
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            ("build", StepKind::Step, StepResult::Passed),
+            ("test Foo", StepKind::Test, StepResult::Passed),
+            ("shots mac.a.", StepKind::Shots, StepResult::Failed),
+        ],
+        "a step after the failure is not started, so it has no row"
+    );
+    assert!(log.iter().all(|s| s.started_at > 0));
+}
+
+#[test]
+fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_timeout() {
+    let scratch = Scratch::new("timing-cpu");
+    let burn = "i=0; while [ $i -lt 30000 ]; do i=$((i+1)); done";
+    let mut log = Vec::new();
+    run_steps(
+        &scratch.dir,
+        &[fake("burn", &["sh", "-c", burn], None)],
+        &mut log,
+    )
+    .unwrap();
+    assert!(log[0].cpu_ms > 0, "{:?}", log[0]);
+    assert!(log[0].wall_ms > 0);
+    let mut log = Vec::new();
+    let _ = run_steps(
+        &scratch.dir,
+        &[fake(
+            "slow",
+            &["sh", "-c", "sleep 300"],
+            Some(Duration::from_millis(300)),
+        )],
+        &mut log,
+    );
+    assert_eq!(log[0].result, StepResult::TimedOut);
+}
+
+#[test]
+fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store() {
+    let scratch = crate::testing::Scratch::new("timing-lane-run");
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    let mut timing = Timing::start();
+    timing.wait = Duration::from_millis(1500);
+    timing.checkout = Some("side-3".to_string());
+    run_steps(
+        &scratch.dir,
+        &[
+            fake("build", &["true"], None),
+            fake("test Foo", &["true"], None),
+        ],
+        &mut timing.steps,
+    )
+    .unwrap();
+    timing.record(&places, "demo", Lane::Mac, "my-branch", true);
+    let repo = &app_timing::stats(&store.dir.join(app_timing::DATABASE), 0).unwrap()[0];
+    assert_eq!(repo.repo, "demo");
+    assert_eq!(repo.longest_waits[0].wait_ms, 1500);
+    assert_eq!(repo.longest_waits[0].checkout, "side-3");
+    assert_eq!(repo.longest_waits[0].built_ref, "my-branch");
+    assert!(repo.longest_waits[0].passed);
+    let names: Vec<&str> = repo.steps.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names.len(), 2);
+    assert!(names.contains(&"build") && names.contains(&"test Foo"));
+}
+
+#[test]
+fn a_run_that_never_took_a_checkout_writes_nothing() {
+    let scratch = crate::testing::Scratch::new("timing-no-checkout");
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    Timing::start().record(&places, "demo", Lane::Mac, "my-branch", false);
+    assert!(
+        app_timing::stats(&store.dir.join(app_timing::DATABASE), 0)
+            .unwrap()
+            .is_empty()
+    );
 }

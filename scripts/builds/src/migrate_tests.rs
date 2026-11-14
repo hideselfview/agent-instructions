@@ -142,7 +142,7 @@ fn plant_run(conn: &Connection) {
 /// The schema's text before `design_tip`: today's without that table and the
 /// comment above it.
 fn schema_before_design_tip() -> String {
-    let schema = db::schema();
+    let schema = db::schema_before_app_timing();
     let from = schema
         .find("\n-- The last commit of the range")
         .expect("the table's comment");
@@ -395,5 +395,48 @@ fn the_design_tip_stamp_is_the_schema_before_design_tips() {
     assert_eq!(
         i64::from(hash % (i32::MAX as u32 - 2)) + 2,
         BEFORE_DESIGN_TIP_STAMP
+    );
+}
+
+/// A store as the schema before the app-build timings made it: that schema's text, its stamp,
+/// one run.
+fn store_before_app_timing(dir: &std::path::Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&db::schema_before_app_timing()).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_APP_TIMING_STAMP)
+        .unwrap();
+    plant_run(&conn);
+    path
+}
+
+#[test]
+fn a_store_from_before_app_timings_gains_their_tables_keeps_its_runs_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-app-timing");
+    let places = scratch.places();
+    let path = store_before_app_timing(&places.lists.join("bae"));
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the old run is kept");
+}
+
+#[test]
+fn the_app_timing_stamp_is_the_schema_before_app_timings() {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in db::schema_before_app_timing().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    assert_eq!(
+        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        BEFORE_APP_TIMING_STAMP
     );
 }

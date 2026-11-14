@@ -218,6 +218,49 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
 }
 
 #[test]
+fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
+    use crate::app_timing::{DATABASE, RunRecord, StepKind, StepRecord, StepResult, now, record};
+    let scratch = Scratch::new("daemon-app-timing");
+    let places = scratch.places();
+    let store = make_store(&places, &["bae", "coven"]);
+    let feed = Feed::start(places);
+    let before = feed.hooks();
+    assert!(!before.contains("side-4"), "{before}");
+    let (sent, moved) = mpsc::channel();
+    feed.listen(Box::new(move || {
+        let _ = sent.send(());
+    }));
+    let at = now() - 60;
+    let run = RunRecord {
+        started_at: at,
+        repo: "bae".into(),
+        lane: crate::lane::Lane::Mac,
+        checkout: "side-4".into(),
+        built_ref: "branch".into(),
+        who: None,
+        wait_ms: 1234,
+        passed: true,
+        steps: vec![StepRecord {
+            name: "macos".into(),
+            kind: StepKind::Step,
+            started_at: at,
+            wall_ms: 5000,
+            cpu_ms: 4000,
+            result: StepResult::Passed,
+        }],
+    };
+    record(&store.dir.join(DATABASE), &run).unwrap();
+    moved
+        .recv_timeout(HANG_GUARD)
+        .expect("the run reached the feed");
+    let after = feed.hooks();
+    assert!(
+        after.contains("\"app_builds\"") && after.contains("side-4") && after.contains("\"macos\""),
+        "{after}"
+    );
+}
+
+#[test]
 fn a_hook_runs_write_reads_no_store_again_and_the_served_snapshot_is_the_same() {
     use crate::hook_stats::{DATABASE, Run, record};
     let scratch = Scratch::new("daemon-reload");

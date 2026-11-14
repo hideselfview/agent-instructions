@@ -817,6 +817,7 @@ fn project_json(project: &str, path: &Path, since: i64) -> serde_json::Value {
         Ok(repos) => serde_json::json!({
             "project": project,
             "repos": repos.iter().map(|repo| repo_json(repo, path, since)).collect::<Vec<_>>(),
+            "app_builds": crate::app_timing::dashboard_json(path, crate::app_timing::now()),
         }),
         Err(error) => serde_json::json!({ "project": project, "error": error.text() }),
     }

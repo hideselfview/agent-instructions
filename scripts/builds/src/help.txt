@@ -295,7 +295,14 @@ Commands:
                               finished and is of <ref> (else it refuses,
                               naming what was built). The line is required,
                               and a class or prefix is one argument, never
-                              read by a shell
+                              read by a shell. Each lane's run is recorded in
+                              its repo's project store when it ends: the
+                              ref, the claim of the worktree it ran in, the
+                              checkout, how long it waited in the lane's
+                              queue, and for each step (a --test class and
+                              a --shots selection included) its start, wall
+                              time, CPU time and result. The dashboard shows
+                              the last 12 hours
   builds app-build <repo> --list
                               print the steps (lane, name, command) and each
                               lane's test and shots lines

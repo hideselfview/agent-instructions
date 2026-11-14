@@ -4,6 +4,7 @@
 mod app_build;
 mod app_config;
 mod app_reset;
+mod app_timing;
 mod build_app;
 mod cargo_run;
 mod checkout;
