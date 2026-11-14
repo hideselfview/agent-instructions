@@ -110,6 +110,8 @@ pub struct Model {
     viewing_lock: Mutex<()>,
     git_stream: Mutex<Option<(Vec<PathBuf>, Stream)>>,
     lists: Arc<Feed>,
+    /// What git said the commits of design branches change.
+    design_reads: super::design_cards::Reads,
     /// The build-app runs the page starts.
     pub runs: Arc<Runs>,
     /// The lists JSON last built and what it was built from.
@@ -150,6 +152,7 @@ impl Model {
             viewing_lock: Mutex::new(()),
             git_stream: Mutex::new(None),
             lists: Feed::start(places),
+            design_reads: Default::default(),
             runs,
             served: Mutex::new(None),
         });
@@ -794,8 +797,17 @@ impl Model {
                     let titles = project
                         .map(|lists| super::lists::running_titles(lists, &checkout.path))
                         .unwrap_or_default();
-                    let wait =
-                        project.and_then(|lists| super::lists::running_wait(lists, &checkout.path));
+                    let design = match (project, &checkout.git) {
+                        (Some(lists), Some(git)) if !checkout.main && git.error.is_none() => self
+                            .design_reads
+                            .standing(lists, &repo.name, Path::new(&checkout.path), &git.ahead),
+                        _ => None,
+                    };
+                    let wait = project
+                        .and_then(|lists| super::lists::running_wait(lists, &checkout.path))
+                        .into_iter()
+                        .chain(design)
+                        .min_by_key(super::cards::ItemWait::rank);
                     if wait
                         .as_ref()
                         .is_some_and(super::cards::ItemWait::needs_person)

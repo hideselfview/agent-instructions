@@ -24,7 +24,7 @@ mod decision_command;
 pub mod derive;
 pub mod design;
 mod design_command;
-mod design_paths;
+pub mod design_paths;
 pub mod draft;
 #[cfg(test)]
 pub mod fixtures;

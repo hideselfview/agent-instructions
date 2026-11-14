@@ -188,3 +188,17 @@ fn an_item_that_waits_on_a_design_review_names_the_change() {
         "Waits on your review of design change 12: Heading row"
     );
 }
+
+#[test]
+fn a_design_branch_no_recorded_change_covers_says_it_waits_on_the_design_session() {
+    let card = words(
+        &card(Some("ready-to-land"), claim(Some("note")), Some(0)),
+        &[],
+        Some(&ItemWait::Unrecorded),
+    );
+    assert_eq!(card.chip, Some("Ready to land"));
+    assert_eq!(
+        card.line,
+        "Waits on the design session to record its design change."
+    );
+}

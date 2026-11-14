@@ -13,6 +13,8 @@ pub enum ItemWait {
     Review { id: u32, title: String },
     /// Another item.
     Item { id: u32, title: String },
+    /// Commits of a design branch that no recorded design change covers.
+    Unrecorded,
 }
 
 impl ItemWait {
@@ -22,12 +24,13 @@ impl ItemWait {
             ItemWait::Answer(_) => 0,
             ItemWait::Review { .. } => 1,
             ItemWait::Item { .. } => 2,
+            ItemWait::Unrecorded => 3,
         }
     }
 
     /// Does only the person's answer or review end this wait?
     pub fn needs_person(&self) -> bool {
-        self.rank() < 2
+        matches!(self, ItemWait::Answer(_) | ItemWait::Review { .. })
     }
 
     fn line(&self) -> String {
@@ -37,6 +40,9 @@ impl ItemWait {
                 format!("Waits on your review of design change {id}: {title}")
             }
             ItemWait::Item { id, title } => format!("Waits on #{id}: {title}"),
+            ItemWait::Unrecorded => {
+                "Waits on the design session to record its design change.".to_string()
+            }
         }
     }
 }
@@ -96,6 +102,10 @@ pub fn words(checkout: &CheckoutPage, titles: &[String], wait: Option<&ItemWait>
     let (chip, line) = match checkout.state {
         Some("waiting-on-you") if wait.is_some_and(ItemWait::needs_person) => (
             Some("Waiting on you"),
+            wait.map(ItemWait::line).unwrap_or_default(),
+        ),
+        Some("ready-to-land") if wait == Some(&ItemWait::Unrecorded) => (
+            Some("Ready to land"),
             wait.map(ItemWait::line).unwrap_or_default(),
         ),
         Some("working") if wait.is_some() => (
