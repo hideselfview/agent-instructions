@@ -19,6 +19,8 @@
 #             hunk is in the message)
 # sites      what a site is, for an enumerate group: the end of "every site in
 #             the diff that ..."
+# commit_text true when the commit messages of the change are read as one more
+#             file named COMMIT_MESSAGE (an enumerate group)
 # passes     how many times each call is made, default 1; the findings of all
 #             are kept, and the later calls read the first one's prompt from
 #             the cache
@@ -142,7 +144,7 @@ principles = []
 [[group]]
 name = "words people read"
 question = "Is every sentence a person reads plain, literal, active, said once, spelled as the product spells them and kept in every language, in app strings, notifications, errors, titles, commit messages, docs and the comments and doc comments in code?"
-model = "sonnet"
+model = "opus"
 rules = [
   "write-plain-literal-active-sentences",
   "ui-text-says-each-thing-once-in-gentle-plain-words",
@@ -153,7 +155,8 @@ rules = [
 ]
 principles = []
 enumerate = true
-sites = "is a sentence a person reads: each string, comment, doc comment and documentation sentence the diff adds or changes"
+commit_text = true
+sites = "is a sentence a person reads: each string, comment, doc comment and documentation sentence the diff adds or changes, and each sentence of the commit messages (the file COMMIT_MESSAGE)"
 
 [[group]]
 name = "what a screen shows"

@@ -44,6 +44,9 @@ pub struct Group {
     /// "every site in the diff that ...".
     #[serde(default)]
     pub sites: Option<String>,
+    /// Whether the commit messages of the change are read as one more file.
+    #[serde(default)]
+    pub commit_text: bool,
     /// How many times each call is made; the findings of all are kept. The
     /// later calls of one prompt read the first one's prompt from the cache.
     #[serde(default = "one")]
@@ -101,6 +104,12 @@ impl Groups {
             if !group.enumerate && group.sites.is_some() {
                 faults.push(format!(
                     "group {} says what a site is but does not list sites (`enumerate`)",
+                    group.name
+                ));
+            }
+            if group.commit_text && !group.enumerate {
+                faults.push(format!(
+                    "group {} reads commit messages but does not list sites (`enumerate`)",
                     group.name
                 ));
             }

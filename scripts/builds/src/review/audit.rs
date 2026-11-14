@@ -77,6 +77,7 @@ fn synthetic(name: String, model: &str, question: &str, rules: &[&Rule], groups:
         project_facts: false,
         enumerate: false,
         sites: None,
+        commit_text: false,
         passes: 1,
     }
 }

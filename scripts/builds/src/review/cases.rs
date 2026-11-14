@@ -204,6 +204,7 @@ pub fn replay_case(
 ) -> CaseResult {
     let files = parse_diff(&case.patch);
     let diff = Diff {
+        messages: messages_of_patch(&case.patch),
         source: source_repo.and_then(|repo| {
             Some(Source {
                 repo: repo.to_path_buf(),
@@ -246,6 +247,49 @@ pub fn replay_case(
         calls,
         repeat,
     }
+}
+
+/// The commit messages of a `git format-patch` file: for each mail, the
+/// subject (without its `[PATCH]` mark) and the body up to the `---` line.
+pub fn messages_of_patch(patch: &str) -> String {
+    let mut out = String::new();
+    let mut in_message = false;
+    let mut in_header = false;
+    for line in patch.lines() {
+        let starts_mail = line.starts_with("From ")
+            && line
+                .split_whitespace()
+                .nth(1)
+                .is_some_and(|sha| sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()));
+        if starts_mail {
+            in_header = true;
+            in_message = false;
+            continue;
+        }
+        if in_header {
+            if let Some(subject) = line.strip_prefix("Subject: ") {
+                let subject = subject.strip_prefix("[PATCH] ").unwrap_or(subject);
+                out.push_str(subject);
+                out.push('\n');
+                in_message = true;
+            } else if line.is_empty() {
+                in_header = false;
+                in_message = true;
+                out.push('\n');
+            }
+            continue;
+        }
+        if in_message {
+            if line == "---" {
+                in_message = false;
+                out.push('\n');
+            } else {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    out
 }
 
 /// The commit a `git format-patch` file was made from, named on its first line.

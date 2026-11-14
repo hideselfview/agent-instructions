@@ -45,3 +45,15 @@ fn a_checkout_of_a_revision_holds_its_files_and_is_removed_when_dropped() {
     drop(in_place);
     assert!(repo.exists(), "a checkout read in place is never removed");
 }
+
+#[test]
+fn commit_messages_become_one_added_file_with_quotes_to_check_against() {
+    let (file, quotes) = commit_message_file("First line\n\nBody line\n").unwrap();
+    assert_eq!(file.path, COMMIT_MESSAGE);
+    assert!(
+        file.text
+            .contains("@@ -0,0 +1,3 @@\n+First line\n+\n+Body line\n")
+    );
+    assert_eq!(quotes.lines, vec!["First line", "", "Body line"]);
+    assert!(commit_message_file("  \n").is_none());
+}

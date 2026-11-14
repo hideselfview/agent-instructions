@@ -267,3 +267,12 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
     assert!(alpha_prompts.iter().all(|(_, t)| !t.contains("c.swift")));
     assert_eq!(prompts.iter().filter(|(g, _)| g == "beta").count(), 1);
 }
+
+#[test]
+fn a_patch_gives_its_commit_messages_without_the_mark_or_the_stat() {
+    let patch = "From 0123456789012345678901234567890123456789 Mon Sep 17 00:00:00 2001\nFrom: A <a@b>\nSubject: [PATCH] Do the thing\n\nWhy it is done.\n---\n a.rs | 1 +\n\ndiff --git a/a.rs b/a.rs\n+x\n-- \n2.50\n";
+    assert_eq!(
+        messages_of_patch(patch),
+        "Do the thing\n\nWhy it is done.\n\n"
+    );
+}

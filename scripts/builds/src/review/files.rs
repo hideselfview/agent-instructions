@@ -107,6 +107,38 @@ pub fn split(diff: &str) -> Vec<FileDiff> {
     files
 }
 
+/// The path the commit messages go by in a review: the reviewer reads them as
+/// a file the change adds.
+pub const COMMIT_MESSAGE: &str = "COMMIT_MESSAGE";
+
+/// The commit messages as one added file, in diff form and as the quotes it
+/// is checked against; None when there is no message text.
+pub fn commit_message_file(messages: &str) -> Option<(FileDiff, crate::review::check::DiffFile)> {
+    let lines: Vec<&str> = messages.trim().lines().collect();
+    if lines.is_empty() {
+        return None;
+    }
+    let mut text = format!(
+        "diff --git a/{COMMIT_MESSAGE} b/{COMMIT_MESSAGE}\n--- /dev/null\n+++ b/{COMMIT_MESSAGE}\n@@ -0,0 +1,{} @@\n",
+        lines.len()
+    );
+    for line in &lines {
+        text.push('+');
+        text.push_str(line);
+        text.push('\n');
+    }
+    Some((
+        FileDiff {
+            path: COMMIT_MESSAGE.to_string(),
+            text,
+        },
+        crate::review::check::DiffFile {
+            path: COMMIT_MESSAGE.to_string(),
+            lines: lines.iter().map(|l| l.to_string()).collect(),
+        },
+    ))
+}
+
 /// The new-file line ranges (first line, line count) of <diff>'s hunks.
 fn hunks(diff: &str) -> Vec<(i64, i64)> {
     diff.lines()

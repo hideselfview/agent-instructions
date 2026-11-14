@@ -83,6 +83,8 @@ pub fn hash(text: &str) -> String {
 
 /// A change to review.
 pub struct Diff {
+    /// The text of the change's commit messages, empty when not known.
+    pub messages: String,
     /// Where the new text of a changed file is read, when it can be.
     pub source: Option<Source>,
     pub base: String,
@@ -119,8 +121,15 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
     let range = format!("{merge_base}...{head}");
     let text = text_of(&["diff", "--no-color", "--no-ext-diff", &range])?;
     let names = text_of(&["diff", "--no-color", "--name-only", &range])?;
+    let messages = text_of(&[
+        "log",
+        "--reverse",
+        "--format=%B",
+        &format!("{merge_base}..{head}"),
+    ])?;
     let head = text_of(&["rev-parse", head])?.trim().to_string();
     Ok(Diff {
+        messages,
         source: Some(Source {
             repo: worktree.to_path_buf(),
             rev: head.clone(),
@@ -153,8 +162,12 @@ pub fn ask_groups(
     brief: Option<&(String, String)>,
     settled: &(dyn Fn(&str) -> Vec<Settled> + Sync),
 ) -> Asked {
-    let files = parse_diff(&diff.text);
+    let mut files = parse_diff(&diff.text);
     let by_file = files::split(&diff.text);
+    let message = files::commit_message_file(&diff.messages);
+    if let Some((_, quotes)) = &message {
+        files.push(quotes.clone());
+    }
     // The reviewers read the repository at the commit under review.
     let checkout = match diff.source.as_ref().map(files::Source::checkout) {
         Some(Ok(checkout)) => Some(checkout),
@@ -178,6 +191,13 @@ pub fn ask_groups(
                         file: Some(file.clone()),
                     });
                 }
+            }
+            if let (true, Some((file, _))) = (group.commit_text, &message) {
+                units.push(Unit {
+                    group,
+                    members,
+                    file: Some(file.clone()),
+                });
             }
         } else {
             units.push(Unit {
