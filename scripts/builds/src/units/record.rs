@@ -270,7 +270,7 @@ fn same_features(fingerprint: &Value, features: &Value) -> bool {
 /// another unit of the build depends on it). Those are the units of the
 /// package with this target, mode and features whose dependencies'
 /// fingerprints are all among <used>, the fingerprints of the units this
-/// build reported before it (cargo reports a unit after its dependencies).
+/// build (<record> resolves them once cargo has finished).
 /// When none is, every unit with the target, mode and features: their outputs
 /// are the same files whichever built them last, so keeping each one's
 /// fingerprint keeps nothing but those small folders.
@@ -351,10 +351,17 @@ fn units_by_name(
 
 /// The fingerprint folders of the units a cargo message reports, and the
 /// paths it reports that name none.
+///
+/// An output whose name carries no hash and no deps file it was copied from
+/// is not resolved here: which unit it is depends on the fingerprints of its
+/// dependencies, and cargo writes a unit's fingerprint after it reports the
+/// unit (a pipelined library is reported when its metadata is ready), so
+/// the fingerprints read so far can lack a dependency's. Those paths go to
+/// <late>, to resolve once cargo has finished.
 fn units_of(
     message: &Value,
     fingerprints: &mut Fingerprints,
-    used: &HashSet<u64>,
+    late: &mut Vec<(Value, String)>,
 ) -> Result<(Vec<PathBuf>, Vec<String>)> {
     let reason = message["reason"].as_str().unwrap_or("");
     let paths: Vec<String> = match reason {
@@ -404,16 +411,7 @@ fn units_of(
             }
         }
         if found.is_empty() {
-            for path in &unnamed {
-                for dir in units_by_name(message, Path::new(path), fingerprints, used)? {
-                    if !found.contains(&dir) {
-                        found.push(dir);
-                    }
-                }
-            }
-        }
-        if found.is_empty() {
-            missing.extend(unnamed);
+            late.extend(unnamed.into_iter().map(|path| (message.clone(), path)));
         }
     }
     found.sort();
@@ -442,6 +440,40 @@ fn now() -> libc::timeval {
     }
 }
 
+/// Marks the fingerprint folders <found> of <message> used at <when>, and
+/// notes each of <missing> as a failure.
+fn mark(
+    message: &Value,
+    found: Vec<PathBuf>,
+    mut missing: Vec<String>,
+    when: &libc::timeval,
+    touched: &mut Vec<PathBuf>,
+    failures: &mut Vec<String>,
+) -> Result<()> {
+    for dir in found {
+        match touch(&dir, when) {
+            Ok(()) => touched.push(dir),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(dir.display().to_string())
+            }
+            Err(error) => {
+                return Err(crate::fail::Fail::Message(format!(
+                    "recording use of {}: {error}",
+                    dir.display()
+                )));
+            }
+        }
+    }
+    for path in missing {
+        failures.push(format!(
+            "cargo reported {path} ({} of {}), and no build copy of it has a fingerprint folder to record its use in",
+            message["reason"].as_str().unwrap_or(""),
+            message["package_id"].as_str().unwrap_or("?")
+        ));
+    }
+    Ok(())
+}
+
 /// Reads cargo's output from <input>. Each of cargo's own messages marks the
 /// units it reports as used, at the moment cargo's first message came, the
 /// same for every unit of the build: cargo reports nothing before it holds
@@ -452,7 +484,8 @@ fn now() -> libc::timeval {
 /// a reported unit could not be recorded, else 0.
 pub fn record(mut input: impl BufRead, output: &mut impl Write) -> Result<i32> {
     let mut fingerprints = Fingerprints::default();
-    let mut used: HashSet<u64> = HashSet::new();
+    let mut touched: Vec<PathBuf> = Vec::new();
+    let mut late: Vec<(Value, String)> = Vec::new();
     let mut failures = Vec::new();
     let mut output_open = true;
     let mut began: Option<libc::timeval> = None;
@@ -477,28 +510,27 @@ pub fn record(mut input: impl BufRead, output: &mut impl Write) -> Result<i32> {
             continue;
         };
         let when = *began.get_or_insert_with(now);
-        let (found, mut missing) = units_of(&message, &mut fingerprints, &used)?;
-        for dir in found {
-            match touch(&dir, &when) {
-                Ok(()) => used.extend(fingerprint_values(&dir)),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    missing.push(dir.display().to_string())
-                }
-                Err(error) => {
-                    return Err(crate::fail::Fail::Message(format!(
-                        "recording use of {}: {error}",
-                        dir.display()
-                    )));
-                }
-            }
+        let (found, missing) = units_of(&message, &mut fingerprints, &mut late)?;
+        mark(&message, found, missing, &when, &mut touched, &mut failures)?;
+    }
+    // Cargo has finished: every unit's fingerprint is written, so the units
+    // the late outputs can be are the ones built against the units this build used.
+    let mut used: HashSet<u64> = touched
+        .iter()
+        .flat_map(|dir| fingerprint_values(dir))
+        .collect();
+    let when = began.unwrap_or_else(now);
+    for (message, path) in late {
+        let found = units_by_name(&message, Path::new(&path), &mut fingerprints, &used)?;
+        let missing = if found.is_empty() {
+            vec![path]
+        } else {
+            Vec::new()
+        };
+        for dir in &found {
+            used.extend(fingerprint_values(dir));
         }
-        for path in missing {
-            failures.push(format!(
-                "cargo reported {path} ({} of {}), and no build copy of it has a fingerprint folder to record its use in",
-                message["reason"].as_str().unwrap_or(""),
-                message["package_id"].as_str().unwrap_or("?")
-            ));
-        }
+        mark(&message, found, missing, &when, &mut touched, &mut failures)?;
     }
     for failure in &failures {
         note(failure);
@@ -509,6 +541,91 @@ pub fn record(mut input: impl BufRead, output: &mut impl Write) -> Result<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Cargo's output, then, once all of it has been read, the moment cargo
+    /// writes the fingerprints of the units it reported.
+    struct Then<R, F: FnMut()> {
+        input: R,
+        at_end: F,
+    }
+
+    impl<R: std::io::Read, F: FnMut()> std::io::Read for Then<R, F> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let read = self.input.read(buf)?;
+            if read == 0 {
+                (self.at_end)();
+            }
+            Ok(read)
+        }
+    }
+
+    #[test]
+    fn a_library_with_no_hash_in_its_name_marks_only_the_copy_built_against_the_units_the_build_used()
+     {
+        let scratch = crate::testing::Scratch::new("record-late");
+        let profile = scratch.dir.join("debug");
+        let fingerprints = profile.join(".fingerprint");
+        let (dep, new_app, old_app) = (
+            "dep-aaaaaaaaaaaaaaaa",
+            "app-bbbbbbbbbbbbbbbb",
+            "app-cccccccccccccccc",
+        );
+        // The fingerprint of the dependency this build made, as little-endian hex.
+        let value: u64 = 0x0102_0304_0506_0708;
+        let writes = |name: &str, file: &str, dep_value: u64| {
+            let dir = fingerprints.join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(file), "0000000000000000").unwrap();
+            std::fs::write(
+                dir.join(format!("{file}.json")),
+                format!("{{\"deps\": [[0, \"dep\", false, {dep_value}]]}}"),
+            )
+            .unwrap();
+        };
+        std::fs::create_dir_all(profile.join("deps")).unwrap();
+        std::fs::create_dir_all(fingerprints.join(dep)).unwrap();
+        writes(new_app, "lib-app", value);
+        writes(old_app, "lib-app", value + 1);
+        let long_ago = libc::timeval {
+            tv_sec: 1_000_000,
+            tv_usec: 0,
+        };
+        for name in [new_app, old_app] {
+            touch(&fingerprints.join(name), &long_ago).unwrap();
+        }
+        let dep_artifact = format!(
+            "{{\"reason\":\"compiler-artifact\",\"package_id\":\"path+file:///ws/dep#dep@0.1.0\",\"target\":{{\"kind\":[\"lib\"],\"name\":\"dep\"}},\"profile\":{{}},\"filenames\":[\"{}/deps/libdep-aaaaaaaaaaaaaaaa.rmeta\"]}}\n",
+            profile.display()
+        );
+        let app_artifact = format!(
+            "{{\"reason\":\"compiler-artifact\",\"package_id\":\"path+file:///ws/app#app@0.1.0\",\"target\":{{\"kind\":[\"lib\",\"staticlib\"],\"name\":\"app\"}},\"profile\":{{}},\"filenames\":[\"{}/libapp.a\"]}}\n",
+            profile.display()
+        );
+        let input = Then {
+            input: std::io::Cursor::new(format!("{dep_artifact}{app_artifact}")),
+            at_end: || {
+                std::fs::write(fingerprints.join(dep).join("lib-dep"), "0807060504030201").unwrap();
+            },
+        };
+        let code = record(std::io::BufReader::new(input), &mut Vec::new()).unwrap();
+        assert_eq!(code, 0);
+        let mtime = |name: &str| {
+            std::fs::metadata(fingerprints.join(name))
+                .unwrap()
+                .modified()
+                .unwrap()
+        };
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        assert!(
+            mtime(new_app) > old,
+            "the copy built against this build's dep was not marked used"
+        );
+        assert_eq!(
+            mtime(old_app),
+            old,
+            "a copy built against another dep was marked used"
+        );
+    }
 
     #[test]
     fn package_names() {

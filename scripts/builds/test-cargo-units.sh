@@ -158,7 +158,7 @@ build_all "$builds" cargo
 deps_files() { (cd "$profile/deps" && printf '%s\n' *); }
 sets() { deps_files | grep "^$1[.-].*\.rcgu\.o$" | cut -d. -f1,3 | sort -u; }
 [ "$(sets app | grep -c '^app\.')" -gt 1 ] || fail "rebuilding the cdylib left one set of its object files: $(sets app)"
-deps_files | grep -q '^dep-.*\.rcgu\.o$' || fail "the dep rlib left no object files beside it"
+deps_files | grep '^dep-.*\.rcgu\.o$' > /dev/null || fail "the dep rlib left no object files beside it"
 used="$(recent)"
 all="$(fingerprints)"
 old="$(comm -23 <(echo "$all") <(echo "$used"))"
@@ -178,9 +178,9 @@ PY
 [ "$(fingerprints)" = "$all" ] || fail "pruning deleted while a build held the lock"
 
 # A process holding a file of an old unit keeps that unit.
-held_unit="$(echo "$old" | head -1)"
+held_unit="${old%%$'\n'*}"
 held_hash="${held_unit##*-}"
-held_file="$(find "$profile/deps" -name "*-$held_hash*" | head -1)"
+held_file="$(find "$profile/deps" -name "*-$held_hash*" -print -quit)"
 if [ -n "$held_file" ]; then
     exec 3< "$held_file"
 fi
@@ -189,7 +189,7 @@ units prune 3 100000 0 "$ws/target" > /dev/null
 remaining="$(fingerprints)"
 if [ -n "$held_file" ]; then
     exec 3<&-
-    echo "$remaining" | grep -qxF "$held_unit" || fail "pruning deleted $held_unit while a process held $held_file"
+    grep -qxF "$held_unit" <<< "$remaining" || fail "pruning deleted $held_unit while a process held $held_file"
     remaining="$(echo "$remaining" | grep -vxF "$held_unit")"
 fi
 [ "$remaining" = "$used" ] || fail "pruning kept $(comm -13 <(echo "$used") <(echo "$remaining")) and deleted $(comm -23 <(echo "$used") <(echo "$remaining"))"
