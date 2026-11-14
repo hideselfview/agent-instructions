@@ -23,7 +23,7 @@ pub const DATABASE: &str = "builds.sqlite";
 /// Each owner's SQL, in the order the schema is read: a table points at ones
 /// earlier or later (SQLite resolves foreign keys when rows are written), but
 /// the order is the one to read it in.
-const LISTS_PARTS: [&str; 10] = [
+const LISTS_PARTS: [&str; 11] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -34,6 +34,7 @@ const LISTS_PARTS: [&str; 10] = [
     include_str!("lists/landing.sql"),
     include_str!("lists/design.sql"),
     include_str!("lists/store.sql"),
+    include_str!("review/record.sql"),
 ];
 const HOOK_PART: &str = include_str!("hook_stats.sql");
 /// The app-build timing tables (app_timing.sql), the last part of the schema.

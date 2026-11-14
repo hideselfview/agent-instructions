@@ -34,7 +34,7 @@ pub mod issue;
 pub mod item;
 mod item_command;
 #[cfg(test)]
-mod item_fixtures;
+pub mod item_fixtures;
 mod item_show;
 pub mod landing;
 pub mod project;

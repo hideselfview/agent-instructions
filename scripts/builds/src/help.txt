@@ -211,13 +211,48 @@ Commands:
   builds lists ...            the decision stack, work queue, design changes
                               and decision log of a project, in a store
                               outside every repo: `builds help lists`
+  builds review [run] <worktree> [<base>] [--landing <key>] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]
+                              review the worktree's commits past <base>
+                              (default origin/main) against the rules of
+                              agent-instructions (--rules-root, default the
+                              checkout linked at ~/.codex/agent-instructions).
+                              The groups of review/groups.toml whose rules
+                              cover a changed path each get one `claude -p`
+                              (PROGRAM, default claude) with no tools: its
+                              prompt holds the full text of the group's rules,
+                              the project's projects/<project>.md, the
+                              principles the group names, the brief of the
+                              first --item that has one, the diff, and the
+                              findings already settled. It answers with a
+                              verdict for every rule and, per finding, the
+                              rule's clause, the code with file and line, and
+                              what goes wrong. builds drops a finding whose
+                              clause is not in the rule or whose code is not in
+                              the diff, and records it as dropped. Every
+                              review goes in the project's store: landing
+                              (<key>, default the worktree's branch), group,
+                              rules, model, tokens, verdicts, findings. A
+                              review whose <key> an earlier review left
+                              standing reruns only the groups that found
+                              something or failed, and tells them what was
+                              settled; a finding the coordinator dropped,
+                              raised again with the same rule, file and code,
+                              stays dropped. Prints the findings by group and a
+                              total line; exits 1 when a blocking finding
+                              stands (a rule with `blocking: true`, not
+                              settled as dropped) or a reviewer failed, saying
+                              how to settle
+  builds review settle <finding> confirmed|dropped --why <text>
+                              the coordinator's verdict on a finding, kept
+                              with who and when
+  builds review show <landing>
+                              every run of a landing under review: groups,
+                              findings, how each was settled
   builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
                               list the groups of rules a review hands to one
-                              reviewer each (review/groups.toml of the
-                              agent-instructions checkout, by default the one
-                              linked at ~/.codex/agent-instructions) and fail
-                              naming every rule that is in no group or in two,
-                              and every slug that names no rule; with --changed, list instead the groups
+                              reviewer each and fail naming every rule that is
+                              in no group or in two, and every slug that names
+                              no rule; with --changed, list instead the groups
                               a change to those paths runs, over the rules of
                               project P (none: every project's)
   builds design render DIR BOARD [--theme light|dark] [--now | --at REV]
