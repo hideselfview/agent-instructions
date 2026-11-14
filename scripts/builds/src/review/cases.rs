@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::review::check::parse_diff;
+use crate::review::check::{parse_diff, squash};
 use crate::review::files::Source;
 use crate::review::groups::Groups;
 use crate::review::record::{Kind, NewCall, NewRun};
@@ -27,6 +27,22 @@ pub struct Expect {
     pub file: String,
 }
 
+/// The true verdict of one site a reviewer lists: a line of code (as much of
+/// it as identifies it) in a file, and whether it breaks a rule.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SiteLabel {
+    pub file: String,
+    /// The start of the site's code, enough to tell it from its neighbours.
+    pub code: String,
+    /// `finding` or `none`.
+    pub verdict: String,
+    /// The rule a finding breaks; a `none` site names none and breaks none of
+    /// its group's rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ExpectedFile {
@@ -36,6 +52,9 @@ struct ExpectedFile {
     clean_for: Vec<String>,
     #[serde(default)]
     finding: Vec<Expect>,
+    /// The true verdict of each site reviewers listed on this change.
+    #[serde(default)]
+    site: Vec<SiteLabel>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +64,7 @@ pub struct Case {
     pub patch: String,
     pub clean_for: Vec<String>,
     pub expected: Vec<Expect>,
+    pub labels: Vec<SiteLabel>,
 }
 
 /// Every case under <root>/review/cases, by name.
@@ -95,6 +115,7 @@ pub fn load(root: &Path) -> Result<Vec<Case>> {
             patch,
             clean_for: file.clean_for,
             expected: file.finding,
+            labels: file.site,
         });
     }
     Ok(cases)
@@ -147,6 +168,7 @@ pub fn add(
             project: project.to_string(),
             clean_for: Vec::new(),
             finding: Vec::new(),
+            site: Vec::new(),
         }
     };
     match addition {
@@ -184,6 +206,88 @@ pub struct CaseResult {
     pub calls: Vec<NewCall>,
     /// The tokens of the passes after each group's first.
     pub repeat: Tokens,
+    /// How the case's site labels scored, by rule.
+    pub sites: Vec<SiteScore>,
+}
+
+/// How reviewers did on the labelled sites of one rule.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SiteScore {
+    pub group: String,
+    pub rule: String,
+    /// Labelled finding sites some accepted finding of the rule names.
+    pub found: usize,
+    /// Labelled finding sites no accepted finding names.
+    pub missed: usize,
+    /// Accepted findings that land on a site labelled `none`.
+    pub wrong: usize,
+    /// Accepted findings that land on no labelled site.
+    pub unlabelled: usize,
+}
+
+/// Whether the code of a reviewer's finding and a label name one site: one
+/// holds the other, once whitespace and markdown marks are gone.
+fn same_code(finding: &str, label: &str) -> bool {
+    let (a, b) = (squash(finding), squash(label));
+    !a.is_empty() && !b.is_empty() && (a.contains(&b) || b.contains(&a))
+}
+
+/// The place of <rule>'s score in <scores>, added when it has none.
+fn score_index(scores: &mut Vec<SiteScore>, material: &Material, rule: &str) -> usize {
+    if let Some(i) = scores.iter().position(|s| s.rule == rule) {
+        return i;
+    }
+    let group = material
+        .groups
+        .groups
+        .iter()
+        .find(|g| g.rules.iter().any(|r| r == rule))
+        .map(|g| g.name.clone())
+        .unwrap_or_default();
+    scores.push(SiteScore {
+        group,
+        rule: rule.to_string(),
+        ..SiteScore::default()
+    });
+    scores.len() - 1
+}
+
+fn score_sites(
+    material: &Material,
+    labels: &[SiteLabel],
+    accepted: &[&crate::review::record::NewFinding],
+) -> Vec<SiteScore> {
+    let mut scores: Vec<SiteScore> = Vec::new();
+    for label in labels.iter().filter(|l| l.verdict == "finding") {
+        let rule = label.rule.as_deref().unwrap_or_default();
+        let hit = accepted.iter().any(|f| {
+            f.rule == rule && same_file(&f.file, &label.file) && same_code(&f.code, &label.code)
+        });
+        let i = score_index(&mut scores, material, rule);
+        if hit {
+            scores[i].found += 1;
+        } else {
+            scores[i].missed += 1;
+        }
+    }
+    for f in accepted {
+        let on =
+            |label: &&SiteLabel| same_file(&f.file, &label.file) && same_code(&f.code, &label.code);
+        let right = labels
+            .iter()
+            .filter(on)
+            .any(|l| l.verdict == "finding" && l.rule.as_deref() == Some(f.rule.as_str()));
+        if right {
+            continue;
+        }
+        let i = score_index(&mut scores, material, &f.rule);
+        if labels.iter().filter(on).any(|l| l.verdict == "none") {
+            scores[i].wrong += 1;
+        } else {
+            scores[i].unlabelled += 1;
+        }
+    }
+    scores
 }
 
 impl CaseResult {
@@ -244,6 +348,7 @@ pub fn replay_case(
         found: case.expected.len() - missed.len(),
         missed,
         false_blocking,
+        sites: score_sites(material, &case.labels, &accepted),
         calls,
         repeat,
     }
@@ -305,7 +410,8 @@ fn same_file(a: &str, b: &str) -> bool {
 }
 
 /// Every case of <cases> replayed, in order. <alternative> stands in for the
-/// checkout's own groups when given. A reviewer of one file at a time reads
+/// checkout's own groups when given, and every group is asked in <model> when
+/// given. A reviewer of one file at a time reads
 /// that file's new text from <source_repo> at the commit the case's patch was
 /// made from.
 pub fn replay_all(
@@ -314,6 +420,7 @@ pub fn replay_all(
     reviewer: &Path,
     alternative: Option<&Groups>,
     source_repo: Option<&Path>,
+    model: Option<&str>,
 ) -> Result<Vec<CaseResult>> {
     let mut materials: Vec<(String, Material)> = Vec::new();
     let mut results = Vec::new();
@@ -325,6 +432,9 @@ pub fn replay_all(
             let mut material = Material::load(root, &case.project)?;
             if let Some(groups) = alternative {
                 material = material.with_groups(groups.clone())?;
+            }
+            if let Some(model) = model {
+                material = material.with_model(model);
             }
             materials.push((case.project.clone(), material));
         }
@@ -396,6 +506,60 @@ pub fn totals(results: &[CaseResult]) -> Totals {
     t
 }
 
+/// The site labels' scores, per rule and per group: recall (labelled finding
+/// sites found), precision (found over found plus findings on `none` sites)
+/// and the findings on unlabelled sites.
+fn site_report(results: &[CaseResult]) -> String {
+    let mut by_rule: Vec<SiteScore> = Vec::new();
+    for score in results.iter().flat_map(|r| r.sites.iter()) {
+        match by_rule.iter_mut().find(|s| s.rule == score.rule) {
+            Some(held) => {
+                held.found += score.found;
+                held.missed += score.missed;
+                held.wrong += score.wrong;
+                held.unlabelled += score.unlabelled;
+            }
+            None => by_rule.push(score.clone()),
+        }
+    }
+    if by_rule.is_empty() {
+        return String::new();
+    }
+    by_rule.sort_by(|a, b| (&a.group, &a.rule).cmp(&(&b.group, &b.rule)));
+    let ratio = |n: usize, d: usize| match d {
+        0 => "n/a".to_string(),
+        d => format!("{}%", n * 100 / d),
+    };
+    let line = |name: &str, s: &SiteScore| {
+        format!(
+            "  {name}: sites found {} of {} (recall {}), {} on `none` sites (precision {}), {} on unlabelled sites\n",
+            s.found,
+            s.found + s.missed,
+            ratio(s.found, s.found + s.missed),
+            s.wrong,
+            ratio(s.found, s.found + s.wrong),
+            s.unlabelled
+        )
+    };
+    let mut out = String::from("site labels, per group and per rule:\n");
+    let mut groups: Vec<&str> = by_rule.iter().map(|s| s.group.as_str()).collect();
+    groups.dedup();
+    for group in groups {
+        let mut total = SiteScore::default();
+        for s in by_rule.iter().filter(|s| s.group == group) {
+            total.found += s.found;
+            total.missed += s.missed;
+            total.wrong += s.wrong;
+            total.unlabelled += s.unlabelled;
+        }
+        out.push_str(&line(&format!("group {group}"), &total));
+        for s in by_rule.iter().filter(|s| s.group == group) {
+            out.push_str(&line(&format!("  rule {}", s.rule), s));
+        }
+    }
+    out
+}
+
 pub fn report(results: &[CaseResult]) -> String {
     let mut out = String::new();
     for r in results {
@@ -443,6 +607,7 @@ pub fn report(results: &[CaseResult]) -> String {
             t.repeat.output
         ));
     }
+    out.push_str(&site_report(results));
     out
 }
 

@@ -62,6 +62,15 @@ impl Material {
         Ok(self)
     }
 
+    /// The same material with every group asked in <model>.
+    pub fn with_model(mut self, model: &str) -> Material {
+        for group in &mut self.groups.groups {
+            group.model = model.to_string();
+        }
+        self.grouping = format!("model {model}");
+        self
+    }
+
     fn principle(&self, name: &str) -> (String, String) {
         let path = self.root.join("principles").join(format!("{name}.md"));
         (

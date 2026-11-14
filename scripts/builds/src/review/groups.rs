@@ -22,7 +22,7 @@ fn one() -> usize {
 pub struct Group {
     pub name: String,
     pub question: String,
-    /// `opus` or `sonnet`.
+    /// `opus`, `sonnet` or `haiku`.
     pub model: String,
     /// Rule slugs.
     pub rules: Vec<String>,
@@ -119,9 +119,9 @@ impl Groups {
                     group.name
                 ));
             }
-            if !["opus", "sonnet"].contains(&group.model.as_str()) {
+            if !["opus", "sonnet", "haiku"].contains(&group.model.as_str()) {
                 faults.push(format!(
-                    "group {} names model {}; it is opus or sonnet",
+                    "group {} names model {}; it is opus, sonnet or haiku",
                     group.name, group.model
                 ));
             }

@@ -165,6 +165,7 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         patch: PATCH.to_string(),
         clean_for: vec!["rule-a".to_string()],
         expected: Vec::new(),
+        labels: Vec::new(),
     };
     fake.answer("alpha", &[("rule-a", Some(BAD))]);
     assert_eq!(
@@ -250,6 +251,7 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
         patch,
         clean_for: Vec::new(),
         expected: Vec::new(),
+        labels: Vec::new(),
     };
     let result = replay_case(&material(&fake), &fake.program, &case, None);
     let alpha: Vec<_> = result.calls.iter().filter(|c| c.group == "alpha").collect();
@@ -274,5 +276,61 @@ fn a_patch_gives_its_commit_messages_without_the_mark_or_the_stat() {
     assert_eq!(
         messages_of_patch(patch),
         "Do the thing\n\nWhy it is done.\n\n"
+    );
+}
+
+fn label(file: &str, code: &str, verdict: &str, rule: Option<&str>) -> SiteLabel {
+    SiteLabel {
+        file: file.to_string(),
+        code: code.to_string(),
+        verdict: verdict.to_string(),
+        rule: rule.map(str::to_string),
+    }
+}
+
+#[test]
+fn site_labels_score_recall_wrong_findings_and_unlabelled_ones_per_rule() {
+    let scratch = Scratch::new("case-site-labels");
+    let fake = fake(&scratch.dir);
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let case = |labels: Vec<SiteLabel>| Case {
+        name: "n".to_string(),
+        project: "demo".to_string(),
+        patch: PATCH.to_string(),
+        clean_for: Vec::new(),
+        expected: Vec::new(),
+        labels,
+    };
+    let score = |labels| {
+        let result = replay_case(&material(&fake), &fake.program, &case(labels), None);
+        result
+            .sites
+            .into_iter()
+            .find(|s| s.rule == "rule-a")
+            .unwrap()
+    };
+    // The reviewer's finding quotes `a.rs` in a.rs.
+    let hit = score(vec![label("a.rs", "a.rs", "finding", Some("rule-a"))]);
+    assert_eq!(
+        (hit.found, hit.missed, hit.wrong, hit.unlabelled),
+        (1, 0, 0, 0)
+    );
+    assert_eq!(hit.group, "alpha");
+    let wrong = score(vec![
+        label("a.rs", "a.rs", "none", None),
+        label("a.rs", "elsewhere", "finding", Some("rule-a")),
+    ]);
+    assert_eq!(
+        (wrong.found, wrong.missed, wrong.wrong, wrong.unlabelled),
+        (0, 1, 1, 0)
+    );
+    let unlabelled = score(vec![label("b.rs", "b", "none", None)]);
+    assert_eq!(unlabelled.unlabelled, 1);
+    assert!(
+        site_report(&[CaseResult {
+            sites: vec![hit],
+            ..replay_case(&material(&fake), &fake.program, &case(Vec::new()), None)
+        }])
+        .contains("recall 100%")
     );
 }

@@ -193,7 +193,7 @@ pub fn optimize(
         .context(|| format!("reading {}", groups_path.display()))?;
     let current = Groups::parse(&groups_text)?;
     let baseline_results: Vec<CaseResult> =
-        cases::replay_all(root, &all_cases, reviewer, None, source_repo)?;
+        cases::replay_all(root, &all_cases, reviewer, None, source_repo, None)?;
     let baseline = cases::totals(&baseline_results);
     let mut text = format!(
         "current grouping: {}\n",
@@ -233,8 +233,14 @@ pub fn optimize(
         match parsed {
             Err(why) => text.push_str(&format!("proposal {n} discarded: {}\n", why.text())),
             Ok(groups) => {
-                let results =
-                    cases::replay_all(root, &all_cases, reviewer, Some(&groups), source_repo)?;
+                let results = cases::replay_all(
+                    root,
+                    &all_cases,
+                    reviewer,
+                    Some(&groups),
+                    source_repo,
+                    None,
+                )?;
                 let totals = cases::totals(&results);
                 text.push_str(&format!(
                     "proposal {n}: {} ({})\n",

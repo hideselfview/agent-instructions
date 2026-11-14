@@ -7,7 +7,7 @@
 //! builds review settle FINDING confirmed|dropped --why TEXT
 //! builds review show LANDING
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
-//! builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--model M] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review audit LANDING --repo-dir DIR
 //! builds review sample --landing KEY --repo-dir DIR
 //! builds review misses | rates
@@ -50,7 +50,7 @@ use crate::tool::Tool;
 use prompt::Settled;
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review sample --landing KEY --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review optimize --rules-root DIR [--source REPO] [--reviewer PROGRAM] [--proposer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review sample --landing KEY --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review optimize --rules-root DIR [--source REPO] [--reviewer PROGRAM] [--proposer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -416,7 +416,14 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
 fn replay(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(
         args,
-        &["groups", "case", "rules-root", "reviewer", "source"],
+        &[
+            "groups",
+            "case",
+            "rules-root",
+            "reviewer",
+            "source",
+            "model",
+        ],
         &[],
     )?;
     args.exactly(0, USAGE)?;
@@ -450,6 +457,7 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
         &reviewer,
         alternative.as_ref(),
         source.as_deref(),
+        args.value("model")?,
     )?;
     for (case, result) in all.iter().zip(&results) {
         let store = Store::named(&tool.places, &case.project)?;
