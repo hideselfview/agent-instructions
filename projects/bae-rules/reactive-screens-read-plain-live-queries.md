@@ -1,5 +1,5 @@
 ---
-digest: A bae read that must follow changes (a reactive screen, or a subscriber in the bridge, automation or MCP) is a plain coven live query (one SQL query, subscribed; a slow count is its own live query); a read that need not follow changes is a plain one-shot SQL read. In both, SQLite filters, sorts, joins, counts and windows; nothing is kept in Rust memory between reads, no side pass walks rows beside a live query, no field is written to force a rerun, no size cutoff switches a read between two paths.
+digest: A bae read that must follow changes (a reactive screen, or a subscriber in the bridge, automation or MCP) is a plain coven live query (one SQL query, subscribed); everything a screen shows beside its rows (counts, totals, groups and section headers, "N of M", sums, facets) comes from SQL too, in the same query or as its own live query; a read that need not follow changes is a plain one-shot SQL read. In both, SQLite filters, sorts, joins, counts and windows; nothing is kept in Rust memory between reads, no side pass walks rows beside a live query, no field is written to force a rerun, no size cutoff switches a read between two paths.
 paths:
   - bae-store/src/**/*.rs
   - bae-views/src/**/*.rs
@@ -20,11 +20,13 @@ blocking: true
 
 A read that must follow changes, such as a reactive screen or a bridge,
 automation or MCP subscriber, is one SQL query subscribed through coven
-(`subscribe`), which reruns it when a write changes what it read. Its count,
-when counting costs more than the rows, is a second live query, and the screen
-draws each as it arrives. A read that need not follow changes (a one-off lookup,
-a command's check, an export) is a plain SQL read, not a live query. That is the
-whole read path.
+(`subscribe`), which reruns it when a write changes what it read. Everything a
+screen shows beside its rows comes from SQL as well: counts, totals, groups and
+section headers, "N of M", sums, facets, whatever accompanies the list. It is
+part of the same query, or, when it costs more than the rows, its own live
+query, and the screen draws each as it arrives. A read that need not follow
+changes (a one-off lookup, a command's check, an export) is a plain SQL read,
+not a live query. That is the whole read path.
 
 Never, in either kind of read:
 
@@ -37,8 +39,9 @@ Never, in either kind of read:
   so a live query reads again. A query reruns because what it read changed.
 - **A cutoff between read paths.** No threshold (rows, matches, size) that sends
   a read down one of two paths. One query, one path.
-- **Rust doing SQL's work.** No filtering, sorting, joining, grouping or
-  counting of rows a query returned.
+- **Rust doing SQL's work.** No filtering, sorting, joining, grouping, counting,
+  summing or deriving anything from rows a query returned. If a screen shows it,
+  SQL produced it.
 
 When a live query is too slow, the fix is in SQL: the query, an index, or a
 device-local table that triggers keep in the same write (notes/screens-as-

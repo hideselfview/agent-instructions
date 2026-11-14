@@ -5,7 +5,7 @@ paths:
   - '**/*.kt'
   - '**/*.cs'
   - '**/*.axaml'
-blocking: false
+blocking: true
 ---
 
 ## High-frequency values skip the UI framework's observed state

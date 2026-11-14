@@ -31,6 +31,14 @@ here are only those it can't check.
 3. **Execute** (Sonnet, as of 2026-11): every dispatched agent ("Plan with Opus,
    execute with Sonnet").
 4. **Review** every commit before landing ("Review every executor's work").
+5. **Hold the project's standing rules at every step.** Before a plan or brief
+   goes to an agent, the coordinator checks its shape against the project's
+   rules that a plan's author never loads by touching files: for bae, the reads
+   rule (`projects/bae-rules/reactive-screens-read-plain-live-queries.md`) and
+   the fast-values rule
+   (`projects/bae-rules/high-frequency-values-skip-observed-ui-state.md`). A
+   plan that proposes a forbidden shape is rewritten before dispatch, and a
+   review refuses a commit that brings one in, whatever its speed or tests show.
 
 ## What an implementing agent does
 

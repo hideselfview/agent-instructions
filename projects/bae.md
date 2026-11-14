@@ -157,15 +157,27 @@ with its frozen per-file exceptions). A Rust file over 1,000 lines must keep its
 its existing domain and ownership boundaries; do not expose owner state or
 duplicate types to make a split compile.
 
-## Reads
+## Reads and fast values
 
 A read that must follow changes (a reactive screen, or a subscriber in the
 bridge, automation or MCP) is a plain coven live query; any other read is a
-plain SQL read. SQLite does the filtering, sorting, joining, counting and
-windowing; nothing is kept in memory between reads, no side pass, no forced
-rerun, no size cutoff between read paths. The full rule is
-`projects/bae-rules/reactive-screens-read-plain-live-queries.md`; every plan,
-brief and review checks a change's reads against it.
+plain SQL read. SQLite does the filtering, sorting, joining, grouping, counting
+and windowing, and everything a screen shows beside its rows (counts, totals,
+groups and section headers, "N of M", sums, facets) comes from SQL, in the same
+query or its own live query. Nothing is kept in memory between reads, no side
+pass, no forced rerun, no size cutoff between read paths. The full rule is
+`projects/bae-rules/reactive-screens-read-plain-live-queries.md`.
+
+A value that changes many times a second (playback position, transfer bytes,
+rates, levels) travels on a keyed latest-value stream and is drawn by a native
+view that reads the latest value per key once per display frame, never through
+SwiftUI, Compose or Avalonia observed state and never with a main-thread hop per
+change. The full rule is
+`projects/bae-rules/high-frequency-values-skip-observed-ui-state.md`.
+
+Every plan, brief and review checks a change's reads and fast values against
+these two rules; a plan that proposes a forbidden shape is wrong and is raised,
+not built.
 
 ## Schema and compatibility
 
