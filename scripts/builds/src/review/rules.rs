@@ -42,17 +42,6 @@ impl Rule {
         }
     }
 
-    /// The one-line `digest:` of the front matter.
-    pub fn digest(&self) -> String {
-        front_matter(&self.text)
-            .and_then(|front| {
-                front
-                    .lines()
-                    .find_map(|l| l.strip_prefix("digest:").map(|d| d.trim().to_string()))
-            })
-            .unwrap_or_default()
-    }
-
     /// Whether the rule covers at least one of <changed>.
     pub fn matches(&self, changed: &[String]) -> bool {
         match &self.paths {

@@ -11,7 +11,6 @@
 //! builds review audit LANDING --repo-dir DIR
 //! builds review sample --landing KEY --repo-dir DIR
 //! builds review misses | rates
-//! builds review optimize --rules-root DIR [--source REPO] [--reviewer PROGRAM] [--proposer PROGRAM]
 //! builds review case add ...
 //! ```
 //!
@@ -29,7 +28,6 @@ mod check;
 mod fakes;
 mod files;
 mod groups;
-mod optimize;
 mod prompt;
 mod record;
 mod render;
@@ -50,7 +48,7 @@ use crate::tool::Tool;
 use prompt::Settled;
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review sample --landing KEY --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review optimize --rules-root DIR [--source REPO] [--reviewer PROGRAM] [--proposer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review sample --landing KEY --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -74,7 +72,6 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
         "replay" => replay(tool, rest),
-        "optimize" => optimize(tool, rest),
         "audit" => audit_command(tool, rest),
         "sample" => sample(tool, rest),
         "misses" => misses(tool, rest),
@@ -195,6 +192,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                         base: &diff.base,
                         head: &diff.head,
                         grouping: &material.grouping,
+                        rules_version: &run::rules_version(inputs.root),
                     },
                     &calls,
                 )?;
@@ -451,6 +449,7 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let cwd = current_dir()?;
     let stamp = Stamp::resolve(tool.now, &args, &cwd)?;
+    let rules_version = run::rules_version(&root);
     let results = cases::replay_all(
         &root,
         &all,
@@ -462,7 +461,12 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
     for (case, result) in all.iter().zip(&results) {
         let store = Store::named(&tool.places, &case.project)?;
         store.write(&stamp, &format!("review replay {}", case.name), |db| {
-            record::add_run(db, &cases::run_of(case, stamp.at), &result.calls).map(|_| ())
+            record::add_run(
+                db,
+                &cases::run_of(case, stamp.at, &rules_version),
+                &result.calls,
+            )
+            .map(|_| ())
         })?;
     }
     print!("{}", cases::report(&results));
@@ -626,50 +630,6 @@ fn rates(tool: &Tool, args: &[String]) -> Result<()> {
             rate.recent_misses,
             if rate.risen() { " (risen)" } else { "" }
         );
-    }
-    Ok(())
-}
-
-/// `builds review optimize`: asks the proposer for groupings, replays each
-/// over the test set and commits the cheapest one that loses no recall.
-fn optimize(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["rules-root", "reviewer", "proposer", "source"], &[])?;
-    args.exactly(0, USAGE)?;
-    let Some(root) = args.value("rules-root")? else {
-        fail!("name the agent-instructions worktree to commit the grouping in with --rules-root");
-    };
-    let root = PathBuf::from(root);
-    let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
-    let proposer = match args.value("proposer")? {
-        Some(proposer) => PathBuf::from(proposer),
-        None => reviewer.clone(),
-    };
-    // What each project's reviews recorded, for the proposer to read.
-    let mut stats = Vec::new();
-    let mut rates = Vec::new();
-    let by_group = group_names(&root)?;
-    let mut projects: Vec<String> = cases::load(&root)?.into_iter().map(|c| c.project).collect();
-    projects.sort();
-    projects.dedup();
-    for project in projects {
-        let store = Store::named(&tool.places, &project)?;
-        if let Some(conn) = db::open_reader(&store.database())? {
-            stats.extend(record::group_stats(&conn)?);
-            rates.extend(audit::rates(&conn, &by_group)?);
-        }
-    }
-    let decision = optimize::optimize(
-        &root,
-        &reviewer,
-        &proposer,
-        args.value("source")?.map(Path::new),
-        &stats,
-        &rates,
-    )?;
-    print!("{}", decision.text);
-    if let Some(adoption) = &decision.adopt {
-        optimize::adopt(&root, adoption)?;
-        println!("committed the new review/groups.toml in {}", root.display());
     }
     Ok(())
 }

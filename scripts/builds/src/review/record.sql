@@ -27,6 +27,8 @@ CREATE TABLE review_run (
     head TEXT NOT NULL,
     -- A hash of the groups file the run used, so a change of grouping shows in the record.
     grouping TEXT NOT NULL,
+    -- The commit of the rules checkout the run read, empty when it is no repo.
+    rules_version TEXT NOT NULL,
     CONSTRAINT review_run_review_has_a_landing CHECK (kind = 'replay' OR landing_id IS NOT NULL)
 ) STRICT;
 CREATE INDEX review_run_landing ON review_run (landing_id);
@@ -51,6 +53,33 @@ CREATE TABLE review_call (
     failure TEXT
 ) STRICT;
 CREATE INDEX review_call_run ON review_call (run_id);
+
+-- The text a reviewer was sent and the text it answered with, kept once each
+-- by its hash (an FNV-1a hash and the length).
+CREATE TABLE review_text (
+    hash TEXT PRIMARY KEY,
+    text TEXT NOT NULL
+) STRICT, WITHOUT ROWID;
+
+-- One `claude -p` process of a call: a group asks once for each changed file
+-- it reads and once for each of its passes. The system prompt and the message
+-- are what it was sent; the output is its JSON answer, or why it gave none.
+CREATE TABLE review_exchange (
+    id INTEGER PRIMARY KEY,
+    call_id INTEGER NOT NULL REFERENCES review_call (id),
+    model TEXT NOT NULL,
+    -- The file the exchange read, empty for a whole diff.
+    unit TEXT NOT NULL,
+    pass INTEGER NOT NULL,
+    system_hash TEXT NOT NULL REFERENCES review_text (hash),
+    message_hash TEXT NOT NULL REFERENCES review_text (hash),
+    output TEXT NOT NULL,
+    tokens_in INTEGER NOT NULL CONSTRAINT review_exchange_tokens_in_not_negative CHECK (tokens_in >= 0),
+    tokens_out INTEGER NOT NULL CONSTRAINT review_exchange_tokens_out_not_negative CHECK (tokens_out >= 0),
+    tokens_cached INTEGER NOT NULL CONSTRAINT review_exchange_tokens_cached_not_negative CHECK (tokens_cached >= 0),
+    tokens_written INTEGER NOT NULL CONSTRAINT review_exchange_tokens_written_not_negative CHECK (tokens_written >= 0)
+) STRICT;
+CREATE INDEX review_exchange_call ON review_exchange (call_id);
 
 CREATE TABLE review_verdict (
     call_id INTEGER NOT NULL REFERENCES review_call (id),

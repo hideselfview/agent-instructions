@@ -32,6 +32,8 @@ pub struct Answer {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Output {
+    /// The reviewer's JSON answer as printed, or why there was none.
+    pub output: String,
     pub tokens_in: i64,
     pub tokens_out: i64,
     pub tokens_cached: i64,
@@ -183,7 +185,12 @@ pub fn run(
 }
 
 fn output_of(invoked: Invoked, names: &[String], enumerate: bool) -> Output {
+    let output = match &invoked.body {
+        Ok(body) => body.to_string(),
+        Err(why) => format!("no answer: {why}"),
+    };
     Output {
+        output,
         tokens_in: invoked.tokens_in,
         tokens_out: invoked.tokens_out,
         tokens_cached: invoked.tokens_cached,

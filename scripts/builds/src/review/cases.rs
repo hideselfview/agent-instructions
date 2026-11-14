@@ -448,7 +448,7 @@ pub fn replay_all(
 }
 
 /// The run of a replayed case, as the store records it.
-pub fn run_of<'a>(case: &'a Case, at: i64) -> NewRun<'a> {
+pub fn run_of<'a>(case: &'a Case, at: i64, rules_version: &'a str) -> NewRun<'a> {
     NewRun {
         landing: None,
         kind: Kind::Replay,
@@ -457,6 +457,7 @@ pub fn run_of<'a>(case: &'a Case, at: i64) -> NewRun<'a> {
         base: "",
         head: "",
         grouping: "",
+        rules_version,
     }
 }
 

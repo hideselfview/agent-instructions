@@ -3,7 +3,7 @@
 //! becomes a candidate miss for the coordinator to settle: one reviewer per
 //! rule over every rule that covers a changed path, and one review with the
 //! rules shuffled into a different grouping. The record keeps each group's
-//! audited miss rate, which the optimizer reads.
+//! audited miss rate, which `builds review rates` prints.
 
 use std::path::Path;
 
@@ -324,6 +324,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
                             base: &last.base,
                             head: &last.head,
                             grouping: &material.grouping,
+                            rules_version: &run::rules_version(inputs.root),
                         },
                         calls,
                     )?;

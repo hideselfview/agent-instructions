@@ -24,6 +24,24 @@ pub struct NewFinding {
     pub check_failed: Option<String>,
 }
 
+/// One `claude -p` process of a call, with everything it was sent and
+/// answered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewExchange {
+    pub model: String,
+    /// The file it read, empty for a whole diff.
+    pub unit: String,
+    pub pass: i64,
+    pub system: String,
+    pub message: String,
+    /// The reviewer's JSON answer, or why it gave none.
+    pub output: String,
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+    pub tokens_cached: i64,
+    pub tokens_written: i64,
+}
+
 /// One reviewer call, as it goes into the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewCall {
@@ -40,6 +58,8 @@ pub struct NewCall {
     /// (rule, `finding` or `none`).
     pub verdicts: Vec<(String, String)>,
     pub findings: Vec<NewFinding>,
+    /// Every process the call ran.
+    pub exchanges: Vec<NewExchange>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,14 +170,37 @@ pub struct NewRun<'a> {
     pub head: &'a str,
     /// A hash of the groups file the run used.
     pub grouping: &'a str,
+    /// The commit of the rules checkout the run read.
+    pub rules_version: &'a str,
+}
+
+/// The hash <text> is kept under: its FNV-1a hash and its length.
+pub fn text_hash(text: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{hash:016x}-{}", text.len())
+}
+
+/// Keeps <text> once under its hash and returns the hash.
+fn keep_text(db: &Connection, text: &str) -> Result<String> {
+    let hash = text_hash(text);
+    db.execute(
+        "INSERT OR IGNORE INTO review_text (hash, text) VALUES (?1, ?2)",
+        params![hash, text],
+    )
+    .sql()?;
+    Ok(hash)
 }
 
 /// Writes a run with its calls, verdicts and findings. Returns the run's id
 /// and, per call in order, the ids its findings got.
 pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64, Vec<Vec<i64>>)> {
     db.execute(
-        "INSERT INTO review_run (landing_id, kind, label, at, base, head, grouping) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.grouping],
+        "INSERT INTO review_run (landing_id, kind, label, at, base, head, grouping, rules_version) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.grouping, run.rules_version],
     )
     .sql()?;
     let run = db.last_insert_rowid();
@@ -174,6 +217,15 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
             db.execute(
                 "INSERT INTO review_verdict (call_id, rule, verdict) VALUES (?1, ?2, ?3)",
                 params![call_id, rule, verdict],
+            )
+            .sql()?;
+        }
+        for exchange in &call.exchanges {
+            let system_hash = keep_text(db, &exchange.system)?;
+            let message_hash = keep_text(db, &exchange.message)?;
+            db.execute(
+                "INSERT INTO review_exchange (call_id, model, unit, pass, system_hash, message_hash, output, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, exchange.output, exchange.tokens_in, exchange.tokens_out, exchange.tokens_cached, exchange.tokens_written],
             )
             .sql()?;
         }
@@ -266,56 +318,6 @@ pub fn findings_of_landing(db: &Connection, landing: i64) -> Result<Vec<Finding>
         format!("SELECT {FINDING_COLUMNS} {FINDING_FROM} WHERE r.landing_id = ?1 ORDER BY f.id");
     let mut statement = db.prepare(&sql).sql()?;
     let rows = statement.query_map(params![landing], finding_from).sql()?;
-    rows.map(|row| row.sql()).collect()
-}
-
-/// What the reviews of one group came to.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GroupStat {
-    pub group: String,
-    pub calls: i64,
-    pub failed_calls: i64,
-    pub tokens_in: i64,
-    pub tokens_out: i64,
-    /// Findings builds accepted.
-    pub findings: i64,
-    pub confirmed: i64,
-    pub dropped: i64,
-    /// Findings builds dropped for a quote that was not there.
-    pub dropped_by_builds: i64,
-}
-
-/// The landing reviews' numbers by group.
-pub fn group_stats(db: &Connection) -> Result<Vec<GroupStat>> {
-    let count = |condition: &str| {
-        format!(
-            "(SELECT COUNT(*) FROM review_finding f JOIN review_call c2 ON c2.id = f.call_id JOIN review_run r2 ON r2.id = c2.run_id WHERE r2.kind = 'review' AND c2.group_name = c.group_name AND {condition})"
-        )
-    };
-    let sql = format!(
-        "SELECT c.group_name, COUNT(*), SUM(c.failure IS NOT NULL), SUM(c.tokens_in), SUM(c.tokens_out), {}, {}, {}, {} \
-         FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE r.kind = 'review' GROUP BY c.group_name ORDER BY c.group_name",
-        count("f.check_failed IS NULL"),
-        count("f.settled = 'confirmed'"),
-        count("f.settled = 'dropped'"),
-        count("f.check_failed IS NOT NULL"),
-    );
-    let mut statement = db.prepare(&sql).sql()?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok(GroupStat {
-                group: row.get(0)?,
-                calls: row.get(1)?,
-                failed_calls: row.get(2)?,
-                tokens_in: row.get(3)?,
-                tokens_out: row.get(4)?,
-                findings: row.get(5)?,
-                confirmed: row.get(6)?,
-                dropped: row.get(7)?,
-                dropped_by_builds: row.get(8)?,
-            })
-        })
-        .sql()?;
     rows.map(|row| row.sql()).collect()
 }
 

@@ -15,7 +15,7 @@ use crate::review::check::{DiffFile, clause_in, code_in, parse_diff};
 use crate::review::files::{self, FileDiff, Source};
 use crate::review::groups::{Group, Groups};
 use crate::review::prompt::{self, PROJECT_FACTS, Settled};
-use crate::review::record::{NewCall, NewFinding};
+use crate::review::record::{NewCall, NewExchange, NewFinding};
 use crate::review::rules::{self, Rule};
 
 /// What a review reads besides the diff.
@@ -216,7 +216,7 @@ pub fn ask_groups(
             });
         }
     }
-    let one = |unit: &Unit| {
+    let one = |unit: &Unit, pass: usize| {
         let group = unit.group;
         let principles: Vec<(String, String)> = group
             .principles
@@ -250,14 +250,32 @@ pub fn ask_groups(
             &parts,
             checkout.as_ref().map(|c| c.path.as_path()),
         );
-        checked(
+        let exchange = NewExchange {
+            model: group.model.clone(),
+            unit: unit
+                .file
+                .as_ref()
+                .map(|f| f.path.clone())
+                .unwrap_or_default(),
+            pass: pass as i64,
+            system: parts.system.clone(),
+            message: parts.message.clone(),
+            output: output.output.clone(),
+            tokens_in: output.tokens_in,
+            tokens_out: output.tokens_out,
+            tokens_cached: output.tokens_cached,
+            tokens_written: output.tokens_written,
+        };
+        let mut call = checked(
             group,
             unit.members,
             &material.project_text,
             &files,
             &names,
             output,
-        )
+        );
+        call.exchanges.push(exchange);
+        call
     };
     // The first call of each group runs alone with the others of its group
     // held back: it writes the group's system prompt to the cache, and the
@@ -274,10 +292,13 @@ pub fn ask_groups(
     }
     let rest: Vec<usize> = (0..units.len()).filter(|i| !first.contains(i)).collect();
     let mut done: Vec<Vec<NewCall>> = units.iter().map(|_| Vec::new()).collect();
-    for (i, call) in first.iter().zip(parallel_map(&first, |&i| one(&units[i]))) {
+    for (i, call) in first
+        .iter()
+        .zip(parallel_map(&first, |&i| one(&units[i], 0)))
+    {
         done[*i].push(call);
     }
-    for (i, call) in rest.iter().zip(parallel_map(&rest, |&i| one(&units[i]))) {
+    for (i, call) in rest.iter().zip(parallel_map(&rest, |&i| one(&units[i], 0))) {
         done[*i].push(call);
     }
     let most = units.iter().map(|u| u.group.passes).max().unwrap_or(1);
@@ -286,7 +307,10 @@ pub fn ask_groups(
         let again: Vec<usize> = (0..units.len())
             .filter(|&i| units[i].group.passes > pass)
             .collect();
-        for (i, call) in again.iter().zip(parallel_map(&again, |&i| one(&units[i]))) {
+        for (i, call) in again
+            .iter()
+            .zip(parallel_map(&again, |&i| one(&units[i], pass)))
+        {
             repeat.add(&call);
             done[*i].push(call);
         }
@@ -344,6 +368,7 @@ fn failed_all(picked: &[(&Group, Vec<&Rule>)], why: &str) -> Vec<NewCall> {
             failure: Some(why.to_string()),
             verdicts: Vec::new(),
             findings: Vec::new(),
+            exchanges: Vec::new(),
         })
         .collect()
 }
@@ -351,6 +376,7 @@ fn failed_all(picked: &[(&Group, Vec<&Rule>)], why: &str) -> Vec<NewCall> {
 /// <held> with <more>: tokens added, verdicts joined (`finding` when either
 /// is), findings and sites collected, failures kept.
 fn merge(held: &mut NewCall, more: NewCall) {
+    held.exchanges.extend(more.exchanges);
     held.tokens_in += more.tokens_in;
     held.tokens_out += more.tokens_out;
     held.tokens_cached += more.tokens_cached;
@@ -414,6 +440,7 @@ fn checked(
         failure: None,
         verdicts: Vec::new(),
         findings: Vec::new(),
+        exchanges: Vec::new(),
     };
     let answer = match output.answer {
         Ok(answer) => answer,
@@ -451,4 +478,17 @@ fn checked(
         });
     }
     call
+}
+
+/// The commit of the rules checkout at <root>, empty when it is no repo.
+pub fn rules_version(root: &Path) -> String {
+    git(root)
+        .args(["rev-parse", "HEAD"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
 }

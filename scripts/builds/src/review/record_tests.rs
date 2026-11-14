@@ -12,6 +12,18 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
         tokens_written: 3,
         sites: None,
         failure: None,
+        exchanges: vec![NewExchange {
+            model: "sonnet".to_string(),
+            unit: "f".to_string(),
+            pass: 0,
+            system: "system".to_string(),
+            message: "message".to_string(),
+            output: "{}".to_string(),
+            tokens_in: 10,
+            tokens_out: 2,
+            tokens_cached: 4,
+            tokens_written: 3,
+        }],
         verdicts: vec![(
             "r".to_string(),
             if finding.is_some() { "finding" } else { "none" }.to_string(),
@@ -41,6 +53,7 @@ fn run<'a>(landing: Option<i64>, at: i64, base: &'a str, head: &'a str) -> NewRu
         base,
         head,
         grouping: "g",
+        rules_version: "",
     }
 }
 
@@ -140,4 +153,38 @@ fn a_finding_builds_dropped_cannot_be_settled_and_a_settled_one_cannot_be_settle
 fn a_review_run_needs_a_landing() {
     let db = db();
     assert!(add_run(&db, &run(None, 1, "b", "h"), &[]).is_err());
+}
+
+#[test]
+fn every_exchange_of_a_call_is_kept_with_its_texts_once_each() {
+    let db = db();
+    let repo = first_repo(&db);
+    let landing = add_landing(&db, "k", &repo, 5).unwrap();
+    let mut one = call("g", None);
+    let mut second = one.exchanges[0].clone();
+    second.unit = "other".to_string();
+    second.message = "another message".to_string();
+    second.output = "no answer: boom".to_string();
+    one.exchanges.push(second);
+    let (run, _) = add_run(&db, &run(Some(landing), 6, "b", "h"), &[one]).unwrap();
+    let exchanges: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM review_exchange e JOIN review_call c ON c.id = e.call_id WHERE c.run_id = ?1",
+            [run],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(exchanges, 2);
+    let texts: i64 = db
+        .query_row("SELECT COUNT(*) FROM review_text", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(texts, 3, "the shared system prompt is kept once");
+    let kept: String = db
+        .query_row(
+            "SELECT t.text FROM review_exchange e JOIN review_text t ON t.hash = e.message_hash WHERE e.unit = 'other'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(kept, "another message");
 }
