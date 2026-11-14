@@ -180,23 +180,7 @@ pub fn open_design(snapshot: &Snapshot, id: u32) -> Option<(DesignChange, Design
 /// The view the page reads, for the one project there is. No project, or
 /// several (the sidebar shows one), is the `error`, as is a store that fails
 /// its check. <claims> answers for a running item's worktree.
-pub fn compose(snapshot: &Snapshot, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) -> Composed {
-    let view = compose_view(snapshot, now, claims);
-    let board = super::board::build(&view);
-    Composed { view, board }
-}
-
-/// The lists JSON: the view `lists show --json` prints, and the board the
-/// page's tabs draw (board.rs), which needs the claim facts only the daemon
-/// has.
-#[derive(serde::Serialize)]
-pub struct Composed {
-    #[serde(flatten)]
-    pub view: View,
-    pub board: super::board::Board,
-}
-
-fn compose_view(snapshot: &Snapshot, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) -> View {
+pub fn compose(snapshot: &Snapshot, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) -> View {
     let loaded = match snapshot.as_deref() {
         Ok([one]) => one,
         Ok([]) => {
