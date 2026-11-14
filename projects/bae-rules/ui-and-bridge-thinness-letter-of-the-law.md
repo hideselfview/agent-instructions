@@ -20,7 +20,10 @@ uniffi/Swift/Kotlin types (and, via the Windows FFI, the C# wire shapes) and
 nothing else. No DB lookups, no API calls, no formatting, no filtering, no
 orchestration, no mutable state, no event filtering. If you need to add
 functionality, add it to bae-core; the bridge calls it. Never add "just a quick
-helper" to the bridge.
+helper" to the bridge. A value the UI must not derive comes from the read's SQL
+(a column, or its own live query); Rust converts rows to bridge types and
+computes it no more than the UI does
+(reactive-screens-read-plain-live-queries.md).
 
 **The locale never crosses the bridge.** bae-core and bae-bridge emit raw data —
 numbers, typed enums, and stable message keys — never prose or locale-formatted
@@ -42,7 +45,9 @@ Bridge / UI boundary violations to flag:
   pre-sorted/pre-filtered data.
 - The UI groups flat arrays into structured data (tracks by side) instead of
   receiving pre-grouped data — receive the grouping/position as a structured
-  field; only the localized words ("Side", "Disc") are the UI's.
+  field; only the localized words ("Side", "Disc") are the UI's. The grouping
+  and position come from the read's SQL (a column, or its own live query), and
+  Rust only converts rows (reactive-screens-read-plain-live-queries.md).
 - The UI constructs URLs, file paths, or identifiers from bridge field values
   instead of receiving them pre-built.
 - String literals in the UI that encode domain knowledge (source names, format
