@@ -264,4 +264,6 @@ fn results_come_back_to_the_checkouts_folder_on_this_mac() {
         "an old copy does not mix with the new"
     );
     assert!(!local.join("never-written").exists());
+    // The link the build made is no change to the checkout.
+    app.switch_to(&s.source, &head_of(&s.source)).unwrap();
 }

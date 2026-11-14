@@ -347,7 +347,19 @@ setup() {
     scripts/hooks/post-checkout 0000000000000000000000000000000000000000 @SHA@ 1 || return 1
   fi
 @ANDROID@}
+# The post-checkout links the build folders into the builds root; the main
+# checkout here ignores those links in .git/info/exclude (which the host's clone
+# lacks), so the host's clone ignores each one a worktree shows as new.
+exclude_links() {
+  exclude="$(git -C "$wt" rev-parse --git-common-dir)/info/exclude"
+  case "$exclude" in /*) ;; *) exclude="$wt/$exclude" ;; esac
+  mkdir -p "$(dirname "$exclude")"
+  git -C "$wt" ls-files --others --exclude-standard | while IFS= read -r path; do
+    if [ -L "$wt/$path" ]; then echo "/$path" >> "$exclude"; fi
+  done
+}
 if [ -e "$wt/.git" ]; then
+  exclude_links
   if [ -n "$(git -C "$wt" status --porcelain)" ]; then
     echo "the app checkout $wt has changes, so nothing was built:" >&2
     git -C "$wt" status --porcelain >&2
@@ -361,6 +373,7 @@ else
     git -C "$clone" worktree remove --force "$wt"
     exit 93
   fi
+  exclude_links
 fi
 echo "worktree=$wt""#;
 
