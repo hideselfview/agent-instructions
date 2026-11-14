@@ -255,12 +255,91 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
     Ok(())
 }
 
+/// `builds app-checkout [remove] mac|android --host <host> <path>`: records
+/// (or takes out) the app checkout `~/dev/<repo>-worktrees/<name>` on the host
+/// <path> names, as the entry `<host>:<name>` of the lane's set (app_remote.rs).
+/// The first build there makes the checkout.
+fn app_checkout_on_host(tool: &Tool, args: &[String]) -> Result<()> {
+    const USAGE: &str = "usage: builds app-checkout mac|android --host <host> <path> | builds app-checkout remove mac|android --host <host> <path>";
+    let (removing, lane, host, path) = match args {
+        [word, lane, flag, host, path] if word == "remove" && flag == "--host" => {
+            (true, lane, host, path)
+        }
+        [lane, flag, host, path] if flag == "--host" => (false, lane, host, path),
+        _ => fail!("{USAGE}"),
+    };
+    let Some(lane) = Lane::parse(lane) else {
+        fail!("{USAGE}")
+    };
+    if !crate::host::read_remote(&tool.places)?
+        .iter()
+        .any(|known| known.name == *host)
+    {
+        fail!("no host named {host} (`builds host list`)");
+    }
+    let (repo, name) = crate::app_remote::name_in(path)?;
+    tool.places.require_volume()?;
+    let entry = crate::app_remote::entry_of(host, &name);
+    let mut set = tool.places.app_checkouts_of(&repo, lane)?;
+    if removing {
+        if !set.contains(&entry) {
+            fail!(
+                "{entry} is not one of {repo}'s {} app checkouts",
+                lane.word()
+            );
+        }
+        let lock = tool.places.app_lock_file(&repo, lane, &entry);
+        if crate::queue::is_held(&lock)? {
+            fail!("a build holds {entry}'s lock; remove it once that build ends");
+        }
+        set.retain(|other| *other != entry);
+        tool.places.write_app_checkouts(&repo, lane, &set)?;
+        match std::fs::remove_file(&lock) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                fail!("removing {}: {error}", lock.display())
+            }
+            _ => {}
+        }
+        crate::queue::repoint(&tool.places, &repo, lane);
+        note(format!(
+            "removed {entry} from {repo}'s {} app checkouts; ~/dev/{repo}-worktrees/{name} on {host} stays until you remove it there",
+            lane.word()
+        ));
+        return Ok(());
+    }
+    if let Some(other) = tool
+        .places
+        .app_lane_of(&repo, &entry)?
+        .filter(|other| *other != lane)
+    {
+        fail!(
+            "{entry} is {repo}'s {} app checkout already; the lanes exist so that their builds share no checkout",
+            other.word()
+        );
+    }
+    if !set.contains(&entry) {
+        set.push(entry.clone());
+        tool.places.write_app_checkouts(&repo, lane, &set)?;
+        crate::queue::repoint(&tool.places, &repo, lane);
+    }
+    note(format!(
+        "{entry} is one of {repo}'s {} app checkouts ({} in all, in {}); its first build makes ~/dev/{repo}-worktrees/{name} on {host}",
+        lane.word(),
+        set.len(),
+        tool.places.app_checkouts_file(&repo, lane).display()
+    ));
+    Ok(())
+}
+
 /// `builds app-checkout mac|android <checkout>`: adds the side worktree to its
 /// repo's app checkouts for the lane; `builds app-checkout remove mac|android
 /// <checkout>` takes it out again, while no build holds its lock; `builds
 /// app-checkout reset <repo> <checkout>` puts one on origin's main (app_reset.rs).
 pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds app-checkout mac|android <checkout> | builds app-checkout remove mac|android <checkout> | builds app-checkout reset <repo> <checkout> [--matching <rev>]";
+    const USAGE: &str = "usage: builds app-checkout mac|android <checkout> | builds app-checkout mac|android --host <host> <path> | builds app-checkout remove mac|android [--host <host>] <checkout or path> | builds app-checkout reset <repo> <checkout> [--matching <rev>]";
+    if args.iter().any(|arg| arg == "--host") {
+        return app_checkout_on_host(tool, args);
+    }
     let reset = match args {
         [word, repo, name] if word == "reset" => Some((repo, name, None)),
         [word, repo, name, flag, rev] if word == "reset" && flag == "--matching" => {

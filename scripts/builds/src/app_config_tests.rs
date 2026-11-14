@@ -41,6 +41,7 @@ fn a_config_names_each_platforms_build() {
             steps: Vec::new(),
             pickers: Vec::new(),
             shots_source: None,
+            results: Vec::new(),
         }
     );
 }
@@ -351,4 +352,25 @@ fn a_shots_source_line_names_the_folder_of_the_shots_program_once() {
         parse_config("shots-source a\nshots-source b\n").is_err(),
         "two lines"
     );
+}
+
+#[test]
+fn results_lines_name_the_folders_a_lane_copies_back() {
+    let config = parse_config(
+        "step android a ./a\nresults android shots bae-android/app/build/test-results\nresults mac shots\nresults android reports/\n",
+    )
+    .unwrap();
+    assert_eq!(
+        config.results_of(Lane::Android),
+        vec!["shots", "bae-android/app/build/test-results", "reports/"]
+    );
+    assert_eq!(config.results_of(Lane::Mac), vec!["shots"]);
+    for refused in [
+        "results android",
+        "results ios shots",
+        "results android /etc",
+        "results android ../up",
+    ] {
+        assert!(parse_config(refused).is_err(), "{refused} is refused");
+    }
 }

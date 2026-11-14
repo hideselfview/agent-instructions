@@ -39,6 +39,7 @@
 //! says `Ran::TakenOver`; the caller then takes a new place in the queue
 //! (`Held::requeue`), straight behind the taker, and runs again.
 
+use std::collections::HashMap;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -48,6 +49,7 @@ use std::time::Duration;
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+use crate::host::{self, Ssh};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::queue::{self, Queue, Ticket};
@@ -107,6 +109,21 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
     }
 }
 
+/// Which of a lane's app checkouts a build may take: only the side worktrees
+/// of this Mac, for a command that runs here (`builds lock`, `build-app`), or
+/// also those on hosts (`app-build`, whose steps run where the checkout is).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Where {
+    Here,
+    Anywhere,
+}
+
+impl Where {
+    fn allows(self, entry: &str) -> bool {
+        self == Where::Anywhere || crate::app_remote::split(entry).is_none()
+    }
+}
+
 /// One of <repo>'s app locks for a lane, held for the life of this process and
 /// every process it starts, unless released first.
 pub struct Held {
@@ -118,6 +135,8 @@ pub struct Held {
     places: Places,
     repo: String,
     lane: Lane,
+    ssh: Ssh,
+    allowed: Where,
 }
 
 impl Held {
@@ -143,7 +162,8 @@ impl Held {
             libc::close(self.ticket.fd);
         }
         self.queue.wait_for_turn(&ticket.name)?;
-        let (lock, checkout) = take_free_lock(&self.places, &self.repo, self.lane)?;
+        let (lock, checkout) =
+            take_free_lock(&self.places, &self.ssh, &self.repo, self.lane, self.allowed)?;
         Ok(Held {
             lock,
             ticket,
@@ -152,26 +172,114 @@ impl Held {
             places: self.places,
             repo: self.repo,
             lane: self.lane,
+            ssh: self.ssh,
+            allowed: self.allowed,
         })
     }
 }
 
-/// Takes the first free lock among the lane's app checkouts, waiting for one
-/// to free when the builds ahead have not yet taken theirs or a stopped build
-/// is still going down; returns it with the checkout's name. The lane's queue
-/// lets in as many as there are locks, so a lock is free within moments.
-fn take_free_lock(places: &Places, repo: &str, lane: Lane) -> Result<(libc::c_int, String)> {
+/// The load average per core of each host, asked once for each when a build
+/// first needs it.
+struct Loads<'a> {
+    places: &'a Places,
+    ssh: &'a Ssh,
+    asked: HashMap<String, std::result::Result<f64, String>>,
+}
+
+impl Loads<'_> {
+    /// <host>'s load average per core, or what went wrong asking it.
+    fn of(&mut self, host: &str) -> std::result::Result<f64, String> {
+        if let Some(known) = self.asked.get(host) {
+            return known.clone();
+        }
+        let probed = match host::all(self.places) {
+            Err(error) => Err(error.text()),
+            Ok(hosts) => match hosts.iter().find(|known| known.name == host) {
+                None => Err(format!("`builds host list` does not have host {host}")),
+                Some(known) => {
+                    host::probe(self.places, self.ssh, known).map(|probe| probe.load_per_core())
+                }
+            },
+        };
+        self.asked.insert(host.to_string(), probed.clone());
+        probed
+    }
+}
+
+/// <entries> in the order a build tries their locks: the checkouts on the
+/// less loaded host first (load average per core; the order recorded breaks
+/// a tie), with no asking when every entry is on this Mac. An entry whose host
+/// does not answer is left out, and named in the second list.
+fn by_load(loads: &mut Loads, entries: Vec<String>) -> (Vec<String>, Vec<String>) {
+    if entries
+        .iter()
+        .all(|entry| crate::app_remote::split(entry).is_none())
+    {
+        return (entries, Vec::new());
+    }
+    let mut ranked = Vec::new();
+    let mut skipped = Vec::new();
+    for entry in entries {
+        let host = crate::app_remote::split(&entry)
+            .map_or(host::LOCAL, |(host, _)| host)
+            .to_string();
+        match loads.of(&host) {
+            Ok(load) => ranked.push((load, entry)),
+            Err(error) => skipped.push(format!("{entry} (host {host}: {error})")),
+        }
+    }
+    ranked.sort_by(|a, b| a.0.total_cmp(&b.0));
+    (
+        ranked.into_iter().map(|(_, entry)| entry).collect(),
+        skipped,
+    )
+}
+
+/// Takes the first free lock among the lane's app checkouts <allowed> lets in,
+/// the less loaded host's first, waiting for one to free when the builds ahead
+/// have not yet taken theirs or a stopped build is still going down; returns
+/// it with the checkout's name. The lane's queue lets in as many as there are
+/// locks, so a lock is free within moments.
+fn take_free_lock(
+    places: &Places,
+    ssh: &Ssh,
+    repo: &str,
+    lane: Lane,
+    allowed: Where,
+) -> Result<(libc::c_int, String)> {
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+    let mut loads = Loads {
+        places,
+        ssh,
+        asked: HashMap::new(),
+    };
     loop {
-        let checkouts = places.app_checkouts_of(repo, lane)?;
+        let checkouts: Vec<String> = places
+            .app_checkouts_of(repo, lane)?
+            .into_iter()
+            .filter(|entry| allowed.allows(entry))
+            .collect();
         if checkouts.is_empty() {
             fail!(
-                "{repo} has no {} app checkout recorded; builds app-checkout records one",
-                lane.word()
+                "{repo} has no {} app checkout {}recorded; builds app-checkout records one",
+                lane.word(),
+                if allowed == Where::Here {
+                    "on this Mac "
+                } else {
+                    ""
+                }
             );
         }
-        for checkout in checkouts {
+        let (ordered, skipped) = by_load(&mut loads, checkouts);
+        if ordered.is_empty() {
+            fail!(
+                "no app checkout of {repo}'s {} lane is on a host that answers: {}",
+                lane.word(),
+                skipped.join("; ")
+            );
+        }
+        for checkout in ordered {
             if let Some(lock) = queue::try_lock(&places.app_lock_file(repo, lane, &checkout))? {
                 return Ok((lock, checkout));
             }
@@ -210,12 +318,31 @@ pub fn take_checkout(
 }
 
 /// Joins <repo>'s queue for <lane> and waits its turn for one of the lane's app
-/// locks. Fails for a repo with no app checkout in the lane.
+/// locks on this Mac. Fails for a repo with no such app checkout in the lane.
 pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
-    if places.app_checkouts_of(repo, lane)?.is_empty() {
+    take_in(places, &Ssh::from_env(), repo, lane, Where::Here)
+}
+
+/// `take`, with the checkouts on hosts too: the one on the less loaded host
+/// goes first.
+pub fn take_anywhere(places: &Places, ssh: &Ssh, repo: &str, lane: Lane) -> Result<Held> {
+    take_in(places, ssh, repo, lane, Where::Anywhere)
+}
+
+fn take_in(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, allowed: Where) -> Result<Held> {
+    if !places
+        .app_checkouts_of(repo, lane)?
+        .iter()
+        .any(|entry| allowed.allows(entry))
+    {
         fail!(
-            "{repo} has no {} app checkout recorded in {}; builds app-checkout records one",
+            "{repo} has no {} app checkout {}recorded in {}; builds app-checkout records one",
             lane.word(),
+            if allowed == Where::Here {
+                "on this Mac "
+            } else {
+                ""
+            },
             places.app_checkouts_file(repo, lane).display()
         );
     }
@@ -232,7 +359,7 @@ pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
         ));
     }
     queue.wait_for_turn(&ticket.name)?;
-    let (lock, checkout) = take_free_lock(places, repo, lane)?;
+    let (lock, checkout) = take_free_lock(places, ssh, repo, lane, allowed)?;
     Ok(Held {
         lock,
         ticket,
@@ -241,6 +368,8 @@ pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
         places: places.clone(),
         repo: repo.to_string(),
         lane,
+        ssh: ssh.clone(),
+        allowed,
     })
 }
 

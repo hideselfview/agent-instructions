@@ -28,7 +28,7 @@ use crate::tool::Tool;
 const USAGE: &str = "usage: builds remote run <repo> <ref> [--host <name>] -- <command> [<args>...]\n       builds remote run <repo> --staged [--host <name>] -- <command> [<args>...]";
 
 /// The refs a job's commit is sent as, in the host's clone.
-const JOBS_REF: &str = "refs/builds/jobs";
+pub const JOBS_REF: &str = "refs/builds/jobs";
 
 /// The exit status builds gives a job a signal stopped.
 const STOPPED_EXIT: i32 = 130;
@@ -171,15 +171,15 @@ fn commit_of(source: &Path, what: &What) -> Result<String> {
 }
 
 /// Where a job's commands run: this Mac, or a host over ssh.
-struct Transport<'a> {
-    places: &'a Places,
-    ssh: &'a Ssh,
-    host: &'a Host,
+pub struct Transport<'a> {
+    pub places: &'a Places,
+    pub ssh: &'a Ssh,
+    pub host: &'a Host,
 }
 
 impl Transport<'_> {
     /// A command that runs <script> with `sh` on the host.
-    fn command(&self, script: &str) -> Command {
+    pub fn command(&self, script: &str) -> Command {
         match &self.host.target {
             Some(target) => self
                 .ssh
@@ -194,7 +194,7 @@ impl Transport<'_> {
 
     /// Runs <script> to its end and returns its stdout; a failure names the
     /// host and what the script printed.
-    fn capture(&self, script: &str, what: &str) -> Result<String> {
+    pub fn capture(&self, script: &str, what: &str) -> Result<String> {
         let output = self
             .command(script)
             .stdin(Stdio::null())
@@ -212,7 +212,7 @@ impl Transport<'_> {
     }
 
     /// Sends <sha> to the host's clone as the ref of job <id>.
-    fn send(&self, source: &Path, repo: &str, sha: &str, id: &str) -> Result<()> {
+    pub fn send(&self, source: &Path, repo: &str, sha: &str, id: &str) -> Result<()> {
         let Some(target) = &self.host.target else {
             return Ok(());
         };
@@ -237,7 +237,7 @@ impl Transport<'_> {
 /// The lines that set the builds root for what follows: on a host other than
 /// this Mac, the folder in the host's home (it has no build volume); on this
 /// Mac, the root builds already runs with.
-fn root_script(host: &Host) -> String {
+pub fn root_script(host: &Host) -> String {
     match host.target {
         Some(_) => format!("BUILDS_ROOT=\"$HOME/{REMOTE_ROOT}\"\nexport BUILDS_ROOT\n"),
         None => String::new(),
@@ -284,7 +284,7 @@ echo "worktree=$wt""#,
 
 /// Runs <command> in <worktree> as a process group of its own, whose leader's
 /// pid goes in the claim folder for `stop_script`.
-fn run_script(host: &Host, worktree: &str, command: &[String]) -> String {
+pub fn run_script(host: &Host, worktree: &str, command: &[String]) -> String {
     let words: Vec<String> = command.iter().map(|word| sh_quote(word)).collect();
     format!(
         r#"{root}PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -312,7 +312,7 @@ fn stop_script(worktree: &str) -> String {
 }
 
 /// Releases the worktree's claim and deletes the job's ref.
-fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
+pub fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
     let claim = match worktree {
         Some(worktree) => format!("rm -rf {}.job\n", sh_quote(worktree)),
         None => String::new(),
@@ -326,7 +326,7 @@ fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
 
 /// Runs the job's command on the host, passing its output through, and
 /// returns its exit status. A stop signal stops the command on the host.
-fn run_command(
+pub fn run_command(
     transport: &Transport,
     stop: &AtomicBool,
     worktree: &str,
@@ -366,7 +366,7 @@ fn run_command(
 }
 
 /// The worktree path the claim script printed.
-fn worktree_in(output: &str) -> Result<String> {
+pub fn worktree_in(output: &str) -> Result<String> {
     match output
         .lines()
         .rev()
@@ -375,6 +375,18 @@ fn worktree_in(output: &str) -> Result<String> {
         Some(path) if !path.is_empty() => Ok(path.to_string()),
         _ => fail!("the host did not say which worktree it claimed: {output:?}"),
     }
+}
+
+/// A name for one job's ref on a host, unique among the jobs of all processes.
+pub fn job_id() -> String {
+    format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("the clock is after 1970")
+            .as_nanos()
+    )
 }
 
 /// Sends the commit to <host>, runs the command there and cleans up; the
@@ -388,14 +400,7 @@ pub fn run_job(
     stop: &AtomicBool,
 ) -> Result<i32> {
     let sha = commit_of(source, &request.what)?;
-    let id = format!(
-        "{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("the clock is after 1970")
-            .as_nanos()
-    );
+    let id = job_id();
     let transport = Transport { places, ssh, host };
     let ran = (|| {
         transport.send(source, &request.repo, &sha, &id)?;
@@ -454,7 +459,42 @@ pub fn pick_host(
     }
 }
 
+/// `builds remote step <host> <worktree> -- <command>...`: runs the command in
+/// <worktree> on the host, which is a folder there that already holds the
+/// files to run on (an app checkout, set up by `app_remote`), and passes its
+/// output back. A stop signal stops the command on the host. `builds
+/// app-build` runs each step of a lane on a host through this, so its time
+/// limit and its takeover stop the step on the host the way they stop one
+/// here.
+fn cmd_step(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+    const STEP_USAGE: &str = "usage: builds remote step <host> <worktree> -- <command> [<args>...]";
+    let [_, name, worktree, dashes, command @ ..] = args else {
+        fail!("{STEP_USAGE}");
+    };
+    if dashes != "--" || command.is_empty() {
+        fail!("{STEP_USAGE}");
+    }
+    let Some(host) = host::all(&tool.places)?
+        .into_iter()
+        .find(|host| host.name == *name)
+    else {
+        fail!("no host named {name} (`builds host list`)");
+    };
+    let transport = Transport {
+        places: &tool.places,
+        ssh,
+        host: &host,
+    };
+    match run_command(&transport, stop_on_signals(), worktree, command)? {
+        0 => Ok(()),
+        code => Err(Fail::Exit(code)),
+    }
+}
+
 pub fn cmd_remote(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+    if args.first().is_some_and(|word| word == "step") {
+        return cmd_step(tool, ssh, args);
+    }
     let request = parse(args)?;
     let source = source_of(&tool.places, &request.repo, &request.what)?;
     let (host, why) = pick_host(

@@ -511,6 +511,32 @@ checkout is still on it. A run of only picks may land on another checkout of the
 lane than the one that built; it is then refused too. The class or prefix is one
 argument, never read by a shell.
 
+A lane's app checkout can be on another Mac (the M1).
+`builds app-checkout android --host m1 <path>` records
+`~/dev/<repo>-worktrees/<name>` on the host as the lane's entry `m1:<name>`; the
+lock, the queue and the record of what it last built stay on this Mac under that
+name. The first build there sends the commit to the host's clone as a job ref
+(never to GitHub), makes the checkout as a side worktree is made (the repo's
+post-checkout, build folders under the host's `~/builds-root`, and a
+`local.properties` naming the host's Android SDK in each Gradle project), and
+runs the lane's steps through `builds remote step`, with the same time limits
+and takeovers; the output comes back behind `[android m1:<name>]`. A lane's
+build takes the free lock of the checkout on the less loaded host first (load
+average per core, this Mac counted). After each `--test` or `--shots` run there,
+passed or failed, the folders the repo's `results <lane> <path>...` lines in
+`.app-build` name are copied to `/Volumes/Builds/<repo>/m1:<name>/<path>` on
+this Mac, where agents read them. `build-app`, the person's own build, never
+takes a checkout on a host.
+
+Cargo runs of a side worktree are not sent to the M1 by `scripts/cargo.sh`: the
+commit hook and the build scripts run it on the worktree as it is (unstaged
+edits, its environment), and a run sent without being asked would check other
+files than the caller's, with a second path to keep right. An agent that wants
+the M1's cores runs
+`builds remote run <repo> --staged -- scripts/cargo.sh test -p <crate> --features test-utils <filter>`
+from its worktree: one path, started on purpose, with the staged files as the
+job.
+
 A step has a time limit: 45 minutes, or what its `limit <step> <time>` line in
 `.app-build` says (`90s`, `30m`, `2h`). Past it the step's whole process group
 gets SIGTERM, SIGKILL ten seconds later if the leader still runs, and SIGKILL

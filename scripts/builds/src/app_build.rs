@@ -34,6 +34,13 @@
 //! run with steps starts) is of the commit it names and the checkout is still
 //! on that commit; it names what was built instead.
 //!
+//! A lane's checkout can be on a host (app_remote.rs): the lock and the queue
+//! stay here, and the host's checkout is switched to the commit and runs the
+//! steps through `builds remote step`, with the same time limits and
+//! takeovers. A lane's build takes the free lock of the less loaded host's
+//! checkout first (lock.rs). After each `--test` or `--shots` run on a host,
+//! the `results` lines of `.app-build` name the folders copied back here.
+//!
 //! A takeover stops the step running; the lane's build then runs again from
 //! the checkout, behind the build that took over.
 
@@ -49,11 +56,13 @@ use crate::app_config::{
     CONFIG, Config, PickKind, Step, app_checkout_top, check_out, parse_config, run_command,
     run_command_capturing, run_git, show_duration,
 };
+use crate::app_remote::{RemoteApp, local_source};
 use crate::app_timing::{self, RunRecord, StepKind, StepRecord, StepResult, Timer};
 use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+use crate::host::Ssh;
 use crate::lane::Lane;
 use crate::lock::{self, Ran, Within};
 use crate::places::Places;
@@ -297,6 +306,34 @@ fn run_steps(
     log: &mut Vec<StepRecord>,
     shots: Option<&ShotsStore>,
 ) -> Result<Ran> {
+    run_steps_with(steps, log, &mut |step, kind| {
+        run_local_step(top, step, kind, shots)
+    })
+}
+
+/// Runs <step> (of <kind>) in the checkout <top>; a shots run with a store
+/// keeps the findings it printed.
+fn run_local_step(
+    top: &Path,
+    step: &Step,
+    kind: StepKind,
+    shots: Option<&ShotsStore>,
+) -> Result<Within> {
+    let (StepKind::Shots, Some(store)) = (kind, shots) else {
+        return run_command(top, &step.command, Some(step.limit()));
+    };
+    let kept = lock::Captured::default();
+    let outcome = run_command_capturing(top, &step.command, Some(step.limit()), &kept);
+    store.keep_of(&outcome, &kept, step, top, &mut || resolve(top, "HEAD"));
+    outcome
+}
+
+/// `run_steps`, each step run by <run>.
+fn run_steps_with(
+    steps: &[Step],
+    log: &mut Vec<StepRecord>,
+    run: &mut dyn FnMut(&Step, StepKind) -> Result<Within>,
+) -> Result<Ran> {
     for step in steps {
         note(format!("step {}", step.name));
         let kind = match pick_kind_of(&step.name) {
@@ -305,26 +342,7 @@ fn run_steps(
             None => StepKind::Step,
         };
         let timer = Timer::start();
-        let kept = lock::Captured::default();
-        let outcome = match (kind, shots) {
-            (StepKind::Shots, Some(_)) => {
-                run_command_capturing(top, &step.command, Some(step.limit()), &kept)
-            }
-            _ => run_command(top, &step.command, Some(step.limit())),
-        };
-        if let (StepKind::Shots, Some(store)) = (kind, shots) {
-            let exit = match &outcome {
-                Ok(Within::Ran(Ran::Finished)) => Some(0),
-                Err(Fail::Exit(code)) => Some(i64::from(*code)),
-                _ => None,
-            };
-            if let Some(exit) = exit {
-                let prefix = step.name.strip_prefix(PickKind::Shots.step_prefix());
-                let text = String::from_utf8_lossy(&kept.lock().expect("no panic holding it"))
-                    .into_owned();
-                store.keep(top, prefix.unwrap_or(&step.name), exit, &text);
-            }
-        }
+        let outcome = run(step, kind);
         let result = match &outcome {
             Ok(Within::Ran(Ran::Finished)) => StepResult::Passed,
             Ok(Within::Ran(Ran::TakenOver)) => StepResult::TakenOver,
@@ -360,24 +378,128 @@ fn run_steps(
     Ok(Ran::Finished)
 }
 
-/// The first app checkout recorded for <repo>, in the first lane that has
-/// one, and its folder.
-fn any_checkout(places: &Places, repo: &str) -> Result<std::path::PathBuf> {
-    for lane in Lane::ALL {
-        if let Some(name) = places.app_checkouts_of(repo, lane)?.first() {
-            return app_checkout_top(places, repo, name);
-        }
-    }
-    fail!("{repo} has no app checkout; builds app-checkout records one")
-}
-
 /// The repo's `.app-build` at <commit>, read without touching a checkout's
 /// tree, to tell which lanes the steps are in before any lock is taken. A
 /// lane's own run reads it again from its checkout, under its lock.
 fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
-    let top = any_checkout(places, repo)?;
-    run_git(&top, &["fetch", "-q", "origin"])?;
-    parse_config(&run_git(&top, &["show", &format!("{commit}:{CONFIG}")])?)
+    let source = local_source(places, repo)?;
+    run_git(&source, &["fetch", "-q", "origin"])?;
+    parse_config(&run_git(&source, &["show", &format!("{commit}:{CONFIG}")])?)
+}
+
+/// Where a lane's steps run: in an app checkout on this Mac, or in one on a
+/// host.
+enum Site {
+    Local(std::path::PathBuf),
+    Remote(Box<RemoteApp>),
+}
+
+impl Site {
+    /// The checkout <entry> of <repo>'s <lane>.
+    fn of(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, entry: &str) -> Result<Site> {
+        Ok(match RemoteApp::find(places, ssh, repo, lane, entry)? {
+            Some(remote) => Site::Remote(Box::new(remote)),
+            None => Site::Local(app_checkout_top(places, repo, entry)?),
+        })
+    }
+
+    /// The commit <commit> names, and the commit the checkout is on now.
+    fn resolved_and_head(
+        &mut self,
+        places: &Places,
+        repo: &str,
+        commit: &str,
+    ) -> Result<(String, String)> {
+        match self {
+            Site::Local(top) => {
+                run_git(top, &["fetch", "-q", "origin"])?;
+                Ok((resolve(top, commit)?, resolve(top, "HEAD")?))
+            }
+            Site::Remote(remote) => {
+                let source = local_source(places, repo)?;
+                run_git(&source, &["fetch", "-q", "origin"])?;
+                Ok((resolve(&source, commit)?, remote.head()?))
+            }
+        }
+    }
+
+    /// The commit the checkout is on.
+    fn head(&mut self) -> Result<String> {
+        match self {
+            Site::Local(top) => resolve(top, "HEAD"),
+            Site::Remote(remote) => remote.head(),
+        }
+    }
+
+    /// Switches the checkout to <commit> (which must have no changes) and
+    /// reads the repo's `.app-build` there.
+    fn check_out(&mut self, places: &Places, repo: &str, commit: &str) -> Result<Config> {
+        match self {
+            Site::Local(top) => check_out(top, commit),
+            Site::Remote(remote) => {
+                let source = local_source(places, repo)?;
+                run_git(&source, &["fetch", "-q", "origin"])?;
+                let sha = resolve(&source, commit)?;
+                remote.switch_to(&source, &sha)?;
+                parse_config(&run_git(&source, &["show", &format!("{sha}:{CONFIG}")])?)
+            }
+        }
+    }
+
+    /// Runs <steps> in the checkout, as `run_steps` does; after each, a
+    /// checkout on a host copies <results> back, and a shots run keeps its
+    /// findings in <shots> here.
+    fn run_steps(
+        &mut self,
+        steps: &[Step],
+        results: &[String],
+        shots: Option<&ShotsStore>,
+        log: &mut Vec<StepRecord>,
+    ) -> Result<Ran> {
+        match self {
+            Site::Local(top) => run_steps(top, steps, log, shots),
+            Site::Remote(remote) => run_steps_with(steps, log, &mut |step, kind| {
+                run_remote_step(remote, step, kind, results, shots)
+            }),
+        }
+    }
+}
+
+/// Runs <step> (of <kind>) in the checkout on a host, keeps the findings of a
+/// shots run here, then copies <results> back, as a step that failed or ran
+/// out of time has written the reports its reader needs most. A copy that
+/// fails fails a step that passed, and is only said after one that did not.
+fn run_remote_step(
+    remote: &mut RemoteApp,
+    step: &Step,
+    kind: StepKind,
+    results: &[String],
+    shots: Option<&ShotsStore>,
+) -> Result<Within> {
+    let start = remote.step_command(&step.command)?;
+    let limit = Some(step.limit());
+    let ran = match (kind, shots) {
+        (StepKind::Shots, Some(store)) => {
+            let kept = lock::Captured::default();
+            let ran = lock::run_in_group_capturing(start, &step.command[0], limit, &kept);
+            // The commit is the host's checkout's, which this Mac holds too.
+            let source = remote.source()?;
+            store.keep_of(&ran, &kept, step, &source, &mut || remote.head());
+            ran
+        }
+        _ => lock::run_in_group_within(start, &step.command[0], limit),
+    };
+    if results.is_empty() || matches!(ran, Ok(Within::Ran(Ran::TakenOver))) {
+        return ran;
+    }
+    match (remote.pull(results), &ran) {
+        (Ok(()), _) => ran,
+        (Err(error), Ok(Within::Ran(Ran::Finished))) => Err(error),
+        (Err(error), _) => {
+            note(error.text());
+            ran
+        }
+    }
 }
 
 /// The full id of <git_ref> and the repo's `.app-build` at it, read without
@@ -388,7 +510,7 @@ pub fn commit_and_config(
     repo: &str,
     git_ref: &str,
 ) -> Result<(std::path::PathBuf, String, Config)> {
-    let top = any_checkout(places, repo)?;
+    let top = local_source(places, repo)?;
     run_git(&top, &["fetch", "-q", "origin"])?;
     let commit = resolve(&top, git_ref)?;
     let config = parse_config(&run_git(&top, &["show", &format!("{commit}:{CONFIG}")])?)?;
@@ -425,11 +547,39 @@ impl ShotsStore {
         })
     }
 
+    /// Keeps what the shots run <step> printed (<kept>), when it ended
+    /// (<outcome>) with an exit status, as the findings of the commit
+    /// <head> names, which <source> holds.
+    fn keep_of(
+        &self,
+        outcome: &Result<Within>,
+        kept: &lock::Captured,
+        step: &Step,
+        source: &Path,
+        head: &mut dyn FnMut() -> Result<String>,
+    ) {
+        let exit = match outcome {
+            Ok(Within::Ran(Ran::Finished)) => 0,
+            Err(Fail::Exit(code)) => i64::from(*code),
+            _ => return,
+        };
+        let prefix = step.name.strip_prefix(PickKind::Shots.step_prefix());
+        let text = String::from_utf8_lossy(&kept.lock().expect("no panic holding it")).into_owned();
+        self.keep(source, head, prefix.unwrap_or(&step.name), exit, &text);
+    }
+
     /// Keeps what a run of <prefix> that exited <exit> printed in <output>,
-    /// as the findings of the commit the checkout <top> holds. A run that
-    /// printed no findings, or a write that fails, is said and changes
+    /// as the findings of the commit <head> names, found in <source>. A run
+    /// that printed no findings, or a write that fails, is said and changes
     /// nothing about the build's result.
-    fn keep(&self, top: &Path, prefix: &str, exit: i64, output: &str) {
+    fn keep(
+        &self,
+        source: &Path,
+        head: &mut dyn FnMut() -> Result<String>,
+        prefix: &str,
+        exit: i64,
+        output: &str,
+    ) {
         let findings = shot_findings::findings_of(output);
         if !shot_findings::has_findings(exit, findings) {
             note(format!(
@@ -437,10 +587,10 @@ impl ShotsStore {
             ));
             return;
         }
-        let stored = resolve(top, "HEAD").and_then(|commit| {
+        let stored = head().and_then(|commit| {
             let key = shot_findings::Key {
                 repo: self.repo.clone(),
-                version: shot_findings::version_at(top, &commit, &self.source)?,
+                version: shot_findings::version_at(source, &commit, &self.source)?,
                 commit,
                 lane: self.lane,
                 prefix: prefix.to_string(),
@@ -541,12 +691,13 @@ fn build_lane(
         "waiting for {repo}'s {} app lock, then building {commit}",
         lane.word()
     ));
+    let ssh = Ssh::from_env();
     let waiting = Instant::now();
-    let mut held = lock::take(places, repo, lane)?;
+    let mut held = lock::take_anywhere(places, &ssh, repo, lane)?;
     timing.wait += waiting.elapsed();
     loop {
         timing.checkout = Some(held.checkout.clone());
-        let top = app_checkout_top(places, repo, &held.checkout)?;
+        let mut site = Site::of(places, &ssh, repo, lane, &held.checkout)?;
         note(format!("building in {}", held.checkout));
         if std::env::var_os(PREFIXED).is_some() {
             // On both streams: each is read by a thread of its own, and a line
@@ -555,9 +706,13 @@ fn build_lane(
             eprintln!("{CHECKOUT_MARKER}{}", held.checkout);
         }
         let built_file = places.app_built_file(repo, &held.checkout);
+        if let Site::Remote(remote) = &site {
+            let folder = remote.local_folder();
+            std::fs::create_dir_all(&folder)
+                .context(|| format!("creating {}", folder.display()))?;
+        }
         if names.is_empty() && !picks.is_empty() {
-            run_git(&top, &["fetch", "-q", "origin"])?;
-            let (wanted, head) = (resolve(&top, commit)?, resolve(&top, "HEAD")?);
+            let (wanted, head) = site.resolved_and_head(places, repo, commit)?;
             Built::allows_class_run(
                 Built::read(&built_file)?.as_ref(),
                 &held.checkout,
@@ -569,7 +724,7 @@ fn build_lane(
             // The switch and the steps change what the checkout holds.
             Built::clear(&built_file)?;
         }
-        let config = check_out(&top, commit)?;
+        let config = site.check_out(places, repo, commit)?;
         let steps = lane_steps(&config, lane, names, picks)?;
         if steps.is_empty() {
             fail!("{CONFIG} names no step in the {} lane", lane.word());
@@ -578,17 +733,22 @@ fn build_lane(
             .into_iter()
             .partition(|step| pick_kind_of(&step.name).is_some());
         let shots = ShotsStore::of(places, repo, lane, &config);
-        let mut ran = run_steps(&top, &builds, &mut timing.steps, shots.as_ref())?;
+        let mut ran = site.run_steps(&builds, &[], shots.as_ref(), &mut timing.steps)?;
         if ran == Ran::Finished && !builds.is_empty() {
             let steps = builds.iter().map(|step| step.name.clone()).collect();
             Built {
-                commit: resolve(&top, "HEAD")?,
+                commit: site.head()?,
                 steps,
             }
             .write(&built_file)?;
         }
         if ran == Ran::Finished {
-            ran = run_steps(&top, &tests, &mut timing.steps, shots.as_ref())?;
+            ran = site.run_steps(
+                &tests,
+                &config.results_of(lane),
+                shots.as_ref(),
+                &mut timing.steps,
+            )?;
         }
         match ran {
             Ran::Finished => return Ok(()),
@@ -768,7 +928,7 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
     if let [flag] = rest
         && flag == "--list"
     {
-        let top = any_checkout(places, repo)?;
+        let top = local_source(places, repo)?;
         let file = top.join(CONFIG);
         let text =
             std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;

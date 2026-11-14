@@ -144,7 +144,21 @@ Commands:
                               checkouts for the lane, in
                               /Volumes/Builds/<repo>/app-checkouts (mac) or
                               app-android-checkouts; a lane may have several
+  builds app-checkout android|mac --host <host> <path>
+                              record an app checkout on a host (`builds host
+                              list`) as the entry <host>:<name> of the lane.
+                              <path> ends in dev/<repo>-worktrees/<name>: the
+                              checkout is ~/dev/<repo>-worktrees/<name> on the
+                              host, whose clone ~/dev/<repo> must exist. Its
+                              first build makes it there, set up as a side
+                              worktree is (the repo's post-checkout, the build
+                              folders under ~/builds-root, and for the android
+                              lane a local.properties naming the host's
+                              Android SDK in each Gradle project). Its lock,
+                              queue and last-build record stay on this Mac,
+                              under <host>:<name>
   builds app-checkout remove mac|android <checkout>
+  builds app-checkout remove mac|android --host <host> <path>
                               take it out again (it refuses while a build
                               holds the checkout's lock)
   builds app-checkout reset <repo> <checkout> [--matching <rev>]
@@ -290,7 +304,22 @@ Commands:
                               behind [<lane> <checkout>] ([<lane>] until a
                               lock is held), and the build fails if either
                               lane does, saying which; a takeover reruns that
-                              lane from its checkout. A step that runs past its
+                              lane from its checkout. A lane's build takes the
+                              free lock of the checkout on the less loaded
+                              host first (load average per core, this Mac
+                              counted; a host that does not answer is skipped).
+                              A checkout on a host gets the commit as a job ref
+                              in the host's clone (never GitHub), switches to it
+                              (it must have no changes), and runs each step
+                              there through `builds remote step`, with the same
+                              time limit and takeover; its output comes back
+                              behind [<lane> <host>:<name>]. After each --test or
+                              --shots run there, passed or failed, the folders
+                              the `results <lane> <path>...` lines of .app-build
+                              name (paths in the checkout) are copied to
+                              /Volumes/Builds/<repo>/<host>:<name>/<path> here.
+                              build-app and `builds lock` never take a checkout
+                              on a host. A step that runs past its
                               limit (45 minutes, or its `limit <step> <time>`
                               line in .app-build) has its process group killed
                               and fails the build, which gives the lock up.
@@ -395,7 +424,24 @@ Commands:
                               included; builds says which it picked and why.
                               A host named with --host that does not answer
                               fails the job, naming the host and the ssh error.
-                              BUILDS_SSH names a program to use in place of ssh
+                              BUILDS_SSH names a program to use in place of ssh.
+                              Agents run cargo tests and clippy on the M1 with
+                              `builds remote run <repo> --staged -- scripts/cargo.sh
+                              test -p <crate> --features test-utils <filter>`
+                              from their side worktree. builds does not send
+                              scripts/cargo.sh runs there by itself: the
+                              commit hook and the build scripts run it on this
+                              Mac's tree as it is (unstaged edits, the
+                              checkout's environment), and a run sent without
+                              being asked would check other files than the
+                              caller's
+  builds remote step <host> <worktree> -- <command> [<args>...]
+                              run the command in <worktree>, a folder on the
+                              host that already holds the files, and pass its
+                              output back; exit with its status. A stop signal
+                              stops the command on the host. `app-build` runs
+                              each step of a checkout on a host this way; no
+                              one else needs it.
   builds units prune <days> <incremental hours> <dry 0|1> <folder>...
   builds units git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...
                               the steps setup and prune run on cargo's

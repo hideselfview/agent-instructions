@@ -284,3 +284,49 @@ fn new_and_claim_record_the_project_and_release_forgets_it() {
     cmd_new(&tool, &[main.display().to_string()]).unwrap();
     assert!(!checkout.project_file().exists());
 }
+
+#[test]
+fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
+    use crate::host::tests::fake_ssh;
+    let scratch = Scratch::new("app-checkout-host");
+    let tool = scratch.tool(0);
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"));
+    crate::host::add(&tool.places, &ssh, "m1", "user@m1").unwrap();
+    let words = |words: &[&str]| -> Vec<String> { words.iter().map(|w| w.to_string()).collect() };
+    let path = "/Users/me/dev/demo-worktrees/app-1";
+    cmd_app_checkout(&tool, &words(&["android", "--host", "m1", path])).unwrap();
+    cmd_app_checkout(&tool, &words(&["android", "--host", "m1", path])).unwrap();
+    assert_eq!(
+        tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        vec!["m1:app-1"],
+        "recording it twice records it once"
+    );
+    assert!(
+        refusal(cmd_app_checkout(
+            &tool,
+            &words(&["mac", "--host", "m1", path])
+        ))
+        .contains("the lanes exist so that their builds share no checkout")
+    );
+    assert!(
+        refusal(cmd_app_checkout(
+            &tool,
+            &words(&["android", "--host", "gone", path])
+        ))
+        .contains("no host named gone")
+    );
+    assert!(
+        refusal(cmd_app_checkout(
+            &tool,
+            &words(&["android", "--host", "m1", "/Users/me/app-1"])
+        ))
+        .contains("-worktrees")
+    );
+    cmd_app_checkout(&tool, &words(&["remove", "android", "--host", "m1", path])).unwrap();
+    assert!(
+        tool.places
+            .app_checkouts_of("demo", Lane::Android)
+            .unwrap()
+            .is_empty()
+    );
+}

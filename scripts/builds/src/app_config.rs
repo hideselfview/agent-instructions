@@ -28,6 +28,11 @@
 //! that holds the shots program's source. Its git tree at a commit is the
 //! version of the checker that made a run's findings (shot_findings.rs); with
 //! no such line, builds stores and reads no findings.
+//! A `results <lane> <path>...` line names folders of the lane's app checkout
+//! (relative to it) that a run of tests or screenshots writes and agents read:
+//! when the lane's checkout is on another host (app_remote.rs), a run of
+//! `--test` or `--shots` copies them back to this Mac after it ends, passed
+//! or failed. A lane may have several such lines.
 //!
 //! A step belongs to a lane (`mac` or `android`, lane.rs), named first: the
 //! lane's app checkout and lock are where it runs.
@@ -70,9 +75,21 @@ pub struct Config {
     pub pickers: Vec<Picker>,
     /// The `shots-source` line: the folder of the shots program's source.
     pub shots_source: Option<String>,
+    /// The folders each lane's runs of tests and screenshots write, from the
+    /// `results` lines, in the order written.
+    pub results: Vec<(Lane, String)>,
 }
 
 impl Config {
+    /// The folders of <lane>'s checkout that its picks write.
+    pub fn results_of(&self, lane: Lane) -> Vec<String> {
+        self.results
+            .iter()
+            .filter(|(own, _)| *own == lane)
+            .map(|(_, path)| path.clone())
+            .collect()
+    }
+
     pub fn picker(&self, lane: Lane, kind: PickKind) -> Option<&Picker> {
         self.pickers
             .iter()
@@ -238,6 +255,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let mut pickers: Vec<Picker> = Vec::new();
     let mut limits: Vec<(String, Duration)> = Vec::new();
     let mut shots_source: Option<String> = None;
+    let mut results: Vec<(Lane, String)> = Vec::new();
     for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
         let (platform, field) = line.split_once(' ').unwrap_or((line, ""));
         let (name, value) = field.trim().split_once(' ').unwrap_or((field.trim(), ""));
@@ -318,6 +336,25 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     fail!("{CONFIG}: two shots-source lines");
                 }
             }
+            ("results", _) => {
+                let Some(lane) = Lane::parse(name) else {
+                    fail!(
+                        "{CONFIG}: {line:?}: a results line starts with its lane, mac or android, not {name:?}"
+                    );
+                };
+                let paths = words(value);
+                if paths.is_empty() {
+                    fail!("{CONFIG}: the results line for {name} names no folder");
+                }
+                for path in paths {
+                    if path.starts_with('/') || path.split('/').any(|part| part == "..") {
+                        fail!(
+                            "{CONFIG}: results path {path:?} must be a folder inside the checkout"
+                        );
+                    }
+                    results.push((lane, path));
+                }
+            }
             ("limit", _) => {
                 let Some(limit) = parse_duration(value) else {
                     fail!("{CONFIG}: {line:?} needs a step and a time like 90s, 30m or 2h");
@@ -347,6 +384,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
         steps,
         pickers,
         shots_source,
+        results,
     })
 }
 

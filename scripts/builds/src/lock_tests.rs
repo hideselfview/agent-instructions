@@ -129,3 +129,100 @@ fn a_capturing_run_keeps_what_the_command_printed_on_both_streams() {
     let text = String::from_utf8(kept.lock().unwrap().clone()).unwrap();
     assert!(text.contains("out\n") && text.contains("err\n"), "{text:?}");
 }
+
+/// A program in place of ssh that answers a host probe with <load> on one
+/// core and runs nothing else.
+fn ssh_with_load(dir: &std::path::Path, load: &str) -> Ssh {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(dir).unwrap();
+    let program = dir.join("ssh");
+    std::fs::write(
+        &program,
+        format!("#!/bin/sh\nprintf 'cores=1\\nload={load} 0 0\\nfree_kib=900000000\\n'\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Ssh {
+        program: program.display().to_string(),
+    }
+}
+
+fn places_with_host(scratch: &Scratch, entries: &str) -> Places {
+    let places = places(scratch);
+    // This Mac's free disk is read from its home.
+    std::fs::create_dir_all(&places.home).unwrap();
+    std::fs::write(places.app_checkouts_file("demo", Lane::Android), entries).unwrap();
+    let ssh = ssh_with_load(&scratch.dir.join("add"), "0.00");
+    crate::host::add(&places, &ssh, "m1", "user@m1").unwrap();
+    places
+}
+
+#[test]
+fn a_build_that_runs_here_never_takes_a_checkout_on_a_host() {
+    let scratch = Scratch::new("lock-here");
+    let places = places_with_host(&scratch, "m1:app-1\n");
+    let ssh = ssh_with_load(&scratch.dir.join("ssh"), "0.00");
+    let Err(error) = take_in(&places, &ssh, "demo", Lane::Android, Where::Here) else {
+        panic!("only a host's checkout is recorded");
+    };
+    assert!(error.text().contains("on this Mac"));
+    let held = take_anywhere(&places, &ssh, "demo", Lane::Android).unwrap();
+    assert_eq!(held.checkout, "m1:app-1");
+    held.release();
+}
+
+#[test]
+fn the_checkout_on_the_less_loaded_host_goes_first() {
+    let scratch = Scratch::new("lock-load");
+    let places = places_with_host(&scratch, "side-2\nm1:app-1\n");
+    // This Mac's load per core is never 1000.
+    let busy = ssh_with_load(&scratch.dir.join("busy"), "1000.00");
+    let idle = ssh_with_load(&scratch.dir.join("idle"), "0.00");
+    let entries = || vec!["side-2".to_string(), "m1:app-1".to_string()];
+    let mut loads = Loads {
+        places: &places,
+        ssh: &busy,
+        asked: HashMap::new(),
+    };
+    let (ordered, skipped) = by_load(&mut loads, entries());
+    assert_eq!(ordered, vec!["side-2", "m1:app-1"], "the host is busier");
+    assert!(skipped.is_empty());
+    let mut loads = Loads {
+        places: &places,
+        ssh: &idle,
+        asked: HashMap::new(),
+    };
+    let (ordered, _) = by_load(&mut loads, entries());
+    assert_eq!(
+        ordered,
+        vec!["m1:app-1", "side-2"],
+        "the host's 0 per core is under this Mac's"
+    );
+}
+
+#[test]
+fn a_host_that_does_not_answer_is_skipped_and_named_when_it_was_the_only_one() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("lock-unreachable");
+    let places = places_with_host(&scratch, "m1:app-1\n");
+    let dir = scratch.dir.join("down");
+    std::fs::create_dir_all(&dir).unwrap();
+    let program = dir.join("ssh");
+    std::fs::write(
+        &program,
+        "#!/bin/sh\necho 'ssh: connect to host m1 port 22: Connection refused' >&2\nexit 255\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let down = Ssh {
+        program: program.display().to_string(),
+    };
+    let Err(error) = take_anywhere(&places, &down, "demo", Lane::Android) else {
+        panic!("the only checkout is on a host that is down");
+    };
+    let text = error.text();
+    assert!(
+        text.contains("m1:app-1") && text.contains("Connection refused"),
+        "{text}"
+    );
+}
