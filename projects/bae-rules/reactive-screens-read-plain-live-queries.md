@@ -1,5 +1,5 @@
 ---
-digest: A bae read that must follow changes (a reactive screen, or a subscriber in the bridge, automation or MCP) is a plain coven live query (one SQL query, subscribed); everything a screen shows beside its rows (counts, totals, groups and section headers, "N of M", sums, facets) comes from SQL too, in the same query or as its own live query; a read that need not follow changes is a plain one-shot SQL read. In both, SQLite filters, sorts, joins, counts and windows; nothing is kept in Rust memory between reads, no side pass walks rows beside a live query, no field is written to force a rerun, no size cutoff switches a read between two paths.
+digest: Everything a bae screen shows comes from SQL, except values that change many times a second (those travel on keyed latest-value streams). A read that must follow changes is a plain coven live query, a one-off read a plain SQL read; nothing is kept in Rust memory between reads, no side pass, no field written to force a rerun, no size cutoff between read paths, and Rust never filters, sorts, joins, groups, counts or derives what a screen shows.
 paths:
   - bae-store/src/**/*.rs
   - bae-views/src/**/*.rs
@@ -17,6 +17,11 @@ blocking: true
 ---
 
 ## Reactive screens read plain live queries
+
+Everything a screen shows comes from SQL. The one exception is a value that
+changes many times a second (playback position, transfer bytes, rates, levels),
+which travels on a keyed latest-value stream
+(`high-frequency-values-skip-observed-ui-state.md`).
 
 A read that must follow changes, such as a reactive screen or a bridge,
 automation or MCP subscriber, is one SQL query subscribed through coven

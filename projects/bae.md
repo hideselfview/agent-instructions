@@ -159,6 +159,9 @@ duplicate types to make a split compile.
 
 ## Reads and fast values
 
+Everything a screen shows comes from SQL, except values that change many times a
+second, which travel on keyed latest-value streams.
+
 A read that must follow changes (a reactive screen, or a subscriber in the
 bridge, automation or MCP) is a plain coven live query; any other read is a
 plain SQL read. SQLite does the filtering, sorting, joining, grouping, counting
