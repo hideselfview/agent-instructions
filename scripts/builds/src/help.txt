@@ -324,9 +324,12 @@ runs whole whenever a matching file is staged.
                               the total. A run that can't be recorded says so
                               on stderr and ends as the checks decided; a repo
                               in no project records nothing
-  builds checks stats [--project <project>] [--since <YYYY-MM-DD>] [--change <rev>]
+  builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]
                               read the recorded runs back (the project of the
-                              current repo unless --project names one): the
+                              current repo unless --project names one; a
+                              project holds the runs of several repos, and
+                              each repo's are figured and printed apart, or
+                              only --repo's): the
                               runs, failures and the median and slowest total
                               time; per check how often it ran, failed and was
                               skipped, with its median and slowest time; and
@@ -336,8 +339,11 @@ runs whole whenever a matching file is staged.
                               runs against the 10 before, and any set of
                               checks whose newest run took over 45 seconds (the
                               hook's limit; a newer run of that set under it
-                              ends the flag). --change <rev> instead splits all
-                              the runs by whether their base contains <rev>
+                              ends the flag). --change <rev> instead splits the
+                              runs of the repo that has <rev> (asked in a
+                              worktree of each repo with runs; refused when
+                              no repo has it, or when more than one does,
+                              which --repo settles) by whether their base contains <rev>
                               (git merge-base --is-ancestor, so a worktree on
                               an old base after the change landed counts as
                               without) and prints per check, on each side, the
@@ -346,8 +352,9 @@ runs whole whenever a matching file is staged.
                               recorded before the base was kept counts as
                               without when it started before <rev> was
                               committed and is left out when after; both are
-                              said in the output. The dashboard shows the same
-                              figures and the latest runs; its panel splits
+                              said in the output. The dashboard shows each
+                              repo's figures and latest runs in a panel of its
+                              own; the panel splits
                               runs by a commit you type, and a flagged set of
                               checks appears among the things needing acting
                               on, naming the run's worktree, total, slowest

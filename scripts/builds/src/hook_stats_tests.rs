@@ -45,7 +45,7 @@ fn database(scratch: &Scratch) -> std::path::PathBuf {
 fn a_run_comes_back_whole_with_its_files_and_checks_in_order() {
     let scratch = Scratch::new("hook-db");
     let path = database(&scratch);
-    assert_eq!(stats(&path, 0).unwrap(), None);
+    assert_eq!(stats(&path, 0, "bae").unwrap(), None);
     let mut written = run(
         5,
         100,
@@ -59,7 +59,7 @@ fn a_run_comes_back_whole_with_its_files_and_checks_in_order() {
     written.branch = None;
     written.files.push(file("logo.png", Change::Deleted, None));
     record(&path, &written).unwrap();
-    let read = stats(&path, 0).unwrap().unwrap();
+    let read = stats(&path, 0, "bae").unwrap().unwrap();
     let mut expected = written;
     expected.files.sort_by(|a, b| a.path.cmp(&b.path));
     assert_eq!(read.recent, vec![expected]);
@@ -93,7 +93,7 @@ fn a_database_with_another_schema_version_is_refused() {
             .contains("another builds schema")
     );
     assert!(
-        stats(&path, 0)
+        stats(&path, 0, "bae")
             .unwrap_err()
             .text()
             .contains("another builds schema")
@@ -176,7 +176,7 @@ fn a_record_that_fails_midway_leaves_nothing() {
         ],
     );
     assert!(record(&path, &broken).is_err());
-    assert_eq!(stats(&path, 0).unwrap().unwrap().runs, 0);
+    assert_eq!(stats(&path, 0, "bae").unwrap().unwrap().runs, 0);
 }
 
 #[test]
@@ -224,7 +224,7 @@ fn stats_give_each_check_its_median_slowest_failures_and_skips() {
     for r in &runs {
         record(&path, r).unwrap();
     }
-    let stats = stats(&path, 0).unwrap().unwrap();
+    let stats = stats(&path, 0, "bae").unwrap().unwrap();
     assert_eq!(
         (stats.runs, stats.failed, stats.median_ms, stats.slowest_ms),
         (4, 1, 700, 3000)
@@ -256,7 +256,7 @@ fn stats_give_each_check_its_median_slowest_failures_and_skips() {
         stats.recent.iter().map(|r| r.at).collect::<Vec<_>>(),
         vec![4, 3, 2, 1]
     );
-    let since = self::stats(&path, 3).unwrap().unwrap();
+    let since = self::stats(&path, 3, "bae").unwrap().unwrap();
     assert_eq!((since.runs, since.median_ms), (2, 300));
     assert_eq!(
         since
@@ -285,10 +285,15 @@ fn the_report_names_the_checks_and_the_slowest_runs() {
         ),
     )
     .unwrap();
-    let text = report("bae", Some("2026-11-01"), stats(&path, 0).unwrap().as_ref());
+    let text = report(
+        "bae",
+        "bae",
+        Some("2026-11-01"),
+        stats(&path, 0, "bae").unwrap().as_ref(),
+    );
     assert!(
         text.starts_with(
-            "project bae, runs since 2026-11-01: 1 run, 0 failed, median 2.5s, slowest 2.5s\n"
+            "project bae, repo bae, runs since 2026-11-01: 1 run, 0 failed, median 2.5s, slowest 2.5s\n"
         ),
         "{text}"
     );
@@ -297,8 +302,8 @@ fn the_report_names_the_checks_and_the_slowest_runs() {
         "{text}"
     );
     assert_eq!(
-        report("bae", None, None),
-        "project bae, all runs: none recorded\n"
+        report("bae", "bae", None, None),
+        "project bae, repo bae, all runs: none recorded\n"
     );
 }
 
@@ -316,7 +321,7 @@ fn the_dashboard_json_has_each_project_with_its_figures_and_the_latest_runs_firs
     let places = scratch.places();
     let store = crate::lists::fixtures::make_store(&places, &["bae", "coven"]);
     let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
-    assert_eq!(json["projects"][0]["runs"], 0);
+    assert_eq!(json["projects"][0]["repos"], serde_json::json!([]));
     for at in 1..=25 {
         record(
             &store.dir.join(DATABASE),
@@ -330,10 +335,14 @@ fn the_dashboard_json_has_each_project_with_its_figures_and_the_latest_runs_firs
         .unwrap();
     }
     let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
-    let project = &json["projects"][0];
+    let project = &json["projects"][0]["repos"][0];
     assert_eq!(
-        (project["project"].as_str(), project["runs"].as_u64()),
-        (Some("demo"), Some(25))
+        (
+            json["projects"][0]["project"].as_str(),
+            project["repo"].as_str(),
+            project["runs"].as_u64()
+        ),
+        (Some("demo"), Some("bae"), Some(25))
     );
     let recent = project["recent"].as_array().unwrap();
     assert_eq!(
@@ -370,7 +379,9 @@ fn a_run_records_the_commit_it_started_on() {
     written.base = Some("abc123".into());
     record(&path, &written).unwrap();
     assert_eq!(
-        stats(&path, 0).unwrap().unwrap().recent[0].base.as_deref(),
+        stats(&path, 0, "bae").unwrap().unwrap().recent[0]
+            .base
+            .as_deref(),
         Some("abc123")
     );
 }
@@ -380,7 +391,7 @@ fn a_set_of_checks_is_flagged_while_its_newest_run_is_over_the_limit() {
     let scratch = Scratch::new("hook-db-limit");
     let path = database(&scratch);
     let flagged = |path: &Path| {
-        stats(path, 0)
+        stats(path, 0, "bae")
             .unwrap()
             .unwrap()
             .over_limit
@@ -442,7 +453,10 @@ fn a_check_gets_a_trend_of_its_latest_runs_against_the_ones_before() {
         record(&path, &run(at, ms, true, check_set(&[("clippy", ms)]))).unwrap();
     }
     // 12 runs: the latest ten against the two before them is too few to compare.
-    assert_eq!(stats(&path, 0).unwrap().unwrap().checks[0].trend, None);
+    assert_eq!(
+        stats(&path, 0, "bae").unwrap().unwrap().checks[0].trend,
+        None
+    );
     for at in 13..=16 {
         record(
             &path,
@@ -451,9 +465,11 @@ fn a_check_gets_a_trend_of_its_latest_runs_against_the_ones_before() {
         .unwrap();
     }
     // Latest ten: runs 7 to 16, all 30s; the six before: all 10s.
-    let trend = stats(&path, 0).unwrap().unwrap().checks[0].trend.unwrap();
+    let trend = stats(&path, 0, "bae").unwrap().unwrap().checks[0]
+        .trend
+        .unwrap();
     assert_eq!((trend.recent_ms, trend.earlier_ms), (30_000, 10_000));
-    let text = report("bae", None, stats(&path, 0).unwrap().as_ref());
+    let text = report("bae", "bae", None, stats(&path, 0, "bae").unwrap().as_ref());
     assert!(text.contains("30.0s vs 10.0s"), "{text}");
 }
 
@@ -468,10 +484,46 @@ fn the_dashboard_json_carries_the_flags_and_the_trend() {
     )
     .unwrap();
     let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
-    let project = &json["projects"][0];
+    let project = &json["projects"][0]["repos"][0];
     assert_eq!(project["limit_ms"], 45_000);
     assert_eq!(project["over_limit"][0]["total_ms"], 99_000);
     assert_eq!(project["over_limit"][0]["worktree"], "/d/bae");
     assert_eq!(project["over_limit"][0]["checks"][0]["crates"], 0);
     assert!(project["checks"][0]["recent_ms"].is_null());
+}
+
+#[test]
+fn each_repos_runs_are_kept_apart_in_the_figures_and_the_dashboard() {
+    let scratch = Scratch::new("hook-repos");
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    let path = store.dir.join(DATABASE);
+    for (at, repo, total) in [
+        (1, "bae", 10_000),
+        (2, "bae", 30_000),
+        (3, "agent-instructions", 90_000),
+    ] {
+        let mut r = run(at, total, true, check_set(&[("clippy", total)]));
+        r.repo = repo.into();
+        record(&path, &r).unwrap();
+    }
+    assert_eq!(repos(&path).unwrap(), ["agent-instructions", "bae"]);
+    let bae = stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(
+        (bae.runs, bae.median_ms, bae.slowest_ms),
+        (2, 20_000, 30_000)
+    );
+    assert_eq!(bae.recent.len(), 2);
+    assert!(
+        bae.over_limit.is_empty(),
+        "the other repo's slow run is not bae's"
+    );
+    let other = stats(&path, 0, "agent-instructions").unwrap().unwrap();
+    assert_eq!((other.runs, other.over_limit.len()), (1, 1));
+    let json: serde_json::Value = serde_json::from_str(&dashboard_json(&places)).unwrap();
+    let panels = json["projects"][0]["repos"].as_array().unwrap();
+    let names: Vec<&str> = panels.iter().map(|p| p["repo"].as_str().unwrap()).collect();
+    assert_eq!(names, ["agent-instructions", "bae"]);
+    assert_eq!(panels[1]["runs"], 2);
+    assert_eq!(panels[0]["over_limit"].as_array().unwrap().len(), 1);
 }

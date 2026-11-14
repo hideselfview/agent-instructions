@@ -209,7 +209,7 @@ fn recorded(scratch: &Scratch) -> std::path::PathBuf {
 }
 
 fn recorded_runs(log: &Path) -> Vec<Run> {
-    crate::hook_stats::stats(log, 0)
+    crate::hook_stats::stats(log, 0, "repo")
         .unwrap()
         .expect("something was recorded")
         .recent

@@ -179,7 +179,7 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
     let feed = Feed::start(places);
     let (version, _) = feed.current();
     let before = feed.hooks();
-    assert!(before.contains("\"runs\":0"), "{before}");
+    assert!(before.contains("\"repos\":[]"), "{before}");
     let (sent, moved) = mpsc::channel();
     feed.listen(Box::new(move || {
         let _ = sent.send(());

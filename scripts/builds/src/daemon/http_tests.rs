@@ -346,7 +346,10 @@ fn the_daemon_serves_the_hook_runs_with_their_flag_and_splits_them_by_a_change_o
     assert_eq!((status, kind.as_str()), (200, "application/json"));
     let hooks: serde_json::Value = serde_json::from_str(&body).unwrap();
     // The newest run of the one check set took 20 s: under the limit, so nothing is flagged.
-    assert_eq!(hooks["projects"][0]["over_limit"], serde_json::json!([]));
+    assert_eq!(
+        hooks["projects"][0]["repos"][0]["over_limit"],
+        serde_json::json!([])
+    );
     let (status, kind, body) = s.get(&format!(
         "/api/hooks/impact?project=demo&change={}",
         &change[..10]
@@ -361,7 +364,19 @@ fn the_daemon_serves_the_hook_runs_with_their_flag_and_splits_them_by_a_change_o
         (Some(1), Some(2)),
         "{impact}"
     );
+    assert_eq!(impact["repo"], "demo");
     assert_eq!(impact["with"]["checks"][0]["median_crates"], 4);
+    // Asked in a named repo: that repo's runs; a repo with no runs is an error.
+    let (_, _, body) = s.get(&format!(
+        "/api/hooks/impact?project=demo&change={}&repo=demo",
+        &change[..10]
+    ));
+    assert!(body.contains("\"with\""), "{body}");
+    let (_, _, body) = s.get(&format!(
+        "/api/hooks/impact?project=demo&change={}&repo=nonesuch",
+        &change[..10]
+    ));
+    assert!(body.contains("no runs of repo"), "{body}");
     assert_eq!(impact["without"]["checks"][0]["median_ms"], 77_500);
     // A change git does not know, a project that is not one, and a request missing a part.
     let (status, _, body) = s.get("/api/hooks/impact?project=demo&change=nonesuch");

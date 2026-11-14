@@ -82,7 +82,7 @@ fn runs_split_by_the_base_commit_containing_the_change_even_on_an_old_base_after
         20_000,
         1,
     );
-    let impact = impact(&path, &change[..10]).unwrap().unwrap();
+    let impact = impact(&path, &change[..10], None).unwrap().unwrap();
     assert_eq!(impact.change, change);
     assert_eq!(
         (
@@ -137,7 +137,7 @@ fn runs_split_by_the_base_commit_containing_the_change_even_on_an_old_base_after
 fn a_change_with_no_runs_recorded_is_none() {
     let scratch = Scratch::new("impact-none");
     assert_eq!(
-        split(&scratch.dir.join(DATABASE), "c", 1, &|_| Some(true)).unwrap(),
+        split(&scratch.dir.join(DATABASE), "bae", "c", 1, &|_| Some(true)).unwrap(),
         None
     );
     assert!(report("bae", None).contains("no runs recorded"));
@@ -153,5 +153,73 @@ fn a_revision_that_starts_with_a_dash_is_refused() {
             .unwrap_err()
             .text()
             .contains("not a revision")
+    );
+}
+
+/// Two repos of one project, each with runs in a worktree of its own, and a
+/// commit only the first has.
+fn two_repos(scratch: &Scratch) -> (std::path::PathBuf, String, std::path::PathBuf) {
+    let bae = scratch.dir.join("bae");
+    let other = scratch.dir.join("agent-instructions");
+    repo(&bae, "target 1\n");
+    repo(&other, "target 1\n");
+    std::fs::write(bae.join("change.txt"), "c").unwrap();
+    git(&bae, &["add", "change.txt"]);
+    git(&bae, &["commit", "-q", "-m", "The change"]);
+    let change = head(&bae);
+    let path = scratch.dir.join(DATABASE);
+    for (repo, top, base, total) in [
+        ("bae", &bae, change.clone(), 20_000),
+        ("bae", &bae, change.clone(), 30_000),
+        ("agent-instructions", &other, head(&other), 70_000),
+    ] {
+        let mut r = run(100, Some(&base), total, total / 2, 1);
+        r.repo = repo.into();
+        r.worktree = top.to_string_lossy().into_owned();
+        record(&path, &r).unwrap();
+    }
+    (path, change, other)
+}
+
+#[test]
+fn a_change_asks_the_repo_that_has_it_and_counts_only_that_repos_runs() {
+    let scratch = Scratch::new("impact-two-repos");
+    let (path, change, _) = two_repos(&scratch);
+    let impact = impact(&path, &change[..10], None).unwrap().unwrap();
+    assert_eq!(impact.repo, "bae");
+    assert_eq!((impact.with.runs, impact.without.runs), (2, 0));
+    assert_eq!(impact.with.median_ms, 25_000);
+    let asked = super::impact(&path, &change[..10], Some("bae"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(asked.repo, "bae");
+    let wrong = super::impact(&path, &change[..10], Some("agent-instructions"));
+    assert!(wrong.unwrap_err().text().contains("agent-instructions"));
+    assert!(report("bae", Some(&asked)).contains("repo bae"));
+}
+
+#[test]
+fn a_revision_no_repo_knows_and_one_two_repos_know_are_refused() {
+    let scratch = Scratch::new("impact-refused");
+    let (path, change, other) = two_repos(&scratch);
+    let unknown = impact(&path, "0123456789abcdef", None).unwrap_err().text();
+    assert!(
+        unknown.contains("bae") && unknown.contains("agent-instructions"),
+        "{unknown}"
+    );
+    // The first repo's change, fetched into the other repo, is known to both.
+    git(
+        &other,
+        &[
+            "fetch",
+            "-q",
+            scratch.dir.join("bae").to_str().unwrap(),
+            "main",
+        ],
+    );
+    let both = impact(&path, &change, None).unwrap_err().text();
+    assert!(
+        both.contains("more than one repo") && both.contains("--repo"),
+        "{both}"
     );
 }

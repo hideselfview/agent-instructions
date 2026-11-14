@@ -949,9 +949,9 @@ function loadView(load) {
 // the limit (hook_stats.rs), which the `hooks` event carries.
 function hookFindings() {
   if (!hooks || hooks.error) return [];
-  return hooks.projects.flatMap(p => (p.over_limit || []).map(run => {
+  return hooks.projects.flatMap(p => (p.repos || []).map(r => Object.assign({project: p.project}, r))).flatMap(p => (p.over_limit || []).map(run => {
     const slowest = run.checks.filter(c => c.ms != null).sort((a, b) => b.ms - a.ms).slice(0, 3).map(c => c.name + " " + secs(c.ms));
-    return "commit hook · " + p.project + ": " + secs(run.total_ms) + " in " + run.worktree.split("/").pop() + " (" + (run.branch || "detached") +
+    return "commit hook · " + p.project + " · " + p.repo + ": " + secs(run.total_ms) + " in " + run.worktree.split("/").pop() + " (" + (run.branch || "detached") +
       "), over " + secs(p.limit_ms) + " · slowest " + slowest.join(", ") + " · handed " + plural(run.files, "file", "files") + ", " + plural(run.crates, "crate", "crates");
   }));
 }
@@ -1401,7 +1401,7 @@ fetch("/api/lists").then(async reply => {
 // ---- The commit hook panel: what the hook ran for each project, from the
 // `hooks` event (hook_stats.rs) and /api/hooks on load. ----
 let hooks = null;
-const openHooks = new Set();   // projects whose panel is open; they outlive a redraw
+const openHooks = new Set();   // "project/repo" of each panel that is open; they outlive a redraw
 function secs(ms) { return (ms / 1000).toFixed(1) + "s"; }
 function kindsText(kinds) { return Object.entries(kinds).map(([k, n]) => k + " " + n).join(", "); }
 function hookRun(run) {
@@ -1426,7 +1426,7 @@ function trendCell(c) {
 }
 // What a change did to the hook's times: the runs split by whether their tree
 // has the change (/api/hooks/impact). The rev stays in the field across redraws.
-const impactRevs = new Map();
+const impactRevs = new Map();   // by "project/repo"
 function impactCell(c) { return c ? c.ran + " · " + c.median_crates + " cr · " + secs(c.median_ms) + " · " + secs(c.slowest_ms) : "–"; }
 function impactTable(r) {
   const names = [];
@@ -1442,17 +1442,18 @@ function impactTable(r) {
       names.map(n => h("tr", null, h("td", null, n[0]), h("td", null, impactCell(find(r.with, n))), h("td", null, impactCell(find(r.without, n)))))),
     notes.map(t => h("div", {class: "h-meta"}, t))];
 }
-function impactForm(project) {
+function impactForm(project, repo) {
   const input = h("input", {type: "text", placeholder: "commit, e.g. 711e9cd12c", size: "24"});
-  input.value = impactRevs.get(project) || "";
+  const key = project + "/" + repo;
+  input.value = impactRevs.get(key) || "";
   const out = h("div", {class: "h-impact"});
   const ask = async () => {
     const rev = input.value.trim();
-    impactRevs.set(project, rev);
+    impactRevs.set(key, rev);
     if (!rev) { out.replaceChildren(); return; }
     out.replaceChildren(h("div", {class: "h-meta"}, "reading…"));
     try {
-      const reply = await fetch("/api/hooks/impact?project=" + encodeURIComponent(project) + "&change=" + encodeURIComponent(rev));
+      const reply = await fetch("/api/hooks/impact?project=" + encodeURIComponent(project) + "&repo=" + encodeURIComponent(repo) + "&change=" + encodeURIComponent(rev));
       const body = await reply.json();
       out.replaceChildren(...(body.error ? [h("div", {class: "error"}, body.error)] : body.runs === 0 ? [h("div", {class: "h-meta"}, "no runs recorded")] : impactTable(body)));
     } catch (e) { out.replaceChildren(h("div", {class: "error"}, String(e))); }
@@ -1463,13 +1464,14 @@ function impactForm(project) {
   if (input.value) ask();
   return h("div", null, h("h3", null, "What a change did"), h("div", {class: "h-impactform"}, input, button), out);
 }
-function hookProject(p) {
-  const open = openHooks.has(p.project);
+function hookRepo(project, p) {
+  const key = project + "/" + p.repo;
+  const open = openHooks.has(key);
   const meta = p.error ? "" : p.runs === 0 ? "no runs recorded"
     : plural(p.runs, "run", "runs") + " · " + p.failed + " failed · median " + secs(p.median_ms) + " · slowest " + secs(p.slowest_ms);
-  const box = h("details", {class: "hooks"}, h("summary", null, "Commit hook · " + p.project, h("span", {class: "h-meta"}, meta)));
+  const box = h("details", {class: "hooks"}, h("summary", null, "Commit hook · " + project + " · " + p.repo, h("span", {class: "h-meta"}, meta)));
   box.open = open;
-  box.addEventListener("toggle", () => { if (box.open) openHooks.add(p.project); else openHooks.delete(p.project); });
+  box.addEventListener("toggle", () => { if (box.open) openHooks.add(key); else openHooks.delete(key); });
   if (p.error) { box.append(h("div", {class: "error"}, p.error)); return box; }
   if (p.runs === 0) return box;
   box.append(h("h3", null, "Per check"),
@@ -1480,7 +1482,7 @@ function hookProject(p) {
       p.checks.map(c => h("tr", null, h("td", null, c.name), h("td", null, c.kind), h("td", {class: "n"}, String(c.ran)),
         h("td", {class: "n" + (c.failed ? " failed" : "")}, String(c.failed)), h("td", {class: "n"}, String(c.skipped)),
         h("td", {class: "n"}, secs(c.median_ms)), h("td", {class: "n"}, secs(c.slowest_ms)), trendCell(c)))),
-    impactForm(p.project),
+    impactForm(project, p.repo),
     h("h3", null, "Slowest runs"), h("div", {class: "h-runs"}, p.slowest.map(hookRun)),
     h("h3", null, "Latest runs"), h("div", {class: "h-runs"}, p.recent.map(hookRun)));
   return box;
@@ -1489,7 +1491,9 @@ function setHooks(next) {
   hooks = next;
   const panels = document.getElementById("hooks-panels");
   if (hooks.error) panels.replaceChildren(h("div", {class: "error"}, "The hook runs: " + hooks.error));
-  else panels.replaceChildren(...hooks.projects.map(hookProject));
+  else panels.replaceChildren(...hooks.projects.flatMap(p => p.error
+    ? [h("div", {class: "error"}, "The hook runs of " + p.project + ": " + p.error)]
+    : p.repos.map(r => hookRepo(p.project, r))));
   findingsView(state ? state.health : null);
 }
 events.addEventListener("hooks", e => setHooks(JSON.parse(e.data)));

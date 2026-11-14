@@ -755,7 +755,7 @@ fn a_database_holding_only_hook_runs_keeps_them_and_gains_the_lists_tables() {
     let mut expected = crate::lists::store::read(&source).unwrap();
     expected.version += 1;
     assert_eq!(moved(&places), expected);
-    let stats = crate::hook_stats::stats(&dir.join(DATABASE), 0)
+    let stats = crate::hook_stats::stats(&dir.join(DATABASE), 0, "bae")
         .unwrap()
         .unwrap();
     assert_eq!(stats.runs, 1, "the hook run is kept");
@@ -785,7 +785,7 @@ fn a_folder_with_only_hook_stats_and_no_json_gets_the_lists_tables_too() {
         crate::db::schema_rows(&crate::db::memory()).unwrap()
     );
     assert_eq!(
-        crate::hook_stats::stats(&dir.join(DATABASE), 0)
+        crate::hook_stats::stats(&dir.join(DATABASE), 0, "bae")
             .unwrap()
             .unwrap()
             .runs,
@@ -849,7 +849,7 @@ fn a_store_of_the_schema_before_the_base_column_gains_it_keeps_its_runs_and_equa
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    let stats = crate::hook_stats::stats(&path, 0).unwrap().unwrap();
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
     assert_eq!(
         (stats.runs, stats.recent[0].base.clone()),
         (1, None),

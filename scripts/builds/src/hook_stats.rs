@@ -10,6 +10,10 @@
 //! opens the file read-only and never makes it; a file with a schema this
 //! code does not know is an error.
 //!
+//! A project holds the runs of every repo whose hook records to it (`repo`
+//! on each run), and the figures, the flags and the trends are always one
+//! repo's: its runs are not another's, nor its slow run another's flag.
+//!
 //! Each run records the commit HEAD pointed at when it started (`base`, the
 //! last column of `hook_runs`, in the layout an ALTER TABLE makes, closing `)` and all, so the move of an
 //! older store in migrate.rs leaves a schema equal to a new one's; NULL for a
@@ -285,18 +289,34 @@ fn rounded(mean: Option<f64>) -> u64 {
     mean.map_or(0, |mean| mean.round() as u64)
 }
 
-/// The figures over the runs of the database at <path> that started at or
-/// after <since> (seconds since 1970); None when nothing was ever recorded
-/// there.
-pub fn stats(path: &Path, since: i64) -> Result<Option<Stats>> {
+/// The repos with runs in the database at <path>, by name; empty when nothing
+/// was ever recorded there.
+pub fn repos(path: &Path) -> Result<Vec<String>> {
+    let Some(conn) = open_for_reading(path)? else {
+        return Ok(Vec::new());
+    };
+    let what = || format!("reading {}", path.display());
+    let mut statement = conn
+        .prepare("SELECT DISTINCT repo FROM hook_runs ORDER BY repo")
+        .context(what)?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .context(what)?;
+    rows.map(|row| row.context(what)).collect()
+}
+
+/// The figures over the runs of repo <repo> in the database at <path> that
+/// started at or after <since> (seconds since 1970); None when nothing was
+/// ever recorded there.
+pub fn stats(path: &Path, since: i64, repo: &str) -> Result<Option<Stats>> {
     let Some(conn) = open_for_reading(path)? else {
         return Ok(None);
     };
     let what = || format!("reading {}", path.display());
     let (runs, failed, slowest_ms): (i64, i64, i64) = conn
         .query_row(
-            "SELECT COUNT(*), COALESCE(SUM(passed = 0), 0), COALESCE(MAX(total_ms), 0) FROM hook_runs WHERE started_at >= ?1",
-            [since],
+            "SELECT COUNT(*), COALESCE(SUM(passed = 0), 0), COALESCE(MAX(total_ms), 0) FROM hook_runs WHERE started_at >= ?1 AND repo = ?2",
+            params![since, repo],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .context(what)?;
@@ -305,10 +325,10 @@ pub fn stats(path: &Path, since: i64) -> Result<Option<Stats>> {
             &format!(
                 "SELECT AVG(total_ms) FROM (
                     SELECT total_ms, ROW_NUMBER() OVER (ORDER BY total_ms) AS n, COUNT(*) OVER () AS c
-                    FROM hook_runs WHERE started_at >= ?1)
+                    FROM hook_runs WHERE started_at >= ?1 AND repo = ?2)
                  WHERE {MIDDLE}"
             ),
-            [since],
+            params![since, repo],
             |row| row.get(0),
         )
         .context(what)?;
@@ -319,20 +339,20 @@ pub fn stats(path: &Path, since: i64) -> Result<Option<Stats>> {
                        ROW_NUMBER() OVER (PARTITION BY c.name, c.kind ORDER BY c.ms) AS n,
                        COUNT(*) OVER (PARTITION BY c.name, c.kind) AS c
                 FROM hook_run_checks c JOIN hook_runs r ON r.id = c.run_id
-                WHERE r.started_at >= ?1 AND c.outcome <> 'skipped'),
+                WHERE r.started_at >= ?1 AND r.repo = ?2 AND c.outcome <> 'skipped'),
              medians AS (SELECT name, kind, AVG(ms) AS median FROM timed WHERE {MIDDLE} GROUP BY name, kind)
              SELECT c.name, c.kind,
                     COALESCE(SUM(c.outcome <> 'skipped'), 0), COALESCE(SUM(c.outcome = 'failed'), 0),
                     COALESCE(SUM(c.outcome = 'skipped'), 0), COALESCE(MAX(c.ms), 0), m.median
              FROM hook_run_checks c JOIN hook_runs r ON r.id = c.run_id
              LEFT JOIN medians m ON m.name = c.name AND m.kind = c.kind
-             WHERE r.started_at >= ?1
+             WHERE r.started_at >= ?1 AND r.repo = ?2
              GROUP BY c.name, c.kind
              ORDER BY COALESCE(m.median, 0) DESC, c.name"
         ))
         .context(what)?;
     let rows = statement
-        .query_map([since], |row| {
+        .query_map(params![since, repo], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -358,7 +378,7 @@ pub fn stats(path: &Path, since: i64) -> Result<Option<Stats>> {
             trend: None,
         });
     }
-    let trends = trends(&conn, since, path)?;
+    let trends = trends(&conn, since, repo, path)?;
     for c in &mut checks {
         c.trend = trends
             .get(&(c.name.clone(), c.kind.word().to_string()))
@@ -366,19 +386,19 @@ pub fn stats(path: &Path, since: i64) -> Result<Option<Stats>> {
     }
     let slowest = runs_where(
         &conn,
-        "started_at >= ?1 ORDER BY total_ms DESC, started_at DESC",
-        since,
+        "started_at >= ?1 AND repo = ?2 ORDER BY total_ms DESC, started_at DESC",
+        (since, repo),
         SLOWEST_RUNS,
         path,
     )?;
     let recent = runs_where(
         &conn,
-        "started_at >= ?1 ORDER BY started_at DESC, id DESC",
-        since,
+        "started_at >= ?1 AND repo = ?2 ORDER BY started_at DESC, id DESC",
+        (since, repo),
         RECENT_RUNS,
         path,
     )?;
-    let over_limit = over_limit(&conn, since, path)?;
+    let over_limit = over_limit(&conn, since, repo, path)?;
     Ok(Some(Stats {
         runs: runs as u32,
         failed: failed as u32,
@@ -392,21 +412,22 @@ pub fn stats(path: &Path, since: i64) -> Result<Option<Stats>> {
 }
 
 /// The trend of each check (by name and kind) that ran enough times since
-/// <since>: its latest runs against the ones before them.
+/// <since> in repo <repo>: its latest runs against the ones before them.
 fn trends(
     conn: &Connection,
     since: i64,
+    repo: &str,
     path: &Path,
 ) -> Result<std::collections::HashMap<(String, String), Trend>> {
     let what = || format!("reading {}", path.display());
     let mut statement = conn
         .prepare(
             "SELECT c.name, c.kind, c.ms FROM hook_run_checks c JOIN hook_runs r ON r.id = c.run_id
-             WHERE r.started_at >= ?1 AND c.outcome <> 'skipped' ORDER BY r.started_at DESC, r.id DESC",
+             WHERE r.started_at >= ?1 AND r.repo = ?2 AND c.outcome <> 'skipped' ORDER BY r.started_at DESC, r.id DESC",
         )
         .context(what)?;
     let rows = statement
-        .query_map([since], |row| {
+        .query_map(params![since, repo], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -437,20 +458,20 @@ fn trends(
     Ok(out)
 }
 
-/// Groups the runs since <since> by the set of checks that ran in them, and
+/// Groups the runs of <repo> since <since> by the set of checks that ran in them, and
 /// returns each group's newest run when it took over `LIMIT_MS`, longest
 /// first. A set stays flagged until a newer run of it is under the limit,
 /// which is when its newest run is no longer over.
-fn over_limit(conn: &Connection, since: i64, path: &Path) -> Result<Vec<Run>> {
+fn over_limit(conn: &Connection, since: i64, repo: &str, path: &Path) -> Result<Vec<Run>> {
     let what = || format!("reading {}", path.display());
     let mut statement = conn
         .prepare(
             "SELECT r.id, r.total_ms, c.name FROM hook_runs r LEFT JOIN hook_run_checks c ON c.run_id = r.id AND c.outcome <> 'skipped'
-             WHERE r.started_at >= ?1 ORDER BY r.started_at DESC, r.id DESC",
+             WHERE r.started_at >= ?1 AND r.repo = ?2 ORDER BY r.started_at DESC, r.id DESC",
         )
         .context(what)?;
     let rows = statement
-        .query_map([since], |row| {
+        .query_map(params![since, repo], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, i64>(1)?,
@@ -487,32 +508,33 @@ fn over_limit(conn: &Connection, since: i64, path: &Path) -> Result<Vec<Run>> {
     runs_where(
         conn,
         &format!(
-            "id IN ({}) AND started_at >= ?1 ORDER BY total_ms DESC, started_at DESC",
+            "id IN ({}) AND started_at >= ?1 AND repo = ?2 ORDER BY total_ms DESC, started_at DESC",
             ids.join(",")
         ),
-        since,
+        (since, repo),
         flagged.len(),
         path,
     )
 }
 
 /// The first <limit> runs of `hook_runs WHERE <clause>` (which takes
-/// `?1` as the earliest start), each with its files and checks.
+/// `?1` as the earliest start and `?2` as the repo), each with its files and
+/// checks.
 fn runs_where(
     conn: &Connection,
     clause: &str,
-    since: i64,
+    (since, repo): (i64, &str),
     limit: usize,
     path: &Path,
 ) -> Result<Vec<Run>> {
     let what = || format!("reading {}", path.display());
     let mut statement = conn
         .prepare(&format!(
-            "SELECT id, started_at, repo, worktree, branch, passed, plan_ms, total_ms, base FROM hook_runs WHERE {clause} LIMIT ?2"
+            "SELECT id, started_at, repo, worktree, branch, passed, plan_ms, total_ms, base FROM hook_runs WHERE {clause} LIMIT ?3"
         ))
         .context(what)?;
     let heads = statement
-        .query_map(params![since, limit as i64], |row| {
+        .query_map(params![since, repo, limit as i64], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 Run {
@@ -607,13 +629,13 @@ fn plural(n: u32, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
-/// The text `builds checks stats` prints: <stats> of <project>, read since
+/// The text `builds checks stats` prints: <stats> of <repo> in <project>, read since
 /// <since> (a day, for the heading).
-pub fn report(project: &str, since: Option<&str>, stats: Option<&Stats>) -> String {
+pub fn report(project: &str, repo: &str, since: Option<&str>, stats: Option<&Stats>) -> String {
     use crate::text::local_minute;
     let heading = match since {
-        Some(day) => format!("project {project}, runs since {day}"),
-        None => format!("project {project}, all runs"),
+        Some(day) => format!("project {project}, repo {repo}, runs since {day}"),
+        None => format!("project {project}, repo {repo}, all runs"),
     };
     let Some(stats) = stats.filter(|stats| stats.runs > 0) else {
         return format!("{heading}: none recorded\n");
@@ -737,13 +759,13 @@ pub(crate) fn run_json(run: &Run) -> serde_json::Value {
     })
 }
 
-/// The dashboard's JSON for one project: its figures and latest runs, or
-/// `error` when the database can't be read.
-fn project_json(project: &str, path: &Path) -> serde_json::Value {
-    match stats(path, 0) {
-        Ok(None) => serde_json::json!({ "project": project, "runs": 0 }),
+/// The dashboard's JSON for one repo of a project: its figures and latest
+/// runs, or `error` when the database can't be read.
+fn repo_json(repo: &str, path: &Path) -> serde_json::Value {
+    match stats(path, 0, repo) {
+        Ok(None) => serde_json::json!({ "repo": repo, "runs": 0 }),
         Ok(Some(stats)) => serde_json::json!({
-            "project": project,
+            "repo": repo,
             "runs": stats.runs,
             "failed": stats.failed,
             "median_ms": stats.median_ms,
@@ -758,6 +780,18 @@ fn project_json(project: &str, path: &Path) -> serde_json::Value {
             "over_limit": stats.over_limit.iter().map(run_json).collect::<Vec<_>>(),
             "slowest": stats.slowest.iter().map(run_json).collect::<Vec<_>>(),
             "recent": stats.recent.iter().map(run_json).collect::<Vec<_>>(),
+        }),
+        Err(error) => serde_json::json!({ "repo": repo, "error": error.text() }),
+    }
+}
+
+/// The dashboard's JSON for one project: each repo with runs in it, apart, or
+/// `error` when the database can't be read.
+fn project_json(project: &str, path: &Path) -> serde_json::Value {
+    match repos(path) {
+        Ok(repos) => serde_json::json!({
+            "project": project,
+            "repos": repos.iter().map(|repo| repo_json(repo, path)).collect::<Vec<_>>(),
         }),
         Err(error) => serde_json::json!({ "project": project, "error": error.text() }),
     }

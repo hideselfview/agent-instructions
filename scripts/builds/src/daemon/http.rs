@@ -22,7 +22,7 @@
 //!                   claim facts), as the `lists` event carries it
 //!     /api/hooks    the hook runs' figures and latest runs (hook_stats.rs),
 //!                   as the `hooks` event carries them
-//!     /api/hooks/impact?project=<project>&change=<rev>
+//!     /api/hooks/impact?project=<project>&change=<rev>[&repo=<repo>]
 //!                   the project's hook runs split by whether their tree has
 //!                   that change (hook_impact.rs), read now
 //!     /design/<design id>
@@ -178,7 +178,11 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
             let (project, change) = (query_value(query, "project"), query_value(query, "change"));
             match (project, change) {
                 (Some(project), Some(change)) => {
-                    let body = model.hook_impact_json(&project, &change);
+                    let body = model.hook_impact_json(
+                        &project,
+                        &change,
+                        query_value(query, "repo").as_deref(),
+                    );
                     respond(&mut stream, "200 OK", "application/json", body.as_bytes())
                 }
                 _ => respond(

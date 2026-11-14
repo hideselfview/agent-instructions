@@ -1,5 +1,5 @@
-//! What a change did to the pre-commit hook's times: the recorded runs
-//! (hook_stats.rs) split into those whose tree had the change and those
+//! What a change did to the pre-commit hook's times: the recorded runs of the
+//! repo that has the change (hook_stats.rs) split into those whose tree had the change and those
 //! whose tree did not, with each check's figures on both sides.
 //!
 //! A run has a change when the commit HEAD pointed at when it started (the
@@ -11,6 +11,12 @@
 //! fast-forward is when it reached origin/main) and is left out of both sides
 //! when it started after, since it may or may not have had it. A run whose
 //! base git no longer knows is left out too. Both are counted.
+//!
+//! A project holds the runs of several repos, and a commit exists in the repo
+//! it was made in: the revision is looked up in a worktree of each repo with
+//! runs, the repo that has it is the one whose runs are split, and a revision
+//! no repo has, or two do, is refused (the caller names the repo to settle
+//! the second).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -47,6 +53,8 @@ pub struct Side {
 /// The split of the recorded runs by one change.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Impact {
+    /// The repo whose runs these are.
+    pub repo: String,
     /// The change, as the full commit id.
     pub change: String,
     /// When it was committed, seconds since 1970.
@@ -77,10 +85,11 @@ struct Facts {
 /// Does <base> contain the change? None when git does not know <base>.
 pub type Contains<'a> = &'a dyn Fn(&str) -> Option<bool>;
 
-/// The split of the runs in the database at <path>. <contains> answers for a
-/// run's base; <committed_at> is when the change was committed.
+/// The split of the runs of <repo> in the database at <path>. <contains>
+/// answers for a run's base; <committed_at> is when the change was committed.
 pub fn split(
     path: &Path,
+    repo: &str,
     change: &str,
     committed_at: i64,
     contains: Contains,
@@ -88,8 +97,9 @@ pub fn split(
     let Some(conn) = open_for_reading(path)? else {
         return Ok(None);
     };
-    let facts = facts(&conn, path)?;
+    let facts = facts(&conn, repo, path)?;
     let mut impact = Impact {
+        repo: repo.to_string(),
         change: change.to_string(),
         committed_at,
         with: Side::default(),
@@ -119,14 +129,14 @@ pub fn split(
     Ok(Some(impact))
 }
 
-fn facts(conn: &Connection, path: &Path) -> Result<Vec<Facts>> {
+fn facts(conn: &Connection, repo: &str, path: &Path) -> Result<Vec<Facts>> {
     let what = || format!("reading {}", path.display());
     let mut runs: Vec<(i64, Facts)> = Vec::new();
     let mut statement = conn
-        .prepare("SELECT id, started_at, base, total_ms FROM hook_runs ORDER BY id")
+        .prepare("SELECT id, started_at, base, total_ms FROM hook_runs WHERE repo = ?1 ORDER BY id")
         .context(what)?;
     let rows = statement
-        .query_map([], |row| {
+        .query_map([repo], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, i64>(1)?,
@@ -209,37 +219,33 @@ fn side(runs: &[&Facts]) -> Side {
     }
 }
 
-/// A recorded worktree of the database at <path> that still exists, newest
-/// run first: where git can be asked about the runs' commits, since every
-/// worktree of a repo shares them.
-pub fn repo_dir(path: &Path) -> Result<PathBuf> {
+/// A recorded worktree of <repo> in the database at <path> that still
+/// exists, newest run first: where git can be asked about the repo's runs'
+/// commits, since every worktree of a repo shares them. None when none
+/// exists any more.
+fn repo_dir(path: &Path, repo: &str) -> Result<Option<PathBuf>> {
     let Some(conn) = open_for_reading(path)? else {
-        fail!("{} holds no runs", path.display())
+        return Ok(None);
     };
     let what = || format!("reading {}", path.display());
     let mut statement = conn
-        .prepare("SELECT worktree FROM hook_runs GROUP BY worktree ORDER BY MAX(started_at) DESC")
+        .prepare("SELECT worktree FROM hook_runs WHERE repo = ?1 GROUP BY worktree ORDER BY MAX(started_at) DESC")
         .context(what)?;
     let rows = statement
-        .query_map([], |row| row.get::<_, String>(0))
+        .query_map([repo], |row| row.get::<_, String>(0))
         .context(what)?;
     for row in rows {
         let dir = PathBuf::from(row.context(what)?);
         if dir.is_dir() {
-            return Ok(dir);
+            return Ok(Some(dir));
         }
     }
-    fail!(
-        "none of the worktrees the runs in {} were made in exists any more",
-        path.display()
-    )
+    Ok(None)
 }
 
 /// What a revision names, as a commit id and the time it was committed.
 fn commit(repo: &Path, rev: &str) -> Result<(String, i64)> {
-    if rev.is_empty() || rev.starts_with('-') {
-        fail!("{rev:?} is not a revision");
-    }
+    refuse_odd(rev)?;
     let id = git_text(
         git(repo).args([
             "rev-parse",
@@ -261,6 +267,13 @@ fn commit(repo: &Path, rev: &str) -> Result<(String, i64)> {
     Ok((id, at))
 }
 
+fn refuse_odd(rev: &str) -> Result<()> {
+    if rev.is_empty() || rev.starts_with('-') {
+        fail!("{rev:?} is not a revision");
+    }
+    Ok(())
+}
+
 /// Does <base> contain <change>? None when git does not know <base>.
 fn contains(repo: &Path, change: &str, base: &str) -> Option<bool> {
     let status = git(repo)
@@ -276,16 +289,67 @@ fn contains(repo: &Path, change: &str, base: &str) -> Option<bool> {
     }
 }
 
-/// The split of the runs in the database at <path> by <rev>, asking git in
-/// the worktree of a recorded run.
-pub fn impact(path: &Path, rev: &str) -> Result<Option<Impact>> {
+/// The split of the runs in the database at <path> by <rev>: in the repo that
+/// has it (the repos with runs are asked in a worktree each), or in <only>
+/// when given. Refused when no asked repo has <rev>, or more than one does.
+pub fn impact(path: &Path, rev: &str, only: Option<&str>) -> Result<Option<Impact>> {
     if open_for_reading(path)?.is_none() {
         return Ok(None);
     }
-    let repo = repo_dir(path)?;
-    let (change, committed_at) = commit(&repo, rev)?;
-    split(path, &change, committed_at, &|base| {
-        contains(&repo, &change, base)
+    refuse_odd(rev)?;
+    let all = hook_stats::repos(path)?;
+    let asked: Vec<&String> = match only {
+        Some(only) => match all.iter().find(|repo| *repo == only) {
+            Some(repo) => vec![repo],
+            None => fail!(
+                "no runs of repo {only:?} in {} (repos with runs: {})",
+                path.display(),
+                all.join(", ")
+            ),
+        },
+        None => all.iter().collect(),
+    };
+    let mut found: Vec<(&String, PathBuf, String, i64)> = Vec::new();
+    let mut without_worktree: Vec<&str> = Vec::new();
+    for repo in &asked {
+        let Some(dir) = repo_dir(path, repo)? else {
+            without_worktree.push(repo);
+            continue;
+        };
+        if let Ok((change, at)) = commit(&dir, rev) {
+            found.push((repo, dir, change, at));
+        }
+    }
+    let names = |repos: &[&String]| {
+        repos
+            .iter()
+            .map(|repo| repo.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let [(repo, dir, change, committed_at)] = found.as_slice() else {
+        if found.is_empty() {
+            let mut message = format!(
+                "{rev} is not a commit in {}",
+                crate::text::counted(asked.len(), "repo", "repos")
+                    + &format!(" ({})", names(&asked))
+            );
+            if !without_worktree.is_empty() {
+                message.push_str(&format!(
+                    "; none of the worktrees the runs of {} were made in exists any more",
+                    without_worktree.join(", ")
+                ));
+            }
+            fail!("{message}");
+        }
+        let repos: Vec<&String> = found.iter().map(|(repo, ..)| *repo).collect();
+        fail!(
+            "{rev} is a commit in more than one repo ({}); say which with --repo",
+            names(&repos)
+        )
+    };
+    split(path, repo, change, *committed_at, &|base| {
+        contains(dir, change, base)
     })
 }
 
@@ -305,7 +369,8 @@ pub fn report(project: &str, impact: Option<&Impact>) -> String {
         return format!("project {project}: no runs recorded\n");
     };
     let mut out = format!(
-        "project {project}, runs split by {} (committed {})\n",
+        "project {project}, repo {}, runs split by {} (committed {})\n",
+        impact.repo,
         &impact.change[..impact.change.len().min(12)],
         local_minute(impact.committed_at)
     );
@@ -394,18 +459,24 @@ fn side_json(side: &Side) -> serde_json::Value {
 }
 
 /// The dashboard's JSON for `/api/hooks/impact`: the split of <project>'s
-/// runs by <rev>, or `{"error"}`.
-pub fn impact_json(places: &crate::places::Places, project: &str, rev: &str) -> String {
+/// runs by <rev> in <repo>, or in the repo that has it when none is named; or
+/// `{"error"}`.
+pub fn impact_json(
+    places: &crate::places::Places,
+    project: &str,
+    rev: &str,
+    repo: Option<&str>,
+) -> String {
     let value = (|| -> Result<serde_json::Value> {
         let stores = crate::lists::store::stores(places)?;
         let Some(store) = stores.iter().find(|store| store.project == project) else {
             fail!("no project {project:?}")
         };
-        let Some(impact) = impact(&store.dir.join(hook_stats::DATABASE), rev)? else {
+        let Some(impact) = impact(&store.dir.join(hook_stats::DATABASE), rev, repo)? else {
             return Ok(serde_json::json!({ "project": project, "runs": 0 }));
         };
         Ok(serde_json::json!({
-            "project": project, "runs": impact.with.runs + impact.without.runs,
+            "project": project, "repo": impact.repo, "runs": impact.with.runs + impact.without.runs,
             "change": impact.change, "committed_at": impact.committed_at,
             "with": side_json(&impact.with), "without": side_json(&impact.without),
             "without_by_time": impact.without_by_time, "unplaced_by_time": impact.unplaced_by_time,

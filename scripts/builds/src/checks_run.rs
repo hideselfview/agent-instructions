@@ -33,7 +33,7 @@ use crate::lists::store::{Store, project_of};
 use crate::places::Places;
 use crate::text::note;
 
-const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--since <YYYY-MM-DD>] [--change <rev>]";
+const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]";
 
 pub fn cmd_checks(args: &[String]) -> Result<()> {
     match args {
@@ -88,9 +88,9 @@ fn hook_database(top: &Path) -> Result<Option<PathBuf>> {
         .map(|project| places.lists.join(project).join(hook_stats::DATABASE)))
 }
 
-/// `builds checks stats [--project P] [--since DATE] [--change REV]`.
+/// `builds checks stats [--project P] [--repo R] [--since DATE] [--change REV]`.
 fn stats(args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["since", "change"], &[])?;
+    let args = Args::parse(args, &["since", "change", "repo"], &[])?;
     if !args.positional().is_empty() {
         fail!("{USAGE}");
     }
@@ -108,15 +108,32 @@ fn stats(args: &[String]) -> Result<()> {
         if since.is_some() {
             fail!("--change splits all the runs; it does not take --since");
         }
-        let impact = hook_impact::impact(&store.dir.join(hook_stats::DATABASE), rev)?;
+        let impact = hook_impact::impact(
+            &store.dir.join(hook_stats::DATABASE),
+            rev,
+            args.value("repo")?,
+        )?;
         print!("{}", hook_impact::report(&store.project, impact.as_ref()));
         return Ok(());
     }
-    let stats = hook_stats::stats(&store.dir.join(hook_stats::DATABASE), start.unwrap_or(0))?;
-    print!(
-        "{}",
-        hook_stats::report(&store.project, since, stats.as_ref())
-    );
+    let database = store.dir.join(hook_stats::DATABASE);
+    let repos = match args.value("repo")? {
+        Some(repo) => vec![repo.to_string()],
+        None => hook_stats::repos(&database)?,
+    };
+    if repos.is_empty() {
+        println!("project {}: no runs recorded", store.project);
+    }
+    for (at, repo) in repos.iter().enumerate() {
+        let stats = hook_stats::stats(&database, start.unwrap_or(0), repo)?;
+        if at > 0 {
+            println!();
+        }
+        print!(
+            "{}",
+            hook_stats::report(&store.project, repo, since, stats.as_ref())
+        );
+    }
     Ok(())
 }
 
