@@ -2,9 +2,9 @@
 
 Personal coding standards and guidelines for AI coding agents, written by
 [@dminkovsky](https://github.com/dminkovsky). Used by local agents (Claude Code
-via `~/.claude/` symlinks and Codex via `~/.codex/` symlinks). Code review is
-one manual pass by the agent holding the implementation context. Per-rule review
-matrices are deprecated.
+via `~/.claude/` symlinks and Codex via `~/.codex/` symlinks). `builds land`
+reviews every landing against the rules, one reviewer per group of rules, and
+the agent holding the implementation context reviews its own diff once.
 
 ## Layout
 
@@ -108,18 +108,13 @@ and reading rules does not launch reviewers or require model calls.
 
 ## Code review
 
-The agent holding the implementation context reviews the diff itself in one pass
-against the requirements and applicable rules. Fix confirmed findings and verify
-the corrections with relevant checks. Do not dispatch one reviewer per rule or
-run repeated review passes.
+`builds land` reviews every landing before it pushes. `review/groups.toml` puts
+every rule in one group; a group runs when one of its rules covers a changed
+path, and its reviewer answers with a verdict for every rule in the group. A
+finding on a rule with `blocking: true` refuses the landing. The coordinator
+settles each finding with `builds review settle`; `builds help` describes the
+review commands. The agent holding the implementation context still reviews its
+own diff once before it reports.
 
-## Deprecated per-rule review workflows
-
-The per-rule CI matrix, local Codex review matrix, and `code-rules-review` skill
-are deprecated. They are not required before committing, opening a PR, or
-merging. The former instruction to avoid reviewing rules together is withdrawn.
-
-The tooling that ran the matrix is removed. The skill carries a deprecation
-notice instead of instructions to run the matrix.
-`scripts/rules_review/matching_rules.py` finds rule bodies to read; it does not
-run an AI review.
+`scripts/rules_review/matching_rules.py` lists the rule bodies to read while
+writing code. It runs no review.

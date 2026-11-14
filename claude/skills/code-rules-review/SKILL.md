@@ -1,19 +1,26 @@
 ---
 name: code-rules-review
-description: DEPRECATED. Do not run the per-rule review matrix. Review the diff yourself once against the requirements and applicable coding rules.
+description: Review a change against the rules with `builds review`. Use to run the review early, or to settle the findings `builds land` refused a landing for.
 ---
 
-# Deprecated: per-rule code review
+# Review a change against the rules
 
-This skill's per-rule matrix, reviewer dispatch, model selection, and repeated
-review passes are deprecated. Do not use them as a commit, PR, or merge gate.
-The previous instructions to run one reviewer per rule are withdrawn.
+`builds land` reviews every landing against the rules before it pushes. This
+skill is for running that review early, and for settling its findings.
 
-The agent holding the implementation context performs one manual review of the
-diff against the requirements and applicable coding rules. Read the relevant
-source and rule bodies, fix confirmed findings, and verify those corrections
-with relevant checks. Do not launch a matrix or restart an automated review
-sweep.
+- `builds review <worktree> [<base>]` reviews the worktree's commits past
+  `origin/main`. It runs one reviewer per group of rules (`review/groups.toml`
+  in agent-instructions), prints the findings by group and a total line, and
+  exits 1 when a blocking finding stands.
+- Read each finding against the code and the rule it quotes. Fix a real one.
+  Settle each with
+  `builds review settle <finding> confirmed|dropped --why <text>`. A dropped
+  finding stays dropped when a rerun raises it again.
+- `builds review show <landing>` lists every run of a landing and how each
+  finding was settled.
+- Run the same command again after a fix. The rerun asks only the groups that
+  found something and tells them what was settled.
 
-The coding rules remain in force. `matching_rules.py` may still list relevant
-rule files to read; listing them is not a review job.
+Do not run one reviewer per rule yourself, and do not run a rules matrix.
+`scripts/rules_review/matching_rules.py` still lists the rule files to read
+while writing code.

@@ -132,7 +132,13 @@ Commands:
                               failure names every failing check with its
                               output, pushes nothing and puts the worktree
                               back on origin/main. In a repo of a
-                              project of the lists, --done N finishes an item
+                              project of the lists, the result is then
+                              reviewed against the rules (`builds review run`
+                              under the key items:N,M, or design:N): a
+                              blocking finding standing or a reviewer that
+                              failed refuses the landing the same way, naming
+                              the findings and `builds review settle`;
+                              --done N finishes an item
                               and --part N advances one (checked before
                               anything is fetched, recorded after the push);
                               commits that change design places need

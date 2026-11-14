@@ -38,6 +38,15 @@
 //! other. It fails the same way. A fast-forward runs both too: a branch rebased
 //! after its hook ran is a tree no hook has seen.
 //!
+//! A repo of a project then has its result reviewed against the rules
+//! (`builds review run WORKTREE origin/main`, under the landing's key: the
+//! items it names, else its design change). A blocking finding standing, or a
+//! reviewer that failed, refuses the landing the way a failed check does: the
+//! findings and the `builds review settle` command are named, nothing is
+//! pushed, and the worktree goes back to origin/main. The landing goes
+//! through once the findings are fixed or settled as dropped; the rerun asks
+//! only the groups that found something.
+//!
 //! The store's checks and records run as `builds` commands of this same
 //! program, so their output is held back and shown only when one fails.
 
@@ -453,7 +462,49 @@ impl Landing<'_> {
                 ));
             }
         }
+        if self.project.is_some() {
+            let mut line = vec![
+                "review".to_string(),
+                "run".to_string(),
+                self.workdir.display().to_string(),
+                "origin/main".to_string(),
+                "--landing".to_string(),
+                self.review_key(),
+            ];
+            for item in self.request.items.chunks(2) {
+                line.extend(["--item".to_string(), item[1].clone()]);
+            }
+            let (ok, said) = self.run_line(&line);
+            if !ok {
+                return Err(back(
+                    out,
+                    "REVIEW REFUSED the result, nothing pushed: builds review run".to_string(),
+                    said,
+                ));
+            }
+        }
         Ok(())
+    }
+
+    /// What names this landing across its reviews: the items it names, else
+    /// its design change. The commits change when an agent fixes a finding;
+    /// these do not.
+    fn review_key(&self) -> String {
+        let mut items: Vec<&str> = self
+            .request
+            .items
+            .chunks(2)
+            .map(|pair| pair[1].as_str())
+            .collect();
+        items.sort();
+        items.dedup();
+        if !items.is_empty() {
+            return format!("items:{}", items.join(","));
+        }
+        match &self.request.design {
+            Some(design) => format!("design:{design}"),
+            None => format!("commits:{}", self.request.shas.join(",")),
+        }
     }
 
     fn put_on_main(&self, out: &mut dyn Write) -> Result<()> {

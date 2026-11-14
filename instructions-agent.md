@@ -297,13 +297,18 @@ chat.
 against its brief and the rules that apply before landing it. A finding goes
 back to the agent that made it.
 
-**Code review: one manual pass.** The agent holding the implementation context
-reviews the diff itself against the requirements and applicable coding rules.
-Fix confirmed findings and verify those corrections with relevant checks. Do not
-launch one reviewer per rule, run a rules matrix, or repeat automated review
-passes. The per-rule review workflow and `code-rules-review` skill are
-deprecated. Reading applicable rule bodies remains required; it does not require
-a separate reviewer or model call for each rule.
+**Code review: `builds land` reviews every landing.** Before it pushes,
+`builds land` reviews the landing's whole diff against the rules: one reviewer
+per group of rules (`review/groups.toml` in agent-instructions), each answering
+for every rule in its group. A finding on a rule marked `blocking` refuses the
+landing and prints the finding and the command that settles it. The coordinator
+reads every finding and settles it with
+`builds review settle <finding> confirmed|dropped --why <text>`: a confirmed
+finding goes back to the agent that made it, and a dropped finding stays dropped
+when the rerun raises it again. The agent holding the implementation context
+still reviews its own diff once before it reports, and
+`builds review <worktree>` runs the same review early. Reading the bodies of the
+applicable rules remains required.
 
 **One small PR per task when dispatching agents.** Tell agents with multiple
 tasks to execute serially, one small PR per task — preferably each into main,

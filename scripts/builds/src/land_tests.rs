@@ -632,3 +632,71 @@ fn a_leftover_land_checks_file_refuses_the_landing() {
     );
     assert_eq!(main_of(&f), old);
 }
+
+#[test]
+fn a_review_that_refuses_the_result_stops_the_landing_before_the_push() {
+    let f = fixture("land-review-refuses", "true\n", None);
+    let (a, _b) = two_sibling_commits(&f);
+    let land = f.land.display();
+    let (code, out, calls) = run_land(
+        &f,
+        &["--done", "7", &a],
+        Cues {
+            refuse: "review run",
+            says: "1 blocking finding the review does not accept:\nbuilds review settle <finding> confirmed|dropped --why TEXT",
+            ..project()
+        },
+    );
+    assert!(
+        code == 1
+            && out.contains("REVIEW REFUSED")
+            && out.contains("builds review settle <finding>")
+            && main_of(&f) != a,
+        "{out}"
+    );
+    assert!(calls.contains(&format!(
+        "review run {land} origin/main --landing items:7 --item 7"
+    )));
+    // Nothing is recorded, and the worktree is back on origin/main.
+    assert!(!calls.iter().any(|c| c.starts_with("item landed")));
+    assert_eq!(git_out(&f.land, &["rev-parse", "HEAD"]), main_of(&f));
+}
+
+#[test]
+fn a_passing_review_runs_after_the_checks_under_the_items_key_and_lets_the_landing_through() {
+    let f = fixture("land-review-passes", "true\n", None);
+    let (a, _b) = two_sibling_commits(&f);
+    let land = f.land.display();
+    let (code, _, calls) = run_land(&f, &["--done", "7", "--part", "3", &a], project());
+    assert!(code == 0 && main_of(&f) == a);
+    let review = calls
+        .iter()
+        .position(|c| c.starts_with("review run"))
+        .expect("the result is reviewed");
+    assert_eq!(
+        calls[review],
+        format!("review run {land} origin/main --landing items:3,7 --item 7 --item 3")
+    );
+    assert!(
+        calls
+            .iter()
+            .position(|c| c.starts_with("item landed"))
+            .unwrap()
+            > review
+    );
+}
+
+#[test]
+fn a_failing_check_stops_the_landing_before_the_review_and_a_repo_in_no_project_has_none() {
+    let f = fixture("land-review-order", CHECK, None);
+    let (a, b) = two_sibling_commits(&f);
+    run_land(&f, &["--done", "7", &a], project());
+    let (code, _, calls) = run_land(&f, &["--done", "8", &b], project());
+    assert_eq!(code, 1);
+    assert!(!calls.iter().any(|c| c.starts_with("review run")));
+    let g = fixture("land-review-none", "true\n", None);
+    let (a, _b) = two_sibling_commits(&g);
+    let (code, _, calls) = run_land(&g, &[&a], Cues::default());
+    assert_eq!(code, 0);
+    assert!(!calls.iter().any(|c| c.starts_with("review")));
+}
