@@ -74,6 +74,23 @@ impl Server {
         (status, reply.split_once("\r\n\r\n").unwrap().1.to_string())
     }
 
+    /// The status code and body of a POST of <body> to <path>.
+    fn post_to(&self, path: &str, host: &str, origin: Option<&str>, body: &str) -> (u16, String) {
+        let origin = origin
+            .map(|o| format!("Origin: {o}\r\n"))
+            .unwrap_or_default();
+        let request = format!(
+            "POST {path} HTTP/1.1\r\nHost: {host}\r\n{origin}Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        stream.write_all(request.as_bytes()).unwrap();
+        let mut reply = String::new();
+        stream.read_to_string(&mut reply).unwrap();
+        let status = reply.split_whitespace().nth(1).unwrap().parse().unwrap();
+        (status, reply.split_once("\r\n\r\n").unwrap().1.to_string())
+    }
+
     fn own(&self, body: &str) -> (u16, String) {
         let origin = format!("http://127.0.0.1:{}", self.port);
         self.post(&format!("127.0.0.1:{}", self.port), Some(&origin), body)
@@ -94,31 +111,42 @@ const MAC: &str = r#"{"repo":"demo","lane":"mac","ref":"my-branch"}"#;
 const ALSO: &str = "192.0.2.7";
 
 #[test]
-fn the_page_answers_at_an_address_it_also_listens_on() {
+fn the_page_at_an_address_it_also_listens_on_changes_nothing() {
     let s = server("http-also");
     let also = format!("{ALSO}:{}", s.port);
     let origin = format!("http://{also}");
-    assert_ne!(
-        s.post(&also, Some(&origin), MAC).0,
-        403,
-        "the host and origin of the other address"
+    let local = format!("127.0.0.1:{}", s.port);
+    let local_origin = format!("http://{local}");
+    // Every route that changes state is only on this Mac: the other address's
+    // own host and origin pass the header checks and are still refused.
+    for (path, body) in [("/api/build-app", MAC), ("/api/queue", "{}")] {
+        for (host, origin) in [
+            (also.as_str(), Some(origin.as_str())),
+            (also.as_str(), Some(local_origin.as_str())),
+            (local.as_str(), Some(origin.as_str())),
+            (&format!("192.0.2.8:{}", s.port), Some(origin.as_str())),
+        ] {
+            let (status, reply) = s.post_to(path, host, origin, body);
+            assert_eq!(status, 403, "{path} {host} {origin:?}");
+            if host == also || host == local {
+                assert!(reply.contains("only on this Mac"), "{reply}");
+            }
+        }
+    }
+    assert!(s.run().is_none(), "no build started");
+    // From this Mac the same routes get past the check (a bad queue request
+    // is then its own error).
+    let (status, reply) = s.post_to("/api/queue", &local, Some(&local_origin), "{}");
+    assert_ne!(status, 403, "{reply}");
+    assert!(reply.contains("the request"), "{reply}");
+    let localhost = format!("localhost:{}", s.port);
+    let (status, _) = s.post_to(
+        "/api/queue",
+        &localhost,
+        Some(&format!("http://{localhost}")),
+        "{}",
     );
-    assert_eq!(
-        s.post(
-            &also,
-            Some(&format!("http://127.0.0.1:{}", s.port + 1)),
-            MAC
-        )
-        .0,
-        403,
-        "another origin at the other address"
-    );
-    assert_eq!(
-        s.post(&format!("192.0.2.8:{}", s.port), Some(&origin), MAC)
-            .0,
-        403,
-        "an address it doesn't listen on"
-    );
+    assert_ne!(status, 403, "localhost is this Mac too");
 }
 
 #[test]
@@ -526,4 +554,103 @@ fn the_approve_button_works_only_from_the_page_at_this_mac_and_tells_the_recordi
     // The page's own data never carries the token.
     let (_, _, page) = s.get("/design/1");
     assert!(!page.contains("tok-9c1d"));
+}
+
+/// The one gate: a request that changes state passes only from a loopback
+/// peer with a loopback Host and Origin among the daemon's own names, whatever
+/// the route; a read passes from anywhere the Host check allows.
+#[test]
+fn a_peer_that_is_not_loopback_changes_nothing_on_any_route_that_changes_state() {
+    let names: Vec<String> = vec![
+        "127.0.0.1:7787".into(),
+        "localhost:7787".into(),
+        "[::1]:7787".into(),
+        "192.0.2.7:7787".into(),
+    ];
+    let asker = |here: bool, host: &'static str, origin: Option<&'static str>| {
+        let asker = Asker {
+            here,
+            host: Some(host),
+            origin,
+            names: &names,
+        };
+        // Borrow-free copy of the pieces the closure needs.
+        (asker.here, asker.host, asker.origin)
+    };
+    let check = |method: &str, here: bool, host: &'static str, origin: Option<&'static str>| {
+        let (here, host, origin) = asker(here, host, origin);
+        allowed(
+            method,
+            &Asker {
+                here,
+                host,
+                origin,
+                names: &names,
+            },
+        )
+    };
+    let routes = ["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "SOMETHING"];
+    for method in routes {
+        assert!(
+            check(
+                method,
+                true,
+                "127.0.0.1:7787",
+                Some("http://127.0.0.1:7787")
+            ),
+            "{method} from this Mac"
+        );
+        assert!(check(
+            method,
+            true,
+            "localhost:7787",
+            Some("http://localhost:7787")
+        ));
+        assert!(check(method, true, "[::1]:7787", Some("http://[::1]:7787")));
+        // A peer that is not loopback, with every header right: refused.
+        assert!(
+            !check(
+                method,
+                false,
+                "127.0.0.1:7787",
+                Some("http://127.0.0.1:7787")
+            ),
+            "{method} from another machine with forged loopback headers"
+        );
+        assert!(!check(
+            method,
+            false,
+            "localhost:7787",
+            Some("http://localhost:7787")
+        ));
+        assert!(!check(
+            method,
+            false,
+            "192.0.2.7:7787",
+            Some("http://192.0.2.7:7787")
+        ));
+        // A loopback peer on a page served at another address, or no origin.
+        assert!(!check(
+            method,
+            true,
+            "192.0.2.7:7787",
+            Some("http://192.0.2.7:7787")
+        ));
+        assert!(!check(method, true, "127.0.0.1:7787", None));
+        assert!(!check(
+            method,
+            true,
+            "127.0.0.1:7787",
+            Some("http://evil.example")
+        ));
+    }
+    for method in ["GET", "HEAD"] {
+        assert!(
+            check(method, false, "192.0.2.7:7787", None),
+            "{method} reads"
+        );
+    }
+    // The routes that change state, by path: `handle` gates by method before it
+    // looks at the path, so these are refused before they run.
+    assert_eq!(design_approve_id("/design/3/approve"), Some(3));
 }

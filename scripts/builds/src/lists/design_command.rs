@@ -29,12 +29,17 @@ pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
 
 /// A design command's output, which `cmd_design` prints.
 pub fn run_to_text(tool: &Tool, args: &[String]) -> Result<String> {
-    run_in_session(tool, args, Messaging::from_env()?)
+    run_in_session(tool, args, Messaging::from_env)
 }
 
-/// A design command run by the session whose inbox is <session>, if any: the
-/// commands that record a change keep it as the session to tell.
-pub fn run_in_session(tool: &Tool, args: &[String], session: Option<Messaging>) -> Result<String> {
+/// A design command run by the session whose inbox <session> reads, if any:
+/// only `record` and `amend` call it, and keep the inbox as the session to
+/// tell, so no other command depends on the environment.
+pub fn run_in_session(
+    tool: &Tool,
+    args: &[String],
+    session: impl FnOnce() -> Result<Option<Messaging>>,
+) -> Result<String> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
     let Some((command, rest)) = args.split_first() else {
         fail!("{USAGE}")
@@ -42,8 +47,8 @@ pub fn run_in_session(tool: &Tool, args: &[String], session: Option<Messaging>) 
     match command.as_str() {
         "places" => places(tool, rest),
         "only" => only(tool, rest),
-        "record" => record(tool, rest, &cwd, session.as_ref()),
-        "amend" => amend(tool, rest, &cwd, session.as_ref()),
+        "record" => record(tool, rest, &cwd, session()?.as_ref()),
+        "amend" => amend(tool, rest, &cwd, session()?.as_ref()),
         "approve" => approve(tool, rest, &cwd),
         "check" => check(tool, rest),
         "landed" => landed(tool, rest, &cwd),

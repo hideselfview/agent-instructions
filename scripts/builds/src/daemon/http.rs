@@ -1,11 +1,14 @@
-//! The page's server: a few GET routes on 127.0.0.1, one POST route, and one
+//! The page's server: a few GET routes on 127.0.0.1, three POST routes, and one
 //! stream of server-sent events per open page. A request whose Host isn't
 //! this server's own address is refused, so a page from elsewhere that
 //! resolves its name to 127.0.0.1 can't read these; a POST whose Origin isn't
 //! the page's own is refused too, so a web page can't trigger it. (A browser
 //! sends the real Origin on every cross-site POST and a page can't change it,
 //! so no token is needed; a POST with no Origin, which a browser never sends,
-//! is refused as well.)
+//! is refused as well.) Headers can be forged by anyone who can reach the
+//! server, so every POST also requires a loopback peer address and a loopback
+//! Host and Origin (`from_this_mac`): the dashboard may listen on the Wi-Fi's
+//! address, where the page is only to look at.
 //!
 //!     /             the page (page.html, built into the binary)
 //!     /api/state    the whole state as JSON
@@ -120,15 +123,18 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         );
     }
     let path = target.split('?').next().unwrap_or("");
+    if !allowed(
+        method,
+        &Asker {
+            here: stream.peer_addr().is_ok_and(|peer| peer.ip().is_loopback()),
+            host: host.as_deref(),
+            origin: origin.as_deref(),
+            names,
+        },
+    ) {
+        return refuse_not_here(&mut stream);
+    }
     if method == "POST" && (path == "/api/queue" || path == "/api/build-app") {
-        if !from_own_page(origin.as_deref(), names) {
-            return respond(
-                &mut stream,
-                "403 Forbidden",
-                "text/plain; charset=utf-8",
-                b"only from the page itself\n",
-            );
-        }
         if length > MAX_BODY {
             return respond(
                 &mut stream,
@@ -146,23 +152,9 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         );
     }
     if method == "POST"
-        && let Some(id) = path
-            .strip_prefix("/design/")
-            .and_then(|rest| rest.strip_suffix("/approve"))
-            .and_then(|id| id.parse::<u32>().ok())
+        && let Some(id) = design_approve_id(path)
     {
-        let here = stream.peer_addr().is_ok_and(|peer| peer.ip().is_loopback());
-        return approve(
-            &mut stream,
-            model,
-            id,
-            Approver {
-                here,
-                host: host.as_deref(),
-                origin: origin.as_deref(),
-                names,
-            },
-        );
+        return approve(&mut stream, model, id);
     }
     if method != "GET" {
         return respond(
@@ -282,8 +274,8 @@ fn from_own_page(origin: Option<&str>, names: &[String]) -> bool {
     })
 }
 
-/// Who is asking to approve a design change.
-struct Approver<'a> {
+/// Who is asking for a change of state.
+struct Asker<'a> {
     /// The connection came from a loopback address, which no request from
     /// another machine does whatever headers it sends.
     here: bool,
@@ -292,41 +284,63 @@ struct Approver<'a> {
     names: &'a [String],
 }
 
-/// Is <name> (`host:port`) this Mac, as 127.0.0.1 or localhost?
+/// Is <name> (`host:port`) this Mac, as 127.0.0.1, localhost or [::1]?
 fn is_this_mac(name: &str) -> bool {
     let host = name.rsplit_once(':').map_or(name, |(host, _)| host);
-    host == "127.0.0.1" || host == "localhost"
+    host == "127.0.0.1" || host == "localhost" || host == "[::1]"
+}
+
+/// Does <asker> come from this Mac: a loopback peer address, and the page
+/// served at a loopback name as both its Host and its Origin (one of the
+/// names the daemon answers to)? Every route that changes state requires it,
+/// since the Host and Origin headers alone can be forged by anyone who can
+/// reach the dashboard when it listens on the Wi-Fi's address.
+fn from_this_mac(asker: &Asker<'_>) -> bool {
+    asker.here
+        && asker.host.is_some_and(is_this_mac)
+        && from_own_page(asker.origin, asker.names)
+        && asker
+            .origin
+            .and_then(|origin| origin.strip_prefix("http://"))
+            .is_some_and(is_this_mac)
+}
+
+/// Is a <method> request by <asker> allowed past the one gate before every
+/// route: a request that changes state must come from this Mac.
+fn allowed(method: &str, asker: &Asker<'_>) -> bool {
+    !changes_state(method) || from_this_mac(asker)
+}
+
+/// Does a request change state? Every method but GET and HEAD may, so a route
+/// added later is covered: `handle` requires `from_this_mac` of each before it
+/// reaches any route.
+fn changes_state(method: &str) -> bool {
+    method != "GET" && method != "HEAD"
+}
+
+/// The design change id of `/design/<id>/approve`.
+fn design_approve_id(path: &str) -> Option<u32> {
+    path.strip_prefix("/design/")
+        .and_then(|rest| rest.strip_suffix("/approve"))
+        .and_then(|id| id.parse().ok())
+}
+
+fn refuse_not_here(stream: &mut TcpStream) -> std::io::Result<()> {
+    respond(
+        stream,
+        "403 Forbidden",
+        "application/json",
+        serde_json::json!({ "error": "only on this Mac, from the dashboard at 127.0.0.1 or localhost" })
+            .to_string()
+            .as_bytes(),
+    )
 }
 
 /// Records the person's approval of design change <id> and tells the session
 /// that recorded it (`POST /design/N/approve`). Only the person at this Mac
-/// approves: the connection must come from a loopback address, with the page
-/// served at 127.0.0.1 or localhost as both its Host and its Origin, so a
-/// browser on another machine, or a web page, cannot. Answers `{"approved":
-/// true, "already": bool, "session": null|"unrecorded"|"told"|"ended"}`.
-fn approve(
-    stream: &mut TcpStream,
-    model: &Model,
-    id: u32,
-    by: Approver<'_>,
-) -> std::io::Result<()> {
-    let this_mac = by.here
-        && by.host.is_some_and(is_this_mac)
-        && from_own_page(by.origin, by.names)
-        && by
-            .origin
-            .and_then(|origin| origin.strip_prefix("http://"))
-            .is_some_and(is_this_mac);
-    if !this_mac {
-        return respond(
-            stream,
-            "403 Forbidden",
-            "application/json",
-            serde_json::json!({ "error": "approval is only on this Mac, from the dashboard at 127.0.0.1 or localhost" })
-                .to_string()
-                .as_bytes(),
-        );
-    }
+/// approves (`handle` checks `from_this_mac`). Answers `{"approved": true, "already": bool,
+/// "session": null|"unrecorded"|"told"|"ended"}`.
+fn approve(stream: &mut TcpStream, model: &Model, id: u32) -> std::io::Result<()> {
     use crate::lists::design_session::Approval;
     let answer = super::approve::approve_design(&model.places, super::model::now_seconds(), id)
         .map(|approval| {

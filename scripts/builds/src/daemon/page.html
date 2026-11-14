@@ -440,6 +440,11 @@ function split(repo) {
   return {sides};
 }
 
+// The controls that change state work only on the page served at 127.0.0.1 or
+// localhost on this Mac: the daemon refuses them from any other address, so
+// another address shows them as only on this Mac.
+const here = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+const ONLY_HERE = "Only on this Mac";
 // Who waits for the app lock, next first, each with the buttons that move it.
 function queuedName(q) {
   return q.command.includes("build-app") ? "Your test app" : (q.started_from || "?").split("/").pop();
@@ -479,8 +484,10 @@ function queueList(repo, lane) {
     h("span", {class: "label"}, "Waiting for whichever " + lane + " checkout frees first"),
     queue.length ? queue.map((q, i) => h("div", {class: "qrow"},
       h("span", {class: "queued", title: q.command}, (i + 1) + ". " + queuedName(q) + (q.minutes ? " · " + q.minutes + "m" : "")),
-      i > 0 ? h("button", {type: "button", class: "qbtn", onclick: () => queueAction("top", lock, q)}, "Move to top") : null,
-      h("button", {type: "button", class: "qbtn danger", onclick: () => takeOver(holders, free, lock, q)}, "Take over")))
+      here ? [
+        i > 0 ? h("button", {type: "button", class: "qbtn", onclick: () => queueAction("top", lock, q)}, "Move to top") : null,
+        h("button", {type: "button", class: "qbtn danger", onclick: () => takeOver(holders, free, lock, q)}, "Take over")]
+        : h("span", {class: "queued"}, ONLY_HERE)))
       : h("span", {}, "Nothing waiting"));
 }
 
@@ -666,10 +673,10 @@ function laneCard(repo, ab) {
       h("span", {class: "qn"}, String(waiting)),
       h("span", {class: "qw", role: "button", tabindex: "0", title: "Click to reorder or take out a waiting build", onclick: toggle(openQueue),
         onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(openQueue)(); } }}, "waiting"),
-      h("button", {type: "button", class: "qbtn", title: "builds build-app " + repo.name + " " + ab.lane + " [ref]: build a ref here, default origin/main",
-        onclick: toggle(openBuild)}, "Build…")),
+      here ? h("button", {type: "button", class: "qbtn", title: "builds build-app " + repo.name + " " + ab.lane + " [ref]: build a ref here, default origin/main",
+        onclick: toggle(openBuild)}, "Build…") : h("span", {class: "queued"}, "Build: " + ONLY_HERE.toLowerCase())),
     openQueue.has(key) ? queueList(repo, ab.lane) : null,
-    openBuild.has(key) ? buildPanelOf(repo, ab.lane).el : null);
+    here && openBuild.has(key) ? buildPanelOf(repo, ab.lane).el : null);
 }
 
 // Puts <items> ({key, data, make}) in <parent> in order, keeping each

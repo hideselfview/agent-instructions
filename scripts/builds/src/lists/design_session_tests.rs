@@ -222,7 +222,7 @@ fn record_and_amend_keep_the_recording_sessions_inbox() {
             "--project".into(),
             "demo".into(),
         ]);
-        run_in_session(&tool, &args, session)
+        run_in_session(&tool, &args, || Ok(session))
     };
     let request = |body: serde_json::Value| {
         let file = scratch.dir.join("request.json");
@@ -258,4 +258,27 @@ fn record_and_amend_keep_the_recording_sessions_inbox() {
     let after = store.load().unwrap();
     assert_eq!(after.designs[0].session, SessionState::Waiting);
     assert!(after.designs[0].approved.is_none());
+}
+
+/// The messaging environment is read only by `record` and `amend`: a
+/// malformed inbox never fails another command.
+#[test]
+fn only_record_and_amend_read_the_messaging_environment() {
+    let h = held("session-env");
+    let tool = h.scratch.tool(0);
+    let broken = || -> Result<Option<Messaging>> { fail!("the environment was read") };
+    let args = |words: &[&str]| -> Vec<String> {
+        words
+            .iter()
+            .map(|w| w.to_string())
+            .chain(["--project".to_string(), "demo".to_string()])
+            .collect()
+    };
+    assert!(run_in_session(&tool, &args(&["show", "1"]), broken).is_ok());
+    assert!(run_in_session(&tool, &args(&["list"]), broken).is_ok());
+    let refused = run_in_session(&tool, &args(&["record", "--request", "-"]), broken)
+        .unwrap_err()
+        .text();
+    assert!(refused.contains("the environment was read"), "{refused}");
+    assert!(Messaging::new("cc.sock", None).is_err());
 }
