@@ -177,7 +177,8 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
     let scratch = Scratch::new("daemon-hooks");
     let places = scratch.places();
     let store = make_store(&places, &["bae", "coven"]);
-    let feed = Feed::start(places);
+    // The window ends an hour after the run below, whatever the date is.
+    let feed = Feed::start_with_clock(places, Box::new(|| NOON + 3600));
     let (version, _) = feed.current();
     let before = feed.hooks();
     assert!(before.contains("\"repos\":[]"), "{before}");
@@ -219,18 +220,18 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
 
 #[test]
 fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
-    use crate::app_timing::{DATABASE, RunRecord, StepKind, StepRecord, StepResult, now, record};
+    use crate::app_timing::{DATABASE, RunRecord, StepKind, StepRecord, StepResult, record};
     let scratch = Scratch::new("daemon-app-timing");
     let places = scratch.places();
     let store = make_store(&places, &["bae", "coven"]);
-    let feed = Feed::start(places);
+    let feed = Feed::start_with_clock(places, Box::new(|| NOON));
     let before = feed.hooks();
     assert!(!before.contains("side-4"), "{before}");
     let (sent, moved) = mpsc::channel();
     feed.listen(Box::new(move || {
         let _ = sent.send(());
     }));
-    let at = now() - 60;
+    let at = NOON - 60;
     let run = RunRecord {
         started_at: at,
         repo: "bae".into(),

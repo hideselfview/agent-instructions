@@ -29,6 +29,9 @@ pub struct Feed {
     current: Mutex<(u64, Arc<Snapshot>)>,
     /// The hook runs' JSON (hook_stats.rs) as the last read built it.
     hooks: Mutex<Arc<String>>,
+    /// The time the hook runs' 12-hour window ends at, in seconds since
+    /// 1970; the wall clock, except in a test that sets it.
+    clock: Box<dyn Fn() -> i64 + Send + Sync>,
     dirty: AtomicBool,
     wake: Condvar,
     wake_lock: Mutex<()>,
@@ -41,6 +44,14 @@ impl Feed {
     /// made or followed is said on stderr, as the model does for the
     /// checkouts, and the stores are still served as read at start.
     pub fn start(places: Places) -> Arc<Feed> {
+        Feed::start_with_clock(places, Box::new(crate::app_timing::now))
+    }
+
+    /// `start`, with <clock> telling the time the hook runs' window ends at.
+    pub fn start_with_clock(
+        places: Places,
+        clock: Box<dyn Fn() -> i64 + Send + Sync>,
+    ) -> Arc<Feed> {
         let dir: PathBuf = places.lists.clone();
         if let Err(error) = std::fs::create_dir_all(&dir) {
             eprintln!("builds: creating {}: {error}", dir.display());
@@ -50,7 +61,11 @@ impl Feed {
         let since = Stream::current_event_id();
         let feed = Arc::new(Feed {
             current: Mutex::new((1, Arc::new(load_all(&places)))),
-            hooks: Mutex::new(Arc::new(crate::hook_stats::dashboard_json(&places))),
+            hooks: Mutex::new(Arc::new(crate::hook_stats::dashboard_json_at(
+                &places,
+                clock(),
+            ))),
+            clock,
             places,
             dirty: AtomicBool::new(false),
             wake: Condvar::new(),
@@ -122,7 +137,7 @@ impl Feed {
     fn read(&self) {
         let previous = self.current.lock().expect("no panic holding it").1.clone();
         let (read, stores_changed) = reload(&self.places, &previous);
-        let hooks = crate::hook_stats::dashboard_json(&self.places);
+        let hooks = crate::hook_stats::dashboard_json_at(&self.places, (self.clock)());
         let mut changed = false;
         if stores_changed {
             let mut current = self.current.lock().expect("no panic holding it");

@@ -810,38 +810,30 @@ fn repo_json(repo: &str, path: &Path, since: i64) -> serde_json::Value {
     }
 }
 
-/// The dashboard's JSON for one project: each repo with runs in it, apart, or
-/// `error` when the database can't be read.
-fn project_json(project: &str, path: &Path, since: i64) -> serde_json::Value {
+/// The dashboard's JSON for one project as of <now>: each repo with runs in
+/// it, apart, or `error` when the database can't be read.
+fn project_json(project: &str, path: &Path, now: i64) -> serde_json::Value {
+    let since = now - DASHBOARD_WINDOW_SECONDS;
     match repos(path) {
         Ok(repos) => serde_json::json!({
             "project": project,
             "repos": repos.iter().map(|repo| repo_json(repo, path, since)).collect::<Vec<_>>(),
-            "app_builds": crate::app_timing::dashboard_json(path, crate::app_timing::now()),
+            "app_builds": crate::app_timing::dashboard_json(path, now),
         }),
         Err(error) => serde_json::json!({ "project": project, "error": error.text() }),
     }
 }
 
 /// The dashboard's JSON for every project with a store: `{"projects": [...]}`,
-/// or `{"error"}` when the stores' folder can't be listed.
-pub fn dashboard_json(places: &crate::places::Places) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("the clock is after 1970")
-        .as_secs() as i64;
-    dashboard_json_at(places, now)
-}
-
-/// `dashboard_json` as of <now> (seconds since 1970): only runs that started
-/// in the 12 hours before it count.
+/// or `{"error"}` when the stores' folder can't be listed, as of <now>
+/// (seconds since 1970): only runs that started in the 12 hours before it
+/// count.
 pub fn dashboard_json_at(places: &crate::places::Places, now: i64) -> String {
-    let since = now - DASHBOARD_WINDOW_SECONDS;
     let value = match crate::lists::store::stores(places) {
         Ok(stores) => {
             let projects: Vec<serde_json::Value> = stores
                 .iter()
-                .map(|store| project_json(&store.project, &store.dir.join(DATABASE), since))
+                .map(|store| project_json(&store.project, &store.dir.join(DATABASE), now))
                 .collect();
             serde_json::json!({ "projects": projects })
         }
