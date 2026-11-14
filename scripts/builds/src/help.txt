@@ -306,9 +306,14 @@ runs whole whenever a matching file is staged.
                               output too) and the run's total time. Every
                               line runs even after one fails; the exit
                               status is non-zero if any did. A fix
-                              stages again the files it changed, but refuses,
-                              naming the file and staging nothing, when a
-                              file it changed also had unstaged changes.
+                              stages again the files it changed. Before any
+                              line runs the run refuses, naming each file,
+                              when a staged file also has unstaged changes
+                              (the checks read the working tree, so they
+                              would not check what is committed); unstaged
+                              changes to files that are not staged are fine.
+                              A refused run is recorded as a failed run with
+                              no checks.
                               The run is recorded in builds.sqlite in the
                               project's store folder (the database that also holds the lists): when,
                               repo, worktree, branch, the commit HEAD pointed

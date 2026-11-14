@@ -337,7 +337,20 @@ pub fn run_staged(top: &Path, log: Option<&Path>) -> Result<()> {
 
 fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result<()> {
     let lines = load(top)?;
-    let picked = plan(top, &lines, &[Kind::Check, Kind::Fix], &staged(top)?, false)?;
+    let staged = staged(top)?;
+    let partly = unstaged_among(top, &staged)?;
+    if !partly.is_empty() {
+        fail!(
+            "refusing to run: {} staged and also changed in the working tree after staging: {}. The checks read the working tree, so they would not check what is committed; stage the rest of each file or put it aside (git add -p, git restore -p), then commit again",
+            if partly.len() == 1 {
+                "this file is"
+            } else {
+                "these files are"
+            },
+            partly.join(", ")
+        );
+    }
+    let picked = plan(top, &lines, &[Kind::Check, Kind::Fix], &staged, false)?;
     if let Some(run) = run.as_deref_mut() {
         run.plan_ms = millis(started.elapsed());
         run.checks = lines
@@ -356,7 +369,6 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
         return Ok(());
     }
     let mut failed: Vec<&str> = Vec::new();
-    let mut refusals: Vec<String> = Vec::new();
     for planned in &picked {
         let name = planned.line.name.as_str();
         let before: Vec<(String, Option<u64>)> = match planned.line.kind {
@@ -367,25 +379,15 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
                 .collect(),
             _ => Vec::new(),
         };
-        let unstaged = if before.is_empty() {
-            Vec::new()
-        } else {
-            unstaged_among(top, &planned.files)?
-        };
         let ran = execute(top, planned, false)?;
-        let mut problem = (!ran.ok).then(|| ran.output.clone());
+        let problem = (!ran.ok).then(|| ran.output.clone());
         if ran.ok && planned.line.kind == Kind::Fix {
             let changed: Vec<String> = before
                 .into_iter()
                 .filter(|(file, was)| fingerprint(top, file) != *was)
                 .map(|(file, _)| file)
                 .collect();
-            if let Some(partial) = changed.iter().find(|file| unstaged.contains(file)) {
-                problem = Some(String::new());
-                refusals.push(format!(
-                    "{name} changed {partial}, which has changes that are not staged; staging it would add them to the commit, so nothing was staged. Stage or stash the rest of the file and commit again"
-                ));
-            } else if !changed.is_empty() {
+            if !changed.is_empty() {
                 git_text(
                     git(top).args(["add", "--"]).args(&changed),
                     "stage the files a fix changed",
@@ -443,14 +445,7 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
     if failed.is_empty() {
         Ok(())
     } else {
-        Err(Fail::Message(format!(
-            "failed: {}{}",
-            failed.join(", "),
-            refusals
-                .iter()
-                .map(|r| format!("\n{r}"))
-                .collect::<String>()
-        )))
+        Err(Fail::Message(format!("failed: {}", failed.join(", "))))
     }
 }
 

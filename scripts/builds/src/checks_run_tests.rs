@@ -115,29 +115,80 @@ fn a_fix_stages_again_the_files_it_changed() {
 }
 
 #[test]
-fn a_fix_refuses_a_changed_file_that_had_unstaged_changes_and_stages_nothing() {
+fn a_partly_staged_file_is_refused_by_name_before_any_check_runs() {
     let scratch = Scratch::new("run-partial");
-    let top = repo(&scratch, "fix fmt *.txt tools/format.sh {files}\n");
+    let top = repo(
+        &scratch,
+        "fix fmt *.txt tools/format.sh {files}\ncheck ok *.txt tools/ok.sh {files}\n",
+    );
     stage(&top, "a.txt", "staged");
     stage(&top, "b.txt", "other");
     std::fs::write(top.join("a.txt"), "staged\nmore, not staged").unwrap();
     let error = run_staged(&top, None).unwrap_err().text();
     assert!(
-        error.contains("a.txt") && error.contains("not staged"),
+        error.contains("a.txt") && !error.contains("b.txt"),
         "{error}"
     );
+    assert_eq!(log(&top), "");
     assert_eq!(staged_content(&top, "a.txt"), "staged");
-    assert_eq!(staged_content(&top, "b.txt"), "other");
+    assert_eq!(
+        std::fs::read_to_string(top.join("a.txt")).unwrap(),
+        "staged\nmore, not staged"
+    );
 }
 
 #[test]
-fn a_fix_that_leaves_a_partly_staged_file_alone_is_fine() {
-    let scratch = Scratch::new("run-partial-same");
-    let top = repo(&scratch, "fix fmt *.txt tools/second.sh {files}\n");
+fn every_partly_staged_file_is_named() {
+    let scratch = Scratch::new("run-partial-all");
+    let top = repo(&scratch, "check ok *.txt tools/ok.sh {files}\n");
+    stage(&top, "a.txt", "1");
+    stage(&top, "b.txt", "2");
+    std::fs::write(top.join("a.txt"), "1+").unwrap();
+    std::fs::write(top.join("b.txt"), "2+").unwrap();
+    let error = run_staged(&top, None).unwrap_err().text();
+    assert!(
+        error.contains("a.txt") && error.contains("b.txt"),
+        "{error}"
+    );
+}
+
+#[test]
+fn an_unstaged_file_beside_a_staged_one_is_allowed() {
+    let scratch = Scratch::new("run-unstaged-other");
+    let top = repo(&scratch, "check ok *.txt tools/ok.sh {files}\n");
+    stage(&top, "a.txt", "staged");
+    std::fs::write(
+        top.join(".checks"),
+        "check ok *.txt tools/ok.sh {files}\n# wip\n",
+    )
+    .unwrap();
+    std::fs::write(top.join("untracked.txt"), "x").unwrap();
+    run_staged(&top, None).unwrap();
+    assert_eq!(log(&top), "ok a.txt\n");
+}
+
+#[test]
+fn a_fully_staged_file_is_allowed() {
+    let scratch = Scratch::new("run-fully-staged");
+    let top = repo(&scratch, "check ok *.txt tools/ok.sh {files}\n");
+    stage(&top, "a.txt", "staged");
+    run_staged(&top, None).unwrap();
+    assert_eq!(log(&top), "ok a.txt\n");
+}
+
+#[test]
+fn a_refused_run_is_recorded_as_failed_with_no_checks() {
+    let scratch = Scratch::new("run-partial-record");
+    let top = repo(&scratch, "check ok *.txt tools/ok.sh {files}\n");
+    let log_path = recorded(&scratch);
     stage(&top, "a.txt", "staged");
     std::fs::write(top.join("a.txt"), "staged\nmore").unwrap();
-    run_staged(&top, None).unwrap();
-    assert_eq!(staged_content(&top, "a.txt"), "staged");
+    run_staged(&top, Some(&log_path)).unwrap_err();
+    let runs = recorded_runs(&log_path);
+    assert_eq!(runs.len(), 1);
+    assert!(!runs[0].passed);
+    assert!(runs[0].checks.is_empty());
+    assert_eq!(runs[0].files.len(), 1);
 }
 
 #[test]
