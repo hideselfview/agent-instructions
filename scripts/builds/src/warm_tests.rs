@@ -215,18 +215,48 @@ fn a_source_a_build_holds_is_passed_over_and_the_last_one_is_waited_for() {
     assert!(acquire(&[]).unwrap().is_none());
 }
 
+/// Runs <name>, one of this file's tests, alone in a new process of the test
+/// binary. A process another test spawns holds a copy of every open file of
+/// its parent from the fork until the exec, and a lock a file holds stays held
+/// while any copy is open, so a test that takes a lock and then checks it came
+/// free can only check that in a process where no other test spawns.
+fn alone_in_a_process(name: &str, body: impl FnOnce()) {
+    const MARK: &str = "BUILDS_TEST_ALONE";
+    if std::env::var_os(MARK).is_some() {
+        body();
+        return;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            &format!("warm::tests::{name}"),
+            "--test-threads=1",
+        ])
+        .env(MARK, "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn a_source_a_hand_run_cargo_holds_is_passed_over() {
-    let scratch = Scratch::new("warm-cargo-lock");
-    let tool = scratch.tool(0);
-    let (_, source) = warm_main(&scratch, &tool);
-    let lock = source.join("debug/.cargo-lock");
-    std::fs::write(&lock, "").unwrap();
-    let hand = crate::evict::try_lock(&lock).unwrap().expect("free");
-    let candidate = candidate_at(source.parent().unwrap());
-    assert!(try_hold(&candidate).unwrap().is_none());
-    drop(hand);
-    assert!(try_hold(&candidate).unwrap().is_some());
+    alone_in_a_process("a_source_a_hand_run_cargo_holds_is_passed_over", || {
+        let scratch = Scratch::new("warm-cargo-lock");
+        let tool = scratch.tool(0);
+        let (_, source) = warm_main(&scratch, &tool);
+        let lock = source.join("debug/.cargo-lock");
+        std::fs::write(&lock, "").unwrap();
+        let hand = crate::evict::try_lock(&lock).unwrap().expect("free");
+        let candidate = candidate_at(source.parent().unwrap());
+        assert!(try_hold(&candidate).unwrap().is_none());
+        drop(hand);
+        assert!(try_hold(&candidate).unwrap().is_some());
+    });
 }
 
 fn candidate_at(root: &Path) -> Candidate {
