@@ -48,18 +48,21 @@ query holding both rereads and resends every window on every write.
 -- the count moves, every window is reread and resent.
 subscribe(request = [window 0-99, window 100-199]) -> (count, rows, rows)
 
--- Right: each its own live query.
-subscribe(request = {after: null, limit: 100})    -- rows 0-99
-subscribe(request = {after: <row 99>, limit: 100}) -- rows 100-199
-subscribe(SELECT COUNT(*) FROM ...)               -- the count
+-- Right: each its own live query, each window bounded by a key at both ends.
+subscribe(request = {from: null,      until: <row 100>}) -- rows 0-99
+subscribe(request = {from: <row 100>, until: <row 200>}) -- rows 100-199
+subscribe(SELECT COUNT(*) FROM ...)                       -- the count
 -- A scan write reruns the count, and only the window the new row lands in.
 ```
 
-A window reads by cursor because coven reruns a live query when any row it read
-changes: `WHERE (sort) > (:edge) ORDER BY sort LIMIT 100` reads only its own
-rows, so an insert above it leaves it alone, while `LIMIT 100 OFFSET 200` steps
-over the 200 rows before it, so any insert above reruns it. A screen shows two
-or three windows, so that is two or three small queries.
+Coven narrows which writes rerun a live query by the query's WHERE comparisons,
+never by its LIMIT or OFFSET. So a window is a range of the order bounded by a
+key at each end, `WHERE (sort) >= (:from) AND (sort) < (:until) ORDER BY sort`,
+and reruns only when a row inside it changes. `WHERE (sort) > (:edge) LIMIT 100`
+reruns for any change below it, and `LIMIT 100 OFFSET 200` for any change at
+all. The screen holds its windows as a chain sharing bounds, so every row is in
+exactly one; a jump reads the key at a position once and starts a chain there. A
+screen shows two or three windows, so that is two or three small queries.
 
 A window pages by cursor: the next or previous window starts from the sort
 values of the row at the screen's edge, which the screen sends in the request,
