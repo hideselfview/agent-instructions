@@ -89,15 +89,18 @@ h3 { margin: 6px 0 0; font-size: 12px; font-weight: 600; color: var(--muted-2); 
 .wt-card.app .bar.building { background: var(--working-bg); }
 .wt-card.app .t b { font-size: 17px; }
 .lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 10px; margin-bottom: 14px; }
-.lane { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); display: flex; flex-direction: column; overflow: hidden; }
+.lane { border: 1px solid var(--line); border-radius: 12px; background: transparent; display: flex; flex-direction: column; overflow: hidden; }
+.lane.building { background: var(--working-bg); border-color: color-mix(in srgb, var(--working) 35%, transparent); color: var(--working); }
+.lane.building .lane-head, .lane.building .lane-q { border-color: color-mix(in srgb, var(--working) 25%, transparent); }
+.lane.building .lane-head b, .lane.building .lane-q .qn { color: var(--working); }
+.lane.building .lane-head .br, .lane.building .lane-head .disk, .lane.building .lane-q { color: color-mix(in srgb, var(--working) 80%, transparent); }
 .lane-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .lane-head > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lane-head b { font-size: 15px; font-weight: 700; }
 .lane-head .br { font: 400 12px var(--mono); color: var(--muted); margin-left: 4px; }
 .lane-head .disk { font: 500 13px var(--mono); color: var(--muted); }
 .lane-now { padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
-.lane-now.building { background: var(--working-bg); color: var(--working); }
-.lane-now.building .procs { background: transparent; padding: 0; }
+.lane.building .procs { background: transparent; padding: 0; }
 .lane-now .who { font-weight: 600; }
 .lane-now .use { font: 12px var(--mono); }
 .lane-now.stuck .who { color: var(--text); }
@@ -183,9 +186,9 @@ h3 { margin: 6px 0 0; font-size: 12px; font-weight: 600; color: var(--muted-2); 
     <h2>Worktrees</h2>
 
     <div class="lanes">
-      <div class="lane">
+      <div class="lane building">
         <div class="lane-head"><span><b>Mac app builds</b> <span class="br">side-1 · detached at 9e8d3d5</span></span><span class="disk">18.2G</span></div>
-        <div class="lane-now building">
+        <div class="lane-now">
           <div class="who">mac-alerts is building</div>
           <div class="procs"><span class="ic" title="Building: how long the build running in this worktree has run, and the programs it runs."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Building"><g transform="rotate(-40 8 8)"><path d="M3.5 2.5h7.5a1.5 1.5 0 0 1 1.5 1.5v1.5H3.5l-1-1.5z"/><path d="M7.25 5.5h1.5V14.5h-1.5z"/></g></svg>6m</span> · xcodebuild</div>
           <div class="use">1% CPU · 614 MB</div>
@@ -280,7 +283,7 @@ h3 { margin: 6px 0 0; font-size: 12px; font-weight: 600; color: var(--muted-2); 
   </div>
   </aside>
   <div class="note">This board draws the whole page, and the page keeps every part drawn here: the title and its line, the By repo / Lanes switch, Hide free worktrees, each lane's queue and build-app menus, the Load, Disk and commit hook figures, the live mark, the Needs acting on box, the lanes and worktree cards, and the Lists panel on the right (above the checkouts when the window is under 1200 px wide). The only parts that changed from the page as built: the commit hook figures (they replace the hook rows at the bottom of the page, which go) and the shorter Needs acting on box.</div>
-  <div class="note">Three tabs, each with its count in its label: Waiting on you, Running, Queue. Design changes fold in: one waiting on review is in Waiting on you, one being drawn is in Running. Decisions are not a tab. Each line is a title of five to ten words with its worktree beside it; opening it shows what is happening now, its items, agent, branch, plan and short commits. The app checkouts are lanes, not worktree cards: nobody owns one and builds take turns in it, so each lane shows who is building now (green), what runs and for how long, its CPU and memory, and how many builds wait in its queue, by branch. Then the worktree cards: your checkout and the agents' worktrees. One of each kind (your checkout, a Mac and an Android app checkout, an agent's worktree with a commit to land, one working, a free one). Each card's title is its worktree with what it has checked out beside it (a branch, or detached at a commit), on one line, then one plain line of what is happening, and a bar across the top with the build output's size on disk, and a footer of a commit mark with the time since the last commit, a pencil with the time since the last write, a person with how long an agent has claimed the worktree, a padlock with how long a build has held an app checkout's lock (each explained on hover), and the tree state on its own at the right; what is building shows in that bar, which turns green: its CPU and memory; a hammer with how long it has run and the programs it runs, with their counts, sit in a light green box under the card's line; commits waiting to land show, with no heading, at most three in a quiet box, the rest behind a disclosure; folders fold away. An agent's worktree shows its Ready to land or Working chip in the top bar; a lock that is stuck says so in its line.</div>
+  <div class="note">Three tabs, each with its count in its label: Waiting on you, Running, Queue. Design changes fold in: one waiting on review is in Waiting on you, one being drawn is in Running. Decisions are not a tab. Each line is a title of five to ten words with its worktree beside it; opening it shows what is happening now, its items, agent, branch, plan and short commits. The app checkouts are lanes, not worktree cards: nobody owns one and builds take turns in it, so a lane is green all over while it builds and has no fill while idle, and shows who is building now, what runs and for how long, its CPU and memory, and how many builds wait in its queue, by branch. Then the worktree cards: your checkout and the agents' worktrees. One of each kind (your checkout, a Mac and an Android app checkout, an agent's worktree with a commit to land, one working, a free one). Each card's title is its worktree with what it has checked out beside it (a branch, or detached at a commit), on one line, then one plain line of what is happening, and a bar across the top with the build output's size on disk, and a footer of a commit mark with the time since the last commit, a pencil with the time since the last write, a person with how long an agent has claimed the worktree, a padlock with how long a build has held an app checkout's lock (each explained on hover), and the tree state on its own at the right; what is building shows in that bar, which turns green: its CPU and memory; a hammer with how long it has run and the programs it runs, with their counts, sit in a light green box under the card's line; commits waiting to land show, with no heading, at most three in a quiet box, the rest behind a disclosure; folders fold away. An agent's worktree shows its Ready to land or Working chip in the top bar; a lock that is stuck says so in its line.</div>
   <div class="note">Top bar: the commit hook is a figure beside Load and Disk, one per repo: its median, a bar per recent run (oldest to newest; amber over the 45 s limit, red when it failed; hover gives the time), and how many runs went over the limit or failed. Clicking a hook figure opens its run details under the top bar, in place of the old rows at the bottom of the page. Disk under its floor turns the Disk figure red instead of adding a line. The orange box keeps only what someone has to act on and nothing else on the page shows: a worktree with commits waiting to land and no claim, sccache clients waiting, leftover shells. Hook runs over the limit are counted in the hook figure; a worktree with no change for a while shows that on its own card.</div>
 </div>
 </body></html>
