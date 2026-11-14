@@ -1,5 +1,5 @@
 ---
-digest: Everything a bae screen shows comes from SQL, with two exceptions, values that change many times a second (keyed latest-value streams), and state that lives only on screen, such as hover, focus, an open popover or menu, or a drag in progress (held by the view, never in SQL). A read that must follow changes is a plain coven live query, a one-off read a plain SQL read; nothing is kept in Rust memory between reads, no side pass, no field written to force a rerun, no size cutoff between read paths, and Rust never filters, sorts, joins, groups, counts or derives what a screen shows.
+digest: Everything a bae screen shows comes from SQL, with two exceptions, values that change many times a second (keyed latest-value streams), and state that lives only on screen, such as hover, focus, an open popover or menu, or a drag in progress (held by the view, never in SQL). A read that must follow changes is a plain coven live query, a one-off read a plain SQL read, never a live query read once; nothing is kept in Rust or app memory between reads, no side pass, no field or write count kept to force a rerun, no size cutoff between read paths, Rust and the apps never filter, sort, join (a second statement keyed by the first one's rows is a join), group, count or derive what a screen shows, and nothing answers from the rows a screen has loaded.
 paths:
   - bae-store/src/**/*.rs
   - bae-views/src/**/*.rs
@@ -13,6 +13,9 @@ paths:
   - bae-automation/src/**/*.rs
   - bae-mcp/src/**/*.rs
   - '**/*.sql'
+  - BaeKit/**/*.swift
+  - bae-macos/**/*.swift
+  - bae-android/**/*.kt
 blocking: true
 ---
 
@@ -71,20 +74,34 @@ end key) reads by offset, and gets an index of its own only when it measures
 slow enough to warrant one. The cursor comes from the screen, never from rows
 Rust kept from an earlier read.
 
-Never, in either kind of read:
+Never, in either kind of read, in Rust or in the apps:
 
 - **Memory kept between reads.** No places, counts, windows, last results or
-  standings held in Rust (behind a `Mutex`, a `OnceLock`, an atomic, a field)
-  for a later read to reuse. A read starts from the database every time.
+  standings held in Rust or the app (behind a `Mutex`, a `OnceLock`, an atomic,
+  a field, a cache across deliveries) for a later read to reuse. A read starts
+  from the database every time.
 - **A side pass.** No second walk over the rows beside the live query to count
   them, note where blocks start, or warm anything.
 - **A forced rerun.** No field written into a request, a table or a version only
-  so a live query reads again. A query reruns because what it read changed.
+  so a live query reads again. A query reruns because what it read changed. The
+  same goes for a count of writes kept in a table (`additions = additions + 1`)
+  so a reader can tell that a write happened: the write's own answer says what
+  it did.
 - **A cutoff between read paths.** No threshold (rows, matches, size) that sends
   a read down one of two paths. One query, one path.
-- **Rust doing SQL's work.** No filtering, sorting, joining, grouping, counting,
-  summing or deriving anything from rows a query returned. If a screen shows it,
-  SQL produced it.
+- **A live query read once.** No subscribing to take the first value and end the
+  subscription: a read that need not follow changes is a plain SQL read.
+- **Rust or the app doing SQL's work.** No filtering, sorting, joining,
+  grouping, counting, summing or deriving anything from rows a query returned.
+  If a screen shows it, SQL produced it. A second statement keyed by a value the
+  first one returned, or by keys picked out of returned rows, is a join done in
+  Rust: one statement reads both.
+- **Answers from the rows a screen has loaded.** No test of whether an id is
+  among the loaded rows, whether they are empty, or where a row sits among them,
+  even when the answer only decides state the view owns (a drop's hold, a
+  removal animation, a menu's targets). The loaded windows are the part of the
+  list the screen happens to hold, so the answer changes with scrolling. SQL
+  answers the question, or the view keeps the ids it acted on.
 
 SQLite is local: write the plain query first, the GROUP BY, COUNT, JOIN or
 window function that says what the screen shows, read straight from the domain's
