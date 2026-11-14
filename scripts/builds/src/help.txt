@@ -106,6 +106,23 @@ Commands:
                               held on purpose with no work running; a note
                               without it has no state
   builds release <checkout>   remove its claim
+  builds land <worktree> [--done N]... [--part N]... [--design N] <sha>...
+                              put the commits on origin/main from the claimed,
+                              detached landing worktree: a fast-forward when
+                              they sit on it, else a cherry-pick, trying a
+                              refused push again from a fresh fetch (five
+                              times). One landing runs in a worktree at a time.
+                              The repo's .land-checks (one shell command per
+                              line) and .land-compile run on the result before
+                              the push, fast-forward included; a failure
+                              names the check, pushes nothing and puts the
+                              worktree back on origin/main. In a repo of a
+                              project of the lists, --done N finishes an item
+                              and --part N advances one (checked before
+                              anything is fetched, recorded after the push);
+                              commits that change design places need
+                              --design N, an approved design change, and
+                              commits that are all design files take it alone
   builds retire <checkout>    remove a side worktree and its build root
   builds app-checkout mac|android <checkout>
                               add the side worktree to its repo's app

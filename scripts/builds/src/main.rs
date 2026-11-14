@@ -22,6 +22,7 @@ mod hook_impact;
 mod hook_stats;
 mod install;
 mod install_hook;
+mod land;
 mod lane;
 mod lists;
 mod lock;
@@ -113,6 +114,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "setup" => setup::cmd_setup(&tool, args),
         "new" => worktree::cmd_new(&tool, args),
         "retire" => worktree::cmd_retire(&tool, args),
+        "land" => land::cmd_land(args),
         "claim" => claim::cmd_claim(args, tool.now),
         "note" => claim::cmd_note(args),
         "release" => claim::cmd_release(&tool.places, args),
@@ -133,7 +135,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "area" => lists::cmd_area(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
         other => fail!(
-            "unknown command {other} (setup | new | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install | checks | install-hook)"
+            "unknown command {other} (setup | new | land | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install | checks | install-hook)"
         ),
     }
 }
