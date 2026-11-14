@@ -1,3 +1,6 @@
 project = "bae"
 clean_for = ["reactive-screens-read-plain-live-queries"]
-finding = []
+
+[[finding]]
+rule = "write-plain-literal-active-sentences"
+file = "bae-records/src/records/read.rs"
