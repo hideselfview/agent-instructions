@@ -625,6 +625,8 @@ fn optimize(tool: &Tool, args: &[String]) -> Result<()> {
     };
     // What each project's reviews recorded, for the proposer to read.
     let mut stats = Vec::new();
+    let mut rates = Vec::new();
+    let by_group = group_names(&root)?;
     let mut projects: Vec<String> = cases::load(&root)?.into_iter().map(|c| c.project).collect();
     projects.sort();
     projects.dedup();
@@ -632,9 +634,10 @@ fn optimize(tool: &Tool, args: &[String]) -> Result<()> {
         let store = Store::named(&tool.places, &project)?;
         if let Some(conn) = db::open_reader(&store.database())? {
             stats.extend(record::group_stats(&conn)?);
+            rates.extend(audit::rates(&conn, &by_group)?);
         }
     }
-    let decision = optimize::optimize(&root, &reviewer, &proposer, &stats)?;
+    let decision = optimize::optimize(&root, &reviewer, &proposer, &stats, &rates)?;
     print!("{}", decision.text);
     if let Some(adoption) = &decision.adopt {
         optimize::adopt(&root, adoption)?;

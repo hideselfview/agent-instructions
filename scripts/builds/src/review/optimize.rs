@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::review::audit::Rate;
 use crate::review::call::invoke;
 use crate::review::cases::{self, Case, CaseResult, Totals};
 use crate::review::groups::{self, Groups};
@@ -72,7 +73,13 @@ pub fn parse_proposals(body: &Value) -> std::result::Result<Vec<Proposal>, Strin
     Ok(proposals)
 }
 
-pub fn prompt(groups_text: &str, rules: &[Rule], stats: &[GroupStat], baseline: &str) -> String {
+pub fn prompt(
+    groups_text: &str,
+    rules: &[Rule],
+    stats: &[GroupStat],
+    rates: &[Rate],
+    baseline: &str,
+) -> String {
     let mut out = String::from("Task: propose groupings\n\n");
     out.push_str(
         "A review hands each group of rules to one reviewer, which answers for every rule in its group. \
@@ -100,6 +107,18 @@ Each proposal is the whole text of a new groups.toml, in the format of the curre
         out.push_str(&format!(
             "- {}: {} calls ({} failed), {} tokens in, {} out, {} findings accepted ({} confirmed, {} dropped by the coordinator), {} dropped by builds' own check\n",
             s.group, s.calls, s.failed_calls, s.tokens_in, s.tokens_out, s.findings, s.confirmed, s.dropped, s.dropped_by_builds
+        ));
+    }
+    out.push_str(
+        "\n# Audited miss rates by group\n\nAn audit asks again, two other ways, and a confirmed miss is a finding the landing's review did not raise.\n\n",
+    );
+    if rates.is_empty() {
+        out.push_str("No landing is audited yet.\n");
+    }
+    for r in rates {
+        out.push_str(&format!(
+            "- {}: {} audits, {} confirmed misses; in the latest {}, {}\n",
+            r.group, r.audits, r.misses, r.recent_audits, r.recent_misses
         ));
     }
     out.push_str(&format!(
@@ -159,6 +178,7 @@ pub fn optimize(
     reviewer: &Path,
     proposer: &Path,
     stats: &[GroupStat],
+    rates: &[Rate],
 ) -> Result<Decision> {
     let all_cases: Vec<Case> = cases::load(root)?;
     if all_cases.is_empty() {
@@ -192,6 +212,7 @@ pub fn optimize(
             &groups_text,
             &every,
             stats,
+            rates,
             &cases::report(&baseline_results),
         ),
     );
