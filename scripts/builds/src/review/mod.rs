@@ -8,6 +8,7 @@
 //! builds review show LANDING
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
 //! builds review replay [--groups FILE] [--case NAME]... [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review optimize --rules-root DIR [--reviewer PROGRAM] [--proposer PROGRAM]
 //! builds review case add ...
 //! ```
 //!
@@ -23,6 +24,7 @@ mod check;
 #[cfg(test)]
 mod fakes;
 mod groups;
+mod optimize;
 mod prompt;
 mod record;
 mod render;
@@ -43,7 +45,7 @@ use crate::tool::Tool;
 use prompt::Settled;
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review optimize --rules-root DIR [--reviewer PROGRAM] [--proposer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -67,6 +69,7 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
         "replay" => replay(tool, rest),
+        "optimize" => optimize(tool, rest),
         "case" => case_command(tool, rest),
         _ => run_command(tool, args),
     }
@@ -424,33 +427,50 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let cwd = current_dir()?;
     let stamp = Stamp::resolve(tool.now, &args, &cwd)?;
-    let mut materials: Vec<(String, run::Material)> = Vec::new();
-    let mut results = Vec::new();
-    for case in &all {
-        if !materials
-            .iter()
-            .any(|(project, _)| *project == case.project)
-        {
-            let mut material = run::Material::load(&root, &case.project)?;
-            if let Some(groups) = &alternative {
-                material = material.with_groups(groups.clone())?;
-            }
-            materials.push((case.project.clone(), material));
-        }
-        let (_, material) = materials
-            .iter()
-            .find(|(project, _)| *project == case.project)
-            .expect("loaded above");
-        let result = cases::replay_case(material, &reviewer, case);
+    let results = cases::replay_all(&root, &all, &reviewer, alternative.as_ref())?;
+    for (case, result) in all.iter().zip(&results) {
         let store = Store::named(&tool.places, &case.project)?;
         store.write(&stamp, &format!("review replay {}", case.name), |db| {
             record::add_run(db, &cases::run_of(case, stamp.at), &result.calls).map(|_| ())
         })?;
-        results.push(result);
     }
     print!("{}", cases::report(&results));
     if cases::totals(&results).failed_calls > 0 {
         return Err(Fail::Exit(1));
+    }
+    Ok(())
+}
+
+/// `builds review optimize`: asks the proposer for groupings, replays each
+/// over the test set and commits the cheapest one that loses no recall.
+fn optimize(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &["rules-root", "reviewer", "proposer"], &[])?;
+    args.exactly(0, USAGE)?;
+    let Some(root) = args.value("rules-root")? else {
+        fail!("name the agent-instructions worktree to commit the grouping in with --rules-root");
+    };
+    let root = PathBuf::from(root);
+    let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let proposer = match args.value("proposer")? {
+        Some(proposer) => PathBuf::from(proposer),
+        None => reviewer.clone(),
+    };
+    // What each project's reviews recorded, for the proposer to read.
+    let mut stats = Vec::new();
+    let mut projects: Vec<String> = cases::load(&root)?.into_iter().map(|c| c.project).collect();
+    projects.sort();
+    projects.dedup();
+    for project in projects {
+        let store = Store::named(&tool.places, &project)?;
+        if let Some(conn) = db::open_reader(&store.database())? {
+            stats.extend(record::group_stats(&conn)?);
+        }
+    }
+    let decision = optimize::optimize(&root, &reviewer, &proposer, &stats)?;
+    print!("{}", decision.text);
+    if let Some(adoption) = &decision.adopt {
+        optimize::adopt(&root, adoption)?;
+        println!("committed the new review/groups.toml in {}", root.display());
     }
     Ok(())
 }

@@ -36,23 +36,37 @@ pub struct Output {
     pub answer: Result<Answer, String>,
 }
 
-/// Runs <program> as `claude` is run for a review. The program gets the
-/// flags below and <prompt> on standard input.
-pub fn run(program: &Path, model: &str, names: &[String], prompt_text: &str) -> Output {
-    let schema = prompt::schema(names).to_string();
+/// What `claude -p` printed: the tokens it used and its answer in the schema.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Invoked {
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+    pub body: Result<Value, String>,
+}
+
+/// Runs <program> as `claude` is run for a review: `-p` with <schema> and no
+/// tools, <prompt> on standard input.
+pub fn invoke(
+    program: &Path,
+    model: &str,
+    schema: &Value,
+    system: &str,
+    prompt_text: &str,
+) -> Invoked {
+    let schema = schema.to_string();
     let mut command = Command::new(program);
     command
         .args(["-p", "--output-format", "json", "--json-schema", &schema])
         .args(["--model", model, "--tools", ""])
         .args(["--no-session-persistence", "--disable-slash-commands"])
-        .args(["--strict-mcp-config", "--system-prompt", prompt::SYSTEM])
+        .args(["--strict-mcp-config", "--system-prompt", system])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let failed = |why: String| Output {
+    let failed = |why: String| Invoked {
         tokens_in: 0,
         tokens_out: 0,
-        answer: Err(why),
+        body: Err(why),
     };
     let mut child = match command.spawn() {
         Ok(child) => child,
@@ -80,16 +94,16 @@ pub fn run(program: &Path, model: &str, names: &[String], prompt_text: &str) -> 
             said.trim()
         ));
     }
-    parse(&String::from_utf8_lossy(&output.stdout), names)
+    envelope(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// Reads the JSON `claude -p --output-format json` prints.
-pub fn parse(text: &str, names: &[String]) -> Output {
+pub fn envelope(text: &str) -> Invoked {
     let Ok(value) = serde_json::from_str::<Value>(text) else {
-        return Output {
+        return Invoked {
             tokens_in: 0,
             tokens_out: 0,
-            answer: Err("the reviewer printed no JSON".to_string()),
+            body: Err("the reviewer printed no JSON".to_string()),
         };
     };
     let count = |key: &str| value["usage"][key].as_i64().unwrap_or(0);
@@ -97,26 +111,56 @@ pub fn parse(text: &str, names: &[String]) -> Output {
         + count("cache_creation_input_tokens")
         + count("cache_read_input_tokens");
     let tokens_out = count("output_tokens");
-    let answer = answer_of(&value, names);
-    Output {
+    let body = body_of(&value);
+    Invoked {
         tokens_in,
         tokens_out,
-        answer,
+        body,
     }
 }
 
-fn answer_of(value: &Value, names: &[String]) -> Result<Answer, String> {
+fn body_of(value: &Value) -> Result<Value, String> {
     if value["is_error"].as_bool().unwrap_or(false) {
         let said = value["result"].as_str().unwrap_or("no reason given");
         return Err(format!("the reviewer reported an error: {said}"));
     }
-    let body: Value = match value.get("structured_output").filter(|v| v.is_object()) {
-        Some(body) => body.clone(),
+    match value.get("structured_output").filter(|v| v.is_object()) {
+        Some(body) => Ok(body.clone()),
         None => value["result"]
             .as_str()
             .and_then(|text| serde_json::from_str(text).ok())
-            .ok_or("the reviewer gave no answer in the schema")?,
-    };
+            .ok_or_else(|| "the reviewer gave no answer in the schema".to_string()),
+    }
+}
+
+/// Runs a group's reviewer and reads its verdicts.
+pub fn run(program: &Path, model: &str, names: &[String], prompt_text: &str) -> Output {
+    let invoked = invoke(
+        program,
+        model,
+        &prompt::schema(names),
+        prompt::SYSTEM,
+        prompt_text,
+    );
+    Output {
+        tokens_in: invoked.tokens_in,
+        tokens_out: invoked.tokens_out,
+        answer: invoked.body.and_then(|body| answer_of(&body, names)),
+    }
+}
+
+/// Reads the answer of <text>, the JSON `claude -p` printed.
+#[cfg(test)]
+pub fn parse(text: &str, names: &[String]) -> Output {
+    let invoked = envelope(text);
+    Output {
+        tokens_in: invoked.tokens_in,
+        tokens_out: invoked.tokens_out,
+        answer: invoked.body.and_then(|body| answer_of(&body, names)),
+    }
+}
+
+fn answer_of(body: &Value, names: &[String]) -> Result<Answer, String> {
     let rules = body["rules"]
         .as_array()
         .ok_or("the answer has no rules list")?;

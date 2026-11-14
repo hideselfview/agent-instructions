@@ -265,6 +265,25 @@ Commands:
                               then recall, false blocking findings on clean
                               cases and tokens; each replayed case is recorded
                               in its project's store
+  builds review optimize --rules-root DIR [--reviewer PROGRAM] [--proposer PROGRAM]
+                              lower the review's token cost without losing
+                              recall (the coordinator runs it every 20
+                              landings, and after a miss is added as a
+                              case): replay the current review/groups.toml
+                              over the cases, give an Opus agent (PROGRAM,
+                              default the reviewer) the record by group, the
+                              replay and the groups file, and let it propose
+                              up to three groupings (merge groups whose
+                              rules are never missed together, split a group
+                              where a rule's recall drops, move a rule to the
+                              group whose question is closest). builds replays
+                              each whole proposal and commits, in the
+                              worktree --rules-root names, the one with the
+                              fewest tokens that finds every expected finding,
+                              fails no call and raises no more false blocking
+                              findings than the current grouping, with both
+                              replays' numbers in the commit message. With
+                              none that qualifies, nothing changes
   builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR [--name NAME]
                               add the change of a confirmed finding as a case
                               expecting it, written in the agent-instructions

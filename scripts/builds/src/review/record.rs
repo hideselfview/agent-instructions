@@ -255,6 +255,56 @@ pub fn findings_of_landing(db: &Connection, landing: i64) -> Result<Vec<Finding>
     rows.map(|row| row.sql()).collect()
 }
 
+/// What the reviews of one group came to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupStat {
+    pub group: String,
+    pub calls: i64,
+    pub failed_calls: i64,
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+    /// Findings builds accepted.
+    pub findings: i64,
+    pub confirmed: i64,
+    pub dropped: i64,
+    /// Findings builds dropped for a quote that was not there.
+    pub dropped_by_builds: i64,
+}
+
+/// The landing reviews' numbers by group.
+pub fn group_stats(db: &Connection) -> Result<Vec<GroupStat>> {
+    let count = |condition: &str| {
+        format!(
+            "(SELECT COUNT(*) FROM review_finding f JOIN review_call c2 ON c2.id = f.call_id JOIN review_run r2 ON r2.id = c2.run_id WHERE r2.kind = 'review' AND c2.group_name = c.group_name AND {condition})"
+        )
+    };
+    let sql = format!(
+        "SELECT c.group_name, COUNT(*), SUM(c.failure IS NOT NULL), SUM(c.tokens_in), SUM(c.tokens_out), {}, {}, {}, {} \
+         FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE r.kind = 'review' GROUP BY c.group_name ORDER BY c.group_name",
+        count("f.check_failed IS NULL"),
+        count("f.settled = 'confirmed'"),
+        count("f.settled = 'dropped'"),
+        count("f.check_failed IS NOT NULL"),
+    );
+    let mut statement = db.prepare(&sql).sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(GroupStat {
+                group: row.get(0)?,
+                calls: row.get(1)?,
+                failed_calls: row.get(2)?,
+                tokens_in: row.get(3)?,
+                tokens_out: row.get(4)?,
+                findings: row.get(5)?,
+                confirmed: row.get(6)?,
+                dropped: row.get(7)?,
+                dropped_by_builds: row.get(8)?,
+            })
+        })
+        .sql()?;
+    rows.map(|row| row.sql()).collect()
+}
+
 /// Finding <id> as the store holds it.
 pub fn finding_of(db: &Connection, id: i64) -> Result<Finding> {
     let sql = format!("SELECT {FINDING_COLUMNS} {FINDING_FROM} WHERE f.id = ?1");

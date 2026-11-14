@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::review::check::parse_diff;
+use crate::review::groups::Groups;
 use crate::review::record::{Kind, NewCall, NewRun};
 use crate::review::run::{Diff, Material, ask_groups};
 
@@ -233,6 +234,36 @@ pub fn replay_case(material: &Material, reviewer: &Path, case: &Case) -> CaseRes
 /// Whether two paths name one file, one possibly shortened from the left.
 fn same_file(a: &str, b: &str) -> bool {
     a == b || a.ends_with(&format!("/{b}")) || b.ends_with(&format!("/{a}"))
+}
+
+/// Every case of <cases> replayed, in order. <alternative> stands in for the
+/// checkout's own groups when given.
+pub fn replay_all(
+    root: &Path,
+    cases: &[Case],
+    reviewer: &Path,
+    alternative: Option<&Groups>,
+) -> Result<Vec<CaseResult>> {
+    let mut materials: Vec<(String, Material)> = Vec::new();
+    let mut results = Vec::new();
+    for case in cases {
+        if !materials
+            .iter()
+            .any(|(project, _)| *project == case.project)
+        {
+            let mut material = Material::load(root, &case.project)?;
+            if let Some(groups) = alternative {
+                material = material.with_groups(groups.clone())?;
+            }
+            materials.push((case.project.clone(), material));
+        }
+        let (_, material) = materials
+            .iter()
+            .find(|(project, _)| *project == case.project)
+            .expect("loaded above");
+        results.push(replay_case(material, reviewer, case));
+    }
+    Ok(results)
 }
 
 /// The run of a replayed case, as the store records it.
