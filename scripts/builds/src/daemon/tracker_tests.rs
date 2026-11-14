@@ -112,7 +112,9 @@ fn follows_writes_links_clones_renames_and_deletions() {
     agrees(&tracker, &folders, "after a write, a hard link and a clone");
 
     // A write through one name of a linked file shows through the other.
-    handled.after(&[deps.clone()], || fill(&deps.join("libtwo.rlib"), 3000));
+    handled.after(std::slice::from_ref(&deps), || {
+        fill(&deps.join("libtwo.rlib"), 3000)
+    });
     agrees(&tracker, &folders, "after rewriting a linked file");
 
     let side_2 = root.join("demo/side-2/target");
@@ -127,10 +129,14 @@ fn follows_writes_links_clones_renames_and_deletions() {
     );
 
     // A folder renamed in place, then moved into another folder.
-    handled.after(&[side_2.clone()], || {
+    handled.after(std::slice::from_ref(&side_2), || {
         std::fs::rename(side_2.join("a"), side_2.join("z")).unwrap()
     });
-    agrees(&tracker, &[side_2.clone()], "after a rename in place");
+    agrees(
+        &tracker,
+        std::slice::from_ref(&side_2),
+        "after a rename in place",
+    );
     handled.after(&[side_2.join("z"), target.join("debug")], || {
         std::fs::rename(side_2.join("z/b"), target.join("debug/b")).unwrap();
     });

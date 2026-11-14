@@ -526,16 +526,24 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
     Ok(())
 }
 
+/// The checkout a design change is drawn in: its repo, and the worktree
+/// (absolute path) holding the boards.
+#[derive(Clone, Copy)]
+pub struct Drawn<'a> {
+    pub repo: &'a str,
+    pub worktree: &'a str,
+}
+
 /// Records a new design change of <repo> for <changes>.
 pub fn record(
     db: &Connection,
-    repo: &str,
-    worktree: &str,
+    drawn: &Drawn,
     request: &DesignRequest,
     changes: &Changes,
     affected: &BTreeSet<String>,
     stamp: &Stamp,
 ) -> Result<Recorded> {
+    let Drawn { repo, worktree } = *drawn;
     let title = require_text("title", request.title.as_ref())?;
     if let Some(fault) = crate::lists::check::title_fault(&title) {
         fail!("{fault}");
@@ -592,13 +600,13 @@ fn open_design_of<'a>(lists: &'a Lists, id: Id, repo: &str) -> Result<&'a Design
 pub fn amend(
     db: &Connection,
     id: Id,
-    repo: &str,
-    worktree: &str,
+    drawn: &Drawn,
     request: &DesignRequest,
     changes: &Changes,
     affected: &BTreeSet<String>,
     stamp: &Stamp,
 ) -> Result<Recorded> {
+    let Drawn { repo, worktree } = *drawn;
     open_design_of(&store::read(db)?, id, repo)?;
     db.execute("DELETE FROM design_approval WHERE design_id = ?1", [id])
         .sql()?;

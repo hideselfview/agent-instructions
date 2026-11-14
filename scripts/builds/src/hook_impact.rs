@@ -123,7 +123,7 @@ fn facts(conn: &Connection, path: &Path) -> Result<Vec<Facts>> {
     let what = || format!("reading {}", path.display());
     let mut runs: Vec<(i64, Facts)> = Vec::new();
     let mut statement = conn
-        .prepare(&"SELECT id, started_at, base, total_ms FROM hook_runs ORDER BY id")
+        .prepare("SELECT id, started_at, base, total_ms FROM hook_runs ORDER BY id")
         .context(what)?;
     let rows = statement
         .query_map([], |row| {
@@ -178,10 +178,12 @@ fn facts(conn: &Connection, path: &Path) -> Result<Vec<Facts>> {
     Ok(runs.into_iter().map(|(_, facts)| facts).collect())
 }
 
+/// Each check's times and crate counts, by name and kind.
+type ByCheck<'a> = std::collections::BTreeMap<(&'a str, &'a str), (Vec<u64>, Vec<u64>)>;
+
 fn side(runs: &[&Facts]) -> Side {
     let mut totals: Vec<u64> = runs.iter().map(|r| r.total_ms).collect();
-    let mut by_check: std::collections::BTreeMap<(&str, &str), (Vec<u64>, Vec<u64>)> =
-        Default::default();
+    let mut by_check = ByCheck::default();
     for run in runs {
         for (name, kind, ms, crates) in &run.checks {
             let entry = by_check.entry((name, kind)).or_default();

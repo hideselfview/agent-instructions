@@ -12,7 +12,7 @@ use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::{Args, read_request};
-use crate::lists::design::{self, DesignRequest, Landed, PlaceAnswer};
+use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer};
 use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
 use crate::lists::store::{self, Store, project_of};
 use crate::lists::{Id, Lists, Stamp};
@@ -242,8 +242,10 @@ fn record(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let (recorded, title) = scope.store.write(&stamp, &words, |db| {
         let recorded = design::record(
             db,
-            &repo,
-            &worktree,
+            &Drawn {
+                repo: &repo,
+                worktree: &worktree,
+            },
             &request,
             &scope.changes,
             &affected,
@@ -283,8 +285,10 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
                 let recorded = design::amend(
                     db,
                     id,
-                    &repo,
-                    &worktree,
+                    &Drawn {
+                        repo: &repo,
+                        worktree: &worktree,
+                    },
                     &request,
                     &scope.changes,
                     &affected,

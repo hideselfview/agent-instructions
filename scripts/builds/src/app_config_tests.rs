@@ -256,10 +256,10 @@ fn a_switch_stopped_by_a_signal_to_its_group_still_ends_on_the_new_commit() {
         move || switch_to(&top, &new, false)
     });
     let group = loop {
-        if let Ok(text) = std::fs::read_to_string(&group_file) {
-            if let Ok(group) = text.trim().parse::<i32>() {
-                break group;
-            }
+        if let Ok(text) = std::fs::read_to_string(&group_file)
+            && let Ok(group) = text.trim().parse::<i32>()
+        {
+            break group;
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     };
