@@ -3,7 +3,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{Question, Reply};
@@ -71,24 +71,39 @@ fn unexpected(places: &Places, reply: &Reply) {
 /// Asks the daemon one question; None when none answers in time.
 fn ask(places: &Places, question: &Question) -> Option<Reply> {
     let socket = places.daemon_socket();
-    if !socket.exists() {
-        return None;
+    match ask_within(&socket, question, PATIENCE) {
+        Ok(reply) => reply,
+        Err(message) => {
+            note(message);
+            None
+        }
     }
-    let stream = match UnixStream::connect(&socket) {
+}
+
+/// Asks the daemon listening on <socket> one question and waits <patience>
+/// for each step. Ok(None): no daemon there. Err: what went wrong.
+fn ask_within(
+    socket: &Path,
+    question: &Question,
+    patience: Duration,
+) -> Result<Option<Reply>, String> {
+    if !socket.exists() {
+        return Ok(None);
+    }
+    let stream = match UnixStream::connect(socket) {
         Ok(stream) => stream,
         // A socket a daemon left behind when it stopped.
-        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => return None,
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => return Ok(None),
         Err(error) => {
-            note(format!(
+            return Err(format!(
                 "asking the daemon at {}: {error}; measuring here",
                 socket.display()
             ));
-            return None;
         }
     };
     let asked = (|| -> std::io::Result<Reply> {
-        stream.set_read_timeout(Some(PATIENCE))?;
-        stream.set_write_timeout(Some(PATIENCE))?;
+        stream.set_read_timeout(Some(patience))?;
+        stream.set_write_timeout(Some(patience))?;
         let mut writer = stream.try_clone()?;
         writer.write_all(serde_json::to_string(question)?.as_bytes())?;
         writer.write_all(b"\n")?;
@@ -97,13 +112,31 @@ fn ask(places: &Places, question: &Question) -> Option<Reply> {
         Ok(serde_json::from_str(&line)?)
     })();
     match asked {
-        Ok(reply) => Some(reply),
-        Err(error) => {
-            note(format!(
-                "the daemon at {} did not answer: {error}; reading here",
-                socket.display()
-            ));
-            None
+        Ok(reply) => Ok(Some(reply)),
+        // A read or write that ran out of time ends with the operating
+        // system's "Resource temporarily unavailable" (EAGAIN on macOS),
+        // which says nothing of what the command was doing.
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ) =>
+        {
+            Err(format!(
+                "the daemon at {} was asked for {} and waited {patience:?} without an answer; \
+                 doing it here",
+                socket.display(),
+                question.about()
+            ))
         }
+        Err(error) => Err(format!(
+            "the daemon at {} did not answer a question about {}: {error}; doing it here",
+            socket.display(),
+            question.about()
+        )),
     }
 }
+
+#[cfg(test)]
+#[path = "client_tests.rs"]
+mod tests;

@@ -43,6 +43,16 @@ pub enum Question {
     Health,
 }
 
+impl Question {
+    /// What the question asks for, for messages naming it.
+    fn about(&self) -> &'static str {
+        match self {
+            Question::Measure { .. } => "sizes",
+            Question::Health => "health",
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Reply {
