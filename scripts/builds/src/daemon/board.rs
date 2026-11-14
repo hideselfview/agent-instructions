@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use crate::lists::Stamp;
-use crate::lists::view::{ItemView, Named, RunningView, View};
+use crate::lists::Id;
+use crate::lists::view::{ItemView, View};
 
 /// The tab a running work is under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -19,56 +19,17 @@ pub enum Tab {
     Running,
 }
 
-/// The state a running work is grouped under on the Running tab.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Group {
-    Working,
-    /// Commits wait to land.
-    ReadyToLand,
-}
-
 /// The running items of one worktree: the work an agent does there.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Work {
-    /// The first item's title.
-    pub title: String,
     pub repo: String,
     pub checkout: String,
     pub tab: Tab,
-    pub group: Group,
-    /// What is happening now, in the agent's words: its claim's note.
-    pub now: Option<String>,
-    pub agent: Option<String>,
-    pub since: Stamp,
-    pub branch: String,
-    /// The brief's path in the repo.
-    pub plan: String,
-    /// The running items there.
-    pub items: Vec<Named>,
-    /// What already landed for them, as 7-character commits.
-    pub landed: Vec<String>,
+    /// The running items there, by id.
+    pub items: Vec<Id>,
 }
 
-/// The group of a work whose worktree has <claim>: commits waiting to land
-/// put it under Ready to land unless its note holds it back.
-fn group_of(running: &RunningView) -> Group {
-    let Some(claim) = &running.claim else {
-        return Group::Working;
-    };
-    let held = matches!(claim.note_state.as_deref(), Some("held" | "waiting-on-you"));
-    if claim.waiting_to_land > 0 && !held {
-        Group::ReadyToLand
-    } else {
-        Group::Working
-    }
-}
-
-fn short(commit: &str) -> String {
-    commit.chars().take(7).collect()
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Board {
     /// Questions on the stack, design changes to review, and running work
     /// that waits on the person.
@@ -98,31 +59,12 @@ pub fn build(view: &View) -> Board {
             let work = by_worktree
                 .entry(running.worktree.as_str())
                 .or_insert_with(|| Work {
-                    title: item.title.clone(),
                     repo: running.repo.clone(),
                     checkout: running.checkout.clone(),
                     tab: Tab::Running,
-                    group: group_of(running),
-                    now: running.claim.as_ref().and_then(|c| c.note.clone()),
-                    agent: running.claim.as_ref().and_then(|c| c.agent.clone()),
-                    since: running.since.clone(),
-                    branch: running.branch.clone(),
-                    plan: running.brief.clone(),
                     items: Vec::new(),
-                    landed: Vec::new(),
                 });
-            work.items.push(Named {
-                id: item.id,
-                title: item.title.clone(),
-            });
-            for part in &item.landed {
-                for commit in &part.commits {
-                    let commit = short(commit);
-                    if !work.landed.contains(&commit) {
-                        work.landed.push(commit);
-                    }
-                }
-            }
+            work.items.push(item.id);
             let noted = running
                 .claim
                 .as_ref()
