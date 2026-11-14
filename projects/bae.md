@@ -170,7 +170,10 @@ plain SQL read. SQLite does the filtering, sorting, joining, grouping, counting
 and windowing, and everything a screen shows beside its rows (counts, totals,
 groups and section headers, "N of M", sums, facets) comes from SQL, in the same
 query or its own live query. Nothing is kept in memory between reads, no side
-pass, no forced rerun, no size cutoff between read paths. The full rule is
+pass, no forced rerun, no size cutoff between read paths. A long list pages by
+cursor (its request carries the sort values of the row at the screen's edge,
+sought through the order's index) and jumps by offset, with an index for the
+jump only when it measures slow enough to warrant one. The full rule is
 `projects/bae-rules/reactive-screens-read-plain-live-queries.md`.
 
 A value that changes many times a second (playback position, transfer bytes,
