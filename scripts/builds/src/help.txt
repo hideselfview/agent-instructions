@@ -350,14 +350,16 @@ runs whole whenever a matching file is staged.
                               project holds the runs of several repos, and
                               each repo's are figured and printed apart, or
                               only --repo's): the
-                              runs, failures and the median and slowest total
-                              time; per check how often it ran, failed and was
-                              skipped, with its median and slowest time; and
-                              the slowest runs with their diffs. --since
-                              counts the runs from that local day on. Per
-                              check it also shows the median of its latest 10
-                              runs against the 10 before, and any set of
-                              checks whose newest run took over 45 seconds (the
+                              passing runs (every check passed) and their
+                              median and slowest total time; per check how
+                              often it passed and was skipped, with its median
+                              and slowest time over its passes, in any run;
+                              and the slowest passing runs with their diffs.
+                              Nothing counts failures. --since counts the
+                              runs from that local day on. Per check it also
+                              shows the median of its latest 10 passes against
+                              the 10 before, and any set of checks whose
+                              newest passing run took over 45 seconds (the
                               hook's limit; a newer run of that set under it
                               ends the flag). --change <rev> instead splits the
                               runs of the repo that has <rev> (asked in a
