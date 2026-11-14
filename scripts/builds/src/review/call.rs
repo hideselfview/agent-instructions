@@ -153,14 +153,14 @@ pub fn run(
     model: &str,
     names: &[String],
     enumerate: bool,
-    prompt_text: &str,
+    parts: &prompt::Parts,
 ) -> Output {
     let invoked = invoke(
         program,
         model,
         &prompt::schema(),
-        prompt::SYSTEM,
-        prompt_text,
+        &parts.system,
+        &parts.message,
     );
     output_of(invoked, names, enumerate)
 }

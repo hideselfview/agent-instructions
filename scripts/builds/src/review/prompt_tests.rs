@@ -14,7 +14,7 @@ fn group(name: &str, enumerate: bool) -> Group {
     }
 }
 
-fn prompt_of(group: &Group, rule: &Rule) -> String {
+fn parts_of(group: &Group, rule: &Rule, diff: &str) -> Parts {
     build(&Input {
         group,
         rules: &[rule],
@@ -22,45 +22,55 @@ fn prompt_of(group: &Group, rule: &Rule) -> String {
         principles: &[],
         brief: Some(&("plans/b.md".to_string(), "The brief.\n".to_string())),
         settled: &[],
-        diff: "diff --git a/a.rs b/a.rs\n+x\n",
-        context: "",
+        diff,
+        context: "7: let x = 1;\n",
     })
 }
 
 #[test]
-fn the_prompts_of_a_landing_share_one_prefix_and_differ_only_after_it() {
+fn the_system_prompt_holds_the_shared_part_and_the_message_holds_the_change() {
     let rule_a = Rule::parse("a", "---\npaths: ['**']\n---\nRule A body.\n");
     let rule_b = Rule::parse("b", "---\npaths: ['**']\n---\nRule B body.\n");
-    let first = prompt_of(&group("one", false), &rule_a);
-    let second = prompt_of(&group("two", true), &rule_b);
-    let shared_text = shared(&Input {
-        group: &group("one", false),
-        rules: &[&rule_a],
-        project_text: "Project facts.\n",
-        principles: &[],
-        brief: Some(&("plans/b.md".to_string(), "The brief.\n".to_string())),
-        settled: &[],
-        diff: "diff --git a/a.rs b/a.rs\n+x\n",
-        context: "",
-    });
-    assert!(first.starts_with(&shared_text) && second.starts_with(&shared_text));
-    for part in ["Project facts.", "The brief.", "+x"] {
-        assert!(shared_text.contains(part), "{part}");
-    }
-    for own in [
-        "Group:",
-        "question of",
+    let first = parts_of(
+        &group("one", false),
+        &rule_a,
+        "diff --git a/a.rs b/a.rs\n+x\n",
+    );
+    let second = parts_of(
+        &group("two", true),
+        &rule_b,
+        "diff --git a/a.rs b/a.rs\n+x\n",
+    );
+    for part in [
+        "Project facts.",
+        "The brief.",
         "Rule A body.",
-        "Rule B body.",
         "How to answer",
     ] {
-        assert!(!shared_text.contains(own), "{own} is in the shared part");
+        assert!(first.system.contains(part), "{part}");
     }
-    assert!(
-        first.contains("Put your answer in `rules`")
-            && second.contains("Put your answer in `summary` and `sites`")
+    assert!(!first.system.contains("+x") && !first.system.contains("let x = 1"));
+    assert!(first.message.contains("+x") && first.message.contains("7: let x = 1;"));
+    assert!(!first.message.contains("Rule A body.") && !first.message.contains("Project facts."));
+    // Two calls of one group differ only in the message.
+    let again = parts_of(
+        &group("one", false),
+        &rule_a,
+        "diff --git a/b.rs b/b.rs\n+y\n",
     );
-    assert!(second.contains("every site in the diff that handles rows a query returned"));
+    assert_eq!(first.system, again.system);
+    assert_ne!(first.message, again.message);
+    assert!(
+        first.system.contains("Put your answer in `rules`")
+            && second
+                .system
+                .contains("Put your answer in `summary` and `sites`")
+    );
+    assert!(
+        second
+            .system
+            .contains("every site in the diff that handles rows a query returned")
+    );
 }
 
 #[test]

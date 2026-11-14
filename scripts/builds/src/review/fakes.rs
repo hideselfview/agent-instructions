@@ -55,7 +55,7 @@ pub fn fake(scratch: &Path) -> Fake {
     std::fs::write(root.join("projects/demo.md"), "Demo project facts.\n").unwrap();
     let program = dir.join("claude");
     let script = format!(
-        "#!/bin/bash\nD='{d}'\ncat > \"$D/calls/$$.prompt\"\ngroup=$(sed -n 's/^Group: //p;s/^Task: //p' \"$D/calls/$$.prompt\" | head -1)\nif [ -f \"$D/fail-$group\" ]; then echo boom >&2; exit 3; fi\ncat \"$D/answer-$group.json\"\n",
+        "#!/bin/bash\nD='{d}'\ncat > \"$D/calls/$$.prompt\"\nprintf '%s\\n' \"$@\" >> \"$D/calls/$$.prompt\"\ngroup=$(sed -n 's/^Group: //p;s/^Task: //p' \"$D/calls/$$.prompt\" | head -1)\nif [ -f \"$D/fail-$group\" ]; then echo boom >&2; exit 3; fi\ncat \"$D/answer-$group.json\"\n",
         d = dir.display()
     );
     std::fs::write(&program, script).unwrap();

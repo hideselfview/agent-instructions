@@ -106,10 +106,9 @@ pub fn schema() -> Value {
     })
 }
 
-/// What every group of one landing is given first, identical for all of them:
-/// the project's instructions, the brief and the diff. The prompt cache serves
-/// the later calls of a landing from this prefix.
-pub fn shared(input: &Input) -> String {
+/// What the project and the landing give every group: the project's
+/// instructions and the brief.
+fn project_part(input: &Input) -> String {
     let mut out = String::new();
     if !input.project_text.is_empty() {
         out.push_str(&format!(
@@ -123,10 +122,13 @@ pub fn shared(input: &Input) -> String {
             text.trim_end()
         ));
     }
-    out.push_str(&format!(
-        "\n# Diff\n\n```diff\n{}\n```\n",
-        input.diff.trim_end()
-    ));
+    out
+}
+
+/// What the reviewer reads about the change: the diff, and the new text of
+/// the file around its hunks when the group reads one file at a time.
+fn change_part(input: &Input) -> String {
+    let mut out = format!("# Diff\n\n```diff\n{}\n```\n", input.diff.trim_end());
     if !input.context.is_empty() {
         out.push_str(&format!(
             "\n# The file's new text around each hunk\n\n```\n{}\n```\n",
@@ -203,9 +205,20 @@ pub fn group_part(input: &Input) -> String {
     out
 }
 
-/// The whole prompt: the shared part first, then the group's own.
-pub fn build(input: &Input) -> String {
-    format!("{}{}", shared(input), group_part(input))
+/// What one reviewer is sent: the system prompt holds everything the calls
+/// of one group share (project instructions, brief, the group's question and
+/// rules), so the prompt cache serves a group's later calls from it; the
+/// message holds the change.
+pub struct Parts {
+    pub system: String,
+    pub message: String,
+}
+
+pub fn build(input: &Input) -> Parts {
+    Parts {
+        system: format!("{SYSTEM}\n\n{}{}", project_part(input), group_part(input)),
+        message: change_part(input),
+    }
 }
 
 #[cfg(test)]

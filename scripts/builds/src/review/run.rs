@@ -190,7 +190,7 @@ pub fn ask_groups(
             ),
             None => (diff.text.as_str(), String::new()),
         };
-        let text = prompt::build(&prompt::Input {
+        let parts = prompt::build(&prompt::Input {
             group,
             rules: unit.members,
             project_text: &material.project_text,
@@ -201,7 +201,7 @@ pub fn ask_groups(
             context: &context,
         });
         let names = prompt::answer_names(group, unit.members);
-        let output = call::run(reviewer, &group.model, &names, group.enumerate, &text);
+        let output = call::run(reviewer, &group.model, &names, group.enumerate, &parts);
         checked(
             group,
             unit.members,
@@ -211,7 +211,27 @@ pub fn ask_groups(
             output,
         )
     };
-    let done = parallel_map(&units, one);
+    // The first call of each group runs alone with the others of its group
+    // held back: it writes the group's system prompt to the cache, and the
+    // rest read it from there.
+    let mut first: Vec<usize> = Vec::new();
+    for (i, unit) in units.iter().enumerate() {
+        if !first
+            .iter()
+            .any(|&j| units[j].group.name == unit.group.name)
+        {
+            first.push(i);
+        }
+    }
+    let rest: Vec<usize> = (0..units.len()).filter(|i| !first.contains(i)).collect();
+    let mut slots: Vec<Option<NewCall>> = units.iter().map(|_| None).collect();
+    for (i, call) in first.iter().zip(parallel_map(&first, |&i| one(&units[i]))) {
+        slots[*i] = Some(call);
+    }
+    for (i, call) in rest.iter().zip(parallel_map(&rest, |&i| one(&units[i]))) {
+        slots[*i] = Some(call);
+    }
+    let done = slots.into_iter().map(|c| c.expect("every unit ran"));
     let mut calls: Vec<NewCall> = Vec::new();
     for (unit, call) in units.iter().zip(done) {
         match calls.iter_mut().find(|c| c.group == unit.group.name) {
