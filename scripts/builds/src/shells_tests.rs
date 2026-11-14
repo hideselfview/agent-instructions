@@ -110,6 +110,7 @@ fn a_wait_is_junk_whatever_form_it_takes() {
         "until ! pgrep -f 'cargo test'; do sleep 5; done",
     );
     let b = shell(2, 3, &side(1), "cd /tmp && sleep 600");
+    let b_child = child(21, &b, 0.0, &["sleep", "600"]);
     let c = shell(
         3,
         3,
@@ -123,8 +124,11 @@ fn a_wait_is_junk_whatever_form_it_takes() {
         &["python3", "-c", "import time; time.sleep(598)"],
     );
     let d = shell(4, 3, &side(1), "caffeinate -i -t 119");
-    let e = shell(5, 3, &side(1), "caffeinate -w 4242");
+    let d_child = child(41, &d, 0.0, &["caffeinate", "-i", "-t", "119"]);
+    let e = shell(5, 3, &side(1), "caffeinate -w $(pgrep -f 'cargo test')");
+    let e_child = child(51, &e, 0.0, &["caffeinate", "-w", "4242"]);
     let f = shell(6, 3, &side(1), "lsof -p 4242 +r 5");
+    let f_child = child(61, &f, 0.0, &["lsof", "-p", "4242", "+r", "5"]);
     let g = shell(
         7,
         3,
@@ -133,7 +137,9 @@ fn a_wait_is_junk_whatever_form_it_takes() {
     );
     let h = shell(8, 3, &side(1), "scripts/run-tests.sh");
     let h_child = child(81, &h, 0.0, &["/bin/sleep", "30"]);
-    let found = judge_all(&[a, b, c, c_child, d, e, f, g, h, h_child]);
+    let found = judge_all(&[
+        a, b, b_child, c, c_child, d, d_child, e, e_child, f, f_child, g, h, h_child,
+    ]);
     assert_eq!(
         reasons(&found),
         vec![
@@ -148,6 +154,80 @@ fn a_wait_is_junk_whatever_form_it_takes() {
         ]
     );
     assert_eq!(found.running, 8);
+}
+
+#[test]
+fn a_sleep_that_already_finished_is_not_a_wait() {
+    // pid 8015 on 2026-11-14: the `sleep 1` ended and `builds app-build` ran.
+    let command = "kill 99908; sleep 1; cd ~/dev/demo-worktrees/side-2 && builds app-build demo reads-import-count macos macos-tests --test mac PaginatedListTests 2>&1 | tail -60";
+    let build = shell(8015, 5, &side(1), command);
+    let app_build = child(
+        8206,
+        &build,
+        0.1,
+        &[
+            "builds",
+            "app-build",
+            "demo",
+            "reads-import-count",
+            "macos",
+            "macos-tests",
+            "--test",
+            "mac",
+            "PaginatedListTests",
+        ],
+    );
+    let tail = child(8207, &build, 0.0, &["tail", "-60"]);
+    let found = judge_all(&[build, app_build, tail]);
+    assert_eq!(found.running, 1);
+    assert!(found.junk.is_empty(), "{:?}", reasons(&found));
+}
+
+#[test]
+fn a_wait_loop_around_a_running_build_is_not_junk() {
+    let looped = shell(1, 3, &side(1), "until cargo test -p a; do sleep 5; done");
+    let cargo = child(11, &looped, 5.0, &["cargo", "test", "-p", "a"]);
+    let polling = shell(
+        2,
+        3,
+        &side(1),
+        "while pgrep -f xcodebuild; do sleep 5; done",
+    );
+    let pgrep = child(21, &polling, 0.0, &["pgrep", "-f", "xcodebuild"]);
+    let found = judge_all(&[looped, cargo, polling, pgrep]);
+    assert_eq!(reasons(&found), vec![(2, waits("a while loop"))]);
+}
+
+#[test]
+fn a_junk_shell_names_the_process_that_started_it() {
+    let mut polling = shell(7, 3, &side(1), "caffeinate -w 4242");
+    polling.ppid = 555;
+    let live = child(71, &polling, 0.0, &["caffeinate", "-w", "4242"]);
+    let found = judge_all(&[polling, live]);
+    assert_eq!(found.junk[0].parent, 555);
+    assert!(
+        lines(&found)[1].starts_with("    pid 7 (started by pid 555) 3m  demo/side-1  waits"),
+        "{}",
+        lines(&found)[1]
+    );
+}
+
+#[test]
+fn stopping_a_shell_takes_its_tree_deepest_first() {
+    let pairs = [(1, 0), (10, 1), (11, 10), (12, 10), (20, 2), (13, 12)];
+    assert_eq!(tree_of(&pairs, 10), vec![13, 12, 11, 10]);
+    let junk = Junk {
+        pid: 10,
+        parent: 1,
+        minutes: 4,
+        worktree: "demo/side-1".to_string(),
+        reason: waits("sleep"),
+        command: "sleep 600".to_string(),
+    };
+    assert_eq!(
+        stopped_line(&junk, 4),
+        "stopped pid 10 and 3 processes under it (started by pid 1, demo/side-1): waits (sleep): sleep 600"
+    );
 }
 
 #[test]
@@ -310,14 +390,19 @@ fn the_dashboard_and_the_forked_shell_of_a_command_are_not_shells_of_their_own()
 #[test]
 fn the_lines_say_the_count_and_each_junk_shell() {
     let long = "x".repeat(300);
+    let sleeper = shell(7, 171, &side(1), &format!("sleep 598 # {long}"));
+    let sleep = child(71, &sleeper, 0.0, &["sleep", "598"]);
     let found = judge_all(&[
-        shell(7, 171, &side(1), &format!("sleep 598 # {long}")),
+        sleeper,
+        sleep,
         shell(8, 5, Path::new("/tmp"), "cargo check"),
     ]);
     let lines = lines(&found);
     assert_eq!(lines[0], "shells: 2 running, 1 junk");
     assert!(
-        lines[1].starts_with("    pid 7 2h51m  demo/side-1  waits (sleep): sleep 598 # xxx"),
+        lines[1].starts_with(
+            "    pid 7 (started by pid 0) 2h51m  demo/side-1  waits (sleep): sleep 598 # xxx"
+        ),
         "{}",
         lines[1]
     );

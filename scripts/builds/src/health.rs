@@ -558,7 +558,7 @@ pub fn assess(
         findings.push(Finding::new(
             FindingKind::Shells,
             format!(
-                "shells: {} junk, listed under shells; stop them by pid",
+                "shells: {} junk, listed under shells; `builds health --stop-junk` stops them",
                 machine.shells.junk.len()
             ),
         ));
@@ -914,12 +914,28 @@ pub fn lines(health: &Health) -> Vec<String> {
 
 /// `builds health [--json]`: exits 1 when something needs acting on.
 pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
-    let json = match args {
-        [] => false,
-        [flag] if flag == "--json" => true,
-        _ => crate::fail!("usage: builds health [--json]"),
+    let (json, stop_junk) = match args {
+        [] => (false, false),
+        [flag] if flag == "--json" => (true, false),
+        [flag] if flag == "--stop-junk" => (false, true),
+        _ => crate::fail!("usage: builds health [--json | --stop-junk]"),
     };
     tool.places.require_volume()?;
+    if stop_junk {
+        // Judge the shells now, never from the daemon's last reading.
+        let (lines, failed) = crate::shells::stop(&health(tool)?.shells, tool.places.uid);
+        if lines.is_empty() {
+            println!("no junk shells");
+        }
+        for line in lines {
+            println!("{line}");
+        }
+        return if failed == 0 {
+            Ok(())
+        } else {
+            Err(Fail::Exit(1))
+        };
+    }
     let health = match crate::daemon::client::health(&tool.places) {
         Some(health) => health,
         None => health(tool)?,

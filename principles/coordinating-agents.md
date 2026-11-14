@@ -178,10 +178,14 @@ a schedule can do: nothing else wakes a session), the coordinator runs
 - **sccache finished no compiles while clients wait:** the server is stuck;
   restart it (`launchctl kickstart -k gui/$(id -u)/local.sccache-server`).
   Compiles in flight fail once and rerun.
-- **Junk shells:** `builds health` lists the agent shells that wait (sleep,
-  `until`/`while` loops, `caffeinate -t`), search the whole disk, copy a command
-  already running in the same worktree, or sit idle; it kills nothing, so the
-  coordinator stops each by PID.
+- **Junk shells:** `builds health` lists the agent shells that wait (a running
+  `sleep`, `caffeinate -t`/`-w`, an `until`/`while` loop), search the whole
+  disk, copy a command already running in the same worktree, or sit idle. A
+  shell with a build or test running under it is never junk. Run
+  `builds health --stop-junk`: it stops each junk shell and everything under it
+  by PID and prints each pid it stopped and why. Each line names the worktree
+  and the pid of the process that started the shell; when one agent keeps
+  leaving polling shells, tell that agent to notify instead of poll.
 - **A claimed worktree with no change and no build for an hour:** ask its agent
   what it waits on, or land and release it if the work is done. A claim kept on
   purpose with nothing running gets
@@ -207,4 +211,4 @@ its next dispatch.
 ## Background shells
 
 Notify, don't poll; one watcher with a hard timeout. `builds health` lists the
-junk shells its agents left behind, and the coordinator stops them by PID.
+junk shells its agents left behind, and `builds health --stop-junk` stops them.

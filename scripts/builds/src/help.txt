@@ -150,15 +150,20 @@ Commands:
                               checkout's build folders, whose sizes and last
                               writes take nearly all of its time (half a
                               minute or more while agents build)
-  builds health [--json]      what is stuck or needs acting on: load, free
+  builds health [--json | --stop-junk]
+                              what is stuck or needs acting on: load, free
                               space against the floor, whether sccache
                               finished compiles since the last readings
                               while clients wait 10+ min, the agent shells
                               running and which are junk (pid, age,
                               worktree, reason, command: waits, whole-disk
                               searches, duplicates of an older shell's
-                              command in a worktree, idle for 20+ min; it
-                              kills nothing), each claimed worktree (claim, branch,
+                              command in a worktree, idle for 20+ min; the
+                              line names the worktree and the pid of the
+                              process that started the shell; --stop-junk
+                              stops each junk shell and everything under it
+                              by pid, and prints each pid it stopped and
+                              why), each claimed worktree (claim, branch,
                               uncommitted files, commits waiting to land,
                               minutes since a change, build processes there
                               or under an app lock for it), each lane's app

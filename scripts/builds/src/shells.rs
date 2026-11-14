@@ -2,7 +2,8 @@
 //! agents run commands at once, each in a shell its tool starts; some of those
 //! are junk: a wait loop, a search over the whole disk, a copy of a command
 //! already running in the same worktree, a command stuck on input or a lock.
-//! `builds health` lists them; it kills nothing, the coordinator does, by PID.
+//! `builds health` lists them, and `builds health --stop-junk` stops each one's
+//! whole tree by PID.
 //!
 //! An agent shell looks, from outside, like Claude Code's: `/bin/zsh -c source
 //! ~/.claude/shell-snapshots/snapshot-zsh-….sh … && eval '<command>' <
@@ -39,6 +40,9 @@ pub struct Shells {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Junk {
     pub pid: i32,
+    /// The process that started the shell: the agent's host, so the coordinator
+    /// can tell which agent left it.
+    pub parent: i32,
     pub minutes: i64,
     /// The checkout the command runs in, else its folder.
     pub worktree: String,
@@ -49,7 +53,8 @@ pub struct Junk {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Reason {
-    /// The command or a process under it is a wait; says which.
+    /// A process running under it is a wait, or its command is a wait loop;
+    /// says which.
     Waits(String),
     /// A `find` or `du` over `/` or the home folder; says which.
     WholeDisk(String),
@@ -84,9 +89,12 @@ pub struct Entry {
 }
 
 fn is_agent_shell(entry: &Entry) -> bool {
-    let name = entry.argv.first().map(|a| basename(a)).unwrap_or_default();
-    matches!(name, "zsh" | "bash" | "sh")
-        && entry.argv.iter().any(|arg| arg.contains("shell-snapshots"))
+    is_agent_argv(&entry.argv)
+}
+
+fn is_agent_argv(argv: &[String]) -> bool {
+    let name = argv.first().map(|a| basename(a)).unwrap_or_default();
+    matches!(name, "zsh" | "bash" | "sh") && argv.iter().any(|arg| arg.contains("shell-snapshots"))
 }
 
 fn basename(path: &str) -> &str {
@@ -374,9 +382,8 @@ fn commands(text: &str) -> Vec<Vec<String>> {
     scan.out
 }
 
-/// What <argv> waits as, when it is a wait: `sleep`, `caffeinate -t` or
-/// `-w`, `lsof +r`, python's `time.sleep`, an `until` or `while` loop. A
-/// `while read` consumes input and is not one.
+/// What a running process <argv> waits as, when it is a wait: `sleep`,
+/// `caffeinate -t` or `-w`, `lsof +r`, python's `time.sleep`.
 fn waits_as(argv: &[String]) -> Option<String> {
     let name = basename(argv.first()?);
     let rest = &argv[1..];
@@ -399,15 +406,43 @@ fn waits_as(argv: &[String]) -> Option<String> {
         n if n.starts_with("python") && rest.iter().any(|a| a.contains("time.sleep")) => {
             Some("time.sleep".to_string())
         }
+        _ => None,
+    }
+}
+
+/// What a simple command <argv> of the shell's text loops as, when it starts
+/// a wait loop: `until`, or `while` other than `while read`. A loop is a wait
+/// even between two of its `sleep`s, when no `sleep` process is running.
+fn loops_as(argv: &[String]) -> Option<String> {
+    match argv.first()?.as_str() {
         "until" => Some("an until loop".to_string()),
         "while"
-            if !rest
-                .first()
+            if !argv
+                .get(1)
                 .is_some_and(|a| a == "read" || a.starts_with("IFS")) =>
         {
             Some("a while loop".to_string())
         }
         _ => None,
+    }
+}
+
+/// Whether the running process <argv> is a build or a test: `builds`
+/// building, cargo, rustc, xcodebuild, gradle, swift.
+fn runs_a_build(argv: &[String]) -> bool {
+    let Some(first) = argv.first() else {
+        return false;
+    };
+    match basename(first) {
+        "builds" => argv.get(1).is_some_and(|sub| {
+            matches!(
+                sub.as_str(),
+                "app-build" | "build-app" | "cargo" | "land" | "checks"
+            )
+        }),
+        "cargo" | "rustc" | "xcodebuild" | "gradle" | "gradlew" | "swift" | "swiftc"
+        | "swift-build" | "swift-test" => true,
+        _ => false,
     }
 }
 
@@ -455,6 +490,7 @@ fn whole_disk(argv: &[String], home: &Path) -> Option<String> {
 /// One agent shell as the judgement sees it.
 struct Candidate {
     pid: i32,
+    parent: i32,
     started: i64,
     worktree: String,
     command: String,
@@ -520,12 +556,21 @@ pub fn judge(
             .iter()
             .chain(members.iter().map(|e| &e.argv))
             .collect();
-        let junk = argvs
-            .iter()
-            .find_map(|argv| waits_as(argv).map(Reason::Waits))
-            .or_else(|| {
-                loops_over_seq(&parsed).then(|| Reason::Waits("a for loop over seq".to_string()))
+        // The text of a command says what it might run; a process says what
+        // runs now. A `sleep` in the text may have finished, so only a
+        // running process, or a loop around one, is a wait, and never while
+        // a build or test runs in the tree.
+        let building = members.iter().any(|e| runs_a_build(&e.argv));
+        let junk = (!building)
+            .then(|| {
+                members
+                    .iter()
+                    .find_map(|e| waits_as(&e.argv))
+                    .or_else(|| parsed.iter().find_map(|argv| loops_as(argv)))
+                    .or_else(|| loops_over_seq(&parsed).then(|| "a for loop over seq".to_string()))
+                    .map(Reason::Waits)
             })
+            .flatten()
             .or_else(|| {
                 argvs
                     .iter()
@@ -533,6 +578,7 @@ pub fn judge(
             });
         candidates.push(Candidate {
             pid: top.pid,
+            parent: top.ppid,
             started: top.started,
             worktree,
             command: flat(rest),
@@ -578,6 +624,7 @@ pub fn judge(
         .filter_map(|c| {
             c.junk.map(|reason| Junk {
                 pid: c.pid,
+                parent: c.parent,
                 minutes: (now - c.started).max(0) / 60,
                 worktree: c.worktree,
                 reason,
@@ -603,14 +650,90 @@ pub fn lines(shells: &Shells) -> Vec<String> {
             format!("{}m", j.minutes)
         };
         out.push(format!(
-            "    pid {} {age}  {}  {}: {}",
+            "    pid {} (started by pid {}) {age}  {}  {}: {}",
             j.pid,
+            j.parent,
             j.worktree,
             j.reason.describe(),
             j.command
         ));
     }
     out
+}
+
+/// The pids of <top> and everything under it, deepest first, from <pairs> of
+/// (pid, parent pid).
+fn tree_of(pairs: &[(i32, i32)], top: i32) -> Vec<i32> {
+    let mut order = vec![top];
+    let mut at = 0;
+    while at < order.len() {
+        let parent = order[at];
+        for (pid, ppid) in pairs {
+            if *ppid == parent && !order.contains(pid) {
+                order.push(*pid);
+            }
+        }
+        at += 1;
+    }
+    order.reverse();
+    order
+}
+
+/// The line that says <junk> was stopped, with <count> processes.
+fn stopped_line(junk: &Junk, count: usize) -> String {
+    format!(
+        "stopped pid {} and {} processes under it (started by pid {}, {}): {}: {}",
+        junk.pid,
+        count - 1,
+        junk.parent,
+        junk.worktree,
+        junk.reason.describe(),
+        junk.command
+    )
+}
+
+/// Stops the whole tree of each junk shell in <shells> with SIGTERM, by PID,
+/// deepest process first. A pid that is no longer an agent shell of <uid>
+/// (it exited and the number went to another process) is left alone. Returns
+/// one line per shell and the number of shells it could not stop.
+pub fn stop(shells: &Shells, uid: u32) -> (Vec<String>, usize) {
+    let processes = Processes::read();
+    let pairs: Vec<(i32, i32)> = processes.list.iter().map(|p| (p.pid, p.ppid)).collect();
+    let mut lines = Vec::new();
+    let mut failed = 0;
+    for junk in &shells.junk {
+        let still_there = processes
+            .get(junk.pid)
+            .is_some_and(|p| p.uid == uid && args(junk.pid).is_some_and(|a| is_agent_argv(&a)));
+        if !still_there {
+            lines.push(format!(
+                "pid {} is gone or no longer an agent shell; left alone",
+                junk.pid
+            ));
+            continue;
+        }
+        let tree = tree_of(&pairs, junk.pid);
+        let mut errors = Vec::new();
+        for pid in &tree {
+            if unsafe { libc::kill(*pid, libc::SIGTERM) } != 0 {
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() != Some(libc::ESRCH) {
+                    errors.push(format!("pid {pid}: {error}"));
+                }
+            }
+        }
+        if errors.is_empty() {
+            lines.push(stopped_line(junk, tree.len()));
+        } else {
+            failed += 1;
+            lines.push(format!(
+                "could not stop all of pid {}'s tree: {}",
+                junk.pid,
+                errors.join("; ")
+            ));
+        }
+    }
+    (lines, failed)
 }
 
 #[cfg(test)]
