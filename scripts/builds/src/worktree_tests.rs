@@ -208,3 +208,79 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
         "an empty set is no file"
     );
 }
+
+#[test]
+fn new_and_claim_record_the_project_and_release_forgets_it() {
+    use crate::lists::fixtures::make_store;
+    let scratch = Scratch::new("worktree-project");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    repo(&main, "target 1G\n");
+    let origin = scratch.dir.join("origin.git");
+    git(
+        &scratch.dir,
+        &["init", "-q", "--bare", &origin.display().to_string()],
+    );
+    git(
+        &main,
+        &["remote", "add", "origin", &origin.display().to_string()],
+    );
+    git(&main, &["push", "-q", "origin", "main"]);
+    make_store(&tool.places, &["demo"]);
+    // A project that holds no repo of this worktree is refused before anything is made.
+    assert!(
+        refusal(cmd_new(
+            &tool,
+            &[
+                main.display().to_string(),
+                "--for".into(),
+                "agent A".into(),
+                "--project".into(),
+                "nope".into(),
+            ],
+        ))
+        .contains("project nope holds no repo demo")
+    );
+    assert!(!scratch.dir.join("demo-worktrees").exists());
+
+    cmd_new(
+        &tool,
+        &[
+            main.display().to_string(),
+            "--for".into(),
+            "agent A".into(),
+            "--project".into(),
+            "demo".into(),
+        ],
+    )
+    .unwrap();
+    let side = scratch.dir.join("demo-worktrees/side-1");
+    let checkout = Checkout::find(&side.display().to_string()).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(checkout.project_file()).unwrap(),
+        "demo\n"
+    );
+    // Claiming again without --project keeps it; with a project that holds no repo here, refuses.
+    let arg = side.display().to_string();
+    crate::claim::cmd_claim(&tool.places, &[arg.clone(), "agent A".into()], tool.now).unwrap();
+    assert!(checkout.project_file().is_file());
+    assert!(
+        refusal(crate::claim::cmd_claim(
+            &tool.places,
+            &[
+                arg.clone(),
+                "agent A".into(),
+                "--project".into(),
+                "other".into()
+            ],
+            tool.now,
+        ))
+        .contains("holds no repo demo")
+    );
+    cmd_release(&tool.places, std::slice::from_ref(&arg)).unwrap();
+    assert!(!checkout.project_file().exists());
+    assert!(!checkout.claim_file().exists());
+    // The next worktree handed out without --project has none.
+    cmd_new(&tool, &[main.display().to_string()]).unwrap();
+    assert!(!checkout.project_file().exists());
+}

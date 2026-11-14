@@ -22,7 +22,9 @@ fn no_claims(_: &str) -> ClaimFacts {
 }
 
 fn error_of(snapshot: Snapshot) -> String {
-    let view = serde_json::to_value(compose(&snapshot, NOON, &no_claims)).unwrap();
+    let composed = compose(&snapshot, NOON, &no_claims);
+    assert_eq!(composed.len(), 1);
+    let view = serde_json::to_value(&composed[0]).unwrap();
     assert_eq!(view["items"], json!([]));
     view["error"].as_str().expect("an error").to_string()
 }
@@ -34,13 +36,25 @@ fn a_store_that_fails_its_check_is_served_as_the_error() {
 }
 
 #[test]
-fn no_project_and_several_projects_are_errors_too() {
+fn no_project_is_an_error_and_a_failing_store_is_only_its_own_projects() {
     assert!(error_of(Ok(vec![])).contains("no lists"));
-    let several = error_of(Ok(vec![
-        loaded("a", Ok(read(&db()))),
-        loaded("b", Ok(read(&db()))),
-    ]));
-    assert!(several.contains("several projects (a, b)"), "{several}");
+    let several = compose(
+        &Ok(vec![
+            loaded("a", Ok(read(&db()))),
+            loaded("b", Err("ids repeat".into())),
+        ]),
+        NOON,
+        &no_claims,
+    );
+    let views: Vec<serde_json::Value> = several
+        .iter()
+        .map(|c| serde_json::to_value(c).unwrap())
+        .collect();
+    assert_eq!(views[0]["error"], json!(null));
+    assert_eq!(
+        (&views[1]["project"], &views[1]["error"]),
+        (&json!("b"), &json!("ids repeat"))
+    );
     assert_eq!(error_of(Err("listing failed".into())), "listing failed");
 }
 
@@ -69,11 +83,12 @@ fn a_running_item_carries_its_claim_facts_and_nothing_else_does() {
         note_state: Some("held".into()),
         waiting_to_land: 2,
     };
-    let view = serde_json::to_value(compose(&snapshot, NOON, &|asked| {
+    let composed = compose(&snapshot, NOON, &|asked| {
         assert_eq!(asked, worktree);
         facts.clone()
-    }))
-    .unwrap();
+    });
+    assert_eq!(composed.len(), 1);
+    let view = serde_json::to_value(&composed[0]).unwrap();
     let find = |id: crate::lists::Id| {
         view["items"]
             .as_array()
@@ -362,4 +377,57 @@ fn a_running_item_waits_on_its_question_before_another_item() {
         Some(crate::daemon::cards::ItemWait::Answer(title))
     );
     assert_eq!(running_wait(&lists, "/d/bae-worktrees/side-9"), None);
+}
+
+#[test]
+fn a_repo_two_projects_hold_resolves_by_the_name_a_claim_gives() {
+    let both = |name: &str| {
+        let mut lists = read(&db());
+        lists.project = name.to_string();
+        lists.repos = vec!["agent-instructions".into()];
+        loaded(name, Ok(lists))
+    };
+    let snapshot: Snapshot = Ok(vec![both("bae"), both("builds")]);
+    let name = |found: Option<&crate::lists::Lists>| found.map(|l| l.project.clone());
+    assert_eq!(name(lists_for(&snapshot, "agent-instructions", None)), None);
+    assert_eq!(
+        name(lists_for(&snapshot, "agent-instructions", Some("builds"))),
+        Some("builds".to_string())
+    );
+    assert_eq!(
+        name(lists_for(&snapshot, "agent-instructions", Some("web"))),
+        None
+    );
+    assert_eq!(name(lists_for(&snapshot, "elsewhere", None)), None);
+    let one: Snapshot = Ok(vec![both("bae")]);
+    assert_eq!(
+        name(lists_for(&one, "agent-instructions", None)),
+        Some("bae".to_string())
+    );
+}
+
+#[test]
+fn a_design_change_id_both_projects_hold_opens_in_neither() {
+    let with_design = |name: &str| {
+        let db = db();
+        design(&db);
+        let mut lists = read(&db);
+        lists.project = name.to_string();
+        loaded(name, Ok(lists))
+    };
+    let one: Snapshot = Ok(vec![with_design("bae"), loaded("builds", Ok(read(&db())))]);
+    let id = lists_id_of_first_design(&one);
+    assert!(open_design(&one, id).is_some());
+    let both: Snapshot = Ok(vec![with_design("bae"), with_design("builds")]);
+    assert!(open_design(&both, id).is_none());
+}
+
+fn lists_id_of_first_design(snapshot: &Snapshot) -> u32 {
+    snapshot.as_deref().unwrap()[0]
+        .lists
+        .as_ref()
+        .unwrap()
+        .designs[0]
+        .id
+        .0
 }

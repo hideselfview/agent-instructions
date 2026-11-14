@@ -16,7 +16,14 @@
 //! range, each drawn with its own commit's design system. A board the change
 //! adds has no now, and a board it deletes has only a now. The daemon draws
 //! each frame on every request, so the page shows a redraw on reload. The
-//! sizes of the frames come from each commit's `design/mocks/canvas.json`.
+//! sizes of the frames come from each commit's `canvas.json` in the board's
+//! own folder (`design/mocks/canvas.json` for a canvas board).
+//!
+//! A design place of another project, such as the builds dashboard's
+//! `scripts/builds/design/dashboard.html`, is a plain HTML page: it is no
+//! canvas board, so nothing is applied to it and no design system is read;
+//! the page is drawn as the file at its commit has it, in the theme the
+//! viewer's browser asks for.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -67,6 +74,22 @@ fn fill(template: &str, parts: &[(&str, &str)]) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// Is <board> a plain HTML page (a path that is no canvas board), such as a
+/// project's own board under its design places? A canvas board is a name or
+/// `design/mocks/<name>.dc.html`.
+pub fn is_plain_page(board: &str) -> bool {
+    board.contains('/') && !board.starts_with(&format!("{MOCKS}/")) && board.ends_with(".html")
+}
+
+/// The folder a plain page's `canvas.json` is in, and its key there: the
+/// page's own folder and file name.
+fn plain_canvas(board: &str) -> (String, String) {
+    match board.rsplit_once('/') {
+        Some((dir, file)) => (dir.to_string(), file.to_string()),
+        None => (String::new(), board.to_string()),
+    }
 }
 
 /// A board's name, from its name or its path `design/mocks/<name>.dc.html`.
@@ -243,6 +266,9 @@ fn script_safe(js: &str) -> String {
 /// design system of <from>.
 pub fn render_board(from: Source, board: &str, theme: Theme) -> Result<String> {
     from.check()?;
+    if is_plain_page(board) {
+        return from.read(board, "the page");
+    }
     let name = board_name(board)?;
     let mut parts: BTreeMap<String, Part> = BTreeMap::new();
     let mut todo = vec![("__main__".to_string(), board_rel(&name))];
@@ -300,11 +326,11 @@ pub fn render_board(from: Source, board: &str, theme: Theme) -> Result<String> {
 }
 
 /// The width and height <canvas> (`canvas.json`) gives board <name>.
-fn canvas_size(canvas: &Value, name: &str) -> Result<(u64, u64)> {
-    let board = &canvas["boards"][format!("{name}{BOARD_SUFFIX}")];
+fn canvas_size(canvas: &Value, file: &str, canvas_path: &str) -> Result<(u64, u64)> {
+    let board = &canvas["boards"][file];
     match (board["w"].as_u64(), board["h"].as_u64()) {
         (Some(w), Some(h)) if w > 0 && h > 0 => Ok((w, h)),
-        _ => fail!("design/mocks/canvas.json gives no width and height for {name}{BOARD_SUFFIX}"),
+        _ => fail!("{canvas_path} gives no width and height for {file}"),
     }
 }
 
@@ -362,14 +388,25 @@ fn drawing(design: &DesignChange, side: Side, board: &str, src: &str) -> Value {
     let drawn = (|| -> Result<Value> {
         let from = source_of(design, side)?;
         from.check()?;
-        let name = board_name(board)?;
-        if !from.has(&board_rel(&name))? {
+        let (rel, folder, file) = if is_plain_page(board) {
+            let (folder, file) = plain_canvas(board);
+            (board.to_string(), folder, file)
+        } else {
+            let name = board_name(board)?;
+            (
+                board_rel(&name),
+                MOCKS.to_string(),
+                format!("{name}{BOARD_SUFFIX}"),
+            )
+        };
+        if !from.has(&rel)? {
             return Ok(json!({ "absent": true }));
         }
-        let text = from.read(&format!("{MOCKS}/canvas.json"), "the canvas file")?;
+        let canvas_path = format!("{folder}/canvas.json");
+        let text = from.read(&canvas_path, "the canvas file")?;
         let canvas: Value = serde_json::from_str(&text)
-            .context(|| format!("reading {}", from.label(&format!("{MOCKS}/canvas.json"))))?;
-        let (w, h) = canvas_size(&canvas, &name)?;
+            .context(|| format!("reading {}", from.label(&canvas_path)))?;
+        let (w, h) = canvas_size(&canvas, &file, &canvas_path)?;
         Ok(json!({ "w": w, "h": h, "src": format!("{src}/{}", side.word()) }))
     })();
     // A board that is no file where the change draws it is that change's fault, not an absence.

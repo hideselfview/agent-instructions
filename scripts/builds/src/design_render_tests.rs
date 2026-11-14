@@ -461,3 +461,74 @@ fn a_review_page_of_a_change_with_no_last_commit_says_to_amend_it() {
         .unwrap();
     assert!(error.contains("amend it"), "{error}");
 }
+
+#[test]
+fn a_project_board_that_is_plain_html_is_drawn_as_the_file_and_sized_from_its_own_folder() {
+    let scratch = Scratch::new("render-plain");
+    let dir = scratch.dir.join("wt");
+    repo(&dir, "");
+    let folder = dir.join("scripts/builds/design");
+    std::fs::create_dir_all(&folder).unwrap();
+    let html =
+        "<!doctype html><title>dash</title><style>@media (prefers-color-scheme: dark) {}</style>";
+    std::fs::write(folder.join("dashboard.html"), html).unwrap();
+    std::fs::write(
+        folder.join("canvas.json"),
+        r#"{"v": 3, "boards": {"dashboard.html": {"w": 820, "h": 900}}}"#,
+    )
+    .unwrap();
+    git(&dir, &["add", "scripts"]);
+    git(&dir, &["commit", "-q", "-m", "board"]);
+    let tip = crate::lists::design_paths::full_sha(&dir, "HEAD").unwrap();
+    set_origin_main(&dir, &tip);
+    let board = "scripts/builds/design/dashboard.html";
+    // The page is the file, at a commit or as the directory has it, in either theme.
+    for theme in [Theme::Light, Theme::Dark] {
+        assert_eq!(render_board(Source::Dir(&dir), board, theme).unwrap(), html);
+        assert_eq!(
+            render_board(
+                Source::Commit {
+                    repo: &dir,
+                    rev: &tip
+                },
+                board,
+                theme
+            )
+            .unwrap(),
+            html
+        );
+    }
+    assert!(
+        message(render_board(
+            Source::Dir(&dir),
+            "scripts/x/none.html",
+            Theme::Dark
+        ))
+        .contains("the page")
+    );
+    // A canvas board's name and path are still canvas boards.
+    assert!(!is_plain_page("A") && !is_plain_page("design/mocks/A.dc.html"));
+    assert!(is_plain_page(board));
+    // The review page sizes the frame from canvas.json beside the page.
+    let size = drawing(
+        &DesignChange {
+            worktree: dir.display().to_string(),
+            tip: Some(tip.clone()),
+            ..review_of_empty()
+        },
+        Side::Proposed,
+        board,
+        "/design/1/board/0",
+    );
+    assert_eq!(
+        size,
+        json!({ "w": 820, "h": 900, "src": "/design/1/board/0/proposed" })
+    );
+}
+
+/// A change with nothing set but its id, for the tests that only read where it draws from.
+fn review_of_empty() -> DesignChange {
+    let db = db();
+    let id = design_drawn(&db, "/nowhere", &[], vec![]);
+    read(&db).design(id).unwrap().clone()
+}

@@ -609,7 +609,10 @@ impl Model {
                 .map(|(_, facts)| facts.clone())
                 .expect("every running worktree was asked")
         });
-        let json = Arc::new(serde_json::to_string(&view).expect("the lists serialize"));
+        let json = Arc::new(
+            serde_json::to_string(&super::lists::Served { projects: &view })
+                .expect("the lists serialize"),
+        );
         *served = Some((key, json.clone()));
         Ok(json)
     }
@@ -688,7 +691,6 @@ impl Model {
         let space = volume_space(&self.places.root)?;
         let (entries, memory) = self.tracker.size();
         let (_, snapshot) = self.lists.current();
-        let project = super::lists::project_lists(&snapshot);
         let state = self.state.lock().expect("no panic holding it");
         let places = places_of(&state.roots);
         let mut repos: Vec<RepoPage> = Vec::new();
@@ -832,6 +834,16 @@ impl Model {
                 .collect();
             for checkout in &mut repo.checkouts {
                 if checkout.live && !checkout.app_checkout {
+                    // The project its claim names, for a repo two projects hold.
+                    let claimed = state
+                        .roots
+                        .iter()
+                        .filter_map(|root| root.live.as_ref())
+                        .find(|live| live.top == Path::new(&checkout.path))
+                        .and_then(|live| std::fs::read_to_string(live.project_file()).ok())
+                        .map(|text| text.trim().to_string());
+                    let project =
+                        super::lists::lists_for(&snapshot, &repo.name, claimed.as_deref());
                     let titles = project
                         .map(|lists| super::lists::running_titles(lists, &checkout.path))
                         .unwrap_or_default();

@@ -58,8 +58,11 @@ Commands in this part:
       The project carries the work of one more repo, so its worktrees run
       items, land commits and resolve to the project from their directory
       (agent-instructions is added to bae this way: its work is tracked on
-      bae's lists). Refused when the project already has the repo or another
-      project holds it.
+      bae's lists). Refused when the project already has the repo. Two
+      projects may hold one repo (agent-instructions is in bae and builds);
+      a worktree of it then names its project with `builds claim --project`
+      or `builds new --project`, and a command outside a claimed worktree
+      takes --project.
 
   builds lists show [--json] [--project P]
       The stack in the order it is asked, then the queue, as text; with
@@ -71,7 +74,8 @@ Commands in this part:
 
   builds lists project-of DIR
       Prints the project DIR's repo belongs to, or nothing. Refused when the
-      repo is in two projects.
+      repo is in two projects and the worktree names neither (builds claim
+      --project).
 
 Design changes (a product design change: a board or a design-system
 component, not a software plan). A design change is recorded when its boards

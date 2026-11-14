@@ -97,15 +97,46 @@ pub fn write_claim(
     .write(&checkout.claim_file())
 }
 
-/// `builds claim <checkout> <who>`. Claiming it again for the one who holds
-/// it renews the claim's date and keeps its note and the note's state.
-pub fn cmd_claim(args: &[String], now: i64) -> Result<()> {
-    let [checkout, who] = args else {
-        fail!("usage: builds claim <checkout> <who>")
+/// Records the project <checkout>'s work is in, or with None forgets it. The
+/// project must hold the worktree's repo.
+pub fn set_project(places: &Places, checkout: &Checkout, project: Option<&str>) -> Result<()> {
+    let file = checkout.project_file();
+    let Some(project) = project else {
+        return match std::fs::remove_file(&file) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => fail!("removing {}: {error}", file.display()),
+        };
     };
+    if let Some(fault) = crate::lists::check::project_name_fault(project) {
+        fail!("{fault}");
+    }
+    let repo = checkout.repo();
+    if !crate::lists::store::projects_holding(places, &repo)?
+        .iter()
+        .any(|held| held == project)
+    {
+        fail!("project {project} holds no repo {repo}; builds lists init or add-repo makes it so");
+    }
+    std::fs::write(&file, format!("{project}\n"))
+        .map_err(|error| fail::Fail::Message(format!("writing {}: {error}", file.display())))
+}
+
+/// `builds claim <checkout> <who> [--project P]`. Claiming it again for the
+/// one who holds it renews the claim's date and keeps its note and the note's
+/// state. --project names the project the work is in, for a repo that two
+/// projects hold; without it the worktree keeps the project it had.
+pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
+    let usage = "usage: builds claim <checkout> <who> [--project P]";
+    let (positional, project) = match args {
+        [checkout, who] => ([checkout, who], None),
+        [checkout, who, flag, project] if flag == "--project" => ([checkout, who], Some(project)),
+        _ => fail!("{usage}"),
+    };
+    let [checkout, who] = positional;
     let checkout = Checkout::find(checkout)?;
     if who.is_empty() {
-        fail!("usage: builds claim <checkout> <who>");
+        fail!("{usage}");
     }
     require_one_line("<who>", who)?;
     if !checkout.is_side() {
@@ -128,6 +159,9 @@ pub fn cmd_claim(args: &[String], now: i64) -> Result<()> {
         Some(claim) => (claim.note, claim.note_state),
         None => (None, None),
     };
+    if let Some(project) = project {
+        set_project(places, &checkout, Some(project))?;
+    }
     write_claim(&checkout, who, now, kept_note, kept_state)?;
     note(format!("claimed {} for {who}", checkout.top.display()));
     Ok(())
@@ -213,6 +247,7 @@ pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
         checkout.top.display(),
         claim.text()
     ));
+    set_project(places, &checkout, None)?;
     std::fs::remove_file(&file)
         .map_err(|error| fail::Fail::Message(format!("removing {}: {error}", file.display())))
 }

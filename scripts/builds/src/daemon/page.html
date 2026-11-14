@@ -226,6 +226,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .l-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
 .l-tabs[hidden] { display: none; }
+.l-tabs.l-projects { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); margin-bottom: 6px; }
 .l-tabs button { display: flex; flex-direction: row; justify-content: center; align-items: baseline; gap: 6px; font: 600 13px var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 5px 4px; cursor: pointer; min-width: 0; }
 .l-tabs button[aria-selected="true"] { background: var(--on); color: var(--on-text); }
 .l-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -304,6 +305,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 <aside class="lists" id="lists" aria-label="Lists">
   <div class="l-top">
     <div class="l-head"><h2>Lists</h2><button class="side-hide" id="lists-hide" type="button" title="Hide the Lists panel" aria-label="Hide the Lists panel"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/></svg></button></div>
+    <div class="l-tabs l-projects" id="l-projects" role="tablist" aria-label="Projects" hidden></div>
     <div class="l-tabs" id="l-tabs" role="tablist" hidden>
       <button type="button" role="tab" data-tab="stack"><span class="l-name">Waiting on you</span><span class="l-count"></span></button>
       <button type="button" role="tab" data-tab="running"><span class="l-name">Running</span><span class="l-count"></span></button>
@@ -983,14 +985,18 @@ events.addEventListener("failure", e => { streamError = "state: " + JSON.parse(e
 // event, and /api/lists on load); every change to the lists goes through the
 // `builds` commands. ----
 const TAB_KEY = "builds-dashboard-lists-tab";
+const PROJECT_KEY = "builds-dashboard-lists-project";
 const OPEN_KEY = "builds-dashboard-lists-open";
 const TABS = ["stack", "running", "queue"];
 const RECENT_DAYS = 14;
-let lists = null;              // the last lists JSON
+let allLists = [];             // the last lists JSON of each project
+let lists = null;              // the chosen project's lists JSON
+let project = "";              // the chosen project's name
 let listsNote = "Reading the lists";   // what the sidebar says while there are none
 let tab = "stack";
 let index = new Map();         // record id -> {tab, key, title}
 const openRecs = new Set();    // keys of the open folds; they outlive a redraw
+try { project = localStorage.getItem(PROJECT_KEY) || ""; } catch (e) { /* the first project */ }
 try {
   const saved = localStorage.getItem(TAB_KEY);
   if (TABS.includes(saved)) tab = saved;
@@ -1249,10 +1255,21 @@ function indexLists() {
   for (const w of lists.board.works) for (const i of w.items) index.set(i.id, {tab: w.tab === "waiting" ? "stack" : "running", key: "i:" + w.items[0].id, title: i.title});
   for (const g of lists.designs) if (!g.closed) index.set(g.id, {tab: g.approved ? "running" : "stack", key: "g:" + g.id, title: g.title});
 }
+// `next` is {projects: [one lists JSON each]}; the sidebar shows the chosen one.
 function setLists(next) {
-  lists = next;
+  allLists = next.projects;
+  lists = allLists.find(p => p.project === project) || allLists[0];
   if (!lists.error) indexLists();
   renderLists();
+}
+function renderProjects() {
+  const bar = document.getElementById("l-projects");
+  bar.hidden = allLists.length < 2;
+  if (bar.hidden) return;
+  bar.replaceChildren(...allLists.map(p => h("button", {type: "button", role: "tab", "data-project": p.project,
+    "aria-selected": String(p === lists), title: p.error ? p.error : p.project},
+    h("span", {class: "l-name"}, p.project || "none"),
+    h("span", {class: "l-count"}, p.error ? "!" : String(p.board.waiting)))));
 }
 function tabCounts() {
   const b = lists.board;
@@ -1260,10 +1277,11 @@ function tabCounts() {
 }
 function renderLists() {
   const tabs = document.getElementById("l-tabs"), body = document.getElementById("l-body");
+  renderProjects();
   if (!lists || lists.error) {
     tabs.hidden = true;
     body.dataset.tab = "";
-    body.replaceChildren(lists ? h("div", {class: "error"}, "The lists store failed its check: " + lists.error)
+    body.replaceChildren(lists ? h("div", {class: "error"}, "The lists store of " + (lists.project || "the projects") + " failed its check: " + lists.error)
       : h("div", {class: "l-empty"}, listsNote));
     return;
   }
@@ -1292,6 +1310,16 @@ function showRecord(id) {
   el.scrollIntoView({block: "center"});
   el.classList.remove("l-flash"); void el.offsetWidth; el.classList.add("l-flash");
 }
+document.getElementById("l-projects").addEventListener("click", e => {
+  const b = e.target.closest("button[data-project]");
+  if (!b) return;
+  project = b.dataset.project;
+  try { localStorage.setItem(PROJECT_KEY, project); } catch (err) { /* kept for this page only */ }
+  lists = allLists.find(p => p.project === project) || allLists[0];
+  document.getElementById("l-body").dataset.tab = "";
+  if (!lists.error) indexLists();
+  renderLists();
+});
 document.getElementById("l-tabs").addEventListener("click", e => {
   const b = e.target.closest("button[data-tab]");
   if (!b) return;

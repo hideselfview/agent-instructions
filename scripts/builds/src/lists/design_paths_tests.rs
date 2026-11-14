@@ -331,3 +331,32 @@ fn exists_in_tells_a_folder_a_file_and_a_missing_path_apart() {
     assert!(exists_in(&dir, "HEAD", "design/system/components/MacRow/a.html").unwrap());
     assert!(!exists_in(&dir, "HEAD", "design/system/components/Gone").unwrap());
 }
+
+#[test]
+fn a_project_board_deep_in_a_repo_makes_only_its_design_folder_shared() {
+    let globs = Globs {
+        places: vec!["scripts/builds/design/*.html".into()],
+        ..Globs::default()
+    };
+    let changes = classify(
+        &globs,
+        &paths(&[
+            "scripts/builds/design/dashboard.html",
+            "scripts/builds/design/canvas.json",
+            "scripts/builds/src/main.rs",
+            "scripts/rules_review/README.md",
+        ]),
+    );
+    assert_eq!(
+        changes.places,
+        set(&["scripts/builds/design/dashboard.html"])
+    );
+    assert_eq!(changes.shared, set(&["scripts/builds/design/canvas.json"]));
+    assert_eq!(
+        changes.outside,
+        set(&[
+            "scripts/builds/src/main.rs",
+            "scripts/rules_review/README.md"
+        ])
+    );
+}

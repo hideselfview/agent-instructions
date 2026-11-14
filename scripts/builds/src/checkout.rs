@@ -170,6 +170,14 @@ impl Checkout {
         self.git_dir.join("builds-claim")
     }
 
+    /// The project the claim's work is in, a file in the worktree's git dir
+    /// beside the claim. A repo two projects hold (agent-instructions holds
+    /// both bae's and builds' work) has no one project of its own: the
+    /// worktree names it.
+    pub fn project_file(&self) -> PathBuf {
+        self.git_dir.join("builds-project")
+    }
+
     /// The branch checked out, or None when HEAD is detached.
     pub fn branch(&self) -> Result<Option<String>> {
         let output = git(&self.top)

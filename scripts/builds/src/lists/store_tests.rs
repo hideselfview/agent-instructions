@@ -467,6 +467,32 @@ fn project_of_finds_the_one_project_a_repo_is_in() {
         )
         .unwrap();
     assert!(message(project_of(&places, &checkout)).contains("two projects (demo, second)"));
+    // The worktree's claim names which of the two.
+    crate::claim::set_project(&places, &checkout, Some("second")).unwrap();
+    assert_eq!(
+        project_of(&places, &checkout).unwrap(),
+        Some("second".to_string())
+    );
+    let none = Args::parse(&[], &[], &[]).unwrap();
+    assert_eq!(
+        Store::resolve(&places, &none, &repo_dir).unwrap().project,
+        "second"
+    );
+    // --project still wins, and forgetting the name restores the refusal.
+    let named = Args::parse(&["--project".into(), "demo".into()], &[], &[]).unwrap();
+    assert_eq!(
+        Store::resolve(&places, &named, &repo_dir).unwrap().project,
+        "demo"
+    );
+    crate::claim::set_project(&places, &checkout, None).unwrap();
+    assert!(message(project_of(&places, &checkout)).contains("two projects"));
+    // A project that holds no such repo is refused when set, and when a file names it.
+    assert!(
+        message(crate::claim::set_project(&places, &checkout, Some("nope")))
+            .contains("holds no repo bae")
+    );
+    std::fs::write(checkout.project_file(), "elsewhere\n").unwrap();
+    assert!(message(project_of(&places, &checkout)).contains("does not hold repo bae"));
 }
 
 #[test]

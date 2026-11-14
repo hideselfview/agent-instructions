@@ -12,7 +12,7 @@
 use std::path::Path;
 
 use crate::checkout::{Checkout, git, git_text};
-use crate::claim::{Claim, require_one_line, write_claim};
+use crate::claim::{Claim, require_one_line, set_project, write_claim};
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -34,8 +34,9 @@ fn run_checked(command: &mut std::process::Command, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// `builds new [<repo>] [-b <branch>] [--for <who>]`: claims for <who> (default
-/// "builds new") and hands out a free side
+/// `builds new [<repo>] [-b <branch>] [--for <who>] [--project P]`: claims for
+/// <who> (default "builds new"), records the project P the work is in (for a
+/// repo two projects hold) and hands out a free side
 /// worktree (`find_free`) checked out afresh from origin/main, or adds the next
 /// side-N when none is free; links it, runs its post-checkout, and prints its
 /// path.
@@ -43,11 +44,13 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     let mut repo_path = ".".to_string();
     let mut branch = None;
     let mut who = None;
+    let mut project = None;
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
             "-b" | "--branch" => branch = rest.next().cloned(),
             "--for" => who = rest.next().cloned(),
+            "--project" => project = rest.next().cloned(),
             other if other.starts_with('-') => fail!("new: unknown option {other}"),
             other => repo_path = other.to_string(),
         }
@@ -61,13 +64,21 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     // same one; released when the call ends.
     let _picking = lock_picking(&main)?;
     run_checked(git(&main).args(["fetch", "-q", "origin"]), "git fetch")?;
+    if let Some(project) = &project {
+        let repo = Checkout::find(&main.display().to_string())?.repo();
+        if !crate::lists::store::projects_holding(&tool.places, &repo)?.contains(project) {
+            fail!("new: project {project} holds no repo {repo}");
+        }
+    }
     let who = who.unwrap_or_else(|| "builds new".to_string());
     let checkout = match find_free(tool, &main)? {
         Some(free) => {
             write_claim(&free, &who, tool.now, None, None)?;
+            set_project(&tool.places, &free, project.as_deref())?;
             if let Err(error) = reuse(&free, branch.as_deref()).and_then(|()| prepare(tool, &free))
             {
                 let _ = std::fs::remove_file(free.claim_file());
+                let _ = std::fs::remove_file(free.project_file());
                 return Err(error);
             }
             free
@@ -76,6 +87,7 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
             let dir = add_new(tool, &main, branch.as_deref())?;
             let checkout = Checkout::find(&dir.display().to_string())?;
             write_claim(&checkout, &who, tool.now, None, None)?;
+            set_project(&tool.places, &checkout, project.as_deref())?;
             prepare(tool, &checkout)?;
             checkout
         }

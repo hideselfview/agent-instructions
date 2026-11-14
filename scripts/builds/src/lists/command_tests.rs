@@ -207,9 +207,8 @@ fn add_repo_refuses_a_repo_already_in_a_project_and_a_missing_project() {
         refusal(run(&tool, "add-repo bae coven --by tester"))
             .contains("already one of project bae's")
     );
-    assert!(
-        refusal(run(&tool, "add-repo bae web --by tester")).contains("already in project other")
-    );
+    // Another project's repo is allowed: two projects may hold one repo.
+    run(&tool, "add-repo bae web --by tester").unwrap();
     assert!(
         refusal(run(&tool, "add-repo nope web2 --by tester")).contains("no lists for project nope")
     );
@@ -223,6 +222,6 @@ fn add_repo_refuses_a_repo_already_in_a_project_and_a_missing_project() {
             .load()
             .unwrap()
             .repos,
-        ["bae", "coven"]
+        ["bae", "coven", "web"]
     );
 }

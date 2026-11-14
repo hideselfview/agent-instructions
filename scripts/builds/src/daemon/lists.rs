@@ -157,37 +157,43 @@ impl Feed {
     }
 }
 
-/// The worktrees of the running items of the one project there is.
+/// The worktrees of the running items of every project.
 pub fn running_worktrees(snapshot: &Snapshot) -> Vec<String> {
-    match snapshot.as_deref() {
-        Ok(
-            [
-                Loaded {
-                    lists: Ok(lists), ..
-                },
-            ],
-        ) => lists
-            .items
-            .iter()
-            .flat_map(|item| item.running.iter().map(|r| r.worktree.clone()))
-            .collect(),
-        _ => Vec::new(),
-    }
+    let Ok(stores) = snapshot.as_deref() else {
+        return Vec::new();
+    };
+    stores
+        .iter()
+        .filter_map(|loaded| loaded.lists.as_ref().ok())
+        .flat_map(|lists| &lists.items)
+        .flat_map(|item| item.running.iter().map(|r| r.worktree.clone()))
+        .collect()
 }
 
-/// The lists of the one project there is; None for no project, several, or
-/// a store that fails its check.
-pub fn project_lists(snapshot: &Snapshot) -> Option<&crate::lists::Lists> {
-    match snapshot.as_deref() {
-        Ok(
-            [
-                Loaded {
-                    lists: Ok(lists), ..
-                },
-            ],
-        ) => Some(lists),
-        _ => None,
-    }
+/// The lists a worktree of <repo> belongs to: the project <claimed> names
+/// (the worktree's claim, for a repo two projects hold), else the one
+/// project that holds the repo. None for no project, a repo several hold with
+/// none named, or a store that fails its check.
+pub fn lists_for<'a>(
+    snapshot: &'a Snapshot,
+    repo: &str,
+    claimed: Option<&str>,
+) -> Option<&'a crate::lists::Lists> {
+    let holders: Vec<&Loaded> = snapshot
+        .as_deref()
+        .ok()?
+        .iter()
+        .filter(|loaded| match &loaded.lists {
+            Ok(lists) => lists.repos.iter().any(|held| held == repo),
+            Err(_) => false,
+        })
+        .collect();
+    let found = match (claimed, holders.as_slice()) {
+        (Some(named), _) => holders.iter().find(|loaded| loaded.project == named)?,
+        (None, [one]) => one,
+        _ => return None,
+    };
+    found.lists.as_ref().ok()
 }
 
 /// The titles of the items running in <worktree>, in the order the items
@@ -226,36 +232,54 @@ pub fn running_wait(lists: &crate::lists::Lists, worktree: &str) -> Option<super
     found.into_iter().next()
 }
 
-/// Open design change <id> of the one project there is, as the lists JSON
-/// shows it; None when no open design change has that id.
+/// Open design change <id>, as the lists JSON shows it; None when no open
+/// design change has that id, or when several projects each have one (ids
+/// count per project, and the review page's address carries only the id).
 pub fn open_design(snapshot: &Snapshot, id: u32) -> Option<(DesignChange, DesignView)> {
-    let Ok(
-        [
-            Loaded {
-                lists: Ok(lists), ..
-            },
-        ],
-    ) = snapshot.as_deref()
-    else {
+    let stores = snapshot.as_deref().ok()?;
+    let mut found = stores.iter().filter_map(|loaded| {
+        let lists = loaded.lists.as_ref().ok()?;
+        let design = lists.designs.iter().find(|d| d.id.0 == id)?;
+        Some((lists, design))
+    });
+    let (lists, design) = found.next()?;
+    if found.next().is_some() {
         return None;
-    };
-    let design = lists.designs.iter().find(|d| d.id.0 == id)?;
+    }
     Some((design.clone(), design_view(lists, design, None)))
 }
 
-/// The view the page reads, for the one project there is. No project, or
-/// several (the sidebar shows one), is the `error`, as is a store that fails
-/// its check. <claims> answers for a running item's worktree.
-pub fn compose(snapshot: &Snapshot, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) -> Composed {
-    let view = compose_view(snapshot, now, claims);
-    let works = super::board::works(&view);
-    let board = super::board::board(&view);
-    Composed { view, works, board }
+/// What the page reads: one lists JSON per project, in project order. No
+/// project, or a store that fails its check, is that project's `error`.
+/// <claims> answers for a running item's worktree.
+pub fn compose(
+    snapshot: &Snapshot,
+    now: i64,
+    claims: &dyn Fn(&str) -> ClaimFacts,
+) -> Vec<Composed> {
+    match snapshot.as_deref() {
+        Ok([]) => vec![Composed::of(View::failed(
+            "",
+            0,
+            "there are no lists; `builds lists init <project>` makes them".to_string(),
+        ))],
+        Ok(stores) => stores
+            .iter()
+            .map(|loaded| Composed::of(compose_view(loaded, now, claims)))
+            .collect(),
+        Err(fault) => vec![Composed::of(View::failed("", 0, fault.clone()))],
+    }
 }
 
-/// The lists JSON: the view `lists show --json` prints, and the running work
-/// the Work tab lists (board.rs), which needs the claim facts only the daemon
-/// has.
+/// The lists JSON of every project, as the page and `/api/lists` have it.
+#[derive(serde::Serialize)]
+pub struct Served<'a> {
+    pub projects: &'a [Composed],
+}
+
+/// One project's lists JSON: the view `lists show --json` prints, and the
+/// running work the Work tab lists (board.rs), which needs the claim facts
+/// only the daemon has.
 #[derive(serde::Serialize)]
 pub struct Composed {
     #[serde(flatten)]
@@ -264,29 +288,15 @@ pub struct Composed {
     pub board: super::board::Board,
 }
 
-fn compose_view(snapshot: &Snapshot, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) -> View {
-    let loaded = match snapshot.as_deref() {
-        Ok([one]) => one,
-        Ok([]) => {
-            return View::failed(
-                "",
-                0,
-                "there are no lists; `builds lists init <project>` makes them".to_string(),
-            );
-        }
-        Ok(several) => {
-            let names: Vec<&str> = several.iter().map(|l| l.project.as_str()).collect();
-            return View::failed(
-                "",
-                0,
-                format!(
-                    "there are several projects ({}) and the sidebar shows one",
-                    names.join(", ")
-                ),
-            );
-        }
-        Err(fault) => return View::failed("", 0, fault.clone()),
-    };
+impl Composed {
+    fn of(view: View) -> Composed {
+        let works = super::board::works(&view);
+        let board = super::board::board(&view);
+        Composed { view, works, board }
+    }
+}
+
+fn compose_view(loaded: &Loaded, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) -> View {
     match &loaded.lists {
         Err(fault) => View::failed(&loaded.project, 0, fault.clone()),
         Ok(lists) => {

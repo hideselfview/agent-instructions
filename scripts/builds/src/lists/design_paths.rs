@@ -186,11 +186,28 @@ impl Glob {
                 .all(|(glob, part)| segment_matches(glob, part))
     }
 
-    /// The first segment when it is plain text and more follows: the
-    /// directory the design files live in.
-    fn root(&self) -> Option<&str> {
-        let first = self.segments.first()?;
-        (self.segments.len() > 1 && !first.contains(['*', '?'])).then_some(first.as_str())
+    /// The folder the design files live in: the glob's plain directory
+    /// segments up to and including one named `design`, else all of them
+    /// (`design` for design/mocks/*.dc.html, `scripts/builds/design` for
+    /// scripts/builds/design/*.html). None when the glob has no plain
+    /// directory.
+    fn root(&self) -> Option<String> {
+        let directories = self.segments.split_last()?.1;
+        let plain: Vec<&String> = directories
+            .iter()
+            .take_while(|s| !s.contains(['*', '?']))
+            .collect();
+        let end = plain
+            .iter()
+            .position(|s| s.as_str() == "design")
+            .map_or(plain.len(), |at| at + 1);
+        (end > 0).then(|| {
+            plain[..end]
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
     }
 }
 
@@ -218,7 +235,7 @@ pub fn classify(globs: &Globs, paths: &[String]) -> Changes {
         parse(&globs.sources),
         parse(&globs.spec),
     );
-    let roots: BTreeSet<&str> = places
+    let roots: BTreeSet<String> = places
         .iter()
         .chain(&sources)
         .filter_map(Glob::root)
@@ -231,10 +248,10 @@ pub fn classify(globs: &Globs, paths: &[String]) -> Changes {
             changes.places.insert(place);
         } else if spec.iter().any(|glob| glob.matches(path)) {
             changes.spec_files.insert(path.clone());
-        } else if path
-            .split_once('/')
-            .is_some_and(|(first, _)| roots.contains(first))
-        {
+        } else if roots.iter().any(|root| {
+            path.strip_prefix(root.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+        }) {
             changes.shared.insert(path.clone());
         } else {
             changes.outside.insert(path.clone());

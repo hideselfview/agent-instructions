@@ -8,7 +8,7 @@ use crate::fail::{Context, Result};
 use crate::lists::args::Args;
 use crate::lists::check::repo_name_fault;
 use crate::lists::project::{self, NewProject, parse_globs};
-use crate::lists::store::{Store, project_of, projects_holding};
+use crate::lists::store::{Store, project_of};
 use crate::lists::view::View;
 use crate::lists::{Stamp, show};
 use crate::text::note;
@@ -67,7 +67,9 @@ fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 /// `lists add-repo PROJECT REPO`: the project carries the work of one more
-/// repo. A repo is in one project, so one another project holds is refused.
+/// repo. Two projects may hold the same repo (agent-instructions is in bae
+/// and builds); a worktree of such a repo says which project its work is in
+/// (`builds claim --project`).
 fn add_repo(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
     let [project, repo] = args.exactly(2, USAGE)? else {
@@ -79,12 +81,6 @@ fn add_repo(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let store = Store::named(&tool.places, project)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, &format!("lists add-repo {project} {repo}"), |db| {
-        if let Some(other) = projects_holding(&tool.places, repo)?
-            .into_iter()
-            .find(|held| held != project)
-        {
-            fail!("repo {repo} is already in project {other}; a repo is in one project");
-        }
         project::add_repo(db, repo)
     })?;
     note(format!("project {project} now carries repo {repo}"));

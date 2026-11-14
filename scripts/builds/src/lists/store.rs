@@ -485,16 +485,34 @@ pub fn projects_holding(places: &Places, repo: &str) -> Result<Vec<String>> {
     Ok(found)
 }
 
-/// The project <checkout>'s repo belongs to, or None. A repo in two projects
-/// is refused.
+/// The project <checkout>'s work is in, or None when its repo is in none:
+/// the project its worktree's claim names (`builds claim --project`), else
+/// the one project that holds the repo. A repo two projects hold, in a
+/// worktree that names none, is refused.
 pub fn project_of(places: &Places, checkout: &Checkout) -> Result<Option<String>> {
     let repo = checkout.repo();
     let mut found = projects_holding(places, &repo)?;
+    match std::fs::read_to_string(checkout.project_file()) {
+        Ok(text) => {
+            let named = text.trim();
+            if !found.iter().any(|held| held == named) {
+                fail!(
+                    "{} is claimed for project {named}, which does not hold repo {repo}; \
+                     builds claim it again with --project",
+                    checkout.top.display()
+                );
+            }
+            return Ok(Some(named.to_string()));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => fail!("reading {}: {error}", checkout.project_file().display()),
+    }
     match found.len() {
         0 => Ok(None),
         1 => Ok(found.pop()),
         _ => fail!(
-            "repo {repo} is in two projects ({}); say which with --project",
+            "repo {repo} is in two projects ({}); say which with --project, or claim the \
+             worktree with --project",
             found.join(", ")
         ),
     }
