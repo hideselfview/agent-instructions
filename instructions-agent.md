@@ -14,6 +14,15 @@ better-structured; weigh every item equally (size/effort words are banned under
 "No size/effort framing"). The other rules derive from this one. *(See
 `principles/revealing-structure.md`.)*
 
+**No LLM slop chips. Banned outright.** Chips are fine; the slop chip is not: a
+colored pill on every row or card restating its status, kind or category
+("Working", "Ready", "Held", "New"), a column of labels where structure should
+be. Group the rows under a heading per state, the one that needs someone first,
+or say the state in the line's own words; a chip marks only a control, a count,
+or the exception nothing else on screen says. The person (2026-11-13): "chips
+aren't banned, but LLM slop chips are definitely banned". (Full rule in
+`rules/no-llm-slop-chips.md`.)
+
 **Correctness work isn't cost — it IS the activity.** Never frame refactors,
 audits, lifetime/ownership plumbing, or error-path discipline as "cost," "tax,"
 or "what we paid for X." Less work doesn't buy the same app cheaper — it buys a
