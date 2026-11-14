@@ -52,32 +52,79 @@ pub struct AppBuild {
     pub waiting: Vec<String>,
 }
 
-/// The branch or ref a build's command line builds: `app-build <repo>
-/// <branch> ...` names it as its second word; `build-app <repo> <lane>
-/// [<ref>]` as its optional third, `origin/main` when it names none.
-fn branch_of(command: &str) -> Option<String> {
-    let words: Vec<&str> = command.split_whitespace().collect();
-    let at = words.iter().position(|word| {
-        let name = word.rsplit('/').next().unwrap_or(word);
-        name == "app-build" || name == "build-app"
-    })?;
-    let name = words[at].rsplit('/').next().unwrap_or(words[at]);
-    let args: Vec<&str> = words[at + 1..]
-        .iter()
-        .copied()
-        .filter(|word| !word.starts_with('-'))
-        .collect();
+/// What an `app-build` or `build-app` command line asks for.
+struct Asked {
+    /// The branch or ref it builds.
+    branch: String,
+    /// The steps it names; empty when it asks for every step or, for
+    /// `build-app`, for the test app.
+    steps: Vec<String>,
+    /// Is it `build-app`, the person's test app?
+    test_app: bool,
+}
+
+/// Reads <command>: `app-build <repo> [--lane <lane>] <branch> <step>...
+/// [--test <lane> <class>]...` names its branch as the second plain word and
+/// its steps as the plain words after it; `build-app <repo> <lane> [<ref>]`
+/// names its optional third, `origin/main` when it names none. The build
+/// that runs a lane's share of a request adds `--lane <lane>` after the repo.
+fn asked(command: &str) -> Option<Asked> {
+    let mut words = command.split_whitespace();
+    let name = words
+        .by_ref()
+        .map(|word| word.rsplit('/').next().unwrap_or(word))
+        .find(|name| *name == "app-build" || *name == "build-app")?;
+    let mut plain: Vec<&str> = Vec::new();
+    let mut flags = false;
+    while let Some(word) = words.next() {
+        if word == "--lane" {
+            words.next();
+        } else if word.starts_with('-') {
+            flags = true;
+        } else if !flags {
+            plain.push(word);
+        }
+    }
     match name {
-        "app-build" => args.get(1).map(|branch| branch.to_string()),
-        _ => Some(args.get(2).copied().unwrap_or("origin/main").to_string()),
+        "app-build" => Some(Asked {
+            branch: plain.get(1)?.to_string(),
+            steps: plain[2..].iter().map(|step| step.to_string()).collect(),
+            test_app: false,
+        }),
+        _ => Some(Asked {
+            branch: plain.get(2).copied().unwrap_or("origin/main").to_string(),
+            steps: Vec::new(),
+            test_app: true,
+        }),
     }
 }
 
-/// What <repo>'s app build lanes do for <branch>: the lane and how far it
-/// is (running for N minutes, or its place in the lane's queue), the
-/// running build first. None when no build of the branch runs or waits.
-pub fn build_for(repo: &RepoPage, branch: &str) -> Option<(String, String)> {
-    let named = |command: &str| branch_of(command).as_deref() == Some(branch);
+fn branch_of(command: &str) -> Option<String> {
+    asked(command).map(|asked| asked.branch)
+}
+
+fn minutes_word(minutes: i64) -> String {
+    let unit = if minutes == 1 { "minute" } else { "minutes" };
+    format!("{minutes} {unit}")
+}
+
+/// What a build asked for, in words: its steps, the test app, or every step.
+fn asked_words(asked: &Asked) -> String {
+    if asked.test_app {
+        "asked for the test app".to_string()
+    } else if asked.steps.is_empty() {
+        "asked for every step".to_string()
+    } else {
+        format!("asked for {}", asked.steps.join(" "))
+    }
+}
+
+/// What <repo>'s app build lanes do for <branch>: the lane, whether the
+/// build runs, and in words how far it is: the checkout that builds it and
+/// for how long, or its place in the lane's queue and how long it has
+/// waited, then the steps it asked for. The running build first; None when
+/// no build of the branch runs or waits.
+pub fn build_for(repo: &RepoPage, branch: &str) -> Option<(String, bool, String)> {
     let lane_name = |lane: &str| {
         let mut word = lane.to_string();
         if let Some(first) = word.get_mut(..1) {
@@ -85,25 +132,38 @@ pub fn build_for(repo: &RepoPage, branch: &str) -> Option<(String, String)> {
         }
         word
     };
+    let named = |command: &str| asked(command).filter(|asked| asked.branch == branch);
     for lock in &repo.locks {
         let Some(holder) = lock.holder.as_ref().filter(|h| h.driver_running) else {
             continue;
         };
-        if named(&holder.command) {
-            let minutes = holder.minutes;
-            let unit = if minutes == 1 { "minute" } else { "minutes" };
+        if let Some(asked) = named(&holder.command) {
             return Some((
                 lane_name(&lock.lane),
-                format!("running for {minutes} {unit}"),
+                true,
+                format!(
+                    "builds in {} for {}, {}",
+                    lock.checkout,
+                    minutes_word(holder.minutes),
+                    asked_words(&asked)
+                ),
             ));
         }
     }
     for queue in &repo.queues {
-        if let Some(at) = queue.queue.iter().position(|q| named(&q.command)) {
-            return Some((
-                lane_name(&queue.lane),
-                format!("place {} in the queue", at + 1),
-            ));
+        for (at, waiting) in queue.queue.iter().enumerate() {
+            if let Some(asked) = named(&waiting.command) {
+                return Some((
+                    lane_name(&queue.lane),
+                    false,
+                    format!(
+                        "place {} in the queue, waiting {}, {}",
+                        at + 1,
+                        minutes_word(waiting.minutes),
+                        asked_words(&asked)
+                    ),
+                ));
+            }
         }
     }
     None

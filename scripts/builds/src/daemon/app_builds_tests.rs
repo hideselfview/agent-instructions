@@ -252,11 +252,116 @@ fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
     );
     assert_eq!(
         build_for(&page, "mac-alerts"),
-        Some(("Mac".into(), "running for 6 minutes".into()))
+        Some((
+            "Mac".into(),
+            true,
+            "builds in side-1 for 6 minutes, asked for macos".into()
+        ))
     );
     assert_eq!(
         build_for(&page, "reads-import-count"),
-        Some(("Mac".into(), "place 2 in the queue".into()))
+        Some((
+            "Mac".into(),
+            false,
+            "place 2 in the queue, waiting 1 minute, asked for every step".into()
+        ))
     );
     assert_eq!(build_for(&page, "no-build"), None);
+}
+
+/// The mac lane's queue as the live one holds it: a ticket file named
+/// PID-N per waiter and an `order` file, two locks held, the lane's builds
+/// running as `app-build <repo> --lane mac <branch> <steps>...`.
+#[test]
+fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
+    use crate::lane::Lane;
+    use crate::queue::Queue;
+    let scratch = crate::testing::Scratch::new("app-builds-real-queue");
+    let dir = scratch.dir.join(Lane::Mac.queue_dir_name());
+    std::fs::create_dir_all(&dir).unwrap();
+    for ticket in ["10239-1", "26684-1", "29988-1", "31898-1", "59768-1"] {
+        std::fs::write(dir.join(ticket), "").unwrap();
+    }
+    std::fs::write(
+        dir.join("order"),
+        "31898-1\n59768-1\n26684-1\n29988-1\n10239-1\n",
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.dir.join(Lane::Mac.checkouts_file_name()),
+        "side-1\nside-14\n",
+    )
+    .unwrap();
+    let line = |branch: &str, tail: &str| {
+        format!("/Users/dima/.local/bin/builds app-build bae --lane mac {branch} {tail}")
+    };
+    let commands = [
+        (
+            26684,
+            line(
+                "mac-alerts",
+                "macos macos-tests --shots mac mac.errors.alert",
+            ),
+        ),
+        (
+            29988,
+            line(
+                "reads-import-count",
+                "macos macos-tests --test mac PaginatedListTests --test mac ImportSelectionTests",
+            ),
+        ),
+        (
+            10239,
+            line(
+                "reads-storage",
+                "macos macos-tests --test mac StorageManagerStoreTests",
+            ),
+        ),
+    ];
+    let waiting = Queue::in_repo_dir(&scratch.dir, Lane::Mac).waiting();
+    assert_eq!(waiting, vec![26684, 29988, 10239]);
+    let queue: Vec<Queued> = waiting
+        .iter()
+        .map(|pid| Queued {
+            pid: *pid,
+            minutes: 20,
+            command: commands.iter().find(|(p, _)| p == pid).unwrap().1.clone(),
+            started_from: None,
+        })
+        .collect();
+    let mut held = lock("side-1", 27, "/d/bae-worktrees/side-16", &[]);
+    held.holder.as_mut().unwrap().command = line("reads-auto-picks", "macos macos-tests");
+    let page = repo(
+        vec![checkout("side-1", Some("mac"), None)],
+        vec![held],
+        queue,
+    );
+    assert_eq!(
+        build_for(&page, "mac-alerts"),
+        Some((
+            "Mac".into(),
+            false,
+            "place 1 in the queue, waiting 20 minutes, asked for macos macos-tests".into()
+        ))
+    );
+    assert_eq!(
+        build_for(&page, "reads-import-count").unwrap().2,
+        "place 2 in the queue, waiting 20 minutes, asked for macos macos-tests"
+    );
+    assert_eq!(
+        build_for(&page, "reads-storage").unwrap().2,
+        "place 3 in the queue, waiting 20 minutes, asked for macos macos-tests"
+    );
+    assert_eq!(
+        build_for(&page, "reads-auto-picks"),
+        Some((
+            "Mac".into(),
+            true,
+            "builds in side-1 for 27 minutes, asked for macos macos-tests".into()
+        ))
+    );
+    assert_eq!(
+        branch_of(&line("mac-alerts", "macos")),
+        Some("mac-alerts".into())
+    );
 }

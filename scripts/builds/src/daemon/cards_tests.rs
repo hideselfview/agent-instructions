@@ -231,6 +231,7 @@ fn a_branch_with_an_app_build_waits_on_it_and_is_not_ready_to_land() {
         &[],
         Some(&ItemWait::AppBuild {
             lane: "Mac".into(),
+            running: false,
             how: "place 2 in the queue".into(),
         }),
     );
@@ -245,7 +246,8 @@ fn a_branch_with_an_app_build_waits_on_it_and_is_not_ready_to_land() {
 fn ready_to_land_needs_no_active_shell_no_app_build_and_no_waiting_item() {
     let build = ItemWait::AppBuild {
         lane: "Mac".into(),
-        how: "running for 1 minute".into(),
+        running: true,
+        how: "builds in side-1 for 1 minute".into(),
     };
     let item = ItemWait::Item {
         id: 1,

@@ -820,12 +820,13 @@ impl Model {
             let builds: HashMap<String, super::cards::ItemWait> = repo
                 .checkouts
                 .iter()
-                .filter(|c| c.live && !c.app_checkout && c.state == Some("ready-to-land"))
+                .filter(|c| c.live && !c.app_checkout && !c.main)
                 .filter_map(|c| {
-                    let (lane, how) = super::app_builds::build_for(repo, c.branch.as_deref()?)?;
+                    let (lane, running, how) =
+                        super::app_builds::build_for(repo, c.branch.as_deref()?)?;
                     Some((
                         c.name.clone(),
-                        super::cards::ItemWait::AppBuild { lane, how },
+                        super::cards::ItemWait::AppBuild { lane, running, how },
                     ))
                 })
                 .collect();
