@@ -42,6 +42,12 @@ replaced by the parenthetical.
 reads like its new board", "Key wait names devices holding it") saves a word and
 costs the reader the meaning.
 
+**Name the subject; don't open with "It".** A sentence that starts with "It"
+pointing back at the last one ("This Mac is offline. It holds your changes…")
+reads as machine-written. Name the thing, or start from what the reader cares
+about: "This Mac is offline. Your changes stay here until it reconnects." The
+same goes for "This" and "That" standing alone as a subject.
+
 Examples:
 
 - ✗ "Dashboard reads like its new board" → ✓ "Rebuild the dashboard to match its

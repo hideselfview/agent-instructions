@@ -16,6 +16,9 @@ person reads: app strings, item titles, commit messages, docs, plans.
   parenthetical is the word.
 - **Whole sentences.** Keep the articles and verbs: no headline grammar
   ("Dashboard reads like its new board").
+- **Name the subject.** Don't open a sentence with "It" (or a bare "This")
+  pointing back at the last one; name the thing or start from what the reader
+  cares about.
 
 Examples:
 
