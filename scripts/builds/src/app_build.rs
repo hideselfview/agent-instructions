@@ -692,8 +692,19 @@ fn build_lane(
         lane.word()
     ));
     let ssh = Ssh::from_env();
+    // A step the repo keeps on this Mac (`here` lines) keeps the build off
+    // the hosts' checkouts.
+    let config = config_at(places, repo, commit)?;
+    let allowed = if lane_steps(&config, lane, names, picks)?
+        .iter()
+        .any(|step| config.here.contains(&step.name))
+    {
+        lock::Where::Here
+    } else {
+        lock::Where::Anywhere
+    };
     let waiting = Instant::now();
-    let mut held = lock::take_anywhere(places, &ssh, repo, lane)?;
+    let mut held = lock::take_where(places, &ssh, repo, lane, allowed)?;
     timing.wait += waiting.elapsed();
     loop {
         timing.checkout = Some(held.checkout.clone());

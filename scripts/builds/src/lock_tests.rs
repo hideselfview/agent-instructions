@@ -166,7 +166,7 @@ fn a_build_that_runs_here_never_takes_a_checkout_on_a_host() {
         panic!("only a host's checkout is recorded");
     };
     assert!(error.text().contains("on this Mac"));
-    let held = take_anywhere(&places, &ssh, "demo", Lane::Android).unwrap();
+    let held = take_where(&places, &ssh, "demo", Lane::Android, Where::Anywhere).unwrap();
     assert_eq!(held.checkout, "m1:app-1");
     held.release();
 }
@@ -217,7 +217,7 @@ fn a_host_that_does_not_answer_is_skipped_and_named_when_it_was_the_only_one() {
     let down = Ssh {
         program: program.display().to_string(),
     };
-    let Err(error) = take_anywhere(&places, &down, "demo", Lane::Android) else {
+    let Err(error) = take_where(&places, &down, "demo", Lane::Android, Where::Anywhere) else {
         panic!("the only checkout is on a host that is down");
     };
     let text = error.text();

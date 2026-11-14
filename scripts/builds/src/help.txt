@@ -319,7 +319,11 @@ Commands:
                               name (paths in the checkout) are copied to
                               /Volumes/Builds/<repo>/<host>:<name>/<path> here.
                               build-app and `builds lock` never take a checkout
-                              on a host. A step that runs past its
+                              on a host, and neither does a lane's build that
+                              runs a step the repo keeps here with a
+                              `here <step>...` line in .app-build (bae's signed
+                              `macos` step). Both lanes can have checkouts on
+                              hosts; a mac one needs Xcode on the host. A step that runs past its
                               limit (45 minutes, or its `limit <step> <time>`
                               line in .app-build) has its process group killed
                               and fails the build, which gives the lock up.

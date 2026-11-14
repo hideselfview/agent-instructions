@@ -323,10 +323,16 @@ pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
     take_in(places, &Ssh::from_env(), repo, lane, Where::Here)
 }
 
-/// `take`, with the checkouts on hosts too: the one on the less loaded host
-/// goes first.
-pub fn take_anywhere(places: &Places, ssh: &Ssh, repo: &str, lane: Lane) -> Result<Held> {
-    take_in(places, ssh, repo, lane, Where::Anywhere)
+/// `take` with <allowed>: with `Where::Anywhere`, the checkouts on hosts too,
+/// the one on the less loaded host first.
+pub fn take_where(
+    places: &Places,
+    ssh: &Ssh,
+    repo: &str,
+    lane: Lane,
+    allowed: Where,
+) -> Result<Held> {
+    take_in(places, ssh, repo, lane, allowed)
 }
 
 fn take_in(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, allowed: Where) -> Result<Held> {

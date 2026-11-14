@@ -34,6 +34,11 @@
 //! `--test` or `--shots` copies them back to this Mac after it ends, passed
 //! or failed. A lane may have several such lines.
 //!
+//! A `here <step>...` line names steps that run only in an app checkout on this
+//! Mac, never on a host (app_remote.rs): the signed macOS app for the person,
+//! whose signing identity only this Mac has. A lane's build with such a step
+//! takes only a checkout here.
+//!
 //! A step belongs to a lane (`mac` or `android`, lane.rs), named first: the
 //! lane's app checkout and lock are where it runs.
 //!
@@ -78,6 +83,8 @@ pub struct Config {
     /// The folders each lane's runs of tests and screenshots write, from the
     /// `results` lines, in the order written.
     pub results: Vec<(Lane, String)>,
+    /// The steps that run only on this Mac, from the `here` lines.
+    pub here: Vec<String>,
 }
 
 impl Config {
@@ -256,6 +263,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let mut limits: Vec<(String, Duration)> = Vec::new();
     let mut shots_source: Option<String> = None;
     let mut results: Vec<(Lane, String)> = Vec::new();
+    let mut here: Vec<String> = Vec::new();
     for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
         let (platform, field) = line.split_once(' ').unwrap_or((line, ""));
         let (name, value) = field.trim().split_once(' ').unwrap_or((field.trim(), ""));
@@ -336,6 +344,13 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     fail!("{CONFIG}: two shots-source lines");
                 }
             }
+            ("here", _) => {
+                let named = words(field);
+                if named.is_empty() {
+                    fail!("{CONFIG}: a here line names no step");
+                }
+                here.extend(named);
+            }
             ("results", _) => {
                 let Some(lane) = Lane::parse(name) else {
                     fail!(
@@ -373,6 +388,11 @@ pub fn parse_config(text: &str) -> Result<Config> {
             None => fail!("{CONFIG}: limit for step {name}, which {CONFIG} does not name"),
         }
     }
+    for name in &here {
+        if !steps.iter().any(|step| step.name == *name) {
+            fail!("{CONFIG}: here names step {name}, which {CONFIG} does not name");
+        }
+    }
     let mac = match (mac_build, mac_app, bundle) {
         (Some(build), Some(app), Some(bundle)) => Some(MacApp { build, app, bundle }),
         (None, None, None) => None,
@@ -385,6 +405,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
         pickers,
         shots_source,
         results,
+        here,
     })
 }
 

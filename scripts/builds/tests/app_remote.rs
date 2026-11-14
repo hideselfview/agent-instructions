@@ -9,7 +9,7 @@ use std::process::{Command, Output};
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 
-const APP_BUILD: &str = "step android hello ./hello.sh\nstep android hang ./hang.sh\nlimit hang 1s\ntest android ./t.sh {class}\nresults android out\n";
+const APP_BUILD: &str = "step android hello ./hello.sh\nstep android hang ./hang.sh\nstep android signed ./hello.sh\nhere signed\nlimit hang 1s\ntest android ./t.sh {class}\nresults android out\n";
 
 struct World {
     dir: PathBuf,
@@ -208,4 +208,20 @@ unsafe fn libc_kill(pid: i32) -> i32 {
         fn kill(pid: i32, signal: i32) -> i32;
     }
     unsafe { kill(pid, 0) }
+}
+
+#[test]
+fn a_step_the_repo_keeps_on_this_mac_never_takes_a_hosts_checkout() {
+    let world = World::new("here");
+    let output = world.app_build(&["main", "signed"]);
+    let err = text(&output.stderr);
+    assert!(!output.status.success(), "{err}");
+    assert!(err.contains("on this Mac"), "{err}");
+    assert!(
+        !world
+            .dir
+            .join("remote-home/dev/demo-worktrees/app-1")
+            .exists(),
+        "nothing was sent to the host"
+    );
 }

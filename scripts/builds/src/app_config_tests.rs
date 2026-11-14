@@ -42,6 +42,7 @@ fn a_config_names_each_platforms_build() {
             pickers: Vec::new(),
             shots_source: None,
             results: Vec::new(),
+            here: Vec::new(),
         }
     );
 }
@@ -373,4 +374,12 @@ fn results_lines_name_the_folders_a_lane_copies_back() {
     ] {
         assert!(parse_config(refused).is_err(), "{refused} is refused");
     }
+}
+
+#[test]
+fn a_here_line_names_steps_that_stay_on_this_mac() {
+    let config = parse_config("step mac a ./a\nstep mac b ./b\nhere a\nhere b a\n").unwrap();
+    assert_eq!(config.here, vec!["a", "b", "a"]);
+    assert!(parse_config("here a").is_err(), "a step it does not name");
+    assert!(parse_config("step mac a ./a\nhere").is_err());
 }
