@@ -60,10 +60,16 @@ Never, in either kind of read:
   summing or deriving anything from rows a query returned. If a screen shows it,
   SQL produced it.
 
-When a live query is too slow, the fix is in SQL: the query, an index, or a
-device-local table that triggers keep in the same write (notes/screens-as-
-queries.md), and it is measured. A value with no table that changes many times a
-second travels on a keyed latest-value stream, never in a list query.
+SQLite is local: write the plain query first, the GROUP BY, COUNT, JOIN or
+window function that says what the screen shows, read straight from the domain's
+own tables. A table of pre-added counts or copied columns kept by triggers is
+never the starting shape.
+
+When a plain live query measures too slow, the fix is in SQL: the query, an
+index, or a device-local table that triggers keep in the same write
+(notes/screens-as- queries.md), and it is measured. A value with no table that
+changes many times a second travels on a keyed latest-value stream, never in a
+list query.
 
 A plan or brief that proposes any of the forbidden shapes is wrong; raise it
 instead of building it. Example: a search over a 500,000-row import list that
