@@ -37,6 +37,14 @@ query, and the screen draws each as it arrives. A read that need not follow
 changes (a one-off lookup, a command's check, an export) is a plain SQL read,
 not a live query. That is the whole read path.
 
+A long list is one live query whose request is the window the screen shows. It
+pages by cursor: the next or previous window starts from the sort values of the
+row at the screen's edge, which the screen sends in the request, and seeks
+through the order's index. A jump to a position (a scrollbar drag, an end key)
+reads by offset, and gets an index of its own only when it measures slow enough
+to warrant one. The cursor comes from the screen, never from rows Rust kept from
+an earlier read.
+
 Never, in either kind of read:
 
 - **Memory kept between reads.** No places, counts, windows, last results or
