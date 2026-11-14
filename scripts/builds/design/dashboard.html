@@ -68,7 +68,7 @@ a { color: var(--accent); }
 .bar.building { background: var(--working-bg); color: var(--working); }
 .bar .grp { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; }
 .bar .ic { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
-.bar > .ic:last-child { margin-left: auto; font: 500 13px var(--mono); }
+.bar .disk { margin-left: auto; font: 500 13px var(--mono); }
 .procs { background: color-mix(in srgb, var(--working-bg) 55%, transparent); color: var(--working); border-radius: 8px; padding: 6px 10px; font: 12px var(--mono); overflow-wrap: anywhere; }
 .run .ic { display: inline-flex; align-items: center; gap: 5px; }
 .run .what-runs { min-width: 0; }
@@ -124,13 +124,13 @@ a { color: var(--accent); }
     <h2>Worktrees</h2>
     <div class="wts">
       <div class="wt-card">
-        <div class="bar"><span class="ic" title="Disk: the build output this worktree holds on the build volume."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Disk"><rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M5 9.5h.01M8 9.5h3"/></svg>4.1G</span></div>
+        <div class="bar"><span class="disk" title="Disk: the build output this worktree holds on the build volume.">4.1G</span></div>
         <div class="t"><span><b>main</b> <span class="br">main</span></span></div>
         <div class="what">Your checkout. No agent works or builds here.</div>
         <div class="foot"><span class="ic" title="Last commit: time since the newest commit on this checkout's branch."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Last commit"><circle cx="8" cy="8" r="2.75"/><path d="M1 8h4.25M10.75 8H15"/></svg>12m</span><span class="tree">clean</span></div>
       </div>
       <div class="wt-card">
-        <div class="bar building"><span class="grp"><span>1% CPU · 614 MB</span><span class="ic" title="Building: how long the build running in this worktree has run, and the programs it runs."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Building"><g transform="rotate(-40 8 8)"><path d="M3.5 2.5h7.5a1.5 1.5 0 0 1 1.5 1.5v1.5H3.5l-1-1.5z"/><path d="M7.25 5.5h1.5V14.5h-1.5z"/></g></svg>6m</span></span><span class="ic" title="Disk: the build output this worktree holds on the build volume."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Disk"><rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M5 9.5h.01M8 9.5h3"/></svg>18.2G</span></div>
+        <div class="bar building"><span class="grp"><span>1% CPU · 614 MB</span><span class="ic" title="Building: how long the build running in this worktree has run, and the programs it runs."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Building"><g transform="rotate(-40 8 8)"><path d="M3.5 2.5h7.5a1.5 1.5 0 0 1 1.5 1.5v1.5H3.5l-1-1.5z"/><path d="M7.25 5.5h1.5V14.5h-1.5z"/></g></svg>6m</span></span><span class="disk" title="Disk: the build output this worktree holds on the build volume.">18.2G</span></div>
         <div class="t"><span><b>side-1</b> <span class="br">detached at 9e8d3d5</span></span></div>
         <div class="what">Mac app checkout. Building the Mac app for mac-alerts.</div>
         <div class="procs">xcodebuild</div>
@@ -138,21 +138,21 @@ a { color: var(--accent); }
         <div class="foot"><span class="ic" title="App lock: how long one build has held this app checkout. Other agents wait in line for it; it is released when the build ends."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Lock held"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>6m</span></div>
       </div>
       <div class="wt-card">
-        <div class="bar"><span class="ic" title="Disk: the build output this worktree holds on the build volume."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Disk"><rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M5 9.5h.01M8 9.5h3"/></svg>7.4G</span></div>
+        <div class="bar"><span class="disk" title="Disk: the build output this worktree holds on the build volume.">7.4G</span></div>
         <div class="t"><span><b>side-13</b> <span class="br">detached at 4d9ec6c</span></span></div>
         <div class="what">Android app checkout. Its lock is held by a priming build that is no longer building.</div>
         <div class="cmd">adb -L tcp:5037</div>
         <div class="foot"><span class="ic" title="App lock: how long one build has held this app checkout. Other agents wait in line for it; it is released when the build ends."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Lock held"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>37h</span></div>
       </div>
       <div class="wt-card">
-        <div class="bar"><span class="ic" title="Disk: the build output this worktree holds on the build volume."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Disk"><rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M5 9.5h.01M8 9.5h3"/></svg>9.8G</span></div>
+        <div class="bar"><span class="disk" title="Disk: the build output this worktree holds on the build volume.">9.8G</span></div>
         <div class="t"><span><b>side-3</b> <span class="br">lists-page-by-cursor</span></span><span class="r"><span class="pill s-ready">Ready to land</span></span></div>
         <div class="what">Waits to be landed by the coordinator.</div>
         <div class="land"><span class="h">1 commit waiting to land</span><div class="c"><span class="mono">2246700</span><span>Page the long lists by cursor and drop the remembered places</span></div></div>
         <div class="foot"><span class="ic" title="Last commit: time since the newest commit on this checkout's branch."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Last commit"><circle cx="8" cy="8" r="2.75"/><path d="M1 8h4.25M10.75 8H15"/></svg>1m</span><span class="ic" title="Claimed: how long an agent has owned this worktree for its task. Nobody else works here until the task lands and the claim is released."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Claimed"><circle cx="8" cy="5.25" r="2.75"/><path d="M2.75 14c.6-2.9 2.8-4.5 5.25-4.5s4.65 1.6 5.25 4.5"/></svg>1h</span><span class="tree">clean</span></div>
       </div>
       <div class="wt-card">
-        <div class="bar"><span class="ic" title="Disk: the build output this worktree holds on the build volume."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Disk"><rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M5 9.5h.01M8 9.5h3"/></svg>13.8G</span></div>
+        <div class="bar"><span class="disk" title="Disk: the build output this worktree holds on the build volume.">13.8G</span></div>
         <div class="t"><span><b>side-9</b> <span class="br">read-shape-apps-b2</span></span><span class="r"><span class="pill s-ready">Ready to land</span></span></div>
         <div class="what">Waits to be landed by the coordinator.</div>
         <div class="land"><span class="h">4 commits waiting to land</span>
@@ -162,14 +162,14 @@ a { color: var(--accent); }
         <div class="foot"><span class="ic" title="Claimed: how long an agent has owned this worktree for its task. Nobody else works here until the task lands and the claim is released."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Claimed"><circle cx="8" cy="5.25" r="2.75"/><path d="M2.75 14c.6-2.9 2.8-4.5 5.25-4.5s4.65 1.6 5.25 4.5"/></svg>58m</span><span class="tree">clean</span></div>
       </div>
       <div class="wt-card">
-        <div class="bar building"><span class="grp"><span>78% CPU · 995 MB</span><span class="ic" title="Building: how long the build running in this worktree has run, and the programs it runs."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Building"><g transform="rotate(-40 8 8)"><path d="M3.5 2.5h7.5a1.5 1.5 0 0 1 1.5 1.5v1.5H3.5l-1-1.5z"/><path d="M7.25 5.5h1.5V14.5h-1.5z"/></g></svg>2m</span></span><span class="ic" title="Disk: the build output this worktree holds on the build volume."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Disk"><rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M5 9.5h.01M8 9.5h3"/></svg>11.5G</span></div>
+        <div class="bar building"><span class="grp"><span>78% CPU · 995 MB</span><span class="ic" title="Building: how long the build running in this worktree has run, and the programs it runs."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Building"><g transform="rotate(-40 8 8)"><path d="M3.5 2.5h7.5a1.5 1.5 0 0 1 1.5 1.5v1.5H3.5l-1-1.5z"/><path d="M7.25 5.5h1.5V14.5h-1.5z"/></g></svg>2m</span></span><span class="disk" title="Disk: the build output this worktree holds on the build volume.">11.5G</span></div>
         <div class="t"><span><b>side-12</b> <span class="br">naive-reads-baseline</span></span><span class="r"><span class="pill s-working">Working</span></span></div>
         <div class="what">Measuring each screen read at 2k, 20k and 100k albums.</div>
         <div class="procs">clippy-driver ×3, sccache ×3, cargo</div>
         <div class="foot"><span class="ic" title="Last commit: time since the newest commit on this checkout's branch."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Last commit"><circle cx="8" cy="8" r="2.75"/><path d="M1 8h4.25M10.75 8H15"/></svg>5m</span><span class="ic" title="Last write: time since a file in this worktree last changed, committed or not. A recent write means the agent is still editing."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Last write"><path d="M10.5 2.5l3 3L6 13H3v-3z"/><path d="M9 4l3 3"/></svg>3m</span><span class="ic" title="Claimed: how long an agent has owned this worktree for its task. Nobody else works here until the task lands and the claim is released."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Claimed"><circle cx="8" cy="5.25" r="2.75"/><path d="M2.75 14c.6-2.9 2.8-4.5 5.25-4.5s4.65 1.6 5.25 4.5"/></svg>21m</span><span class="tree">7 files changed</span></div>
       </div>
       <div class="wt-card">
-        <div class="bar"><span class="ic" title="Disk: the build output this worktree holds on the build volume."><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Disk"><rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M5 9.5h.01M8 9.5h3"/></svg>0.9G</span></div>
+        <div class="bar"><span class="disk" title="Disk: the build output this worktree holds on the build volume.">0.9G</span></div>
         <div class="t"><span><b>side-8</b> <span class="br">detached at 531e618</span></span></div>
         <div class="what">Free: no claim, every commit landed.</div>
         <div class="foot"><span class="tree">clean</span></div>
