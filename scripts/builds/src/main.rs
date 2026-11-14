@@ -21,6 +21,7 @@ mod free_worktrees;
 mod health;
 mod hook_impact;
 mod hook_stats;
+mod host;
 mod install;
 mod install_hook;
 mod land;
@@ -33,6 +34,7 @@ mod places;
 mod procs;
 mod prune;
 mod queue;
+mod remote;
 mod sccache;
 mod setup;
 mod shells;
@@ -135,8 +137,10 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "next" => lists::cmd_next(&tool, args),
         "area" => lists::cmd_area(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
+        "host" => host::cmd_host(&tool, &host::Ssh::from_env(), args),
+        "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
         other => fail!(
-            "unknown command {other} (setup | new | land | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | prune | cargo | lock | app-build | queue | takeover | build-app | install | checks | install-hook)"
+            "unknown command {other} (setup | new | land | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | host | remote | prune | cargo | lock | app-build | queue | takeover | build-app | install | checks | install-hook)"
         ),
     }
 }

@@ -324,6 +324,39 @@ Commands:
                               (ref box, Build button, the run's output and how
                               it ended) that runs this as a child of the
                               daemon; a lane takes one at a time
+  builds host add <name> <ssh target>
+  builds host list
+  builds host remove <name>   the Macs builds can run a job on. This Mac is
+                              always one, named local. `add` asks the host
+                              (over ssh, by key: no password) for its cores
+                              and records it in the file `hosts` beside the
+                              lists folder. `list` asks every host for its
+                              load average per core, free disk and whether it
+                              answers
+  builds remote run <repo> <ref> [--host <name>] -- <command> [<args>...]
+  builds remote run <repo> --staged [--host <name>] -- <command> [<args>...]
+                              run the command on a host, in a worktree of the
+                              host's clone of the repo (~/dev/<repo> there)
+                              with the commit <ref> names checked out, and
+                              pass its output back as it arrives; exit with
+                              the command's status. --staged sends a commit
+                              made from the staged files of the checkout you
+                              are in (no ref moves, nothing in the checkout
+                              changes). The commit goes to the host's clone
+                              only, as refs/builds/jobs/<id> (never to
+                              GitHub); the worktree is the first free
+                              ~/dev/<repo>-worktrees/remote-N, kept between
+                              jobs so its build output stays warm. When the
+                              job ends, builds deletes the ref and the claim.
+                              Stopping builds (SIGTERM, SIGINT, SIGHUP) stops
+                              the command on the host. Without --host, the
+                              host with the lowest load average per core among
+                              those that answer and have free disk above the
+                              floor (BUILDS_FREE_FLOOR_GIB), this Mac
+                              included; builds says which it picked and why.
+                              A host named with --host that does not answer
+                              fails the job, naming the host and the ssh error.
+                              BUILDS_SSH names a program to use in place of ssh
   builds units prune <days> <incremental hours> <dry 0|1> <folder>...
   builds units git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...
                               the steps setup and prune run on cargo's
