@@ -20,7 +20,7 @@ use std::time::Duration;
 use crate::checkout::{Checkout, git, git_text};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::host::{self, Host, Ssh, choose, clone_path, sh_quote};
+use crate::host::{self, Host, REMOTE_ROOT, Ssh, choose, clone_path, sh_quote};
 use crate::places::Places;
 use crate::text::note;
 use crate::tool::Tool;
@@ -222,11 +222,25 @@ impl Transport<'_> {
     }
 }
 
+/// The lines that set the builds root for what follows: on a host other than
+/// this Mac, the folder in the host's home (it has no build volume); on this
+/// Mac, the root builds already runs with.
+fn root_script(host: &Host) -> String {
+    match host.target {
+        Some(_) => format!("BUILDS_ROOT=\"$HOME/{REMOTE_ROOT}\"\nexport BUILDS_ROOT\n"),
+        None => String::new(),
+    }
+}
+
 /// Finds the repo's clone and claims the first free worktree for job <id>,
-/// with <sha> checked out in it. Prints `worktree=<path>`.
-fn claim_script(repo: &str, sha: &str, id: &str) -> String {
+/// with <sha> checked out in it, then sets the worktree up as `builds new`
+/// sets up a side worktree: the repo's `scripts/hooks/post-checkout` runs in
+/// it as git runs it for a new worktree (build folders linked into the
+/// builds root, shared files linked from the main checkout). Prints
+/// `worktree=<path>`.
+fn claim_script(host: &Host, repo: &str, sha: &str, id: &str) -> String {
     format!(
-        r#"set -e
+        r#"{root}set -e
 clone="$HOME/{clone}"
 if [ ! -e "$clone/.git" ]; then echo "no clone of {repo} at $clone" >&2; exit 90; fi
 wts="$HOME/dev/{repo}-worktrees"
@@ -240,7 +254,15 @@ if [ -e "$wt/.git" ]; then
 else
   git -C "$clone" worktree add -q --detach "$wt" {sha}
 fi || {{ rm -rf "$wts/remote-$n.job"; exit 91; }}
+if [ -x "$wt/scripts/hooks/post-checkout" ]; then
+  if ! said=$(cd "$wt" && "$wt/scripts/hooks/post-checkout" 0000000000000000000000000000000000000000 {sha} 1 2>&1); then
+    echo "post-checkout failed in $wt: $said" >&2
+    rm -rf "$wts/remote-$n.job"
+    exit 93
+  fi
+fi
 echo "worktree=$wt""#,
+        root = root_script(host),
         clone = clone_path(repo),
         repo = repo,
         sha = sh_quote(sha),
@@ -250,10 +272,10 @@ echo "worktree=$wt""#,
 
 /// Runs <command> in <worktree> as a process group of its own, whose leader's
 /// pid goes in the claim folder for `stop_script`.
-fn run_script(worktree: &str, command: &[String]) -> String {
+fn run_script(host: &Host, worktree: &str, command: &[String]) -> String {
     let words: Vec<String> = command.iter().map(|word| sh_quote(word)).collect();
     format!(
-        r#"PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+        r#"{root}PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 export PATH
 set -m
 cd {wt} || exit 92
@@ -261,6 +283,7 @@ cd {wt} || exit 92
 pid=$!
 echo $pid > {wt}.job/pid
 wait $pid 2>/dev/null"#,
+        root = root_script(host),
         wt = sh_quote(worktree),
         words = words.join(" "),
     )
@@ -297,7 +320,7 @@ fn run_command(transport: &Transport, worktree: &str, command: &[String]) -> Res
         }
     }
     let mut child = transport
-        .command(&run_script(worktree, command))
+        .command(&run_script(transport.host, worktree, command))
         .stdin(Stdio::null())
         // Its own process group: a Ctrl-C reaches builds, which stops the
         // command on the host itself.
@@ -362,7 +385,7 @@ pub fn run_job(
     let ran = (|| {
         transport.send(source, &request.repo, &sha, &id)?;
         let claimed = transport.capture(
-            &claim_script(&request.repo, &sha, &id),
+            &claim_script(host, &request.repo, &sha, &id),
             "claiming a worktree",
         )?;
         let worktree = worktree_in(&claimed)?;

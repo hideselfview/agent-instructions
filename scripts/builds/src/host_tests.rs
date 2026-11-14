@@ -149,3 +149,33 @@ fn an_unreachable_host_is_not_added() {
     assert!(message.contains("Connection refused"), "{message}");
     assert!(read_remote(&places).unwrap().is_empty());
 }
+
+#[test]
+fn setup_copies_builds_to_the_host_and_makes_its_root() {
+    let scratch = Scratch::new("host-setup");
+    let home = scratch.dir.join("remote-home");
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let host = Host {
+        name: "m1".to_string(),
+        target: Some("user@m1".to_string()),
+        cores: 10,
+    };
+    setup_host(&ssh, &host).unwrap();
+    let installed = home.join(".local/bin/builds");
+    assert_eq!(
+        std::fs::read(&installed).unwrap(),
+        std::fs::read(std::env::current_exe().unwrap()).unwrap()
+    );
+    assert!(home.join(REMOTE_ROOT).is_dir());
+    assert!(!home.join(".local/bin/builds.part").exists());
+    assert!(setup_host(&ssh, &Host::local()).is_err());
+    let gone = Host {
+        name: "gone".to_string(),
+        target: Some("unreachable".to_string()),
+        cores: 1,
+    };
+    let Err(Fail::Message(message)) = setup_host(&ssh, &gone) else {
+        panic!("expected a failure");
+    };
+    assert!(message.contains("host gone"), "{message}");
+}

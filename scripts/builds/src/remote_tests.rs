@@ -287,3 +287,63 @@ fn a_stop_signal_stops_the_command_on_the_host() {
     assert!(!s.home.join("dev/demo-worktrees/remote-1.job").exists());
     assert_eq!(refs(&s.home.join("dev/demo")), "");
 }
+
+/// Commits a post-checkout hook to the source repo and refreshes the host's
+/// clone, as a repo with `scripts/hooks/post-checkout` has.
+fn add_hook(s: &Setup, body: &str) {
+    let hooks = s.source.join("scripts/hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let hook = hooks.join("post-checkout");
+    std::fs::write(&hook, format!("#!/bin/sh\n{body}\n")).unwrap();
+    std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    git(&s.source, &["add", "scripts/hooks/post-checkout"]);
+    git(&s.source, &["commit", "-q", "-m", "Add the hook"]);
+    git(&s.home.join("dev/demo"), &["fetch", "-q", "origin"]);
+}
+
+#[test]
+fn a_new_remote_worktree_runs_the_repos_post_checkout_with_the_hosts_root() {
+    let s = setup("remote-hook");
+    add_hook(&s, r#"echo "$BUILDS_ROOT $1 $3 $(pwd)" > ../hook.txt"#);
+    let places = s.scratch.places();
+    let job = request(
+        What::Ref("main".to_string()),
+        &["sh", "-c", "echo \"$BUILDS_ROOT\" > ../run-root.txt"],
+    );
+    assert_eq!(
+        run_job(&places, &s.ssh, &s.host, &s.source, &job).unwrap(),
+        0
+    );
+    let wts = s.home.join("dev/demo-worktrees");
+    let hook = std::fs::read_to_string(wts.join("hook.txt")).unwrap();
+    let root = format!("{}/builds-root", s.home.display());
+    assert_eq!(
+        hook.trim(),
+        format!(
+            "{root} 0000000000000000000000000000000000000000 1 {}/remote-1",
+            wts.display()
+        )
+    );
+    assert_eq!(
+        std::fs::read_to_string(wts.join("run-root.txt"))
+            .unwrap()
+            .trim(),
+        root,
+        "the command sees the same root"
+    );
+}
+
+#[test]
+fn a_failing_post_checkout_fails_the_job_and_releases_the_claim() {
+    let s = setup("remote-hook-fails");
+    add_hook(&s, "echo broken >&2; exit 4");
+    let places = s.scratch.places();
+    let job = request(What::Ref("main".to_string()), &["true"]);
+    let Err(Fail::Message(message)) = run_job(&places, &s.ssh, &s.host, &s.source, &job) else {
+        panic!("expected a failure");
+    };
+    assert!(message.contains("post-checkout failed"), "{message}");
+    assert!(message.contains("broken"), "{message}");
+    assert!(!s.home.join("dev/demo-worktrees/remote-1.job").exists());
+    assert_eq!(refs(&s.home.join("dev/demo")), "");
+}

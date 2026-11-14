@@ -331,12 +331,17 @@ Commands:
                               it ended) that runs this as a child of the
                               daemon; a lane takes one at a time
   builds host add <name> <ssh target>
+  builds host setup <name>
   builds host list
   builds host remove <name>   the Macs builds can run a job on. This Mac is
                               always one, named local. `add` asks the host
                               (over ssh, by key: no password) for its cores
                               and records it in the file `hosts` beside the
-                              lists folder. `list` asks every host for its
+                              lists folder. `setup` copies this Mac's builds
+                              program to ~/.local/bin/builds on the host (both
+                              are arm64 macOS) and makes its builds root,
+                              ~/builds-root, which the host has in place of
+                              /Volumes/Builds. `list` asks every host for its
                               load average per core, free disk and whether it
                               answers
   builds remote run <repo> <ref> [--host <name>] -- <command> [<args>...]
@@ -352,7 +357,12 @@ Commands:
                               only, as refs/builds/jobs/<id> (never to
                               GitHub); the worktree is the first free
                               ~/dev/<repo>-worktrees/remote-N, kept between
-                              jobs so its build output stays warm. When the
+                              jobs so its build output stays warm. The repo's
+                              scripts/hooks/post-checkout runs in it, as for
+                              a new side worktree here, with BUILDS_ROOT set
+                              to ~/builds-root on a host (the job's command
+                              gets the same), so the build folders link there.
+                              When the
                               job ends, builds deletes the ref and the claim.
                               Stopping builds (SIGTERM, SIGINT, SIGHUP) stops
                               the command on the host. Without --host, the
