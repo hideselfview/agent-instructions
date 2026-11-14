@@ -133,7 +133,7 @@ pub fn ask_groups(
     settled: &(dyn Fn(&str) -> Vec<Settled> + Sync),
 ) -> Vec<NewCall> {
     let files = parse_diff(&diff.text);
-    parallel_map(picked, |(group, members)| {
+    let one = |(group, members): &(&Group, Vec<&Rule>)| {
         let principles: Vec<(String, String)> = group
             .principles
             .iter()
@@ -150,7 +150,7 @@ pub fn ask_groups(
             diff: &diff.text,
         });
         let names = prompt::answer_names(group, members);
-        let output = call::run(reviewer, &group.model, &names, &text);
+        let output = call::run(reviewer, &group.model, &names, group.enumerate, &text);
         checked(
             group,
             members,
@@ -159,7 +159,15 @@ pub fn ask_groups(
             &names,
             output,
         )
-    })
+    };
+    // The first call writes the shared prefix of the prompt to the cache and
+    // the rest, started after it answers, read it from there.
+    let Some((first, rest)) = picked.split_first() else {
+        return Vec::new();
+    };
+    let mut calls = vec![one(first)];
+    calls.extend(parallel_map(rest, one));
+    calls
 }
 
 /// The call as the store holds it: findings whose clause or code is not
@@ -178,6 +186,9 @@ fn checked(
         rules: names.to_vec(),
         tokens_in: output.tokens_in,
         tokens_out: output.tokens_out,
+        tokens_cached: output.tokens_cached,
+        tokens_written: output.tokens_written,
+        sites: None,
         failure: None,
         verdicts: Vec::new(),
         findings: Vec::new(),
@@ -190,6 +201,7 @@ fn checked(
         }
     };
     call.verdicts = answer.verdicts;
+    call.sites = answer.sites;
     for raw in answer.findings {
         let (rule_text, blocking) = if raw.rule == PROJECT_FACTS {
             (project_text, false)

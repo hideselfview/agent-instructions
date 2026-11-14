@@ -8,6 +8,9 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
         rules: vec!["r".to_string()],
         tokens_in: 10,
         tokens_out: 2,
+        tokens_cached: 4,
+        tokens_written: 3,
+        sites: None,
         failure: None,
         verdicts: vec![(
             "r".to_string(),

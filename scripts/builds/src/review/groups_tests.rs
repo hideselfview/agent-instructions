@@ -107,3 +107,18 @@ fn a_rule_marked_review_false_never_runs_its_group() {
     )];
     assert!(groups.pick(&rules, &["a".to_string()]).is_empty());
 }
+
+#[test]
+fn a_group_that_lists_sites_has_exactly_one_rule() {
+    let groups = Groups::parse(
+        "[[group]]\nname = \"g\"\nquestion = \"q\"\nmodel = \"opus\"\nenumerate = true\nrules = [\"a\", \"b\"]\n",
+    )
+    .unwrap();
+    let rules = vec![rule("a", "**"), rule("b", "**")];
+    assert!(
+        groups
+            .faults(&rules)
+            .iter()
+            .any(|f| f.contains("lists sites, so it has exactly one rule"))
+    );
+}

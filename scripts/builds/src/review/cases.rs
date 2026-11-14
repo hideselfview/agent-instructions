@@ -288,6 +288,9 @@ pub struct Totals {
     pub failed_calls: usize,
     pub tokens_in: i64,
     pub tokens_out: i64,
+    /// Of tokens_in, the part read from the prompt cache and the part written to it.
+    pub tokens_cached: i64,
+    pub tokens_written: i64,
 }
 
 pub fn totals(results: &[CaseResult]) -> Totals {
@@ -298,6 +301,8 @@ pub fn totals(results: &[CaseResult]) -> Totals {
         failed_calls: 0,
         tokens_in: 0,
         tokens_out: 0,
+        tokens_cached: 0,
+        tokens_written: 0,
     };
     for r in results {
         t.expected += r.expected;
@@ -307,6 +312,8 @@ pub fn totals(results: &[CaseResult]) -> Totals {
         let (i, o) = r.tokens();
         t.tokens_in += i;
         t.tokens_out += o;
+        t.tokens_cached += r.calls.iter().map(|c| c.tokens_cached).sum::<i64>();
+        t.tokens_written += r.calls.iter().map(|c| c.tokens_written).sum::<i64>();
     }
     t
 }
@@ -337,8 +344,16 @@ pub fn report(results: &[CaseResult]) -> String {
     let t = totals(results);
     let percent = (t.found * 100).checked_div(t.expected).unwrap_or(100);
     out.push_str(&format!(
-        "recall {} of {} expected findings ({percent}%), {} false blocking findings on clean cases, {} failed calls, {} tokens in, {} out\n",
-        t.found, t.expected, t.false_blocking, t.failed_calls, t.tokens_in, t.tokens_out
+        "recall {} of {} expected findings ({percent}%), {} false blocking findings on clean cases, {} failed calls, {} tokens in ({} uncached, {} read from the cache, {} written to it), {} out\n",
+        t.found,
+        t.expected,
+        t.false_blocking,
+        t.failed_calls,
+        t.tokens_in,
+        t.tokens_in - t.tokens_cached - t.tokens_written,
+        t.tokens_cached,
+        t.tokens_written,
+        t.tokens_out
     ));
     out
 }

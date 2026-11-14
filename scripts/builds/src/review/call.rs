@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::review::prompt;
 
@@ -26,12 +26,16 @@ pub struct Answer {
     /// (rule, `finding` or `none`).
     pub verdicts: Vec<(String, String)>,
     pub findings: Vec<Raw>,
+    /// For a group that lists the sites it judges: its summary and sites, as JSON.
+    pub sites: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Output {
     pub tokens_in: i64,
     pub tokens_out: i64,
+    pub tokens_cached: i64,
+    pub tokens_written: i64,
     /// The answer, or why there is none.
     pub answer: Result<Answer, String>,
 }
@@ -39,8 +43,11 @@ pub struct Output {
 /// What `claude -p` printed: the tokens it used and its answer in the schema.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Invoked {
+    /// All input tokens: uncached, read from the cache and written to it.
     pub tokens_in: i64,
     pub tokens_out: i64,
+    pub tokens_cached: i64,
+    pub tokens_written: i64,
     pub body: Result<Value, String>,
 }
 
@@ -66,6 +73,8 @@ pub fn invoke(
     let failed = |why: String| Invoked {
         tokens_in: 0,
         tokens_out: 0,
+        tokens_cached: 0,
+        tokens_written: 0,
         body: Err(why),
     };
     let mut child = match command.spawn() {
@@ -103,6 +112,8 @@ pub fn envelope(text: &str) -> Invoked {
         return Invoked {
             tokens_in: 0,
             tokens_out: 0,
+            tokens_cached: 0,
+            tokens_written: 0,
             body: Err("the reviewer printed no JSON".to_string()),
         };
     };
@@ -115,6 +126,8 @@ pub fn envelope(text: &str) -> Invoked {
     Invoked {
         tokens_in,
         tokens_out,
+        tokens_cached: count("cache_read_input_tokens"),
+        tokens_written: count("cache_creation_input_tokens"),
         body,
     }
 }
@@ -133,31 +146,45 @@ fn body_of(value: &Value) -> Result<Value, String> {
     }
 }
 
-/// Runs a group's reviewer and reads its verdicts.
-pub fn run(program: &Path, model: &str, names: &[String], prompt_text: &str) -> Output {
+/// Runs a group's reviewer and reads its answer: verdicts per rule, or, for a
+/// group that lists sites, a summary and a verdict per site.
+pub fn run(
+    program: &Path,
+    model: &str,
+    names: &[String],
+    enumerate: bool,
+    prompt_text: &str,
+) -> Output {
     let invoked = invoke(
         program,
         model,
-        &prompt::schema(names),
+        &prompt::schema(),
         prompt::SYSTEM,
         prompt_text,
     );
+    output_of(invoked, names, enumerate)
+}
+
+fn output_of(invoked: Invoked, names: &[String], enumerate: bool) -> Output {
     Output {
         tokens_in: invoked.tokens_in,
         tokens_out: invoked.tokens_out,
-        answer: invoked.body.and_then(|body| answer_of(&body, names)),
+        tokens_cached: invoked.tokens_cached,
+        tokens_written: invoked.tokens_written,
+        answer: invoked.body.and_then(|body| {
+            if enumerate {
+                sites_of(&body, names)
+            } else {
+                answer_of(&body, names)
+            }
+        }),
     }
 }
 
 /// Reads the answer of <text>, the JSON `claude -p` printed.
 #[cfg(test)]
 pub fn parse(text: &str, names: &[String]) -> Output {
-    let invoked = envelope(text);
-    Output {
-        tokens_in: invoked.tokens_in,
-        tokens_out: invoked.tokens_out,
-        answer: invoked.body.and_then(|body| answer_of(&body, names)),
-    }
+    output_of(envelope(text), names, false)
 }
 
 fn answer_of(body: &Value, names: &[String]) -> Result<Answer, String> {
@@ -213,7 +240,56 @@ fn answer_of(body: &Value, names: &[String]) -> Result<Answer, String> {
             missing.join(", ")
         ));
     }
-    Ok(Answer { verdicts, findings })
+    Ok(Answer {
+        verdicts,
+        findings,
+        sites: None,
+    })
+}
+
+/// The answer of a group that lists the sites it judges: a summary, then
+/// every site with its verdict. The group's one rule is `finding` when any
+/// site is.
+fn sites_of(body: &Value, names: &[String]) -> Result<Answer, String> {
+    let [rule] = names else {
+        return Err("a group that lists sites answers for one rule".to_string());
+    };
+    let summary = body["summary"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or("the answer has no summary of the sites")?;
+    let sites = body["sites"]
+        .as_array()
+        .ok_or("the answer has no sites list")?;
+    let mut findings = Vec::new();
+    for site in sites {
+        let text = |key: &str| site[key].as_str().map(str::to_string);
+        let file = text("file").ok_or("a site has no file")?;
+        let code = text("code").ok_or("a site has no code")?;
+        let line = site["line"].as_i64().ok_or("a site has no line")?;
+        match site["verdict"].as_str() {
+            Some("none") => {}
+            Some("finding") => findings.push(Raw {
+                rule: rule.clone(),
+                clause: text("clause").ok_or("a finding site has no clause")?,
+                file,
+                line,
+                code,
+                problem: text("problem").ok_or("a finding site has no problem")?,
+            }),
+            _ => return Err("a site's verdict is not finding or none".to_string()),
+        }
+    }
+    let verdict = if findings.is_empty() {
+        "none"
+    } else {
+        "finding"
+    };
+    Ok(Answer {
+        verdicts: vec![(rule.clone(), verdict.to_string())],
+        findings,
+        sites: Some(json!({"summary": summary, "sites": sites}).to_string()),
+    })
 }
 
 #[cfg(test)]

@@ -31,6 +31,10 @@ pub struct Group {
     /// Whether the group also answers for the project's always-loaded facts.
     #[serde(default)]
     pub project_facts: bool,
+    /// Whether the reviewer first lists every site that handles returned
+    /// rows and judges each; such a group has exactly one rule.
+    #[serde(default)]
+    pub enumerate: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -74,6 +78,12 @@ impl Groups {
             names.push(&group.name);
             if group.rules.is_empty() {
                 faults.push(format!("group {} has no rule", group.name));
+            }
+            if group.enumerate && (group.rules.len() != 1 || group.project_facts) {
+                faults.push(format!(
+                    "group {} lists sites, so it has exactly one rule and no project facts",
+                    group.name
+                ));
             }
             if !["opus", "sonnet"].contains(&group.model.as_str()) {
                 faults.push(format!(

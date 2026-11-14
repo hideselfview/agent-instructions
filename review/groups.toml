@@ -13,6 +13,11 @@
 # rules       rule slugs (the file names without .md)
 # principles  files under principles/ (without .md) the reviewer reads
 # instructions  extra words for the reviewer, optional
+# enumerate  true when the reviewer first lists every site in the diff that
+#             handles rows a query returned (a filter, a pick, a membership
+#             test, a count, a sort, a group, a join, a map that drops rows,
+#             a subscription taken once) and judges each site against each
+#             clause; such a group has exactly one rule
 # project_facts true when the group also answers for the project facts that
 #             every commit keeps (the spec moves with the commit, bae writes as
 #             local), as one more verdict named project-facts
@@ -23,7 +28,7 @@ question = "Does every read the diff adds or changes come from SQL and a plain l
 model = "opus"
 rules = ["reactive-screens-read-plain-live-queries"]
 principles = []
-instructions = "Give a verdict for every read the diff adds or changes, and for each clause of the rule that read breaks, raise one finding that quotes that clause."
+enumerate = true
 
 [[group]]
 name = "data stays out of the UI"

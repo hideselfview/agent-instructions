@@ -75,6 +75,7 @@ fn synthetic(name: String, model: &str, question: &str, rules: &[&Rule], groups:
         principles,
         instructions: None,
         project_facts: false,
+        enumerate: false,
     }
 }
 

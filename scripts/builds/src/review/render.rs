@@ -75,10 +75,13 @@ pub fn totals(calls: &[Call], findings: &[Finding]) -> String {
     let dropped = findings.len() - accepted;
     let tokens_in: i64 = calls.iter().map(|c| c.tokens_in).sum();
     let tokens_out: i64 = calls.iter().map(|c| c.tokens_out).sum();
+    let cached: i64 = calls.iter().map(|c| c.tokens_cached).sum();
+    let written: i64 = calls.iter().map(|c| c.tokens_written).sum();
     format!(
-        "{}, {} ({blocking} blocking), {dropped} dropped by builds, {tokens_in} tokens in, {tokens_out} out",
+        "{}, {} ({blocking} blocking), {dropped} dropped by builds, {tokens_in} tokens in ({} uncached, {cached} read from the cache, {written} written to it), {tokens_out} out",
         plural(calls.len(), "group"),
         plural(accepted, "finding"),
+        tokens_in - cached - written,
     )
 }
 

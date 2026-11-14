@@ -32,6 +32,10 @@ pub struct NewCall {
     pub rules: Vec<String>,
     pub tokens_in: i64,
     pub tokens_out: i64,
+    pub tokens_cached: i64,
+    pub tokens_written: i64,
+    /// The sites a group that lists them judged, as JSON.
+    pub sites: Option<String>,
     pub failure: Option<String>,
     /// (rule, `finding` or `none`).
     pub verdicts: Vec<(String, String)>,
@@ -100,6 +104,8 @@ pub struct Call {
     pub model: String,
     pub tokens_in: i64,
     pub tokens_out: i64,
+    pub tokens_cached: i64,
+    pub tokens_written: i64,
     pub failure: Option<String>,
 }
 
@@ -159,8 +165,8 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
     for call in calls {
         let rules = serde_json::to_string(&call.rules).expect("strings serialize");
         db.execute(
-            "INSERT INTO review_call (run_id, group_name, model, rules, tokens_in, tokens_out, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![run, call.group, call.model, rules, call.tokens_in, call.tokens_out, call.failure],
+            "INSERT INTO review_call (run_id, group_name, model, rules, tokens_in, tokens_out, tokens_cached, tokens_written, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![run, call.group, call.model, rules, call.tokens_in, call.tokens_out, call.tokens_cached, call.tokens_written, call.sites, call.failure],
         )
         .sql()?;
         let call_id = db.last_insert_rowid();
@@ -334,7 +340,7 @@ pub fn calls_of_run(db: &Connection, run: i64) -> Result<Vec<Call>> {
 
 fn calls_where(db: &Connection, condition: &str, value: i64) -> Result<Vec<Call>> {
     let sql = format!(
-        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.tokens_in, c.tokens_out, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
+        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.tokens_in, c.tokens_out, c.tokens_cached, c.tokens_written, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
     );
     let mut statement = db.prepare(&sql).sql()?;
     let rows = statement
@@ -347,7 +353,9 @@ fn calls_where(db: &Connection, condition: &str, value: i64) -> Result<Vec<Call>
                 model: row.get(4)?,
                 tokens_in: row.get(5)?,
                 tokens_out: row.get(6)?,
-                failure: row.get(7)?,
+                tokens_cached: row.get(7)?,
+                tokens_written: row.get(8)?,
+                failure: row.get(9)?,
             })
         })
         .sql()?;

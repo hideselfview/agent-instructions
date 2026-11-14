@@ -10,6 +10,9 @@ paths:
   - bae-playback/src/**/*.rs
   - bae-people/src/**/*.rs
   - bae-records/src/**/*.rs
+  - bae-macos/**/*.swift
+  - BaeKit/**/*.swift
+  - bae-android/**/*.kt
   - bae-automation/src/**/*.rs
   - bae-mcp/src/**/*.rs
   - '**/*.sql'

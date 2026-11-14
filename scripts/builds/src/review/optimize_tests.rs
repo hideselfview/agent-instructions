@@ -129,6 +129,8 @@ fn a_candidate_with_more_false_blocking_findings_does_not_qualify() {
         failed_calls: 0,
         tokens_in,
         tokens_out: 0,
+        tokens_cached: 0,
+        tokens_written: 0,
     };
     let baseline = t(2, 0, 100);
     assert!(qualifies(&baseline, &t(2, 0, 90)));
