@@ -22,6 +22,9 @@ pub enum Now {
         /// The claim of the worktree it was started from, else that
         /// worktree's name, else "A build".
         who: String,
+        /// The branch (or ref) the running build is for, read from the
+        /// build's own command line; None when it names none.
+        branch: Option<String>,
         minutes: i64,
         programs: Vec<Program>,
         cpu: f64,
@@ -47,6 +50,27 @@ pub struct AppBuild {
     /// What waits for a lock of the lane, next first: the branch of the
     /// worktree each build started from.
     pub waiting: Vec<String>,
+}
+
+/// The branch or ref a build's command line builds: `app-build <repo>
+/// <branch> ...` names it as its second word; `build-app <repo> <lane>
+/// [<ref>]` as its optional third, `origin/main` when it names none.
+fn branch_of(command: &str) -> Option<String> {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let at = words.iter().position(|word| {
+        let name = word.rsplit('/').next().unwrap_or(word);
+        name == "app-build" || name == "build-app"
+    })?;
+    let name = words[at].rsplit('/').next().unwrap_or(words[at]);
+    let args: Vec<&str> = words[at + 1..]
+        .iter()
+        .copied()
+        .filter(|word| !word.starts_with('-'))
+        .collect();
+    match name {
+        "app-build" => args.get(1).map(|branch| branch.to_string()),
+        _ => Some(args.get(2).copied().unwrap_or("origin/main").to_string()),
+    }
 }
 
 /// <command> without its program's folder and cut to a line.
@@ -120,6 +144,7 @@ pub fn build(repo: &RepoPage) -> Vec<AppBuild> {
                         }
                         Now::Building {
                             who: who(repo, holder.started_from.as_deref()),
+                            branch: branch_of(&holder.command),
                             minutes: holder.minutes,
                             programs,
                             cpu: c.activity.cpu,

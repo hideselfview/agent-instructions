@@ -132,6 +132,7 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
         lane.now,
         Now::Building {
             who: "mac-alerts".into(),
+            branch: None,
             minutes: 6,
             programs: vec![
                 Program {
@@ -197,4 +198,36 @@ fn a_free_lock_is_idle_and_the_mac_lane_comes_first() {
     );
     assert_eq!(lanes[0].now, Now::Idle);
     assert_eq!(lanes[1].checked_out, "android-branch");
+}
+
+fn branch_built_by(command: &str) -> Option<String> {
+    let mut app = checkout("side-1", Some("mac"), Some("mac-components-shots"));
+    app.activity.processes = vec![process("xcodebuild")];
+    let mut held = lock("side-1", 3, "/d/bae-worktrees/side-5", &[]);
+    held.holder.as_mut().unwrap().command = command.into();
+    match build(&repo(vec![app], vec![held], vec![])).remove(0).now {
+        Now::Building { branch, .. } => branch,
+        other => panic!("not building: {other:?}"),
+    }
+}
+
+#[test]
+fn a_lane_names_the_branch_of_the_build_that_runs_not_the_one_checked_out_before() {
+    assert_eq!(
+        branch_built_by("/Users/dima/.local/bin/builds app-build bae reads-import-count macos"),
+        Some("reads-import-count".into())
+    );
+    assert_eq!(
+        branch_built_by("builds app-build bae reads-import-count --test mac Foo"),
+        Some("reads-import-count".into())
+    );
+    assert_eq!(
+        branch_built_by("builds build-app bae mac v1.2"),
+        Some("v1.2".into())
+    );
+    assert_eq!(
+        branch_built_by("builds build-app bae mac"),
+        Some("origin/main".into())
+    );
+    assert_eq!(branch_built_by("builds lock bae"), None);
 }

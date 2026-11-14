@@ -54,7 +54,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 .page { padding: 24px 28px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; min-height: 100vh; align-content: start; }
 .left { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .hdr { display: flex; flex-direction: column; gap: 12px; }
-.hdr .title { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.hdr .title { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.hdr .title .top { flex: 1 1 auto; min-width: 0; }
 h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .conn { color: var(--bad); font-size: 13px; font-weight: 600; margin-top: -6px; }
 .conn[hidden] { display: none; }
@@ -284,10 +285,10 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 <header class="hdr">
   <div class="title">
     <h1>Builds</h1>
+    <div class="top" id="top"></div>
     <button class="side-toggle show" id="lists-show" type="button" title="Show the Lists panel"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/></svg><span>Lists</span></button>
   </div>
   <div class="conn" id="conn" hidden>Lost the connection to the daemon. This page reconnects by itself.</div>
-  <div class="top" id="top"></div>
   <section class="hook-open" id="hook-open" hidden></section>
 </header>
 <div id="findings"></div>
@@ -652,7 +653,7 @@ function laneCard(repo, ab) {
   const toggle = set => () => { if (!set.delete(key)) set.add(key); render(); };
   return h("article", {class: "lane" + (now.state === "building" ? " building" : "")},
     h("div", {class: "lane-head"},
-      h("span", {}, h("b", {}, lane + " app builds"), " ", h("span", {class: "br"}, ab.checkout + " · " + ab.checked_out)),
+      h("span", {}, h("b", {}, lane + " app builds"), " ", h("span", {class: "br"}, ab.checkout + " · " + (now.state === "building" && now.branch ? now.branch : ab.checked_out))),
       h("span", {class: "disk"}, ab.disk_kib === null ? "…" : size(ab.disk_kib))),
     nowEl,
     h("div", {class: "lane-q"},
