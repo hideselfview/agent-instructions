@@ -82,8 +82,8 @@ until the person approves it. The review page is the change's words under
 their headings, with every board of the change drawn live from the change's
 worktree in a frame the person can zoom (never an image); the dashboard serves
 it at /design/N and draws each board again on every request, so a redraw shows
-on reload. land.sh --design N refuses it before approval; landing closes it, so
-it leaves the tab. The design session lands through land.sh like everyone else,
+on reload. builds land --design N refuses it before approval; landing closes it, so
+it leaves the tab. The design session lands through builds land like everyone else,
 from bae's landing worktree (side-7).
 
 A repo's design files are the globs given to `lists init`. --design-places:
@@ -103,13 +103,13 @@ rebased, since places are compared by path.
       Prints every design path the commits change, one per line: `place PATH`
       (a component folder once, with a trailing /), `source PATH`,
       `deleted PATH` (a board file the commits delete), `spec PATH#HEADING` or
-      `shared PATH`; nothing when none. land.sh
+      `shared PATH`; nothing when none. builds land
       requires --design N whenever this prints anything.
 
   builds design only DIR SHA...
       Prints nothing and succeeds when the commits are a design change and
       every path they change is a design file (boards, the design system,
-      spec lines); otherwise names the paths that are not. land.sh takes
+      spec lines); otherwise names the paths that are not. builds land takes
       --design N alone, with no --done or --part, only then: the design
       change holds the app work.
 
@@ -173,7 +173,7 @@ rebased, since places are compared by path.
       names what is not.
 
   builds design landed N DIR SHA...
-      As land.sh calls it after the push, with SHAs on origin/main: records
+      As builds land calls it after the push, with SHAs on origin/main: records
       them and closes N, which frees the items waiting on it. The same
       commits again record once; other commits for a landed change are
       refused.
@@ -330,7 +330,7 @@ commit); an absolute path is itself.
       item.
   builds item check-landing DIR [--done N]... [--part N]... SHA...
   builds item landed DIR [--done N]... [--part N]... SHA...
-      What land.sh calls. check-landing (before anything is fetched): each N
+      What builds land calls. check-landing (before anything is fetched): each N
       is open and running in a worktree of DIR's repo (an item that runs in a
       worktree of each of two repos accepts a landing from either), and each
       SHA is on the branch of one of them. landed (after the push): each SHA is on

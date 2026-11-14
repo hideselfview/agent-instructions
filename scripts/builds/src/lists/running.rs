@@ -244,7 +244,7 @@ pub fn require_release_allowed(places: &Places, checkout: &Checkout) -> Result<(
         .collect();
     let first = running[0].id.0;
     fail!(
-        "{top} still runs {}: land it (land.sh --done {first}), stop it (builds item stop {first} --why WHY) or hand it \
+        "{top} still runs {}: land it (builds land --done {first}), stop it (builds item stop {first} --why WHY) or hand it \
          to the next agent (builds item handoff {first} --brief PATH) before releasing the worktree",
         named.join("; ")
     );

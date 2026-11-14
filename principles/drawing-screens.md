@@ -57,9 +57,9 @@ draws them with its own parts.
   session's worktree, in a frame the person can zoom, and drawn again on each
   load, so a redraw shows on reload. The session keeps no page of its own.
 - Once the person says to land it, the session approves it
-  (`builds design approve N --by-person`) and lands with `land.sh --design N`.
-  The change closes and leaves the tab. Changing the boards again
-  (`builds design amend N`) clears the approval.
+  (`builds design approve N --by-person`) and lands with
+  `builds land <worktree> --design N <sha>...`. The change closes and leaves the
+  tab. Changing the boards again (`builds design amend N`) clears the approval.
 - Landing also publishes the canvas. The commit on main is the record of what
   landed; the published canvas lets anyone look at the landed boards.
 

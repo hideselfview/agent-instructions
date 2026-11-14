@@ -227,7 +227,7 @@ fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, cleared:
             "the person's approval is cleared: they approved what was drawn before this\n",
         );
     }
-    out.push_str("it waits on the person's review (the Waiting on you tab); land.sh --design refuses it until `builds design approve --by-person`\n");
+    out.push_str("it waits on the person's review (the Waiting on you tab); builds land --design refuses it until `builds design approve --by-person`\n");
     if !recorded.new_items.is_empty() {
         let ids: Vec<String> = recorded.new_items.iter().map(|id| id.to_string()).collect();
         out.push_str(&format!("new items {} wait on it\n", ids.join(", ")));
@@ -333,7 +333,7 @@ fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
         design::approve(db, id, &stamp)
     })?;
     Ok(format!(
-        "design change {id} approved; land.sh --design {} can land it\n",
+        "design change {id} approved; builds land --design {} can land it\n",
         id.0
     ))
 }
@@ -355,7 +355,7 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
     ))
 }
 
-/// `landed N DIR SHA...`: SHAs are on origin/main, as land.sh calls it after
+/// `landed N DIR SHA...`: SHAs are on origin/main, as builds land calls it after
 /// the push; they are stored as full hashes.
 fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;

@@ -1,6 +1,6 @@
-//! `builds item check-landing` and `builds item landed`: what land.sh asks
+//! `builds item check-landing` and `builds item landed`: what builds land asks
 //! before it fetches anything, and what it records after the push. Both take
-//! land.sh's arguments exactly:
+//! builds land's arguments exactly:
 //!
 //! `check-landing DIR [--done N]... [--part N]... SHA...`
 //! `landed DIR [--done N]... [--part N]... SHA...`

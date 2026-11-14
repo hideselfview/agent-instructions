@@ -127,39 +127,40 @@ result, what was skipped) in the project's `builds.sqlite`;
   health check and every landing. Before each commit an agent compiles what it
   touched (`cargo clippy --all-targets -- -D warnings` with the project's test
   features, and the apps' test-target compiles for Swift or Kotlin changes) and
-  commits through the hook. Agents run only the one test that proves a fix.
-  land.sh's compile of the touched crates, clippy included, still gates every
-  landing, so main always builds; an agent that skips clippy finds its lint at
-  landing, a round trip later. At the full-suite run the person sets, a fixer
-  agent runs every suite and CI, and fixes each failure with the commit that
-  caused it. A test that fails during the window is checked on `origin/main`
-  first; when it fails there too and isn't the agent's, the agent notes it and
-  moves on.
+  commits through the hook. Agents run only the one test that proves a fix. The
+  landing's compile check (`.land-compile`: the touched crates, clippy included)
+  still gates every landing, so main always builds; an agent that skips clippy
+  finds its lint at landing, a round trip later. At the full-suite run the
+  person sets, a fixer agent runs every suite and CI, and fixes each failure
+  with the commit that caused it. A test that fails during the window is checked
+  on `origin/main` first; when it fails there too and isn't the agent's, the
+  agent notes it and moves on.
 
 Disk under the floor holds new dispatch in both modes. Each brief names the
 mode, and switching modes means telling every running agent.
 
 ## Landing
 
-- Land from the claimed landing worktree with
-  `scripts/land/land.sh <worktree> <sha>...`: it fast-forwards when the commits
-  sit on origin/main, else cherry-picks them, and retries a refused push. A
-  cherry-picked result is a tree no hook has seen, so before pushing it land.sh
-  runs the commands in the repo's `.land-checks` (one per line, run from the
-  repo root: the cheap whole-tree checks commits can break together, such as the
-  file size cap) and refuses to push when one fails, leaving the worktree at
-  origin/main. A fast-forward skips them. No compile or test step: that stays
-  with the coordinator.
+- Land from the claimed landing worktree with `builds land <worktree> <sha>...`:
+  it fast-forwards when the commits sit on origin/main, else cherry-picks them,
+  and retries a refused push. A cherry-picked result is a tree no hook has seen,
+  so before pushing it the command runs the commands in the repo's
+  `.land-checks` (one per line, run from the repo root: the cheap whole-tree
+  checks commits can break together, such as the file size cap), then the repo's
+  `.land-compile`, and refuses to push when one fails, leaving the worktree at
+  origin/main. A fast-forward runs both too, since a branch rebased after its
+  hook ran is a tree no hook has seen. No test step: tests stay with the
+  coordinator.
 - In a project with lists,
-  `land.sh <worktree> --done N|--part N [--design N] <sha>...` names the items
-  the commits finish (`--done`) or advance (`--part`), and checks them before it
-  fetches anything. Commits that change a design place (a board, a component, a
-  spec section) also need `--design N`, the design change recorded for them,
-  which the person has approved. Commits that are all design files land with
-  `--design N` alone; that is how the design session lands, from the claimed
-  landing worktree. The records are written after the push; when `land.sh`
-  prints `LANDED, NOT RECORDED:`, run the `rerun:` command it prints (safe to
-  repeat).
+  `builds land <worktree> --done N|--part N [--design N] <sha>...` names the
+  items the commits finish (`--done`) or advance (`--part`), and checks them
+  before it fetches anything. Commits that change a design place (a board, a
+  component, a spec section) also need `--design N`, the design change recorded
+  for them, which the person has approved. Commits that are all design files
+  land with `--design N` alone; that is how the design session lands, from the
+  claimed landing worktree. The records are written after the push; when
+  `builds land` prints `LANDED, NOT RECORDED:`, run the `rerun:` command it
+  prints (safe to repeat).
 - After landing commits whose base is behind main and that touch shared code
   (schema, test stores, bridge types), build main
   (`check --workspace --all-targets --all-features`) before landing more; send

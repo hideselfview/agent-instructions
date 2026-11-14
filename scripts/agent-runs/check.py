@@ -61,7 +61,7 @@ def run_by_hook(pid):
         if not out:
             return False
         ppid, _, cmd = out.partition(" ")
-        if any(m in cmd for m in ("hooks/pre-commit", "check-fast.sh", "land/land.sh", ".land-compile")):
+        if any(m in cmd for m in ("hooks/pre-commit", "check-fast.sh", "builds land ", ".land-compile")):
             return True
         pid = ppid.strip()
     return False

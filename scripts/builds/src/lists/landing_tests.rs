@@ -68,7 +68,7 @@ fn check(l: &Landing, extra: &[&str]) -> Result<()> {
 fn landed(l: &Landing, extra: &[&str]) -> Result<()> {
     let mut args = vec!["landed", l.lander.to_str().unwrap()];
     args.extend_from_slice(extra);
-    // land.sh runs it inside the landing worktree.
+    // builds land runs it inside the landing worktree.
     let _ = &l.agent;
     let cwd = l.lander.clone();
     landed_in(l, &args[1..], &cwd)
@@ -94,11 +94,11 @@ fn bare(l: &Landing, args: &[&str]) -> Result<()> {
 }
 
 #[test]
-fn check_landing_takes_land_shs_arguments_and_passes_a_branch_commit() {
+fn check_landing_takes_the_landings_arguments_and_passes_a_branch_commit() {
     let l = setup("landing-check");
     check(&l, &["--done", "1", "--part", "2", &l.commit]).unwrap();
     check(&l, &["--part", "1", &l.commit[..10]]).unwrap();
-    // The form land.sh uses carries no --project and no --by.
+    // The form builds land uses carries no --project and no --by.
     bare(&l, &["--done", "1", &l.commit]).unwrap();
 }
 
