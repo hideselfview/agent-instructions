@@ -6,7 +6,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::{Question, Reply};
+use super::{Question, Reply, live};
 use crate::health::Health;
 use crate::places::Places;
 use crate::text::note;
@@ -71,7 +71,7 @@ fn unexpected(places: &Places, reply: &Reply) {
 /// Asks the daemon one question; None when none answers in time.
 fn ask(places: &Places, question: &Question) -> Option<Reply> {
     let socket = places.daemon_socket();
-    match ask_within(&socket, question, PATIENCE) {
+    match ask_within(&socket, &places.daemon_lock(), question, PATIENCE) {
         Ok(reply) => reply,
         Err(message) => {
             note(message);
@@ -80,10 +80,11 @@ fn ask(places: &Places, question: &Question) -> Option<Reply> {
     }
 }
 
-/// Asks the daemon listening on <socket> one question and waits <patience>
+/// Asks the daemon listening on <socket> (holding <lock>) one question and waits <patience>
 /// for each step. Ok(None): no daemon there. Err: what went wrong.
 fn ask_within(
     socket: &Path,
+    lock: &Path,
     question: &Question,
     patience: Duration,
 ) -> Result<Option<Reply>, String> {
@@ -92,8 +93,23 @@ fn ask_within(
     }
     let stream = match UnixStream::connect(socket) {
         Ok(stream) => stream,
-        // A socket a daemon left behind when it stopped.
-        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => return Ok(None),
+        // macOS refuses a connection both to a socket a daemon left behind
+        // and to a live daemon whose backlog is full: the lock tells which.
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+            return match live::daemon_lives(lock) {
+                Ok(false) => Ok(None),
+                Ok(true) => Err(format!(
+                    "the daemon at {} is running and refused the connection (its queue of \
+                     waiting commands is full); doing it here",
+                    socket.display()
+                )),
+                Err(error) => Err(format!(
+                    "checking whether the daemon at {} runs, by {}: {error}; doing it here",
+                    socket.display(),
+                    lock.display()
+                )),
+            };
+        }
         Err(error) => {
             return Err(format!(
                 "asking the daemon at {}: {error}; measuring here",

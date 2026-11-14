@@ -34,7 +34,10 @@ use crate::usage::Measure;
 pub(super) const SETTLE: Duration = Duration::from_millis(300);
 /// How often the processes are read while a page watches.
 const SAMPLE_EVERY: Duration = Duration::from_secs(2);
-/// How often sccache is asked for its count while a page watches.
+/// How often the processes are read while no page watches, for the commands
+/// that ask for health.
+const IDLE_SAMPLE_EVERY: Duration = Duration::from_secs(10);
+/// How often sccache is asked for its count.
 const SCCACHE_EVERY: Duration = Duration::from_secs(30);
 /// Load samples kept for the page's line: ten minutes at SAMPLE_EVERY.
 const LOAD_KEPT: usize = 300;
@@ -447,14 +450,11 @@ impl Model {
         self.viewing.notify_all();
     }
 
+    /// Reads the processes from the start, never inside an answer: a reading
+    /// takes seconds on a loaded machine, longer than a command waits for the
+    /// daemon. Pages watching make it faster.
     fn sample_loop(self: Arc<Self>) {
         loop {
-            {
-                let mut guard = self.viewing_lock.lock().expect("no panic holding it");
-                while self.viewers.load(Ordering::SeqCst) == 0 {
-                    guard = self.viewing.wait(guard).expect("no panic holding it");
-                }
-            }
             if let Err(error) = self.sample_now() {
                 eprintln!(
                     "builds: reading the processes: {}",
@@ -464,9 +464,25 @@ impl Model {
                     }
                 );
             }
-            // Pacing: the processes are read at a rate, not on an event.
-            std::thread::sleep(SAMPLE_EVERY);
+            // Pacing: the processes are read at a rate, not on an event. A
+            // page that starts watching ends the wait.
+            let pace = if self.viewers.load(Ordering::SeqCst) > 0 {
+                SAMPLE_EVERY
+            } else {
+                IDLE_SAMPLE_EVERY
+            };
+            let guard = self.viewing_lock.lock().expect("no panic holding it");
+            let _ = self.viewing.wait_timeout(guard, pace);
         }
+    }
+
+    /// The health the last reading judged, None before the first reading.
+    pub fn held_health(&self) -> Option<Health> {
+        self.state
+            .lock()
+            .expect("no panic holding it")
+            .health
+            .clone()
     }
 
     /// Reads the processes and judges health now.

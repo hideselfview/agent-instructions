@@ -106,7 +106,16 @@ fn new_fills_the_empty_target_with_a_clone_of_a_warm_one() {
     );
     // The source is as it was, incremental folder included.
     assert!(source.join("debug/incremental/crate-1/state").is_file());
-    assert!(!tool.places.root.join("demo/side-1/.target.warm.1").exists());
+    let left_staged = std::fs::read_dir(tool.places.root.join("demo/side-1"))
+        .unwrap()
+        .any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".target.warm.")
+        });
+    assert!(!left_staged, "a staged clone was left behind");
 }
 
 #[test]

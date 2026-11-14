@@ -214,6 +214,12 @@ impl Places {
         self.root.join(".builds-daemon")
     }
 
+    /// The file a running daemon holds a lock on for as long as it lives:
+    /// the fact that tells a live daemon from a socket one left behind.
+    pub fn daemon_lock(&self) -> PathBuf {
+        self.daemon_dir().join("lock")
+    }
+
     /// The socket the daemon answers on; one daemon per root.
     pub fn daemon_socket(&self) -> PathBuf {
         self.daemon_dir().join("socket")

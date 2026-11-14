@@ -159,9 +159,12 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
         ),
         "/api/health" => json(
             &mut stream,
-            model
-                .sample_now()
-                .map(|health| serde_json::to_vec(&health).expect("health serializes")),
+            match model.held_health() {
+                Some(health) => Ok(serde_json::to_vec(&health).expect("health serializes")),
+                None => Err(crate::fail::Fail::Message(
+                    "the daemon has not read the processes yet".into(),
+                )),
+            },
         ),
         "/api/lists" => match model.lists_json() {
             Ok(lists) => respond(&mut stream, "200 OK", "application/json", lists.as_bytes()),

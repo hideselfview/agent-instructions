@@ -11,6 +11,7 @@ pub mod fsevents;
 pub mod http;
 pub mod index;
 pub mod lists;
+pub mod live;
 pub mod model;
 pub mod runs;
 pub mod tracker;
@@ -39,7 +40,7 @@ pub enum Question {
     /// before the question (a deciding command measuring after its own
     /// deletions), at the cost of waiting for FSEvents to deliver them.
     Measure { paths: Vec<PathBuf>, fresh: bool },
-    /// Health, judged now.
+    /// Health, as the daemon's last reading of the processes judged it.
     Health,
 }
 
@@ -62,23 +63,28 @@ pub enum Reply {
     Failed(String),
 }
 
-/// Binds the root's socket, refusing when another daemon answers on it and
-/// replacing one a daemon left behind.
-fn bind(tool: &Tool) -> Result<UnixListener> {
+/// Claims the root for this daemon and binds its socket. The claim is a lock
+/// on the lock file (live.rs); a daemon that holds it is alive, so bind
+/// refuses. Holding it, no other daemon owns the socket file, so one left
+/// behind is removed. The caller keeps the claim as long as the daemon runs.
+fn bind(tool: &Tool) -> Result<(UnixListener, live::Claim)> {
     let socket = tool.places.daemon_socket();
     let dir = tool.places.daemon_dir();
+    let lock = tool.places.daemon_lock();
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+    let Some(claim) = live::claim(&lock).context(|| format!("locking {}", lock.display()))? else {
+        fail!(
+            "a daemon already runs for {}: it holds {}",
+            dir.display(),
+            lock.display()
+        );
+    };
     if socket.exists() {
-        match UnixStream::connect(&socket) {
-            Ok(_) => fail!("a daemon already answers on {}", socket.display()),
-            Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
-                std::fs::remove_file(&socket)
-                    .context(|| format!("removing {}", socket.display()))?;
-            }
-            Err(error) => fail!("checking {}: {error}", socket.display()),
-        }
+        std::fs::remove_file(&socket).context(|| format!("removing {}", socket.display()))?;
     }
-    UnixListener::bind(&socket).context(|| format!("listening on {}", socket.display()))
+    let listener =
+        UnixListener::bind(&socket).context(|| format!("listening on {}", socket.display()))?;
+    Ok((listener, claim))
 }
 
 /// Answers one question. Paths may name the root as the commands' places
@@ -98,10 +104,9 @@ fn answer(model: &Model, given: &Path, stream: UnixStream) -> std::io::Result<()
                 .collect();
             Reply::Measure(model.tracker.measure(&paths, fresh))
         }
-        Question::Health => match model.sample_now() {
-            Ok(health) => Reply::Health(Box::new(health)),
-            Err(fail::Fail::Message(message)) => Reply::Failed(message),
-            Err(fail::Fail::Exit(code)) => Reply::Failed(format!("exit {code}")),
+        Question::Health => match model.held_health() {
+            Some(health) => Reply::Health(Box::new(health)),
+            None => Reply::Failed("the daemon has not read the processes yet".into()),
         },
     };
     let mut stream = stream;
@@ -132,7 +137,7 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
         Ok(web) => web,
         Err(error) => fail!("dashboard: can't listen on 127.0.0.1:{port}: {error}"),
     };
-    let socket = bind(tool)?;
+    let (socket, _claim) = bind(tool)?;
     let tracker = Tracker::start(&root, &tool.places.daemon_dir())
         .context(|| format!("following {}", root.display()))?;
     let exe = std::env::current_exe().context(|| "finding this program".to_string())?;
@@ -165,3 +170,7 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     http::serve(web, port, model);
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

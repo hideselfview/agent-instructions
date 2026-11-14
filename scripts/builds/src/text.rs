@@ -144,6 +144,17 @@ pub fn tilde(path: &Path, home: &Path) -> String {
     }
 }
 
+/// A suffix for a staged file's name that no other write has used: the
+/// process id (another process's writes) and a count (this process's).
+pub fn staged_suffix() -> String {
+    static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    format!(
+        "{}-{}",
+        std::process::id(),
+        WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

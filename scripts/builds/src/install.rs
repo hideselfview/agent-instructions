@@ -208,7 +208,7 @@ fn put_on_path(home: &Path) -> Result<bool> {
     let me = std::env::current_exe().context(|| "finding this binary".to_string())?;
     let dest = bin.join("builds");
     require_new_build(&me, &dest)?;
-    let staged = bin.join(format!(".builds.{}", std::process::id()));
+    let staged = bin.join(format!(".builds.{}", crate::text::staged_suffix()));
     std::fs::copy(&me, &staged)
         .context(|| format!("copying {} to {}", me.display(), staged.display()))?;
     std::fs::rename(&staged, &dest).context(|| format!("replacing {}", dest.display()))?;

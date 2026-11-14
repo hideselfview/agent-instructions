@@ -121,8 +121,10 @@ fn replace_link(dest: &Path, link: &Path) -> Result<()> {
         .file_name()
         .expect("a link has a name")
         .to_string_lossy();
-    let staged: PathBuf =
-        link.with_file_name(format!(".{name}.builds-link.{}", std::process::id()));
+    let staged: PathBuf = link.with_file_name(format!(
+        ".{name}.builds-link.{}",
+        crate::text::staged_suffix()
+    ));
     std::os::unix::fs::symlink(dest, &staged)
         .context(|| format!("linking {}", staged.display()))?;
     std::fs::rename(&staged, link).context(|| format!("linking {}", link.display()))

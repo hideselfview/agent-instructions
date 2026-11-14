@@ -315,7 +315,7 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
         return Ok(());
     };
     let source = target_of(&held.candidate.root);
-    let staging = root.join(format!(".target.warm.{}", std::process::id()));
+    let staging = root.join(format!(".target.warm.{}", crate::text::staged_suffix()));
     let _ = std::fs::remove_dir_all(&staging);
     let cloned = clone_dir(&source, &staging).and_then(|()| {
         std::fs::rename(&staging, &dest)

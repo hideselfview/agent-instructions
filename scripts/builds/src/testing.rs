@@ -126,3 +126,29 @@ pub fn age_all(dir: &Path, hours: u64) {
     }
     age(dir, hours);
 }
+
+/// A socket file at <path> that nothing listens on, as a daemon leaves it
+/// after it exits: connecting is refused. The socket is bound and never put
+/// to listening. A listener dropped instead stays open in a child another
+/// test forks before its exec, and the connection is then accepted.
+pub fn stale_socket(path: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+    let bytes = path.as_os_str().as_bytes();
+    unsafe {
+        let mut address: libc::sockaddr_un = std::mem::zeroed();
+        assert!(bytes.len() < address.sun_path.len(), "the socket path fits");
+        address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+        for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
+            *slot = *byte as libc::c_char;
+        }
+        let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
+        assert!(fd >= 0, "a socket opens");
+        let bound = libc::bind(
+            fd,
+            (&raw const address).cast(),
+            std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t,
+        );
+        libc::close(fd);
+        assert_eq!(bound, 0, "the socket binds");
+    }
+}

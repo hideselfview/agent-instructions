@@ -31,7 +31,12 @@ fn a_late_answer_names_the_wait_not_eagain() {
     let scratch = Scratch::new("late-answer");
     let socket = scratch.dir.join("socket");
     serve_after(&socket, Duration::from_millis(1500));
-    let message = match ask_within(&socket, &Question::Health, Duration::from_millis(200)) {
+    let message = match ask_within(
+        &socket,
+        &scratch.dir.join("lock"),
+        &Question::Health,
+        Duration::from_millis(200),
+    ) {
         Err(message) => message,
         Ok(_) => panic!("the answer was late, so the wait should have run out"),
     };
@@ -49,13 +54,14 @@ fn many_clients_at_once_all_get_answers() {
     let scratch = Scratch::new("many-clients");
     let socket = scratch.dir.join("socket");
     serve_after(&socket, Duration::from_millis(50));
+    let lock = scratch.dir.join("lock");
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(100));
     let clients: Vec<_> = (0..100)
         .map(|_| {
-            let (socket, barrier) = (socket.clone(), barrier.clone());
+            let (socket, lock, barrier) = (socket.clone(), lock.clone(), barrier.clone());
             std::thread::spawn(move || {
                 barrier.wait();
-                ask_within(&socket, &Question::Health, Duration::from_secs(20))
+                ask_within(&socket, &lock, &Question::Health, Duration::from_secs(20))
             })
         })
         .collect();
@@ -66,4 +72,44 @@ fn many_clients_at_once_all_get_answers() {
             Err(message) => panic!("{message}"),
         }
     }
+}
+
+/// A refused connection to a socket whose daemon holds the lock is a busy
+/// daemon, not a stale socket: the command says so and measures itself.
+#[test]
+fn a_refusal_from_a_live_daemon_is_not_a_stale_socket() {
+    let scratch = Scratch::new("refused-live");
+    let socket = scratch.dir.join("socket");
+    let lock = scratch.dir.join("lock");
+    crate::testing::stale_socket(&socket);
+    let _live = super::super::live::claim(&lock).unwrap().unwrap();
+    let message = match ask_within(&socket, &lock, &Question::Health, Duration::from_secs(1)) {
+        Err(message) => message,
+        Ok(_) => panic!("a live daemon's refusal was taken for a stale socket"),
+    };
+    assert!(message.contains("refused"), "{message}");
+}
+
+/// With no daemon holding the lock, a refused connection is a socket a daemon
+/// left behind: no daemon answers.
+#[test]
+fn a_refusal_with_no_lock_held_is_a_stale_socket() {
+    let scratch = Scratch::new("refused-stale");
+    let socket = scratch.dir.join("socket");
+    crate::testing::stale_socket(&socket);
+    let reply = ask_within(
+        &socket,
+        &scratch.dir.join("lock"),
+        &Question::Health,
+        Duration::from_secs(1),
+    );
+    assert!(
+        matches!(reply, Ok(None)),
+        "{}",
+        match &reply {
+            Ok(None) => "no daemon".to_string(),
+            Ok(Some(_)) => "a reply".to_string(),
+            Err(message) => message.clone(),
+        }
+    );
 }

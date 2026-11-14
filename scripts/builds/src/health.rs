@@ -184,7 +184,7 @@ fn read_readings(file: &Path) -> Result<Vec<Reading>> {
 fn write_readings(file: &Path, readings: &[Reading]) -> Result<()> {
     let dir = file.parent().expect("the file has a folder");
     std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
-    let staged = file.with_extension(format!("{}", std::process::id()));
+    let staged = file.with_extension(crate::text::staged_suffix());
     std::fs::write(
         &staged,
         serde_json::to_vec(readings).expect("readings serialize"),
@@ -889,6 +889,27 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
 mod tests {
     use super::*;
     use crate::side_git::Commit;
+
+    /// Writers in one process never share a staged file: each write of the
+    /// readings completes whatever the others do.
+    #[test]
+    fn writes_of_the_readings_in_one_process_all_complete() {
+        let scratch = crate::testing::Scratch::new("readings-writers");
+        let file = scratch.dir.join("readings.json");
+        let writers: Vec<_> = (0..8)
+            .map(|_| {
+                let file = file.clone();
+                std::thread::spawn(move || {
+                    for at in 0..100 {
+                        write_readings(&file, &[Reading { executed: 1, at }]).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+    }
 
     /// A claim with no change for hours and no build is idle, unless its
     /// note says it is held.

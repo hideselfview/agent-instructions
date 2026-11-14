@@ -40,9 +40,10 @@ impl Drop for ScratchIndex {
 /// changed, deleted, or not in it.
 fn differing(top: &Path, commit: &str) -> Result<BTreeSet<String>> {
     let git_dir = run_git(top, &["rev-parse", "--absolute-git-dir"])?;
-    let index = ScratchIndex(
-        Path::new(git_dir.trim()).join(format!("builds-reset-index-{}", std::process::id())),
-    );
+    let index = ScratchIndex(Path::new(git_dir.trim()).join(format!(
+        "builds-reset-index-{}",
+        crate::text::staged_suffix()
+    )));
     let with_index = || {
         let mut command = git(top);
         command.env("GIT_INDEX_FILE", &index.0);
