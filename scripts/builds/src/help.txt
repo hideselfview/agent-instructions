@@ -188,9 +188,10 @@ Commands:
   builds lists ...            the decision stack, work queue, design changes
                               and decision log of a project, in a store
                               outside every repo: `builds help lists`
-  builds design render DIR BOARD [--theme light|dark]
-                              a board of worktree DIR as one page of HTML,
-                              drawn with DIR's design system, to open and
+  builds design render DIR BOARD [--theme light|dark] [--at REV]
+                              a board of worktree DIR (or, with --at, of
+                              a commit or branch of its repo) as one page
+                              of HTML, drawn with its design system, to open and
                               look at while drawing; the dashboard serves a
                               design change's boards the same way:
                               `builds help lists`

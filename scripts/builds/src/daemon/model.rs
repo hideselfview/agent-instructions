@@ -628,17 +628,17 @@ impl Model {
         Some(crate::design_render::review_page(&design, &view))
     }
 
-    /// The <n>th board of open design change <id>'s review page, drawn from
-    /// the change's worktree now; None when there is no such change or board.
+    /// The <n>th board of open design change <id>'s review page, drawn now at
+    /// the change's last commit; None when there is no such change or board.
     pub fn design_board(&self, id: u32, n: usize) -> Option<crate::fail::Result<String>> {
         let (_, snapshot) = self.lists.current();
         let (design, _) = super::lists::open_design(&snapshot, id)?;
         let board = crate::design_render::review_board(&design, n)?;
-        Some(crate::design_render::render_board(
-            std::path::Path::new(&design.worktree),
-            &board.board,
-            board.theme,
-        ))
+        Some(
+            crate::design_render::source_of(&design).and_then(|from| {
+                crate::design_render::render_board(from, &board.board, board.theme)
+            }),
+        )
     }
 
     /// The claim and git facts of the worktree at <worktree>; no agent and no

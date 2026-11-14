@@ -5,19 +5,26 @@
 //! `sc-for`, and uses the worktree's design system (`bundle.js`, `bundle.css`,
 //! `tokens.css`). The page's script is `design_render/board.html`.
 //!
+//! A board is drawn from a `Source`: a directory's files, or the files at a
+//! commit, which git reads without checking anything out, so two design
+//! changes can share a worktree and a change is drawn from its own branch.
+//!
 //! A design change's review page (`design_render/review.html`) shows the
 //! change's words under their headings with each board in a frame that loads
-//! the board's own page, so the daemon draws it from the worktree on every
-//! request and the page shows a redraw on reload. The sizes of the frames come
-//! from the worktree's `design/mocks/canvas.json`.
+//! the board's own page, so the daemon draws it on every request and the page
+//! shows a redraw on reload. Each board is read at the last commit of the
+//! change's range, with that commit's design system. The sizes of the frames
+//! come from that commit's `design/mocks/canvas.json`.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::{Value, json};
 
+use crate::checkout::{git, git_text};
 use crate::fail;
-use crate::fail::{Context, Fail, Result};
+use crate::fail::{Context, Result};
+use crate::lists::design_paths::exists_in;
 use crate::lists::view::DesignView;
 use crate::lists::{DesignChange, ReviewBoard, Theme};
 
@@ -78,18 +85,84 @@ pub fn board_name(board: &str) -> Result<String> {
     Ok(name.to_string())
 }
 
-fn board_path(dir: &Path, name: &str) -> PathBuf {
-    dir.join(MOCKS).join(format!("{name}{BOARD_SUFFIX}"))
+/// Where a board's files are read from.
+#[derive(Clone, Copy)]
+pub enum Source<'a> {
+    /// The files of a directory as they are.
+    Dir(&'a Path),
+    /// The files at revision <rev> of the repo that <repo> (any of its
+    /// worktrees) is in.
+    Commit { repo: &'a Path, rev: &'a str },
 }
 
-fn read(path: &Path, what: &str) -> Result<String> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fail!("{what} {} is not there", path.display())
+impl Source<'_> {
+    /// How an error names <rel> of this source.
+    fn label(&self, rel: &str) -> String {
+        match self {
+            Source::Dir(dir) => dir.join(rel).display().to_string(),
+            Source::Commit { rev, .. } => format!("{rev}:{rel}"),
         }
-        Err(error) => fail!("reading {what} {}: {error}", path.display()),
     }
+
+    /// Fails unless the revision of a commit source is a commit.
+    fn check(&self) -> Result<()> {
+        if let Source::Commit { repo, rev } = self {
+            git_text(
+                git(repo).args([
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("{rev}^{{commit}}"),
+                ]),
+                &format!("find the commit {rev}"),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// The text of file <rel>; None when there is no such file.
+    fn text(&self, rel: &str) -> Result<Option<String>> {
+        match self {
+            Source::Dir(dir) => match std::fs::read_to_string(dir.join(rel)) {
+                Ok(text) => Ok(Some(text)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(error) => fail!("reading {}: {error}", self.label(rel)),
+            },
+            Source::Commit { repo, rev } => {
+                if !exists_in(repo, rev, rel)? {
+                    return Ok(None);
+                }
+                let bytes = git(repo)
+                    .args(["cat-file", "blob", &format!("{rev}:{rel}")])
+                    .stdin(std::process::Stdio::null())
+                    .output()
+                    .context(|| format!("running git to read {}", self.label(rel)))?;
+                if !bytes.status.success() {
+                    fail!(
+                        "git failed to read {}: {}",
+                        self.label(rel),
+                        String::from_utf8_lossy(&bytes.stderr).trim()
+                    );
+                }
+                Ok(Some(String::from_utf8_lossy(&bytes.stdout).into_owned()))
+            }
+        }
+    }
+
+    fn has(&self, rel: &str) -> Result<bool> {
+        Ok(self.text(rel)?.is_some())
+    }
+
+    fn read(&self, rel: &str, what: &str) -> Result<String> {
+        match self.text(rel)? {
+            Some(text) => Ok(text),
+            None => fail!("{what} {} is not there", self.label(rel)),
+        }
+    }
+}
+
+fn board_rel(name: &str) -> String {
+    format!("{MOCKS}/{name}{BOARD_SUFFIX}")
 }
 
 /// What a board file holds that the page needs.
@@ -108,13 +181,14 @@ fn between<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
     Some(&text[start..end])
 }
 
-fn parse_part(path: &Path) -> Result<Part> {
-    let source = read(path, "the board")?;
+fn parse_part(from: &Source, rel: &str) -> Result<Part> {
+    let path = from.label(rel);
+    let source = from.read(rel, "the board")?;
     let (Some(open), Some(close)) = (source.find("<x-dc>"), source.rfind("</x-dc>")) else {
-        fail!("{} has no <x-dc>...</x-dc>", path.display());
+        fail!("{path} has no <x-dc>...</x-dc>");
     };
     if close < open {
-        fail!("{} closes its <x-dc> before it opens", path.display());
+        fail!("{path} closes its <x-dc> before it opens");
     }
     let mut body = source[open + "<x-dc>".len()..close].to_string();
     let style = between(&body, "<style>", "</style>")
@@ -122,7 +196,7 @@ fn parse_part(path: &Path) -> Result<Part> {
         .to_string();
     while let Some(start) = body.find("<helmet>") {
         let Some(end) = body[start..].find("</helmet>") else {
-            fail!("{} has a <helmet> that never closes", path.display())
+            fail!("{path} has a <helmet> that never closes")
         };
         body.replace_range(start..start + end + "</helmet>".len(), "");
     }
@@ -160,35 +234,38 @@ fn script_safe(js: &str) -> String {
     js.replace("</script", "<\\/script")
 }
 
-/// Board <board> of worktree <dir> as one page of HTML in <theme>.
-pub fn render_board(dir: &Path, board: &str, theme: Theme) -> Result<String> {
+/// Board <board> of <from> as one page of HTML in <theme>, drawn with the
+/// design system of <from>.
+pub fn render_board(from: Source, board: &str, theme: Theme) -> Result<String> {
+    from.check()?;
     let name = board_name(board)?;
-    let mocks = dir.join(MOCKS);
     let mut parts: BTreeMap<String, Part> = BTreeMap::new();
-    let mut todo = vec![("__main__".to_string(), board_path(dir, &name))];
-    while let Some((key, path)) = todo.pop() {
-        let part = parse_part(&path)?;
+    let mut todo = vec![("__main__".to_string(), board_rel(&name))];
+    while let Some((key, rel)) = todo.pop() {
+        let part = parse_part(&from, &rel)?;
         for dep in imports(&part.body) {
             let Ok(dep_name) = board_name(&dep) else {
-                fail!("{} mounts {dep:?}, which is no board name", path.display())
+                fail!(
+                    "{} mounts {dep:?}, which is no board name",
+                    from.label(&rel)
+                )
             };
             if !parts.contains_key(&dep_name) && !todo.iter().any(|(k, _)| *k == dep_name) {
-                if !mocks.join(format!("{dep_name}{BOARD_SUFFIX}")).is_file() {
+                if !from.has(&board_rel(&dep_name))? {
                     fail!(
                         "{} mounts the board {dep_name}, which is no file in {}",
-                        path.display(),
-                        mocks.display()
+                        from.label(&rel),
+                        from.label(MOCKS)
                     );
                 }
-                todo.push((dep_name.clone(), board_path(dir, &dep_name)));
+                todo.push((dep_name.clone(), board_rel(&dep_name)));
             }
         }
         parts.insert(key, part);
     }
-    let system = dir.join("design/system");
-    let tokens_css = read(&system.join("tokens.css"), "the design system's")?;
-    let bundle_css = read(&system.join("components/bundle.css"), "the design system's")?;
-    let bundle_js = read(&system.join("components/bundle.js"), "the design system's")?;
+    let tokens_css = from.read("design/system/tokens.css", "the design system's")?;
+    let bundle_css = from.read("design/system/components/bundle.css", "the design system's")?;
+    let bundle_js = from.read("design/system/components/bundle.js", "the design system's")?;
     let styles: String = parts.values().map(|p| p.style.as_str()).collect();
     let templates: String = parts
         .iter()
@@ -236,33 +313,56 @@ pub fn review_board(design: &DesignChange, n: usize) -> Option<&ReviewBoard> {
         .nth(n)
 }
 
+/// Where <design>'s boards are read from: its last commit, in the repo of its
+/// worktree, whatever branch the worktree has checked out.
+pub fn source_of(design: &DesignChange) -> Result<Source<'_>> {
+    match &design.tip {
+        Some(tip) => Ok(Source::Commit {
+            repo: Path::new(&design.worktree),
+            rev: tip,
+        }),
+        None => fail!(
+            "design change {} was recorded before its last commit was kept; amend it to draw its boards",
+            design.id.0
+        ),
+    }
+}
+
+/// How board <board> shows on the review page: its frame (`w`, `h` and the
+/// `src` the frame loads) or the `error` that stops it.
+fn drawing(design: &DesignChange, board: &str, src: &str) -> Value {
+    let drawn = (|| -> Result<Value> {
+        let from = source_of(design)?;
+        from.check()?;
+        let name = board_name(board)?;
+        let canvas_rel = format!("{MOCKS}/canvas.json");
+        let text = from.read(&canvas_rel, "the canvas file")?;
+        let canvas: Value = serde_json::from_str(&text)
+            .context(|| format!("reading {}", from.label(&canvas_rel)))?;
+        let (w, h) = canvas_size(&canvas, &name)?;
+        if !from.has(&board_rel(&name))? {
+            fail!("{board} is no file at {}", from.label(MOCKS));
+        }
+        Ok(json!({ "w": w, "h": h, "src": src }))
+    })();
+    drawn.unwrap_or_else(|error| json!({ "error": error.text() }))
+}
+
 /// <design>'s review page. <view> is the design as the dashboard's lists JSON
 /// has it, which holds the app work its places resolve to. A board whose size
 /// or file can't be read shows as that problem in its place, not as a page
 /// that fails whole.
 pub fn review_page(design: &DesignChange, view: &DesignView) -> Result<String> {
-    let dir = Path::new(&design.worktree);
-    let canvas_path = dir.join(MOCKS).join("canvas.json");
-    let canvas: std::result::Result<Value, String> = read(&canvas_path, "the canvas file")
-        .and_then(|text| {
-            serde_json::from_str(&text).context(|| format!("reading {}", canvas_path.display()))
-        })
-        .map_err(Fail::text);
     let mut n = 0;
     let mut sections = Vec::new();
     for section in &design.review {
         let mut boards = Vec::new();
         for board in &section.boards {
-            let shown = board_name(&board.board)
-                .and_then(|name| {
-                    let (w, h) = canvas_size(canvas.as_ref().map_err(|e| Fail::Message(e.clone()))?, &name)?;
-                    if !board_path(dir, &name).is_file() {
-                        fail!("{} is no file in {}", board.board, dir.display());
-                    }
-                    Ok((w, h))
-                })
-                .map(|(w, h)| json!({ "w": w, "h": h, "src": format!("/design/{}/board/{n}", design.id.0) }))
-                .unwrap_or_else(|error| json!({ "error": error.text() }));
+            let shown = drawing(
+                design,
+                &board.board,
+                &format!("/design/{}/board/{n}", design.id.0),
+            );
             let mut entry = json!({
                 "path": board.board,
                 "caption": board.caption,

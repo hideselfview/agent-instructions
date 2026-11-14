@@ -213,8 +213,9 @@ impl Server {
 }
 
 /// A store of project `demo` holding open design change 1, whose worktree is
-/// `wt` in the scratch folder: a board `A` and the design system's files. Its
-/// review page has two boards, `A` and one that is no file.
+/// `wt` in the scratch folder, a repo with a commit holding a board `A` and
+/// the design system's files, which is the change's last commit. Its review
+/// page has two boards, `A` and one that is no file.
 fn design_store(scratch: &Scratch, places: &crate::places::Places) {
     use crate::lists::design::ReviewSection;
     use crate::lists::fixtures::{NOON, design_drawn, make_store, stamp};
@@ -239,10 +240,25 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
         r#"{"boards": {"A.dc.html": {"w": 300, "h": 200}}}"#,
     )
     .unwrap();
+    crate::testing::repo(&wt, "");
+    crate::testing::git(&wt, &["add", "design"]);
+    crate::testing::git(&wt, &["commit", "-q", "-m", "boards"]);
+    let tip = String::from_utf8(
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&wt)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
     let store = make_store(places, &["bae", "coven"]);
     store
         .write(&stamp(NOON), "design record", |db| {
-            design_drawn(
+            let id = design_drawn(
                 db,
                 &wt.display().to_string(),
                 &[],
@@ -263,14 +279,15 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
                     ],
                 }],
             );
+            crate::lists::fixtures::design_tipped(db, id, &tip);
             Ok(())
         })
         .unwrap();
 }
 
 #[test]
-fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_worktree_on_each_request()
-{
+fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes_last_commit_on_each_request()
+ {
     let s = server_with("http-design", design_store);
     let (status, kind, page) = s.get("/design/1");
     assert_eq!((status, kind.as_str()), (200, "text/html; charset=utf-8"));
@@ -285,10 +302,18 @@ fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_worktre
         "{board}"
     );
 
-    // A redraw in the worktree shows on the next request, with no restart and no new record.
-    let file = s.scratch.dir.join("wt/design/mocks/A.dc.html");
+    // What the worktree has checked out is not what the change draws: a file edited there, and
+    // another branch checked out there, leave the board as the change's last commit has it.
+    let wt = s.scratch.dir.join("wt");
+    let file = wt.join("design/mocks/A.dc.html");
     std::fs::write(&file, "<x-dc><p>board A redrawn</p></x-dc>").unwrap();
-    assert!(s.get("/design/1/board/0").2.contains("board A redrawn"));
+    crate::testing::git(&wt, &["checkout", "-q", "-b", "other"]);
+    crate::testing::git(&wt, &["commit", "-q", "-a", "-m", "another board"]);
+    let (_, _, board) = s.get("/design/1/board/0");
+    assert!(
+        board.contains("board A as drawn") && !board.contains("redrawn"),
+        "{board}"
+    );
 
     // A board that is no file is its own problem, said where the frame is.
     let (status, _, problem) = s.get("/design/1/board/1");

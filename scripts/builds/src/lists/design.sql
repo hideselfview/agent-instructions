@@ -73,3 +73,11 @@ CREATE TABLE design_deleted (
     path TEXT NOT NULL CONSTRAINT design_deleted_path_is_a_board_file CHECK (path NOT GLOB '*#*' AND path NOT GLOB '*/'),
     PRIMARY KEY (design_id, path)
 ) STRICT, WITHOUT ROWID;
+
+-- The last commit of the range the change was recorded or amended over: the
+-- boards are drawn from the files at it, not from what the worktree has checked
+-- out. A change recorded before this table has no row until it is amended.
+CREATE TABLE design_tip (
+    design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
+    tip TEXT NOT NULL CONSTRAINT design_tip_is_a_commit CHECK (length(tip) >= 7 AND tip NOT GLOB '*[^0-9a-f]*')
+) STRICT;

@@ -219,6 +219,13 @@ pub fn design_drawn(
     id
 }
 
+/// Sets the last commit of design change <id> to <tip>.
+pub fn design_tipped(db: &Connection, id: Id, tip: &str) {
+    let mut change = read(db).design(id).unwrap().clone();
+    change.tip = Some(tip.to_string());
+    save(db, &change).unwrap();
+}
+
 /// The store of project `demo` over <places>, made as `lists init` and
 /// `area add` make one: areas Alpha and Beta, over repos <repos>.
 pub fn make_store(places: &crate::places::Places, repos: &[&str]) -> Store {

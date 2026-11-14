@@ -139,10 +139,24 @@ fn plant_run(conn: &Connection) {
     .unwrap();
 }
 
-/// The schema's text before `hook_run_checks` kept a time only for a passed
-/// check: today's with the older comment and the older rule for `ms`.
-fn schema_before_check_times() -> String {
+/// The schema's text before `design_tip`: today's without that table and the
+/// comment above it.
+fn schema_before_design_tip() -> String {
     let schema = db::schema();
+    let from = schema
+        .find("\n-- The last commit of the range")
+        .expect("the table's comment");
+    let end = "STRICT;\n";
+    let table = from + schema[from..].find("CREATE TABLE design_tip").unwrap();
+    let to = table + schema[table..].find(end).unwrap() + end.len();
+    format!("{}{}", &schema[..from], &schema[to..])
+}
+
+/// The schema's text before `hook_run_checks` kept a time only for a passed
+/// check: the one before `design_tip` with the older comment and the older
+/// rule for `ms`.
+fn schema_before_check_times() -> String {
+    let schema = schema_before_design_tip();
     let from = schema
         .find("    -- What it was handed (NULL for a skipped one)")
         .expect("the column's comment");
@@ -334,5 +348,52 @@ fn the_check_times_stamp_is_the_schema_before_check_times() {
     assert_eq!(
         i64::from(hash % (i32::MAX as u32 - 2)) + 2,
         BEFORE_CHECK_TIMES_STAMP
+    );
+}
+
+/// A store as the schema before `design_tip` made it: that schema's text, its stamp, one run.
+fn store_before_design_tip(dir: &std::path::Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&schema_before_design_tip()).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_DESIGN_TIP_STAMP)
+        .unwrap();
+    plant_run(&conn);
+    path
+}
+
+#[test]
+fn a_store_of_the_schema_before_design_tips_gains_the_table_keeps_its_runs_and_equals_a_fresh_schema()
+ {
+    let scratch = Scratch::new("move-tip");
+    let places = scratch.places();
+    let path = store_before_design_tip(&places.lists.join("bae"));
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the old run is kept");
+    assert_eq!(
+        db::stamp_of(&Connection::open(&path).unwrap(), &path).unwrap(),
+        db::stamp()
+    );
+}
+
+#[test]
+fn the_design_tip_stamp_is_the_schema_before_design_tips() {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in schema_before_design_tip().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    assert_eq!(
+        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        BEFORE_DESIGN_TIP_STAMP
     );
 }

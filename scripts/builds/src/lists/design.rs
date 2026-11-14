@@ -95,9 +95,13 @@ pub struct DesignChange {
     pub title: String,
     pub details: String,
     pub repo: String,
-    /// The worktree (absolute path) the boards are drawn in: the review page
-    /// renders every board from it, live, on each request.
+    /// The worktree (absolute path) of the repo the boards are drawn from.
     pub worktree: String,
+    /// The last commit of the change's range: the review page draws each
+    /// board from the files at it, so the worktree can have any branch
+    /// checked out. None for a change recorded before the tip was kept, until
+    /// it is amended.
+    pub tip: Option<String>,
     /// Each design place the change touches, or a component a shared source
     /// changes the drawing of, and how it is resolved.
     pub places: BTreeMap<String, Resolution>,
@@ -154,7 +158,7 @@ pub struct DesignRequest {
     #[serde(default)]
     pub boards: BTreeMap<String, Board>,
     /// How the review page reads: headings, the words under each, and its
-    /// boards, which the dashboard renders live from the worktree. Required
+    /// boards, which the dashboard draws from the range's last commit. Required
     /// to record; an amend that gives it replaces the page, one that doesn't
     /// keeps it. Every board place of the change must be on it.
     pub review: Option<Vec<ReviewSection>>,
@@ -206,7 +210,7 @@ fn resolve(
     db: &Connection,
     id: Id,
     request: &DesignRequest,
-    worktree: &str,
+    drawn: &Drawn,
     changes: &Changes,
     affected: &BTreeSet<String>,
     stamp: &Stamp,
@@ -281,7 +285,8 @@ fn resolve(
         fail!("{id} is not an open design change")
     };
     let design = &mut held.designs[at];
-    design.worktree = worktree.to_string();
+    design.worktree = drawn.worktree.to_string();
+    design.tip = Some(drawn.tip.to_string());
     // The change holds what the range changes: a stored place it no longer
     // touches (a board renamed before landing) leaves with its board and its
     // place on the review page.
@@ -468,6 +473,15 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
         params![design.id, design.title, design.details, design.worktree, design.no_app_place],
     )
     .sql()?;
+    db.execute("DELETE FROM design_tip WHERE design_id = ?1", [design.id])
+        .sql()?;
+    if let Some(tip) = &design.tip {
+        db.execute(
+            "INSERT INTO design_tip (design_id, tip) VALUES (?1, ?2)",
+            params![design.id, tip],
+        )
+        .sql()?;
+    }
     // The boards leave with their places, the review boards with their sections.
     db.execute("DELETE FROM design_place WHERE design_id = ?1", [design.id])
         .sql()?;
@@ -523,12 +537,14 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
     Ok(())
 }
 
-/// The checkout a design change is drawn in: its repo, and the worktree
-/// (absolute path) holding the boards.
+/// The checkout a design change is drawn from: its repo, the worktree
+/// (absolute path) of it, and the commit the boards are drawn at.
 #[derive(Clone, Copy)]
 pub struct Drawn<'a> {
     pub repo: &'a str,
     pub worktree: &'a str,
+    /// The last commit of the range the boards are drawn at.
+    pub tip: &'a str,
 }
 
 /// Records a new design change of <repo> for <changes>.
@@ -540,7 +556,7 @@ pub fn record(
     affected: &BTreeSet<String>,
     stamp: &Stamp,
 ) -> Result<Recorded> {
-    let Drawn { repo, worktree } = *drawn;
+    let Drawn { repo, .. } = *drawn;
     let title = require_text("title", request.title.as_ref())?;
     if let Some(fault) = crate::lists::check::title_fault(&title) {
         fail!("{fault}");
@@ -557,12 +573,12 @@ pub fn record(
             title,
             details,
             repo: repo.to_string(),
-            worktree: worktree.to_string(),
+            worktree: drawn.worktree.to_string(),
             no_app_place: None,
         },
         stamp,
     )?;
-    let new_items = resolve(db, design, request, worktree, changes, affected, stamp)?;
+    let new_items = resolve(db, design, request, drawn, changes, affected, stamp)?;
     Ok(Recorded { design, new_items })
 }
 
@@ -603,7 +619,7 @@ pub fn amend(
     affected: &BTreeSet<String>,
     stamp: &Stamp,
 ) -> Result<Recorded> {
-    let Drawn { repo, worktree } = *drawn;
+    let Drawn { repo, .. } = *drawn;
     open_design_of(&store::read(db)?, id, repo)?;
     db.execute("DELETE FROM design_approval WHERE design_id = ?1", [id])
         .sql()?;
@@ -628,7 +644,7 @@ pub fn amend(
         )
         .sql()?;
     }
-    let new_items = resolve(db, id, request, worktree, changes, affected, stamp)?;
+    let new_items = resolve(db, id, request, drawn, changes, affected, stamp)?;
     Ok(Recorded {
         design: id,
         new_items,
@@ -812,6 +828,9 @@ fn describe(lists: &Lists, design: &DesignChange, landed: Option<&crate::lists::
         let _ = writeln!(out, "  board {path}  {}", board.link);
     }
     let _ = writeln!(out, "  worktree {}", design.worktree);
+    if let Some(tip) = &design.tip {
+        let _ = writeln!(out, "  drawn at {tip}");
+    }
     for section in &design.review {
         let _ = writeln!(out, "  review: {}", section.heading);
         for board in &section.boards {
@@ -1008,6 +1027,17 @@ pub fn read(
                 theme,
             });
     }
+    let mut tips: BTreeMap<Id, String> = BTreeMap::new();
+    let mut statement = db.prepare("SELECT design_id, tip FROM design_tip").sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?))
+        })
+        .sql()?
+    {
+        let (design, tip) = row.sql()?;
+        tips.insert(design, tip);
+    }
     let mut approvals: BTreeMap<Id, Stamp> = BTreeMap::new();
     let mut statement = db
         .prepare("SELECT design_id, at, by FROM design_approval")
@@ -1058,6 +1088,7 @@ pub fn read(
             details,
             repo,
             worktree,
+            tip: tips.remove(&id),
             places: places.remove(&id).unwrap_or_default(),
             boards: boards.remove(&id).unwrap_or_default(),
             deleted: deleted.remove(&id).unwrap_or_default(),
@@ -1073,8 +1104,9 @@ pub fn read(
 
 /// The tables design.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 7] = [
+const TABLES: [&str; 8] = [
     "design",
+    "design_tip",
     "design_approval",
     "design_place",
     "design_board",

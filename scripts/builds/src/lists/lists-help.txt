@@ -79,10 +79,11 @@ are drawn and waits on the person's review: it shows in the sidebar's Waiting
 on you tab as a light card (its title, the items it blocks, who recorded it)
 with a Details toggle that opens its review page in a modal over the dashboard,
 until the person approves it. The review page is the change's words under
-their headings, with every board of the change drawn live from the change's
-worktree in a frame the person can zoom (never an image); the dashboard serves
-it at /design/N and draws each board again on every request, so a redraw shows
-on reload. builds land --design N refuses it before approval; landing closes it, so
+their headings, with every board of the change drawn in a frame the person can
+zoom (never an image) from the files at the last commit of the change's range;
+the dashboard serves it at /design/N and draws each board again on every
+request, reading the files with git, so a worktree with another branch checked
+out does not change what the page shows, and a redraw shows on reload. builds land --design N refuses it before approval; landing closes it, so
 it leaves the tab. The design session lands through builds land like everyone else,
 from bae's landing worktree (side-7).
 
@@ -135,17 +136,19 @@ rebased, since places are compared by path.
       how the review page reads, in order: each section is a heading, the
       words under it (optional; `code`, **bold**, paragraphs and `-` lists)
       and its boards (optional), each a board file of the repo's design places
-      that exists in `worktree`, with its caption and the theme it is drawn in
+      that exists at the range's last commit, with its caption and the theme it is drawn in
       (a board may be on the page twice, once per theme, and a board the
       change did not touch may be there to compare). Every board place of the
       change must be on the page. A board file the range deletes needs no
       answer, link or place on the page: it is listed as deleted, and the
-      review page names it without a drawing. `worktree` is stored with the change: the
-      dashboard draws every board of the page from it, each request, so it
-      must hold the boards while the change is open. Boards need the design
-      system's generated files (design/system/tokens.css and
-      design/system/components/bundle.css and bundle.js) in that worktree, and
-      each board's size in design/mocks/canvas.json. Refused, naming each,
+      review page names it without a drawing. `worktree` and the range's last
+      commit are stored with the change: the dashboard reads each board of the
+      page from that repo at that commit, so the commit must stay in the repo
+      while the change is open; an amend stores the new last commit. A change
+      recorded before the last commit was kept draws nothing until it is
+      amended. That commit needs the design system's generated files
+      (design/system/tokens.css and design/system/components/bundle.css and
+      bundle.js) and each board's size in design/mocks/canvas.json. Refused, naming each,
       when a changed place is left unresolved, an answer names a place the
       range does not change, `matches` has no how, an item is closed or
       missing, a board has no link, `review` is missing, empty or has a
@@ -181,9 +184,10 @@ rebased, since places are compared by path.
   builds design show N | builds design list
       One design change, open or landed; the open ones, one line each.
 
-  builds design render DIR BOARD [--theme light|dark]
+  builds design render DIR BOARD [--theme light|dark] [--at REV]
       Prints board BOARD of worktree DIR as one page of HTML (dark unless
-      asked), the way the design canvas draws it: BOARD is the name
+      asked; DIR's files as they are, or with --at REV the files at that
+      commit or branch, read with git, with the design system at that commit), the way the design canvas draws it: BOARD is the name
       (`mac.welcome.open-failed`) or the path
       (`design/mocks/mac.welcome.open-failed.dc.html`). It follows the boards
       the board mounts (`dc-import`), applies each board's own values

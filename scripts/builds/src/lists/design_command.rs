@@ -19,7 +19,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR SHA...\n       builds design only DIR SHA...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N DIR SHA...\n       builds design landed N DIR SHA...\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark]";
+const USAGE: &str = "usage: builds design places DIR SHA...\n       builds design only DIR SHA...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N DIR SHA...\n       builds design landed N DIR SHA...\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--at REV]";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -183,7 +183,8 @@ fn affected_components(scope: &Scope, request: &DesignRequest) -> Result<BTreeSe
 }
 
 /// Every board on the request's review page is one of the repo's board
-/// places and a file in the worktree, where the dashboard renders it from.
+/// places and a file at the range's last commit, which the dashboard draws it
+/// from.
 fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
     for section in request.review.iter().flatten() {
         for board in &section.boards {
@@ -196,11 +197,11 @@ fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
                     board.board
                 );
             }
-            if !scope.checkout.top.join(&board.board).is_file() {
+            if !design_paths::exists_in(&scope.checkout.top, &scope.tip, &board.board)? {
                 fail!(
-                    "`review` names {}, which is no file in {}",
+                    "`review` names {}, which is no file at the range's last commit {}",
                     board.board,
-                    scope.checkout.top.display()
+                    scope.tip
                 );
             }
         }
@@ -253,6 +254,7 @@ fn record(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
             &Drawn {
                 repo: &repo,
                 worktree: &worktree,
+                tip: &scope.tip,
             },
             &request,
             &scope.changes,
@@ -296,6 +298,7 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
                     &Drawn {
                         repo: &repo,
                         worktree: &worktree,
+                        tip: &scope.tip,
                     },
                     &request,
                     &scope.changes,
@@ -419,11 +422,14 @@ fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     Ok(design::list(&store.load()?))
 }
 
-/// `render DIR BOARD [--theme light|dark]`: the board of worktree DIR as one
-/// page of HTML, drawn with DIR's design system. BOARD is the board's name
-/// (`mac.welcome.open-failed`) or its path (`design/mocks/<name>.dc.html`).
+/// `render DIR BOARD [--theme light|dark] [--at REV]`: the board as one page of
+/// HTML, drawn with the design system it is drawn from. BOARD is the board's
+/// name (`mac.welcome.open-failed`) or its path
+/// (`design/mocks/<name>.dc.html`). It reads the board's file in worktree DIR
+/// as it is; `--at REV` reads it as it is at commit or branch REV instead
+/// (a change's branch, to look at its board with nothing checked out).
 fn render(args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &["theme"], &[])?;
+    let args = Args::parse(args, &["theme", "at"], &[])?;
     let [dir, board] = args.exactly(2, USAGE)? else {
         unreachable!("exactly two")
     };
@@ -432,5 +438,10 @@ fn render(args: &[String]) -> Result<String> {
         Some("light") => crate::lists::Theme::Light,
         Some(other) => fail!("--theme is light or dark, not {other:?}"),
     };
-    crate::design_render::render_board(Path::new(dir), board, theme)
+    let dir = Path::new(dir);
+    let source = match args.value("at")? {
+        Some(rev) => crate::design_render::Source::Commit { repo: dir, rev },
+        None => crate::design_render::Source::Dir(dir),
+    };
+    crate::design_render::render_board(source, board, theme)
 }

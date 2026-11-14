@@ -138,6 +138,8 @@ const BEFORE_DESIGN_DELETED_STAMP: i64 = 155_110_266;
 /// The stamp of the schema before `hook_run_checks` kept a time only for a
 /// passed check.
 const BEFORE_CHECK_TIMES_STAMP: i64 = 213_607_842;
+/// The stamp of the schema before the `design_tip` table was added.
+const BEFORE_DESIGN_TIP_STAMP: i64 = 915_872_331;
 
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
@@ -147,9 +149,11 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 ) STRICT, WITHOUT ROWID";
 
 /// Moves each project's `builds.sqlite` to today's schema: a store stamped as
-/// the schema before the `design_deleted` table gets that table, and a store
+/// the schema before the `design_deleted` table gets that table, a store
 /// stamped as either older schema gets a `hook_run_checks` that keeps a time
-/// only for a passed check (a failed check's time is dropped). The moves run in
+/// only for a passed check (a failed check's time is dropped), and every store
+/// gets the empty `design_tip` table (a design change has no last commit until
+/// it is amended). The moves run in
 /// one transaction, the store is stamped as today's schema, and it must then
 /// equal a fresh database's schema or the transaction rolls back. A store
 /// already at today's stamp, or with no database, is left alone; any other
@@ -200,6 +204,18 @@ DROP TABLE hook_run_checks_old;
     )
 }
 
+/// The statement that makes `design_tip` as design.sql writes it, taken from
+/// today's schema text so the result equals a fresh database's.
+fn design_tip() -> String {
+    let schema = db::schema();
+    let start = schema
+        .find("CREATE TABLE design_tip")
+        .expect("the schema has it");
+    let end = "STRICT;";
+    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
+    schema[start..stop].to_string()
+}
+
 fn move_store(path: &Path) -> Result<()> {
     if !path.is_file() {
         return Ok(());
@@ -212,9 +228,15 @@ fn move_store(path: &Path) -> Result<()> {
     if found == db::stamp() || found == 0 {
         return Ok(());
     }
-    if found != BEFORE_DESIGN_DELETED_STAMP && found != BEFORE_CHECK_TIMES_STAMP {
+    if ![
+        BEFORE_DESIGN_DELETED_STAMP,
+        BEFORE_CHECK_TIMES_STAMP,
+        BEFORE_DESIGN_TIP_STAMP,
+    ]
+    .contains(&found)
+    {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP} and {BEFORE_CHECK_TIMES_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP} and {BEFORE_DESIGN_TIP_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -225,7 +247,10 @@ fn move_store(path: &Path) -> Result<()> {
     if found == BEFORE_DESIGN_DELETED_STAMP {
         tx.execute_batch(DESIGN_DELETED).sql()?;
     }
-    tx.execute_batch(&check_times()).sql()?;
+    if found != BEFORE_DESIGN_TIP_STAMP {
+        tx.execute_batch(&check_times()).sql()?;
+    }
+    tx.execute_batch(&design_tip()).sql()?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     if db::schema_rows(&tx)? != db::schema_rows(&db::memory())? {
         fail!(

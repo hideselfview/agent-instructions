@@ -837,7 +837,7 @@ fn a_design_change_needs_a_review_page_with_every_board_of_the_change_on_it() {
     );
     assert!(
         message(w.request(with(review_of(&[a, b, "design/mocks/Gone.dc.html"]))))
-            .contains("is no file in")
+            .contains("is no file at the range")
     );
     assert!(
         message(w.request(with(review_of(&[a, b, "docs/x.html"]))))
@@ -1181,6 +1181,16 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
             plant(&db, "design_deleted", &row(&deleted, &[("path", v(path))])),
         );
     }
+    for tip in ["abc", "not-a-sha", "ABCDEF1234"] {
+        refused.check(
+            "design_tip_is_a_commit",
+            plant(
+                &db,
+                "design_tip",
+                &[("design_id", v(good.0)), ("tip", v(tip))],
+            ),
+        );
+    }
     refused.check(
         "design_board_link_says_something",
         plant(&db, "design_board", &row(&board, &[("link", v(" "))])),
@@ -1280,4 +1290,37 @@ fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards() {
         .unwrap();
     let change = read(&db).design(id).unwrap().clone();
     assert!(change.places.is_empty() && change.boards.is_empty() && change.review.is_empty());
+}
+
+#[test]
+fn a_record_keeps_the_last_commit_of_its_range_and_an_amend_moves_it() {
+    let w = world("design-tip");
+    let a = "design/mocks/A.dc.html";
+    let first = w.commit(&[a]);
+    w.request(base_request(&w, json!({ a: { "matches": "x" } })))
+        .unwrap();
+    assert_eq!(w.state().designs[0].tip, Some(first));
+    assert!(w.run("show 1").unwrap().contains("drawn at "));
+    let second = w.commit(&[a]);
+    let mut amend = base_request(&w, json!({ a: { "matches": "x" } }));
+    amend.as_object_mut().unwrap().remove("title");
+    w.amend(1, amend).unwrap();
+    assert_eq!(w.state().designs[0].tip, Some(second));
+}
+
+#[test]
+fn a_review_board_must_be_a_file_at_the_last_commit_not_only_in_the_worktree() {
+    let w = world("design-tip-file");
+    let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+    w.commit(&[a]);
+    // B is in the worktree but no commit holds it.
+    std::fs::write(w.dir.join(b), "uncommitted").unwrap();
+    let places = json!({ a: { "matches": "x" } });
+    let mut request = base_request(&w, places);
+    request["review"] = review_of(&[a, b]);
+    let refused = message(w.request(request));
+    assert!(
+        refused.contains("is no file at the range's last commit"),
+        "{refused}"
+    );
 }
