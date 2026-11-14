@@ -817,6 +817,18 @@ impl Model {
         }
         for repo in &mut repos {
             repo.app_builds = super::app_builds::build(repo);
+            let builds: HashMap<String, super::cards::ItemWait> = repo
+                .checkouts
+                .iter()
+                .filter(|c| c.live && !c.app_checkout && c.state == Some("ready-to-land"))
+                .filter_map(|c| {
+                    let (lane, how) = super::app_builds::build_for(repo, c.branch.as_deref()?)?;
+                    Some((
+                        c.name.clone(),
+                        super::cards::ItemWait::AppBuild { lane, how },
+                    ))
+                })
+                .collect();
             for checkout in &mut repo.checkouts {
                 if checkout.live && !checkout.app_checkout {
                     let titles = project
@@ -828,11 +840,27 @@ impl Model {
                             .standing(lists, &repo.name, Path::new(&checkout.path), &git.ahead),
                         _ => None,
                     };
+                    let build = builds.get(&checkout.name).cloned();
                     let wait = project
                         .and_then(|lists| super::lists::running_wait(lists, &checkout.path))
                         .into_iter()
                         .chain(design)
+                        .chain(build)
                         .min_by_key(super::cards::ItemWait::rank);
+                    // Ready to land means nothing else is going on in the
+                    // worktree: an app build of its branch or an item that
+                    // waits on something keeps it Working.
+                    if checkout.state == Some("ready-to-land")
+                        && matches!(
+                            wait,
+                            Some(
+                                super::cards::ItemWait::AppBuild { .. }
+                                    | super::cards::ItemWait::Item { .. }
+                            )
+                        )
+                    {
+                        checkout.state = Some("working");
+                    }
                     if wait
                         .as_ref()
                         .is_some_and(super::cards::ItemWait::needs_person)

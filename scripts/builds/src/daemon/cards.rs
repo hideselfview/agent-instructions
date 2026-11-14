@@ -11,6 +11,9 @@ pub enum ItemWait {
     Answer(String),
     /// A design change that waits on the person's review.
     Review { id: u32, title: String },
+    /// An app build of the branch runs or waits in a lane: `lane` is `Mac`
+    /// or `Android` and `how` says how far it is.
+    AppBuild { lane: String, how: String },
     /// Another item.
     Item { id: u32, title: String },
     /// Commits of a design branch that no recorded design change covers.
@@ -23,8 +26,9 @@ impl ItemWait {
         match self {
             ItemWait::Answer(_) => 0,
             ItemWait::Review { .. } => 1,
-            ItemWait::Item { .. } => 2,
-            ItemWait::Unrecorded => 3,
+            ItemWait::AppBuild { .. } => 2,
+            ItemWait::Item { .. } => 3,
+            ItemWait::Unrecorded => 4,
         }
     }
 
@@ -45,6 +49,7 @@ impl ItemWait {
             ItemWait::Review { id, .. } => {
                 format!("Waits on your review of design change {id}")
             }
+            ItemWait::AppBuild { lane, how } => format!("Waits on the {lane} app build: {how}"),
             ItemWait::Item { id, title } => format!("Waits on #{id}: {title}"),
             ItemWait::Unrecorded => {
                 "Waits on the design session to record its design change.".to_string()

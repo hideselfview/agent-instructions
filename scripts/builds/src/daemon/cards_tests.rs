@@ -223,3 +223,20 @@ fn an_item_waiting_on_a_question_keeps_its_own_title_over_the_question() {
     assert_eq!(card.titles, ["Reopen a copied library"]);
     assert_eq!(card.line, "Waits on your answer: Which port?");
 }
+
+#[test]
+fn a_branch_with_an_app_build_waits_on_it_and_is_not_ready_to_land() {
+    let card = words(
+        &card(Some("working"), claim(None), Some(0)),
+        &[],
+        Some(&ItemWait::AppBuild {
+            lane: "Mac".into(),
+            how: "place 2 in the queue".into(),
+        }),
+    );
+    assert_eq!(card.chip, Some("Working"));
+    assert_eq!(
+        card.line,
+        "Waits on the Mac app build: place 2 in the queue"
+    );
+}

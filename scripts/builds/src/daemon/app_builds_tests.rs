@@ -231,3 +231,32 @@ fn a_lane_names_the_branch_of_the_build_that_runs_not_the_one_checked_out_before
     );
     assert_eq!(branch_built_by("builds lock bae"), None);
 }
+
+#[test]
+fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
+    let mut held = lock("side-1", 6, "/d/bae-worktrees/side-5", &[]);
+    held.holder.as_mut().unwrap().command = "builds app-build bae mac-alerts macos".into();
+    let page = repo(
+        vec![checkout("side-1", Some("mac"), None)],
+        vec![held],
+        vec![
+            queued(
+                "/d/bae-worktrees/side-9",
+                "builds app-build bae other macos",
+            ),
+            queued(
+                "/d/bae-worktrees/side-4",
+                "builds app-build bae reads-import-count",
+            ),
+        ],
+    );
+    assert_eq!(
+        build_for(&page, "mac-alerts"),
+        Some(("Mac".into(), "running for 6 minutes".into()))
+    );
+    assert_eq!(
+        build_for(&page, "reads-import-count"),
+        Some(("Mac".into(), "place 2 in the queue".into()))
+    );
+    assert_eq!(build_for(&page, "no-build"), None);
+}

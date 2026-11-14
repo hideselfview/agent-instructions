@@ -73,6 +73,42 @@ fn branch_of(command: &str) -> Option<String> {
     }
 }
 
+/// What <repo>'s app build lanes do for <branch>: the lane and how far it
+/// is (running for N minutes, or its place in the lane's queue), the
+/// running build first. None when no build of the branch runs or waits.
+pub fn build_for(repo: &RepoPage, branch: &str) -> Option<(String, String)> {
+    let named = |command: &str| branch_of(command).as_deref() == Some(branch);
+    let lane_name = |lane: &str| {
+        let mut word = lane.to_string();
+        if let Some(first) = word.get_mut(..1) {
+            first.make_ascii_uppercase();
+        }
+        word
+    };
+    for lock in &repo.locks {
+        let Some(holder) = lock.holder.as_ref().filter(|h| h.driver_running) else {
+            continue;
+        };
+        if named(&holder.command) {
+            let minutes = holder.minutes;
+            let unit = if minutes == 1 { "minute" } else { "minutes" };
+            return Some((
+                lane_name(&lock.lane),
+                format!("running for {minutes} {unit}"),
+            ));
+        }
+    }
+    for queue in &repo.queues {
+        if let Some(at) = queue.queue.iter().position(|q| named(&q.command)) {
+            return Some((
+                lane_name(&queue.lane),
+                format!("place {} in the queue", at + 1),
+            ));
+        }
+    }
+    None
+}
+
 /// <command> without its program's folder and cut to a line.
 fn plain_command(command: &str) -> String {
     let mut words = command.split_whitespace();
