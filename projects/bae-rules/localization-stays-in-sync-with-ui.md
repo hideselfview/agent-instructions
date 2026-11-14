@@ -54,5 +54,5 @@ with an obligation:
 
 Applies to the macOS, iOS, and Android UIs and to bae-bridge message producers.
 The locale never crosses the bridge (see
-`ui-and-bridge-thinness-letter-of-the-law`); this rule keeps the catalogs the
-bridge keys into complete and current.
+`ui-iterates-and-renders-nothing-more`); this rule keeps the catalogs the bridge
+keys into complete and current.

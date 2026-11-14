@@ -1,5 +1,5 @@
 ---
-digest: State is what the UI is; one-shot commands use pub/sub, not an observable flag + observe + reset.
+digest: State is what the UI is; one-shot commands use pub/sub, not an observable flag + observe + reset; an A to B imperative push uses pub/sub (B subscribes), not ref-registration through containers.
 paths:
   - '**/*.swift'
   - '**/*.tsx'
@@ -27,3 +27,20 @@ For ephemeral commands (scroll, flash, focus, play-this-once), use pub/sub:
 Diagnostic: if you find yourself writing `uiState.xyz = value` followed by a
 reader that resets `uiState.xyz = nil` after handling, the design is wrong —
 replace with a subject.
+
+## Pub/sub over ref-registration
+
+When component A needs to push imperative updates to component B, bypassing the
+normal reactive flow, prefer pub/sub: B subscribes to a stream A publishes to.
+Avoid ref-registration, where intermediate containers collect refs to B and the
+parent calls methods on them.
+
+Registration forces every layer in the hierarchy to know B's type and wire the
+connection, leaking B through containers that shouldn't care about it. Pub/sub
+lets B self-wire at construction: no registration step, no leaked types, no
+coupling through the tree. The framework instances are the same as above
+(`PassthroughSubject` / `AsyncStream`, an event emitter or context with a
+callback registry, a channel or a signal B watches).
+
+Fall back to registration only when the update requires calling multiple methods
+on a stateful object that can't be captured in a single message.

@@ -64,3 +64,13 @@ spawned tokio tasks) get one handler at the scope that applies case 2, so each
 call site doesn't need its own wrapper. UI rendering has no equivalent catch
 point on Compose or SwiftUI; a failure there is a crash and is fixed at its
 source.
+
+## In bae: every surfaced error has a display path
+
+Every surfaced error must have a display path:
+
+- `AppService.lastError` shows via the global alert.
+- Per-view errors show inline.
+- Import errors show in the candidate's error state.
+
+If you add a new error path, verify it is displayed somewhere before committing.

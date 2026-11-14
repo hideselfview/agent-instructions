@@ -1,10 +1,13 @@
 ---
-digest: UI iterates and renders; sorting/filtering/grouping/formatting/deriving belongs in the data layer.
+digest: UI iterates and renders; sorting/filtering/grouping/formatting/deriving belongs in the data layer. In bae, bae-bridge is only type translation and the locale never crosses the bridge; the UI formats raw data and resolves message keys, and derives no domain value or decision.
 paths:
   - '**/*.swift'
+  - '**/*.kt'
+  - '**/*.cs'
   - '**/*.tsx'
   - '**/*.jsx'
   - bae-web/**/*.rs
+  - bae-bridge/**/*.rs
 blocking: false
 ---
 
@@ -25,3 +28,59 @@ Exceptions:
   `setRepeat(mode.next())` — and sending that absolute value to the data layer.
   Naming the desired next state isn't deriving domain data, and it's preferred
   over a `toggle()` (`rules/set-state-don-t-toggle.md`).
+
+## In bae: UI and bridge thinness (letter of the law)
+
+The rule above is enforced strictly in bae because cross-platform UI is the
+goal: macOS, iOS, Android, and Windows from one core. Anything in the UI is
+something we'd rewrite per platform.
+
+**bae-bridge is ONLY type translation.** It converts bae-core types ↔
+uniffi/Swift/Kotlin types (and, via the Windows FFI, the C# wire shapes) and
+nothing else. No DB lookups, no API calls, no formatting, no filtering, no
+orchestration, no mutable state, no event filtering. If you need to add
+functionality, add it to bae-core; the bridge calls it. Never add "just a quick
+helper" to the bridge. A value the UI must not derive comes from the read's SQL
+(a column, or its own live query); Rust converts rows to bridge types and
+computes it no more than the UI does
+(reactive-screens-read-plain-live-queries.md).
+
+**The locale never crosses the bridge.** bae-core and bae-bridge emit raw data —
+numbers, typed enums, and stable message keys — never prose or locale-formatted
+text. The one computation the UI is *required* to do is locale-aware rendering
+of that data: formatting numbers, byte counts, durations, and dates with the
+platform's locale formatters, and resolving stable message keys through native
+string catalogs (String Catalogs / `strings.xml`). That rendering is inherently
+per-platform and OS-owned, so it lives in the UI by design.
+
+Bridge / UI boundary violations to flag:
+
+- The UI computes a derived value from multiple bridge fields instead of
+  receiving a pre-computed field (e.g., `badAudioCount > 0 || badImageCount > 0`
+  instead of `isIncomplete`).
+- The UI switches on bridge string/enum values to make domain decisions (e.g.,
+  `source == "musicbrainz"` to build a URL) instead of receiving the result as a
+  field.
+- The UI sorts/filters bridge arrays using domain rules instead of receiving
+  pre-sorted/pre-filtered data.
+- The UI groups flat arrays into structured data (tracks by side) instead of
+  receiving pre-grouped data — receive the grouping/position as a structured
+  field; only the localized words ("Side", "Disc") are the UI's. The grouping
+  and position come from the read's SQL (a column, or its own live query), and
+  Rust only converts rows (reactive-screens-read-plain-live-queries.md).
+- The UI constructs URLs, file paths, or identifiers from bridge field values
+  instead of receiving them pre-built.
+- String literals in the UI that encode domain knowledge (source names, format
+  names, status strings) — those are bae-core concepts and cross as enums/keys.
+
+What is NOT a violation: the UI formatting raw numbers/dates/byte counts for
+display, or resolving a localized string by key. That is the required
+locale-rendering described above, not a thinness breach — bae-core has no locale
+and cannot do it.
+
+Also NOT a violation: computing a command's target from a rendered bridge value
+and sending that absolute value back — `setShuffle(!shuffled)` — even though
+core also holds the state. Naming the desired next state is not a domain
+decision; it's the preferred shape over a core-side `toggle()`
+(`set-state-don-t-toggle`). A `!bool` or `mode.next()` is fine; real logic —
+URL-building, source switching — still crosses as a field.

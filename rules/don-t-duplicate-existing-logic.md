@@ -1,5 +1,5 @@
 ---
-digest: Call existing logic or factor a shared helper; parallel implementations drift.
+digest: Call existing logic or factor a shared helper; parallel implementations drift; collapse near-copy blocks into one parameterized unit when the parameter maps to a real distinction.
 paths:
   - '**/*.rs'
   - '**/*.swift'
@@ -26,3 +26,15 @@ see the same check or computation written in two or more places, either merge
 them into one in your current work, or, when that would pull your change off its
 subject, add an item to the work queue naming every copy and where it is. Never
 pass one by.
+
+**Parameterize near-duplicates when cheap.** Two or more near-copy blocks
+introduced in the same change should collapse into one function or component
+with parameters when the parameterization is small, local, and the variation
+maps to a real distinction (a literal, a different type, a small expression).
+Skip when the abstraction would be awkward, invents a parameter without meaning,
+or couples unrelated callers, but the default for obvious near-copies is to
+parameterize.
+
+This matters less in tests. Explicit per-test setup blocks read better than
+fixtures hidden behind a shared helper, so duplicated test setup is acceptable;
+collapse it only when a block is large and purely mechanical.

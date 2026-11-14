@@ -16,6 +16,12 @@ preview is supposed to validate. Its *dependencies* are out of scope: those can
 be stubbed, faked, or injected with hand-rolled values to give the unit
 something to run against.
 
+A bug-fix test calls the actual function or service that has the bug. A test
+that rebuilds the buggy conditions by hand (calling sub-functions in the order
+you think causes the bug) is another program, and it proves nothing about the
+real code. Identify the unit that contains the bug and write a test that
+exercises that unit.
+
 If the unit itself is duplicated, the test or preview is checking the duplicate
 against itself, not validating what ships.
 
