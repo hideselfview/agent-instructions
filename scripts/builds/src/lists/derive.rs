@@ -189,10 +189,10 @@ pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
     entries
 }
 
-/// The ready coordinator items in dispatch order: `priority first` (oldest
-/// first), then the rest by area order and age. `last` items are ready only
-/// once nothing else is open, so they come out last by themselves.
-pub fn dispatch_order(lists: &Lists) -> Vec<&Item> {
+/// Sorts <items> into the queue's order, the one the dashboard's Queue tab
+/// shows: `priority first` items at the top (oldest first), then the rest by
+/// area order and age, then `priority last` items (oldest first).
+pub fn queue_order(lists: &Lists, items: &mut [&Item]) {
     let area_rank = |item: &Item| {
         lists
             .areas
@@ -200,20 +200,12 @@ pub fn dispatch_order(lists: &Lists) -> Vec<&Item> {
             .position(|a| *a == item.area)
             .unwrap_or(usize::MAX)
     };
-    let level = |item: &Item| item.priority.as_ref().map(|p| p.level);
-    let group = |item: &Item| match level(item) {
+    let group = |item: &Item| match item.priority.as_ref().map(|p| p.level) {
         Some(Level::First) => 0,
         None => 1,
         Some(Level::Last) => 2,
     };
-    let mut ready: Vec<&Item> = lists
-        .items
-        .iter()
-        .filter(|item| {
-            item.r#for == Audience::Coordinator && item_state(lists, item) == ItemState::Ready
-        })
-        .collect();
-    ready.sort_by(|a, b| {
+    items.sort_by(|a, b| {
         group(a).cmp(&group(b)).then_with(|| {
             let by_age = (a.opened.at, a.id).cmp(&(b.opened.at, b.id));
             if group(a) == 1 {
@@ -223,6 +215,20 @@ pub fn dispatch_order(lists: &Lists) -> Vec<&Item> {
             }
         })
     });
+}
+
+/// The ready coordinator items in dispatch order: `priority first` (oldest
+/// first), then the rest by area order and age. `last` items are ready only
+/// once nothing else is open, so they come out last by themselves.
+pub fn dispatch_order(lists: &Lists) -> Vec<&Item> {
+    let mut ready: Vec<&Item> = lists
+        .items
+        .iter()
+        .filter(|item| {
+            item.r#for == Audience::Coordinator && item_state(lists, item) == ItemState::Ready
+        })
+        .collect();
+    queue_order(lists, &mut ready);
     ready
 }
 

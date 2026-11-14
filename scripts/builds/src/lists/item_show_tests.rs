@@ -82,6 +82,31 @@ fn next_order_is_first_then_area_order_and_leaves_out_waiting_running_and_design
 }
 
 #[test]
+fn list_ready_comes_in_the_queue_order_not_in_id_order() {
+    let demo = demo("show-list-ready-order");
+    add(&demo, "Do the beta thing now", "Beta", &[]);
+    add(&demo, "Do the alpha thing now", "Alpha", &[]);
+    add(
+        &demo,
+        "Do the urgent beta thing",
+        "Beta",
+        &["--priority", "first", "--why", "person"],
+    );
+    add(&demo, "Do the later alpha thing", "Alpha", &[]);
+    let lists = demo.store.load().unwrap();
+    let ids = |ready: bool, area: Option<&str>| -> Vec<u32> {
+        chosen(&lists, false, ready, area, None)
+            .iter()
+            .map(|i| i.id.0)
+            .collect()
+    };
+    assert_eq!(ids(true, None), [3, 2, 4, 1]);
+    assert_eq!(ids(true, Some("Beta")), [3, 1]);
+    // Without --ready the list stays in id order.
+    assert_eq!(ids(false, None), [1, 2, 3, 4]);
+}
+
+#[test]
 fn list_running_prints_the_marker_with_the_agent_from_the_claim() {
     let demo = demo("show-running");
     let side = demo.add_side(1, "agent A", "work");

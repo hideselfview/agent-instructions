@@ -152,6 +152,30 @@ pub fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The items `list` prints: those running when <running>, those ready when
+/// <ready> (in the queue's order, which the dashboard's Queue tab shows; the
+/// rest of the list stays in id order), in <area> and for <audience> when given.
+fn chosen<'a>(
+    lists: &'a Lists,
+    running: bool,
+    ready: bool,
+    area: Option<&str>,
+    audience: Option<Audience>,
+) -> Vec<&'a Item> {
+    let mut chosen: Vec<&Item> = lists
+        .items
+        .iter()
+        .filter(|item| !running || !item.running.is_empty())
+        .filter(|item| !ready || derive::item_state(lists, item) == ItemState::Ready)
+        .filter(|item| area.is_none_or(|a| item.area == a))
+        .filter(|item| audience.is_none_or(|f| item.r#for == f))
+        .collect();
+    if ready {
+        derive::queue_order(lists, &mut chosen);
+    }
+    chosen
+}
+
 pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["area", "for"], &["running", "ready"])?;
     args.exactly(
@@ -170,16 +194,13 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             lists.areas.join("; ")
         );
     }
-    let chosen: Vec<&Item> = lists
-        .items
-        .iter()
-        .filter(|item| !args.switch("running") || !item.running.is_empty())
-        .filter(|item| {
-            !args.switch("ready") || derive::item_state(&lists, item) == ItemState::Ready
-        })
-        .filter(|item| area.is_none_or(|a| item.area == a))
-        .filter(|item| audience.is_none_or(|f| item.r#for == f))
-        .collect();
+    let chosen = chosen(
+        &lists,
+        args.switch("running"),
+        args.switch("ready"),
+        area,
+        audience,
+    );
     for item in chosen {
         if args.switch("running") && !item.running.is_empty() {
             println!("{} {}", item.id, item.title);
