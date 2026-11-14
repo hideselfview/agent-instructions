@@ -102,11 +102,14 @@ session keeps no page of its own. `builds design render DIR BOARD` prints a
 board as a page of HTML to look at while drawing. Once the person says to land
 it, the session approves it (`builds design approve N --by-person`) and lands it
 with `land.sh --design N` from bae's landing worktree (side-7). For the design
-session, "land" means committing the boards, design system and spec lines to git
-and pushing them to `main`; it closes the change, which takes it off the tab and
-frees the app work that waits on it. The apps being built to match is the items'
-job, and recording a change puts every piece of app work it needs on the queue
-in the same step (the person, 2026-11-10 and 2026-11-13).
+session, "land" means committing the boards, design system and spec lines to
+git, pushing them to `main`, and publishing the canvas (`design/mocks/README.md`
+names the two canvases and which pages each holds). The commit on `main` is the
+record of what landed; the published canvas lets anyone look at the landed
+boards. Landing closes the change, which takes it off the tab and frees the app
+work that waits on it. The apps being built to match is the items' job, and
+recording a change puts every piece of app work it needs on the queue in the
+same step (the person, 2026-11-10 and 2026-11-13).
 
 Each item's title is for the person (the person, 2026-11-13: "this will be the
 human title"). An agent's brief names the item ids it takes, and its work lands
