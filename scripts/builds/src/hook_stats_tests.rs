@@ -49,10 +49,10 @@ fn a_run_comes_back_whole_with_its_files_and_checks_in_order() {
     let mut written = run(
         5,
         100,
-        false,
+        true,
         vec![
             check("fmt", Outcome::Passed, Some(40)),
-            check("clippy", Outcome::Failed, Some(60)),
+            check("clippy", Outcome::Passed, Some(60)),
             check("docs", Outcome::Skipped, None),
         ],
     );
@@ -180,7 +180,7 @@ fn a_record_that_fails_midway_leaves_nothing() {
 }
 
 #[test]
-fn stats_give_each_check_its_median_slowest_failures_and_skips() {
+fn stats_give_runs_their_figures_from_passing_runs_and_each_check_its_figures_from_its_passes() {
     let scratch = Scratch::new("hook-db-stats");
     let path = database(&scratch);
     let runs = vec![
@@ -226,35 +226,28 @@ fn stats_give_each_check_its_median_slowest_failures_and_skips() {
     }
     let stats = stats(&path, 0, "bae").unwrap().unwrap();
     assert_eq!(
-        (stats.runs, stats.failed, stats.median_ms, stats.slowest_ms),
-        (4, 1, 700, 3000)
+        (stats.runs, stats.median_ms, stats.slowest_ms),
+        (3, 400, 1000),
+        "the failed run (3 s) is in no run figure"
     );
     let figures: Vec<_> = stats
         .checks
         .iter()
-        .map(|c| {
-            (
-                c.name.as_str(),
-                c.ran,
-                c.failed,
-                c.skipped,
-                c.median_ms,
-                c.slowest_ms,
-            )
-        })
+        .map(|c| (c.name.as_str(), c.ran, c.skipped, c.median_ms, c.slowest_ms))
         .collect();
-    // Slowest median first: fmt's four times are 100, 200, 300, 400; clippy's two ran 800 and 2500.
+    // Slowest median first: fmt passed in all four runs, at 100, 300, 200 and 400 (the failed
+    // run's fmt pass counts); clippy passed once, at 800 (its failed 2500 is left out).
     assert_eq!(
         figures,
-        vec![("clippy", 2, 1, 2, 1650, 2500), ("fmt", 4, 0, 0, 250, 400)]
+        vec![("clippy", 1, 2, 800, 800), ("fmt", 4, 0, 250, 400)]
     );
     assert_eq!(
         stats.slowest.iter().map(|r| r.at).collect::<Vec<_>>(),
-        vec![2, 1, 4, 3]
+        vec![1, 4, 3]
     );
     assert_eq!(
         stats.recent.iter().map(|r| r.at).collect::<Vec<_>>(),
-        vec![4, 3, 2, 1]
+        vec![4, 3, 1]
     );
     let since = self::stats(&path, 3, "bae").unwrap().unwrap();
     assert_eq!((since.runs, since.median_ms), (2, 300));
@@ -293,7 +286,7 @@ fn the_report_names_the_checks_and_the_slowest_runs() {
     );
     assert!(
         text.starts_with(
-            "project bae, repo bae, runs since 2026-11-01: 1 run, 0 failed, median 2.5s, slowest 2.5s\n"
+            "project bae, repo bae, runs since 2026-11-01: 1 passing run, median 2.5s, slowest 2.5s\n"
         ),
         "{text}"
     );
@@ -533,5 +526,120 @@ fn each_repos_runs_are_kept_apart_in_the_figures_and_the_dashboard() {
             panels[1]["over_count"].as_u64()
         ),
         (Some(1), Some(0))
+    );
+}
+
+#[test]
+fn a_failed_slow_run_moves_no_median_slowest_trend_or_over_limit_list() {
+    let scratch = Scratch::new("hook-db-passing-only");
+    let path = database(&scratch);
+    // Thirteen passing runs of one check at 10 s, then ones at 4 s.
+    for at in 1..=13 {
+        let ms = if at <= 3 { 10_000 } else { 4_000 };
+        record(&path, &run(at, ms, true, check_set(&[("clippy", ms)]))).unwrap();
+    }
+    let before = stats(&path, 0, "bae").unwrap().unwrap();
+    // A slow failed run, over the limit, with a slow failed check.
+    record(
+        &path,
+        &run(
+            14,
+            200_000,
+            false,
+            vec![check("clippy", Outcome::Failed, Some(190_000))],
+        ),
+    )
+    .unwrap();
+    let after = stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(after, before);
+    assert_eq!(
+        (after.runs, after.median_ms, after.slowest_ms),
+        (13, 4_000, 10_000)
+    );
+    assert!(after.over_limit.is_empty() && after.over.is_empty());
+    assert_eq!(after.over_count, 0);
+    let clippy = &after.checks[0];
+    assert_eq!(
+        (clippy.ran, clippy.median_ms, clippy.slowest_ms),
+        (13, 4_000, 10_000)
+    );
+    assert!(clippy.trend.is_some());
+    assert_eq!(after.recent.iter().map(|r| r.at).max(), Some(13));
+}
+
+#[test]
+fn only_passing_runs_go_over_the_limit() {
+    let scratch = Scratch::new("hook-db-over-passing");
+    let path = database(&scratch);
+    record(
+        &path,
+        &run(1, 99_000, true, check_set(&[("clippy", 90_000)])),
+    )
+    .unwrap();
+    record(
+        &path,
+        &run(2, 150_000, false, check_set(&[("clippy", 140_000)])),
+    )
+    .unwrap();
+    let stats = stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.over_count, 1);
+    assert_eq!(stats.over.iter().map(|r| r.at).collect::<Vec<_>>(), vec![1]);
+    assert_eq!(
+        stats.over_limit.iter().map(|r| r.at).collect::<Vec<_>>(),
+        vec![1]
+    );
+}
+
+#[test]
+fn a_run_where_one_check_fails_adds_its_passing_checks_and_no_run_time() {
+    let scratch = Scratch::new("hook-db-one-check-fails");
+    let path = database(&scratch);
+    record(
+        &path,
+        &run(
+            1,
+            20_000,
+            true,
+            check_set(&[("clippy", 18_000), ("detekt", 1_000)]),
+        ),
+    )
+    .unwrap();
+    // clippy passed at 80 s and detekt failed at 100 s: the run took 200 s and failed.
+    record(
+        &path,
+        &run(
+            2,
+            200_000,
+            false,
+            vec![
+                check("clippy", Outcome::Passed, Some(80_000)),
+                check("detekt", Outcome::Failed, Some(100_000)),
+            ],
+        ),
+    )
+    .unwrap();
+    let stats = stats(&path, 0, "bae").unwrap().unwrap();
+    // The run adds nothing to the run median, the slowest run, the bars or the over-limit list.
+    assert_eq!(
+        (stats.runs, stats.median_ms, stats.slowest_ms),
+        (1, 20_000, 20_000)
+    );
+    assert_eq!(
+        stats.recent.iter().map(|r| r.at).collect::<Vec<_>>(),
+        vec![1]
+    );
+    assert_eq!(stats.over_count, 0);
+    assert!(stats.over.is_empty() && stats.over_limit.is_empty());
+    // clippy's pass counts in its figures; detekt's failure counts in none.
+    let find = |name: &str| stats.checks.iter().find(|c| c.name == name).unwrap();
+    let clippy = find("clippy");
+    assert_eq!(
+        (clippy.ran, clippy.median_ms, clippy.slowest_ms),
+        (2, 49_000, 80_000)
+    );
+    let detekt = find("detekt");
+    assert_eq!(
+        (detekt.ran, detekt.median_ms, detekt.slowest_ms),
+        (1, 1_000, 1_000)
     );
 }

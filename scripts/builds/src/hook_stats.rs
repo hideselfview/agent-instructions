@@ -229,7 +229,6 @@ pub struct CheckStats {
     pub name: String,
     pub kind: Kind,
     pub ran: u32,
-    pub failed: u32,
     /// Runs in which the staged files did not pick it.
     pub skipped: u32,
     pub median_ms: u64,
@@ -256,11 +255,14 @@ pub(crate) fn median_of(times: &mut [u64]) -> u64 {
     }
 }
 
-/// The figures over the runs since some moment.
+/// The figures since some moment. A run's time counts only when every check
+/// in it passed (`passed`): the run median, the slowest run, the latest and
+/// the over-limit runs read those runs. A check's time counts whenever that
+/// check passed, in any run, however the run ended: a check's median, slowest
+/// and trend read its passing outcomes. Nothing counts failures.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Stats {
     pub runs: u32,
-    pub failed: u32,
     pub median_ms: u64,
     pub slowest_ms: u64,
     /// By median time, slowest first.
@@ -319,11 +321,11 @@ pub fn stats(path: &Path, since: i64, repo: &str) -> Result<Option<Stats>> {
         return Ok(None);
     };
     let what = || format!("reading {}", path.display());
-    let (runs, failed, slowest_ms): (i64, i64, i64) = conn
+    let (runs, slowest_ms): (i64, i64) = conn
         .query_row(
-            "SELECT COUNT(*), COALESCE(SUM(passed = 0), 0), COALESCE(MAX(total_ms), 0) FROM hook_runs WHERE started_at >= ?1 AND repo = ?2",
+            "SELECT COUNT(*), COALESCE(MAX(total_ms), 0) FROM hook_runs WHERE started_at >= ?1 AND repo = ?2 AND passed = 1",
             params![since, repo],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .context(what)?;
     let median: Option<f64> = conn
@@ -331,7 +333,7 @@ pub fn stats(path: &Path, since: i64, repo: &str) -> Result<Option<Stats>> {
             &format!(
                 "SELECT AVG(total_ms) FROM (
                     SELECT total_ms, ROW_NUMBER() OVER (ORDER BY total_ms) AS n, COUNT(*) OVER () AS c
-                    FROM hook_runs WHERE started_at >= ?1 AND repo = ?2)
+                    FROM hook_runs WHERE started_at >= ?1 AND repo = ?2 AND passed = 1)
                  WHERE {MIDDLE}"
             ),
             params![since, repo],
@@ -345,11 +347,11 @@ pub fn stats(path: &Path, since: i64, repo: &str) -> Result<Option<Stats>> {
                        ROW_NUMBER() OVER (PARTITION BY c.name, c.kind ORDER BY c.ms) AS n,
                        COUNT(*) OVER (PARTITION BY c.name, c.kind) AS c
                 FROM hook_run_checks c JOIN hook_runs r ON r.id = c.run_id
-                WHERE r.started_at >= ?1 AND r.repo = ?2 AND c.outcome <> 'skipped'),
+                WHERE r.started_at >= ?1 AND r.repo = ?2 AND c.outcome = 'passed'),
              medians AS (SELECT name, kind, AVG(ms) AS median FROM timed WHERE {MIDDLE} GROUP BY name, kind)
              SELECT c.name, c.kind,
-                    COALESCE(SUM(c.outcome <> 'skipped'), 0), COALESCE(SUM(c.outcome = 'failed'), 0),
-                    COALESCE(SUM(c.outcome = 'skipped'), 0), COALESCE(MAX(c.ms), 0), m.median
+                    COALESCE(SUM(c.outcome = 'passed'), 0),
+                    COALESCE(SUM(c.outcome = 'skipped'), 0), COALESCE(MAX(CASE WHEN c.outcome = 'passed' THEN c.ms END), 0), m.median
              FROM hook_run_checks c JOIN hook_runs r ON r.id = c.run_id
              LEFT JOIN medians m ON m.name = c.name AND m.kind = c.kind
              WHERE r.started_at >= ?1 AND r.repo = ?2
@@ -365,19 +367,17 @@ pub fn stats(path: &Path, since: i64, repo: &str) -> Result<Option<Stats>> {
                 row.get::<_, i64>(2)?,
                 row.get::<_, i64>(3)?,
                 row.get::<_, i64>(4)?,
-                row.get::<_, i64>(5)?,
-                row.get::<_, Option<f64>>(6)?,
+                row.get::<_, Option<f64>>(5)?,
             ))
         })
         .context(what)?;
     let mut checks = Vec::new();
     for row in rows {
-        let (name, kind, ran, failed, skipped, slowest_ms, median) = row.context(what)?;
+        let (name, kind, ran, skipped, slowest_ms, median) = row.context(what)?;
         checks.push(CheckStats {
             name,
             kind: kind_of(&kind)?,
             ran: ran as u32,
-            failed: failed as u32,
             skipped: skipped as u32,
             median_ms: rounded(median),
             slowest_ms: slowest_ms as u64,
@@ -392,14 +392,14 @@ pub fn stats(path: &Path, since: i64, repo: &str) -> Result<Option<Stats>> {
     }
     let slowest = runs_where(
         &conn,
-        "started_at >= ?1 AND repo = ?2 ORDER BY total_ms DESC, started_at DESC",
+        "started_at >= ?1 AND repo = ?2 AND passed = 1 ORDER BY total_ms DESC, started_at DESC",
         (since, repo),
         SLOWEST_RUNS,
         path,
     )?;
     let recent = runs_where(
         &conn,
-        "started_at >= ?1 AND repo = ?2 ORDER BY started_at DESC, id DESC",
+        "started_at >= ?1 AND repo = ?2 AND passed = 1 ORDER BY started_at DESC, id DESC",
         (since, repo),
         RECENT_RUNS,
         path,
@@ -407,7 +407,7 @@ pub fn stats(path: &Path, since: i64, repo: &str) -> Result<Option<Stats>> {
     let over_limit = over_limit(&conn, since, repo, path)?;
     let over_count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM hook_runs WHERE started_at >= ?1 AND repo = ?2 AND total_ms > ?3",
+            "SELECT COUNT(*) FROM hook_runs WHERE started_at >= ?1 AND repo = ?2 AND passed = 1 AND total_ms > ?3",
             params![since, repo, LIMIT_MS as i64],
             |row| row.get(0),
         )
@@ -415,7 +415,7 @@ pub fn stats(path: &Path, since: i64, repo: &str) -> Result<Option<Stats>> {
     let over = runs_where(
         &conn,
         &format!(
-            "started_at >= ?1 AND repo = ?2 AND total_ms > {LIMIT_MS} ORDER BY total_ms DESC, started_at DESC"
+            "started_at >= ?1 AND repo = ?2 AND passed = 1 AND total_ms > {LIMIT_MS} ORDER BY total_ms DESC, started_at DESC"
         ),
         (since, repo),
         OVER_RUNS,
@@ -423,7 +423,6 @@ pub fn stats(path: &Path, since: i64, repo: &str) -> Result<Option<Stats>> {
     )?;
     Ok(Some(Stats {
         runs: runs as u32,
-        failed: failed as u32,
         median_ms: rounded(median),
         slowest_ms: slowest_ms as u64,
         checks,
@@ -447,7 +446,7 @@ fn trends(
     let mut statement = conn
         .prepare(
             "SELECT c.name, c.kind, c.ms FROM hook_run_checks c JOIN hook_runs r ON r.id = c.run_id
-             WHERE r.started_at >= ?1 AND r.repo = ?2 AND c.outcome <> 'skipped' ORDER BY r.started_at DESC, r.id DESC",
+             WHERE r.started_at >= ?1 AND r.repo = ?2 AND c.outcome = 'passed' ORDER BY r.started_at DESC, r.id DESC",
         )
         .context(what)?;
     let rows = statement
@@ -491,7 +490,7 @@ fn over_limit(conn: &Connection, since: i64, repo: &str, path: &Path) -> Result<
     let mut statement = conn
         .prepare(
             "SELECT r.id, r.total_ms, c.name FROM hook_runs r LEFT JOIN hook_run_checks c ON c.run_id = r.id AND c.outcome <> 'skipped'
-             WHERE r.started_at >= ?1 AND r.repo = ?2 ORDER BY r.started_at DESC, r.id DESC",
+             WHERE r.started_at >= ?1 AND r.repo = ?2 AND r.passed = 1 ORDER BY r.started_at DESC, r.id DESC",
         )
         .context(what)?;
     let rows = statement
@@ -665,9 +664,8 @@ pub fn report(project: &str, repo: &str, since: Option<&str>, stats: Option<&Sta
         return format!("{heading}: none recorded\n");
     };
     let mut out = format!(
-        "{heading}: {}, {} failed, median {}, slowest {}\n\n",
-        plural(stats.runs, "run", "runs"),
-        stats.failed,
+        "{heading}: {}, median {}, slowest {}\n\n",
+        plural(stats.runs, "passing run", "passing runs"),
         seconds(stats.median_ms),
         seconds(stats.slowest_ms)
     );
@@ -678,14 +676,13 @@ pub fn report(project: &str, repo: &str, since: Option<&str>, stats: Option<&Sta
         .max()
         .unwrap_or(0)
         .max(5);
-    out.push_str(&format!("{:<width$}  kind   ran  failed  skipped  median  slowest  latest {TREND_RUNS} vs the {TREND_RUNS} before\n", "check"));
+    out.push_str(&format!("{:<width$}  kind   ran  skipped  median  slowest  latest {TREND_RUNS} vs the {TREND_RUNS} before\n", "check"));
     for c in &stats.checks {
         out.push_str(&format!(
-            "{:<width$}  {:<5} {:>4}  {:>6}  {:>7}  {:>6}  {:>7}  {}\n",
+            "{:<width$}  {:<5} {:>4}  {:>7}  {:>6}  {:>7}  {}\n",
             c.name,
             c.kind.word(),
             c.ran,
-            c.failed,
             c.skipped,
             seconds(c.median_ms),
             seconds(c.slowest_ms),
@@ -715,15 +712,14 @@ pub fn report(project: &str, repo: &str, since: Option<&str>, stats: Option<&Sta
             .map(|(kind, n)| format!("{kind} {n}"))
             .collect();
         out.push_str(&format!(
-            "{}  {:>7}  {}  {} +{} -{} ({})  {}\n",
+            "{}  {:>7}  {}  {} +{} -{} ({})\n",
             local_minute(run.at),
             seconds(run.total_ms),
             run.branch.as_deref().unwrap_or("(detached)"),
             plural(run.files.len() as u32, "file", "files"),
             run.added(),
             run.removed(),
-            kinds.join(", "),
-            if run.passed { "passed" } else { "failed" }
+            kinds.join(", ")
         ));
     }
     out
@@ -769,7 +765,6 @@ pub(crate) fn run_json(run: &Run) -> serde_json::Value {
         "worktree": run.worktree,
         "branch": run.branch,
         "base": run.base,
-        "passed": run.passed,
         "plan_ms": run.plan_ms,
         "total_ms": run.total_ms,
         "files": run.files.len(),
@@ -791,11 +786,10 @@ fn repo_json(repo: &str, path: &Path) -> serde_json::Value {
         Ok(Some(stats)) => serde_json::json!({
             "repo": repo,
             "runs": stats.runs,
-            "failed": stats.failed,
             "median_ms": stats.median_ms,
             "slowest_ms": stats.slowest_ms,
             "checks": stats.checks.iter().map(|c| serde_json::json!({
-                "name": c.name, "kind": c.kind.word(), "ran": c.ran, "failed": c.failed,
+                "name": c.name, "kind": c.kind.word(), "ran": c.ran,
                 "skipped": c.skipped, "median_ms": c.median_ms, "slowest_ms": c.slowest_ms,
                 "recent_ms": c.trend.map(|t| t.recent_ms), "earlier_ms": c.trend.map(|t| t.earlier_ms),
             })).collect::<Vec<_>>(),

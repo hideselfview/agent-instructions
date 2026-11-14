@@ -133,7 +133,7 @@ fn facts(conn: &Connection, repo: &str, path: &Path) -> Result<Vec<Facts>> {
     let what = || format!("reading {}", path.display());
     let mut runs: Vec<(i64, Facts)> = Vec::new();
     let mut statement = conn
-        .prepare("SELECT id, started_at, base, total_ms FROM hook_runs WHERE repo = ?1 ORDER BY id")
+        .prepare("SELECT id, started_at, base, total_ms FROM hook_runs WHERE repo = ?1 AND passed = 1 ORDER BY id")
         .context(what)?;
     let rows = statement
         .query_map([repo], |row| {
@@ -158,7 +158,7 @@ fn facts(conn: &Connection, repo: &str, path: &Path) -> Result<Vec<Facts>> {
         ));
     }
     let mut statement = conn
-        .prepare("SELECT run_id, name, kind, ms, crates FROM hook_run_checks WHERE outcome <> 'skipped' ORDER BY run_id, position")
+        .prepare("SELECT run_id, name, kind, ms, crates FROM hook_run_checks WHERE outcome = 'passed' ORDER BY run_id, position")
         .context(what)?;
     let rows = statement
         .query_map([], |row| {
