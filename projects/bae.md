@@ -157,6 +157,16 @@ with its frozen per-file exceptions). A Rust file over 1,000 lines must keep its
 its existing domain and ownership boundaries; do not expose owner state or
 duplicate types to make a split compile.
 
+## Reads
+
+A read that must follow changes (a reactive screen, or a subscriber in the
+bridge, automation or MCP) is a plain coven live query; any other read is a
+plain SQL read. SQLite does the filtering, sorting, joining, counting and
+windowing; nothing is kept in memory between reads, no side pass, no forced
+rerun, no size cutoff between read paths. The full rule is
+`projects/bae-rules/reactive-screens-read-plain-live-queries.md`; every plan,
+brief and review checks a change's reads against it.
+
 ## Schema and compatibility
 
 Tables live with the domain that owns them, in that domain's crate: records in
