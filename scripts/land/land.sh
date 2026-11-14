@@ -84,8 +84,8 @@ record_landing() {
   fi
   return "$failed"
 }
-last="${@: -1}"
-for attempt in 1 2 3 4 5; do
+last="${!#}"
+for _ in 1 2 3 4 5; do
   git fetch -q origin || { echo "fetch failed"; continue; }
   git checkout -q --detach origin/main
   before=$(git rev-parse origin/main)

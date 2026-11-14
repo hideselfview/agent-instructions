@@ -155,9 +155,10 @@ incremental_before="$(ls "$profile/incremental" | wc -l)"
 sed -i '' 's/dep::answer() }/dep::answer() + 0 }/' app/src/lib.rs
 sed -i '' 's/n == 0 {/n == 0 \&\& n < 1 {/' dep/src/lib.rs
 build_all "$builds" cargo
-sets() { ls "$profile/deps" | grep "^$1[.-].*\.rcgu\.o$" | cut -d. -f1,3 | sort -u; }
+deps_files() { (cd "$profile/deps" && printf '%s\n' *); }
+sets() { deps_files | grep "^$1[.-].*\.rcgu\.o$" | cut -d. -f1,3 | sort -u; }
 [ "$(sets app | grep -c '^app\.')" -gt 1 ] || fail "rebuilding the cdylib left one set of its object files: $(sets app)"
-[ -n "$(ls "$profile/deps" | grep '^dep-.*\.rcgu\.o$')" ] || fail "the dep rlib left no object files beside it"
+deps_files | grep -q '^dep-.*\.rcgu\.o$' || fail "the dep rlib left no object files beside it"
 used="$(recent)"
 all="$(fingerprints)"
 old="$(comm -23 <(echo "$all") <(echo "$used"))"
@@ -204,17 +205,17 @@ done
 # its members, and every set but the newest, which the cdylib, the tests and
 # the binaries were linked from.
 dep_rlib_objects="$(for rlib in "$profile"/deps/libdep-*.rlib; do
-    unit="$(basename "$rlib" .rlib)"; ls "$profile/deps" | grep "^${unit#lib}\..*\.rcgu\.o$" || true; done)"
+    unit="$(basename "$rlib" .rlib)"; deps_files | grep "^${unit#lib}\..*\.rcgu\.o$" || true; done)"
 [ -z "$dep_rlib_objects" ] || fail "pruning left object files beside the dep rlib: $dep_rlib_objects"
-for owner in $(ls "$profile/deps" | grep '\.rcgu\.o$' | cut -d. -f1 | sort -u); do
+for owner in $(deps_files | grep '\.rcgu\.o$' | cut -d. -f1 | sort -u); do
     [ "$(sets "$owner" | grep -c "^$owner\.")" = 1 ] || fail "pruning left $owner more than one set of object files: $(sets "$owner")"
 done
 # Every object file a debug map names is still there.
-for binary in $(find "$profile/deps" "$profile/examples" -maxdepth 1 -type f -perm -0100); do
+while read -r binary; do
     for object in $(nm -ap "$binary" 2>/dev/null | awk '$5 == "OSO" { print $6 }' | sed 's/(.*//'); do
         [ -e "$object" ] || fail "$(basename "$binary")'s debug map names $object, which pruning deleted"
     done
-done
+done < <(find "$profile/deps" "$profile/examples" -maxdepth 1 -type f -perm -0100)
 # A panic's backtrace still names file and line in the test and in the rlib.
 trace="$(RUST_BACKTRACE=1 cargo test -q -p app --lib -- panics_in_dep 2>&1 || true)"
 echo "$trace" | grep -A1 ' dep::nonzero$' | grep -q 'at .*dep/src/lib.rs:[0-9]' \

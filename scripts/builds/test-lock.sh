@@ -105,7 +105,7 @@ mkfifo "$scratch/started3"
 holder=$!
 read -r _ < "$scratch/started3"
 seen="$(health)"
-[ "$(json "$side_2[\"app_build\"]" <<< "$seen")" = "$holder" ] || fail "health did not link the lock run from side-2 to it"
+[ "$(json "${side_2}[\"app_build\"]" <<< "$seen")" = "$holder" ] || fail "health did not link the lock run from side-2 to it"
 [ "$(json "$idle" <<< "$seen")" = False ] || fail "health called side-2 idle while its build held the app lock"
 kill -TERM "$holder"
 { wait "$holder"; } 2>/dev/null || true
@@ -123,7 +123,7 @@ kill -KILL "$holder"
 { wait "$holder"; } 2>/dev/null || true
 seen="$(health)"
 [ "$(json 'd["locks"][0]["holder"]["pid"]' <<< "$seen")" = "$build" ] || fail "health did not find the killed holder's build ($build) by the open lock file"
-[ "$(json "$side_2[\"app_build\"]" <<< "$seen")" = "$build" ] || fail "health did not link the app checkout's build at side-2's commit to side-2"
+[ "$(json "${side_2}[\"app_build\"]" <<< "$seen")" = "$build" ] || fail "health did not link the app checkout's build at side-2's commit to side-2"
 [ "$(json "$idle" <<< "$seen")" = False ] || fail "health called side-2 idle while a build at its commit held the app lock"
 kill -TERM -- "-$build"
 

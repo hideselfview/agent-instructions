@@ -124,7 +124,7 @@ grep -A1 '^demo/side-1 ' <<<"$("$builds" status)" | grep -q '^    note (waiting 
 [ "$(cut -f1,3,4 "$claim_file")" = "agent A	which schema to keep	waiting-on-you" ] || fail "re-claim dropped the state: '$(cat "$claim_file")'"
 since="$(cut -f2 "$claim_file")"
 refuses "needs the note's text" note "$side" --state winding-down
-refuses "is one of waiting-on-you, winding-down, held, got 'done'" note "$side" --state done finished
+refuses "is one of waiting-on-you, winding-down, held, got 'done'" note "$side" --state "done" finished
 refuses "is one of waiting-on-you, winding-down, held, got ''" note "$side" --state
 [ "$(cut -f4 "$claim_file")" = waiting-on-you ] || fail "a refused note changed the claim: '$(cat "$claim_file")'"
 "$builds" note "$side" waiting on Linux CI 2>/dev/null
@@ -235,7 +235,8 @@ mkdir "$scratch/usage" "$scratch/usage/clones" "$scratch/usage/plain"
 head -c 4194304 /dev/urandom > "$scratch/usage/clones/a"
 cp -c "$scratch/usage/clones/a" "$scratch/usage/clones/b"
 head -c 4194304 /dev/urandom > "$scratch/usage/plain/a"
-sizes=($("$builds" du "$scratch/usage/clones" "$scratch/usage/missing" "$scratch/usage/plain"))
+sizes=()
+while read -r size; do sizes+=("$size"); done < <("$builds" du "$scratch/usage/clones" "$scratch/usage/missing" "$scratch/usage/plain")
 [ "${#sizes[@]}" = 3 ] || fail "measuring printed ${sizes[*]}"
 [ "${sizes[0]}" -ge 4096 ] && [ "${sizes[0]}" -lt 4500 ] || fail "a folder with a clone took ${sizes[0]} KiB, not the 4096 of its shared blocks"
 [ "${sizes[1]}" = 0 ] || fail "a missing path took ${sizes[1]} KiB"
@@ -265,7 +266,7 @@ print(" ".join(str(c["state"]) for c in json.load(sys.stdin)["repos"][0]["checko
 states ready-to-land free
 "$builds" claim "$side2" "agent B" 2>/dev/null
 states ready-to-land working
-"$builds" note "$side2" --state winding-down last item, then the handoff 2>/dev/null
+"$builds" note "$side2" --state winding-down last item, "then" the handoff 2>/dev/null
 "$builds" note "$side" --state winding-down last item 2>/dev/null
 states ready-to-land winding-down
 "$builds" note "$side" --state waiting-on-you which schema to keep 2>/dev/null
