@@ -1,0 +1,19 @@
+# The checks `builds checks run` runs on a commit's staged files
+# (`builds help checks`).
+#
+#   <kind> <name> <paths> <program> [args...]
+#
+# kind: `check` (static check) or `fix` (formatter; builds re-stages what it
+# changed). paths: the files the line reads, as comma-separated globs.
+# `{files}` is the staged files that match. Formatting and static analysis
+# only: no tests.
+
+# Markdown; width and the other options come from .mdformat.toml
+fix mdformat *.md mdformat {files}
+
+# builds' Rust; the edition is the crate's (rustfmt alone assumes 2015)
+fix rustfmt scripts/builds/**/*.rs rustfmt --edition 2024 {files}
+check clippy scripts/builds/**/*.rs,scripts/builds/Cargo.toml,scripts/builds/Cargo.lock cargo clippy --manifest-path scripts/builds/Cargo.toml --all-targets -- -D warnings
+
+# Shell, at warning level
+check shellcheck *.sh,.githooks/* shellcheck -S warning {files}
