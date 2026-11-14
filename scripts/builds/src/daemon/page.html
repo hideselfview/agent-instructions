@@ -44,8 +44,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
-.page { padding: 24px 28px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; min-height: 100vh; align-content: start; }
-.left { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.page { max-width: 820px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 22px; min-height: 100vh; }
 .mono { font-family: var(--mono); }
 
 header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
@@ -188,28 +187,16 @@ article { min-width: 0; display: flex; flex-direction: column; }
 .findings .label { font-weight: 700; }
 .activity { font-size: 12px; color: var(--working); background: var(--working-bg); border-radius: 6px; padding: 4px 8px; overflow-wrap: anywhere; }
 
-/* The lists sidebar: wide and sticky from 1200px, above the checkouts below it. */
-.lists { order: -1; min-width: 0; background: var(--pinned); border: 1px solid var(--pinned-line); border-radius: 14px; padding: 0 12px 12px; max-height: 70vh; overflow: auto; }
-@media (min-width: 1200px) {
-  .page { grid-template-columns: minmax(0, 1fr) minmax(440px, 40%); gap: 28px; align-items: start; }
-  .lists { order: 0; position: sticky; top: 24px; max-height: calc(100vh - 48px); }
-}
-.l-top { position: sticky; top: 0; z-index: 2; background: var(--pinned); padding: 12px 0 10px; display: flex; flex-direction: column; gap: 10px; }
-.l-head { display: flex; align-items: baseline; gap: 10px; }
-.l-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
-.l-meta { font-size: 12px; color: var(--muted-2); }
-.l-tabs { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.6fr) minmax(0, 0.8fr) minmax(0, 1fr); gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-.l-tabs[hidden] { display: none; }
-.l-tabs button { display: flex; flex-direction: column; align-items: center; gap: 1px; font: 600 13px var(--sans); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 5px 4px; cursor: pointer; min-width: 0; }
-.l-tabs button[aria-selected="true"] { background: var(--on); color: var(--on-text); }
-.l-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.l-tabs .l-count { font: 500 10px var(--mono); white-space: nowrap; opacity: 0.85; }
-.l-filter input { width: 100%; font: 13px var(--sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
-.l-filter input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.l-body { display: flex; flex-direction: column; gap: 16px; }
+/* The lists: three tabs, each with its count. */
+.tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.tabs button { border: 0; background: transparent; color: var(--muted); border-radius: 9px; padding: 8px 6px; font: 600 14px var(--sans); cursor: pointer; }
+.tabs .n { font: 500 13px var(--mono); margin-left: 4px; opacity: .8; }
+.tabs button[aria-pressed="true"] { background: var(--on); color: var(--on-text); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.l-body { display: flex; flex-direction: column; gap: 22px; }
 .l-section { display: flex; flex-direction: column; gap: 8px; }
-.l-section > h3 { margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; display: flex; gap: 8px; align-items: baseline; }
-.l-section > h3 .l-n { font: 500 12px var(--mono); text-transform: none; letter-spacing: 0; }
+.l-section > h3 { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); display: flex; gap: 8px; align-items: baseline; }
+.l-section > h3 .l-n { font: 500 12px var(--mono); }
 .l-rows { display: flex; flex-direction: column; gap: 6px; }
 .l-card, .l-fold.l-row { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
 .l-plain { display: flex; flex-direction: column; gap: 8px; }
@@ -241,10 +228,12 @@ article { min-width: 0; display: flex; flex-direction: column; }
 a.l-ref { color: var(--accent); text-decoration: underline dotted; text-underline-offset: 2px; cursor: pointer; }
 a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .l-note { background: var(--waiting-bg); border-radius: 8px; padding: 6px 10px; font-size: 13px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
-.l-flow { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--text-2); }
-.l-flow .k { color: var(--muted); }
 .l-empty { font-size: 13px; color: var(--muted); padding: 4px 2px; }
-.l-sep { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; width: 100%; }
+.tools { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.tools > summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.tools .controls { margin-top: 10px; }
+.wt-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.wt-head h2 { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); }
 @keyframes l-flash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 3px transparent; } }
 .l-details { align-self: flex-start; font: 13px var(--sans); color: var(--muted); background: transparent; border: 0; padding: 0; cursor: pointer; display: flex; align-items: baseline; gap: 8px; }
 .l-details::before { content: "▸"; color: var(--muted-2); font-size: 11px; width: 10px; flex: none; }
@@ -279,44 +268,39 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 </head>
 <body>
 <div class="page">
-<div class="left">
-<header>
-  <div class="title">
-    <h1>Builds</h1>
-    <span class="sub" id="sub">Worktrees, and the agents working and building in them</span>
-  </div>
-  <div class="controls">
-    <div class="switch" role="group" aria-label="View">
-      <button type="button" data-view="repos" aria-pressed="true">By repo</button>
-      <button type="button" data-view="lanes" aria-pressed="false">Lanes</button>
+<div id="findings"></div>
+<div id="errors"></div>
+<div class="tabs" id="tabs" role="group" aria-label="Lists">
+  <button type="button" data-tab="waiting" aria-pressed="false">Waiting on you <span class="n"></span></button>
+  <button type="button" data-tab="running" aria-pressed="true">Running <span class="n"></span></button>
+  <button type="button" data-tab="queue" aria-pressed="false">Queue <span class="n"></span></button>
+</div>
+<div class="l-body" id="l-body"><div class="l-empty">Reading the lists</div></div>
+<section id="worktrees" class="l-section" hidden>
+  <div class="wt-head">
+    <h2>Worktrees</h2>
+    <div class="controls">
+      <div class="switch" role="group" aria-label="View">
+        <button type="button" data-view="repos" aria-pressed="true">By repo</button>
+        <button type="button" data-view="lanes" aria-pressed="false">Lanes</button>
+      </div>
+      <label class="hide-free"><input type="checkbox" id="hide-free"> Hide free worktrees</label>
+      <span class="updated" id="hidden-count"></span>
     </div>
-    <label class="hide-free"><input type="checkbox" id="hide-free"> Hide free worktrees</label>
-    <span class="updated" id="hidden-count"></span>
+  </div>
+  <main id="view"><div class="loading">Reading the checkouts</div></main>
+</section>
+<details class="tools">
+  <summary>Machine and build controls</summary>
+  <div class="controls">
     <div class="queues" id="queues"></div>
     <div class="queues" id="builds"></div>
     <div class="load" id="load"><span class="label">Load</span><span class="note">read while this page is open</span></div>
     <div class="disk" id="disk"><span class="label">Disk</span><span class="floors">reading</span></div>
     <span class="live" id="live">connecting</span>
   </div>
-</header>
-<div id="findings"></div>
-<div id="errors"></div>
-<main id="view"><div class="loading">Reading the checkouts</div></main>
+</details>
 <div id="hooks-panels"></div>
-</div>
-<aside class="lists" id="lists" aria-label="Lists">
-  <div class="l-top">
-    <div class="l-head"><h2>Lists</h2><span class="l-meta" id="l-meta"></span></div>
-    <div class="l-tabs" id="l-tabs" role="tablist" hidden>
-      <button type="button" role="tab" data-tab="stack"><span class="l-name">Waiting on you</span><span class="l-count"></span></button>
-      <button type="button" role="tab" data-tab="work"><span class="l-name">Work</span><span class="l-count"></span></button>
-      <button type="button" role="tab" data-tab="design"><span class="l-name">Design</span><span class="l-count"></span></button>
-      <button type="button" role="tab" data-tab="decisions"><span class="l-name">Decisions</span><span class="l-count"></span></button>
-    </div>
-    <div class="l-filter" id="l-filter" hidden><input type="search" id="l-filter-input" placeholder="Filter decisions by title and body" aria-label="Filter decisions"></div>
-  </div>
-  <div class="l-body" id="l-body"><div class="l-empty">Reading the lists</div></div>
-</aside>
 </div>
 <dialog class="review" id="review" aria-label="Design change review">
   <div class="rv-head"><span class="rv-title" id="rv-title"></span><a id="rv-open" target="_blank" rel="noopener">Open in its own tab</a><button type="button" id="rv-close">Close</button></div>
@@ -324,7 +308,6 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 </dialog>
 <script>
 "use strict";
-const SUBTITLE = "Worktrees, and the agents working and building in them";
 // The states the daemon derives for each side worktree (worktree_state in
 // model.rs), in the order the cards sort.
 const STATES = {
@@ -964,6 +947,8 @@ function findingsView(health) {
     findings.map(f => h("span", {}, f)))] : []));
 }
 
+function localDay(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+
 function tick() {
   for (const el of document.querySelectorAll("[data-ago]")) {
     el.textContent = el.dataset.before + ago(Number(el.dataset.ago)) + el.dataset.after;
@@ -978,11 +963,6 @@ function render() {
   const n = counts(sides);
   document.getElementById("hide-free").checked = hideFree;
   document.getElementById("hidden-count").textContent = hideFree && n["free"] ? n["free"] + " free hidden" : "";
-  const working = (n["working"] || 0) + (n["winding-down"] || 0);
-  document.getElementById("sub").textContent = summary([SUBTITLE,
-    working ? working + " working" : null,
-    n["ready-to-land"] ? n["ready-to-land"] + " ready to land" : null,
-    n["waiting-on-you"] ? n["waiting-on-you"] + " waiting on you" : null]);
   document.getElementById("disk").replaceChildren(...disk(state.volume).filter(Boolean));
   document.getElementById("load").replaceChildren(...loadView(state.load));
   findingsView(state.health);
@@ -1022,16 +1002,17 @@ events.addEventListener("state", e => {
 });
 events.addEventListener("failure", e => { streamError = "state: " + JSON.parse(e.data).error; render(); });
 
-// ---- The lists sidebar. It only shows what the daemon sends (the `lists`
-// event, and /api/lists on load); every change to the lists goes through the
-// `builds` commands. ----
-const TAB_KEY = "builds-dashboard-lists-tab";
+// ---- The lists. They only show what the daemon sends (the `lists` event,
+// and /api/lists on load); every change to the lists goes through the
+// `builds` commands. The daemon decides what each tab holds and counts
+// (`board`, board.rs); the page draws it. ----
+const TAB_KEY = "builds-dashboard-board-tab";
 const OPEN_KEY = "builds-dashboard-lists-open";
-const TABS = ["stack", "work", "design", "decisions"];
+const TABS = ["waiting", "running", "queue"];
 const RECENT_DAYS = 14;
 let lists = null;              // the last lists JSON
-let listsNote = "Reading the lists";   // what the sidebar says while there are none
-let tab = "stack", filter = "";
+let listsNote = "Reading the lists";   // what the page says while there are none
+let tab = "running";
 let index = new Map();         // record id -> {tab, key, title}
 const openRecs = new Set();    // keys of the open folds; they outlive a redraw
 try {
@@ -1043,7 +1024,7 @@ try {
 } catch (e) { /* no storage: nothing open */ }
 function saveOpen() { try { sessionStorage.setItem(OPEN_KEY, JSON.stringify([...openRecs])); } catch (e) { /* kept for this page only */ } }
 
-// A link to a record in the sidebar; text only when the record is not there (closed).
+// A link to a record on the page; text only when the record is not there (closed).
 function recLink(id, label) {
   const rec = index.get(id);
   const text = label || "#" + id;
@@ -1129,22 +1110,27 @@ function stackCard(q, n, top) {
 }
 // Design changes that wait on your review: recorded, not approved, not landed.
 function reviews() { return lists.designs.filter(g => !g.closed && !g.approved); }
-function stackItems() {
-  const own = lists.stack, review = reviews();
-  if (!own.length && !review.length) return [empty("Nothing waits on you.")];
+// Design changes the person approved that the design session has not landed.
+function approvedDesigns() { return lists.designs.filter(g => !g.closed && g.approved); }
+// The running items of the works the board puts under <tab>.
+function itemsIn(tab) {
+  const ids = new Set(lists.board.works.filter(w => w.tab === tab).flatMap(w => w.items));
+  return lists.items.filter(it => ids.has(it.id));
+}
+function waitingItems() {
+  const own = lists.stack, review = reviews(), work = itemsIn("waiting");
   const out = [];
   if (review.length) out.push({key: "reviews", data: review, make: () => section("Design changes to review", review.length,
     h("div", {class: "l-rows"}, review.map(designCard)))});
-  const cards = own.map((q, i) => ({key: "q:" + q.id, data: [q, i], make: () => stackCard(q, i + 1, i === 0)}));
-  if (!review.length) return cards;
-  if (cards.length) out.push({key: "questions", data: own, make: () => section("Questions", own.length,
+  if (own.length) out.push({key: "questions", data: own, make: () => section("Questions and steps for you", own.length,
     h("div", {class: "l-rows"}, own.map((q, i) => stackCard(q, i + 1, i === 0))))});
-  return out;
+  if (work.length) out.push({key: "held-work", data: work, make: () => section("Work held on you", work.length,
+    h("div", {class: "l-rows"}, work.map(runningCard)))});
+  return out.length ? out : [empty("Nothing waits on you.")];
 }
 
-// ---- Work
+// ---- Running and Queue
 function isRunning(it) { return it.running.length > 0; }
-function isReady(it) { return !isRunning(it) && it.for === "coordinator" && it.state === "ready"; }
 function unmet(it) { return it.waits.filter(w => !w.met); }
 function waitName(w) { return w.kind === "condition" ? w.text : w.title + " #" + w.id; }
 function waitLink(w) { return w.kind === "condition" ? document.createTextNode(w.text) : recLink(w.id, w.title + " #" + w.id); }
@@ -1198,48 +1184,34 @@ function runningCard(it) {
     ...it.running.map(r => r.note ? h("div", {class: "l-note"}, r.note, r.note_state ? " " : null, r.note_state ? pill(r.note_state, "s-winding") : null) : null),
     fold("i:" + it.id, it.id, "Details and notes", () => itemBody(it)));
 }
-function sum(obj) { return Object.values(obj || {}).reduce((a, b) => a + b, 0); }
-function split2(obj) { const parts = Object.entries(obj || {}).map(([k, v]) => k + " " + v); return parts.length ? " (" + parts.join(", ") + ")" : ""; }
-function localDay(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
-function flowLine(label, days) {
-  const opened = {}, closed = {};
-  for (const d of days) {
-    for (const [k, v] of Object.entries(d.opened || {})) opened[k] = (opened[k] || 0) + v;
-    for (const [k, v] of Object.entries(d.closed || {})) closed[k] = (closed[k] || 0) + v;
-  }
-  return h("div", {class: "l-fact"}, h("span", {class: "k"}, label), " opened ", String(sum(opened)), split2(opened),
-    ", closed ", String(sum(closed)), split2(closed));
-}
-function workHead() {
-  const today = localDay(new Date());
-  return h("div", {class: "l-flow"},
-    flowLine("Today:", lists.flow.filter(d => d.day === today)),
-    flowLine("Last " + RECENT_DAYS + " days:", lists.flow));
-}
 function rows(its, one) { return h("div", {class: "l-rows"}, its.map(one || itemRow)); }
-function workItems() {
-  const all = lists.items;
-  const out = [{key: "head", data: [lists.flow], make: workHead}];
-  const running = all.filter(isRunning).sort((a, b) => a.running[0].since.at - b.running[0].since.at);
-  const design = all.filter(it => !isRunning(it) && it.for === "design-session");
-  const mine = all.filter(it => !isRunning(it) && it.for !== "design-session");
+function runningItems() {
+  const running = itemsIn("running").sort((a, b) => a.running[0].since.at - b.running[0].since.at);
+  const approved = approvedDesigns();
+  const out = [];
+  if (running.length) out.push({key: "running", data: running, make: () => section("Running", running.length, rows(running, runningCard))});
+  if (approved.length) out.push({key: "approved", data: approved, make: () => section("Design changes approved, not yet landed", approved.length,
+    h("div", {class: "l-rows"}, approved.map(designCard)))});
+  return out.length ? out : [empty("No work is running.")];
+}
+function queueItems() {
+  const queued = lists.items.filter(it => !isRunning(it));
+  const design = queued.filter(it => it.for === "design-session");
+  const mine = queued.filter(it => it.for !== "design-session");
   const first = mine.filter(it => it.priority && it.priority.level === "first").sort((a, b) => a.opened.at - b.opened.at);
   const rest = mine.filter(it => !first.includes(it));
-  const part = (key, title, its, one) => {
-    if (its.length) out.push({key, data: its, make: () => section(title, its.length, rows(its, one))});
+  const out = [];
+  const part = (key, title, its) => {
+    if (its.length) out.push({key, data: its, make: () => section(title, its.length, rows(its))});
   };
-  part("running", "Running", running, runningCard);
   part("first", "First", first);
   for (const area of lists.areas) part("area:" + area, area, rest.filter(it => it.area === area));
   part("design-session", "Design session’s", design);
-  if (out.length === 1) out.push(empty("The work queue is empty."));
-  return out;
+  return out.length ? out : [empty("The work queue is empty.")];
 }
 
-// ---- Design
-// A design change is a light card, like a question's: what it blocks, who
-// recorded it and when. Details opens its review page over the dashboard; one
-// that landed has no page, only its words.
+// ---- A design change is a light card, like a question's: what it blocks, who
+// recorded it and when. Details opens its review page over the dashboard.
 function designCard(g) {
   const state = g.closed ? null : g.approved ? pill("approved", "s-ready") : pill("waiting on your review", "s-you");
   const direct = g.blocks.length;
@@ -1267,101 +1239,50 @@ function openReview(g) {
 document.getElementById("rv-close").addEventListener("click", () => reviewDialog.close());
 reviewDialog.addEventListener("click", e => { if (e.target === reviewDialog) reviewDialog.close(); });
 reviewDialog.addEventListener("close", () => { reviewFrame.src = "about:blank"; });
-function designItems() {
-  // The daemon sends `closed` only for a change that landed in the last 14 days.
-  const open = lists.designs.filter(g => !g.closed);
-  const landed = lists.designs.filter(g => g.closed).sort((a, b) => b.closed.at - a.closed.at);
-  const out = [];
-  if (open.length) out.push({key: "open", data: open, make: () => section("Open", open.length, h("div", {class: "l-rows"}, open.map(g => designCard(g))))});
-  if (landed.length) out.push({key: "landed", data: landed, make: () => section("Landed in the last " + RECENT_DAYS + " days", landed.length,
-    h("div", {class: "l-rows"}, landed.map(g => designCard(g))))});
-  return out.length ? out : [empty("No design change is waiting to land.")];
-}
 
-// ---- Decisions
-function decisionMatches(d, words) {
-  const text = (d.title + "\n" + d.body).toLowerCase();
-  return words.every(w => text.includes(w));
-}
-function sortedDecisions() { return lists.decisions.slice().sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id); }
-function decisionRow(d) {
-  const links = [];
-  if (d.question !== null && d.question !== undefined) links.push(fact("Answers", recLink(d.question)));
-  if (d.work.length) links.push(fact("Made", d.work.flatMap((w, i) => [i ? ", " : "", recLink(w.id, w.title + " #" + w.id), w.open ? "" : " (closed)"])));
-  if (d.replaces !== null && d.replaces !== undefined) links.push(fact("Replaces", recLink(d.replaces)));
-  if (d.replaced_by !== null && d.replaced_by !== undefined) links.push(fact("Replaced by", recLink(d.replaced_by)));
-  if (d.plan) links.push(fact("Plan", mono(d.plan.path), " " + d.plan.number));
-  return fold("d:" + d.id, d.id,
-    [h("span", {class: "l-id"}, d.date), h("span", {class: "l-title"}, d.title), h("span", {class: "l-sub", style: "flex-basis: auto; padding: 0"}, d.by)],
-    () => h("div", {class: "l-plain"}, md(d.body), links.length ? h("div", {class: "l-facts"}, links) : null),
-    "l-row");
-}
-function decisionItems() {
-  const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
-  const all = sortedDecisions();
-  const shownDecisions = all.filter(d => decisionMatches(d, words));
-  if (!shownDecisions.length) return [empty(all.length ? "No decision matches." : "No decisions yet.")];
-  return shownDecisions.map(d => ({key: "d:" + d.id, data: d, make: () => decisionRow(d)}));
-}
-
-// ---- The sidebar
+// ---- The tabs
 function indexLists() {
   index = new Map();
-  for (const q of lists.stack) index.set(q.id, {tab: "stack", key: "q:" + q.id, title: q.title});
-  for (const it of lists.items) index.set(it.id, {tab: "work", key: "i:" + it.id, title: it.title});
-  for (const g of lists.designs) index.set(g.id, {tab: "design", key: "g:" + g.id, title: g.title});
-  for (const d of lists.decisions) index.set(d.id, {tab: "decisions", key: "d:" + d.id, title: d.title});
+  for (const q of lists.stack) index.set(q.id, {tab: "waiting", key: "q:" + q.id, title: q.title});
+  for (const it of lists.items) {
+    const work = lists.board.works.find(w => w.items.includes(it.id));
+    index.set(it.id, {tab: work ? work.tab : "queue", key: "i:" + it.id, title: it.title});
+  }
+  for (const g of lists.designs) if (!g.closed) index.set(g.id, {tab: g.approved ? "running" : "waiting", key: "g:" + g.id, title: g.title});
 }
 function setLists(next) {
   lists = next;
   if (!lists.error) indexLists();
   renderLists();
 }
-function tabCounts() {
-  return {
-    stack: String(lists.stack.length + reviews().length),
-    work: lists.items.filter(isReady).length + " ready · " + lists.items.filter(isRunning).length + " running",
-    design: lists.designs.filter(g => !g.closed).length + " open",
-    decisions: String(lists.decisions.length),
-  };
-}
 function renderLists() {
-  const tabs = document.getElementById("l-tabs"), body = document.getElementById("l-body");
-  const box = document.getElementById("l-filter"), meta = document.getElementById("l-meta");
-  if (!lists || lists.error) {
-    tabs.hidden = true; box.hidden = true;
-    meta.textContent = lists ? lists.project : "";
+  const body = document.getElementById("l-body");
+  const ok = lists && !lists.error;
+  for (const b of document.querySelectorAll("#tabs button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.tab === tab));
+    b.querySelector(".n").textContent = ok ? String(lists.board[b.dataset.tab]) : "";
+  }
+  document.getElementById("worktrees").hidden = tab !== "running";
+  if (!ok) {
     body.dataset.tab = "";
     body.replaceChildren(lists ? h("div", {class: "error"}, "The lists store failed its check: " + lists.error)
       : h("div", {class: "l-empty"}, listsNote));
     return;
   }
-  meta.textContent = lists.project + " · version " + lists.version;
-  tabs.hidden = false;
-  const counts = tabCounts();
-  for (const b of tabs.querySelectorAll("button")) {
-    b.setAttribute("aria-selected", String(b.dataset.tab === tab));
-    b.querySelector(".l-count").textContent = counts[b.dataset.tab];
-  }
-  box.hidden = tab !== "decisions";
   if (body.dataset.tab !== tab) { body.replaceChildren(); body.dataset.tab = tab; }
-  const items = {stack: stackItems, work: workItems, design: designItems, decisions: decisionItems}[tab]();
-  patch(body, items);
+  patch(body, {waiting: waitingItems, running: runningItems, queue: queueItems}[tab]());
   tick();
+}
+function showTab(next) {
+  tab = next;
+  try { localStorage.setItem(TAB_KEY, tab); } catch (err) { /* kept for this page only */ }
+  renderLists();
 }
 function showRecord(id) {
   const rec = index.get(id);
   if (!rec) return;
-  tab = rec.tab;
-  try { localStorage.setItem(TAB_KEY, tab); } catch (e) { /* kept for this page only */ }
-  if (tab === "decisions" && filter) {
-    const d = lists.decisions.find(x => x.id === id);
-    if (!decisionMatches(d, filter.toLowerCase().split(/\s+/).filter(Boolean))) {
-      filter = ""; document.getElementById("l-filter-input").value = "";
-    }
-  }
   openRecs.add(rec.key); saveOpen();
-  renderLists();
+  showTab(rec.tab);
   const el = document.getElementById("l-body").querySelector('[data-rec="' + id + '"]');
   if (!el) return;
   const fold = el.tagName === "DETAILS" ? el : el.querySelector("details");
@@ -1369,12 +1290,9 @@ function showRecord(id) {
   el.scrollIntoView({block: "center"});
   el.classList.remove("l-flash"); void el.offsetWidth; el.classList.add("l-flash");
 }
-document.getElementById("l-tabs").addEventListener("click", e => {
+document.getElementById("tabs").addEventListener("click", e => {
   const b = e.target.closest("button[data-tab]");
-  if (!b) return;
-  tab = b.dataset.tab;
-  try { localStorage.setItem(TAB_KEY, tab); } catch (err) { /* kept for this page only */ }
-  renderLists();
+  if (b) showTab(b.dataset.tab);
 });
 document.getElementById("l-body").addEventListener("click", e => {
   const a = e.target.closest("a[data-ref]");
@@ -1382,7 +1300,6 @@ document.getElementById("l-body").addEventListener("click", e => {
   e.preventDefault();
   showRecord(Number(a.dataset.ref));
 });
-document.getElementById("l-filter-input").addEventListener("input", e => { filter = e.target.value; renderLists(); });
 renderLists();
 events.addEventListener("lists", e => setLists(JSON.parse(e.data)));
 // The first read; the `lists` event takes over once it arrives. A daemon that

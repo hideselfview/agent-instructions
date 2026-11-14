@@ -99,6 +99,14 @@ fn a_running_item_carries_its_claim_facts_and_nothing_else_does() {
         )
     );
     assert_eq!(find(idle)["running"], json!([]));
+    assert_eq!(
+        (
+            &view["board"]["waiting"],
+            &view["board"]["running"],
+            &view["board"]["queue"]
+        ),
+        (&json!(0), &json!(1), &json!(1))
+    );
 }
 
 #[test]
