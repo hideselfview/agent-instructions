@@ -211,6 +211,15 @@ Commands:
   builds lists ...            the decision stack, work queue, design changes
                               and decision log of a project, in a store
                               outside every repo: `builds help lists`
+  builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
+                              list the groups of rules a review hands to one
+                              reviewer each (review/groups.toml of the
+                              agent-instructions checkout, by default the one
+                              linked at ~/.codex/agent-instructions) and fail
+                              naming every rule that is in no group or in two,
+                              and every slug that names no rule; with --changed, list instead the groups
+                              a change to those paths runs, over the rules of
+                              project P (none: every project's)
   builds design render DIR BOARD [--theme light|dark] [--now | --at REV]
                               a board of worktree DIR (--now: as it stands
                               on origin/main; --at REV: as it is at a commit

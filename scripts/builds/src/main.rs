@@ -36,6 +36,7 @@ mod procs;
 mod prune;
 mod queue;
 mod remote;
+mod review;
 mod sccache;
 mod setup;
 mod shells;
@@ -121,6 +122,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "new" => worktree::cmd_new(&tool, args),
         "retire" => worktree::cmd_retire(&tool, args),
         "land" => land::cmd_land(args),
+        "review" => review::cmd_review(args),
         "claim" => claim::cmd_claim(&tool.places, args, tool.now),
         "note" => claim::cmd_note(&tool.places, args),
         "release" => claim::cmd_release(&tool.places, args),
@@ -143,7 +145,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "host" => host::cmd_host(&tool, &host::Ssh::from_env(), args),
         "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
         other => fail!(
-            "unknown command {other} (setup | new | land | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | host | remote | prune | cargo | lock | app-build | shots | queue | takeover | build-app | install | checks | install-hook)"
+            "unknown command {other} (setup | new | land | review | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | host | remote | prune | cargo | lock | app-build | shots | queue | takeover | build-app | install | checks | install-hook)"
         ),
     }
 }
