@@ -265,12 +265,10 @@ fn answer_of(body: &Value, names: &[String]) -> Result<Answer, String> {
 }
 
 /// The answer of a group that lists the sites it judges: a summary, then
-/// every site with its verdict. The group's one rule is `finding` when any
-/// site is.
+/// every site with its verdict. A finding site names its rule (a group of one
+/// rule may leave it out). A rule is `finding` when any site is a finding for
+/// it, else `none`.
 fn sites_of(body: &Value, names: &[String]) -> Result<Answer, String> {
-    let [rule] = names else {
-        return Err("a group that lists sites answers for one rule".to_string());
-    };
     let summary = body["summary"]
         .as_str()
         .filter(|s| !s.trim().is_empty())
@@ -286,24 +284,42 @@ fn sites_of(body: &Value, names: &[String]) -> Result<Answer, String> {
         let line = site["line"].as_i64().ok_or("a site has no line")?;
         match site["verdict"].as_str() {
             Some("none") => {}
-            Some("finding") => findings.push(Raw {
-                rule: rule.clone(),
-                clause: text("clause").ok_or("a finding site has no clause")?,
-                file,
-                line,
-                code,
-                problem: text("problem").ok_or("a finding site has no problem")?,
-            }),
+            Some("finding") => {
+                let rule = match (text("rule"), names) {
+                    (Some(rule), _) if names.contains(&rule) => rule,
+                    (Some(rule), _) => {
+                        return Err(format!(
+                            "a finding site names {rule}, which is not in the group"
+                        ));
+                    }
+                    (None, [only]) => only.clone(),
+                    (None, _) => return Err("a finding site names no rule".to_string()),
+                };
+                findings.push(Raw {
+                    rule,
+                    clause: text("clause").ok_or("a finding site has no clause")?,
+                    file,
+                    line,
+                    code,
+                    problem: text("problem").ok_or("a finding site has no problem")?,
+                });
+            }
             _ => return Err("a site's verdict is not finding or none".to_string()),
         }
     }
-    let verdict = if findings.is_empty() {
-        "none"
-    } else {
-        "finding"
-    };
+    let verdicts = names
+        .iter()
+        .map(|name| {
+            let verdict = if findings.iter().any(|f| &f.rule == name) {
+                "finding"
+            } else {
+                "none"
+            };
+            (name.clone(), verdict.to_string())
+        })
+        .collect();
     Ok(Answer {
-        verdicts: vec![(rule.clone(), verdict.to_string())],
+        verdicts,
         findings,
         sites: Some(json!({"summary": summary, "sites": sites}).to_string()),
     })

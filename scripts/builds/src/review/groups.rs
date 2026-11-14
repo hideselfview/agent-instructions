@@ -31,10 +31,15 @@ pub struct Group {
     /// Whether the group also answers for the project's always-loaded facts.
     #[serde(default)]
     pub project_facts: bool,
-    /// Whether the reviewer first lists every site that handles returned
-    /// rows and judges each; such a group has exactly one rule.
+    /// Whether the reviewer first lists every site of the diff that `sites`
+    /// describes and judges each against every rule of the group, one file per
+    /// call.
     #[serde(default)]
     pub enumerate: bool,
+    /// What a site is, for a group that lists sites: the end of the sentence
+    /// "every site in the diff that ...".
+    #[serde(default)]
+    pub sites: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -79,9 +84,15 @@ impl Groups {
             if group.rules.is_empty() {
                 faults.push(format!("group {} has no rule", group.name));
             }
-            if group.enumerate && (group.rules.len() != 1 || group.project_facts) {
+            if group.enumerate && (group.sites.is_none() || group.project_facts) {
                 faults.push(format!(
-                    "group {} lists sites, so it has exactly one rule and no project facts",
+                    "group {} lists sites, so it says what a site is (`sites`) and has no project facts",
+                    group.name
+                ));
+            }
+            if !group.enumerate && group.sites.is_some() {
+                faults.push(format!(
+                    "group {} says what a site is but does not list sites (`enumerate`)",
                     group.name
                 ));
             }

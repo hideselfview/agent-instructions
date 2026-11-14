@@ -93,11 +93,22 @@ fn a_group_that_lists_sites_answers_with_a_summary_and_a_verdict_for_each_site()
             .unwrap_err()
             .contains("no clause")
     );
+    // With two rules, a finding must name its rule, and one of them.
+    let two = ["a".to_string(), "b".to_string()];
+    let unnamed = r#"[{"file":"a.rs","line":3,"kind":"k","code":"x","verdict":"finding","clause":"c","problem":"p"}]"#;
     assert!(
-        sites_of(
-            &serde_json::from_str(&body("[]")).unwrap(),
-            &["a".into(), "b".into()]
-        )
-        .is_err()
+        sites_of(&serde_json::from_str(&body(unnamed)).unwrap(), &two)
+            .unwrap_err()
+            .contains("names no rule")
     );
+    let named = r#"[{"file":"a.rs","line":3,"kind":"k","code":"x","verdict":"finding","rule":"b","clause":"c","problem":"p"}]"#;
+    let answer = sites_of(&serde_json::from_str(&body(named)).unwrap(), &two).unwrap();
+    assert_eq!(
+        answer.verdicts,
+        vec![
+            ("a".to_string(), "none".to_string()),
+            ("b".to_string(), "finding".to_string())
+        ]
+    );
+    assert_eq!(answer.findings[0].rule, "b");
 }

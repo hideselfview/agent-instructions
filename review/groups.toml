@@ -13,11 +13,12 @@
 # rules       rule slugs (the file names without .md)
 # principles  files under principles/ (without .md) the reviewer reads
 # instructions  extra words for the reviewer, optional
-# enumerate  true when the reviewer first lists every site in the diff that
-#             handles rows a query returned (a filter, a pick, a membership
-#             test, a count, a sort, a group, a join, a map that drops rows,
-#             a subscription taken once) and judges each site against each
-#             clause; such a group has exactly one rule
+# enumerate  true when the reviewer lists every site of the diff that `sites`
+#             describes, one changed file per call, and judges each site
+#             against every rule of the group (the file's new text around each
+#             hunk is in the message)
+# sites      what a site is, for an enumerate group: the end of "every site in
+#             the diff that ..."
 # project_facts true when the group also answers for the project facts that
 #             every commit keeps (the spec moves with the commit, bae writes as
 #             local), as one more verdict named project-facts
@@ -29,6 +30,7 @@ model = "opus"
 rules = ["reactive-screens-read-plain-live-queries"]
 principles = []
 enumerate = true
+sites = "handles rows a query returned, in Rust, Swift or Kotlin: a filter, a pick (first, find, first(where:)), a membership test (contains, isSubset, a Set of ids), a length or emptiness test, a count, a sort, a group, a join, a map that drops rows, or a subscription taken once"
 
 [[group]]
 name = "data stays out of the UI"
@@ -146,6 +148,8 @@ rules = [
   "no-marketing-language-anywhere",
 ]
 principles = []
+enumerate = true
+sites = "is a sentence a person reads: each string, comment, doc comment and documentation sentence the diff adds or changes"
 
 [[group]]
 name = "what a screen shows"

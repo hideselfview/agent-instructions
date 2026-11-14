@@ -230,7 +230,7 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
     let fake = fake(&scratch.dir);
     std::fs::write(
         fake.root.join("review/groups.toml"),
-        "[[group]]\nname = \"alpha\"\nquestion = \"q\"\nmodel = \"sonnet\"\nrules = [\"rule-a\"]\nenumerate = true\n\n[[group]]\nname = \"beta\"\nquestion = \"q\"\nmodel = \"opus\"\nrules = [\"rule-b\"]\n",
+        "[[group]]\nname = \"alpha\"\nquestion = \"q\"\nmodel = \"sonnet\"\nrules = [\"rule-a\"]\nenumerate = true\nsites = \"handles rows\"\n\n[[group]]\nname = \"beta\"\nquestion = \"q\"\nmodel = \"opus\"\nrules = [\"rule-b\"]\n",
     )
     .unwrap();
     fake.answer_task(

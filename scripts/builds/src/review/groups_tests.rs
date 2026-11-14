@@ -109,7 +109,7 @@ fn a_rule_marked_review_false_never_runs_its_group() {
 }
 
 #[test]
-fn a_group_that_lists_sites_has_exactly_one_rule() {
+fn a_group_that_lists_sites_says_what_a_site_is() {
     let groups = Groups::parse(
         "[[group]]\nname = \"g\"\nquestion = \"q\"\nmodel = \"opus\"\nenumerate = true\nrules = [\"a\", \"b\"]\n",
     )
@@ -119,6 +119,6 @@ fn a_group_that_lists_sites_has_exactly_one_rule() {
         groups
             .faults(&rules)
             .iter()
-            .any(|f| f.contains("lists sites, so it has exactly one rule"))
+            .any(|f| f.contains("lists sites, so it says what a site is"))
     );
 }

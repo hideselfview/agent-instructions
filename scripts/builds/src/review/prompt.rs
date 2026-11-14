@@ -70,6 +70,7 @@ pub fn schema() -> Value {
                         "kind": {"type": "string"},
                         "code": {"type": "string"},
                         "verdict": {"type": "string", "enum": ["finding", "none"]},
+                        "rule": {"type": "string"},
                         "clause": {"type": "string"},
                         "problem": {"type": "string"}
                     }
@@ -161,15 +162,15 @@ pub fn group_part(input: &Input) -> String {
             "- {PROJECT_FACTS} (reported only): the project facts in the project instructions above\n"
         ));
     }
-    if group.enumerate {
-        out.push_str(
+    if let Some(sites) = group.sites.as_deref().filter(|_| group.enumerate) {
+        out.push_str(&format!(
             "\nHow to answer. Put your answer in `summary` and `sites`, and leave `rules` out.\n\
              - The message holds one changed file: its diff, then its new text around each hunk with line numbers. Read the new text to see what each value is, where it comes from and what the code around the site does with it.\n\
-             - First list every site in the diff that handles rows a query returned, in Rust, Swift or Kotlin: a filter, a pick (first, find, first(where:)), a membership test (contains, isSubset, a Set of ids), a count, a sort, a group, a join, a map that drops rows, or a subscription taken once. Give each site its file, the line number in the new file, its kind, and its code copied exactly from the diff.\n\
-             - Then give each site a verdict against each \"Never\" clause of the rule: `finding`, with the clause copied exactly from the rule's text below and one or two plain sentences on what goes wrong, or `none`.\n\
-             - Consider only sites on lines the diff adds or changes. A diff with no such site has an empty `sites`, and `summary` says so; otherwise `summary` says in a sentence what the diff does with returned rows.\n\
+             - First list every site in the diff that {sites}. Give each site its file, the line number in the new file, its kind, and its code copied exactly from the diff.\n\
+             - Consider only sites on lines the diff adds or changes. A diff with no such site has an empty `sites`, and `summary` says so; otherwise `summary` says in a sentence what the diff does.\n\
+             - Then give each site a verdict against the rules listed above: `none` when it breaks none of them; otherwise `finding`, with `rule` set to the rule's name, `clause` copied exactly from that rule's text below, and one or two plain sentences on what goes wrong. A site that breaks two rules is listed twice, once per rule.\n\
              - Do not raise again a finding listed under \"Findings already settled\".\n",
-        );
+        ));
     } else {
         out.push_str(
             "\nHow to answer. Put your answer in `rules`, and leave `summary` and `sites` out.\n\
