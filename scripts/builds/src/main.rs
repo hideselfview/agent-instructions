@@ -2,8 +2,8 @@
 //! on it. `builds help` says what it does; src/help.txt is that text.
 
 mod app_build;
-mod app_reset;
 mod app_config;
+mod app_reset;
 mod build_app;
 mod cargo_run;
 mod checkout;
@@ -32,16 +32,16 @@ mod procs;
 mod prune;
 mod queue;
 mod sccache;
-mod side_git;
 mod setup;
 mod shells;
+mod side_git;
 mod status;
 mod temp_builds;
 #[cfg(test)]
 mod testing;
 mod text;
-mod trash;
 mod tool;
+mod trash;
 mod trees;
 mod units;
 mod usage;
@@ -58,10 +58,17 @@ const HELP: &str = include_str!("help.txt");
 const LISTS_HELP: &str = include_str!("lists/lists-help.txt");
 
 fn main() -> ExitCode {
-    let args: Vec<String> = match std::env::args_os().skip(1).map(|arg| arg.into_string()).collect() {
+    let args: Vec<String> = match std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.into_string())
+        .collect()
+    {
         Ok(args) => args,
         Err(arg) => {
-            text::note(format!("an argument is not UTF-8: {}", arg.to_string_lossy()));
+            text::note(format!(
+                "an argument is not UTF-8: {}",
+                arg.to_string_lossy()
+            ));
             return ExitCode::from(1);
         }
     };

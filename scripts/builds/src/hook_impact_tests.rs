@@ -15,14 +15,29 @@ fn run(at: i64, base: Option<&str>, total_ms: u64, clippy_ms: u64, crates: u32) 
         total_ms,
         files: vec![],
         checks: vec![
-            CheckRecord { name: "clippy".into(), kind: Kind::Check, outcome: Outcome::Passed, handed: Some((1, crates)), ms: Some(clippy_ms) },
-            CheckRecord { name: "fmt".into(), kind: Kind::Fix, outcome: Outcome::Skipped, handed: None, ms: None },
+            CheckRecord {
+                name: "clippy".into(),
+                kind: Kind::Check,
+                outcome: Outcome::Passed,
+                handed: Some((1, crates)),
+                ms: Some(clippy_ms),
+            },
+            CheckRecord {
+                name: "fmt".into(),
+                kind: Kind::Fix,
+                outcome: Outcome::Skipped,
+                handed: None,
+                ms: None,
+            },
         ],
     }
 }
 
 fn head(dir: &Path) -> String {
-    git_text(&mut git_in(dir, &["rev-parse", "HEAD"]), "read HEAD").unwrap().trim().to_string()
+    git_text(&mut git_in(dir, &["rev-parse", "HEAD"]), "read HEAD")
+        .unwrap()
+        .trim()
+        .to_string()
 }
 
 fn git_in(dir: &Path, args: &[&str]) -> std::process::Command {
@@ -60,25 +75,71 @@ fn runs_split_by_the_base_commit_containing_the_change_even_on_an_old_base_after
     at(committed_at + 200, Some(&new), 30_000, 10_000, 1);
     at(committed_at + 300, Some(&change), 40_000, 14_000, 1);
     at(committed_at + 400, None, 50_000, 20_000, 1);
-    at(committed_at + 500, Some("0123456789012345678901234567890123456789"), 50_000, 20_000, 1);
+    at(
+        committed_at + 500,
+        Some("0123456789012345678901234567890123456789"),
+        50_000,
+        20_000,
+        1,
+    );
     let impact = impact(&path, &change[..10]).unwrap().unwrap();
     assert_eq!(impact.change, change);
-    assert_eq!((impact.with.runs, impact.with.median_ms, impact.with.slowest_ms), (2, 35_000, 40_000));
-    assert_eq!((impact.without.runs, impact.without.median_ms, impact.without.slowest_ms), (3, 110_000, 120_000));
-    assert_eq!((impact.without_by_time, impact.unplaced_by_time, impact.unplaced_by_base), (1, 1, 1));
-    let clippy = |side: &Side| side.checks.iter().find(|c| c.name == "clippy").map(|c| (c.ran, c.median_ms, c.slowest_ms, c.median_crates)).unwrap();
+    assert_eq!(
+        (
+            impact.with.runs,
+            impact.with.median_ms,
+            impact.with.slowest_ms
+        ),
+        (2, 35_000, 40_000)
+    );
+    assert_eq!(
+        (
+            impact.without.runs,
+            impact.without.median_ms,
+            impact.without.slowest_ms
+        ),
+        (3, 110_000, 120_000)
+    );
+    assert_eq!(
+        (
+            impact.without_by_time,
+            impact.unplaced_by_time,
+            impact.unplaced_by_base
+        ),
+        (1, 1, 1)
+    );
+    let clippy = |side: &Side| {
+        side.checks
+            .iter()
+            .find(|c| c.name == "clippy")
+            .map(|c| (c.ran, c.median_ms, c.slowest_ms, c.median_crates))
+            .unwrap()
+    };
     assert_eq!(clippy(&impact.with), (2, 12_000, 14_000, 1));
     assert_eq!(clippy(&impact.without), (3, 85_000, 90_000, 8));
-    assert!(impact.with.checks.iter().all(|c| c.name != "fmt"), "a skipped check did not run");
+    assert!(
+        impact.with.checks.iter().all(|c| c.name != "fmt"),
+        "a skipped check did not run"
+    );
     let text = report("bae", Some(&impact));
-    assert!(text.contains("with the change:    2 runs median 35.0s, slowest 40.0s"), "{text}");
-    assert!(text.contains("before the hook kept its base commit") && text.contains("base commit is not in the repo"), "{text}");
+    assert!(
+        text.contains("with the change:    2 runs median 35.0s, slowest 40.0s"),
+        "{text}"
+    );
+    assert!(
+        text.contains("before the hook kept its base commit")
+            && text.contains("base commit is not in the repo"),
+        "{text}"
+    );
 }
 
 #[test]
 fn a_change_with_no_runs_recorded_is_none() {
     let scratch = Scratch::new("impact-none");
-    assert_eq!(split(&scratch.dir.join(DATABASE), "c", 1, &|_| Some(true)).unwrap(), None);
+    assert_eq!(
+        split(&scratch.dir.join(DATABASE), "c", 1, &|_| Some(true)).unwrap(),
+        None
+    );
     assert!(report("bae", None).contains("no runs recorded"));
 }
 
@@ -87,5 +148,10 @@ fn a_revision_that_starts_with_a_dash_is_refused() {
     let scratch = Scratch::new("impact-dash");
     let top = scratch.dir.join("repo");
     repo(&top, "target 1\n");
-    assert!(commit(&top, "--output=x").unwrap_err().text().contains("not a revision"));
+    assert!(
+        commit(&top, "--output=x")
+            .unwrap_err()
+            .text()
+            .contains("not a revision")
+    );
 }

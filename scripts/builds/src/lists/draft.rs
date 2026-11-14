@@ -49,7 +49,10 @@ pub fn require_brief_from(cwd: &Path, brief: &str) -> Result<()> {
 
 /// The briefs of <drafts> exist (see `require_brief_from`).
 pub fn require_draft_briefs(cwd: &Path, drafts: &[ItemDraft]) -> Result<()> {
-    drafts.iter().filter_map(|draft| draft.brief.as_deref()).try_for_each(|brief| require_brief_from(cwd, brief))
+    drafts
+        .iter()
+        .filter_map(|draft| draft.brief.as_deref())
+        .try_for_each(|brief| require_brief_from(cwd, brief))
 }
 
 impl ItemDraft {
@@ -64,10 +67,15 @@ impl ItemDraft {
 
 /// A request's `work` (item drafts) or `no_work` (why there is none): one
 /// of them, never both and never neither.
-pub fn work_or_why(work: Option<Vec<ItemDraft>>, no_work: Option<String>) -> Result<Vec<ItemDraft>> {
+pub fn work_or_why(
+    work: Option<Vec<ItemDraft>>,
+    no_work: Option<String>,
+) -> Result<Vec<ItemDraft>> {
     match (work, no_work) {
         (Some(_), Some(_)) => fail!("give `work` or `no_work`, not both"),
-        (None, None) => fail!("give `work` (the items this makes) or `no_work` with the reason there is none"),
+        (None, None) => {
+            fail!("give `work` (the items this makes) or `no_work` with the reason there is none")
+        }
         (None, Some(why)) if why.trim().is_empty() => fail!("`no_work` needs its reason"),
         (None, Some(_)) => Ok(Vec::new()),
         (Some(work), None) => Ok(work),

@@ -58,7 +58,8 @@ fn migrate_lane(places: &Places, repo: &str, lane: Lane) -> Result<()> {
         return Ok(());
     }
     if old_file.is_file() {
-        let text = std::fs::read_to_string(&old_file).context(|| format!("reading {}", old_file.display()))?;
+        let text = std::fs::read_to_string(&old_file)
+            .context(|| format!("reading {}", old_file.display()))?;
         let checkout = text.trim().to_string();
         if checkout.is_empty() || checkout.contains('/') {
             fail!("{} names no side worktree ({text:?})", old_file.display());
@@ -77,7 +78,11 @@ fn migrate_lane(places: &Places, repo: &str, lane: Lane) -> Result<()> {
             let (old, new) = (std::fs::metadata(&old_lock), std::fs::metadata(&new_lock));
             let same = matches!((old, new), (Ok(old), Ok(new)) if old.ino() == new.ino() && old.dev() == new.dev());
             if !same {
-                fail!("{} and {} are different files; remove the old one", old_lock.display(), new_lock.display());
+                fail!(
+                    "{} and {} are different files; remove the old one",
+                    old_lock.display(),
+                    new_lock.display()
+                );
             }
         } else {
             std::fs::hard_link(&old_lock, &new_lock)
@@ -97,11 +102,17 @@ fn migrate_lane(places: &Places, repo: &str, lane: Lane) -> Result<()> {
     }
     for old in [&old_lock, &old_file] {
         match std::fs::remove_file(old) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => fail!("removing {}: {error}", old.display()),
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                fail!("removing {}: {error}", old.display())
+            }
             _ => {}
         }
     }
-    crate::text::note(format!("moved {repo}'s {} app checkout to {}", lane.word(), places.app_checkouts_file(repo, lane).display()));
+    crate::text::note(format!(
+        "moved {repo}'s {} app checkout to {}",
+        lane.word(),
+        places.app_checkouts_file(repo, lane).display()
+    ));
     Ok(())
 }
 
@@ -205,7 +216,8 @@ fn add_hook_base(path: &Path) -> Result<()> {
     }
     let mut conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
         .context(|| format!("opening {}", path.display()))?;
-    conn.busy_timeout(std::time::Duration::from_millis(i32::MAX as u64)).sql()?;
+    conn.busy_timeout(std::time::Duration::from_millis(i32::MAX as u64))
+        .sql()?;
     let found = db::stamp_of(&conn, path)?;
     if found == db::stamp() || found == 0 || found == db::HOOK_ONLY_STAMP {
         // Today's schema already; or one `migrate_lists` makes whole.
@@ -218,11 +230,17 @@ fn add_hook_base(path: &Path) -> Result<()> {
             db::stamp()
         );
     }
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).sql()?;
-    tx.execute_batch("ALTER TABLE hook_runs ADD COLUMN base TEXT CHECK (base <> '')").sql()?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .sql()?;
+    tx.execute_batch("ALTER TABLE hook_runs ADD COLUMN base TEXT CHECK (base <> '')")
+        .sql()?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     if db::schema_rows(&tx)? != db::schema_rows(&db::memory())? {
-        fail!("{} holds a schema that is not the one this builds makes; it is left as it was", path.display());
+        fail!(
+            "{} holds a schema that is not the one this builds makes; it is left as it was",
+            path.display()
+        );
     }
     tx.commit().sql()?;
     crate::text::note(format!("gave {}'s hook runs a base commit", path.display()));
@@ -272,9 +290,14 @@ fn lists_rows(dir: &Path) -> Result<Option<u64>> {
         return Ok(None);
     }
     if stamp != db::stamp() {
-        fail!("{} was made by another builds schema (it carries {stamp})", path.display());
+        fail!(
+            "{} was made by another builds schema (it carries {stamp})",
+            path.display()
+        );
     }
-    let rows: i64 = conn.query_row("SELECT COUNT(*) FROM project", [], |row| row.get(0)).sql()?;
+    let rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM project", [], |row| row.get(0))
+        .sql()?;
     if rows == 0 {
         return Ok(None);
     }
@@ -285,24 +308,37 @@ fn move_folder(dir: &Path, now: i64) -> Result<()> {
     let state = dir.join(store::JSON_STATE);
     let moving = dir.join(store::JSON_MOVING);
     let moved = dir.join(format!("{}.moved", store::JSON_STATE));
-    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let (has_state, has_moving) = (state.exists(), moving.exists());
     if !has_state && !has_moving {
         return upgrade_hook_only(dir);
     }
     if has_state && has_moving {
-        fail!("{} holds both {} and {}; one of them is left from a move that did not finish, and neither is deleted for you", dir.display(), store::JSON_STATE, store::JSON_MOVING);
+        fail!(
+            "{} holds both {} and {}; one of them is left from a move that did not finish, and neither is deleted for you",
+            dir.display(),
+            store::JSON_STATE,
+            store::JSON_MOVING
+        );
     }
     let rows = lists_rows(dir)?;
     let _lock = take_lock(&dir.join("lists.lock"))?;
     if has_state {
         if let Some(version) = rows {
-            fail!("{} holds {} beside lists rows in {DATABASE} (version {version}); it can only come from a hand edit, and neither is deleted for you", dir.display(), store::JSON_STATE);
+            fail!(
+                "{} holds {} beside lists rows in {DATABASE} (version {version}); it can only come from a hand edit, and neither is deleted for you",
+                dir.display(),
+                store::JSON_STATE
+            );
         }
         let lists = read_json(&state)?;
         // Everything the database refuses or the checks find is found here, before anything changes.
         rehearse(&lists, &name)?;
-        std::fs::rename(&state, &moving).context(|| format!("renaming {} to {}", state.display(), moving.display()))?;
+        std::fs::rename(&state, &moving)
+            .context(|| format!("renaming {} to {}", state.display(), moving.display()))?;
     }
     let lists = read_json(&moving)?;
     match rows {
@@ -316,7 +352,9 @@ fn move_folder(dir: &Path, now: i64) -> Result<()> {
                 store::read_log(&conn)?.pop()
             };
             let ours = lists.1.version + 1 == version
-                && last.is_some_and(|(v, _, by, words)| v == version && by == MOVE_BY && words == MOVE_WORDS);
+                && last.is_some_and(|(v, _, by, words)| {
+                    v == version && by == MOVE_BY && words == MOVE_WORDS
+                });
             if !ours {
                 fail!(
                     "{} holds {} at version {}, and {DATABASE} holds lists at version {version} that are not this move's; neither is deleted for you",
@@ -327,10 +365,14 @@ fn move_folder(dir: &Path, now: i64) -> Result<()> {
             }
         }
     }
-    std::fs::rename(&moving, &moved).context(|| format!("renaming {} to {}", moving.display(), moved.display()))?;
+    std::fs::rename(&moving, &moved)
+        .context(|| format!("renaming {} to {}", moving.display(), moved.display()))?;
     // Removed while the lock is still held; an old writer blocked on it then finds no lists.json.
     let _ = std::fs::remove_file(dir.join("lists.lock"));
-    crate::text::note(format!("moved project {name}'s lists into {}", dir.join(DATABASE).display()));
+    crate::text::note(format!(
+        "moved project {name}'s lists into {}",
+        dir.join(DATABASE).display()
+    ));
     Ok(())
 }
 
@@ -345,7 +387,9 @@ fn upgrade_hook_only(dir: &Path) -> Result<()> {
     if db::stamp_of(&conn, &path)? != db::HOOK_ONLY_STAMP {
         return Ok(());
     }
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).sql()?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .sql()?;
     bring_to_schema(&tx, &path)?;
     tx.commit().sql()?;
     crate::text::note(format!("gave {} the lists' tables", path.display()));
@@ -364,7 +408,10 @@ fn bring_to_schema(tx: &Connection, path: &Path) -> Result<()> {
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     if db::schema_rows(tx)? != db::schema_rows(&db::memory())? {
-        fail!("{} holds a schema that is not the one this builds makes; it is left as it was", path.display());
+        fail!(
+            "{} holds a schema that is not the one this builds makes; it is left as it was",
+            path.display()
+        );
     }
     Ok(())
 }
@@ -381,17 +428,38 @@ struct Json {
 /// `lists.json` read as today's shape.
 fn read_json(path: &Path) -> Result<Source> {
     let text = std::fs::read_to_string(path).context(|| format!("reading {}", path.display()))?;
-    let mut value: Value =
-        serde_json::from_str(&text).map_err(|error| Fail::Message(format!("{} is not valid JSON: {error}", path.display())))?;
-    let Some(object) = value.as_object_mut() else { fail!("{} is not an object", path.display()) };
-    let Some(next_id) = object.remove("next_id").and_then(|v| v.as_u64()) else { fail!("{} has no next_id", path.display()) };
-    let Some(log) = object.remove("log") else { fail!("{} has no log", path.display()) };
-    let log: Vec<LogLine> = serde_json::from_value(log)
-        .map_err(|error| Fail::Message(format!("{}'s log is not today's shape: {error}", path.display())))?;
-    let lists: Lists = serde_json::from_value(value)
-        .map_err(|error| Fail::Message(format!("{} is not today's shape of the lists: {error}", path.display())))?;
+    let mut value: Value = serde_json::from_str(&text)
+        .map_err(|error| Fail::Message(format!("{} is not valid JSON: {error}", path.display())))?;
+    let Some(object) = value.as_object_mut() else {
+        fail!("{} is not an object", path.display())
+    };
+    let Some(next_id) = object.remove("next_id").and_then(|v| v.as_u64()) else {
+        fail!("{} has no next_id", path.display())
+    };
+    let Some(log) = object.remove("log") else {
+        fail!("{} has no log", path.display())
+    };
+    let log: Vec<LogLine> = serde_json::from_value(log).map_err(|error| {
+        Fail::Message(format!(
+            "{}'s log is not today's shape: {error}",
+            path.display()
+        ))
+    })?;
+    let lists: Lists = serde_json::from_value(value).map_err(|error| {
+        Fail::Message(format!(
+            "{} is not today's shape of the lists: {error}",
+            path.display()
+        ))
+    })?;
     let version = lists.version;
-    Ok((lists, Json { next_id: next_id as u32, log, version }))
+    Ok((
+        lists,
+        Json {
+            next_id: next_id as u32,
+            log,
+            version,
+        },
+    ))
 }
 
 /// What the database derives instead of storing must agree with what the JSON
@@ -407,13 +475,19 @@ fn derived_disagreements(lists: &Lists, json: &Json) -> Vec<String> {
     if let Some(top) = ids.iter().max()
         && json.next_id <= *top
     {
-        faults.push(format!("next_id is {}, not above the highest id {top}", json.next_id));
+        faults.push(format!(
+            "next_id is {}, not above the highest id {top}",
+            json.next_id
+        ));
     }
     match json.log.last() {
-        Some(last) if last.version != json.version => {
-            faults.push(format!("version is {}, but the log ends at {}", json.version, last.version))
+        Some(last) if last.version != json.version => faults.push(format!(
+            "version is {}, but the log ends at {}",
+            json.version, last.version
+        )),
+        None if json.version != 0 => {
+            faults.push(format!("version is {}, but the log is empty", json.version))
         }
-        None if json.version != 0 => faults.push(format!("version is {}, but the log is empty", json.version)),
         _ => {}
     }
     let all_items: Vec<&crate::lists::Item> = lists
@@ -437,13 +511,20 @@ fn derived_disagreements(lists: &Lists, json: &Json) -> Vec<String> {
                 answered_by_closing.map(|q| q.0)
             ));
         }
-        let made: Vec<_> = all_items.iter().filter(|i| i.from == Some(decision.id)).map(|i| i.id).collect();
+        let made: Vec<_> = all_items
+            .iter()
+            .filter(|i| i.from == Some(decision.id))
+            .map(|i| i.id)
+            .collect();
         let mut said = decision.work.clone();
         said.sort();
         let mut made_sorted = made.clone();
         made_sorted.sort();
         if said != made_sorted {
-            faults.push(format!("decision {} says it made {:?}, but the items' origins say {:?}", decision.id, said, made_sorted));
+            faults.push(format!(
+                "decision {} says it made {:?}, but the items' origins say {:?}",
+                decision.id, said, made_sorted
+            ));
         }
         if let Some(question) = decision.question {
             let asked = lists.closed.iter().find_map(|c| match &c.record {
@@ -451,32 +532,54 @@ fn derived_disagreements(lists: &Lists, json: &Json) -> Vec<String> {
                 _ => None,
             });
             if asked.is_some_and(|plan| plan != decision.plan) {
-                faults.push(format!("decision {} has a plan other than its question {question}'s", decision.id));
+                faults.push(format!(
+                    "decision {} has a plan other than its question {question}'s",
+                    decision.id
+                ));
             }
         }
     }
     for item in &all_items {
         if let Some(first) = item.running.first()
-            && item.running.iter().any(|r| r.brief != first.brief || r.since != first.since)
+            && item
+                .running
+                .iter()
+                .any(|r| r.brief != first.brief || r.since != first.since)
         {
-            faults.push(format!("item {} runs in places with different briefs or moments", item.id));
+            faults.push(format!(
+                "item {} runs in places with different briefs or moments",
+                item.id
+            ));
         }
     }
     let landed_of = |id| {
         lists.closed.iter().find_map(|c| match (&c.record, &c.how) {
-            (Record::Design(d), How::Landed(commits)) if d.id == id => Some((commits.clone(), c.closed.at)),
+            (Record::Design(d), How::Landed(commits)) if d.id == id => {
+                Some((commits.clone(), c.closed.at))
+            }
             _ => None,
         })
     };
-    let designs = lists.designs.iter().map(|d| (d, None)).chain(lists.closed.iter().filter_map(|c| match &c.record {
-        Record::Design(d) => Some((d, landed_of(d.id))),
-        _ => None,
-    }));
+    let designs = lists
+        .designs
+        .iter()
+        .map(|d| (d, None))
+        .chain(lists.closed.iter().filter_map(|c| match &c.record {
+            Record::Design(d) => Some((d, landed_of(d.id))),
+            _ => None,
+        }));
     for (design, closing) in designs {
-        let said: Vec<(Vec<String>, i64)> = design.landed.iter().map(|l| (l.commits.clone(), l.at)).collect();
+        let said: Vec<(Vec<String>, i64)> = design
+            .landed
+            .iter()
+            .map(|l| (l.commits.clone(), l.at))
+            .collect();
         let derived: Vec<(Vec<String>, i64)> = closing.into_iter().collect();
         if said != derived {
-            faults.push(format!("design change {} says it landed as {:?}, but its closing says {:?}", design.id, said, derived));
+            faults.push(format!(
+                "design change {} says it landed as {:?}, but its closing says {:?}",
+                design.id, said, derived
+            ));
         }
     }
     faults
@@ -488,7 +591,10 @@ fn rehearse(source: &Source, project: &str) -> Result<()> {
     let (lists, json) = source;
     let faults = derived_disagreements(lists, json);
     if !faults.is_empty() {
-        fail!("the lists of {project} cannot move into {DATABASE}:\n  {}", faults.join("\n  "));
+        fail!(
+            "the lists of {project} cannot move into {DATABASE}:\n  {}",
+            faults.join("\n  ")
+        );
     }
     let mut conn = db::memory();
     let tx = conn.transaction().sql()?;
@@ -502,10 +608,14 @@ fn rehearse(source: &Source, project: &str) -> Result<()> {
 fn put_in_database(dir: &Path, source: &Source, project: &str, now: i64) -> Result<()> {
     let path = dir.join(DATABASE);
     let mut conn = db::open_for_move(&path)?;
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).sql()?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .sql()?;
     let found = db::stamp_of(&tx, &path)?;
     if found == db::stamp() {
-        let rows: i64 = tx.query_row("SELECT COUNT(*) FROM project", [], |row| row.get(0)).sql()?;
+        let rows: i64 = tx
+            .query_row("SELECT COUNT(*) FROM project", [], |row| row.get(0))
+            .sql()?;
         if rows > 0 {
             fail!("{} already holds lists", path.display());
         }
@@ -515,7 +625,9 @@ fn put_in_database(dir: &Path, source: &Source, project: &str, now: i64) -> Resu
     let left_out = move_in(&tx, source, project, now)?;
     tx.commit().sql()?;
     if left_out > 0 {
-        crate::text::note(format!("left out the {left_out} running entries of closed items: a closed item runs nowhere"));
+        crate::text::note(format!(
+            "left out the {left_out} running entries of closed items: a closed item runs nowhere"
+        ));
     }
     Ok(())
 }
@@ -560,15 +672,37 @@ fn move_in(db: &Connection, source: &Source, project: &str, now: i64) -> Result<
             _ => None,
         })
         .collect();
-    let questions: Vec<&crate::lists::Question> = lists.questions.iter().chain(closed_questions).collect();
-    let items: Vec<&crate::lists::Item> = lists.items.iter().chain(closed_items.iter().copied()).collect();
-    let designs: Vec<&crate::lists::DesignChange> = lists.designs.iter().chain(closed_designs.iter().copied()).collect();
+    let questions: Vec<&crate::lists::Question> =
+        lists.questions.iter().chain(closed_questions).collect();
+    let items: Vec<&crate::lists::Item> = lists
+        .items
+        .iter()
+        .chain(closed_items.iter().copied())
+        .collect();
+    let designs: Vec<&crate::lists::DesignChange> = lists
+        .designs
+        .iter()
+        .chain(closed_designs.iter().copied())
+        .collect();
     // The record rows of every kind first: everything else points at them.
     let mut kinds: Vec<(crate::lists::Id, Kind, crate::lists::Stamp)> = Vec::new();
-    kinds.extend(questions.iter().map(|q| (q.id, Kind::Question, q.opened.clone())));
+    kinds.extend(
+        questions
+            .iter()
+            .map(|q| (q.id, Kind::Question, q.opened.clone())),
+    );
     kinds.extend(items.iter().map(|i| (i.id, Kind::Item, i.opened.clone())));
-    kinds.extend(designs.iter().map(|d| (d.id, Kind::Design, d.opened.clone())));
-    kinds.extend(lists.decisions.iter().map(|d| (d.id, Kind::Decision, d.recorded.clone())));
+    kinds.extend(
+        designs
+            .iter()
+            .map(|d| (d.id, Kind::Design, d.opened.clone())),
+    );
+    kinds.extend(
+        lists
+            .decisions
+            .iter()
+            .map(|d| (d.id, Kind::Decision, d.recorded.clone())),
+    );
     kinds.sort_by_key(|(id, _, _)| *id);
     for (id, kind, opened) in &kinds {
         move_in_record(db, *id, *kind, opened)?;
@@ -590,7 +724,10 @@ fn move_in(db: &Connection, source: &Source, project: &str, now: i64) -> Result<
             Some(from) => Some(match kinds.iter().find(|(id, _, _)| *id == from) {
                 Some((_, Kind::Decision, _)) => Origin::Decision(from),
                 Some((_, Kind::Design, _)) => Origin::Design(from),
-                _ => fail!("item {} was made by {from}, which is no decision or design change", item.id),
+                _ => fail!(
+                    "item {} was made by {from}, which is no decision or design change",
+                    item.id
+                ),
             }),
         };
         lists::item::move_in(db, item, origin)?;
@@ -605,7 +742,13 @@ fn move_in(db: &Connection, source: &Source, project: &str, now: i64) -> Result<
         lists::design::move_in_children(db, design)?;
     }
     for closed in &lists.closed {
-        move_in_closing(db, closed.record.id(), closed.record.kind(), &closed.how, &closed.closed)?;
+        move_in_closing(
+            db,
+            closed.record.id(),
+            closed.record.kind(),
+            &closed.how,
+            &closed.closed,
+        )?;
     }
     for line in &json.log {
         store::move_in_log(db, line.version, line.at, &line.by, &line.words)?;
@@ -613,7 +756,10 @@ fn move_in(db: &Connection, source: &Source, project: &str, now: i64) -> Result<
     store::move_in_log(db, json.version + 1, now, MOVE_BY, MOVE_WORDS)?;
     let faults = crate::lists::check::faults(db, project)?;
     if !faults.is_empty() {
-        fail!("the lists of {project} fail their check after the move:\n  {}", faults.join("\n  "));
+        fail!(
+            "the lists of {project} fail their check after the move:\n  {}",
+            faults.join("\n  ")
+        );
     }
     Ok(closed_items.iter().map(|item| item.running.len()).sum())
 }

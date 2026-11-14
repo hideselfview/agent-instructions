@@ -16,16 +16,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::checkout::{Root, parallel_map};
 use crate::claim::Claim;
-use crate::lane::Lane;
 use crate::fail::{Context, Fail, Result};
+use crate::lane::Lane;
+use crate::places::DiskSpace;
 use crate::procs::{
-    BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, cwd, load_average, open_files,
-    place_of, usage,
+    BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, cwd,
+    load_average, open_files, place_of, usage,
 };
 use crate::shells::Shells;
 use crate::side_git::SideGit;
 use crate::text::{human, local_minute};
-use crate::places::DiskSpace;
 use crate::tool::Tool;
 
 /// An sccache client waiting this long is worth a look.
@@ -144,7 +144,11 @@ impl Holder {
     /// `builds lock` was killed and a process of its build holds the lock.
     fn builds_for(&self, label: &str, git: &SideGit) -> bool {
         self.started_from.as_deref() == Some(label)
-            || (self.app_head.is_some() && git.ahead.iter().any(|c| Some(&c.full) == self.app_head.as_ref()))
+            || (self.app_head.is_some()
+                && git
+                    .ahead
+                    .iter()
+                    .any(|c| Some(&c.full) == self.app_head.as_ref()))
     }
 }
 
@@ -166,9 +170,14 @@ fn readings_file(home: &Path) -> PathBuf {
 
 fn read_readings(file: &Path) -> Result<Vec<Reading>> {
     match std::fs::read(file) {
-        Ok(bytes) => serde_json::from_slice(&bytes).context(|| format!("reading {}", file.display())),
+        Ok(bytes) => {
+            serde_json::from_slice(&bytes).context(|| format!("reading {}", file.display()))
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(error) => Err(Fail::Message(format!("reading {}: {error}", file.display()))),
+        Err(error) => Err(Fail::Message(format!(
+            "reading {}: {error}",
+            file.display()
+        ))),
     }
 }
 
@@ -176,8 +185,11 @@ fn write_readings(file: &Path, readings: &[Reading]) -> Result<()> {
     let dir = file.parent().expect("the file has a folder");
     std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
     let staged = file.with_extension(format!("{}", std::process::id()));
-    std::fs::write(&staged, serde_json::to_vec(readings).expect("readings serialize"))
-        .context(|| format!("writing {}", staged.display()))?;
+    std::fs::write(
+        &staged,
+        serde_json::to_vec(readings).expect("readings serialize"),
+    )
+    .context(|| format!("writing {}", staged.display()))?;
     std::fs::rename(&staged, file).context(|| format!("writing {}", file.display()))
 }
 
@@ -187,7 +199,11 @@ fn minutes_since(now: i64, then: i64) -> i64 {
 
 fn command_line(pid: i32) -> String {
     let line = args(pid).unwrap_or_default().join(" ");
-    if line.chars().count() > 200 { format!("{}…", line.chars().take(200).collect::<String>()) } else { line }
+    if line.chars().count() > 200 {
+        format!("{}…", line.chars().take(200).collect::<String>())
+    } else {
+        line
+    }
 }
 
 /// What the processes and sccache say now: the part of health a daemon
@@ -218,14 +234,19 @@ pub fn sccache_reading(home: &Path, now: i64) -> Result<(bool, Option<u64>, Opti
     };
     let file = readings_file(home);
     let mut readings = read_readings(&file)?;
-    let compared = readings.iter().filter(|r| now - r.at >= READING_MINUTES * 60).max_by_key(|r| r.at).cloned();
+    let compared = readings
+        .iter()
+        .filter(|r| now - r.at >= READING_MINUTES * 60)
+        .max_by_key(|r| r.at)
+        .cloned();
     if let Some(executed) = executed
-        && readings.iter().all(|r| now - r.at >= 60) {
-            readings.push(Reading { executed, at: now });
-            // Keep what the next runs compare against: the last hour.
-            readings.retain(|r| now - r.at <= 3600);
-            write_readings(&file, &readings)?;
-        }
+        && readings.iter().all(|r| now - r.at >= 60)
+    {
+        readings.push(Reading { executed, at: now });
+        // Keep what the next runs compare against: the last hour.
+        readings.retain(|r| now - r.at <= 3600);
+        write_readings(&file, &readings)?;
+    }
     Ok((listening, executed, compared))
 }
 
@@ -252,7 +273,10 @@ pub fn sample(
         if args(process.pid).is_none_or(|argv| argv.len() < 2) {
             continue;
         }
-        let checkout = builds.iter().find(|b| b.pid == process.pid).map(|b| places[b.place].label.clone());
+        let checkout = builds
+            .iter()
+            .find(|b| b.pid == process.pid)
+            .map(|b| places[b.place].label.clone());
         waiting.push(Client {
             pid: process.pid,
             minutes: minutes_since(now, process.started),
@@ -262,20 +286,36 @@ pub fn sample(
     }
     waiting.sort_by_key(|c| std::cmp::Reverse(c.minutes));
     let mut held = Vec::new();
-    for AppLock { repo, lane, checkout, path, app_top } in locks {
+    for AppLock {
+        repo,
+        lane,
+        checkout,
+        path,
+        app_top,
+    } in locks
+    {
         let shown = path.display().to_string();
         let real = std::fs::canonicalize(path).unwrap_or(path.clone());
-        let opened = |pid: i32| open_files(pid).iter().any(|open| *open == real || open == path);
+        let opened = |pid: i32| {
+            open_files(pid)
+                .iter()
+                .any(|open| *open == real || open == path)
+        };
         // `builds lock <repo> ...`, `builds build-app <repo> ...` and
         // `builds app-build <repo> ...`: the one with the lock's file open
         // holds it; the others wait in its queue.
-        let mut holding = processes.list.iter().filter(|p| p.name == "builds").find(|process| {
-            let locking = |argv: Vec<String>| {
-                argv.get(1).is_some_and(|a| a == "lock" || a == "build-app" || a == "app-build")
-                    && argv.get(2) == Some(repo)
-            };
-            args(process.pid).is_some_and(locking) && opened(process.pid)
-        });
+        let mut holding = processes
+            .list
+            .iter()
+            .filter(|p| p.name == "builds")
+            .find(|process| {
+                let locking = |argv: Vec<String>| {
+                    argv.get(1)
+                        .is_some_and(|a| a == "lock" || a == "build-app" || a == "app-build")
+                        && argv.get(2) == Some(repo)
+                };
+                args(process.pid).is_some_and(locking) && opened(process.pid)
+            });
         // A build whose `builds lock` was killed outright still holds the
         // lock: its processes have the file open. Found only when the lock is
         // taken, since reading every process's open files costs.
@@ -286,39 +326,85 @@ pub fn sample(
             pid: process.pid,
             minutes: minutes_since(now, process.started),
             command: command_line(process.pid),
-            running: processes.children(process.pid).map(|child| command_line(child.pid)).collect(),
-            started_from: cwd(process.pid).and_then(|dir| place_of(places, &dir)).map(|at| places[at].label.clone()),
+            running: processes
+                .children(process.pid)
+                .map(|child| command_line(child.pid))
+                .collect(),
+            started_from: cwd(process.pid)
+                .and_then(|dir| place_of(places, &dir))
+                .map(|at| places[at].label.clone()),
             app_head: app_top.as_deref().and_then(head_of),
         });
-        held.push(LockHealth { repo: repo.clone(), lane: lane.word().to_string(), checkout: checkout.clone(), path: shown, holder });
+        held.push(LockHealth {
+            repo: repo.clone(),
+            lane: lane.word().to_string(),
+            checkout: checkout.clone(),
+            path: shown,
+            holder,
+        });
     }
     let mut queues: Vec<LaneQueue> = Vec::new();
-    for AppLock { repo, lane, path, .. } in locks {
-        if queues.iter().any(|q| q.repo == *repo && q.lane == lane.word()) {
+    for AppLock {
+        repo, lane, path, ..
+    } in locks
+    {
+        if queues
+            .iter()
+            .any(|q| q.repo == *repo && q.lane == lane.word())
+        {
             continue;
         }
         // `Queue::waiting` is those after the lane's holders.
-        let in_line = path.parent().and_then(|locks_dir| locks_dir.parent()).map(|repo_dir| crate::queue::Queue::in_repo_dir(repo_dir, *lane).waiting()).unwrap_or_default();
+        let in_line = path
+            .parent()
+            .and_then(|locks_dir| locks_dir.parent())
+            .map(|repo_dir| crate::queue::Queue::in_repo_dir(repo_dir, *lane).waiting())
+            .unwrap_or_default();
         let queue = in_line
             .into_iter()
-            .filter_map(|pid| processes.list.iter().find(|p| p.pid == pid && p.name == "builds"))
+            .filter_map(|pid| {
+                processes
+                    .list
+                    .iter()
+                    .find(|p| p.pid == pid && p.name == "builds")
+            })
             .map(|process| Queued {
                 pid: process.pid,
                 minutes: minutes_since(now, process.started),
                 command: command_line(process.pid),
-                started_from: cwd(process.pid).and_then(|dir| place_of(places, &dir)).map(|at| places[at].label.clone()),
+                started_from: cwd(process.pid)
+                    .and_then(|dir| place_of(places, &dir))
+                    .map(|at| places[at].label.clone()),
             })
             .collect();
-        queues.push(LaneQueue { repo: repo.clone(), lane: lane.word().to_string(), queue });
+        queues.push(LaneQueue {
+            repo: repo.clone(),
+            lane: lane.word().to_string(),
+            queue,
+        });
     }
-    let queued: std::collections::HashSet<i32> = queues.iter().flat_map(|q| q.queue.iter().map(|w| w.pid)).collect();
-    let shells = crate::shells::judge(&crate::shells::gather(&processes, uid), now, home, places, &queued);
+    let queued: std::collections::HashSet<i32> = queues
+        .iter()
+        .flat_map(|q| q.queue.iter().map(|w| w.pid))
+        .collect();
+    let shells = crate::shells::judge(
+        &crate::shells::gather(&processes, uid),
+        now,
+        home,
+        places,
+        &queued,
+    );
     Machine {
         at: now,
         load: load_average(),
         cores: cores(),
         builds,
-        sccache: SccacheHealth { listening, executed, compared, waiting },
+        sccache: SccacheHealth {
+            listening,
+            executed,
+            compared,
+            waiting,
+        },
         shells,
         locks: held,
         queues,
@@ -329,8 +415,15 @@ pub fn sample(
 /// letting it go at once.
 fn taken(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
-    let Ok(c_path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false };
-    let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | libc::O_EXLOCK | libc::O_NONBLOCK | libc::O_CLOEXEC) };
+    let Ok(c_path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    let fd = unsafe {
+        libc::open(
+            c_path.as_ptr(),
+            libc::O_RDONLY | libc::O_EXLOCK | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
     if fd >= 0 {
         unsafe { libc::close(fd) };
         return false;
@@ -341,7 +434,11 @@ fn taken(path: &Path) -> bool {
 /// Of <uid>'s processes for which <holds> is true, the oldest one whose
 /// parent doesn't hold it too: the top of the build holding a lock.
 fn topmost(processes: &Processes, uid: u32, holds: impl Fn(i32) -> bool) -> Option<&Process> {
-    let holding: Vec<&Process> = processes.list.iter().filter(|p| p.uid == uid && holds(p.pid)).collect();
+    let holding: Vec<&Process> = processes
+        .list
+        .iter()
+        .filter(|p| p.uid == uid && holds(p.pid))
+        .collect();
     holding
         .iter()
         .filter(|p| !holding.iter().any(|q| q.pid == p.ppid))
@@ -392,7 +489,11 @@ pub fn assess(
 ) -> Health {
     let mut findings = Vec::new();
     if disk.free_kib < disk.floor_kib {
-        findings.push(format!("disk: {} free, under the {} floor", human(disk.free_kib), human(disk.floor_kib)));
+        findings.push(format!(
+            "disk: {} free, under the {} floor",
+            human(disk.free_kib),
+            human(disk.floor_kib)
+        ));
     }
     let s = &machine.sccache;
     if let Some(oldest) = s.waiting.first().map(|c| c.minutes) {
@@ -426,19 +527,40 @@ pub fn assess(
         }
     }
     let mut worktrees = Vec::new();
-    for Claimed { place, claim, branch, git } in claimed {
-        let building: Vec<BuildProcess> = machine.builds.iter().filter(|b| b.place == place).cloned().collect();
+    for Claimed {
+        place,
+        claim,
+        branch,
+        git,
+    } in claimed
+    {
+        let building: Vec<BuildProcess> = machine
+            .builds
+            .iter()
+            .filter(|b| b.place == place)
+            .cloned()
+            .collect();
         let quiet_minutes = git.activity().map(|when| minutes_since(now, when));
         let label = places[place].label.clone();
-        let app_build =
-            machine.locks.iter().filter_map(|lock| lock.holder.as_ref()).find(|h| h.builds_for(&label, &git)).map(|h| h.pid);
+        let app_build = machine
+            .locks
+            .iter()
+            .filter_map(|lock| lock.holder.as_ref())
+            .find(|h| h.builds_for(&label, &git))
+            .map(|h| h.pid);
         // A held claim is quiet on purpose: its note says why.
         let held = claim.note_state.as_deref() == Some("held");
-        if !held && building.is_empty() && app_build.is_none() && quiet_minutes.is_none_or(|m| m >= QUIET_MINUTES) {
+        if !held
+            && building.is_empty()
+            && app_build.is_none()
+            && quiet_minutes.is_none_or(|m| m >= QUIET_MINUTES)
+        {
             findings.push(format!(
                 "worktree: {label} ({}) has had no change for {} and no build runs there",
                 claim.who,
-                quiet_minutes.map(|m| format!("{m}m")).unwrap_or_else(|| "as long as git can tell".to_string())
+                quiet_minutes
+                    .map(|m| format!("{m}m"))
+                    .unwrap_or_else(|| "as long as git can tell".to_string())
             ));
         }
         worktrees.push(WorktreeHealth {
@@ -472,7 +594,11 @@ pub fn places_of(roots: &[Root]) -> Vec<Place> {
     roots
         .iter()
         .filter(|root| root.live.is_some())
-        .map(|root| Place { label: format!("{}/{}", root_repo(root), root.name()), top: root.top.clone(), root: root.path.clone() })
+        .map(|root| Place {
+            label: format!("{}/{}", root_repo(root), root.name()),
+            top: root.top.clone(),
+            root: root.path.clone(),
+        })
         .collect()
 }
 
@@ -491,9 +617,17 @@ pub fn locks_of(places: &crate::places::Places, roots: &[Root]) -> Result<Vec<Ap
                 }
                 let app_top = roots
                     .iter()
-                    .find(|root| root_repo(root) == repo && root.name() == app && root.live.is_some())
+                    .find(|root| {
+                        root_repo(root) == repo && root.name() == app && root.live.is_some()
+                    })
                     .map(|root| root.top.clone());
-                locks.push(AppLock { repo: repo.clone(), lane, checkout: app, path, app_top });
+                locks.push(AppLock {
+                    repo: repo.clone(),
+                    lane,
+                    checkout: app,
+                    path,
+                    app_top,
+                });
             }
         }
     }
@@ -507,7 +641,14 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let live: Vec<&Root> = roots.iter().filter(|root| root.live.is_some()).collect();
     let places = places_of(&roots);
     let sccache = sccache_reading(&tool.places.home, now)?;
-    let machine = sample(&places, &locks_of(&tool.places, &roots)?, tool.places.uid, &tool.places.home, now, sccache);
+    let machine = sample(
+        &places,
+        &locks_of(&tool.places, &roots)?,
+        tool.places.uid,
+        &tool.places.home,
+        now,
+        sccache,
+    );
     let mut claimed = Vec::new();
     let mut unclaimed = Vec::new();
     for (at, root) in live.iter().enumerate() {
@@ -521,20 +662,46 @@ pub fn health(tool: &Tool) -> Result<Health> {
             None => unclaimed.push((at, checkout)),
         }
     }
-    let unclaimed_gits = parallel_map(&unclaimed, |(_, checkout)| crate::side_git::read(&checkout.top));
-    let unclaimed: Vec<Unclaimed> =
-        unclaimed.into_iter().zip(unclaimed_gits).map(|((place, _), git)| Unclaimed { place, git }).collect();
-    let gits = parallel_map(&claimed, |(_, checkout, _)| crate::side_git::read(&checkout.top));
+    let unclaimed_gits = parallel_map(&unclaimed, |(_, checkout)| {
+        crate::side_git::read(&checkout.top)
+    });
+    let unclaimed: Vec<Unclaimed> = unclaimed
+        .into_iter()
+        .zip(unclaimed_gits)
+        .map(|((place, _), git)| Unclaimed { place, git })
+        .collect();
+    let gits = parallel_map(&claimed, |(_, checkout, _)| {
+        crate::side_git::read(&checkout.top)
+    });
     let mut judged = Vec::new();
     for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
-        judged.push(Claimed { place, claim, branch: checkout.branch()?, git });
+        judged.push(Claimed {
+            place,
+            claim,
+            branch: checkout.branch()?,
+            git,
+        });
     }
-    let lists = crate::lists::running::findings(&tool.places, &crate::lists::store::load_all(&tool.places))?;
-    Ok(assess(now, tool.disk_space()?, machine, &places, judged, unclaimed, lists))
+    let lists = crate::lists::running::findings(
+        &tool.places,
+        &crate::lists::store::load_all(&tool.places),
+    )?;
+    Ok(assess(
+        now,
+        tool.disk_space()?,
+        machine,
+        &places,
+        judged,
+        unclaimed,
+        lists,
+    ))
 }
 
 fn root_repo(root: &Root) -> String {
-    root.path.parent().map(crate::checkout::file_name).unwrap_or_default()
+    root.path
+        .parent()
+        .map(crate::checkout::file_name)
+        .unwrap_or_default()
 }
 
 /// What the build processes of a worktree are: `cargo, rustc x4`.
@@ -557,7 +724,10 @@ fn process_summary(building: &[BuildProcess]) -> String {
 pub fn lines(health: &Health) -> Vec<String> {
     let mut out = Vec::new();
     let [one, five, fifteen] = health.load;
-    out.push(format!("load: {one:.1} {five:.1} {fifteen:.1} on {} cores", health.cores));
+    out.push(format!(
+        "load: {one:.1} {five:.1} {fifteen:.1} on {} cores",
+        health.cores
+    ));
     out.push(format!(
         "disk: {} free; warns under {}, stops under {}",
         human(health.disk.free_kib),
@@ -575,13 +745,18 @@ pub fn lines(health: &Health) -> Vec<String> {
                 local_minute(before.at),
                 minutes_since(health.generated_at, before.at)
             ),
-            None => format!("sccache: {executed} compiles executed; no reading {READING_MINUTES}+ min old to compare with yet"),
+            None => format!(
+                "sccache: {executed} compiles executed; no reading {READING_MINUTES}+ min old to compare with yet"
+            ),
         },
     };
     if s.waiting.is_empty() {
         line += &format!("; no client waiting {CLIENT_MINUTES}+ min");
     } else {
-        line += &format!("; {} clients waiting {CLIENT_MINUTES}+ min", s.waiting.len());
+        line += &format!(
+            "; {} clients waiting {CLIENT_MINUTES}+ min",
+            s.waiting.len()
+        );
     }
     out.push(line);
     for client in &s.waiting {
@@ -590,7 +765,11 @@ pub fn lines(health: &Health) -> Vec<String> {
             client.pid,
             client.minutes,
             client.cpu_seconds,
-            client.checkout.as_ref().map(|c| format!(", {c}")).unwrap_or_default()
+            client
+                .checkout
+                .as_ref()
+                .map(|c| format!(", {c}"))
+                .unwrap_or_default()
         ));
     }
     out.extend(crate::shells::lines(&health.shells));
@@ -611,19 +790,28 @@ pub fn lines(health: &Health) -> Vec<String> {
             w.claim.who,
             w.claim.since,
             match (&w.claim.note_state, &w.claim.note) {
-                (Some(state), note) => format!(" ({}): {}", state.replace('-', " "), note.as_deref().unwrap_or("")),
+                (Some(state), note) => format!(
+                    " ({}): {}",
+                    state.replace('-', " "),
+                    note.as_deref().unwrap_or("")
+                ),
                 (None, Some(note)) => format!(": {note}"),
                 (None, None) => String::new(),
             }
         ));
         out.push(format!(
             "        {git}; last change {}; {}",
-            w.quiet_minutes.map(|m| format!("{m}m ago")).unwrap_or_else(|| "unknown".to_string()),
+            w.quiet_minutes
+                .map(|m| format!("{m}m ago"))
+                .unwrap_or_else(|| "unknown".to_string()),
             match (w.building.is_empty(), w.app_build) {
                 (true, None) => "no build running".to_string(),
                 (true, Some(pid)) => format!("building in the app checkout (pid {pid})"),
                 (false, None) => format!("building: {}", process_summary(&w.building)),
-                (false, Some(pid)) => format!("building: {}; and in the app checkout (pid {pid})", process_summary(&w.building)),
+                (false, Some(pid)) => format!(
+                    "building: {}; and in the app checkout (pid {pid})",
+                    process_summary(&w.building)
+                ),
             }
         ));
     }
@@ -637,13 +825,25 @@ pub fn lines(health: &Health) -> Vec<String> {
                 holder.minutes,
                 holder.pid,
                 holder.command,
-                if holder.running.is_empty() { String::new() } else { format!("; running {}", holder.running.join("; ")) }
+                if holder.running.is_empty() {
+                    String::new()
+                } else {
+                    format!("; running {}", holder.running.join("; "))
+                }
             )),
-            None => out.push(format!("app lock {} ({} {}): free", lock.repo, lock.lane, lock.checkout)),
+            None => out.push(format!(
+                "app lock {} ({} {}): free",
+                lock.repo, lock.lane, lock.checkout
+            )),
         }
     }
     for q in &health.queues {
-        out.push(format!("app queue {} ({}): {} waiting", q.repo, q.lane, q.queue.len()));
+        out.push(format!(
+            "app queue {} ({}): {} waiting",
+            q.repo,
+            q.lane,
+            q.queue.len()
+        ));
     }
     if health.findings.is_empty() {
         out.push("needs action: nothing".to_string());
@@ -669,13 +869,20 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         None => health(tool)?,
     };
     if json {
-        println!("{}", serde_json::to_string(&health).expect("health serializes"));
+        println!(
+            "{}",
+            serde_json::to_string(&health).expect("health serializes")
+        );
     } else {
         for line in lines(&health) {
             println!("{line}");
         }
     }
-    if health.findings.is_empty() { Ok(()) } else { Err(Fail::Exit(1)) }
+    if health.findings.is_empty() {
+        Ok(())
+    } else {
+        Err(Fail::Exit(1))
+    }
 }
 
 #[cfg(test)]
@@ -693,7 +900,12 @@ mod tests {
             load: [1.0; 3],
             cores: 8,
             builds: Vec::new(),
-            sccache: SccacheHealth { listening: true, executed: Some(1), compared: None, waiting: Vec::new() },
+            sccache: SccacheHealth {
+                listening: true,
+                executed: Some(1),
+                compared: None,
+                waiting: Vec::new(),
+            },
             shells: Shells::default(),
             locks: Vec::new(),
             queues: Vec::new(),
@@ -712,11 +924,21 @@ mod tests {
                 note_state: state.map(str::to_string),
             },
             branch: Some("work".to_string()),
-            git: SideGit { head: None, ahead: Vec::new(), uncommitted: Some(3), last_write: Some(now - 3 * 3600), error: None },
+            git: SideGit {
+                head: None,
+                ahead: Vec::new(),
+                uncommitted: Some(3),
+                last_write: Some(now - 3 * 3600),
+                error: None,
+            },
         };
         let health = assess(
             now,
-            DiskSpace { free_kib: 100 << 20, floor_kib: 30 << 20, hard_floor_kib: 10 << 20 },
+            DiskSpace {
+                free_kib: 100 << 20,
+                floor_kib: 30 << 20,
+                hard_floor_kib: 10 << 20,
+            },
             machine,
             &[place(1), place(2)],
             vec![claimed(1, None), claimed(2, Some("held"))],
@@ -724,7 +946,11 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
-        assert!(health.findings[0].starts_with("worktree: demo/side-1 "), "{:?}", health.findings);
+        assert!(
+            health.findings[0].starts_with("worktree: demo/side-1 "),
+            "{:?}",
+            health.findings
+        );
         assert_eq!(health.worktrees.len(), 2);
     }
 
@@ -738,7 +964,12 @@ mod tests {
             load: [1.0; 3],
             cores: 8,
             builds: Vec::new(),
-            sccache: SccacheHealth { listening: true, executed: Some(1), compared: None, waiting: Vec::new() },
+            sccache: SccacheHealth {
+                listening: true,
+                executed: Some(1),
+                compared: None,
+                waiting: Vec::new(),
+            },
             shells: Shells::default(),
             locks: Vec::new(),
             queues: Vec::new(),
@@ -748,20 +979,46 @@ mod tests {
             top: PathBuf::from(format!("/demo-worktrees/side-{n}")),
             root: PathBuf::from(format!("/volume/demo/side-{n}")),
         };
-        let commit = Commit { sha: "abc".into(), full: "abc".into(), time: now, authored: now, subject: "Work".into() };
-        let git = |ahead: Vec<Commit>| SideGit { head: None, ahead, uncommitted: Some(0), last_write: None, error: None };
+        let commit = Commit {
+            sha: "abc".into(),
+            full: "abc".into(),
+            time: now,
+            authored: now,
+            subject: "Work".into(),
+        };
+        let git = |ahead: Vec<Commit>| SideGit {
+            head: None,
+            ahead,
+            uncommitted: Some(0),
+            last_write: None,
+            error: None,
+        };
         let health = assess(
             now,
-            DiskSpace { free_kib: 100 << 20, floor_kib: 30 << 20, hard_floor_kib: 10 << 20 },
+            DiskSpace {
+                free_kib: 100 << 20,
+                floor_kib: 30 << 20,
+                hard_floor_kib: 10 << 20,
+            },
             machine,
             &[place(1), place(2)],
             Vec::new(),
-            vec![Unclaimed { place: 0, git: git(vec![commit]) }, Unclaimed { place: 1, git: git(Vec::new()) }],
+            vec![
+                Unclaimed {
+                    place: 0,
+                    git: git(vec![commit]),
+                },
+                Unclaimed {
+                    place: 1,
+                    git: git(Vec::new()),
+                },
+            ],
             Vec::new(),
         );
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
         assert!(
-            health.findings[0].starts_with("worktree: demo/side-1 has no claim and 1 commit waiting to land"),
+            health.findings[0]
+                .starts_with("worktree: demo/side-1 has no claim and 1 commit waiting to land"),
             "{:?}",
             health.findings
         );

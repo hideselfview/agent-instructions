@@ -83,7 +83,9 @@ pub fn debug_map(path: &Path) -> Option<HashSet<String>> {
 }
 
 fn base(path: &Path) -> &str {
-    path.file_name().and_then(|name| name.to_str()).unwrap_or("")
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
 }
 
 /// The token one build gives every object file of a unit it writes, the third
@@ -113,7 +115,10 @@ fn unread_objects(objects: Vec<PathBuf>, binaries: &[PathBuf]) -> Vec<PathBuf> {
             None => return Vec::new(),
         }
     }
-    objects.into_iter().filter(|path| !named.contains(base(path))).collect()
+    objects
+        .into_iter()
+        .filter(|path| !named.contains(base(path)))
+        .collect()
 }
 
 /// The object files in <profile> that no build or debugger reads, among
@@ -123,8 +128,12 @@ fn unread_objects(objects: Vec<PathBuf>, binaries: &[PathBuf]) -> Vec<PathBuf> {
 pub fn dead_objects(profile: &Path, units: &[&Unit]) -> Result<Vec<PathBuf>> {
     let mut dead = Vec::new();
     for found in units {
-        let objects: Vec<PathBuf> =
-            found.outputs.iter().filter(|path| base(path).ends_with(".rcgu.o")).cloned().collect();
+        let objects: Vec<PathBuf> = found
+            .outputs
+            .iter()
+            .filter(|path| base(path).ends_with(".rcgu.o"))
+            .cloned()
+            .collect();
         if objects.is_empty() {
             continue;
         }
@@ -134,7 +143,12 @@ pub fn dead_objects(profile: &Path, units: &[&Unit]) -> Result<Vec<PathBuf>> {
             .filter(|path| base(path).ends_with(".dylib") || !base(path).contains('.'))
             .cloned()
             .collect();
-        if binaries.is_empty() && found.outputs.iter().any(|path| base(path).ends_with(".rlib")) {
+        if binaries.is_empty()
+            && found
+                .outputs
+                .iter()
+                .any(|path| base(path).ends_with(".rlib"))
+        {
             dead.extend(objects);
         } else {
             dead.extend(unread_objects(objects, &binaries));
@@ -156,7 +170,11 @@ pub fn dead_objects(profile: &Path, units: &[&Unit]) -> Result<Vec<PathBuf>> {
         for krate in order {
             let objects = unhashed.remove(&krate).expect("listed above");
             let dylib = deps.join(format!("lib{krate}.dylib"));
-            let binaries = if dylib.exists() { vec![dylib] } else { Vec::new() };
+            let binaries = if dylib.exists() {
+                vec![dylib]
+            } else {
+                Vec::new()
+            };
             dead.extend(unread_objects(objects, &binaries));
         }
     }

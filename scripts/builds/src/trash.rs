@@ -25,7 +25,7 @@ use std::process::{Command, Stdio};
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::places::{Places, EMPTYING_PREFIX};
+use crate::places::{EMPTYING_PREFIX, Places};
 
 /// The shared trash lock: waits only for an emptier's rename.
 pub fn lock_shared(places: &Places) -> Result<File> {
@@ -63,7 +63,11 @@ fn flock(file: &File, operation: i32, path: &Path) -> Result<bool> {
 /// when <wait> is false and another process holds it.
 fn lock_folder(dir: &Path, wait: bool) -> Result<Option<File>> {
     let file = File::open(dir).context(|| format!("opening {}", dir.display()))?;
-    let operation = if wait { libc::LOCK_EX } else { libc::LOCK_EX | libc::LOCK_NB };
+    let operation = if wait {
+        libc::LOCK_EX
+    } else {
+        libc::LOCK_EX | libc::LOCK_NB
+    };
     Ok(flock(&file, operation, dir)?.then_some(file))
 }
 
@@ -141,7 +145,14 @@ fn spawn_rm(paths: &[PathBuf], then_rmdir: Option<&Path>, holds: &[&File]) -> Re
             Ok(())
         });
     }
-    command.spawn().context(|| format!("starting rm -rf in {}", paths.first().map_or(String::new(), |p| p.display().to_string())))?;
+    command.spawn().context(|| {
+        format!(
+            "starting rm -rf in {}",
+            paths
+                .first()
+                .map_or(String::new(), |p| p.display().to_string())
+        )
+    })?;
     Ok(())
 }
 
@@ -153,12 +164,20 @@ fn take_out(places: &Places) -> Result<Vec<PathBuf>> {
     let trash = places.trash();
     if trash.is_dir() {
         let aside = crate::evict::make_temp_dir(&places.root, EMPTYING_PREFIX)?;
-        std::fs::rename(&trash, &aside).context(|| format!("moving {} aside to {}", trash.display(), aside.display()))?;
+        std::fs::rename(&trash, &aside)
+            .context(|| format!("moving {} aside to {}", trash.display(), aside.display()))?;
     }
     let mut folders = Vec::new();
-    for entry in std::fs::read_dir(&places.root).context(|| format!("listing {}", places.root.display()))? {
+    for entry in
+        std::fs::read_dir(&places.root).context(|| format!("listing {}", places.root.display()))?
+    {
         let entry = entry.context(|| format!("listing {}", places.root.display()))?;
-        if entry.file_name().to_string_lossy().starts_with(EMPTYING_PREFIX) && entry.path().is_dir() {
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with(EMPTYING_PREFIX)
+            && entry.path().is_dir()
+        {
             folders.push(entry.path());
         }
     }
@@ -173,7 +192,11 @@ fn entries(folder: &Path) -> Result<Vec<PathBuf>> {
         Err(error) => fail!("listing {}: {error}", folder.display()),
     };
     for entry in listing {
-        found.push(entry.context(|| format!("listing {}", folder.display()))?.path());
+        found.push(
+            entry
+                .context(|| format!("listing {}", folder.display()))?
+                .path(),
+        );
     }
     Ok(found)
 }
@@ -196,7 +219,10 @@ pub fn empty_now(places: &Places) -> Result<()> {
                 if let Err(error) = std::fs::remove_file(&slot)
                     && error.kind() != std::io::ErrorKind::NotFound
                 {
-                    crate::text::note(format!("warning: could not remove {}: {error}", slot.display()));
+                    crate::text::note(format!(
+                        "warning: could not remove {}: {error}",
+                        slot.display()
+                    ));
                 }
             }
         }
@@ -205,7 +231,10 @@ pub fn empty_now(places: &Places) -> Result<()> {
         if let Err(error) = std::fs::remove_dir(&folder)
             && error.kind() != std::io::ErrorKind::NotFound
         {
-            crate::text::note(format!("warning: could not remove {}: {error}", folder.display()));
+            crate::text::note(format!(
+                "warning: could not remove {}: {error}",
+                folder.display()
+            ));
         }
     }
     Ok(())

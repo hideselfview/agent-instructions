@@ -61,10 +61,17 @@ fn floor_candidates(tool: &Tool, roots: &[Root]) -> Result<Vec<Candidate>> {
         }
     }
     let measured = tool.measure_all(&paths)?;
-    let mut candidates: Vec<Candidate> =
-        paths.into_iter().zip(measured).map(|(path, measured)| Candidate { path, measured }).collect();
+    let mut candidates: Vec<Candidate> = paths
+        .into_iter()
+        .zip(measured)
+        .map(|(path, measured)| Candidate { path, measured })
+        .collect();
     candidates.sort_by(|a, b| {
-        a.measured.newest.unwrap_or(0).cmp(&b.measured.newest.unwrap_or(0)).then_with(|| a.path.cmp(&b.path))
+        a.measured
+            .newest
+            .unwrap_or(0)
+            .cmp(&b.measured.newest.unwrap_or(0))
+            .then_with(|| a.path.cmp(&b.path))
     });
     Ok(candidates)
 }
@@ -128,14 +135,22 @@ fn delete_idle_increments(tool: &Tool, roots: &[Root], mut free: u64, floor: u64
         if tally.locked > 0 {
             note(format!(
                 "kept {} in {}: a build holds its lock",
-                counted(tally.locked, "idle incremental folder", "idle incremental folders"),
+                counted(
+                    tally.locked,
+                    "idle incremental folder",
+                    "idle incremental folders"
+                ),
                 profile.display()
             ));
         }
         if tally.held > 0 {
             note(format!(
                 "kept {} in {}: a process holds their files",
-                counted(tally.held, "idle incremental folder", "idle incremental folders"),
+                counted(
+                    tally.held,
+                    "idle incremental folder",
+                    "idle incremental folders"
+                ),
                 profile.display()
             ));
         }
@@ -167,23 +182,38 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
     free = tool.free_kib()?;
     let gone: Vec<&Root> = roots.iter().filter(|root| root.live.is_none()).collect();
     let gone_paths: Vec<PathBuf> = gone.iter().map(|root| root.path.clone()).collect();
-    let gone_measures = if free >= floor { Vec::new() } else { tool.measure_all(&gone_paths)? };
+    let gone_measures = if free >= floor {
+        Vec::new()
+    } else {
+        tool.measure_all(&gone_paths)?
+    };
     for (root, measured) in gone.into_iter().zip(gone_measures) {
         if free >= floor {
             break;
         }
         let kib = measured.kib;
         if evict(&tool.places, &root.path, Recreate::No, Removal::Now)? {
-            note(format!("deleted {} ({}; its checkout is gone)", root.path.display(), human(kib)));
+            note(format!(
+                "deleted {} ({}; its checkout is gone)",
+                root.path.display(),
+                human(kib)
+            ));
             free = tool.free_kib()?;
         }
     }
-    let entries = if free >= floor { Vec::new() } else { derived_data(tool)?.1 };
+    let entries = if free >= floor {
+        Vec::new()
+    } else {
+        derived_data(tool)?.1
+    };
     for entry in entries {
         if free >= floor {
             break;
         }
-        let measured = Measure { kib: entry.kib, newest: Some(entry.newest) };
+        let measured = Measure {
+            kib: entry.kib,
+            newest: Some(entry.newest),
+        };
         if tool.written_within(&measured, FLOOR_IDLE_MINUTES) {
             continue;
         }
@@ -206,7 +236,9 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
         if free >= floor {
             break;
         }
-        if candidate.measured.kib <= 1024 || tool.written_within(&candidate.measured, FLOOR_IDLE_MINUTES) {
+        if candidate.measured.kib <= 1024
+            || tool.written_within(&candidate.measured, FLOOR_IDLE_MINUTES)
+        {
             continue;
         }
         if evict(&tool.places, &candidate.path, Recreate::Yes, Removal::Now)? {
@@ -244,9 +276,18 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
         "Every incremental folder left was written in the last {FLOOR_INCREMENTAL_IDLE_MINUTES}m or is in use, and every build folder and DerivedData entry left is in use, was written in the last {FLOOR_IDLE_MINUTES}m, belongs to a claimed worktree, or is main's or an app checkout's own lane's, which stay warm. The biggest the floor may delete:"
     ));
     let mut biggest = floor_candidates(tool, roots)?;
-    biggest.sort_by(|a, b| b.measured.kib.cmp(&a.measured.kib).then_with(|| b.path.cmp(&a.path)));
+    biggest.sort_by(|a, b| {
+        b.measured
+            .kib
+            .cmp(&a.measured.kib)
+            .then_with(|| b.path.cmp(&a.path))
+    });
     for candidate in biggest.iter().take(8) {
-        lines.push(format!("    {}  {}", human(candidate.measured.kib), candidate.path.display()));
+        lines.push(format!(
+            "    {}  {}",
+            human(candidate.measured.kib),
+            candidate.path.display()
+        ));
     }
     let derived = tool.places.derived_data();
     let mut warm = Vec::new();
@@ -263,18 +304,33 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
     let mut asked = vec![derived.clone()];
     asked.extend(warm.iter().cloned());
     asked.extend(caches.iter().cloned());
-    let mut kib = tool.measure_all(&asked)?.into_iter().map(|measured| measured.kib);
+    let mut kib = tool
+        .measure_all(&asked)?
+        .into_iter()
+        .map(|measured| measured.kib);
     let derived_kib = kib.next().expect("measured");
     if derived.is_dir() {
-        lines.push(format!("    {}  {} (entries in use or written lately)", human(derived_kib), derived.display()));
+        lines.push(format!(
+            "    {}  {} (entries in use or written lately)",
+            human(derived_kib),
+            derived.display()
+        ));
     }
     lines.push("Kept warm:".to_string());
     for path in &warm {
-        lines.push(format!("    {}  {}", human(kib.next().expect("measured")), path.display()));
+        lines.push(format!(
+            "    {}  {}",
+            human(kib.next().expect("measured")),
+            path.display()
+        ));
     }
     lines.push("Shared caches, which only their caps delete:".to_string());
     for dir in &caches {
-        lines.push(format!("    {}  {}", human(kib.next().expect("measured")), dir.display()));
+        lines.push(format!(
+            "    {}  {}",
+            human(kib.next().expect("measured")),
+            dir.display()
+        ));
     }
     lines.push(
         "Retire finished side worktrees (builds retire), or delete idle build folders (builds prune --idle <minutes>)."

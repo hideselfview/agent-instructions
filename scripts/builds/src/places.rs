@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::fail::Result;
 use crate::fail;
+use crate::fail::Result;
 use crate::lane::Lane;
 
 /// A file in a build folder written this recently may belong to a build
@@ -152,7 +152,11 @@ impl Places {
     pub fn app_checkouts_of(&self, repo: &str, lane: Lane) -> Result<Vec<String>> {
         let file = self.app_checkouts_file(repo, lane);
         match std::fs::read_to_string(&file) {
-            Ok(text) => Ok(text.lines().filter(|line| !line.is_empty()).map(str::to_string).collect()),
+            Ok(text) => Ok(text
+                .lines()
+                .filter(|line| !line.is_empty())
+                .map(str::to_string)
+                .collect()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(error) => fail!("reading {}: {error}", file.display()),
         }
@@ -165,7 +169,9 @@ impl Places {
         let file = self.app_checkouts_file(repo, lane);
         if checkouts.is_empty() {
             return match std::fs::remove_file(&file) {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => fail!("removing {}: {error}", file.display()),
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    fail!("removing {}: {error}", file.display())
+                }
                 _ => Ok(()),
             };
         }
@@ -180,7 +186,11 @@ impl Places {
     /// The lane <checkout> is one of <repo>'s app checkouts of, if it is one.
     pub fn app_lane_of(&self, repo: &str, checkout: &str) -> Result<Option<Lane>> {
         for lane in Lane::ALL {
-            if self.app_checkouts_of(repo, lane)?.iter().any(|name| name == checkout) {
+            if self
+                .app_checkouts_of(repo, lane)?
+                .iter()
+                .any(|name| name == checkout)
+            {
                 return Ok(Some(lane));
             }
         }
@@ -291,7 +301,11 @@ pub struct Rules {
 impl Rules {
     /// <free_kib> of free space against these rules' floors.
     pub fn disk_space(&self, free_kib: u64) -> DiskSpace {
-        DiskSpace { free_kib, floor_kib: self.floor_kib, hard_floor_kib: self.hard_floor_kib }
+        DiskSpace {
+            free_kib,
+            floor_kib: self.floor_kib,
+            hard_floor_kib: self.hard_floor_kib,
+        }
     }
 
     pub fn from_env() -> Result<Rules> {

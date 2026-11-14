@@ -18,13 +18,15 @@ use super::runs::{RunPage, Runs};
 use super::tracker::Tracker;
 use crate::checkout::{Root, absolute_link_target, all_roots, parallel_map};
 use crate::claim::Claim;
-use crate::health::{Claimed, Health, Machine, Unclaimed, assess, locks_of, places_of, sample, sccache_reading};
+use crate::health::{
+    Claimed, Health, Machine, Unclaimed, assess, locks_of, places_of, sample, sccache_reading,
+};
+use crate::lists::view::ClaimFacts;
 use crate::manifest::{BuildDir, build_dirs};
 use crate::places::{DiskSpace, Places, Rules};
 use crate::procs::Place;
 use crate::side_git::SideGit;
 use crate::tool::volume_space;
-use crate::lists::view::ClaimFacts;
 use crate::usage::Measure;
 
 /// Changes wait this long for more before they are read: agents write
@@ -123,14 +125,22 @@ pub(super) fn now_seconds() -> i64 {
 }
 
 impl Model {
-    pub fn start(places: Places, rules: Rules, tracker: Arc<Tracker>, runs: Arc<Runs>) -> Arc<Model> {
+    pub fn start(
+        places: Places,
+        rules: Rules,
+        tracker: Arc<Tracker>,
+        runs: Arc<Runs>,
+    ) -> Arc<Model> {
         let model = Arc::new(Model {
             places: places.clone(),
             rules,
             tracker: tracker.clone(),
             state: Mutex::new(State::default()),
             changed: Condvar::new(),
-            dirty: Mutex::new(Dirty { layout: true, ..Dirty::default() }),
+            dirty: Mutex::new(Dirty {
+                layout: true,
+                ..Dirty::default()
+            }),
             wake: Condvar::new(),
             viewers: AtomicUsize::new(0),
             viewing: Condvar::new(),
@@ -182,7 +192,9 @@ impl Model {
         let volume = &self.tracker.root;
         self.mark(|dirty| {
             for path in paths {
-                let Ok(rest) = path.strip_prefix(volume) else { continue };
+                let Ok(rest) = path.strip_prefix(volume) else {
+                    continue;
+                };
                 let parts: Vec<String> = rest
                     .components()
                     .filter_map(|c| match c {
@@ -202,7 +214,9 @@ impl Model {
                     dirty.layout = true;
                 }
                 if parts.len() >= 2 {
-                    dirty.sizes.insert(self.places.root.join(&parts[0]).join(&parts[1]));
+                    dirty
+                        .sizes
+                        .insert(self.places.root.join(&parts[0]).join(&parts[1]));
                 }
             }
         });
@@ -210,12 +224,18 @@ impl Model {
 
     /// The checkouts' own folders changed under <paths>.
     fn checkouts_changed(&self, paths: &[PathBuf]) {
-        let roots = self.state.lock().expect("no panic holding it").roots.clone();
+        let roots = self
+            .state
+            .lock()
+            .expect("no panic holding it")
+            .roots
+            .clone();
         self.mark(|dirty| {
             for path in paths {
                 for root in &roots {
                     let Some(checkout) = &root.live else { continue };
-                    let in_tree = path.starts_with(&checkout.top) && !path.starts_with(checkout.main.join(".git"));
+                    let in_tree = path.starts_with(&checkout.top)
+                        && !path.starts_with(checkout.main.join(".git"));
                     let in_own_git = !checkout.is_main() && path.starts_with(&checkout.git_dir);
                     let common = checkout.main.join(".git");
                     let in_common = path.starts_with(&common)
@@ -226,7 +246,9 @@ impl Model {
                     if (in_tree && !checkout.is_main()) || in_own_git || in_common {
                         dirty.git.insert(checkout.top.clone());
                     }
-                    if in_tree && path.parent().is_some_and(|p| p == checkout.top) || *path == checkout.top {
+                    if in_tree && path.parent().is_some_and(|p| p == checkout.top)
+                        || *path == checkout.top
+                    {
                         // A manifest change shows here too.
                         dirty.sizes.insert(root.path.clone());
                     }
@@ -255,7 +277,10 @@ impl Model {
         }
         folders.sort();
         let mut stream = self.git_stream.lock().expect("no panic holding it");
-        if stream.as_ref().is_some_and(|(watched, _)| *watched == folders) {
+        if stream
+            .as_ref()
+            .is_some_and(|(watched, _)| *watched == folders)
+        {
             return;
         }
         let weak = Arc::downgrade(self);
@@ -289,10 +314,13 @@ impl Model {
             std::thread::sleep(SETTLE);
             let taken = std::mem::take(&mut *self.dirty.lock().expect("no panic holding it"));
             if let Err(error) = self.refresh(taken) {
-                eprintln!("builds: reading the checkouts: {}", match error {
-                    crate::fail::Fail::Message(message) => message,
-                    crate::fail::Fail::Exit(code) => format!("exit {code}"),
-                });
+                eprintln!(
+                    "builds: reading the checkouts: {}",
+                    match error {
+                        crate::fail::Fail::Message(message) => message,
+                        crate::fail::Fail::Exit(code) => format!("exit {code}"),
+                    }
+                );
             }
         }
     }
@@ -314,16 +342,31 @@ impl Model {
             }
             state.roots = roots;
         }
-        let roots = self.state.lock().expect("no panic holding it").roots.clone();
+        let roots = self
+            .state
+            .lock()
+            .expect("no panic holding it")
+            .roots
+            .clone();
         // Git, claims and manifests.
-        let tops: Vec<&Root> =
-            roots.iter().filter(|r| r.live.as_ref().is_some_and(|c| dirty.git.contains(&c.top))).collect();
+        let tops: Vec<&Root> = roots
+            .iter()
+            .filter(|r| r.live.as_ref().is_some_and(|c| dirty.git.contains(&c.top)))
+            .collect();
         let read = parallel_map(&tops, |root| {
             let checkout = root.live.as_ref().expect("live");
             let manifest = build_dirs(&checkout.top).unwrap_or_default();
-            let claim = if checkout.is_main() { Ok(None) } else { Claim::read(&checkout.claim_file()) };
+            let claim = if checkout.is_main() {
+                Ok(None)
+            } else {
+                Claim::read(&checkout.claim_file())
+            };
             let branch = checkout.branch();
-            let git = if checkout.is_main() { None } else { Some(crate::side_git::read(&checkout.top)) };
+            let git = if checkout.is_main() {
+                None
+            } else {
+                Some(crate::side_git::read(&checkout.top))
+            };
             (root.path.clone(), manifest, claim, branch, git)
         });
         {
@@ -341,24 +384,40 @@ impl Model {
         }
         // Sizes, from the tracker's index: no disk is walked.
         for root in roots.iter().filter(|r| dirty.sizes.contains(&r.path)) {
-            let manifest = self.state.lock().expect("no panic holding it").facts.get(&root.path).map(|f| f.manifest.clone());
+            let manifest = self
+                .state
+                .lock()
+                .expect("no panic holding it")
+                .facts
+                .get(&root.path)
+                .map(|f| f.manifest.clone());
             let (folders, gone_kib) = match (&root.live, manifest) {
                 (Some(checkout), Some(manifest)) => {
                     let lane = root.app_lane(&self.places)?;
-                    let paths: Vec<PathBuf> = manifest.iter().map(|e| root.path.join(&e.path)).collect();
+                    let paths: Vec<PathBuf> =
+                        manifest.iter().map(|e| root.path.join(&e.path)).collect();
                     let answers = self.tracker.measure(&paths, false);
                     let folders = manifest
                         .iter()
                         .zip(paths.iter().zip(answers))
                         .map(|(entry, (folder, answer))| {
-                            folder_facts(entry, entry.is_app_in(lane), folder, &checkout.top.join(&entry.path), answer)
+                            folder_facts(
+                                entry,
+                                entry.is_app_in(lane),
+                                folder,
+                                &checkout.top.join(&entry.path),
+                                answer,
+                            )
                         })
                         .collect();
                     (folders, None)
                 }
                 (Some(_), None) => continue,
                 (None, _) => {
-                    let answer = self.tracker.measure(std::slice::from_ref(&root.path), false).remove(0);
+                    let answer = self
+                        .tracker
+                        .measure(std::slice::from_ref(&root.path), false)
+                        .remove(0);
                     (Vec::new(), answer.map(|m| m.kib))
                 }
             };
@@ -397,10 +456,13 @@ impl Model {
                 }
             }
             if let Err(error) = self.sample_now() {
-                eprintln!("builds: reading the processes: {}", match error {
-                    crate::fail::Fail::Message(message) => message,
-                    crate::fail::Fail::Exit(code) => format!("exit {code}"),
-                });
+                eprintln!(
+                    "builds: reading the processes: {}",
+                    match error {
+                        crate::fail::Fail::Message(message) => message,
+                        crate::fail::Fail::Exit(code) => format!("exit {code}"),
+                    }
+                );
             }
             // Pacing: the processes are read at a rate, not on an event.
             std::thread::sleep(SAMPLE_EVERY);
@@ -412,7 +474,12 @@ impl Model {
         let now = now_seconds();
         let (roots, sccache_due) = {
             let state = self.state.lock().expect("no panic holding it");
-            (state.roots.clone(), state.sccache_at.is_none_or(|at| at.elapsed() >= SCCACHE_EVERY))
+            (
+                state.roots.clone(),
+                state
+                    .sccache_at
+                    .is_none_or(|at| at.elapsed() >= SCCACHE_EVERY),
+            )
         };
         let sccache = if sccache_due {
             let reading = sccache_reading(&self.places.home, now)?;
@@ -421,10 +488,22 @@ impl Model {
             state.sccache = Some(reading.clone());
             reading
         } else {
-            self.state.lock().expect("no panic holding it").sccache.clone().expect("read before")
+            self.state
+                .lock()
+                .expect("no panic holding it")
+                .sccache
+                .clone()
+                .expect("read before")
         };
         let places = places_of(&roots);
-        let machine = sample(&places, &locks_of(&self.places, &roots)?, self.places.uid, &self.places.home, now, sccache);
+        let machine = sample(
+            &places,
+            &locks_of(&self.places, &roots)?,
+            self.places.uid,
+            &self.places.home,
+            now,
+            sccache,
+        );
         let read_at = Instant::now();
         let free_kib = volume_space(&self.places.root)?.free_kib;
         let mut state = self.state.lock().expect("no panic holding it");
@@ -434,7 +513,10 @@ impl Model {
             if let Some((before, at)) = state.cpu.get(&process.pid) {
                 let seconds = read_at.duration_since(*at).as_secs_f64();
                 if seconds > 0.0 {
-                    percent.insert(process.pid, ((process.cpu_seconds - before) / seconds * 100.0).max(0.0));
+                    percent.insert(
+                        process.pid,
+                        ((process.cpu_seconds - before) / seconds * 100.0).max(0.0),
+                    );
                 }
             }
             cpu.insert(process.pid, (process.cpu_seconds, read_at));
@@ -479,9 +561,15 @@ impl Model {
     pub fn lists_json(&self) -> crate::fail::Result<Arc<String>> {
         let now = now_seconds();
         let (version, snapshot) = self.lists.current();
-        let claims: Vec<(String, ClaimFacts)> =
-            running_worktrees(&snapshot).into_iter().map(|worktree| (worktree.clone(), self.claim_facts(&worktree))).collect();
-        let key: ServedKey = (version, crate::text::local_day(now), claims.iter().map(|(_, facts)| facts.clone()).collect());
+        let claims: Vec<(String, ClaimFacts)> = running_worktrees(&snapshot)
+            .into_iter()
+            .map(|worktree| (worktree.clone(), self.claim_facts(&worktree)))
+            .collect();
+        let key: ServedKey = (
+            version,
+            crate::text::local_day(now),
+            claims.iter().map(|(_, facts)| facts.clone()).collect(),
+        );
         let mut served = self.served.lock().expect("no panic holding it");
         if let Some((built, json)) = &*served
             && *built == key
@@ -489,7 +577,11 @@ impl Model {
             return Ok(json.clone());
         }
         let view = compose(&snapshot, now, &|worktree| {
-            claims.iter().find(|(w, _)| w == worktree).map(|(_, facts)| facts.clone()).expect("every running worktree was asked")
+            claims
+                .iter()
+                .find(|(w, _)| w == worktree)
+                .map(|(_, facts)| facts.clone())
+                .expect("every running worktree was asked")
         });
         let json = Arc::new(serde_json::to_string(&view).expect("the lists serialize"));
         *served = Some((key, json.clone()));
@@ -521,7 +613,11 @@ impl Model {
         let (_, snapshot) = self.lists.current();
         let (design, _) = super::lists::open_design(&snapshot, id)?;
         let board = crate::design_render::review_board(&design, n)?;
-        Some(crate::design_render::render_board(std::path::Path::new(&design.worktree), &board.board, board.theme))
+        Some(crate::design_render::render_board(
+            std::path::Path::new(&design.worktree),
+            &board.board,
+            board.theme,
+        ))
     }
 
     /// The claim and git facts of the worktree at <worktree>; no agent and no
@@ -531,14 +627,20 @@ impl Model {
         let facts = state
             .roots
             .iter()
-            .find(|root| root.live.as_ref().is_some_and(|checkout| checkout.top == Path::new(worktree)))
+            .find(|root| {
+                root.live
+                    .as_ref()
+                    .is_some_and(|checkout| checkout.top == Path::new(worktree))
+            })
             .and_then(|root| state.facts.get(&root.path));
         let claim = facts.and_then(|f| f.claim.as_ref());
         ClaimFacts {
             agent: claim.map(|c| c.who.clone()),
             note: claim.and_then(|c| c.note.clone()),
             note_state: claim.and_then(|c| c.note_state.clone()),
-            waiting_to_land: facts.and_then(|f| f.git.as_ref()).map_or(0, |git| git.ahead.len()),
+            waiting_to_land: facts
+                .and_then(|f| f.git.as_ref())
+                .map_or(0, |git| git.ahead.len()),
         }
     }
 
@@ -550,25 +652,45 @@ impl Model {
         let places = places_of(&state.roots);
         let mut repos: Vec<RepoPage> = Vec::new();
         for root in &state.roots {
-            let repo_name = root.path.parent().map(crate::checkout::file_name).unwrap_or_default();
+            let repo_name = root
+                .path
+                .parent()
+                .map(crate::checkout::file_name)
+                .unwrap_or_default();
             if !repos.iter().any(|r| r.name == repo_name) {
                 repos.push(RepoPage {
                     lanes: crate::status::lanes_of(&self.places, &repo_name)?,
                     locks: state
                         .machine
                         .as_ref()
-                        .map(|m| m.locks.iter().filter(|l| l.repo == repo_name).cloned().collect())
+                        .map(|m| {
+                            m.locks
+                                .iter()
+                                .filter(|l| l.repo == repo_name)
+                                .cloned()
+                                .collect()
+                        })
                         .unwrap_or_default(),
                     queues: state
                         .machine
                         .as_ref()
-                        .map(|m| m.queues.iter().filter(|q| q.repo == repo_name).cloned().collect())
+                        .map(|m| {
+                            m.queues
+                                .iter()
+                                .filter(|q| q.repo == repo_name)
+                                .cloned()
+                                .collect()
+                        })
                         .unwrap_or_default(),
                     runs: self.runs.pages(&repo_name, &|lane| {
                         state
                             .machine
                             .as_ref()
-                            .and_then(|m| m.queues.iter().find(|q| q.repo == repo_name && q.lane == lane.word()))
+                            .and_then(|m| {
+                                m.queues
+                                    .iter()
+                                    .find(|q| q.repo == repo_name && q.lane == lane.word())
+                            })
                             .map(|q| q.queue.iter().map(|waiting| waiting.pid).collect())
                             .unwrap_or_default()
                     }),
@@ -594,7 +716,13 @@ impl Model {
             };
             let checkout = match &root.live {
                 Some(live) => {
-                    let total = facts.folders.iter().try_fold(0u64, |sum, f| if f.exists { f.kib.map(|k| sum + k) } else { Some(sum) });
+                    let total = facts.folders.iter().try_fold(0u64, |sum, f| {
+                        if f.exists {
+                            f.kib.map(|k| sum + k)
+                        } else {
+                            Some(sum)
+                        }
+                    });
                     CheckoutPage {
                         name: root.name(),
                         path: root.top.display().to_string(),
@@ -604,7 +732,8 @@ impl Model {
                         branch: facts.branch.clone(),
                         app_checkout: root.is_app_checkout(&self.places)?,
                         app_lane: root.app_lane(&self.places)?.map(crate::lane::Lane::word),
-                        state: (!live.is_main()).then(|| worktree_state(facts.claim.as_ref(), facts.git.as_ref())),
+                        state: (!live.is_main())
+                            .then(|| worktree_state(facts.claim.as_ref(), facts.git.as_ref())),
                         claim: facts.claim.clone(),
                         git: facts.git.clone(),
                         folders: Some(facts.folders.clone()),
@@ -633,7 +762,12 @@ impl Model {
                     activity: Activity::default(),
                 },
             };
-            repos.iter_mut().find(|r| r.name == repo_name).expect("added above").checkouts.push(checkout);
+            repos
+                .iter_mut()
+                .find(|r| r.name == repo_name)
+                .expect("added above")
+                .checkouts
+                .push(checkout);
         }
         Ok(Page {
             version: state.version,
@@ -648,17 +782,30 @@ impl Model {
                 cores: m.cores,
                 history: state.load.iter().copied().collect(),
             }),
-            daemon: DaemonPage { entries, memory_bytes: memory as u64 },
+            daemon: DaemonPage {
+                entries,
+                memory_bytes: memory as u64,
+            },
             health: state.health.clone(),
             repos,
         })
     }
 }
 
-fn folder_facts(entry: &BuildDir, app: bool, folder: &Path, link: &Path, answer: Option<Measure>) -> FolderFacts {
+fn folder_facts(
+    entry: &BuildDir,
+    app: bool,
+    folder: &Path,
+    link: &Path,
+    answer: Option<Measure>,
+) -> FolderFacts {
     let exists = folder.is_dir();
     let link_state = if link.is_symlink() {
-        if absolute_link_target(link).is_ok_and(|target| target == folder) { "linked" } else { "elsewhere" }
+        if absolute_link_target(link).is_ok_and(|target| target == folder) {
+            "linked"
+        } else {
+            "elsewhere"
+        }
     } else {
         "not linked"
     };
@@ -666,27 +813,46 @@ fn folder_facts(entry: &BuildDir, app: bool, folder: &Path, link: &Path, answer:
         path: entry.path.clone(),
         cap_kib: entry.cap_kib(app),
         exists,
-        kib: if exists { answer.map(|m| m.kib) } else { Some(0) },
+        kib: if exists {
+            answer.map(|m| m.kib)
+        } else {
+            Some(0)
+        },
         last_write: answer.and_then(|m| m.newest),
         link: link_state,
     }
 }
 
-fn claimed_of(roots: &[Root], facts: &HashMap<PathBuf, Facts>, places: &[Place]) -> crate::fail::Result<Vec<Claimed>> {
+fn claimed_of(
+    roots: &[Root],
+    facts: &HashMap<PathBuf, Facts>,
+    places: &[Place],
+) -> crate::fail::Result<Vec<Claimed>> {
     let mut claimed = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
         if checkout.is_main() {
             continue;
         }
-        let Some(facts) = facts.get(&root.path) else { continue };
+        let Some(facts) = facts.get(&root.path) else {
+            continue;
+        };
         // The claim is read now, not taken from the facts: a command that
         // just wrote one (`note --state held`) asks for health next, before
         // the change has come through FSEvents.
         let claim = Claim::read(&checkout.claim_file())?;
-        let (Some(claim), Some(git)) = (&claim, &facts.git) else { continue };
-        let Some(place) = places.iter().position(|p| p.root == root.path) else { continue };
-        claimed.push(Claimed { place, claim: claim.clone(), branch: facts.branch.clone(), git: git.clone() });
+        let (Some(claim), Some(git)) = (&claim, &facts.git) else {
+            continue;
+        };
+        let Some(place) = places.iter().position(|p| p.root == root.path) else {
+            continue;
+        };
+        claimed.push(Claimed {
+            place,
+            claim: claim.clone(),
+            branch: facts.branch.clone(),
+            git: git.clone(),
+        });
     }
     Ok(claimed)
 }
@@ -703,12 +869,19 @@ fn unclaimed_of(
         if checkout.is_main() || root.is_app_checkout(tool_places)? {
             continue;
         }
-        let Some(git) = facts.get(&root.path).and_then(|facts| facts.git.as_ref()) else { continue };
+        let Some(git) = facts.get(&root.path).and_then(|facts| facts.git.as_ref()) else {
+            continue;
+        };
         if Claim::read(&checkout.claim_file())?.is_some() {
             continue;
         }
-        let Some(place) = places.iter().position(|p| p.root == root.path) else { continue };
-        unclaimed.push(Unclaimed { place, git: git.clone() });
+        let Some(place) = places.iter().position(|p| p.root == root.path) else {
+            continue;
+        };
+        unclaimed.push(Unclaimed {
+            place,
+            git: git.clone(),
+        });
     }
     Ok(unclaimed)
 }

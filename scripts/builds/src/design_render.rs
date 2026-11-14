@@ -27,7 +27,8 @@ const REVIEW_PAGE: &str = include_str!("design_render/review.html");
 const MOCKS: &str = "design/mocks";
 const BOARD_SUFFIX: &str = ".dc.html";
 /// What a board with no script of its own runs.
-const NO_SCRIPT: &str = "class Component extends DCLogic { renderVals() { return { yes: true }; } }";
+const NO_SCRIPT: &str =
+    "class Component extends DCLogic { renderVals() { return { yes: true }; } }";
 
 /// <template> with each `@@NAME@@` replaced by its part, in one pass: a part
 /// holding such a marker is not filled again.
@@ -39,7 +40,10 @@ fn fill(template: &str, parts: &[(&str, &str)]) -> String {
         let after = &rest[start + 2..];
         let found = after.find("@@").and_then(|end| {
             let name = &after[..end];
-            parts.iter().find(|(part, _)| *part == name).map(|(_, value)| (*value, &after[end + 2..]))
+            parts
+                .iter()
+                .find(|(part, _)| *part == name)
+                .map(|(_, value)| (*value, &after[end + 2..]))
         });
         match found {
             Some((value, next)) => {
@@ -63,9 +67,13 @@ pub fn board_name(board: &str) -> Result<String> {
     let name = name.strip_suffix(BOARD_SUFFIX).unwrap_or(name);
     let fine = !name.is_empty()
         && !name.starts_with('.')
-        && name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
     if !fine {
-        fail!("{board:?} is no board: a board is design/mocks/<name>.dc.html, its name letters, digits, `.`, `-` and `_`");
+        fail!(
+            "{board:?} is no board: a board is design/mocks/<name>.dc.html, its name letters, digits, `.`, `-` and `_`"
+        );
     }
     Ok(name.to_string())
 }
@@ -77,7 +85,9 @@ fn board_path(dir: &Path, name: &str) -> PathBuf {
 fn read(path: &Path, what: &str) -> Result<String> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => fail!("{what} {} is not there", path.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fail!("{what} {} is not there", path.display())
+        }
         Err(error) => fail!("reading {what} {}: {error}", path.display()),
     }
 }
@@ -107,9 +117,13 @@ fn parse_part(path: &Path) -> Result<Part> {
         fail!("{} closes its <x-dc> before it opens", path.display());
     }
     let mut body = source[open + "<x-dc>".len()..close].to_string();
-    let style = between(&body, "<style>", "</style>").unwrap_or("").to_string();
+    let style = between(&body, "<style>", "</style>")
+        .unwrap_or("")
+        .to_string();
     while let Some(start) = body.find("<helmet>") {
-        let Some(end) = body[start..].find("</helmet>") else { fail!("{} has a <helmet> that never closes", path.display()) };
+        let Some(end) = body[start..].find("</helmet>") else {
+            fail!("{} has a <helmet> that never closes", path.display())
+        };
         body.replace_range(start..start + end + "</helmet>".len(), "");
     }
     let script = source
@@ -120,7 +134,11 @@ fn parse_part(path: &Path) -> Result<Part> {
             Some(source[tag_end..end].to_string())
         })
         .unwrap_or_else(|| NO_SCRIPT.to_string());
-    Ok(Part { body, style, script })
+    Ok(Part {
+        body,
+        style,
+        script,
+    })
 }
 
 /// The names of the boards <body> mounts.
@@ -151,10 +169,16 @@ pub fn render_board(dir: &Path, board: &str, theme: Theme) -> Result<String> {
     while let Some((key, path)) = todo.pop() {
         let part = parse_part(&path)?;
         for dep in imports(&part.body) {
-            let Ok(dep_name) = board_name(&dep) else { fail!("{} mounts {dep:?}, which is no board name", path.display()) };
+            let Ok(dep_name) = board_name(&dep) else {
+                fail!("{} mounts {dep:?}, which is no board name", path.display())
+            };
             if !parts.contains_key(&dep_name) && !todo.iter().any(|(k, _)| *k == dep_name) {
                 if !mocks.join(format!("{dep_name}{BOARD_SUFFIX}")).is_file() {
-                    fail!("{} mounts the board {dep_name}, which is no file in {}", path.display(), mocks.display());
+                    fail!(
+                        "{} mounts the board {dep_name}, which is no file in {}",
+                        path.display(),
+                        mocks.display()
+                    );
                 }
                 todo.push((dep_name.clone(), board_path(dir, &dep_name)));
             }
@@ -166,10 +190,18 @@ pub fn render_board(dir: &Path, board: &str, theme: Theme) -> Result<String> {
     let bundle_css = read(&system.join("components/bundle.css"), "the design system's")?;
     let bundle_js = read(&system.join("components/bundle.js"), "the design system's")?;
     let styles: String = parts.values().map(|p| p.style.as_str()).collect();
-    let templates: String = parts.iter().map(|(k, p)| format!("<template id=\"t-{k}\">{}</template>\n", p.body)).collect();
+    let templates: String = parts
+        .iter()
+        .map(|(k, p)| format!("<template id=\"t-{k}\">{}</template>\n", p.body))
+        .collect();
     let classes: String = parts
         .iter()
-        .map(|(k, p)| format!("C[\"{k}\"] = (function () {{ {} ; return Component; }})();\n", script_safe(&p.script)))
+        .map(|(k, p)| {
+            format!(
+                "C[\"{k}\"] = (function () {{ {} ; return Component; }})();\n",
+                script_safe(&p.script)
+            )
+        })
         .collect();
     Ok(fill(
         BOARD_PAGE,
@@ -197,7 +229,11 @@ fn canvas_size(canvas: &Value, name: &str) -> Result<(u64, u64)> {
 /// The <n>th board of <design>'s review page, counting through its sections
 /// in order.
 pub fn review_board(design: &DesignChange, n: usize) -> Option<&ReviewBoard> {
-    design.review.iter().flat_map(|section| &section.boards).nth(n)
+    design
+        .review
+        .iter()
+        .flat_map(|section| &section.boards)
+        .nth(n)
 }
 
 /// <design>'s review page. <view> is the design as the dashboard's lists JSON
@@ -208,7 +244,9 @@ pub fn review_page(design: &DesignChange, view: &DesignView) -> Result<String> {
     let dir = Path::new(&design.worktree);
     let canvas_path = dir.join(MOCKS).join("canvas.json");
     let canvas: std::result::Result<Value, String> = read(&canvas_path, "the canvas file")
-        .and_then(|text| serde_json::from_str(&text).context(|| format!("reading {}", canvas_path.display())))
+        .and_then(|text| {
+            serde_json::from_str(&text).context(|| format!("reading {}", canvas_path.display()))
+        })
         .map_err(Fail::text);
     let mut n = 0;
     let mut sections = Vec::new();
@@ -231,11 +269,15 @@ pub fn review_page(design: &DesignChange, view: &DesignView) -> Result<String> {
                 "theme": board.theme.word(),
                 "link": design.boards.get(&board.board).map(|b| b.link.clone()),
             });
-            entry.as_object_mut().expect("an object").extend(shown.as_object().expect("an object").clone());
+            entry
+                .as_object_mut()
+                .expect("an object")
+                .extend(shown.as_object().expect("an object").clone());
             boards.push(entry);
             n += 1;
         }
-        sections.push(json!({ "heading": section.heading, "words": section.words, "boards": boards }));
+        sections
+            .push(json!({ "heading": section.heading, "words": section.words, "boards": boards }));
     }
     let mut data = serde_json::to_value(view).expect("the view serializes");
     data["sections"] = Value::Array(sections);

@@ -22,7 +22,11 @@ pub fn real_gh(args: &[&str]) -> Result<String> {
         .output()
         .context(|| format!("running gh {}", args.join(" ")))?;
     if !output.status.success() {
-        fail!("gh {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
+        fail!(
+            "gh {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
@@ -38,7 +42,10 @@ pub fn require_open_issue(gh: GhRunner<'_>, url: &str) -> Result<()> {
     let issue: IssueState = serde_json::from_str(&printed)
         .map_err(|error| Fail::Message(format!("gh printed no issue state for {url}: {error}")))?;
     if issue.state != "OPEN" {
-        fail!("issue {url} is {}, not open; defer to an open issue (`gh issue create` makes one)", issue.state);
+        fail!(
+            "issue {url} is {}, not open; defer to an open issue (`gh issue create` makes one)",
+            issue.state
+        );
     }
     Ok(())
 }

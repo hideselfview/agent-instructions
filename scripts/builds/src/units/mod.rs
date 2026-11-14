@@ -70,7 +70,11 @@ pub fn hashed_file(name: &str) -> Option<(&str, &str)> {
     fn parse(rest: &str) -> Option<(&str, &str)> {
         let dash = rest.find('-')?;
         let krate = &rest[..dash];
-        if krate.is_empty() || !krate.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+        if krate.is_empty()
+            || !krate
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
             return None;
         }
         let after = &rest[dash + 1..];
@@ -85,7 +89,9 @@ pub fn hashed_file(name: &str) -> Option<(&str, &str)> {
             None
         }
     }
-    name.strip_prefix("lib").and_then(parse).or_else(|| parse(name))
+    name.strip_prefix("lib")
+        .and_then(parse)
+        .or_else(|| parse(name))
 }
 
 /// The package and hash of a unit's folder:
@@ -96,11 +102,18 @@ pub fn unit_dir(name: &str) -> Option<(&str, &str)> {
     }
     let (package, rest) = name.split_at(name.len() - 17);
     let hash = rest.strip_prefix('-')?;
-    if is_hash(hash) { Some((package, hash)) } else { None }
+    if is_hash(hash) {
+        Some((package, hash))
+    } else {
+        None
+    }
 }
 
 fn is_hash(text: &str) -> bool {
-    text.len() == 16 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    text.len() == 16
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 pub fn is_profile_dir(path: &Path) -> bool {
@@ -110,7 +123,9 @@ pub fn is_profile_dir(path: &Path) -> bool {
 /// Every profile folder in <folder>, at most PROFILE_DEPTH levels down.
 pub fn profile_dirs(folder: &Path) -> Vec<PathBuf> {
     fn walk(path: &Path, depth: usize, found: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(path) else { return };
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return;
+        };
         let entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
         if entries.iter().any(|entry| {
             entry.file_name() == ".fingerprint" && entry.file_type().is_ok_and(|kind| kind.is_dir())
@@ -192,7 +207,9 @@ pub const GUARD: &str = ".builds-cargo.lock";
 /// The guard of the checkout <path> is in: the nearest <GUARD> at <path> or
 /// above it.
 pub fn guard_of(path: &Path) -> Option<PathBuf> {
-    path.ancestors().map(|dir| dir.join(GUARD)).find(|guard| guard.is_file())
+    path.ancestors()
+        .map(|dir| dir.join(GUARD))
+        .find(|guard| guard.is_file())
 }
 
 /// Whether a `builds cargo` build is running in the checkout a path is in.
@@ -208,7 +225,9 @@ pub enum Guard {
 
 /// Takes the guard above <path> exclusively, without waiting.
 pub fn lock_guard(path: &Path) -> Result<Guard> {
-    let Some(guard) = guard_of(path) else { return Ok(Guard::Absent) };
+    let Some(guard) = guard_of(path) else {
+        return Ok(Guard::Absent);
+    };
     match crate::evict::try_lock(&guard) {
         Ok(Some(file)) => Ok(Guard::Held(file)),
         Ok(None) => Ok(Guard::Busy),
@@ -276,13 +295,18 @@ impl OpenFiles {
                 match line.first() {
                     Some(b'p') => pid = &line[1..],
                     Some(b'f') => inode = None,
-                    Some(b'i') => inode = std::str::from_utf8(&line[1..]).ok().and_then(|text| text.parse().ok()),
+                    Some(b'i') => {
+                        inode = std::str::from_utf8(&line[1..])
+                            .ok()
+                            .and_then(|text| text.parse().ok())
+                    }
                     Some(b'n') if pid != me.as_bytes() => {
                         let name = &line[1..];
                         if let Some(inode) = inode
-                            && self.roots.iter().any(|root| name.starts_with(root)) {
-                                inodes.insert(inode);
-                            }
+                            && self.roots.iter().any(|root| name.starts_with(root))
+                        {
+                            inodes.insert(inode);
+                        }
                     }
                     _ => {}
                 }
@@ -361,7 +385,11 @@ pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
         }
         Some("git-checkouts") if args.len() >= 3 => {
             let lockfiles: Vec<PathBuf> = args[3..].iter().map(PathBuf::from).collect();
-            let freed = git_checkouts::prune_git_checkouts(Path::new(&args[1]), args[2] == "1", &lockfiles)?;
+            let freed = git_checkouts::prune_git_checkouts(
+                Path::new(&args[1]),
+                args[2] == "1",
+                &lockfiles,
+            )?;
             println!("{freed}");
             Ok(())
         }
@@ -378,18 +406,30 @@ mod tests {
 
     #[test]
     fn names() {
-        assert_eq!(hashed_file("libbae_core-8fffeaeaf85dc425.rlib"), Some(("bae_core", "8fffeaeaf85dc425")));
-        assert_eq!(hashed_file("bae_core-8fffeaeaf85dc425"), Some(("bae_core", "8fffeaeaf85dc425")));
+        assert_eq!(
+            hashed_file("libbae_core-8fffeaeaf85dc425.rlib"),
+            Some(("bae_core", "8fffeaeaf85dc425"))
+        );
+        assert_eq!(
+            hashed_file("bae_core-8fffeaeaf85dc425"),
+            Some(("bae_core", "8fffeaeaf85dc425"))
+        );
         assert_eq!(
             hashed_file("bae_core-8fffeaeaf85dc425.bae_core.1c1aebe005fd4a7f-cgu.00.rcgu.o"),
             Some(("bae_core", "8fffeaeaf85dc425"))
         );
-        assert_eq!(hashed_file("lib-8fffeaeaf85dc425.rlib"), Some(("lib", "8fffeaeaf85dc425")));
+        assert_eq!(
+            hashed_file("lib-8fffeaeaf85dc425.rlib"),
+            Some(("lib", "8fffeaeaf85dc425"))
+        );
         assert_eq!(hashed_file("libbae_bridge.a"), None);
         assert_eq!(hashed_file("bae_core-8fffeaeaf85dc425."), None);
         assert_eq!(hashed_file("bae-core-8fffeaeaf85dc425"), None);
         assert_eq!(hashed_file("app.app.abc-cgu.0.rcgu.o"), None);
-        assert_eq!(unit_dir("bae-core-8fffeaeaf85dc425"), Some(("bae-core", "8fffeaeaf85dc425")));
+        assert_eq!(
+            unit_dir("bae-core-8fffeaeaf85dc425"),
+            Some(("bae-core", "8fffeaeaf85dc425"))
+        );
         assert_eq!(unit_dir("-8fffeaeaf85dc425"), None);
         assert_eq!(unit_dir("x-8fffeaeaf85dc42Z"), None);
     }

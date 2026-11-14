@@ -47,7 +47,10 @@ impl Store {
         if let Some(fault) = project_name_fault(project) {
             fail!("{fault}");
         }
-        Ok(Store { project: project.to_string(), dir: places.lists.join(project) })
+        Ok(Store {
+            project: project.to_string(),
+            dir: places.lists.join(project),
+        })
     }
 
     /// The store a command runs against: `--project`, else the project the
@@ -58,11 +61,17 @@ impl Store {
         }
         let checkout = match Checkout::at(cwd)? {
             Some(checkout) => checkout,
-            None => fail!("{} is in no git checkout; say which project with --project", cwd.display()),
+            None => fail!(
+                "{} is in no git checkout; say which project with --project",
+                cwd.display()
+            ),
         };
         match project_of(places, &checkout)? {
             Some(project) => Store::named(places, &project),
-            None => fail!("repo {} is in no project; say which with --project", checkout.repo()),
+            None => fail!(
+                "repo {} is in no project; say which with --project",
+                checkout.repo()
+            ),
         }
     }
 
@@ -103,8 +112,12 @@ impl Store {
     /// project in it.
     fn reader(&self) -> Result<Option<Connection>> {
         self.require_moved()?;
-        let Some(conn) = db::open_reader(&self.database())? else { return Ok(None) };
-        let rows: i64 = conn.query_row("SELECT COUNT(*) FROM project", [], |row| row.get(0)).sql()?;
+        let Some(conn) = db::open_reader(&self.database())? else {
+            return Ok(None);
+        };
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM project", [], |row| row.get(0))
+            .sql()?;
         Ok((rows > 0).then_some(conn))
     }
 
@@ -112,7 +125,11 @@ impl Store {
     fn verify(&self, db: &Connection) -> Result<()> {
         let held = project::name(db)?;
         if held != self.project {
-            fail!("{} holds the lists of project {held}, not {}", self.database().display(), self.project);
+            fail!(
+                "{} holds the lists of project {held}, not {}",
+                self.database().display(),
+                self.project
+            );
         }
         Ok(())
     }
@@ -120,7 +137,9 @@ impl Store {
     /// The state, checked: the code check runs on every read, so a store
     /// that fails it fails every command naming each fault. Takes no lock.
     pub fn load(&self) -> Result<Lists> {
-        let Some(conn) = self.reader()? else { return Err(self.no_lists()) };
+        let Some(conn) = self.reader()? else {
+            return Err(self.no_lists());
+        };
         self.verify(&conn)?;
         conn.execute_batch("BEGIN").sql()?;
         let lists = read(&conn)?;
@@ -132,7 +151,9 @@ impl Store {
 
     /// The repos of the project, without reading the rest.
     pub fn repos(&self) -> Result<Vec<String>> {
-        let Some(conn) = self.reader()? else { return Err(self.no_lists()) };
+        let Some(conn) = self.reader()? else {
+            return Err(self.no_lists());
+        };
         self.verify(&conn)?;
         Ok(project::read(&conn)?.repos)
     }
@@ -140,7 +161,9 @@ impl Store {
     /// The version of the last write, or the reason the store can't be read:
     /// the cheap look the daemon takes to know whether to load again.
     pub fn revision(&self) -> Result<u64> {
-        let Some(conn) = self.reader()? else { return Err(self.no_lists()) };
+        let Some(conn) = self.reader()? else {
+            return Err(self.no_lists());
+        };
         self.verify(&conn)?;
         version(&conn)
     }
@@ -156,21 +179,31 @@ impl Store {
             fail!("{fault}");
         }
         self.require_moved()?;
-        std::fs::create_dir_all(&self.dir).context(|| format!("creating {}", self.dir.display()))?;
+        std::fs::create_dir_all(&self.dir)
+            .context(|| format!("creating {}", self.dir.display()))?;
         let mut conn = db::open(&self.database(), Make::Allowed)?;
-        commit(&mut conn, &self.project, stamp, words, |db| project::init(db, new))
+        commit(&mut conn, &self.project, stamp, words, |db| {
+            project::init(db, new)
+        })
     }
 
     /// Applies <apply> in one transaction and commits it, after the code
     /// check; the log gains a line for <words> by <stamp>. When <apply> or
     /// the check refuses, nothing is written.
-    pub fn write<T>(&self, stamp: &Stamp, words: &str, apply: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+    pub fn write<T>(
+        &self,
+        stamp: &Stamp,
+        words: &str,
+        apply: impl FnOnce(&Connection) -> Result<T>,
+    ) -> Result<T> {
         self.require_moved()?;
         if !self.database().is_file() {
             return Err(self.no_lists());
         }
         let mut conn = db::open(&self.database(), Make::Never)?;
-        let held: i64 = conn.query_row("SELECT COUNT(*) FROM project", [], |row| row.get(0)).sql()?;
+        let held: i64 = conn
+            .query_row("SELECT COUNT(*) FROM project", [], |row| row.get(0))
+            .sql()?;
         if held == 0 {
             return Err(self.no_lists());
         }
@@ -188,7 +221,9 @@ fn commit<T>(
     words: &str,
     apply: impl FnOnce(&Connection) -> Result<T>,
 ) -> Result<T> {
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).sql()?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .sql()?;
     let result = apply(&tx)?;
     log_write(&tx, stamp, words)?;
     refuse_faults(project, &faults(&tx, project)?)?;
@@ -200,7 +235,10 @@ fn refuse_faults(project: &str, found: &[String]) -> Result<()> {
     if found.is_empty() {
         return Ok(());
     }
-    fail!("the lists of {project} fail their check, and nothing repairs them:\n  {}", found.join("\n  "));
+    fail!(
+        "the lists of {project} fail their check, and nothing repairs them:\n  {}",
+        found.join("\n  ")
+    );
 }
 
 /// The write log's next line, one version above the last.
@@ -215,7 +253,11 @@ pub fn log_write(db: &Connection, stamp: &Stamp, words: &str) -> Result<()> {
 
 /// Puts a line in the log as it was written elsewhere.
 pub fn move_in_log(db: &Connection, version: u64, at: i64, by: &str, words: &str) -> Result<()> {
-    db.execute("INSERT INTO write_log (version, at, by, words) VALUES (?1, ?2, ?3, ?4)", params![version as i64, at, by, words]).sql()?;
+    db.execute(
+        "INSERT INTO write_log (version, at, by, words) VALUES (?1, ?2, ?3, ?4)",
+        params![version as i64, at, by, words],
+    )
+    .sql()?;
     Ok(())
 }
 
@@ -226,19 +268,40 @@ const TABLES: [&str; 1] = ["write_log"];
 /// Writes a row of the write log as given, the constraints still holding:
 /// for tests that need a row they refuse.
 #[cfg(test)]
-pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
     crate::db::plant_row(db, &TABLES, table, columns)
 }
 
 /// The version of the last write: 0 before the first.
 pub fn version(db: &Connection) -> Result<u64> {
-    db.query_row("SELECT COALESCE(MAX(version), 0) FROM write_log", [], |row| row.get::<_, i64>(0)).map(|v| v as u64).sql()
+    db.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM write_log",
+        [],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|v| v as u64)
+    .sql()
 }
 
 /// Every line of the write log, oldest first.
 pub fn read_log(db: &Connection) -> Result<Vec<(u64, i64, String, String)>> {
-    let mut statement = db.prepare("SELECT version, at, by, words FROM write_log ORDER BY version").sql()?;
-    let rows = statement.query_map([], |row| Ok((row.get::<_, i64>(0)? as u64, row.get(1)?, row.get(2)?, row.get(3)?))).sql()?;
+    let mut statement = db
+        .prepare("SELECT version, at, by, words FROM write_log ORDER BY version")
+        .sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)? as u64,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+            ))
+        })
+        .sql()?;
     rows.map(|row| row.sql()).collect()
 }
 
@@ -269,19 +332,31 @@ pub fn read(db: &Connection) -> Result<Lists> {
     let mut closed: Vec<Closed> = Vec::new();
     for question in questions {
         match closings.get(&question.id) {
-            Some((how, stamp)) => closed.push(Closed { record: Record::Question(question), how: how.clone(), closed: stamp.clone() }),
+            Some((how, stamp)) => closed.push(Closed {
+                record: Record::Question(question),
+                how: how.clone(),
+                closed: stamp.clone(),
+            }),
             None => lists.questions.push(question),
         }
     }
     for item in items {
         match closings.get(&item.id) {
-            Some((how, stamp)) => closed.push(Closed { record: Record::Item(item), how: how.clone(), closed: stamp.clone() }),
+            Some((how, stamp)) => closed.push(Closed {
+                record: Record::Item(item),
+                how: how.clone(),
+                closed: stamp.clone(),
+            }),
             None => lists.items.push(item),
         }
     }
     for design in designs {
         match closings.get(&design.id) {
-            Some((how, stamp)) => closed.push(Closed { record: Record::Design(design), how: how.clone(), closed: stamp.clone() }),
+            Some((how, stamp)) => closed.push(Closed {
+                record: Record::Design(design),
+                how: how.clone(),
+                closed: stamp.clone(),
+            }),
             None => lists.designs.push(design),
         }
     }
@@ -306,7 +381,12 @@ pub fn stores(places: &Places) -> Result<Vec<Store>> {
         let path = entry.path();
         let in_json = path.join(JSON_STATE).is_file() || path.join(JSON_MOVING).is_file();
         let in_database = match db::open_reader(&path.join(DATABASE)) {
-            Ok(Some(conn)) => conn.query_row("SELECT COUNT(*) FROM project", [], |row| row.get::<_, i64>(0)).map(|n| n > 0).unwrap_or(true),
+            Ok(Some(conn)) => conn
+                .query_row("SELECT COUNT(*) FROM project", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map(|n| n > 0)
+                .unwrap_or(true),
             Ok(None) => false,
             // A database this builds can't read is a store that fails, named when it is loaded.
             Err(_) => path.join(DATABASE).is_file(),
@@ -316,7 +396,10 @@ pub fn stores(places: &Places) -> Result<Vec<Store>> {
         }
     }
     names.sort();
-    names.iter().map(|name| Store::named(places, name)).collect()
+    names
+        .iter()
+        .map(|name| Store::named(places, name))
+        .collect()
 }
 
 /// One project's store as read: its lists, or what is wrong with them.
@@ -333,7 +416,10 @@ pub fn load_all(places: &Places) -> std::result::Result<Vec<Loaded>, String> {
     let stores = stores(places).map_err(Fail::text)?;
     Ok(stores
         .into_iter()
-        .map(|store| Loaded { lists: store.load().map_err(Fail::text), project: store.project })
+        .map(|store| Loaded {
+            lists: store.load().map_err(Fail::text),
+            project: store.project,
+        })
         .collect())
 }
 
@@ -343,7 +429,9 @@ pub fn load_all(places: &Places) -> std::result::Result<Vec<Loaded>, String> {
 /// builds, with the foreign keys off, can have them. A store that can't be
 /// opened here is the load's to name.
 pub fn integrity(places: &Places) -> Vec<String> {
-    let Ok(stores) = stores(places) else { return Vec::new() };
+    let Ok(stores) = stores(places) else {
+        return Vec::new();
+    };
     let mut found = Vec::new();
     for store in stores {
         // Opened for writing, though nothing is written: SQLite's checks of NOT NULL and CHECK
@@ -351,8 +439,15 @@ pub fn integrity(places: &Places) -> Vec<String> {
         if !store.database().is_file() {
             continue;
         }
-        let Ok(conn) = db::open(&store.database(), Make::Never) else { continue };
-        let what = |fault: String| format!("lists: project {}'s database fails its integrity check: {fault}", store.project);
+        let Ok(conn) = db::open(&store.database(), Make::Never) else {
+            continue;
+        };
+        let what = |fault: String| {
+            format!(
+                "lists: project {}'s database fails its integrity check: {fault}",
+                store.project
+            )
+        };
         if let Ok(mut statement) = conn.prepare("PRAGMA foreign_key_check") {
             let rows = statement.query_map([], |row| {
                 Ok(format!(
@@ -367,7 +462,12 @@ pub fn integrity(places: &Places) -> Vec<String> {
         }
         if let Ok(mut statement) = conn.prepare("PRAGMA quick_check") {
             let rows = statement.query_map([], |row| row.get::<_, String>(0));
-            for fault in rows.into_iter().flatten().flatten().filter(|fault| fault != "ok") {
+            for fault in rows
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|fault| fault != "ok")
+            {
                 found.push(what(fault));
             }
         }
@@ -405,7 +505,10 @@ pub fn reload(
         match kept {
             Some(kept) => next.push(kept.clone()),
             None => {
-                let loaded = Loaded { lists: store.load().map_err(Fail::text), project: store.project };
+                let loaded = Loaded {
+                    lists: store.load().map_err(Fail::text),
+                    project: store.project,
+                };
                 changed |= before != Some(&loaded);
                 next.push(loaded);
             }
@@ -433,7 +536,10 @@ pub fn project_of(places: &Places, checkout: &Checkout) -> Result<Option<String>
     match found.len() {
         0 => Ok(None),
         1 => Ok(found.pop()),
-        _ => fail!("repo {repo} is in two projects ({}); say which with --project", found.join(", ")),
+        _ => fail!(
+            "repo {repo} is in two projects ({}); say which with --project",
+            found.join(", ")
+        ),
     }
 }
 
@@ -458,7 +564,10 @@ pub fn resolve_by(args: &Args, cwd: &Path) -> Result<String> {
 impl Stamp {
     /// The stamp of a write by <args>' `--by` or the claim at <cwd>, at <now>.
     pub fn resolve(now: i64, args: &Args, cwd: &Path) -> Result<Stamp> {
-        Ok(Stamp { at: now, by: resolve_by(args, cwd)? })
+        Ok(Stamp {
+            at: now,
+            by: resolve_by(args, cwd)?,
+        })
     }
 }
 

@@ -13,7 +13,9 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::check::item_title_fault;
-use crate::lists::{Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, area, landing, record, running};
+use crate::lists::{
+    Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, area, landing, record, running,
+};
 
 /// Whose work an item is. The coordinator dispatches `Coordinator` items;
 /// `DesignSession` items are shown apart and never listed as dispatchable.
@@ -158,13 +160,19 @@ pub fn require_open_wait(db: &Connection, wait: &Wait) -> Result<()> {
         Wait::Item(id) => (*id, Kind::Item),
         Wait::Question(id) => (*id, Kind::Question),
         Wait::Design(id) => (*id, Kind::Design),
-        Wait::Condition(text) if text.trim().is_empty() => fail!("a wait on a condition needs the condition's text"),
+        Wait::Condition(text) if text.trim().is_empty() => {
+            fail!("a wait on a condition needs the condition's text")
+        }
         Wait::Condition(_) => return Ok(()),
     };
     match record::standing(db, id)? {
         None => fail!("a wait names {id}, which no record has"),
         Some((found, _)) if found != kind => {
-            fail!("a wait names {id} as a {}, but it is a {}", kind.name(), found.name())
+            fail!(
+                "a wait names {id} as a {}, but it is a {}",
+                kind.name(),
+                found.name()
+            )
         }
         Some((_, Some(closed))) => fail!(
             "a wait names {id}, which is closed ({}); a wait on a closed record never holds anything",
@@ -185,8 +193,16 @@ pub fn require_open_item(db: &Connection, id: Id) -> Result<()> {
 pub fn open_item(lists: &Lists, id: Id) -> Result<&Item> {
     match lists.locate(id) {
         None => fail!("{id} is not a record"),
-        Some(Located { kind: Kind::Item, standing: Standing::Open, .. }) => Ok(lists.item(id).expect("located open")),
-        Some(Located { kind: Kind::Item, standing: Standing::Closed(closed), .. }) => {
+        Some(Located {
+            kind: Kind::Item,
+            standing: Standing::Open,
+            ..
+        }) => Ok(lists.item(id).expect("located open")),
+        Some(Located {
+            kind: Kind::Item,
+            standing: Standing::Closed(closed),
+            ..
+        }) => {
             fail!("{id} is closed ({})", closed.how.label())
         }
         Some(Located { kind, .. }) => fail!("{id} is a {}, not an item", kind.name()),
@@ -218,7 +234,12 @@ impl ItemDraft {
 
 /// Adds the item <draft> describes, made by <from> (a decision or a design
 /// change) when it was; returns its id.
-pub fn add_item(db: &Connection, draft: &ItemDraft, from: Option<Origin>, stamp: &Stamp) -> Result<Id> {
+pub fn add_item(
+    db: &Connection,
+    draft: &ItemDraft,
+    from: Option<Origin>,
+    stamp: &Stamp,
+) -> Result<Id> {
     draft.validate(db)?;
     let id = record::open(db, Kind::Item, stamp)?;
     insert(db, id, draft, from)?;
@@ -317,14 +338,22 @@ fn insert_priority(db: &Connection, id: Id, priority: &Priority) -> Result<()> {
 /// Writes the wait of item <id>, once.
 fn insert_wait(db: &Connection, id: Id, wait: &Wait) -> Result<()> {
     match wait {
-        Wait::Item(on) => db.execute("INSERT OR IGNORE INTO item_wait_item (item_id, on_item) VALUES (?1, ?2)", params![id, on]),
-        Wait::Question(on) => {
-            db.execute("INSERT OR IGNORE INTO item_wait_question (item_id, on_question) VALUES (?1, ?2)", params![id, on])
-        }
-        Wait::Design(on) => db.execute("INSERT OR IGNORE INTO item_wait_design (item_id, on_design) VALUES (?1, ?2)", params![id, on]),
-        Wait::Condition(text) => {
-            db.execute("INSERT OR IGNORE INTO item_wait_condition (item_id, condition) VALUES (?1, ?2)", params![id, text])
-        }
+        Wait::Item(on) => db.execute(
+            "INSERT OR IGNORE INTO item_wait_item (item_id, on_item) VALUES (?1, ?2)",
+            params![id, on],
+        ),
+        Wait::Question(on) => db.execute(
+            "INSERT OR IGNORE INTO item_wait_question (item_id, on_question) VALUES (?1, ?2)",
+            params![id, on],
+        ),
+        Wait::Design(on) => db.execute(
+            "INSERT OR IGNORE INTO item_wait_design (item_id, on_design) VALUES (?1, ?2)",
+            params![id, on],
+        ),
+        Wait::Condition(text) => db.execute(
+            "INSERT OR IGNORE INTO item_wait_condition (item_id, condition) VALUES (?1, ?2)",
+            params![id, text],
+        ),
     }
     .sql()?;
     Ok(())
@@ -372,8 +401,11 @@ impl ItemEdit {
 /// Appends <note> to open item <id>.
 pub fn add_note(db: &Connection, id: Id, note: Note) -> Result<()> {
     require_open_item(db, id)?;
-    db.execute("INSERT INTO item_note (item_id, at, by, text) VALUES (?1, ?2, ?3, ?4)", params![id, note.at, note.by, note.text])
-        .sql()?;
+    db.execute(
+        "INSERT INTO item_note (item_id, at, by, text) VALUES (?1, ?2, ?3, ?4)",
+        params![id, note.at, note.by, note.text],
+    )
+    .sql()?;
     Ok(())
 }
 
@@ -387,10 +419,22 @@ pub fn add_wait(db: &Connection, id: Id, wait: Wait) -> Result<()> {
 pub fn remove_wait(db: &Connection, id: Id, wait: &Wait) -> Result<()> {
     require_open_item(db, id)?;
     let removed = match wait {
-        Wait::Item(on) => db.execute("DELETE FROM item_wait_item WHERE item_id = ?1 AND on_item = ?2", params![id, on]),
-        Wait::Question(on) => db.execute("DELETE FROM item_wait_question WHERE item_id = ?1 AND on_question = ?2", params![id, on]),
-        Wait::Design(on) => db.execute("DELETE FROM item_wait_design WHERE item_id = ?1 AND on_design = ?2", params![id, on]),
-        Wait::Condition(text) => db.execute("DELETE FROM item_wait_condition WHERE item_id = ?1 AND condition = ?2", params![id, text]),
+        Wait::Item(on) => db.execute(
+            "DELETE FROM item_wait_item WHERE item_id = ?1 AND on_item = ?2",
+            params![id, on],
+        ),
+        Wait::Question(on) => db.execute(
+            "DELETE FROM item_wait_question WHERE item_id = ?1 AND on_question = ?2",
+            params![id, on],
+        ),
+        Wait::Design(on) => db.execute(
+            "DELETE FROM item_wait_design WHERE item_id = ?1 AND on_design = ?2",
+            params![id, on],
+        ),
+        Wait::Condition(text) => db.execute(
+            "DELETE FROM item_wait_condition WHERE item_id = ?1 AND condition = ?2",
+            params![id, text],
+        ),
     }
     .sql()?;
     if removed == 0 {
@@ -408,10 +452,22 @@ pub fn move_waits_to_question(db: &Connection, from: Id, to: Id) -> Result<Vec<I
              AND NOT EXISTS (SELECT 1 FROM closing WHERE record_id = item_id) ORDER BY item_id",
         )
         .sql()?;
-    let moved: Vec<Id> = statement.query_map([from], |row| row.get(0)).sql()?.map(|row| row.sql()).collect::<Result<_>>()?;
+    let moved: Vec<Id> = statement
+        .query_map([from], |row| row.get(0))
+        .sql()?
+        .map(|row| row.sql())
+        .collect::<Result<_>>()?;
     for id in &moved {
-        db.execute("DELETE FROM item_wait_item WHERE item_id = ?1 AND on_item = ?2", params![id, from]).sql()?;
-        db.execute("INSERT OR IGNORE INTO item_wait_question (item_id, on_question) VALUES (?1, ?2)", params![id, to]).sql()?;
+        db.execute(
+            "DELETE FROM item_wait_item WHERE item_id = ?1 AND on_item = ?2",
+            params![id, from],
+        )
+        .sql()?;
+        db.execute(
+            "INSERT OR IGNORE INTO item_wait_question (item_id, on_question) VALUES (?1, ?2)",
+            params![id, to],
+        )
+        .sql()?;
     }
     Ok(moved)
 }
@@ -422,7 +478,8 @@ pub fn set_priority(db: &Connection, id: Id, priority: Option<Priority>) -> Resu
     match priority {
         Some(priority) => insert_priority(db, id, &priority),
         None => {
-            db.execute("DELETE FROM item_priority WHERE item_id = ?1", [id]).sql()?;
+            db.execute("DELETE FROM item_priority WHERE item_id = ?1", [id])
+                .sql()?;
             Ok(())
         }
     }
@@ -430,7 +487,9 @@ pub fn set_priority(db: &Connection, id: Id, priority: Option<Priority>) -> Resu
 
 /// The ids of the items in area <area>, open and closed, in id order.
 pub fn items_in_area(db: &Connection, area: &str) -> Result<Vec<Id>> {
-    let mut statement = db.prepare("SELECT id FROM item WHERE area = ?1 ORDER BY id").sql()?;
+    let mut statement = db
+        .prepare("SELECT id FROM item WHERE area = ?1 ORDER BY id")
+        .sql()?;
     let ids = statement.query_map([area], |row| row.get(0)).sql()?;
     ids.map(|id| id.sql()).collect()
 }
@@ -444,8 +503,15 @@ pub fn read(db: &Connection, opened: &BTreeMap<Id, Stamp>) -> Result<Vec<Item>> 
         ("item_wait_question", "on_question", Wait::Question),
         ("item_wait_design", "on_design", Wait::Design),
     ] {
-        let mut statement = db.prepare(&format!("SELECT item_id, {column} FROM {table} ORDER BY {column}, item_id")).sql()?;
-        for row in statement.query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, Id>(1)?))).sql()? {
+        let mut statement = db
+            .prepare(&format!(
+                "SELECT item_id, {column} FROM {table} ORDER BY {column}, item_id"
+            ))
+            .sql()?;
+        for row in statement
+            .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, Id>(1)?)))
+            .sql()?
+        {
             let (item, on) = row.sql()?;
             waits.entry(item).or_default().push(make(on));
         }
@@ -457,22 +523,55 @@ pub fn read(db: &Connection, opened: &BTreeMap<Id, Stamp>) -> Result<Vec<Item>> 
             Wait::Condition(_) => u32::MAX,
         });
     }
-    let mut statement = db.prepare("SELECT item_id, condition FROM item_wait_condition ORDER BY condition, item_id").sql()?;
-    for row in statement.query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?))).sql()? {
+    let mut statement = db
+        .prepare("SELECT item_id, condition FROM item_wait_condition ORDER BY condition, item_id")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?))
+        })
+        .sql()?
+    {
         let (item, text) = row.sql()?;
         waits.entry(item).or_default().push(Wait::Condition(text));
     }
     let mut priorities: BTreeMap<Id, Priority> = BTreeMap::new();
-    let mut statement = db.prepare("SELECT item_id, level, why FROM item_priority").sql()?;
-    for row in statement.query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))).sql()? {
+    let mut statement = db
+        .prepare("SELECT item_id, level, why FROM item_priority")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .sql()?
+    {
         let (item, level, why) = row.sql()?;
-        let level = if level == "first" { Level::First } else { Level::Last };
+        let level = if level == "first" {
+            Level::First
+        } else {
+            Level::Last
+        };
         priorities.insert(item, Priority { level, why });
     }
     let mut notes: BTreeMap<Id, Vec<Note>> = BTreeMap::new();
-    let mut statement = db.prepare("SELECT item_id, at, by, text FROM item_note ORDER BY id").sql()?;
+    let mut statement = db
+        .prepare("SELECT item_id, at, by, text FROM item_note ORDER BY id")
+        .sql()?;
     for row in statement
-        .query_map([], |row| Ok((row.get::<_, Id>(0)?, Note { at: row.get(1)?, by: row.get(2)?, text: row.get(3)? })))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                Note {
+                    at: row.get(1)?,
+                    by: row.get(2)?,
+                    text: row.get(3)?,
+                },
+            ))
+        })
         .sql()?
     {
         let (item, note) = row.sql()?;
@@ -480,7 +579,9 @@ pub fn read(db: &Connection, opened: &BTreeMap<Id, Stamp>) -> Result<Vec<Item>> 
     }
     let mut running = running::read(db)?;
     let mut landed = landing::read(db)?;
-    let mut statement = db.prepare("SELECT id, title, area, details, audience, brief, origin FROM item ORDER BY id").sql()?;
+    let mut statement = db
+        .prepare("SELECT id, title, area, details, audience, brief, origin FROM item ORDER BY id")
+        .sql()?;
     let rows = statement
         .query_map([], |row| {
             Ok((
@@ -502,7 +603,11 @@ pub fn read(db: &Connection, opened: &BTreeMap<Id, Stamp>) -> Result<Vec<Item>> 
             title,
             area,
             details,
-            r#for: if audience == "coordinator" { Audience::Coordinator } else { Audience::DesignSession },
+            r#for: if audience == "coordinator" {
+                Audience::Coordinator
+            } else {
+                Audience::DesignSession
+            },
             waits: waits.remove(&id).unwrap_or_default(),
             priority: priorities.remove(&id),
             brief,
@@ -522,8 +627,13 @@ impl Lists {
     }
 
     /// The open items whose waits name <wait>.
-    pub fn open_items_waiting_on<'a>(&'a self, wait: &'a Wait) -> impl Iterator<Item = &'a Item> + 'a {
-        self.items.iter().filter(move |item| item.waits.contains(wait))
+    pub fn open_items_waiting_on<'a>(
+        &'a self,
+        wait: &'a Wait,
+    ) -> impl Iterator<Item = &'a Item> + 'a {
+        self.items
+            .iter()
+            .filter(move |item| item.waits.contains(wait))
     }
 }
 
@@ -537,12 +647,16 @@ const TABLES: [&str; 7] = [
     "item_wait_design",
     "item_wait_condition",
     "item_note",
-    ];
+];
 
 /// Writes a row of one of item.rs's tables as given, the constraints still
 /// holding: for tests that need a row they refuse.
 #[cfg(test)]
-pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
     crate::db::plant_row(db, &TABLES, table, columns)
 }
 

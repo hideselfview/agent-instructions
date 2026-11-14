@@ -14,7 +14,7 @@ use crate::fail::Result;
 use crate::install::sccache_config_holds;
 use crate::lane::{Lane, is_lane_file};
 use crate::manifest::{SHARED_CACHES, build_dirs, kept_builds};
-use crate::places::{DERIVED_DATA_CAP_KIB, FLOOR_IDLE_MINUTES, MACOS_ENTRIES, DiskSpace, Places};
+use crate::places::{DERIVED_DATA_CAP_KIB, DiskSpace, FLOOR_IDLE_MINUTES, MACOS_ENTRIES, Places};
 use crate::prune::derived_data;
 use crate::temp_builds::temp_build_folders;
 use crate::text::{glob_names, human, last_write, tilde};
@@ -29,7 +29,10 @@ fn left_out(name: &str) -> bool {
 
 /// Is <path> a folder the trash is being emptied through?
 fn is_emptying(path: &std::path::Path) -> bool {
-    path.file_name().is_some_and(|name| name.to_string_lossy().starts_with(crate::places::EMPTYING_PREFIX))
+    path.file_name().is_some_and(|name| {
+        name.to_string_lossy()
+            .starts_with(crate::places::EMPTYING_PREFIX)
+    })
 }
 
 /// What a repo's folder on the volume holds, in glob order.
@@ -51,19 +54,26 @@ fn is_repo_dir(dir: &Path) -> Result<bool> {
     if !dir.is_dir() || dir.is_symlink() {
         return Ok(false);
     }
-    if Lane::ALL.into_iter().any(|lane| dir.join(lane.checkouts_file_name()).is_file() || dir.join(lane.locks_dir_name()).is_dir()) {
+    if Lane::ALL.into_iter().any(|lane| {
+        dir.join(lane.checkouts_file_name()).is_file() || dir.join(lane.locks_dir_name()).is_dir()
+    }) {
         return Ok(true);
     }
     let names = match glob_names(dir) {
         Ok(names) => names,
         // A folder this user can't list holds no roots of theirs.
-        Err(_) if std::fs::read_dir(dir).is_err_and(|error| error.kind() == std::io::ErrorKind::PermissionDenied) => {
+        Err(_)
+            if std::fs::read_dir(dir)
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::PermissionDenied) =>
+        {
             return Ok(false);
         }
         Err(error) => return Err(error),
     };
     for name in names {
-        if name.as_encoded_bytes().first() != Some(&b'.') && dir.join(&name).join(".checkout").is_file() {
+        if name.as_encoded_bytes().first() != Some(&b'.')
+            && dir.join(&name).join(".checkout").is_file()
+        {
             return Ok(true);
         }
     }
@@ -84,7 +94,11 @@ pub fn repos(places: &Places) -> Result<Vec<Repo>> {
         if left_out(&name.to_string_lossy()) {
             continue;
         }
-        if dir == places.trash() || is_emptying(&dir) || dir == places.derived_data() || dir == places.caches() {
+        if dir == places.trash()
+            || is_emptying(&dir)
+            || dir == places.derived_data()
+            || dir == places.caches()
+        {
             continue;
         }
         if !is_repo_dir(&dir)? {
@@ -151,7 +165,10 @@ fn status_folders(repos: &[Repo]) -> Result<Vec<PathBuf>> {
 }
 
 fn relative(tool: &Tool, path: &Path) -> String {
-    path.strip_prefix(&tool.places.root).unwrap_or(path).display().to_string()
+    path.strip_prefix(&tool.places.root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }
 
 fn unknown_line(tool: &Tool, path: &Path) -> Result<String> {
@@ -164,7 +181,11 @@ fn unknown_line(tool: &Tool, path: &Path) -> Result<String> {
 
 /// <tree>'s path inside <folder>, as status names it.
 fn tree_name(folder: &Path, tree: &Tree) -> String {
-    tree.path.strip_prefix(folder).unwrap_or(&tree.path).display().to_string()
+    tree.path
+        .strip_prefix(folder)
+        .unwrap_or(&tree.path)
+        .display()
+        .to_string()
 }
 
 fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
@@ -174,7 +195,10 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
             relative(tool, &root.path),
             root.top.display()
         ));
-        out.push(format!("    {} total", human(tool.measure(&root.path)?.kib)));
+        out.push(format!(
+            "    {} total",
+            human(tool.measure(&root.path)?.kib)
+        ));
         return Ok(());
     };
     let mut state = checkout.branch()?.unwrap_or_else(|| "detached".to_string());
@@ -185,7 +209,11 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
     if let Some(claim) = &claim {
         state += &format!(", claimed by {} since {}", claim.who, claim.since);
     }
-    out.push(format!("{}  {}  [{state}]", relative(tool, &root.path), root.top.display()));
+    out.push(format!(
+        "{}  {}  [{state}]",
+        relative(tool, &root.path),
+        root.top.display()
+    ));
     if let Some(claim) = &claim {
         match (&claim.note_state, &claim.note) {
             (Some(state), note) => out.push(format!(
@@ -199,7 +227,10 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
     }
     let mut total = 0;
     let kept: Vec<PathBuf> = if root.keeps_warm(&tool.places)? {
-        kept_builds(&root.top)?.iter().map(|path| root.path.join(path)).collect()
+        kept_builds(&root.top)?
+            .iter()
+            .map(|path| root.path.join(path))
+            .collect()
     } else {
         Vec::new()
     };
@@ -208,12 +239,20 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
         let (path, cap_kib) = (&entry.path, entry.cap_kib(entry.is_app_in(lane)));
         let folder = root.path.join(path);
         if !folder.is_dir() {
-            out.push(format!("    {path:<34} {:>8} / {:<6}  (no folder)", "-", human(cap_kib)));
+            out.push(format!(
+                "    {path:<34} {:>8} / {:<6}  (no folder)",
+                "-",
+                human(cap_kib)
+            ));
             continue;
         }
         let measured = tool.measure(&folder)?;
         total += measured.kib;
-        let over = if measured.kib > cap_kib { "OVER CAP" } else { "" };
+        let over = if measured.kib > cap_kib {
+            "OVER CAP"
+        } else {
+            ""
+        };
         out.push(format!(
             "    {path:<34} {:>8} / {:<6}  last write {}  {over}",
             human(measured.kib),
@@ -225,7 +264,10 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
             let state = if kept.contains(&tree.path) {
                 "kept: the person runs it".to_string()
             } else if unused(tool, &measured) {
-                format!("unused for {} days: setup deletes it", tool.rules.unused_days)
+                format!(
+                    "unused for {} days: setup deletes it",
+                    tool.rules.unused_days
+                )
             } else {
                 String::new()
             };
@@ -241,11 +283,16 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
             if absolute_link_target(&link)? != folder {
                 out.push(format!(
                     "      link points elsewhere: {}",
-                    std::fs::read_link(&link).map(|t| t.display().to_string()).unwrap_or_default()
+                    std::fs::read_link(&link)
+                        .map(|t| t.display().to_string())
+                        .unwrap_or_default()
                 ));
             }
         } else {
-            out.push(format!("      not linked: run builds setup {}", root.top.display()));
+            out.push(format!(
+                "      not linked: run builds setup {}",
+                root.top.display()
+            ));
         }
     }
     out.push(format!("    {} total", human(total)));
@@ -260,7 +307,11 @@ fn xcode_derived_data() -> Option<String> {
         .output()
         .ok()?;
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if output.status.success() && !text.is_empty() { Some(text) } else { None }
+    if output.status.success() && !text.is_empty() {
+        Some(text)
+    } else {
+        None
+    }
 }
 
 fn derived_data_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
@@ -336,13 +387,17 @@ fn caches_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
             if absolute_link_target(&link)? != dir {
                 out.push(format!(
                     "      {shown} points elsewhere: {}",
-                    std::fs::read_link(&link).map(|t| t.display().to_string()).unwrap_or_default()
+                    std::fs::read_link(&link)
+                        .map(|t| t.display().to_string())
+                        .unwrap_or_default()
                 ));
             }
         } else if link.exists() {
             out.push(format!("      {shown} is a real directory, not a link here: run agent-instructions' install.sh"));
         } else {
-            out.push(format!("      {shown} is missing: run agent-instructions' install.sh"));
+            out.push(format!(
+                "      {shown} is missing: run agent-instructions' install.sh"
+            ));
         }
     }
     for name in glob_names(&caches)? {
@@ -360,7 +415,10 @@ fn sccache_lines(out: &mut Vec<String>) {
         return;
     }
     for line in crate::sccache::stats() {
-        if line.starts_with("Cache location") || line.starts_with("Cache size") || line.starts_with("Max cache size") {
+        if line.starts_with("Cache location")
+            || line.starts_with("Cache size")
+            || line.starts_with("Max cache size")
+        {
             out.push(format!("sccache: {line}"));
         }
     }
@@ -368,11 +426,17 @@ fn sccache_lines(out: &mut Vec<String>) {
 
 /// `volume: 52Gi free of 460Gi`, as `df -h` says them.
 fn volume_line(root: &Path) -> Result<String> {
-    let output = Command::new("df").arg("-h").arg(root).output().map_err(|error| {
-        fail::Fail::Message(format!("running df: {error}"))
-    })?;
+    let output = Command::new("df")
+        .arg("-h")
+        .arg(root)
+        .output()
+        .map_err(|error| fail::Fail::Message(format!("running df: {error}")))?;
     let text = String::from_utf8_lossy(&output.stdout);
-    let Some(fields) = text.lines().nth(1).map(|line| line.split_whitespace().collect::<Vec<_>>()) else {
+    let Some(fields) = text
+        .lines()
+        .nth(1)
+        .map(|line| line.split_whitespace().collect::<Vec<_>>())
+    else {
         fail!("df -h {} printed {text:?}", root.display());
     };
     if fields.len() < 4 {
@@ -383,7 +447,12 @@ fn volume_line(root: &Path) -> Result<String> {
 
 /// `builds status [--json [--no-folders]]`.
 pub fn cmd_status(tool: &mut Tool, args: &[String]) -> Result<()> {
-    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+    match args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
         [] => {}
         ["--json"] => return print_json(tool, true),
         ["--json", "--no-folders"] | ["--no-folders", "--json"] => return print_json(tool, false),
@@ -563,8 +632,18 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
     let path = root.top.display().to_string();
     let root_path = root.path.display().to_string();
     let Some(checkout) = &root.live else {
-        let total_kib = if with_folders { Some(tool.measure(&root.path)?.kib) } else { None };
-        return Ok(CheckoutJson::Gone { name, path, root: root_path, live: false, total_kib });
+        let total_kib = if with_folders {
+            Some(tool.measure(&root.path)?.kib)
+        } else {
+            None
+        };
+        return Ok(CheckoutJson::Gone {
+            name,
+            path,
+            root: root_path,
+            live: false,
+            total_kib,
+        });
     };
     let mut folders = None;
     let mut total_kib = None;
@@ -577,7 +656,11 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
             let path = entry.path;
             let folder = root.path.join(&path);
             if !folder.is_dir() {
-                list.push(FolderJson::Missing { path, cap_kib, exists: false });
+                list.push(FolderJson::Missing {
+                    path,
+                    cap_kib,
+                    exists: false,
+                });
                 continue;
             }
             let measured = tool.measure(&folder)?;
@@ -585,7 +668,14 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
             let link_path = root.top.join(&path);
             let (link, link_target) = if link_path.is_symlink() {
                 let target = absolute_link_target(&link_path)?;
-                (if target == folder { "linked" } else { "elsewhere" }, Some(target.display().to_string()))
+                (
+                    if target == folder {
+                        "linked"
+                    } else {
+                        "elsewhere"
+                    },
+                    Some(target.display().to_string()),
+                )
             } else {
                 ("not linked", None)
             };
@@ -640,7 +730,11 @@ pub fn lanes_of(places: &Places, repo: &str) -> Result<Vec<LaneJson>> {
             .map(|lock| lock.display().to_string())
             .collect();
         if !app_checkouts.is_empty() || !app_locks.is_empty() {
-            lanes.push(LaneJson { lane: lane.word(), app_checkouts, app_locks });
+            lanes.push(LaneJson {
+                lane: lane.word(),
+                app_checkouts,
+                app_locks,
+            });
         }
     }
     Ok(lanes)
@@ -685,6 +779,9 @@ pub fn status_json(tool: &mut Tool, with_folders: bool) -> Result<StatusJson> {
 
 fn print_json(tool: &mut Tool, with_folders: bool) -> Result<()> {
     let status = status_json(tool, with_folders)?;
-    println!("{}", serde_json::to_string(&status).expect("status serializes"));
+    println!(
+        "{}",
+        serde_json::to_string(&status).expect("status serializes")
+    );
     Ok(())
 }

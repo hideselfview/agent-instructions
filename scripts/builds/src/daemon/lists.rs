@@ -15,8 +15,8 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use super::fsevents::Stream;
 use super::model::SETTLE;
-use crate::lists::store::{Loaded, load_all, reload};
 use crate::lists::DesignChange;
+use crate::lists::store::{Loaded, load_all, reload};
 use crate::lists::view::{ClaimFacts, DesignView, View, design_view};
 use crate::places::Places;
 
@@ -77,7 +77,10 @@ impl Feed {
             None => eprintln!("builds: FSEvents would not follow {}", dir.display()),
         }
         let reader = feed.clone();
-        std::thread::Builder::new().name("builds-lists".into()).spawn(move || reader.read_loop()).expect("a thread starts");
+        std::thread::Builder::new()
+            .name("builds-lists".into())
+            .spawn(move || reader.read_loop())
+            .expect("a thread starts");
         feed
     }
 
@@ -142,9 +145,17 @@ impl Feed {
 /// The worktrees of the running items of the one project there is.
 pub fn running_worktrees(snapshot: &Snapshot) -> Vec<String> {
     match snapshot.as_deref() {
-        Ok([Loaded { lists: Ok(lists), .. }]) => {
-            lists.items.iter().flat_map(|item| item.running.iter().map(|r| r.worktree.clone())).collect()
-        }
+        Ok(
+            [
+                Loaded {
+                    lists: Ok(lists), ..
+                },
+            ],
+        ) => lists
+            .items
+            .iter()
+            .flat_map(|item| item.running.iter().map(|r| r.worktree.clone()))
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -152,7 +163,16 @@ pub fn running_worktrees(snapshot: &Snapshot) -> Vec<String> {
 /// Open design change <id> of the one project there is, as the lists JSON
 /// shows it; None when no open design change has that id.
 pub fn open_design(snapshot: &Snapshot, id: u32) -> Option<(DesignChange, DesignView)> {
-    let Ok([Loaded { lists: Ok(lists), .. }]) = snapshot.as_deref() else { return None };
+    let Ok(
+        [
+            Loaded {
+                lists: Ok(lists), ..
+            },
+        ],
+    ) = snapshot.as_deref()
+    else {
+        return None;
+    };
     let design = lists.designs.iter().find(|d| d.id.0 == id)?;
     Some((design.clone(), design_view(lists, design, None)))
 }
@@ -164,11 +184,22 @@ pub fn compose(snapshot: &Snapshot, now: i64, claims: &dyn Fn(&str) -> ClaimFact
     let loaded = match snapshot.as_deref() {
         Ok([one]) => one,
         Ok([]) => {
-            return View::failed("", 0, "there are no lists; `builds lists init <project>` makes them".to_string());
+            return View::failed(
+                "",
+                0,
+                "there are no lists; `builds lists init <project>` makes them".to_string(),
+            );
         }
         Ok(several) => {
             let names: Vec<&str> = several.iter().map(|l| l.project.as_str()).collect();
-            return View::failed("", 0, format!("there are several projects ({}) and the sidebar shows one", names.join(", ")));
+            return View::failed(
+                "",
+                0,
+                format!(
+                    "there are several projects ({}) and the sidebar shows one",
+                    names.join(", ")
+                ),
+            );
         }
         Err(fault) => return View::failed("", 0, fault.clone()),
     };

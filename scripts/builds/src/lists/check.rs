@@ -24,8 +24,16 @@ pub const TITLE_WORDS: std::ops::RangeInclusive<usize> = 5..=7;
 pub fn project_name_fault(name: &str) -> Option<String> {
     let ok = !name.is_empty()
         && !name.starts_with('.')
-        && name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
-    if ok { None } else { Some(format!("'{name}' is not a project name: letters, digits, - _ and . (not first) only")) }
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
+    if ok {
+        None
+    } else {
+        Some(format!(
+            "'{name}' is not a project name: letters, digits, - _ and . (not first) only"
+        ))
+    }
 }
 
 /// Why <title> is not a one-line title, or None.
@@ -33,7 +41,10 @@ pub fn title_fault(title: &str) -> Option<String> {
     if title.trim().is_empty() {
         Some("a title is empty".to_string())
     } else if title.contains(['\n', '\r', '\t']) {
-        Some(format!("title '{}' is not one line", title.replace(['\n', '\r', '\t'], " ")))
+        Some(format!(
+            "title '{}' is not one line",
+            title.replace(['\n', '\r', '\t'], " ")
+        ))
     } else if title != title.trim() {
         Some(format!("title '{title}' has spaces at its ends"))
     } else {
@@ -60,9 +71,9 @@ pub fn item_title_fault(title: &str) -> Option<String> {
 
 /// Why <repo> is no repo directory name, if it isn't.
 pub fn repo_name_fault(repo: &str) -> Option<String> {
-    (repo.is_empty() || repo.contains('/')).then(|| format!("repo '{repo}' is not a repo directory name"))
+    (repo.is_empty() || repo.contains('/'))
+        .then(|| format!("repo '{repo}' is not a repo directory name"))
 }
-
 
 /// A closing's `how` that meets a wait on the record it closed.
 const MEETS_WAIT: &str = "((c.kind = 'question' AND c.how IN ('answered', 'settled', 'done')) \
@@ -73,9 +84,13 @@ const MEETS_WAIT: &str = "((c.kind = 'question' AND c.how IN ('answered', 'settl
 pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
     let mut faults = Vec::new();
     // The project row names the folder's project.
-    let held: Option<String> = db.query_row("SELECT name FROM project", [], |row| row.get(0)).ok();
+    let held: Option<String> = db
+        .query_row("SELECT name FROM project", [], |row| row.get(0))
+        .ok();
     match held {
-        Some(held) if held != project => faults.push(format!("the project row names {held}, and the folder is {project}'s")),
+        Some(held) if held != project => faults.push(format!(
+            "the project row names {held}, and the folder is {project}'s"
+        )),
         _ => {}
     }
     let queries: [(&str, String); 7] = [
@@ -149,7 +164,10 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
     ];
     for (_, sql) in &queries {
         let mut statement = db.prepare(sql).sql()?;
-        for fault in statement.query_map([], |row| row.get::<_, String>(0)).sql()? {
+        for fault in statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .sql()?
+        {
             faults.push(fault.sql()?);
         }
     }

@@ -1,7 +1,7 @@
 use super::*;
 use crate::lane::Lane;
 use crate::testing::Scratch;
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
 const SETTLE: Duration = Duration::from_millis(200);
@@ -15,7 +15,11 @@ fn places(scratch: &Scratch) -> Places {
 
 /// Takes the lock on a thread of its own, saying <name> once it holds it, and
 /// frees it when told to.
-fn take_on_thread(places: &Places, name: &'static str, said: std::sync::mpsc::Sender<&'static str>) -> std::sync::mpsc::Sender<()> {
+fn take_on_thread(
+    places: &Places,
+    name: &'static str,
+    said: std::sync::mpsc::Sender<&'static str>,
+) -> std::sync::mpsc::Sender<()> {
     let (free, freed): (_, Receiver<()>) = channel();
     let places = places.clone();
     std::thread::spawn(move || {
@@ -53,7 +57,10 @@ fn waiters_take_the_lock_in_the_order_they_came() {
 
     free_first.send(()).unwrap();
     assert_eq!(heard.recv().unwrap(), "second");
-    assert!(heard.recv_timeout(SETTLE).is_err(), "only one holds the lock");
+    assert!(
+        heard.recv_timeout(SETTLE).is_err(),
+        "only one holds the lock"
+    );
     free_second.send(()).unwrap();
     assert_eq!(heard.recv().unwrap(), "third");
     free_third.send(()).unwrap();
@@ -66,8 +73,14 @@ fn a_build_in_a_group_finishes_or_fails_with_its_exit_status() {
     let scratch = Scratch::new("lock-ran");
     let places = places(&scratch);
     let held = take(&places, "demo", Lane::Mac).unwrap();
-    assert_eq!(run_in_group(Command::new("true"), "true").unwrap(), Ran::Finished);
-    assert!(matches!(run_in_group(Command::new("false"), "false"), Err(Fail::Exit(1))));
+    assert_eq!(
+        run_in_group(Command::new("true"), "true").unwrap(),
+        Ran::Finished
+    );
+    assert!(matches!(
+        run_in_group(Command::new("false"), "false"),
+        Err(Fail::Exit(1))
+    ));
     held.release();
 }
 
@@ -86,7 +99,11 @@ fn builds_take_different_checkouts_at_once_and_wait_when_every_lock_is_held() {
     let second = take(&places, "demo", Lane::Mac).unwrap();
     let mut held = [first.checkout.clone(), second.checkout.clone()];
     held.sort();
-    assert_eq!(held, ["side-1", "side-2"], "each build has a checkout of its own");
+    assert_eq!(
+        held,
+        ["side-1", "side-2"],
+        "each build has a checkout of its own"
+    );
 
     let (said, heard) = channel();
     let free_third = take_on_thread(&places, "third", said);

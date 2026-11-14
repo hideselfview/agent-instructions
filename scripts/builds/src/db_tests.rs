@@ -15,7 +15,12 @@ fn the_schema_applies_to_an_empty_database_and_every_table_is_strict() {
     for (name, strict) in tables {
         assert_eq!(strict, 1, "{name} is not STRICT");
     }
-    let violations = conn.prepare("PRAGMA foreign_key_check").unwrap().query_map([], |_| Ok(())).unwrap().count();
+    let violations = conn
+        .prepare("PRAGMA foreign_key_check")
+        .unwrap()
+        .query_map([], |_| Ok(()))
+        .unwrap()
+        .count();
     assert_eq!(violations, 0);
 }
 
@@ -26,11 +31,17 @@ fn a_new_file_gets_the_whole_schema_the_stamp_and_wal_in_its_first_transaction()
     let conn = open(&path, Make::Allowed).unwrap();
     assert_eq!(stamp_of(&conn, &path).unwrap(), stamp());
     assert!(stamp() > HOOK_ONLY_STAMP);
-    let mode: String = conn.pragma_query_value(None, "journal_mode", |row| row.get(0)).unwrap();
+    let mode: String = conn
+        .pragma_query_value(None, "journal_mode", |row| row.get(0))
+        .unwrap();
     assert_eq!(mode, "wal");
-    let sync: i64 = conn.pragma_query_value(None, "synchronous", |row| row.get(0)).unwrap();
+    let sync: i64 = conn
+        .pragma_query_value(None, "synchronous", |row| row.get(0))
+        .unwrap();
     assert_eq!(sync, 2, "FULL");
-    let keys: i64 = conn.pragma_query_value(None, "foreign_keys", |row| row.get(0)).unwrap();
+    let keys: i64 = conn
+        .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+        .unwrap();
     assert_eq!(keys, 1);
     assert_eq!(schema_rows(&conn).unwrap(), schema_rows(&memory()).unwrap());
     // Opened again, it is the same database; read-only, too.
@@ -52,12 +63,33 @@ fn a_file_that_is_not_there_is_not_made_by_a_reader_or_a_writer_that_may_not() {
 fn a_stamp_of_another_schema_and_tables_without_a_stamp_are_refused() {
     let scratch = Scratch::new("db-stamp");
     let path = scratch.dir.join(DATABASE);
-    open(&path, Make::Allowed).unwrap().pragma_update(None, "user_version", 12345).unwrap();
-    assert!(open(&path, Make::Allowed).unwrap_err().text().contains("another builds schema"));
-    assert!(open_reader(&path).unwrap_err().text().contains("another builds schema"));
+    open(&path, Make::Allowed)
+        .unwrap()
+        .pragma_update(None, "user_version", 12345)
+        .unwrap();
+    assert!(
+        open(&path, Make::Allowed)
+            .unwrap_err()
+            .text()
+            .contains("another builds schema")
+    );
+    assert!(
+        open_reader(&path)
+            .unwrap_err()
+            .text()
+            .contains("another builds schema")
+    );
     let bare = scratch.dir.join("bare.sqlite");
-    Connection::open(&bare).unwrap().execute_batch("CREATE TABLE t (x)").unwrap();
-    assert!(open(&bare, Make::Allowed).unwrap_err().text().contains("no schema stamp"));
+    Connection::open(&bare)
+        .unwrap()
+        .execute_batch("CREATE TABLE t (x)")
+        .unwrap();
+    assert!(
+        open(&bare, Make::Allowed)
+            .unwrap_err()
+            .text()
+            .contains("no schema stamp")
+    );
 }
 
 #[test]

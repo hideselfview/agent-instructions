@@ -45,8 +45,10 @@ pub fn temp_folders(places: &Places) -> Vec<PathBuf> {
     if let Some(tmp) = &places.tmpdir {
         let text = tmp.to_string_lossy();
         let trimmed = PathBuf::from(text.trim_end_matches('/'));
-        let skipped = matches!(text.as_ref(), "/tmp" | "/tmp/" | "/private/tmp" | "/private/tmp/")
-            || text.starts_with("/tmp/claude-")
+        let skipped = matches!(
+            text.as_ref(),
+            "/tmp" | "/tmp/" | "/private/tmp" | "/private/tmp/"
+        ) || text.starts_with("/tmp/claude-")
             || text.starts_with("/private/tmp/claude-");
         if !skipped && Some(&trimmed) != places.user_temp.as_ref() {
             folders.push(trimmed);
@@ -64,7 +66,9 @@ fn is_build_folder(names: &HashSet<String>) -> bool {
 pub fn temp_build_folders(places: &Places) -> Result<Vec<PathBuf>> {
     let mut found = Vec::new();
     for top in temp_folders(places) {
-        let Ok(top) = std::fs::canonicalize(&top) else { continue };
+        let Ok(top) = std::fs::canonicalize(&top) else {
+            continue;
+        };
         if top.is_dir() {
             walk(&top, &top, 0, places.uid, &mut found)?;
         }
@@ -85,23 +89,28 @@ fn walk(top: &Path, dir: &Path, depth: usize, uid: u32, found: &mut Vec<PathBuf>
     for entry in entries {
         let Ok(entry) = entry else { continue };
         let name = entry.file_name().to_string_lossy().into_owned();
-        let Ok(kind) = entry.file_type() else { continue };
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
         if kind.is_dir() {
             dirs.push(name.clone());
         }
         names.insert(name);
     }
-    if dir != top
-        && is_build_folder(&names) {
-            found.push(dir.to_path_buf());
-            return Ok(());
-        }
+    if dir != top && is_build_folder(&names) {
+        found.push(dir.to_path_buf());
+        return Ok(());
+    }
     if depth >= MAX_DEPTH {
         return Ok(());
     }
     dirs.sort();
     for name in dirs {
-        if dir == top && SKIPPED_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) {
+        if dir == top
+            && SKIPPED_PREFIXES
+                .iter()
+                .any(|prefix| name.starts_with(prefix))
+        {
             continue;
         }
         let child = dir.join(&name);
@@ -116,6 +125,8 @@ fn walk(top: &Path, dir: &Path, depth: usize, uid: u32, found: &mut Vec<PathBuf>
 fn unreadable(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
-        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::NotADirectory
+        std::io::ErrorKind::NotFound
+            | std::io::ErrorKind::PermissionDenied
+            | std::io::ErrorKind::NotADirectory
     )
 }

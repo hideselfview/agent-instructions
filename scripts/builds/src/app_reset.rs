@@ -40,20 +40,38 @@ impl Drop for ScratchIndex {
 /// changed, deleted, or not in it.
 fn differing(top: &Path, commit: &str) -> Result<BTreeSet<String>> {
     let git_dir = run_git(top, &["rev-parse", "--absolute-git-dir"])?;
-    let index = ScratchIndex(Path::new(git_dir.trim()).join(format!("builds-reset-index-{}", std::process::id())));
+    let index = ScratchIndex(
+        Path::new(git_dir.trim()).join(format!("builds-reset-index-{}", std::process::id())),
+    );
     let with_index = || {
         let mut command = git(top);
         command.env("GIT_INDEX_FILE", &index.0);
         command
     };
-    git_text(with_index().args(["read-tree", commit]), &format!("read {commit}'s tree"))?;
+    git_text(
+        with_index().args(["read-tree", commit]),
+        &format!("read {commit}'s tree"),
+    )?;
     // Differing files make --refresh exit 1 even with -q; the answer is in
     // diff-files below.
-    let _ = with_index().args(["update-index", "-q", "--refresh"]).output();
+    let _ = with_index()
+        .args(["update-index", "-q", "--refresh"])
+        .output();
     let mut paths = BTreeSet::new();
-    for args in [&["diff-files", "--name-only", "-z"][..], &["ls-files", "--others", "--exclude-standard", "-z"][..]] {
-        let listed = git_text(with_index().args(args), &format!("list what differs from {commit}"))?;
-        paths.extend(listed.split('\0').filter(|path| !path.is_empty()).map(str::to_string));
+    for args in [
+        &["diff-files", "--name-only", "-z"][..],
+        &["ls-files", "--others", "--exclude-standard", "-z"][..],
+    ] {
+        let listed = git_text(
+            with_index().args(args),
+            &format!("list what differs from {commit}"),
+        )?;
+        paths.extend(
+            listed
+                .split('\0')
+                .filter(|path| !path.is_empty())
+                .map(str::to_string),
+        );
     }
     Ok(paths)
 }
@@ -61,8 +79,15 @@ fn differing(top: &Path, commit: &str) -> Result<BTreeSet<String>> {
 /// The paths `git status` calls dirty in <top>: staged, changed and untracked
 /// alike, each file named.
 fn dirty(top: &Path) -> Result<BTreeSet<String>> {
-    let status = run_git(top, &["status", "--porcelain", "-z", "-uall", "--no-renames"])?;
-    Ok(status.split('\0').filter(|entry| entry.len() > 3).map(|entry| entry[3..].to_string()).collect())
+    let status = run_git(
+        top,
+        &["status", "--porcelain", "-z", "-uall", "--no-renames"],
+    )?;
+    Ok(status
+        .split('\0')
+        .filter(|entry| entry.len() > 3)
+        .map(|entry| entry[3..].to_string())
+        .collect())
 }
 
 /// The dirty paths of <top> that none of <commits> holds exactly.
@@ -80,7 +105,12 @@ fn foreign_changes(top: &Path, commits: &[&str]) -> Result<Vec<String>> {
 
 /// <matching>: a commit the dirty paths may match as well, the one a halfway
 /// switch was heading to when it is not origin's main today.
-pub fn cmd_reset(places: &Places, repo: &str, checkout: &str, matching: Option<&str>) -> Result<()> {
+pub fn cmd_reset(
+    places: &Places,
+    repo: &str,
+    checkout: &str,
+    matching: Option<&str>,
+) -> Result<()> {
     let Some(lane) = places.app_lane_of(repo, checkout)? else {
         fail!("{checkout} is not one of {repo}'s app checkouts (builds status lists them)");
     };
@@ -96,14 +126,22 @@ pub fn cmd_reset(places: &Places, repo: &str, checkout: &str, matching: Option<&
 /// The reset, with the checkout's lock held.
 fn reset_under_lock(top: &Path, matching: Option<&str>) -> Result<()> {
     run_git(top, &["fetch", "-q", "origin"])?;
-    let resolve = |rev: &str| run_git(top, &["rev-parse", "--verify", &format!("{rev}^{{commit}}")]).map(|id| id.trim().to_string());
+    let resolve = |rev: &str| {
+        run_git(
+            top,
+            &["rev-parse", "--verify", &format!("{rev}^{{commit}}")],
+        )
+        .map(|id| id.trim().to_string())
+    };
     let target = resolve(TARGET)?;
     let matching = matching.map(resolve).transpose()?;
     let mut commits = vec![target.as_str(), "HEAD"];
     commits.extend(matching.as_deref());
     let foreign = foreign_changes(top, &commits)?;
     if !foreign.is_empty() {
-        let also = matching.map(|rev| format!(" nor {rev}'s")).unwrap_or_default();
+        let also = matching
+            .map(|rev| format!(" nor {rev}'s"))
+            .unwrap_or_default();
         fail!(
             "{} has changes that are neither {TARGET}'s ({target}) nor HEAD's{also}, so nothing was changed; find whose they are:\n  {}",
             top.display(),

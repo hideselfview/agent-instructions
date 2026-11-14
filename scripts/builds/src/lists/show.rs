@@ -3,7 +3,7 @@
 use std::fmt::Write;
 
 use crate::lists::derive::{self, ItemState, StackEntry};
-use crate::lists::{Audience, Item, Lists, Level, Position, QuestionKind, Wait};
+use crate::lists::{Audience, Item, Level, Lists, Position, QuestionKind, Wait};
 use crate::text::local_minute;
 
 pub fn kind_words(kind: QuestionKind) -> &'static str {
@@ -33,7 +33,10 @@ pub fn item_line(lists: &Lists, item: &Item) -> String {
     if item.r#for == Audience::DesignSession && state != ItemState::Running {
         line.push_str(" (design session's)");
     }
-    let unmet: Vec<String> = derive::unmet_waits(lists, item).iter().map(|w| wait_words(lists, w)).collect();
+    let unmet: Vec<String> = derive::unmet_waits(lists, item)
+        .iter()
+        .map(|w| wait_words(lists, w))
+        .collect();
     if !unmet.is_empty() {
         let _ = write!(line, "\n      waits on {}", unmet.join("; "));
     }
@@ -41,7 +44,11 @@ pub fn item_line(lists: &Lists, item: &Item) -> String {
         line.push_str("\n      last: waits until no other coordinator work is open");
     }
     for running in &item.running {
-        let _ = write!(line, "\n      running in {} on {}, brief {}", running.worktree, running.branch, running.brief);
+        let _ = write!(
+            line,
+            "\n      running in {} on {}, brief {}",
+            running.worktree, running.branch, running.brief
+        );
     }
     line
 }
@@ -52,8 +59,17 @@ pub fn blocks_text(entry: &StackEntry<'_>) -> String {
     match &entry.question.blocks_nothing {
         Some(why) => format!("blocks nothing: {why}"),
         None => {
-            let named: Vec<String> = entry.blocks.iter().map(|i| format!("{} {}", i.id, i.title)).collect();
-            format!("blocks {} ({} through chains): {}", entry.blocks.len(), entry.blocked_count, named.join("; "))
+            let named: Vec<String> = entry
+                .blocks
+                .iter()
+                .map(|i| format!("{} {}", i.id, i.title))
+                .collect();
+            format!(
+                "blocks {} ({} through chains): {}",
+                entry.blocks.len(),
+                entry.blocked_count,
+                named.join("; ")
+            )
         }
     }
 }
@@ -71,7 +87,11 @@ pub fn stack_entry(number: usize, entry: &StackEntry<'_>) -> String {
         q.opened.by
     );
     if let Some(placed) = &q.placed {
-        let at = if placed.at == Position::First { "first" } else { "last" };
+        let at = if placed.at == Position::First {
+            "first"
+        } else {
+            "last"
+        };
         let by = if placed.by_person { " by you" } else { "" };
         let _ = writeln!(out, "       placed {at}{by}: {}", placed.why);
     }
@@ -87,9 +107,24 @@ pub fn render(lists: &Lists) -> String {
     for (number, entry) in stack.iter().enumerate() {
         out.push_str(&stack_entry(number + 1, entry));
     }
-    let state = |wanted: ItemState| lists.items.iter().filter(|i| derive::item_state(lists, i) == wanted).count();
-    let _ = writeln!(out, "\nWork ({} ready, {} running)", state(ItemState::Ready), state(ItemState::Running));
-    let running: Vec<&Item> = lists.items.iter().filter(|i| !i.running.is_empty()).collect();
+    let state = |wanted: ItemState| {
+        lists
+            .items
+            .iter()
+            .filter(|i| derive::item_state(lists, i) == wanted)
+            .count()
+    };
+    let _ = writeln!(
+        out,
+        "\nWork ({} ready, {} running)",
+        state(ItemState::Ready),
+        state(ItemState::Running)
+    );
+    let running: Vec<&Item> = lists
+        .items
+        .iter()
+        .filter(|i| !i.running.is_empty())
+        .collect();
     if !running.is_empty() {
         let _ = writeln!(out, "Running");
         for item in running {
@@ -99,7 +134,9 @@ pub fn render(lists: &Lists) -> String {
     let first: Vec<&Item> = lists
         .items
         .iter()
-        .filter(|i| i.running.is_empty() && i.priority.as_ref().is_some_and(|p| p.level == Level::First))
+        .filter(|i| {
+            i.running.is_empty() && i.priority.as_ref().is_some_and(|p| p.level == Level::First)
+        })
         .collect();
     if !first.is_empty() {
         let _ = writeln!(out, "First");

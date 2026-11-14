@@ -67,13 +67,16 @@ pub const HOOK_ONLY_STAMP: i64 = 1;
 fn configure(conn: &Connection, path: &Path) -> Result<()> {
     let what = || format!("configuring {}", path.display());
     conn.busy_timeout(BUSY).context(what)?;
-    conn.pragma_update(None, "foreign_keys", true).context(what)?;
-    conn.pragma_update(None, "synchronous", "FULL").context(what)
+    conn.pragma_update(None, "foreign_keys", true)
+        .context(what)?;
+    conn.pragma_update(None, "synchronous", "FULL")
+        .context(what)
 }
 
 /// The stamp a file holds: 0 for none.
 pub fn stamp_of(conn: &Connection, path: &Path) -> Result<i64> {
-    conn.pragma_query_value(None, "user_version", |row| row.get(0)).context(|| format!("reading {}", path.display()))
+    conn.pragma_query_value(None, "user_version", |row| row.get(0))
+        .context(|| format!("reading {}", path.display()))
 }
 
 /// Refuses a stamp that is not this schema's, naming both.
@@ -90,7 +93,11 @@ fn require_stamp(found: i64, path: &Path) -> Result<()> {
 
 fn has_tables(conn: &Connection, path: &Path) -> Result<bool> {
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'", [], |row| row.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+            [],
+            |row| row.get(0),
+        )
         .context(|| format!("reading {}", path.display()))?;
     Ok(count > 0)
 }
@@ -112,20 +119,28 @@ pub fn open(path: &Path, make: Make) -> Result<Connection> {
         Make::Allowed => OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
         Make::Never => OpenFlags::SQLITE_OPEN_READ_WRITE,
     };
-    let mut conn = Connection::open_with_flags(path, flags).context(|| format!("opening {}", path.display()))?;
+    let mut conn = Connection::open_with_flags(path, flags)
+        .context(|| format!("opening {}", path.display()))?;
     configure(&conn, path)?;
     let found = stamp_of(&conn, path)?;
     if found == 0 {
         if has_tables(&conn, path)? {
-            fail!("{} holds tables and no schema stamp; it is no builds.sqlite of this builds", path.display());
+            fail!(
+                "{} holds tables and no schema stamp; it is no builds.sqlite of this builds",
+                path.display()
+            );
         }
-        conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(())).context(|| format!("configuring {}", path.display()))?;
+        conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
+            .context(|| format!("configuring {}", path.display()))?;
         let what = || format!("making the schema in {}", path.display());
-        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).context(what)?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .context(what)?;
         // Another opener may have made it while this one waited.
         if stamp_of(&tx, path)? == 0 {
             tx.execute_batch(&schema()).context(what)?;
-            tx.pragma_update(None, "user_version", stamp()).context(what)?;
+            tx.pragma_update(None, "user_version", stamp())
+                .context(what)?;
         }
         tx.commit().context(what)?;
         return Ok(conn);
@@ -140,8 +155,10 @@ pub fn open_reader(path: &Path) -> Result<Option<Connection>> {
     if !path.exists() {
         return Ok(None);
     }
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).context(|| format!("opening {}", path.display()))?;
-    conn.busy_timeout(BUSY).context(|| format!("configuring {}", path.display()))?;
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .context(|| format!("opening {}", path.display()))?;
+    conn.busy_timeout(BUSY)
+        .context(|| format!("configuring {}", path.display()))?;
     let found = stamp_of(&conn, path)?;
     if found == 0 {
         return Ok(None);
@@ -154,19 +171,26 @@ pub fn open_reader(path: &Path) -> Result<Option<Connection>> {
 /// hook stats' tables under their first stamp. Neither has been given the
 /// lists' tables yet; the caller does that and stamps it in one transaction.
 pub fn open_for_move(path: &Path) -> Result<Connection> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE)
-        .context(|| format!("opening {}", path.display()))?;
+    let conn = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+    )
+    .context(|| format!("opening {}", path.display()))?;
     configure(&conn, path)?;
     let found = stamp_of(&conn, path)?;
     if found == 0 && has_tables(&conn, path)? {
-        fail!("{} holds tables and no schema stamp; it is no builds.sqlite of this builds", path.display());
+        fail!(
+            "{} holds tables and no schema stamp; it is no builds.sqlite of this builds",
+            path.display()
+        );
     }
     if found != 0 && found != HOOK_ONLY_STAMP && found != stamp() {
         require_stamp(found, path)?;
     }
     // A hook-stats database made before the lists were in it is in the default
     // mode; the lists' writers and readers share it, so it moves to WAL here.
-    conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(())).context(|| format!("configuring {}", path.display()))?;
+    conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
+        .context(|| format!("configuring {}", path.display()))?;
     Ok(conn)
 }
 
@@ -175,9 +199,11 @@ pub fn open_for_move(path: &Path) -> Result<Connection> {
 /// one before it changes anything.
 pub fn memory() -> Connection {
     let conn = Connection::open_in_memory().expect("an in-memory database opens");
-    conn.pragma_update(None, "foreign_keys", true).expect("pragma");
+    conn.pragma_update(None, "foreign_keys", true)
+        .expect("pragma");
     conn.execute_batch(&schema()).expect("the schema applies");
-    conn.pragma_update(None, "user_version", stamp()).expect("pragma");
+    conn.pragma_update(None, "user_version", stamp())
+        .expect("pragma");
     conn
 }
 
@@ -190,7 +216,8 @@ pub fn schema_rows(conn: &Connection) -> Result<Vec<(String, String, String)>> {
     let rows = statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .context(|| "reading the schema".to_string())?;
-    rows.collect::<std::result::Result<_, _>>().context(|| "reading the schema".to_string())
+    rows.collect::<std::result::Result<_, _>>()
+        .context(|| "reading the schema".to_string())
 }
 
 /// Names a refused or failed statement on the lists' database.
@@ -200,7 +227,9 @@ pub trait Sql<T> {
 
 impl<T> Sql<T> for rusqlite::Result<T> {
     fn sql(self) -> Result<T> {
-        self.map_err(|error| crate::fail::Fail::Message(format!("builds.sqlite refused the write: {error}")))
+        self.map_err(|error| {
+            crate::fail::Fail::Message(format!("builds.sqlite refused the write: {error}"))
+        })
     }
 }
 
@@ -214,17 +243,30 @@ pub fn plant_row(
     table: &str,
     columns: &[(&str, rusqlite::types::Value)],
 ) -> rusqlite::Result<usize> {
-    assert!(owned.contains(&table), "{table} is not one of this owner's tables ({owned:?})");
+    assert!(
+        owned.contains(&table),
+        "{table} is not one of this owner's tables ({owned:?})"
+    );
     let names: Vec<&str> = columns.iter().map(|(name, _)| *name).collect();
     let marks: Vec<String> = (1..=columns.len()).map(|n| format!("?{n}")).collect();
-    let sql = format!("INSERT INTO {table} ({}) VALUES ({})", names.join(", "), marks.join(", "));
-    db.execute(&sql, rusqlite::params_from_iter(columns.iter().map(|(_, value)| value)))
+    let sql = format!(
+        "INSERT INTO {table} ({}) VALUES ({})",
+        names.join(", "),
+        marks.join(", ")
+    );
+    db.execute(
+        &sql,
+        rusqlite::params_from_iter(columns.iter().map(|(_, value)| value)),
+    )
 }
 
 /// The names of the constraints a part of the schema gives, in its text.
 #[cfg(test)]
 pub fn constraint_names(sql: &str) -> Vec<String> {
-    let words: Vec<&str> = sql.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|w| !w.is_empty()).collect();
+    let words: Vec<&str> = sql
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty())
+        .collect();
     let mut names = Vec::new();
     for pair in words.windows(2) {
         if pair[0] == "CONSTRAINT" {

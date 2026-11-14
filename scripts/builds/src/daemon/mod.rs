@@ -62,7 +62,8 @@ fn bind(tool: &Tool) -> Result<UnixListener> {
         match UnixStream::connect(&socket) {
             Ok(_) => fail!("a daemon already answers on {}", socket.display()),
             Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
-                std::fs::remove_file(&socket).context(|| format!("removing {}", socket.display()))?;
+                std::fs::remove_file(&socket)
+                    .context(|| format!("removing {}", socket.display()))?;
             }
             Err(error) => fail!("checking {}: {error}", socket.display()),
         }
@@ -115,15 +116,20 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
         }
     }
     tool.places.require_volume()?;
-    let root = std::fs::canonicalize(&tool.places.root).context(|| format!("resolving {}", tool.places.root.display()))?;
+    let root = std::fs::canonicalize(&tool.places.root)
+        .context(|| format!("resolving {}", tool.places.root.display()))?;
     let web = match std::net::TcpListener::bind(("127.0.0.1", port)) {
         Ok(web) => web,
         Err(error) => fail!("dashboard: can't listen on 127.0.0.1:{port}: {error}"),
     };
     let socket = bind(tool)?;
-    let tracker = Tracker::start(&root, &tool.places.daemon_dir()).context(|| format!("following {}", root.display()))?;
+    let tracker = Tracker::start(&root, &tool.places.daemon_dir())
+        .context(|| format!("following {}", root.display()))?;
     let exe = std::env::current_exe().context(|| "finding this program".to_string())?;
-    let runs = Runs::start(tool.places.clone(), vec![exe.to_string_lossy().into_owned()])?;
+    let runs = Runs::start(
+        tool.places.clone(),
+        vec![exe.to_string_lossy().into_owned()],
+    )?;
     let model = Model::start(tool.places.clone(), tool.rules.clone(), tracker, runs);
     let questions = model.clone();
     let given = tool.places.root.clone();
@@ -142,7 +148,10 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
             }
         })
         .context(|| "starting a thread".to_string())?;
-    note(format!("dashboard at http://127.0.0.1:{port}/ (pid {})", std::process::id()));
+    note(format!(
+        "dashboard at http://127.0.0.1:{port}/ (pid {})",
+        std::process::id()
+    ));
     http::serve(web, port, model);
     Ok(())
 }

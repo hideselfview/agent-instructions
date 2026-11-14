@@ -37,11 +37,17 @@ pub fn find_free(tool: &Tool, main: &Path) -> Result<Option<Checkout>> {
     let mut tops = crate::checkout::worktrees_of(main)?;
     tops.sort();
     for top in tops {
-        let Some(checkout) = Checkout::at(&top)? else { continue };
+        let Some(checkout) = Checkout::at(&top)? else {
+            continue;
+        };
         if !checkout.is_side() || checkout.top != top {
             continue;
         }
-        if tool.places.app_lane_of(&checkout.repo(), &checkout.name())?.is_some() {
+        if tool
+            .places
+            .app_lane_of(&checkout.repo(), &checkout.name())?
+            .is_some()
+        {
             continue;
         }
         if is_free(&checkout, &side_git::read(&checkout.top))? {
@@ -54,12 +60,16 @@ pub fn find_free(tool: &Tool, main: &Path) -> Result<Option<Checkout>> {
 /// The newest write to the worktree's own git dir, in seconds since 1970: a
 /// checkout writes HEAD and the index, a released claim changes the folder.
 fn git_dir_written(checkout: &Checkout) -> i64 {
-    [checkout.git_dir.clone(), checkout.git_dir.join("HEAD"), checkout.git_dir.join("index")]
-        .iter()
-        .filter_map(|path| std::fs::symlink_metadata(path).ok())
-        .map(|meta| meta.mtime())
-        .max()
-        .unwrap_or(0)
+    [
+        checkout.git_dir.clone(),
+        checkout.git_dir.join("HEAD"),
+        checkout.git_dir.join("index"),
+    ]
+    .iter()
+    .filter_map(|path| std::fs::symlink_metadata(path).ok())
+    .map(|meta| meta.mtime())
+    .max()
+    .unwrap_or(0)
 }
 
 /// Retires each free side worktree among <roots> that nothing has used for
@@ -88,7 +98,9 @@ pub fn retire_idle(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
         if tool.now - git_dir_written(checkout) < (idle * 60) as i64 {
             continue;
         }
-        let Some(place) = places.iter().position(|p| p.root == root.path) else { continue };
+        let Some(place) = places.iter().position(|p| p.root == root.path) else {
+            continue;
+        };
         if builds.iter().any(|b| b.place == place) {
             continue;
         }
@@ -96,7 +108,10 @@ pub fn retire_idle(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
             continue;
         }
         if run.dry() {
-            note(format!("would retire {} (free, unused for {idle}m)", checkout.top.display()));
+            note(format!(
+                "would retire {} (free, unused for {idle}m)",
+                checkout.top.display()
+            ));
         } else {
             retire_checkout(tool, checkout)?;
         }

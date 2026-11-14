@@ -63,7 +63,13 @@ pub fn route_repoint_signal() {
 pub fn open_with(path: &Path, flags: libc::c_int) -> std::io::Result<libc::c_int> {
     let c_path = CString::new(path.as_os_str().as_bytes()).expect("a path holds no NUL");
     loop {
-        let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | libc::O_EXLOCK | flags, 0o644) };
+        let fd = unsafe {
+            libc::open(
+                c_path.as_ptr(),
+                libc::O_RDONLY | libc::O_EXLOCK | flags,
+                0o644,
+            )
+        };
         if fd >= 0 {
             return Ok(fd);
         }
@@ -176,7 +182,8 @@ impl Queue {
     }
 
     fn guard(&self) -> Result<Guard> {
-        std::fs::create_dir_all(&self.dir).context(|| format!("creating {}", self.dir.display()))?;
+        std::fs::create_dir_all(&self.dir)
+            .context(|| format!("creating {}", self.dir.display()))?;
         let path = self.dir.join(".next");
         open_with(&path, libc::O_CREAT | libc::O_CLOEXEC)
             .map(Guard)
@@ -186,7 +193,11 @@ impl Queue {
     /// The tickets in line, next first. A write replaces the file whole, so a
     /// read without the guard sees one order or the other.
     pub fn order(&self) -> Vec<String> {
-        std::fs::read_to_string(self.dir.join("order")).unwrap_or_default().lines().map(str::to_string).collect()
+        std::fs::read_to_string(self.dir.join("order"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
     }
 
     fn write_order(&self, order: &[String]) -> Result<()> {
@@ -194,13 +205,18 @@ impl Queue {
         let text: String = order.iter().map(|name| format!("{name}\n")).collect();
         std::fs::write(&part, text).context(|| format!("writing {}", part.display()))?;
         let order_file = self.dir.join("order");
-        std::fs::rename(&part, &order_file).context(|| format!("replacing {}", order_file.display()))
+        std::fs::rename(&part, &order_file)
+            .context(|| format!("replacing {}", order_file.display()))
     }
 
     /// The pid of each ticket in line after the holders' (the first `slots`),
     /// next first.
     pub fn waiting(&self) -> Vec<i32> {
-        self.order().iter().skip(self.slots()).filter_map(|name| pid_of(name)).collect()
+        self.order()
+            .iter()
+            .skip(self.slots())
+            .filter_map(|name| pid_of(name))
+            .collect()
     }
 
     /// Makes this process's next ticket, locked, and puts it last in line;
@@ -272,7 +288,10 @@ impl Queue {
         // Before the first read: a signal sent for a change this read
         // misses is counted from here on.
         let wake = Wake::new()?;
-        let shared = Arc::new(Mutex::new(Shared { current: std::collections::HashSet::new(), open: true }));
+        let shared = Arc::new(Mutex::new(Shared {
+            current: std::collections::HashSet::new(),
+            open: true,
+        }));
         let mut generation = 0;
         // The tickets being waited on, each with the wait that started on it.
         let mut waiting: Vec<(u64, String)> = Vec::new();
@@ -280,7 +299,10 @@ impl Queue {
             loop {
                 let order = self.order();
                 let Some(at) = order.iter().position(|name| name == mine) else {
-                    fail!("{mine} is no longer in {}", self.dir.join("order").display());
+                    fail!(
+                        "{mine} is no longer in {}",
+                        self.dir.join("order").display()
+                    );
                 };
                 let slots = self.slots();
                 if at < slots {
@@ -295,14 +317,22 @@ impl Queue {
                 waiting.retain(|(started, name)| {
                     let keep = ahead.contains(&name);
                     if !keep {
-                        shared.lock().expect("no panic holding it").current.remove(started);
+                        shared
+                            .lock()
+                            .expect("no panic holding it")
+                            .current
+                            .remove(started);
                     }
                     keep
                 });
                 for name in ahead {
                     if waiting.iter().all(|(_, waited)| waited != name) {
                         generation += 1;
-                        shared.lock().expect("no panic holding it").current.insert(generation);
+                        shared
+                            .lock()
+                            .expect("no panic holding it")
+                            .current
+                            .insert(generation);
                         wake.block_on(self.ticket_path(name), generation, shared.clone())?;
                         waiting.push((generation, name.clone()));
                     }
@@ -310,7 +340,8 @@ impl Queue {
                 after_read();
                 if wake.wait()?.ready {
                     while let Some((from, code)) = wake.message() {
-                        let Some(found) = waiting.iter().position(|(started, _)| *started == from) else {
+                        let Some(found) = waiting.iter().position(|(started, _)| *started == from)
+                        else {
                             // A wait on a ticket since given up: it holds a
                             // ticket for this instant only.
                             if code >= 0 {
@@ -319,7 +350,11 @@ impl Queue {
                             continue;
                         };
                         let (started, name) = waiting.remove(found);
-                        shared.lock().expect("no panic holding it").current.remove(&started);
+                        shared
+                            .lock()
+                            .expect("no panic holding it")
+                            .current
+                            .remove(&started);
                         if code >= 0 {
                             let dropped = self.drop_ticket(&name);
                             unsafe { libc::close(code) };
@@ -327,7 +362,11 @@ impl Queue {
                         } else if -code == libc::ENOENT {
                             self.drop_ticket(&name)?;
                         } else {
-                            fail!("waiting on {}: {}", self.ticket_path(&name).display(), std::io::Error::from_raw_os_error(-code));
+                            fail!(
+                                "waiting on {}: {}",
+                                self.ticket_path(&name).display(),
+                                std::io::Error::from_raw_os_error(-code)
+                            );
                         }
                     }
                 }
@@ -388,7 +427,14 @@ struct Woke {
 const MESSAGE: usize = 16;
 
 fn change(ident: usize, filter: i16, flags: u16) -> libc::kevent {
-    libc::kevent { ident, filter, flags, fflags: 0, data: 0, udata: std::ptr::null_mut() }
+    libc::kevent {
+        ident,
+        filter,
+        flags,
+        fflags: 0,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    }
 }
 
 impl Wake {
@@ -396,7 +442,10 @@ impl Wake {
         let mut ends = [0; 2];
         let kqueue = unsafe { libc::kqueue() };
         if kqueue < 0 || unsafe { libc::pipe(ends.as_mut_ptr()) } < 0 {
-            fail!("making a queue to wait in: {}", std::io::Error::last_os_error());
+            fail!(
+                "making a queue to wait in: {}",
+                std::io::Error::last_os_error()
+            );
         }
         unsafe {
             libc::fcntl(kqueue, libc::F_SETFD, libc::FD_CLOEXEC);
@@ -405,14 +454,34 @@ impl Wake {
             }
             libc::fcntl(ends[0], libc::F_SETFL, libc::O_NONBLOCK);
         }
-        let wake = Wake { kqueue, read: ends[0], write: ends[1] };
+        let wake = Wake {
+            kqueue,
+            read: ends[0],
+            write: ends[1],
+        };
         let changes = [
-            change(libc::SIGUSR1 as usize, libc::EVFILT_SIGNAL, libc::EV_ADD | libc::EV_CLEAR),
+            change(
+                libc::SIGUSR1 as usize,
+                libc::EVFILT_SIGNAL,
+                libc::EV_ADD | libc::EV_CLEAR,
+            ),
             change(wake.read as usize, libc::EVFILT_READ, libc::EV_ADD),
         ];
-        let set = unsafe { libc::kevent(kqueue, changes.as_ptr(), 2, std::ptr::null_mut(), 0, std::ptr::null()) };
+        let set = unsafe {
+            libc::kevent(
+                kqueue,
+                changes.as_ptr(),
+                2,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null(),
+            )
+        };
         if set < 0 {
-            fail!("registering what to wait for: {}", std::io::Error::last_os_error());
+            fail!(
+                "registering what to wait for: {}",
+                std::io::Error::last_os_error()
+            );
         }
         Ok(wake)
     }
@@ -437,7 +506,9 @@ impl Wake {
                     let mut message = [0u8; MESSAGE];
                     message[..8].copy_from_slice(&generation.to_le_bytes());
                     message[8..12].copy_from_slice(&code.to_le_bytes());
-                    unsafe { libc::write(write, message.as_ptr().cast(), MESSAGE) == MESSAGE as isize }
+                    unsafe {
+                        libc::write(write, message.as_ptr().cast(), MESSAGE) == MESSAGE as isize
+                    }
                 } else {
                     false
                 }
@@ -454,9 +525,20 @@ impl Wake {
     fn wait(&self) -> Result<Woke> {
         let mut events = [change(0, 0, 0); 4];
         loop {
-            let count = unsafe { libc::kevent(self.kqueue, std::ptr::null(), 0, events.as_mut_ptr(), 4, std::ptr::null()) };
+            let count = unsafe {
+                libc::kevent(
+                    self.kqueue,
+                    std::ptr::null(),
+                    0,
+                    events.as_mut_ptr(),
+                    4,
+                    std::ptr::null(),
+                )
+            };
             if count >= 0 {
-                let ready = events[..count as usize].iter().any(|event| event.filter == libc::EVFILT_READ);
+                let ready = events[..count as usize]
+                    .iter()
+                    .any(|event| event.filter == libc::EVFILT_READ);
                 return Ok(Woke { ready });
             }
             let error = std::io::Error::last_os_error();
@@ -473,7 +555,10 @@ impl Wake {
         let read = unsafe { libc::read(self.read, message.as_mut_ptr().cast(), MESSAGE) };
         (read == MESSAGE as isize).then(|| {
             let wait = u64::from_le_bytes(message[..8].try_into().expect("8 bytes"));
-            (wait, i32::from_le_bytes(message[8..12].try_into().expect("4 bytes")))
+            (
+                wait,
+                i32::from_le_bytes(message[8..12].try_into().expect("4 bytes")),
+            )
         })
     }
 }
@@ -491,7 +576,9 @@ impl Drop for Wake {
 /// Whether <pid> is a `builds` process: a signal goes only to one, since the
 /// pid in a ticket may be a stranger's by now.
 fn is_builds(processes: &Processes, pid: i32) -> bool {
-    processes.get(pid).is_some_and(|process| process.name == "builds")
+    processes
+        .get(pid)
+        .is_some_and(|process| process.name == "builds")
 }
 
 /// Sends <signal> to each of <pids> that is a `builds` process, not this one.
@@ -513,7 +600,10 @@ fn check_repo(places: &Places, repo: &str, lane: Lane) -> Result<()> {
         fail!("{repo:?} is not a repo's name");
     }
     if places.app_checkouts_of(repo, lane)?.is_empty() {
-        fail!("{repo} has no {} app checkout recorded; builds app-checkout records one", lane.word());
+        fail!(
+            "{repo} has no {} app checkout recorded; builds app-checkout records one",
+            lane.word()
+        );
     }
     Ok(())
 }
@@ -595,7 +685,10 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
             }
         };
         if taker < slots {
-            fail!("{} is among the first {slots} in the queue: it holds a lock or is about to", pid.unwrap_or_default());
+            fail!(
+                "{} is among the first {slots} in the queue: it holds a lock or is about to",
+                pid.unwrap_or_default()
+            );
         }
         let mut holding = true;
         for checkout in places.app_checkouts_of(repo, lane)? {
@@ -610,8 +703,12 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
             // Every lock is held: the build that joined last of the holders
             // is the one stopped.
             let holder = order[slots - 1].clone();
-            let Some(holder_pid) = pid_of(&holder).filter(|pid| is_builds(&Processes::read(), *pid)) else {
-                fail!("the holder's `builds` is gone, so its build can't be told to stop; kill its processes by pid");
+            let Some(holder_pid) =
+                pid_of(&holder).filter(|pid| is_builds(&Processes::read(), *pid))
+            else {
+                fail!(
+                    "the holder's `builds` is gone, so its build can't be told to stop; kill its processes by pid"
+                );
             };
             order.insert(0, name);
             queue.write_order(&order)?;
@@ -619,7 +716,10 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
         }
     };
     let order = queue.order();
-    let waiters: Vec<i32> = pids_in(&order).into_iter().filter(|pid| Some(*pid) != holder).collect();
+    let waiters: Vec<i32> = pids_in(&order)
+        .into_iter()
+        .filter(|pid| Some(*pid) != holder)
+        .collect();
     signal_all(&waiters, libc::SIGUSR1);
     if let Some(holder) = holder {
         signal_all(&[holder], libc::SIGUSR2);
@@ -630,7 +730,10 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
 /// Tells every ticket's process in <lane>'s line to read the order again: its
 /// set of app checkouts changed.
 pub fn repoint(places: &Places, repo: &str, lane: Lane) {
-    signal_all(&pids_in(&Queue::of(places, repo, lane).order()), libc::SIGUSR1);
+    signal_all(
+        &pids_in(&Queue::of(places, repo, lane).order()),
+        libc::SIGUSR1,
+    );
 }
 
 /// Splits `--lane <lane>` out of <args>.
@@ -640,7 +743,9 @@ fn split_lane(args: &[String]) -> Result<(Vec<String>, Option<Lane>)> {
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         if arg == "--lane" {
-            let Some(word) = args.next() else { fail!("--lane takes mac or android") };
+            let Some(word) = args.next() else {
+                fail!("--lane takes mac or android")
+            };
             lane = Some(Lane::parse_or_fail(word)?);
         } else {
             rest.push(arg.clone());
@@ -651,7 +756,8 @@ fn split_lane(args: &[String]) -> Result<(Vec<String>, Option<Lane>)> {
 
 /// `builds queue <repo> [--lane <lane>] [top <pid>]`.
 pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds queue <repo> [--lane mac|android] | builds queue <repo> top <pid>";
+    const USAGE: &str =
+        "usage: builds queue <repo> [--lane mac|android] | builds queue <repo> top <pid>";
     let (args, lane) = split_lane(args)?;
     match &args[..] {
         [repo] => {
@@ -665,16 +771,28 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
             for lane in lanes {
                 let queue = Queue::of(places, repo, lane);
                 let order = queue.order();
-                let first: Vec<i32> = order.iter().take(queue.slots()).filter_map(|name| pid_of(name)).collect();
+                let first: Vec<i32> = order
+                    .iter()
+                    .take(queue.slots())
+                    .filter_map(|name| pid_of(name))
+                    .collect();
                 for checkout in places.app_checkouts_of(repo, lane)? {
                     let lock = places.app_lock_file(repo, lane, &checkout);
                     if !is_held(&lock)? {
                         continue;
                     }
                     let real = std::fs::canonicalize(&lock).unwrap_or(lock.clone());
-                    let holder = first.iter().find(|pid| procs::open_files(**pid).iter().any(|open| *open == real || *open == lock));
+                    let holder = first.iter().find(|pid| {
+                        procs::open_files(**pid)
+                            .iter()
+                            .any(|open| *open == real || *open == lock)
+                    });
                     match holder {
-                        Some(pid) => println!("{} {checkout}: holder {pid} {}", lane.word(), command_of(*pid)),
+                        Some(pid) => println!(
+                            "{} {checkout}: holder {pid} {}",
+                            lane.word(),
+                            command_of(*pid)
+                        ),
                         None => println!("{} {checkout}: held", lane.word()),
                     }
                 }
@@ -711,7 +829,9 @@ pub fn cmd_takeover(places: &Places, args: &[String]) -> Result<()> {
 }
 
 fn command_of(pid: i32) -> String {
-    procs::args(pid).map(|args| args.join(" ")).unwrap_or_else(|| "(gone)".to_string())
+    procs::args(pid)
+        .map(|args| args.join(" "))
+        .unwrap_or_else(|| "(gone)".to_string())
 }
 
 #[cfg(test)]

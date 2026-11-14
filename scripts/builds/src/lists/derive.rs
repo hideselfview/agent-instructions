@@ -7,7 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use crate::lists::{
-    Audience, Closed, Decision, Id, Item, Kind, Level, Lists, Located, Position, Question, Record, Standing, Wait, day,
+    Audience, Closed, Decision, Id, Item, Kind, Level, Lists, Located, Position, Question, Record,
+    Standing, Wait, day,
 };
 use crate::text::local_day;
 
@@ -21,8 +22,10 @@ pub fn closed_meets_wait(closed: &Closed) -> bool {
     use crate::lists::How;
     matches!(
         (&closed.record, &closed.how),
-        (Record::Question(_), How::Answered(_) | How::Settled(_) | How::Done)
-            | (Record::Item(_) | Record::Design(_), How::Landed(_))
+        (
+            Record::Question(_),
+            How::Answered(_) | How::Settled(_) | How::Done
+        ) | (Record::Item(_) | Record::Design(_), How::Landed(_))
     )
 }
 
@@ -35,7 +38,12 @@ pub fn decisions_newest_first(lists: &Lists) -> Vec<&Decision> {
 
 /// The newest decision that replaces <decision>. Derived, never stored.
 pub fn replaced_by(lists: &Lists, decision: Id) -> Option<Id> {
-    lists.decisions.iter().filter(|other| other.replaces == Some(decision)).map(|other| other.id).max()
+    lists
+        .decisions
+        .iter()
+        .filter(|other| other.replaces == Some(decision))
+        .map(|other| other.id)
+        .max()
 }
 
 /// Is <wait> met? A wait on a record that does not exist is not (the check
@@ -47,24 +55,35 @@ pub fn wait_met(lists: &Lists, wait: &Wait) -> bool {
         Wait::Condition(_) => return false,
     };
     match lists.locate(id) {
-        Some(Located { standing: Standing::Closed(closed), .. }) => closed_meets_wait(closed),
+        Some(Located {
+            standing: Standing::Closed(closed),
+            ..
+        }) => closed_meets_wait(closed),
         _ => false,
     }
 }
 
 /// The waits of <item> not met.
 pub fn unmet_waits<'a>(lists: &Lists, item: &'a Item) -> Vec<&'a Wait> {
-    item.waits.iter().filter(|wait| !wait_met(lists, wait)).collect()
+    item.waits
+        .iter()
+        .filter(|wait| !wait_met(lists, wait))
+        .collect()
 }
 
 /// An item `last` in priority waits while any other open coordinator item
 /// that is not itself `last` exists.
 pub fn waits_for_others(lists: &Lists, item: &Item) -> bool {
-    item.priority.as_ref().is_some_and(|p| p.level == Level::Last)
+    item.priority
+        .as_ref()
+        .is_some_and(|p| p.level == Level::Last)
         && lists.items.iter().any(|other| {
             other.id != item.id
                 && other.r#for == Audience::Coordinator
-                && !other.priority.as_ref().is_some_and(|p| p.level == Level::Last)
+                && !other
+                    .priority
+                    .as_ref()
+                    .is_some_and(|p| p.level == Level::Last)
         })
 }
 
@@ -160,9 +179,10 @@ pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
             if group(a) == 0 {
                 (b.question.opened.at, b.question.id).cmp(&(a.question.opened.at, a.question.id))
             } else {
-                b.blocked_count
-                    .cmp(&a.blocked_count)
-                    .then_with(|| (a.question.opened.at, a.question.id).cmp(&(b.question.opened.at, b.question.id)))
+                b.blocked_count.cmp(&a.blocked_count).then_with(|| {
+                    (a.question.opened.at, a.question.id)
+                        .cmp(&(b.question.opened.at, b.question.id))
+                })
             }
         })
     });
@@ -173,7 +193,13 @@ pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
 /// first), then the rest by area order and age. `last` items are ready only
 /// once nothing else is open, so they come out last by themselves.
 pub fn dispatch_order(lists: &Lists) -> Vec<&Item> {
-    let area_rank = |item: &Item| lists.areas.iter().position(|a| *a == item.area).unwrap_or(usize::MAX);
+    let area_rank = |item: &Item| {
+        lists
+            .areas
+            .iter()
+            .position(|a| *a == item.area)
+            .unwrap_or(usize::MAX)
+    };
     let level = |item: &Item| item.priority.as_ref().map(|p| p.level);
     let group = |item: &Item| match level(item) {
         Some(Level::First) => 0,
@@ -183,12 +209,18 @@ pub fn dispatch_order(lists: &Lists) -> Vec<&Item> {
     let mut ready: Vec<&Item> = lists
         .items
         .iter()
-        .filter(|item| item.r#for == Audience::Coordinator && item_state(lists, item) == ItemState::Ready)
+        .filter(|item| {
+            item.r#for == Audience::Coordinator && item_state(lists, item) == ItemState::Ready
+        })
         .collect();
     ready.sort_by(|a, b| {
         group(a).cmp(&group(b)).then_with(|| {
             let by_age = (a.opened.at, a.id).cmp(&(b.opened.at, b.id));
-            if group(a) == 1 { area_rank(a).cmp(&area_rank(b)).then(by_age) } else { by_age }
+            if group(a) == 1 {
+                area_rank(a).cmp(&area_rank(b)).then(by_age)
+            } else {
+                by_age
+            }
         })
     });
     ready
@@ -232,10 +264,17 @@ pub fn flow(lists: &Lists, now: i64) -> Vec<FlowDay> {
             opened(closed.record.opened().at, &closed.record.opened().by);
         }
     }
-    for closed in lists.closed.iter().filter(|c| c.record.kind() != Kind::Design) {
+    for closed in lists
+        .closed
+        .iter()
+        .filter(|c| c.record.kind() != Kind::Design)
+    {
         let day = local_day(closed.closed.at);
         if let Some(entry) = days.iter_mut().find(|d| d.day == day) {
-            *entry.closed.entry(closed.how.label().to_string()).or_insert(0) += 1;
+            *entry
+                .closed
+                .entry(closed.how.label().to_string())
+                .or_insert(0) += 1;
         }
     }
     days

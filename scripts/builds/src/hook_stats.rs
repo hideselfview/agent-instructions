@@ -57,7 +57,9 @@ impl Change {
     }
 
     fn from_word(word: &str) -> Option<Change> {
-        [Change::Added, Change::Modified, Change::Deleted].into_iter().find(|c| c.word() == word)
+        [Change::Added, Change::Modified, Change::Deleted]
+            .into_iter()
+            .find(|c| c.word() == word)
     }
 }
 
@@ -97,7 +99,9 @@ impl Outcome {
     }
 
     fn from_word(word: &str) -> Option<Outcome> {
-        [Outcome::Passed, Outcome::Failed, Outcome::Skipped].into_iter().find(|o| o.word() == word)
+        [Outcome::Passed, Outcome::Failed, Outcome::Skipped]
+            .into_iter()
+            .find(|o| o.word() == word)
     }
 }
 
@@ -136,11 +140,19 @@ pub struct Run {
 
 impl Run {
     pub fn added(&self) -> u64 {
-        self.files.iter().filter_map(|f| f.lines).map(|(added, _)| added).sum()
+        self.files
+            .iter()
+            .filter_map(|f| f.lines)
+            .map(|(added, _)| added)
+            .sum()
     }
 
     pub fn removed(&self) -> u64 {
-        self.files.iter().filter_map(|f| f.lines).map(|(_, removed)| removed).sum()
+        self.files
+            .iter()
+            .filter_map(|f| f.lines)
+            .map(|(_, removed)| removed)
+            .sum()
     }
 }
 
@@ -182,14 +194,26 @@ pub fn record(path: &Path, run: &Run) -> Result<()> {
             .context(what)?;
         for f in &run.files {
             let (added, removed) = f.lines.map(|(a, r)| (a as i64, r as i64)).unzip();
-            file.execute(params![id, f.path, f.change.word(), added, removed]).context(what)?;
+            file.execute(params![id, f.path, f.change.word(), added, removed])
+                .context(what)?;
         }
         let mut check = tx
             .prepare("INSERT INTO hook_run_checks (run_id, position, name, kind, outcome, files, crates, ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
             .context(what)?;
         for (position, c) in run.checks.iter().enumerate() {
             let (files, crates) = c.handed.map(|(f, k)| (f as i64, k as i64)).unzip();
-            check.execute(params![id, position as i64, c.name, c.kind.word(), c.outcome.word(), files, crates, c.ms.map(|ms| ms as i64)]).context(what)?;
+            check
+                .execute(params![
+                    id,
+                    position as i64,
+                    c.name,
+                    c.kind.word(),
+                    c.outcome.word(),
+                    files,
+                    crates,
+                    c.ms.map(|ms| ms as i64)
+                ])
+                .context(what)?;
         }
     }
     tx.commit().context(what)
@@ -265,7 +289,9 @@ fn rounded(mean: Option<f64>) -> u64 {
 /// after <since> (seconds since 1970); None when nothing was ever recorded
 /// there.
 pub fn stats(path: &Path, since: i64) -> Result<Option<Stats>> {
-    let Some(conn) = open_for_reading(path)? else { return Ok(None) };
+    let Some(conn) = open_for_reading(path)? else {
+        return Ok(None);
+    };
     let what = || format!("reading {}", path.display());
     let (runs, failed, slowest_ms): (i64, i64, i64) = conn
         .query_row(
@@ -307,7 +333,15 @@ pub fn stats(path: &Path, since: i64) -> Result<Option<Stats>> {
         .context(what)?;
     let rows = statement
         .query_map([since], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?, row.get::<_, Option<f64>>(6)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, Option<f64>>(6)?,
+            ))
         })
         .context(what)?;
     let mut checks = Vec::new();
@@ -326,17 +360,44 @@ pub fn stats(path: &Path, since: i64) -> Result<Option<Stats>> {
     }
     let trends = trends(&conn, since, path)?;
     for c in &mut checks {
-        c.trend = trends.get(&(c.name.clone(), c.kind.word().to_string())).copied();
+        c.trend = trends
+            .get(&(c.name.clone(), c.kind.word().to_string()))
+            .copied();
     }
-    let slowest = runs_where(&conn, "started_at >= ?1 ORDER BY total_ms DESC, started_at DESC", since, SLOWEST_RUNS, path)?;
-    let recent = runs_where(&conn, "started_at >= ?1 ORDER BY started_at DESC, id DESC", since, RECENT_RUNS, path)?;
+    let slowest = runs_where(
+        &conn,
+        "started_at >= ?1 ORDER BY total_ms DESC, started_at DESC",
+        since,
+        SLOWEST_RUNS,
+        path,
+    )?;
+    let recent = runs_where(
+        &conn,
+        "started_at >= ?1 ORDER BY started_at DESC, id DESC",
+        since,
+        RECENT_RUNS,
+        path,
+    )?;
     let over_limit = over_limit(&conn, since, path)?;
-    Ok(Some(Stats { runs: runs as u32, failed: failed as u32, median_ms: rounded(median), slowest_ms: slowest_ms as u64, checks, slowest, recent, over_limit }))
+    Ok(Some(Stats {
+        runs: runs as u32,
+        failed: failed as u32,
+        median_ms: rounded(median),
+        slowest_ms: slowest_ms as u64,
+        checks,
+        slowest,
+        recent,
+        over_limit,
+    }))
 }
 
 /// The trend of each check (by name and kind) that ran enough times since
 /// <since>: its latest runs against the ones before them.
-fn trends(conn: &Connection, since: i64, path: &Path) -> Result<std::collections::HashMap<(String, String), Trend>> {
+fn trends(
+    conn: &Connection,
+    since: i64,
+    path: &Path,
+) -> Result<std::collections::HashMap<(String, String), Trend>> {
     let what = || format!("reading {}", path.display());
     let mut statement = conn
         .prepare(
@@ -344,8 +405,17 @@ fn trends(conn: &Connection, since: i64, path: &Path) -> Result<std::collections
              WHERE r.started_at >= ?1 AND c.outcome <> 'skipped' ORDER BY r.started_at DESC, r.id DESC",
         )
         .context(what)?;
-    let rows = statement.query_map([since], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))).context(what)?;
-    let mut times: std::collections::HashMap<(String, String), Vec<u64>> = std::collections::HashMap::new();
+    let rows = statement
+        .query_map([since], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .context(what)?;
+    let mut times: std::collections::HashMap<(String, String), Vec<u64>> =
+        std::collections::HashMap::new();
     for row in rows {
         let (name, kind, ms) = row.context(what)?;
         times.entry((name, kind)).or_default().push(ms as u64);
@@ -355,7 +425,13 @@ fn trends(conn: &Connection, since: i64, path: &Path) -> Result<std::collections
         let (recent, earlier) = all.split_at(all.len().min(TREND_RUNS));
         let earlier = &earlier[..earlier.len().min(TREND_RUNS)];
         if earlier.len() >= TREND_EARLIER_MIN {
-            out.insert(key, Trend { recent_ms: median_of(&mut recent.to_vec()), earlier_ms: median_of(&mut earlier.to_vec()) });
+            out.insert(
+                key,
+                Trend {
+                    recent_ms: median_of(&mut recent.to_vec()),
+                    earlier_ms: median_of(&mut earlier.to_vec()),
+                },
+            );
         }
     }
     Ok(out)
@@ -373,7 +449,15 @@ fn over_limit(conn: &Connection, since: i64, path: &Path) -> Result<Vec<Run>> {
              WHERE r.started_at >= ?1 ORDER BY r.started_at DESC, r.id DESC",
         )
         .context(what)?;
-    let rows = statement.query_map([since], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, Option<String>>(2)?))).context(what)?;
+    let rows = statement
+        .query_map([since], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .context(what)?;
     // Runs newest first, each with the names of the checks that ran.
     let mut runs: Vec<(i64, u64, std::collections::BTreeSet<String>)> = Vec::new();
     for row in rows {
@@ -385,7 +469,8 @@ fn over_limit(conn: &Connection, since: i64, path: &Path) -> Result<Vec<Run>> {
             runs.last_mut().expect("just pushed").2.insert(name);
         }
     }
-    let mut seen: std::collections::HashSet<std::collections::BTreeSet<String>> = Default::default();
+    let mut seen: std::collections::HashSet<std::collections::BTreeSet<String>> =
+        Default::default();
     let mut flagged: Vec<(i64, u64)> = Vec::new();
     for (id, total, set) in runs {
         if set.is_empty() || !seen.insert(set) {
@@ -399,12 +484,27 @@ fn over_limit(conn: &Connection, since: i64, path: &Path) -> Result<Vec<Run>> {
         return Ok(Vec::new());
     }
     let ids: Vec<String> = flagged.iter().map(|(id, _)| id.to_string()).collect();
-    runs_where(conn, &format!("id IN ({}) AND started_at >= ?1 ORDER BY total_ms DESC, started_at DESC", ids.join(",")), since, flagged.len(), path)
+    runs_where(
+        conn,
+        &format!(
+            "id IN ({}) AND started_at >= ?1 ORDER BY total_ms DESC, started_at DESC",
+            ids.join(",")
+        ),
+        since,
+        flagged.len(),
+        path,
+    )
 }
 
 /// The first <limit> runs of `hook_runs WHERE <clause>` (which takes
 /// `?1` as the earliest start), each with its files and checks.
-fn runs_where(conn: &Connection, clause: &str, since: i64, limit: usize, path: &Path) -> Result<Vec<Run>> {
+fn runs_where(
+    conn: &Connection,
+    clause: &str,
+    since: i64,
+    limit: usize,
+    path: &Path,
+) -> Result<Vec<Run>> {
     let what = || format!("reading {}", path.display());
     let mut statement = conn
         .prepare(&format!(
@@ -438,13 +538,24 @@ fn runs_where(conn: &Connection, clause: &str, since: i64, limit: usize, path: &
             .context(what)?;
         let rows = files
             .query_map([id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<i64>>(2)?, row.get::<_, Option<i64>>(3)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                ))
             })
             .context(what)?;
         for row in rows {
             let (path, change, added, removed) = row.context(what)?;
-            let Some(change) = Change::from_word(&change) else { fail!("the database holds a file change {change:?}") };
-            run.files.push(StagedFile { path, change, lines: added.zip(removed).map(|(a, r)| (a as u64, r as u64)) });
+            let Some(change) = Change::from_word(&change) else {
+                fail!("the database holds a file change {change:?}")
+            };
+            run.files.push(StagedFile {
+                path,
+                change,
+                lines: added.zip(removed).map(|(a, r)| (a as u64, r as u64)),
+            });
         }
         let mut checks = conn
             .prepare("SELECT name, kind, outcome, files, crates, ms FROM hook_run_checks WHERE run_id = ?1 ORDER BY position")
@@ -463,8 +574,16 @@ fn runs_where(conn: &Connection, clause: &str, since: i64, limit: usize, path: &
             .context(what)?;
         for row in rows {
             let (name, kind, outcome, files, crates, ms) = row.context(what)?;
-            let Some(outcome) = Outcome::from_word(&outcome) else { fail!("the database holds a check outcome {outcome:?}") };
-            run.checks.push(CheckRecord { name, kind: kind_of(&kind)?, outcome, handed: files.zip(crates).map(|(f, k)| (f as u32, k as u32)), ms: ms.map(|ms| ms as u64) });
+            let Some(outcome) = Outcome::from_word(&outcome) else {
+                fail!("the database holds a check outcome {outcome:?}")
+            };
+            run.checks.push(CheckRecord {
+                name,
+                kind: kind_of(&kind)?,
+                outcome,
+                handed: files.zip(crates).map(|(f, k)| (f as u32, k as u32)),
+                ms: ms.map(|ms| ms as u64),
+            });
         }
         runs.push(run);
     }
@@ -506,7 +625,13 @@ pub fn report(project: &str, since: Option<&str>, stats: Option<&Stats>) -> Stri
         seconds(stats.median_ms),
         seconds(stats.slowest_ms)
     );
-    let width = stats.checks.iter().map(|c| c.name.len()).max().unwrap_or(0).max(5);
+    let width = stats
+        .checks
+        .iter()
+        .map(|c| c.name.len())
+        .max()
+        .unwrap_or(0)
+        .max(5);
     out.push_str(&format!("{:<width$}  kind   ran  failed  skipped  median  slowest  latest {TREND_RUNS} vs the {TREND_RUNS} before\n", "check"));
     for c in &stats.checks {
         out.push_str(&format!(
@@ -518,18 +643,31 @@ pub fn report(project: &str, since: Option<&str>, stats: Option<&Stats>) -> Stri
             c.skipped,
             seconds(c.median_ms),
             seconds(c.slowest_ms),
-            c.trend.map_or(String::new(), |t| format!("{} vs {}", seconds(t.recent_ms), seconds(t.earlier_ms)))
+            c.trend.map_or(String::new(), |t| format!(
+                "{} vs {}",
+                seconds(t.recent_ms),
+                seconds(t.earlier_ms)
+            ))
         ));
     }
     if !stats.over_limit.is_empty() {
         out.push_str(&format!("\nover the {} limit (the newest run of each set of checks; a newer run of the set under the limit ends it):\n", seconds(LIMIT_MS)));
         for run in &stats.over_limit {
-            out.push_str(&format!("{}  {:>7}  {}  {}\n", local_minute(run.at), seconds(run.total_ms), run.worktree, handed_text(run)));
+            out.push_str(&format!(
+                "{}  {:>7}  {}  {}\n",
+                local_minute(run.at),
+                seconds(run.total_ms),
+                run.worktree,
+                handed_text(run)
+            ));
         }
     }
     out.push_str("\nslowest runs:\n");
     for run in &stats.slowest {
-        let kinds: Vec<String> = kinds_of(run).iter().map(|(kind, n)| format!("{kind} {n}")).collect();
+        let kinds: Vec<String> = kinds_of(run)
+            .iter()
+            .map(|(kind, n)| format!("{kind} {n}"))
+            .collect();
         out.push_str(&format!(
             "{}  {:>7}  {}  {} +{} -{} ({})  {}\n",
             local_minute(run.at),
@@ -551,14 +689,31 @@ pub fn handed_text(run: &Run) -> String {
     let (files, crates) = handed_of(run);
     let mut ran: Vec<&CheckRecord> = run.checks.iter().filter(|c| c.ms.is_some()).collect();
     ran.sort_by_key(|c| std::cmp::Reverse(c.ms));
-    let slowest: Vec<String> = ran.iter().take(3).map(|c| format!("{} {}", c.name, seconds(c.ms.unwrap_or(0)))).collect();
-    format!("{}, {}; slowest {}", plural(files, "file", "files"), plural(crates, "crate", "crates"), slowest.join(", "))
+    let slowest: Vec<String> = ran
+        .iter()
+        .take(3)
+        .map(|c| format!("{} {}", c.name, seconds(c.ms.unwrap_or(0))))
+        .collect();
+    format!(
+        "{}, {}; slowest {}",
+        plural(files, "file", "files"),
+        plural(crates, "crate", "crates"),
+        slowest.join(", ")
+    )
 }
 
 /// The files the run's checks were handed, and the most crates any was.
 fn handed_of(run: &Run) -> (u32, u32) {
     let files = run.files.len() as u32;
-    (files, run.checks.iter().filter_map(|c| c.handed).map(|(_, crates)| crates).max().unwrap_or(0))
+    (
+        files,
+        run.checks
+            .iter()
+            .filter_map(|c| c.handed)
+            .map(|(_, crates)| crates)
+            .max()
+            .unwrap_or(0),
+    )
 }
 
 pub(crate) fn run_json(run: &Run) -> serde_json::Value {
@@ -613,8 +768,10 @@ fn project_json(project: &str, path: &Path) -> serde_json::Value {
 pub fn dashboard_json(places: &crate::places::Places) -> String {
     let value = match crate::lists::store::stores(places) {
         Ok(stores) => {
-            let projects: Vec<serde_json::Value> =
-                stores.iter().map(|store| project_json(&store.project, &store.dir.join(DATABASE))).collect();
+            let projects: Vec<serde_json::Value> = stores
+                .iter()
+                .map(|store| project_json(&store.project, &store.dir.join(DATABASE)))
+                .collect();
             serde_json::json!({ "projects": projects })
         }
         Err(error) => serde_json::json!({ "error": error.text() }),

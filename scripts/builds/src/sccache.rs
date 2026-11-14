@@ -15,10 +15,17 @@ pub fn listening() -> bool {
 
 /// The lines `sccache --show-stats` prints; empty when it can't be asked.
 pub fn stats() -> Vec<String> {
-    let Ok(output) = Command::new("sccache").arg("--show-stats").stderr(Stdio::null()).output() else {
+    let Ok(output) = Command::new("sccache")
+        .arg("--show-stats")
+        .stderr(Stdio::null())
+        .output()
+    else {
         return Vec::new();
     };
-    String::from_utf8_lossy(&output.stdout).lines().map(str::to_string).collect()
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect()
 }
 
 /// The count after <label> in <stats> ("Compile requests executed  152034").

@@ -69,7 +69,11 @@ fn copy_path(places: &Places, repo: &str, mac: &MacApp) -> Result<PathBuf> {
     let Some(name) = Path::new(&mac.app).file_name() else {
         fail!("{CONFIG}: mac app names no file");
     };
-    Ok(places.home.join("Applications").join(format!("{repo}-test")).join(name))
+    Ok(places
+        .home
+        .join("Applications")
+        .join(format!("{repo}-test"))
+        .join(name))
 }
 
 fn with_new(app: &Path) -> PathBuf {
@@ -86,7 +90,11 @@ fn copy_out(built: &Path, app: &Path) -> Result<()> {
     if copy.exists() {
         std::fs::remove_dir_all(&copy).context(|| format!("removing {}", copy.display()))?;
     }
-    let status = Command::new("ditto").arg(built).arg(&copy).status().context(|| "running ditto".to_string())?;
+    let status = Command::new("ditto")
+        .arg(built)
+        .arg(&copy)
+        .status()
+        .context(|| "running ditto".to_string())?;
     if !status.success() {
         fail!("copying {} to {} failed", built.display(), copy.display());
     }
@@ -99,7 +107,8 @@ fn replace(app: &Path) -> Result<()> {
         std::fs::remove_dir_all(app).context(|| format!("removing {}", app.display()))?;
     }
     let copy = with_new(app);
-    std::fs::rename(&copy, app).context(|| format!("moving {} to {}", copy.display(), app.display()))
+    std::fs::rename(&copy, app)
+        .context(|| format!("moving {} to {}", copy.display(), app.display()))
 }
 
 fn running(bundle: &str) -> Result<bool> {
@@ -109,7 +118,10 @@ fn running(bundle: &str) -> Result<bool> {
         .output()
         .context(|| "running osascript".to_string())?;
     if !output.status.success() {
-        fail!("asking whether {bundle} runs: {}", String::from_utf8_lossy(&output.stderr));
+        fail!(
+            "asking whether {bundle} runs: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim() == "true")
 }
@@ -126,7 +138,10 @@ fn quit(bundle: &str, app: &Path) -> Result<()> {
         .status()
         .context(|| "running osascript".to_string())?;
     if !status.success() {
-        fail!("asking {bundle} to quit failed; the new app is at {}", with_new(app).display());
+        fail!(
+            "asking {bundle} to quit failed; the new app is at {}",
+            with_new(app).display()
+        );
     }
     for _ in 0..QUIT_CHECKS {
         if !running(bundle)? {
@@ -134,7 +149,10 @@ fn quit(bundle: &str, app: &Path) -> Result<()> {
         }
         sleep(QUIT_CHECK_EVERY);
     }
-    fail!("{bundle} is still running after being asked to quit; the new app is at {}", with_new(app).display())
+    fail!(
+        "{bundle} is still running after being asked to quit; the new app is at {}",
+        with_new(app).display()
+    )
 }
 
 /// What a build with no ref builds: origin's main as the fetch left it. The
@@ -144,7 +162,9 @@ const DEFAULT_REF: &str = "origin/main";
 fn parse_args(args: &[String]) -> Result<(&String, Platform, &str)> {
     match args {
         [repo, platform] => Ok((repo, Platform::parse(platform)?, DEFAULT_REF)),
-        [repo, platform, commit] if !commit.starts_with('-') => Ok((repo, Platform::parse(platform)?, commit.as_str())),
+        [repo, platform, commit] if !commit.starts_with('-') => {
+            Ok((repo, Platform::parse(platform)?, commit.as_str()))
+        }
         _ => fail!("{USAGE}"),
     }
 }
@@ -153,7 +173,11 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
     let (repo, platform, commit) = parse_args(args)?;
     let places = &tool.places;
 
-    note(format!("waiting for {repo}'s {} app lock, then building {commit}'s {} app", platform.word(), platform.word()));
+    note(format!(
+        "waiting for {repo}'s {} app lock, then building {commit}'s {} app",
+        platform.word(),
+        platform.word()
+    ));
     let mut held = lock::take(places, repo, platform.lane())?;
     // A takeover stops the build; it runs again from a checkout, behind the
     // build that took over.
@@ -164,7 +188,9 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
         match run_command(&top, platform.build(&config)?, None)? {
             Within::Ran(lock::Ran::Finished) => break (config, top),
             Within::Ran(lock::Ran::TakenOver) => {
-                note(format!("the build was stopped for a takeover; building {commit} again after it"));
+                note(format!(
+                    "the build was stopped for a takeover; building {commit} again after it"
+                ));
                 held = held.requeue()?;
             }
             Within::TimedOut => unreachable!("build-app sets no time limit"),

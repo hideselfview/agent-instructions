@@ -45,7 +45,11 @@ pub struct Processes {
 }
 
 fn c_text(bytes: &[libc::c_char]) -> String {
-    let bytes: Vec<u8> = bytes.iter().take_while(|b| **b != 0).map(|b| *b as u8).collect();
+    let bytes: Vec<u8> = bytes
+        .iter()
+        .take_while(|b| **b != 0)
+        .map(|b| *b as u8)
+        .collect();
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
@@ -65,7 +69,13 @@ impl Processes {
             let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
             let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
             let read = unsafe {
-                libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size)
+                libc::proc_pidinfo(
+                    pid,
+                    libc::PROC_PIDTBSDINFO,
+                    0,
+                    (&mut info as *mut libc::proc_bsdinfo).cast(),
+                    size,
+                )
             };
             // A process that exited since it was listed, or one this user
             // may not read, has nothing to say.
@@ -77,7 +87,11 @@ impl Processes {
                 pid,
                 ppid: info.pbi_ppid as i32,
                 uid: info.pbi_uid,
-                name: if name.is_empty() { c_text(&info.pbi_comm) } else { name },
+                name: if name.is_empty() {
+                    c_text(&info.pbi_comm)
+                } else {
+                    name
+                },
                 started: info.pbi_start_tvsec as i64,
             });
         }
@@ -103,7 +117,11 @@ impl Processes {
                 break;
             }
             chain.push(process);
-            at = if process.ppid > 0 { self.get(process.ppid) } else { None };
+            at = if process.ppid > 0 {
+                self.get(process.ppid)
+            } else {
+                None
+            };
         }
         chain
     }
@@ -114,14 +132,24 @@ pub fn cwd(pid: i32) -> Option<PathBuf> {
     let mut info: libc::proc_vnodepathinfo = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<libc::proc_vnodepathinfo>() as libc::c_int;
     let read = unsafe {
-        libc::proc_pidinfo(pid, libc::PROC_PIDVNODEPATHINFO, 0, (&mut info as *mut libc::proc_vnodepathinfo).cast(), size)
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDVNODEPATHINFO,
+            0,
+            (&mut info as *mut libc::proc_vnodepathinfo).cast(),
+            size,
+        )
     };
     if read != size {
         return None;
     }
     let path = unsafe { CStr::from_ptr(info.pvi_cdir.vip_path.as_ptr().cast()) };
     let path = path.to_string_lossy();
-    if path.is_empty() { None } else { Some(PathBuf::from(path.as_ref())) }
+    if path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(path.as_ref()))
+    }
 }
 
 /// The arguments <pid> was started with (KERN_PROCARGS2); None when it exited
@@ -132,7 +160,14 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
     let mut argmax: libc::c_int = 0;
     let mut argmax_size = std::mem::size_of::<libc::c_int>();
     if unsafe {
-        libc::sysctl(mib.as_mut_ptr(), 2, (&mut argmax as *mut libc::c_int).cast(), &mut argmax_size, std::ptr::null_mut(), 0)
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            2,
+            (&mut argmax as *mut libc::c_int).cast(),
+            &mut argmax_size,
+            std::ptr::null_mut(),
+            0,
+        )
     } != 0
     {
         return None;
@@ -140,7 +175,17 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
     let mut buffer = vec![0u8; argmax as usize];
     size = size.max(buffer.len());
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
-    if unsafe { libc::sysctl(mib.as_mut_ptr(), 3, buffer.as_mut_ptr().cast(), &mut size, std::ptr::null_mut(), 0) } != 0 {
+    if unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buffer.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
+    {
         return None;
     }
     buffer.truncate(size);
@@ -165,7 +210,11 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
 pub fn usage(pid: i32) -> Option<(f64, u64)> {
     let mut info: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
     let rc = unsafe {
-        libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V2, (&mut info as *mut libc::rusage_info_v2).cast())
+        libc::proc_pid_rusage(
+            pid,
+            libc::RUSAGE_INFO_V2,
+            (&mut info as *mut libc::rusage_info_v2).cast(),
+        )
     };
     if rc != 0 {
         return None;
@@ -180,12 +229,19 @@ pub fn usage(pid: i32) -> Option<(f64, u64)> {
 pub fn tree_cpu(pid: i32) -> Option<f64> {
     let mut info: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
     let rc = unsafe {
-        libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V2, (&mut info as *mut libc::rusage_info_v2).cast())
+        libc::proc_pid_rusage(
+            pid,
+            libc::RUSAGE_INFO_V2,
+            (&mut info as *mut libc::rusage_info_v2).cast(),
+        )
     };
     if rc != 0 {
         return None;
     }
-    let ticks = info.ri_user_time + info.ri_system_time + info.ri_child_user_time + info.ri_child_system_time;
+    let ticks = info.ri_user_time
+        + info.ri_system_time
+        + info.ri_child_user_time
+        + info.ri_child_system_time;
     Some(ticks as f64 * timebase() / 1e9)
 }
 
@@ -206,7 +262,11 @@ fn timebase() -> f64 {
     *TIMEBASE.get_or_init(|| {
         let mut info = MachTimebaseInfo { numer: 0, denom: 0 };
         unsafe { mach_timebase_info(&mut info) };
-        if info.denom == 0 { 1.0 } else { info.numer as f64 / info.denom as f64 }
+        if info.denom == 0 {
+            1.0
+        } else {
+            info.numer as f64 / info.denom as f64
+        }
     })
 }
 
@@ -230,14 +290,28 @@ const PROC_PIDFDVNODEPATHINFO: libc::c_int = 2;
 
 /// The paths of the files <pid> has open.
 pub fn open_files(pid: i32) -> Vec<PathBuf> {
-    let needed = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
+    let needed =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
     if needed <= 0 {
         return Vec::new();
     }
     let slots = needed as usize / std::mem::size_of::<libc::proc_fdinfo>() + 16;
-    let mut fds: Vec<libc::proc_fdinfo> = (0..slots).map(|_| libc::proc_fdinfo { proc_fd: 0, proc_fdtype: 0 }).collect();
+    let mut fds: Vec<libc::proc_fdinfo> = (0..slots)
+        .map(|_| libc::proc_fdinfo {
+            proc_fd: 0,
+            proc_fdtype: 0,
+        })
+        .collect();
     let bytes = (fds.len() * std::mem::size_of::<libc::proc_fdinfo>()) as libc::c_int;
-    let filled = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), bytes) };
+    let filled = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDLISTFDS,
+            0,
+            fds.as_mut_ptr().cast(),
+            bytes,
+        )
+    };
     if filled <= 0 {
         return Vec::new();
     }
@@ -250,7 +324,13 @@ pub fn open_files(pid: i32) -> Vec<PathBuf> {
         let mut info: VnodeFdInfoWithPath = unsafe { std::mem::zeroed() };
         let size = std::mem::size_of::<VnodeFdInfoWithPath>() as libc::c_int;
         let read = unsafe {
-            libc::proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDVNODEPATHINFO, (&mut info as *mut VnodeFdInfoWithPath).cast(), size)
+            libc::proc_pidfdinfo(
+                pid,
+                fd.proc_fd,
+                PROC_PIDFDVNODEPATHINFO,
+                (&mut info as *mut VnodeFdInfoWithPath).cast(),
+                size,
+            )
         };
         if read != size {
             continue;
@@ -270,7 +350,9 @@ pub fn load_average() -> [f64; 3] {
 
 /// The number of CPU cores.
 pub fn cores() -> usize {
-    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
 }
 
 /// A checkout processes are placed in: its working tree and its build root.
@@ -284,7 +366,9 @@ pub struct Place {
 
 /// The place <dir> is in, the deepest when several hold it.
 pub fn place_of(places: &[Place], dir: &Path) -> Option<usize> {
-    (0..places.len()).filter(|at| dir.starts_with(&places[*at].top)).max_by_key(|at| places[*at].top.as_os_str().len())
+    (0..places.len())
+        .filter(|at| dir.starts_with(&places[*at].top))
+        .max_by_key(|at| places[*at].top.as_os_str().len())
 }
 
 /// A build process at work in a checkout.
@@ -320,13 +404,22 @@ fn mentions(text: &str, path: &str) -> bool {
 /// (sccache's compilers run in the registry's source folder with
 /// `--out-dir <checkout>/target/...`), else by the nearest ancestor placed
 /// either way. sccache's own server belongs to no checkout; its compilers do.
-pub fn build_processes(processes: &Processes, places: &[Place], names: &[&str]) -> Vec<BuildProcess> {
+pub fn build_processes(
+    processes: &Processes,
+    places: &[Place],
+    names: &[&str],
+) -> Vec<BuildProcess> {
     let mut order: Vec<usize> = (0..places.len()).collect();
     // The longest path first: ~/dev/bae-worktrees/side-1 before ~/dev/bae.
     order.sort_by_key(|at| std::cmp::Reverse(places[*at].top.as_os_str().len()));
     let tops: Vec<(String, String)> = places
         .iter()
-        .map(|place| (place.top.display().to_string(), place.root.display().to_string()))
+        .map(|place| {
+            (
+                place.top.display().to_string(),
+                place.root.display().to_string(),
+            )
+        })
         .collect();
     let mut cache: HashMap<i32, Option<usize>> = HashMap::new();
     let mut place_of = |pid: i32| -> Option<usize> {
@@ -337,8 +430,12 @@ pub fn build_processes(processes: &Processes, places: &[Place], names: &[&str]) 
         let argv = args(pid).unwrap_or_default();
         let found = order.iter().copied().find(|at| {
             let (top, root) = &tops[*at];
-            dir.as_deref().is_some_and(|dir| mentions(dir, top) || mentions(dir, root))
-                || argv.iter().skip(1).any(|arg| mentions(arg, top) || mentions(arg, root))
+            dir.as_deref()
+                .is_some_and(|dir| mentions(dir, top) || mentions(dir, root))
+                || argv
+                    .iter()
+                    .skip(1)
+                    .any(|arg| mentions(arg, top) || mentions(arg, root))
         });
         cache.insert(pid, found);
         found
@@ -348,7 +445,12 @@ pub fn build_processes(processes: &Processes, places: &[Place], names: &[&str]) 
         if !names.contains(&process.name.as_str()) {
             continue;
         }
-        let Some(place) = processes.ancestry(process.pid).iter().take(12).find_map(|p| place_of(p.pid)) else {
+        let Some(place) = processes
+            .ancestry(process.pid)
+            .iter()
+            .take(12)
+            .find_map(|p| place_of(p.pid))
+        else {
             continue;
         };
         let (cpu_seconds, footprint) = usage(process.pid).unwrap_or((0.0, 0));
@@ -371,7 +473,11 @@ mod tests {
     #[test]
     fn reads_a_child_process() {
         let dir = std::env::temp_dir();
-        let mut child = std::process::Command::new("sleep").arg("30").current_dir(&dir).spawn().unwrap();
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .current_dir(&dir)
+            .spawn()
+            .unwrap();
         let pid = child.id() as i32;
         let processes = Processes::read();
         let found = processes.get(pid).map(|p| (p.name.clone(), p.ppid));
@@ -380,27 +486,52 @@ mod tests {
         let used = usage(pid);
         child.kill().unwrap();
         child.wait().unwrap();
-        assert_eq!(found, Some(("sleep".to_string(), std::process::id() as i32)));
-        assert_eq!(place.map(|p| std::fs::canonicalize(p).unwrap()), Some(std::fs::canonicalize(&dir).unwrap()));
+        assert_eq!(
+            found,
+            Some(("sleep".to_string(), std::process::id() as i32))
+        );
+        assert_eq!(
+            place.map(|p| std::fs::canonicalize(p).unwrap()),
+            Some(std::fs::canonicalize(&dir).unwrap())
+        );
         assert_eq!(argv, Some(vec!["sleep".to_string(), "30".to_string()]));
         assert!(used.is_some_and(|(_, footprint)| footprint > 0));
-        assert!(processes.ancestry(pid).iter().any(|p| p.pid == std::process::id() as i32));
+        assert!(
+            processes
+                .ancestry(pid)
+                .iter()
+                .any(|p| p.pid == std::process::id() as i32)
+        );
     }
 
     #[test]
     fn places_a_build_process_by_its_folder_or_its_arguments() {
-        let base = std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("builds-place-{}", std::process::id()));
+        let base = std::fs::canonicalize(std::env::temp_dir())
+            .unwrap()
+            .join(format!("builds-place-{}", std::process::id()));
         let top = base.join("demo-worktrees/side-1");
         let other = base.join("demo");
         std::fs::create_dir_all(&top).unwrap();
         std::fs::create_dir_all(&other).unwrap();
         let places = vec![
-            Place { label: "demo/main".into(), top: other.clone(), root: base.join("volume/demo/main") },
-            Place { label: "demo/side-1".into(), top: top.clone(), root: base.join("volume/demo/side-1") },
+            Place {
+                label: "demo/main".into(),
+                top: other.clone(),
+                root: base.join("volume/demo/main"),
+            },
+            Place {
+                label: "demo/side-1".into(),
+                top: top.clone(),
+                root: base.join("volume/demo/side-1"),
+            },
         ];
         // A `sleep` in side-1's folder; a `sh` elsewhere naming main's build
         // root, as sccache's rustc names its --out-dir.
-        let mut in_folder = std::process::Command::new("sleep").arg("30").current_dir(&top).spawn().unwrap();
+        let mut in_folder = std::process::Command::new("sleep")
+            .arg("30")
+            .current_dir(&top)
+            .spawn()
+            .unwrap();
         let out_dir = format!("{}/target/debug", places[0].root.display());
         let mut by_argument = std::process::Command::new("sh")
             .args(["-c", "sleep 30; :", "rustc", &out_dir])
@@ -413,7 +544,12 @@ mod tests {
             child.wait().unwrap();
         }
         std::fs::remove_dir_all(&base).unwrap();
-        let placed = |pid: u32| found.iter().find(|p| p.pid == pid as i32).map(|p| places[p.place].label.clone());
+        let placed = |pid: u32| {
+            found
+                .iter()
+                .find(|p| p.pid == pid as i32)
+                .map(|p| places[p.place].label.clone())
+        };
         assert_eq!(placed(in_folder.id()), Some("demo/side-1".to_string()));
         assert_eq!(placed(by_argument.id()), Some("demo/main".to_string()));
     }
@@ -426,7 +562,9 @@ mod tests {
         let open = open_files(std::process::id() as i32);
         drop(file);
         std::fs::remove_file(&path).unwrap();
-        let wanted = std::fs::canonicalize(std::env::temp_dir()).unwrap().join(path.file_name().unwrap());
+        let wanted = std::fs::canonicalize(std::env::temp_dir())
+            .unwrap()
+            .join(path.file_name().unwrap());
         assert!(open.contains(&wanted), "{open:?}");
     }
 }

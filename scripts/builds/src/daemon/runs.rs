@@ -120,7 +120,10 @@ pub struct Runs {
 }
 
 fn alive(pid: i32) -> bool {
-    unsafe { libc::kill(pid, 0) == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM) }
+    unsafe {
+        libc::kill(pid, 0) == 0
+            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
 }
 
 /// Is <pid> a running `build-app`? A process alive under that pid could be
@@ -158,8 +161,11 @@ fn log_file(dir: &Path, repo: &str, lane: Lane) -> PathBuf {
 fn write_record(dir: &Path, record: &Record, lane: Lane) -> Result<()> {
     let file = record_file(dir, &record.repo, lane);
     let staged = dir.join(format!(".{}.{}.tmp", record.repo, lane.word()));
-    std::fs::write(&staged, serde_json::to_vec(record).expect("a record serializes"))
-        .context(|| format!("writing {}", staged.display()))?;
+    std::fs::write(
+        &staged,
+        serde_json::to_vec(record).expect("a record serializes"),
+    )
+    .context(|| format!("writing {}", staged.display()))?;
     std::fs::rename(&staged, &file).context(|| format!("writing {}", file.display()))
 }
 
@@ -177,14 +183,23 @@ impl Runs {
         let since = Stream::current_event_id();
         let mut state = HashMap::new();
         for entry in std::fs::read_dir(&dir).context(|| format!("listing {}", dir.display()))? {
-            let path = entry.context(|| format!("listing {}", dir.display()))?.path();
+            let path = entry
+                .context(|| format!("listing {}", dir.display()))?
+                .path();
             if path.extension().is_none_or(|ext| ext != "json") {
                 continue;
             }
             let text = std::fs::read(&path).context(|| format!("reading {}", path.display()))?;
-            let record: Record = serde_json::from_slice(&text).context(|| format!("{} is not a run record", path.display()))?;
+            let record: Record = serde_json::from_slice(&text)
+                .context(|| format!("{} is not a run record", path.display()))?;
             let lane = Lane::parse_or_fail(&record.lane)?;
-            state.insert((record.repo.clone(), lane), Run { record, owned: false });
+            state.insert(
+                (record.repo.clone(), lane),
+                Run {
+                    record,
+                    owned: false,
+                },
+            );
         }
         let runs = Arc::new(Runs {
             places,
@@ -227,9 +242,16 @@ impl Runs {
     /// Starts `build-app <repo> <lane> [<reference>]`, unless the lane has a
     /// run queued or running. One call starts at most one build: the check
     /// and the start happen under one lock.
-    pub fn start_build(self: &Arc<Self>, repo: &str, lane: &str, reference: Option<&str>) -> std::result::Result<(), StartError> {
+    pub fn start_build(
+        self: &Arc<Self>,
+        repo: &str,
+        lane: &str,
+        reference: Option<&str>,
+    ) -> std::result::Result<(), StartError> {
         let Some(lane) = Lane::parse(lane) else {
-            return Err(StartError::Invalid(format!("{lane:?} is not a lane (mac | android)")));
+            return Err(StartError::Invalid(format!(
+                "{lane:?} is not a lane (mac | android)"
+            )));
         };
         if !plain_name(repo) {
             return Err(StartError::Invalid(format!("{repo:?} is not a repo name")));
@@ -242,16 +264,26 @@ impl Runs {
         }
         match self.places.app_checkouts_of(repo, lane) {
             Ok(checkouts) if !checkouts.is_empty() => {}
-            Ok(_) => return Err(StartError::Invalid(format!("{repo} has no {} app checkout", lane.word()))),
+            Ok(_) => {
+                return Err(StartError::Invalid(format!(
+                    "{repo} has no {} app checkout",
+                    lane.word()
+                )));
+            }
             Err(error) => return Err(StartError::Failed(error.text())),
         }
         let mut state = self.state.lock().expect("no panic holding it");
         if let Some(run) = state.get(&(repo.to_string(), lane))
             && run.busy()
         {
-            return Err(StartError::Busy(format!("a {} build of {repo} is already queued or running", lane.word())));
+            return Err(StartError::Busy(format!(
+                "a {} build of {repo} is already queued or running",
+                lane.word()
+            )));
         }
-        let run = self.spawn(repo, lane, reference).map_err(|error| StartError::Failed(error.text()))?;
+        let run = self
+            .spawn(repo, lane, reference)
+            .map_err(|error| StartError::Failed(error.text()))?;
         state.insert((repo.to_string(), lane), run);
         drop(state);
         self.notify();
@@ -260,15 +292,24 @@ impl Runs {
 
     fn spawn(self: &Arc<Self>, repo: &str, lane: Lane, reference: Option<&str>) -> Result<Run> {
         let log_path = log_file(&self.dir, repo, lane);
-        let log = std::fs::File::create(&log_path).context(|| format!("creating {}", log_path.display()))?;
-        let errors = log.try_clone().context(|| format!("opening {}", log_path.display()))?;
+        let log = std::fs::File::create(&log_path)
+            .context(|| format!("creating {}", log_path.display()))?;
+        let errors = log
+            .try_clone()
+            .context(|| format!("opening {}", log_path.display()))?;
         let mut command = Command::new(&self.program[0]);
-        command.args(&self.program[1..]).arg("build-app").arg(repo).arg(lane.word());
+        command
+            .args(&self.program[1..])
+            .arg("build-app")
+            .arg(repo)
+            .arg(lane.word());
         if let Some(reference) = reference {
             command.arg(reference);
         }
         command.stdin(Stdio::null()).stdout(log).stderr(errors);
-        let mut child = command.spawn().context(|| format!("starting {}", self.program[0]))?;
+        let mut child = command
+            .spawn()
+            .context(|| format!("starting {}", self.program[0]))?;
         let record = Record {
             repo: repo.to_string(),
             lane: lane.word().to_string(),
@@ -292,16 +333,30 @@ impl Runs {
                 runs.ended(&waiting, lane, status);
             })
             .context(|| "starting a thread".to_string())?;
-        Ok(Run { record, owned: true })
+        Ok(Run {
+            record,
+            owned: true,
+        })
     }
 
     /// The child of <started> exited, or could not be waited for.
     fn ended(&self, started: &Record, lane: Lane, status: std::io::Result<ExitStatus>) {
         let ended = match status {
-            Ok(status) => Ended { at: now_seconds(), code: status.code(), signal: status.signal() },
+            Ok(status) => Ended {
+                at: now_seconds(),
+                code: status.code(),
+                signal: status.signal(),
+            },
             Err(error) => {
-                eprintln!("builds: waiting for {} {}'s build: {error}", started.repo, started.lane);
-                Ended { at: now_seconds(), code: None, signal: None }
+                eprintln!(
+                    "builds: waiting for {} {}'s build: {error}",
+                    started.repo, started.lane
+                );
+                Ended {
+                    at: now_seconds(),
+                    code: None,
+                    signal: None,
+                }
             }
         };
         {
@@ -327,7 +382,9 @@ impl Runs {
         let state = self.state.lock().expect("no panic holding it");
         let mut pages = Vec::new();
         for lane in Lane::ALL {
-            let Some(run) = state.get(&(repo.to_string(), lane)) else { continue };
+            let Some(run) = state.get(&(repo.to_string(), lane)) else {
+                continue;
+            };
             let (output, output_cut) = tail(&log_file(&self.dir, repo, lane));
             let ended = run.record.ended.as_ref();
             pages.push(RunPage {

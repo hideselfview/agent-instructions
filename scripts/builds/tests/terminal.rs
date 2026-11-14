@@ -20,13 +20,31 @@ fn a_build_that_sets_terminal_modes_finishes_when_builds_runs_on_a_terminal() {
     std::fs::write(dir.join("volume/demo/app-checkouts"), "side-1\n").unwrap();
 
     let (mut master, mut slave) = (0, 0);
-    assert_eq!(unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) }, 0);
+    assert_eq!(
+        unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        },
+        0
+    );
 
     let mut command = Command::new(BUILDS);
     command
         .env("BUILDS_ROOT", dir.join("volume"))
         .env("HOME", dir.join("home"))
-        .args(["lock", "demo", "sh", "-c", "echo $$ > \"$0/pid\"; stty -echo; stty echo", dir.to_str().unwrap()])
+        .args([
+            "lock",
+            "demo",
+            "sh",
+            "-c",
+            "echo $$ > \"$0/pid\"; stty -echo; stty echo",
+            dir.to_str().unwrap(),
+        ])
         .stdin(unsafe { Stdio::from(std::os::fd::OwnedFd::from_raw_fd(libc::dup(slave))) })
         .stdout(Stdio::null())
         .stderr(Stdio::null());

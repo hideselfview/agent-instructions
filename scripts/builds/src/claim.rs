@@ -61,9 +61,8 @@ impl Claim {
             (None, None) => {}
         }
         line.push('\n');
-        std::fs::write(file, line).map_err(|error| {
-            fail::Fail::Message(format!("writing {}: {error}", file.display()))
-        })
+        std::fs::write(file, line)
+            .map_err(|error| fail::Fail::Message(format!("writing {}: {error}", file.display())))
     }
 
     /// `<who> since <since>`.
@@ -82,23 +81,43 @@ pub fn require_one_line(what: &str, value: &str) -> Result<()> {
 
 /// Claims <top> for <who> from <now>, keeping the note and its state when
 /// given.
-pub fn write_claim(checkout: &Checkout, who: &str, now: i64, note: Option<String>, state: Option<String>) -> Result<()> {
-    Claim { who: who.to_string(), since: local_minute(now), note, note_state: state }
-        .write(&checkout.claim_file())
+pub fn write_claim(
+    checkout: &Checkout,
+    who: &str,
+    now: i64,
+    note: Option<String>,
+    state: Option<String>,
+) -> Result<()> {
+    Claim {
+        who: who.to_string(),
+        since: local_minute(now),
+        note,
+        note_state: state,
+    }
+    .write(&checkout.claim_file())
 }
 
 /// `builds claim <checkout> <who>`. Claiming it again for the one who holds
 /// it renews the claim's date and keeps its note and the note's state.
 pub fn cmd_claim(args: &[String], now: i64) -> Result<()> {
-    let [checkout, who] = args else { fail!("usage: builds claim <checkout> <who>") };
+    let [checkout, who] = args else {
+        fail!("usage: builds claim <checkout> <who>")
+    };
     let checkout = Checkout::find(checkout)?;
     if who.is_empty() {
         fail!("usage: builds claim <checkout> <who>");
     }
     require_one_line("<who>", who)?;
     if !checkout.is_side() {
-        let what = if checkout.is_main() { "the main checkout" } else { "not one of the repo's side worktrees" };
-        fail!("{} is {what}; only side worktrees are claimed", checkout.top.display());
+        let what = if checkout.is_main() {
+            "the main checkout"
+        } else {
+            "not one of the repo's side worktrees"
+        };
+        fail!(
+            "{} is {what}; only side worktrees are claimed",
+            checkout.top.display()
+        );
     }
     let (kept_note, kept_state) = match Claim::read(&checkout.claim_file())? {
         Some(claim) if claim.who != *who => fail!(
@@ -119,14 +138,22 @@ pub fn cmd_claim(args: &[String], now: i64) -> Result<()> {
 /// --state names or none, or clears note and state when there is no text. The
 /// claim's date stays.
 pub fn cmd_note(args: &[String]) -> Result<()> {
-    let usage = format!("usage: builds note <checkout> [--state {}] [<text>]", NOTE_STATES.join("|"));
-    let Some((checkout, mut rest)) = args.split_first() else { fail!("{usage}") };
+    let usage = format!(
+        "usage: builds note <checkout> [--state {}] [<text>]",
+        NOTE_STATES.join("|")
+    );
+    let Some((checkout, mut rest)) = args.split_first() else {
+        fail!("{usage}")
+    };
     let checkout = Checkout::find(checkout)?;
     let mut state = None;
     if rest.first().map(String::as_str) == Some("--state") {
         let named = rest.get(1).cloned().unwrap_or_default();
         if !NOTE_STATES.contains(&named.as_str()) {
-            fail!("note: --state is one of {}, got '{named}'", NOTE_STATES.join(", "));
+            fail!(
+                "note: --state is one of {}, got '{named}'",
+                NOTE_STATES.join(", ")
+            );
         }
         state = Some(named);
         rest = &rest[2.min(rest.len())..];
@@ -134,9 +161,10 @@ pub fn cmd_note(args: &[String]) -> Result<()> {
     let text = rest.join(" ");
     require_one_line("a note", &text)?;
     if text.is_empty()
-        && let Some(state) = &state {
-            fail!("note: --state {state} needs the note's text, what it is about");
-        }
+        && let Some(state) = &state
+    {
+        fail!("note: --state {state} needs the note's text, what it is about");
+    }
     let file = checkout.claim_file();
     let Some(claim) = Claim::read(&file)? else {
         fail!(
@@ -146,7 +174,10 @@ pub fn cmd_note(args: &[String]) -> Result<()> {
     };
     let top = checkout.top.display();
     let message = match (&state, text.is_empty()) {
-        (Some(state), _) => format!("noted on {top}'s claim ({}): {text}", state.replace('-', " ")),
+        (Some(state), _) => format!(
+            "noted on {top}'s claim ({}): {text}",
+            state.replace('-', " ")
+        ),
         (None, false) => format!("noted on {top}'s claim: {text}"),
         (None, true) => format!("cleared the note on {top}'s claim"),
     };
@@ -163,7 +194,9 @@ pub fn cmd_note(args: &[String]) -> Result<()> {
 /// `builds release <checkout>`, refused while an item of the lists runs in
 /// the worktree: the claim names the item's agent.
 pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
-    let [checkout] = args else { fail!("usage: builds release <checkout>") };
+    let [checkout] = args else {
+        fail!("usage: builds release <checkout>")
+    };
     let checkout = Checkout::find(checkout)?;
     crate::lists::running::require_release_allowed(places, &checkout)?;
     let file = checkout.claim_file();
@@ -171,7 +204,11 @@ pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
         note(format!("{} has no claim", checkout.top.display()));
         return Ok(());
     };
-    note(format!("released {} (was {})", checkout.top.display(), claim.text()));
+    note(format!(
+        "released {} (was {})",
+        checkout.top.display(),
+        claim.text()
+    ));
     std::fs::remove_file(&file)
         .map_err(|error| fail::Fail::Message(format!("removing {}: {error}", file.display())))
 }

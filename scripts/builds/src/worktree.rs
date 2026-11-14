@@ -26,7 +26,10 @@ fn run_checked(command: &mut std::process::Command, what: &str) -> Result<()> {
     let status = command.status().context(|| format!("running {what}"))?;
     if !status.success() {
         // The command printed why.
-        return Err(Fail::Message(format!("{what} exited {}", status.code().unwrap_or(-1))));
+        return Err(Fail::Message(format!(
+            "{what} exited {}",
+            status.code().unwrap_or(-1)
+        )));
     }
     Ok(())
 }
@@ -62,7 +65,8 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     let checkout = match find_free(tool, &main)? {
         Some(free) => {
             write_claim(&free, &who, tool.now, None, None)?;
-            if let Err(error) = reuse(&free, branch.as_deref()).and_then(|()| prepare(tool, &free)) {
+            if let Err(error) = reuse(&free, branch.as_deref()).and_then(|()| prepare(tool, &free))
+            {
                 let _ = std::fs::remove_file(free.claim_file());
                 return Err(error);
             }
@@ -93,7 +97,11 @@ fn lock_picking(main: &Path) -> Result<std::fs::File> {
         .open(&path)
         .context(|| format!("opening {}", path.display()))?;
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        fail!("locking {}: {}", path.display(), std::io::Error::last_os_error());
+        fail!(
+            "locking {}: {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        );
     }
     Ok(file)
 }
@@ -101,9 +109,19 @@ fn lock_picking(main: &Path) -> Result<std::fs::File> {
 /// Adds the next side-N worktree of <main>'s repo, from origin/main.
 fn add_new(tool: &Tool, main: &Path, branch: Option<&str>) -> Result<std::path::PathBuf> {
     let repo = crate::checkout::file_name(main);
-    let parent = main.parent().expect("a main checkout has a folder").join(format!("{repo}-worktrees"));
+    let parent = main
+        .parent()
+        .expect("a main checkout has a folder")
+        .join(format!("{repo}-worktrees"));
     let mut n = 1;
-    while parent.join(format!("side-{n}")).exists() || tool.places.root.join(&repo).join(format!("side-{n}")).exists() {
+    while parent.join(format!("side-{n}")).exists()
+        || tool
+            .places
+            .root
+            .join(&repo)
+            .join(format!("side-{n}"))
+            .exists()
+    {
         n += 1;
     }
     let dir = parent.join(format!("side-{n}"));
@@ -160,17 +178,24 @@ fn prepare(tool: &Tool, checkout: &Checkout) -> Result<()> {
 
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
 /// `builds retire <checkout>`: removes a clean, unclaimed side worktree and
 /// its build root.
 pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
-    let [arg] = args else { fail!("usage: builds retire <checkout>") };
+    let [arg] = args else {
+        fail!("usage: builds retire <checkout>")
+    };
     let checkout = Checkout::find(arg)?;
     let top = checkout.top.display();
     if !checkout.is_side() {
-        let what = if checkout.is_main() { "the main checkout" } else { "not one of the repo's side worktrees" };
+        let what = if checkout.is_main() {
+            "the main checkout"
+        } else {
+            "not one of the repo's side worktrees"
+        };
         fail!("{top} is {what}; only side worktrees retire");
     }
     let repo = checkout.repo();
@@ -189,13 +214,25 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
     let top = checkout.top.display();
     let root = checkout.build_root(&tool.places);
     if let Some(claim) = Claim::read(&checkout.claim_file())? {
-        fail!("{top} is claimed by {}; builds release it first", claim.text());
+        fail!(
+            "{top} is claimed by {}; builds release it first",
+            claim.text()
+        );
     }
-    let dirty = git_text(git(&checkout.top).args(["status", "--porcelain"]), "read the worktree's status")?;
+    let dirty = git_text(
+        git(&checkout.top).args(["status", "--porcelain"]),
+        "read the worktree's status",
+    )?;
     if !dirty.is_empty() {
         fail!("{top} has uncommitted or untracked files; commit or remove them first");
     }
-    run_checked(git(&checkout.main).arg("worktree").arg("remove").arg(&checkout.top), "git worktree remove")?;
+    run_checked(
+        git(&checkout.main)
+            .arg("worktree")
+            .arg("remove")
+            .arg(&checkout.top),
+        "git worktree remove",
+    )?;
     if root.is_dir() && !evict(&tool.places, &root, Recreate::No, Removal::Background)? {
         fail!(
             "worktree removed, but a process holds files in {}; run builds prune once it exits",
@@ -214,7 +251,9 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
     const USAGE: &str = "usage: builds app-checkout mac|android <checkout> | builds app-checkout remove mac|android <checkout> | builds app-checkout reset <repo> <checkout> [--matching <rev>]";
     let reset = match args {
         [word, repo, name] if word == "reset" => Some((repo, name, None)),
-        [word, repo, name, flag, rev] if word == "reset" && flag == "--matching" => Some((repo, name, Some(rev.as_str()))),
+        [word, repo, name, flag, rev] if word == "reset" && flag == "--matching" => {
+            Some((repo, name, Some(rev.as_str())))
+        }
         _ => None,
     };
     if let Some((repo, name, matching)) = reset {
@@ -226,7 +265,9 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
         [lane, arg] => (false, lane, arg),
         _ => fail!("{USAGE}"),
     };
-    let Some(lane) = Lane::parse(lane) else { fail!("{USAGE}") };
+    let Some(lane) = Lane::parse(lane) else {
+        fail!("{USAGE}")
+    };
     let checkout = Checkout::find(arg)?;
     if checkout.is_main() {
         fail!(
@@ -235,7 +276,10 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
         );
     }
     if !checkout.is_side() {
-        fail!("{} is not one of the repo's side worktrees; an app checkout is one", checkout.top.display());
+        fail!(
+            "{} is not one of the repo's side worktrees; an app checkout is one",
+            checkout.top.display()
+        );
     }
     tool.places.require_volume()?;
     checkout.require_repo_name(&tool.places)?;
@@ -244,11 +288,18 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
     let mut set = tool.places.app_checkouts_of(&repo, lane)?;
     if removing {
         if !set.contains(&name) {
-            fail!("{} is not one of {repo}'s {} app checkouts", checkout.top.display(), lane.word());
+            fail!(
+                "{} is not one of {repo}'s {} app checkouts",
+                checkout.top.display(),
+                lane.word()
+            );
         }
         let lock = tool.places.app_lock_file(&repo, lane, &name);
         if crate::queue::is_held(&lock)? {
-            fail!("a build holds {}'s lock; remove it once that build ends", checkout.top.display());
+            fail!(
+                "a build holds {}'s lock; remove it once that build ends",
+                checkout.top.display()
+            );
         }
         set.retain(|other| *other != name);
         tool.places.write_app_checkouts(&repo, lane, &set)?;
@@ -259,10 +310,18 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
             _ => {}
         }
         crate::queue::repoint(&tool.places, &repo, lane);
-        note(format!("removed {} from {repo}'s {} app checkouts", checkout.top.display(), lane.word()));
+        note(format!(
+            "removed {} from {repo}'s {} app checkouts",
+            checkout.top.display(),
+            lane.word()
+        ));
         return Ok(());
     }
-    if let Some(other) = tool.places.app_lane_of(&repo, &name)?.filter(|other| *other != lane) {
+    if let Some(other) = tool
+        .places
+        .app_lane_of(&repo, &name)?
+        .filter(|other| *other != lane)
+    {
         fail!(
             "{} is {repo}'s {} app checkout already; the lanes exist so that their builds share no checkout",
             checkout.top.display(),

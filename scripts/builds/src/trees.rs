@@ -87,10 +87,15 @@ fn listing(dir: &Path) -> Result<Vec<(String, bool)>> {
     let mut found = Vec::new();
     for entry in entries {
         let Ok(entry) = entry else { continue };
-        let Ok(kind) = entry.file_type() else { continue };
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
         // A link is never a build of its own: SwiftPM's `.build/debug` points
         // at the real one.
-        found.push((entry.file_name().to_string_lossy().into_owned(), kind.is_dir()));
+        found.push((
+            entry.file_name().to_string_lossy().into_owned(),
+            kind.is_dir(),
+        ));
     }
     found.sort();
     Ok(found)
@@ -103,13 +108,21 @@ pub fn trees_in(folder: &Path) -> Result<Vec<Tree>> {
     let set: HashSet<String> = names.iter().map(|(name, _)| name.clone()).collect();
     if is_swiftpm_folder(&set) {
         for (name, is_dir) in &names {
-            if !is_dir || matches!(name.as_str(), "checkouts" | "repositories" | "artifacts" | "plugins") {
+            if !is_dir
+                || matches!(
+                    name.as_str(),
+                    "checkouts" | "repositories" | "artifacts" | "plugins"
+                )
+            {
                 continue;
             }
             let triple = folder.join(name);
             for (config, is_dir) in listing(&triple)? {
                 if is_dir && (config == "debug" || config == "release") {
-                    found.push(Tree { path: triple.join(config), kind: Kind::SwiftPm });
+                    found.push(Tree {
+                        path: triple.join(config),
+                        kind: Kind::SwiftPm,
+                    });
                 }
             }
         }
@@ -134,7 +147,10 @@ fn xcode_trees(dir: &Path, depth: usize, found: &mut Vec<Tree>) -> Result<()> {
         let child = dir.join(name);
         let inside: HashSet<String> = listing(&child)?.into_iter().map(|(name, _)| name).collect();
         if is_xcode_tree(&inside) {
-            found.push(Tree { path: child, kind: Kind::Xcode });
+            found.push(Tree {
+                path: child,
+                kind: Kind::Xcode,
+            });
         } else {
             xcode_trees(&child, depth + 1, found)?;
         }
@@ -144,7 +160,9 @@ fn xcode_trees(dir: &Path, depth: usize, found: &mut Vec<Tree>) -> Result<()> {
 
 /// Did no build use a tree measuring <measured> for more than the rules' days?
 pub fn unused(tool: &Tool, measured: &Measure) -> bool {
-    measured.newest.is_some_and(|newest| tool.now - newest > (tool.rules.unused_days * 86400) as i64)
+    measured
+        .newest
+        .is_some_and(|newest| tool.now - newest > (tool.rules.unused_days * 86400) as i64)
 }
 
 /// Deletes each build inside <folders> that no build used for the rules' days,
@@ -160,7 +178,10 @@ pub fn prune_trees(
     // The builds the manifest keeps stay in the checkouts the person builds
     // and runs in; in any other checkout they age like the rest.
     let kept: Vec<PathBuf> = if keeps_warm(&tool.places, root)? {
-        kept_builds(&checkout.top)?.iter().map(|path| root.join(path)).collect()
+        kept_builds(&checkout.top)?
+            .iter()
+            .map(|path| root.join(path))
+            .collect()
     } else {
         Vec::new()
     };
@@ -179,12 +200,19 @@ pub fn prune_trees(
         if !unused(tool, &measured) {
             continue;
         }
-        let reason = format!("{}, no build used it for {} days", human(measured.kib), tool.rules.unused_days);
+        let reason = format!(
+            "{}, no build used it for {} days",
+            human(measured.kib),
+            tool.rules.unused_days
+        );
         if run.dry() {
             note(format!("would delete {} ({reason})", tree.path.display()));
             freed.push((folder, measured.kib));
         } else if evict(&tool.places, &tree.path, Recreate::No, Removal::Background)? {
-            note(format!("deleted {} ({reason}); the next build makes it again", tree.path.display()));
+            note(format!(
+                "deleted {} ({reason}); the next build makes it again",
+                tree.path.display()
+            ));
         } else {
             note(format!("in use, kept: {} ({reason})", tree.path.display()));
         }

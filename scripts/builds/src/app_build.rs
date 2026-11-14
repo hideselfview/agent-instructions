@@ -39,12 +39,13 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{RecvTimeoutError, channel};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::app_config::{
-    CONFIG, Config, Step, app_checkout_top, check_out, parse_config, run_command, run_git, show_duration,
+    CONFIG, Config, Step, app_checkout_top, check_out, parse_config, run_command, run_git,
+    show_duration,
 };
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -79,18 +80,30 @@ const OUTPUT_GRACE: Duration = Duration::from_secs(2);
 /// named, or all of the lane's in the order written when none is named.
 fn chosen(config: &Config, lane: Lane, names: &[String]) -> Result<Vec<Step>> {
     if names.is_empty() {
-        return Ok(config.steps.iter().filter(|step| step.lane == lane).cloned().collect());
+        return Ok(config
+            .steps
+            .iter()
+            .filter(|step| step.lane == lane)
+            .cloned()
+            .collect());
     }
     names
         .iter()
-        .map(|name| match config.steps.iter().find(|step| step.name == *name) {
-            Some(step) if step.lane == lane => Ok(step.clone()),
-            Some(step) => fail!("step {name} is in the {} lane, not the {} lane", step.lane.word(), lane.word()),
-            None => {
-                let known: Vec<&str> = config.steps.iter().map(|step| step.name.as_str()).collect();
-                fail!("{CONFIG} has no step {name} (it has: {})", known.join(", "))
-            }
-        })
+        .map(
+            |name| match config.steps.iter().find(|step| step.name == *name) {
+                Some(step) if step.lane == lane => Ok(step.clone()),
+                Some(step) => fail!(
+                    "step {name} is in the {} lane, not the {} lane",
+                    step.lane.word(),
+                    lane.word()
+                ),
+                None => {
+                    let known: Vec<&str> =
+                        config.steps.iter().map(|step| step.name.as_str()).collect();
+                    fail!("{CONFIG} has no step {name} (it has: {})", known.join(", "))
+                }
+            },
+        )
         .collect()
 }
 
@@ -107,7 +120,10 @@ type ClassFlag = (Lane, String);
 /// <args> (the steps, then `--test <lane> <Class>` flags) as the step names
 /// and the lane and class of each flag.
 fn split_tests(args: &[String]) -> Result<(Vec<String>, Vec<ClassFlag>)> {
-    let at = args.iter().position(|arg| arg == "--test").unwrap_or(args.len());
+    let at = args
+        .iter()
+        .position(|arg| arg == "--test")
+        .unwrap_or(args.len());
     let (names, mut flags) = (args[..at].to_vec(), &args[at..]);
     let mut tests = Vec::new();
     while let Some((flag, rest)) = flags.split_first() {
@@ -128,12 +144,23 @@ fn split_tests(args: &[String]) -> Result<(Vec<String>, Vec<ClassFlag>)> {
 
 /// What <lane> runs: its steps (<names>, or every one when none is named and
 /// no class is), then its `test` line for each of <classes> that is the lane's.
-fn lane_steps(config: &Config, lane: Lane, names: &[String], classes: &[ClassFlag]) -> Result<Vec<Step>> {
-    let mut steps =
-        if names.is_empty() && !classes.is_empty() { Vec::new() } else { chosen(config, lane, names)? };
+fn lane_steps(
+    config: &Config,
+    lane: Lane,
+    names: &[String],
+    classes: &[ClassFlag],
+) -> Result<Vec<Step>> {
+    let mut steps = if names.is_empty() && !classes.is_empty() {
+        Vec::new()
+    } else {
+        chosen(config, lane, names)?
+    };
     for (_, class) in classes.iter().filter(|(own, _)| *own == lane) {
         let Some(test) = config.class_test(lane) else {
-            fail!("{CONFIG} has no `test {} ...` line, so it cannot run the class {class}", lane.word());
+            fail!(
+                "{CONFIG} has no `test {} ...` line, so it cannot run the class {class}",
+                lane.word()
+            );
         };
         steps.push(Step {
             name: format!("{TEST_STEP_PREFIX}{class}"),
@@ -149,7 +176,12 @@ fn lane_steps(config: &Config, lane: Lane, names: &[String], classes: &[ClassFla
 fn names_in(config: &Config, lane: Lane, names: &[String]) -> Vec<String> {
     names
         .iter()
-        .filter(|name| config.steps.iter().any(|step| step.name == **name && step.lane == lane))
+        .filter(|name| {
+            config
+                .steps
+                .iter()
+                .any(|step| step.name == **name && step.lane == lane)
+        })
         .cloned()
         .collect()
 }
@@ -173,28 +205,47 @@ impl Built {
         let Some(commit) = lines.next().filter(|line| !line.is_empty()) else {
             fail!("{} names no commit", file.display());
         };
-        let steps = lines.next().unwrap_or("").split_whitespace().map(str::to_string).collect();
-        Ok(Some(Built { commit: commit.to_string(), steps }))
+        let steps = lines
+            .next()
+            .unwrap_or("")
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
+        Ok(Some(Built {
+            commit: commit.to_string(),
+            steps,
+        }))
     }
 
     /// Written in one rename, so a reader never sees half of it.
     fn write(&self, file: &Path) -> Result<()> {
         let part = file.with_extension("part");
-        std::fs::write(&part, format!("{}\n{}\n", self.commit, self.steps.join(" ")))
-            .context(|| format!("writing {}", part.display()))?;
+        std::fs::write(
+            &part,
+            format!("{}\n{}\n", self.commit, self.steps.join(" ")),
+        )
+        .context(|| format!("writing {}", part.display()))?;
         std::fs::rename(&part, file).context(|| format!("replacing {}", file.display()))
     }
 
     fn clear(file: &Path) -> Result<()> {
         match std::fs::remove_file(file) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => fail!("removing {}: {error}", file.display()),
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                fail!("removing {}: {error}", file.display())
+            }
             _ => Ok(()),
         }
     }
 
     /// Whether a class run of <wanted> (named <asked> by the caller) may go
     /// ahead in <checkout>, which is on <head> and last built <built>.
-    fn allows_class_run(built: Option<&Built>, checkout: &str, asked: &str, wanted: &str, head: &str) -> Result<()> {
+    fn allows_class_run(
+        built: Option<&Built>,
+        checkout: &str,
+        asked: &str,
+        wanted: &str,
+        head: &str,
+    ) -> Result<()> {
         let hint = "name the steps that build it (a class-only run tests what the checkout holds)";
         let Some(built) = built else {
             fail!("{checkout} has no finished build to test {asked} ({wanted}) against: {hint}");
@@ -215,7 +266,12 @@ impl Built {
 
 /// The full id of <rev> in the checkout <top>.
 fn resolve(top: &Path, rev: &str) -> Result<String> {
-    Ok(run_git(top, &["rev-parse", "--verify", &format!("{rev}^{{commit}}")])?.trim().to_string())
+    Ok(run_git(
+        top,
+        &["rev-parse", "--verify", &format!("{rev}^{{commit}}")],
+    )?
+    .trim()
+    .to_string())
 }
 
 /// Runs <steps> in the checkout <top> in order, stopping at the first that
@@ -230,7 +286,10 @@ fn run_steps(top: &Path, steps: &[Step]) -> Result<Ran> {
                 let hint = if step.name.starts_with(TEST_STEP_PREFIX) {
                     String::new()
                 } else {
-                    format!(" (a `limit {} <time>` line in {CONFIG} sets another)", step.name)
+                    format!(
+                        " (a `limit {} <time>` line in {CONFIG} sets another)",
+                        step.name
+                    )
                 };
                 fail!(
                     "step {} ran past its limit of {} and its process group was killed; the lock goes to the next build{hint}",
@@ -278,7 +337,10 @@ fn run_lane(
     names: &[String],
     classes: &[ClassFlag],
 ) -> Result<()> {
-    note(format!("waiting for {repo}'s {} app lock, then building {commit}", lane.word()));
+    note(format!(
+        "waiting for {repo}'s {} app lock, then building {commit}",
+        lane.word()
+    ));
     let mut held = lock::take(places, repo, lane)?;
     loop {
         let top = app_checkout_top(places, repo, &held.checkout)?;
@@ -293,7 +355,13 @@ fn run_lane(
         if names.is_empty() && !classes.is_empty() {
             run_git(&top, &["fetch", "-q", "origin"])?;
             let (wanted, head) = (resolve(&top, commit)?, resolve(&top, "HEAD")?);
-            Built::allows_class_run(Built::read(&built_file)?.as_ref(), &held.checkout, commit, &wanted, &head)?;
+            Built::allows_class_run(
+                Built::read(&built_file)?.as_ref(),
+                &held.checkout,
+                commit,
+                &wanted,
+                &head,
+            )?;
         } else {
             // The switch and the steps change what the checkout holds.
             Built::clear(&built_file)?;
@@ -303,12 +371,17 @@ fn run_lane(
         if steps.is_empty() {
             fail!("{CONFIG} names no step in the {} lane", lane.word());
         }
-        let (tests, builds): (Vec<Step>, Vec<Step>) =
-            steps.into_iter().partition(|step| step.name.starts_with(TEST_STEP_PREFIX));
+        let (tests, builds): (Vec<Step>, Vec<Step>) = steps
+            .into_iter()
+            .partition(|step| step.name.starts_with(TEST_STEP_PREFIX));
         let mut ran = run_steps(&top, &builds)?;
         if ran == Ran::Finished && !builds.is_empty() {
             let steps = builds.iter().map(|step| step.name.clone()).collect();
-            Built { commit: resolve(&top, "HEAD")?, steps }.write(&built_file)?;
+            Built {
+                commit: resolve(&top, "HEAD")?,
+                steps,
+            }
+            .write(&built_file)?;
         }
         if ran == Ran::Finished {
             ran = run_steps(&top, &tests)?;
@@ -316,7 +389,9 @@ fn run_lane(
         match ran {
             Ran::Finished => return Ok(()),
             Ran::TakenOver => {
-                note(format!("the build was stopped for a takeover; building {commit} again after it"));
+                note(format!(
+                    "the build was stopped for a takeover; building {commit} again after it"
+                ));
                 held = held.requeue()?;
             }
         }
@@ -355,7 +430,11 @@ fn copy_lines(
             line.clear();
             continue;
         }
-        let mut out = prefix.lock().expect("no panic holding it").clone().into_bytes();
+        let mut out = prefix
+            .lock()
+            .expect("no panic holding it")
+            .clone()
+            .into_bytes();
         out.extend_from_slice(&line);
         if !line.ends_with(b"\n") {
             out.push(b'\n');
@@ -368,7 +447,12 @@ fn copy_lines(
 
 /// Runs the lanes in <lanes> at the same time, each as a process of its own;
 /// fails, naming the lanes, if any does.
-fn run_lanes(repo: &str, commit: &str, lanes: &[(Lane, Vec<String>)], classes: &[ClassFlag]) -> Result<()> {
+fn run_lanes(
+    repo: &str,
+    commit: &str,
+    lanes: &[(Lane, Vec<String>)],
+    classes: &[ClassFlag],
+) -> Result<()> {
     let exe = std::env::current_exe().context(|| "finding the builds program".to_string())?;
     unsafe {
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
@@ -381,12 +465,19 @@ fn run_lanes(repo: &str, commit: &str, lanes: &[(Lane, Vec<String>)], classes: &
         command
             .args(["app-build", repo, "--lane", lane.word(), commit])
             .args(names)
-            .args(classes.iter().filter(|(own, _)| own == lane).flat_map(|(own, class)| ["--test", own.word(), class]))
+            .args(
+                classes
+                    .iter()
+                    .filter(|(own, _)| own == lane)
+                    .flat_map(|(own, class)| ["--test", own.word(), class]),
+            )
             .env(PREFIXED, "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command.spawn().context(|| format!("starting the {} lane's build", lane.word()))?;
+        let mut child = command
+            .spawn()
+            .context(|| format!("starting the {} lane's build", lane.word()))?;
         LANE_PIDS[at].store(child.id() as i32, Ordering::SeqCst);
         let (done, ended) = channel();
         // Both streams share it: it changes once the lane's process says which
@@ -396,13 +487,17 @@ fn run_lanes(repo: &str, commit: &str, lanes: &[(Lane, Vec<String>)], classes: &
         let stderr = child.stderr.take().expect("piped");
         let (out_done, err_done) = (done.clone(), done);
         let (word, out_prefix) = (lane.word(), prefix.clone());
-        std::thread::spawn(move || copy_lines(stdout, std::io::stdout(), word, out_prefix, out_done));
+        std::thread::spawn(move || {
+            copy_lines(stdout, std::io::stdout(), word, out_prefix, out_done)
+        });
         std::thread::spawn(move || copy_lines(stderr, std::io::stderr(), word, prefix, err_done));
         running.push((*lane, child, ended));
     }
     let mut failed = Vec::new();
     for (lane, mut child, ended) in running {
-        let status = child.wait().context(|| format!("waiting for the {} lane's build", lane.word()))?;
+        let status = child
+            .wait()
+            .context(|| format!("waiting for the {} lane's build", lane.word()))?;
         for _ in 0..2 {
             if ended.recv_timeout(OUTPUT_GRACE) == Err(RecvTimeoutError::Timeout) {
                 break;
@@ -415,7 +510,11 @@ fn run_lanes(repo: &str, commit: &str, lanes: &[(Lane, Vec<String>)], classes: &
             });
         }
     }
-    if failed.is_empty() { Ok(()) } else { fail!("app-build failed in {}", failed.join(" and ")) }
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        fail!("app-build failed in {}", failed.join(" and "))
+    }
 }
 
 pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
@@ -427,13 +526,23 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
     {
         let top = any_checkout(places, repo)?;
         let file = top.join(CONFIG);
-        let text = std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
+        let text =
+            std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
         let config = parse_config(&text)?;
         for step in &config.steps {
-            println!("{} {} {}", step.lane.word(), step.name, step.command.join(" "));
+            println!(
+                "{} {} {}",
+                step.lane.word(),
+                step.name,
+                step.command.join(" ")
+            );
         }
         for test in &config.tests {
-            println!("{} --test <Class> {}", test.lane.word(), test.command.join(" "));
+            println!(
+                "{} --test <Class> {}",
+                test.lane.word(),
+                test.command.join(" ")
+            );
         }
         return Ok(());
     }
@@ -442,7 +551,14 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
         && !commit.starts_with('-')
     {
         let (names, classes) = split_tests(names)?;
-        return run_lane(places, repo, Lane::parse_or_fail(word)?, commit, &names, &classes);
+        return run_lane(
+            places,
+            repo,
+            Lane::parse_or_fail(word)?,
+            commit,
+            &names,
+            &classes,
+        );
     }
     let [commit, tail @ ..] = rest else {
         fail!("{USAGE}");
@@ -461,7 +577,10 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
     }
     for (lane, class) in &classes {
         if config.class_test(*lane).is_none() {
-            fail!("{CONFIG} has no `test {} ...` line, so it cannot run the class {class}", lane.word());
+            fail!(
+                "{CONFIG} has no `test {} ...` line, so it cannot run the class {class}",
+                lane.word()
+            );
         }
     }
     // The lanes the steps or classes are in: those with a step named, or with

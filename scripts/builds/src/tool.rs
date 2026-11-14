@@ -25,7 +25,12 @@ impl Tool {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the clock is after 1970")
             .as_secs() as i64;
-        Tool { places, rules, now, measured: HashMap::new() }
+        Tool {
+            places,
+            rules,
+            now,
+            measured: HashMap::new(),
+        }
     }
 
     /// <path>'s size and newest write, counting every write made before
@@ -39,7 +44,11 @@ impl Tool {
     /// together, else measured now, several at a time. Deciding commands
     /// never measure ahead, so a size after their own deletions is fresh.
     pub fn measure_all(&self, paths: &[PathBuf]) -> Result<Vec<Measure>> {
-        let wanted: Vec<PathBuf> = paths.iter().filter(|p| !self.measured.contains_key(*p)).cloned().collect();
+        let wanted: Vec<PathBuf> = paths
+            .iter()
+            .filter(|p| !self.measured.contains_key(*p))
+            .cloned()
+            .collect();
         let learned = self.learn(&wanted, true)?;
         Ok(paths
             .iter()
@@ -56,14 +65,20 @@ impl Tool {
         if paths.is_empty() {
             return Ok(Vec::new());
         }
-        let answers =
-            client::measure(&self.places, paths, fresh).unwrap_or_else(|| paths.iter().map(|_| None).collect());
-        let unanswered: Vec<PathBuf> =
-            paths.iter().zip(&answers).filter(|(_, a)| a.is_none()).map(|(p, _)| p.clone()).collect();
+        let answers = client::measure(&self.places, paths, fresh)
+            .unwrap_or_else(|| paths.iter().map(|_| None).collect());
+        let unanswered: Vec<PathBuf> = paths
+            .iter()
+            .zip(&answers)
+            .filter(|(_, a)| a.is_none())
+            .map(|(p, _)| p.clone())
+            .collect();
         let mut measured = measure_many(&unanswered)?.into_iter();
         Ok(answers
             .into_iter()
-            .map(|answer| answer.unwrap_or_else(|| measured.next().expect("one measure per unanswered path")))
+            .map(|answer| {
+                answer.unwrap_or_else(|| measured.next().expect("one measure per unanswered path"))
+            })
             .collect())
     }
 
@@ -110,8 +125,15 @@ pub fn volume_space(path: &Path) -> Result<Space> {
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("a path holds no NUL");
     let mut stats: libc::statfs = unsafe { std::mem::zeroed() };
     if unsafe { libc::statfs(c.as_ptr(), &mut stats) } != 0 {
-        crate::fail!("reading the free space of {}: {}", path.display(), std::io::Error::last_os_error());
+        crate::fail!(
+            "reading the free space of {}: {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        );
     }
     let block = stats.f_bsize as u64;
-    Ok(Space { free_kib: stats.f_bavail * block / 1024, size_kib: stats.f_blocks * block / 1024 })
+    Ok(Space {
+        free_kib: stats.f_bavail * block / 1024,
+        size_kib: stats.f_blocks * block / 1024,
+    })
 }

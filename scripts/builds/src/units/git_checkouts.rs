@@ -21,13 +21,20 @@ fn pinned_revisions(lockfiles: &[PathBuf]) -> Result<HashSet<String>> {
             Err(error) => crate::fail!("reading {}: {error}", lockfile.display()),
         };
         for line in text.lines() {
-            let Some(source) = line.strip_prefix("source = \"git+").and_then(|rest| rest.strip_suffix('"')) else {
+            let Some(source) = line
+                .strip_prefix("source = \"git+")
+                .and_then(|rest| rest.strip_suffix('"'))
+            else {
                 continue;
             };
-            let Some((before, sha)) = source.split_once('#') else { continue };
+            let Some((before, sha)) = source.split_once('#') else {
+                continue;
+            };
             if before.contains('"')
                 || sha.len() != 40
-                || !sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                || !sha
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
             {
                 continue;
             }
@@ -53,7 +60,10 @@ pub fn prune_git_checkouts(cargo_home: &Path, dry: bool, lockfiles: &[PathBuf]) 
             match crate::evict::try_lock_creating(&cargo_home.join(name))? {
                 Some(lock) => locks.push(lock),
                 None => {
-                    note(format!("kept cargo's git checkouts in {}: a cargo holds its package cache", checkouts.display()));
+                    note(format!(
+                        "kept cargo's git checkouts in {}: a cargo holds its package cache",
+                        checkouts.display()
+                    ));
                     return Ok(0);
                 }
             }

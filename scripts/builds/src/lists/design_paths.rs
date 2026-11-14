@@ -38,8 +38,14 @@ pub struct Globs {
 impl Globs {
     /// The globs of <repo> in <lists>.
     pub fn of(lists: &Lists, repo: &str) -> Globs {
-        let get = |map: &std::collections::BTreeMap<String, Vec<String>>| map.get(repo).cloned().unwrap_or_default();
-        Globs { places: get(&lists.design_places), sources: get(&lists.design_sources), spec: get(&lists.spec_files) }
+        let get = |map: &std::collections::BTreeMap<String, Vec<String>>| {
+            map.get(repo).cloned().unwrap_or_default()
+        };
+        Globs {
+            places: get(&lists.design_places),
+            sources: get(&lists.design_sources),
+            spec: get(&lists.spec_files),
+        }
     }
 
     /// Does <key> name a design place of these globs: a board file, or a
@@ -119,7 +125,11 @@ struct Glob {
 impl Glob {
     fn parse(text: &str) -> Glob {
         let folder = text.ends_with('/');
-        let segments = text.split('/').filter(|s| !s.is_empty()).map(str::to_string).collect();
+        let segments = text
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
         Glob { segments, folder }
     }
 
@@ -127,11 +137,25 @@ impl Glob {
     fn place(&self, path: &str) -> Option<String> {
         let parts: Vec<&str> = path.split('/').collect();
         let n = self.segments.len();
-        let fits = if self.folder { parts.len() > n } else { parts.len() == n };
-        if !fits || !self.segments.iter().zip(&parts).all(|(glob, part)| segment_matches(glob, part)) {
+        let fits = if self.folder {
+            parts.len() > n
+        } else {
+            parts.len() == n
+        };
+        if !fits
+            || !self
+                .segments
+                .iter()
+                .zip(&parts)
+                .all(|(glob, part)| segment_matches(glob, part))
+        {
             return None;
         }
-        Some(if self.folder { format!("{}/", parts[..n].join("/")) } else { path.to_string() })
+        Some(if self.folder {
+            format!("{}/", parts[..n].join("/"))
+        } else {
+            path.to_string()
+        })
     }
 
     /// Is <path> in this glob's place?
@@ -146,7 +170,12 @@ impl Glob {
             return false;
         }
         let parts: Vec<&str> = key.split('/').filter(|p| !p.is_empty()).collect();
-        parts.len() == self.segments.len() && self.segments.iter().zip(&parts).all(|(glob, part)| segment_matches(glob, part))
+        parts.len() == self.segments.len()
+            && self
+                .segments
+                .iter()
+                .zip(&parts)
+                .all(|(glob, part)| segment_matches(glob, part))
     }
 
     /// The first segment when it is plain text and more follows: the
@@ -166,15 +195,26 @@ fn segment_matches(glob: &str, text: &str) -> bool {
             Some((c, rest)) => text.first() == Some(c) && go(rest, &text[1..]),
         }
     }
-    go(&glob.chars().collect::<Vec<_>>(), &text.chars().collect::<Vec<_>>())
+    go(
+        &glob.chars().collect::<Vec<_>>(),
+        &text.chars().collect::<Vec<_>>(),
+    )
 }
 
 /// The design files among <paths>, by <globs>. A source wins over a place
 /// (the component sources sit in a folder the component glob matches).
 pub fn classify(globs: &Globs, paths: &[String]) -> Changes {
     let parse = |list: &[String]| -> Vec<Glob> { list.iter().map(|g| Glob::parse(g)).collect() };
-    let (places, sources, spec) = (parse(&globs.places), parse(&globs.sources), parse(&globs.spec));
-    let roots: BTreeSet<&str> = places.iter().chain(&sources).filter_map(Glob::root).collect();
+    let (places, sources, spec) = (
+        parse(&globs.places),
+        parse(&globs.sources),
+        parse(&globs.spec),
+    );
+    let roots: BTreeSet<&str> = places
+        .iter()
+        .chain(&sources)
+        .filter_map(Glob::root)
+        .collect();
     let mut changes = Changes::default();
     for path in paths {
         if sources.iter().any(|glob| glob.matches(path)) {
@@ -183,7 +223,10 @@ pub fn classify(globs: &Globs, paths: &[String]) -> Changes {
             changes.places.insert(place);
         } else if spec.iter().any(|glob| glob.matches(path)) {
             changes.spec_files.insert(path.clone());
-        } else if path.split_once('/').is_some_and(|(first, _)| roots.contains(first)) {
+        } else if path
+            .split_once('/')
+            .is_some_and(|(first, _)| roots.contains(first))
+        {
             changes.shared.insert(path.clone());
         } else {
             changes.outside.insert(path.clone());
@@ -214,7 +257,10 @@ fn headings(text: &str) -> Vec<Option<String>> {
 }
 
 fn section_key(path: &str, heading: &Option<String>) -> String {
-    format!("{path}#{}", heading.as_deref().unwrap_or("(before the first heading)"))
+    format!(
+        "{path}#{}",
+        heading.as_deref().unwrap_or("(before the first heading)")
+    )
 }
 
 /// The new-side line ranges of a `-U0` diff's hunks: (first line, count).
@@ -222,7 +268,9 @@ fn hunks(diff: &str) -> Vec<(usize, usize)> {
     diff.lines()
         .filter_map(|line| {
             let header = line.strip_prefix("@@ ")?;
-            let new = header.split_whitespace().find_map(|part| part.strip_prefix('+'))?;
+            let new = header
+                .split_whitespace()
+                .find_map(|part| part.strip_prefix('+'))?;
             let (start, count) = new.split_once(',').unwrap_or((new, "1"));
             Some((start.parse().ok()?, count.parse().ok()?))
         })
@@ -234,19 +282,41 @@ fn hunks(diff: &str) -> Vec<(usize, usize)> {
 /// a file touches the section the deleted lines sat in.
 fn spec_sections(top: &Path, sha: &str, path: &str) -> Result<BTreeSet<String>> {
     let diff = git_text(
-        git(top).args(["diff-tree", "-p", "-U0", "--no-color", "--no-commit-id", "--root", "-m", sha, "--", path]),
+        git(top).args([
+            "diff-tree",
+            "-p",
+            "-U0",
+            "--no-color",
+            "--no-commit-id",
+            "--root",
+            "-m",
+            sha,
+            "--",
+            path,
+        ]),
         &format!("read what {sha} changes in {path}"),
     )?;
     if diff.lines().any(|line| line == "+++ /dev/null") {
         return Ok(BTreeSet::from([format!("{path}#(file deleted)")]));
     }
-    let text = git_text(git(top).args(["show", &format!("{sha}:{path}")]), &format!("read {path} as {sha} has it"))?;
+    let text = git_text(
+        git(top).args(["show", &format!("{sha}:{path}")]),
+        &format!("read {path} as {sha} has it"),
+    )?;
     let by_line = headings(&text);
     let mut sections = BTreeSet::new();
     for (start, count) in hunks(&diff) {
-        let lines: Vec<usize> = if count == 0 { vec![start] } else { (start..start + count).collect() };
+        let lines: Vec<usize> = if count == 0 {
+            vec![start]
+        } else {
+            (start..start + count).collect()
+        };
         for line in lines {
-            let heading = line.checked_sub(1).and_then(|at| by_line.get(at)).cloned().flatten();
+            let heading = line
+                .checked_sub(1)
+                .and_then(|at| by_line.get(at))
+                .cloned()
+                .flatten();
             sections.insert(section_key(path, &heading));
         }
     }
@@ -257,10 +327,24 @@ fn spec_sections(top: &Path, sha: &str, path: &str) -> Result<BTreeSet<String>> 
 /// against each parent.
 pub fn commit_paths(top: &Path, sha: &str) -> Result<Vec<String>> {
     let out = git_text(
-        git(top).args(["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", "-m", "-z", sha, "--"]),
+        git(top).args([
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "--root",
+            "-m",
+            "-z",
+            sha,
+            "--",
+        ]),
         &format!("list the files {sha} changes"),
     )?;
-    Ok(out.split('\0').filter(|p| !p.is_empty()).map(str::to_string).collect())
+    Ok(out
+        .split('\0')
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+        .collect())
 }
 
 /// What <shas> change among the design files of the repo whose globs are
@@ -292,18 +376,26 @@ pub fn exists_in(top: &Path, rev: &str, path: &str) -> Result<bool> {
         .args(["cat-file", "-e", &format!("{rev}:{path}")])
         .stdin(std::process::Stdio::null())
         .output()
-        .map_err(|error| crate::fail::Fail::Message(format!("running git to look for {path} in {rev}: {error}")))?;
+        .map_err(|error| {
+            crate::fail::Fail::Message(format!("running git to look for {path} in {rev}: {error}"))
+        })?;
     match output.status.code() {
         Some(0) => Ok(true),
         Some(128) => Ok(false),
-        _ => fail!("git failed to look for {path} in {rev}: {}", String::from_utf8_lossy(&output.stderr).trim()),
+        _ => fail!(
+            "git failed to look for {path} in {rev}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
     }
 }
 
 /// The commits of <range> (`origin/main..HEAD`), oldest first; a range with
 /// none is refused.
 pub fn commits_of_range(top: &Path, range: &str) -> Result<Vec<String>> {
-    let out = git_text(git(top).args(["rev-list", "--reverse", range, "--"]), &format!("list the commits of {range}"))?;
+    let out = git_text(
+        git(top).args(["rev-list", "--reverse", range, "--"]),
+        &format!("list the commits of {range}"),
+    )?;
     let shas: Vec<String> = out.lines().map(str::to_string).collect();
     if shas.is_empty() {
         fail!("the range {range} holds no commits");
@@ -314,7 +406,12 @@ pub fn commits_of_range(top: &Path, range: &str) -> Result<Vec<String>> {
 /// The full hash of commit <sha>.
 pub fn full_sha(top: &Path, sha: &str) -> Result<String> {
     let out = git_text(
-        git(top).args(["rev-parse", "--verify", "--quiet", &format!("{sha}^{{commit}}")]),
+        git(top).args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{sha}^{{commit}}"),
+        ]),
         &format!("find commit {sha}"),
     )?;
     Ok(out.trim().to_string())
@@ -326,7 +423,11 @@ pub fn on_origin_main(top: &Path, sha: &str) -> Result<bool> {
         .args(["merge-base", "--is-ancestor", sha, "origin/main"])
         .stdin(std::process::Stdio::null())
         .output()
-        .map_err(|error| crate::fail::Fail::Message(format!("running git to test {sha} against origin/main: {error}")))?;
+        .map_err(|error| {
+            crate::fail::Fail::Message(format!(
+                "running git to test {sha} against origin/main: {error}"
+            ))
+        })?;
     match status.status.code() {
         Some(0) => Ok(true),
         Some(1) => Ok(false),

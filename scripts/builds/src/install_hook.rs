@@ -28,7 +28,9 @@ exec builds checks run
 ";
 
 pub fn cmd_install_hook(args: &[String]) -> Result<()> {
-    let [repo] = args else { fail!("usage: builds install-hook <repo>") };
+    let [repo] = args else {
+        fail!("usage: builds install-hook <repo>")
+    };
     let path = install(Path::new(repo))?;
     note(format!("pre-commit hook written to {}", path.display()));
     Ok(())
@@ -55,7 +57,9 @@ fn write_executable(path: &Path, text: &str) -> Result<()> {
 /// hooks other than pre-commit, sorted.
 fn forwarded_hooks(top: &Path) -> Result<Vec<String>> {
     let dir = top.join("scripts/hooks");
-    let Ok(entries) = std::fs::read_dir(&dir) else { return Ok(Vec::new()) };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(Vec::new());
+    };
     let mut names = Vec::new();
     for entry in entries {
         let entry = entry.context(|| format!("reading {}", dir.display()))?;
@@ -80,7 +84,10 @@ pub fn install(repo: &Path) -> Result<PathBuf> {
     let dir = std::fs::canonicalize(&dir).context(|| format!("resolving {}", dir.display()))?;
     let path = dir.join("pre-commit");
     write_executable(&path, HOOK)?;
-    let top = git_text(git(repo).args(["rev-parse", "--show-toplevel"]), "find the top of the repo")?;
+    let top = git_text(
+        git(repo).args(["rev-parse", "--show-toplevel"]),
+        "find the top of the repo",
+    )?;
     for name in forwarded_hooks(Path::new(top.trim()))? {
         write_executable(&dir.join(&name), &forwarder(&name))?;
     }

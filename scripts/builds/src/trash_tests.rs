@@ -19,7 +19,12 @@ fn emptying_folders(places: &Places) -> Vec<PathBuf> {
     std::fs::read_dir(&places.root)
         .unwrap()
         .map(|entry| entry.unwrap().path())
-        .filter(|path| path.file_name().unwrap().to_string_lossy().starts_with(EMPTYING_PREFIX))
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(EMPTYING_PREFIX)
+        })
         .collect()
 }
 
@@ -30,10 +35,19 @@ fn an_eviction_holding_the_shared_lock_keeps_an_emptier_from_renaming_the_trash(
     fill(&places.trash().join("evict.old/blob"), 4);
     let eviction = lock_shared(&places).unwrap();
     let finished = emptier_in_thread(&places);
-    assert!(finished.recv_timeout(BLOCKED).is_err(), "the emptier renamed the trash under an eviction");
-    assert!(places.trash().join("evict.old/blob").exists(), "the trash was taken while an eviction held the lock");
+    assert!(
+        finished.recv_timeout(BLOCKED).is_err(),
+        "the emptier renamed the trash under an eviction"
+    );
+    assert!(
+        places.trash().join("evict.old/blob").exists(),
+        "the trash was taken while an eviction held the lock"
+    );
     drop(eviction);
-    finished.recv_timeout(Duration::from_secs(30)).unwrap().unwrap();
+    finished
+        .recv_timeout(Duration::from_secs(30))
+        .unwrap()
+        .unwrap();
     assert!(!places.trash().exists());
     assert!(emptying_folders(&places).is_empty());
 }
@@ -53,7 +67,10 @@ fn an_emptier_never_takes_a_slot_from_an_eviction_that_made_it() {
     std::fs::rename(&folder, slot.path.join("target")).unwrap();
     slot.remove_now();
     drop(eviction);
-    finished.recv_timeout(Duration::from_secs(30)).unwrap().unwrap();
+    finished
+        .recv_timeout(Duration::from_secs(30))
+        .unwrap()
+        .unwrap();
     assert!(!folder.exists() && !places.trash().exists());
 }
 
@@ -66,9 +83,15 @@ fn an_emptier_waits_for_a_slot_another_process_is_removing() {
     fill(&slot.path.join("blob"), 4);
     drop(eviction);
     let finished = emptier_in_thread(&places);
-    assert!(finished.recv_timeout(BLOCKED).is_err(), "the emptier removed a slot another process still holds");
+    assert!(
+        finished.recv_timeout(BLOCKED).is_err(),
+        "the emptier removed a slot another process still holds"
+    );
     drop(slot);
-    finished.recv_timeout(Duration::from_secs(30)).unwrap().unwrap();
+    finished
+        .recv_timeout(Duration::from_secs(30))
+        .unwrap()
+        .unwrap();
     assert!(emptying_folders(&places).is_empty());
 }
 
@@ -80,7 +103,15 @@ fn an_eviction_after_the_trash_was_taken_makes_a_fresh_one() {
     fill(&folder.join("debug/blob"), 4);
     fill(&places.trash().join("evict.old/blob"), 4);
     empty_now(&places).unwrap();
-    assert!(crate::evict::evict(&places, &folder, crate::evict::Recreate::No, crate::evict::Removal::Now).unwrap());
+    assert!(
+        crate::evict::evict(
+            &places,
+            &folder,
+            crate::evict::Recreate::No,
+            crate::evict::Removal::Now
+        )
+        .unwrap()
+    );
     assert!(!folder.exists());
 }
 
@@ -107,5 +138,11 @@ fn a_background_emptier_leaves_a_slot_being_removed_to_its_remover() {
     assert!(!places.trash().exists());
     let moved: Vec<PathBuf> = emptying_folders(&places);
     assert_eq!(moved.len(), 1);
-    assert!(moved[0].join(busy.path.file_name().unwrap()).join("blob").exists(), "a slot being removed was started on again");
+    assert!(
+        moved[0]
+            .join(busy.path.file_name().unwrap())
+            .join("blob")
+            .exists(),
+        "a slot being removed was started on again"
+    );
 }

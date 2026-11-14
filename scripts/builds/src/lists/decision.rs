@@ -66,7 +66,12 @@ pub struct Added {
 /// Adds the decision <new> with the items of <work>, each made by it; the
 /// decision's date is the day of <stamp>. A decision that answers a question
 /// has that question's plan, so only one that answers none stores its own.
-pub fn add_decision(db: &Connection, new: &NewDecision, work: &[ItemDraft], stamp: &Stamp) -> Result<Added> {
+pub fn add_decision(
+    db: &Connection,
+    new: &NewDecision,
+    work: &[ItemDraft],
+    stamp: &Stamp,
+) -> Result<Added> {
     if let Some(fault) = title_fault(&new.title) {
         fail!("{fault}");
     }
@@ -89,16 +94,37 @@ pub fn add_decision(db: &Connection, new: &NewDecision, work: &[ItemDraft], stam
     let decision = record::open(db, Kind::Decision, stamp)?;
     let mut items = Vec::new();
     for draft in work {
-        items.push(add_item(db, draft, Some(Origin::Decision(decision)), stamp)?);
+        items.push(add_item(
+            db,
+            draft,
+            Some(Origin::Decision(decision)),
+            stamp,
+        )?);
     }
-    insert(db, decision, &local_day(stamp.at), new.title.as_str(), new.by.as_str(), new.body.as_str(), new.replaces)?;
+    insert(
+        db,
+        decision,
+        &local_day(stamp.at),
+        new.title.as_str(),
+        new.by.as_str(),
+        new.body.as_str(),
+        new.replaces,
+    )?;
     if let (None, Some(plan)) = (new.question, &new.plan) {
         insert_plan(db, decision, plan)?;
     }
     Ok(Added { decision, items })
 }
 
-fn insert(db: &Connection, id: Id, date: &str, title: &str, by: &str, body: &str, replaces: Option<Id>) -> Result<()> {
+fn insert(
+    db: &Connection,
+    id: Id,
+    date: &str,
+    title: &str,
+    by: &str,
+    body: &str,
+    replaces: Option<Id>,
+) -> Result<()> {
     db.execute(
         "INSERT INTO decision (id, date, title, decided_by, body, replaces) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![id, date, title, by, body, replaces],
@@ -108,7 +134,11 @@ fn insert(db: &Connection, id: Id, date: &str, title: &str, by: &str, body: &str
 }
 
 fn insert_plan(db: &Connection, id: Id, plan: &PlanRef) -> Result<()> {
-    db.execute("INSERT INTO decision_plan (decision_id, path, number) VALUES (?1, ?2, ?3)", params![id, plan.path, plan.number]).sql()?;
+    db.execute(
+        "INSERT INTO decision_plan (decision_id, path, number) VALUES (?1, ?2, ?3)",
+        params![id, plan.path, plan.number],
+    )
+    .sql()?;
     Ok(())
 }
 
@@ -117,7 +147,15 @@ fn insert_plan(db: &Connection, id: Id, plan: &PlanRef) -> Result<()> {
 /// that name it, put in by theirs; an answering decision's plan is its
 /// question's.
 pub fn move_in(db: &Connection, decision: &Decision) -> Result<()> {
-    insert(db, decision.id, &decision.date, &decision.title, &decision.by, &decision.body, decision.replaces)?;
+    insert(
+        db,
+        decision.id,
+        &decision.date,
+        &decision.title,
+        &decision.by,
+        &decision.body,
+        decision.replaces,
+    )?;
     if let (None, Some(plan)) = (decision.question, &decision.plan) {
         insert_plan(db, decision.id, plan)?;
     }
@@ -129,8 +167,11 @@ pub fn edit(db: &Connection, id: Id, title: Option<String>, body: Option<String>
     if !matches!(record::standing(db, id)?, Some((Kind::Decision, _))) {
         fail!("{id} is not a decision");
     }
-    db.execute("UPDATE decision SET title = COALESCE(?2, title), body = COALESCE(?3, body) WHERE id = ?1", params![id, title, body])
-        .sql()?;
+    db.execute(
+        "UPDATE decision SET title = COALESCE(?2, title), body = COALESCE(?3, body) WHERE id = ?1",
+        params![id, title, body],
+    )
+    .sql()?;
     Ok(())
 }
 
@@ -151,15 +192,25 @@ pub fn read(
         }
     }
     let mut plans: BTreeMap<Id, PlanRef> = BTreeMap::new();
-    let mut statement = db.prepare("SELECT decision_id, path, number FROM decision_plan").sql()?;
+    let mut statement = db
+        .prepare("SELECT decision_id, path, number FROM decision_plan")
+        .sql()?;
     for row in statement
-        .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
         .sql()?
     {
         let (id, path, number) = row.sql()?;
         plans.insert(id, PlanRef { path, number });
     }
-    let mut statement = db.prepare("SELECT id, date, title, decided_by, body, replaces FROM decision ORDER BY id").sql()?;
+    let mut statement = db
+        .prepare("SELECT id, date, title, decided_by, body, replaces FROM decision ORDER BY id")
+        .sql()?;
     let rows = statement
         .query_map([], |row| {
             Ok((
@@ -177,7 +228,10 @@ pub fn read(
         let (id, date, title, by, body, replaces) = row.sql()?;
         let question = answered.get(&id).copied();
         let plan = match question {
-            Some(question) => questions.iter().find(|q| q.id == question).and_then(|q| q.plan.clone()),
+            Some(question) => questions
+                .iter()
+                .find(|q| q.id == question)
+                .and_then(|q| q.plan.clone()),
             None => plans.remove(&id),
         };
         decisions.push(Decision {
@@ -187,7 +241,11 @@ pub fn read(
             by,
             body,
             question,
-            work: items.iter().filter(|item| item.from == Some(id)).map(|item| item.id).collect(),
+            work: items
+                .iter()
+                .filter(|item| item.from == Some(id))
+                .map(|item| item.id)
+                .collect(),
             replaces,
             plan,
             recorded: opened[&id].clone(),
@@ -203,7 +261,11 @@ const TABLES: [&str; 2] = ["decision", "decision_plan"];
 /// Writes a row of one of decision.rs's tables as given, the constraints
 /// still holding: for tests that need a row they refuse.
 #[cfg(test)]
-pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
     crate::db::plant_row(db, &TABLES, table, columns)
 }
 

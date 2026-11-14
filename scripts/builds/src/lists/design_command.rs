@@ -29,7 +29,9 @@ pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
 /// A design command's output, which `cmd_design` prints.
 pub fn run_to_text(tool: &Tool, args: &[String]) -> Result<String> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
-    let Some((command, rest)) = args.split_first() else { fail!("{USAGE}") };
+    let Some((command, rest)) = args.split_first() else {
+        fail!("{USAGE}")
+    };
     match command.as_str() {
         "places" => places(tool, rest),
         "only" => only(tool, rest),
@@ -63,12 +65,20 @@ fn open_store(tool: &Tool, args: &Args, checkout: &Checkout) -> Result<(Store, L
         Some(project) => Store::named(&tool.places, project)?,
         None => match project_of(&tool.places, checkout)? {
             Some(project) => Store::named(&tool.places, &project)?,
-            None => fail!("repo {} is in no project; say which with --project", checkout.repo()),
+            None => fail!(
+                "repo {} is in no project; say which with --project",
+                checkout.repo()
+            ),
         },
     };
     let lists = store.load()?;
     if !lists.repos.contains(&checkout.repo()) {
-        fail!("repo {} is not one of project {}'s ({})", checkout.repo(), lists.project, lists.repos.join(", "));
+        fail!(
+            "repo {} is not one of project {}'s ({})",
+            checkout.repo(),
+            lists.project,
+            lists.repos.join(", ")
+        );
     }
     Ok((store, lists))
 }
@@ -79,7 +89,14 @@ fn scope(tool: &Tool, args: &Args, dir: &str, shas: Vec<String>) -> Result<Scope
     let globs = Globs::of(&lists, &checkout.repo());
     let changes = design_paths::changes_of(&checkout.top, &globs, &shas)?;
     let tip = shas.last().cloned().unwrap_or_default();
-    Ok(Scope { checkout, store, lists, globs, tip, changes })
+    Ok(Scope {
+        checkout,
+        store,
+        lists,
+        globs,
+        tip,
+        changes,
+    })
 }
 
 fn lines(paths: impl IntoIterator<Item = String>) -> String {
@@ -92,7 +109,9 @@ fn lines(paths: impl IntoIterator<Item = String>) -> String {
 /// change) or `shared <path>`; nothing when none.
 fn places(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    let [dir, shas @ ..] = args.positional() else { fail!("{USAGE}") };
+    let [dir, shas @ ..] = args.positional() else {
+        fail!("{USAGE}")
+    };
     if shas.is_empty() {
         fail!("{USAGE}");
     }
@@ -110,7 +129,9 @@ fn places(tool: &Tool, args: &[String]) -> Result<String> {
 /// so they carry no app work; otherwise names the paths that are not.
 fn only(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    let [dir, shas @ ..] = args.positional() else { fail!("{USAGE}") };
+    let [dir, shas @ ..] = args.positional() else {
+        fail!("{USAGE}")
+    };
     if shas.is_empty() {
         fail!("{USAGE}");
     }
@@ -120,7 +141,10 @@ fn only(tool: &Tool, args: &[String]) -> Result<String> {
     }
     if !scope.changes.only_design() {
         let outside: Vec<&str> = scope.changes.outside.iter().map(String::as_str).collect();
-        fail!("the commits also change files that are no design file: {}", outside.join(", "));
+        fail!(
+            "the commits also change files that are no design file: {}",
+            outside.join(", ")
+        );
     }
     Ok(String::new())
 }
@@ -159,10 +183,17 @@ fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
                 fail!("`review` names {}, which is no board file", board.board);
             }
             if !scope.globs.names_place(&board.board) {
-                fail!("`review` names {}, which is no board place of the repo's design places", board.board);
+                fail!(
+                    "`review` names {}, which is no board place of the repo's design places",
+                    board.board
+                );
             }
             if !scope.checkout.top.join(&board.board).is_file() {
-                fail!("`review` names {}, which is no file in {}", board.board, scope.checkout.top.display());
+                fail!(
+                    "`review` names {}, which is no file in {}",
+                    board.board,
+                    scope.checkout.top.display()
+                );
             }
         }
     }
@@ -184,7 +215,9 @@ fn require_briefs(scope: &Scope, request: &DesignRequest) -> Result<()> {
 fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, cleared: bool) -> String {
     let mut out = format!("{verb} design change {} \"{title}\"\n", recorded.design);
     if cleared {
-        out.push_str("the person's approval is cleared: they approved what was drawn before this\n");
+        out.push_str(
+            "the person's approval is cleared: they approved what was drawn before this\n",
+        );
     }
     out.push_str("it waits on the person's review (the Waiting on you tab); land.sh --design refuses it until `builds design approve --by-person`\n");
     if !recorded.new_items.is_empty() {
@@ -207,8 +240,20 @@ fn record(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let worktree = scope.checkout.top.display().to_string();
     let words = format!("design record {}", request.title.as_deref().unwrap_or(""));
     let (recorded, title) = scope.store.write(&stamp, &words, |db| {
-        let recorded = design::record(db, &repo, &worktree, &request, &scope.changes, &affected, &stamp)?;
-        let title = store::read(db)?.design(recorded.design).expect("just recorded").title.clone();
+        let recorded = design::record(
+            db,
+            &repo,
+            &worktree,
+            &request,
+            &scope.changes,
+            &affected,
+            &stamp,
+        )?;
+        let title = store::read(db)?
+            .design(recorded.design)
+            .expect("just recorded")
+            .title
+            .clone();
         Ok((recorded, title))
     })?;
     Ok(recorded_words("recorded", &recorded, &title, false))
@@ -216,7 +261,9 @@ fn record(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 
 fn amend(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &["request"], &[])?;
-    let [id] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
+    let [id] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
     let id = Id::parse(id)?;
     let request: DesignRequest = read_request(args.require("request")?)?;
     let scope = request_scope(tool, &args, &request)?;
@@ -226,12 +273,26 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let repo = scope.checkout.repo();
     let worktree = scope.checkout.top.display().to_string();
-    let (recorded, title, cleared) = scope.store.write(&stamp, &format!("design amend {id}"), |db| {
-        let was_approved = store::read(db)?.design(id).is_some_and(|d| d.approved.is_some());
-        let recorded = design::amend(db, id, &repo, &worktree, &request, &scope.changes, &affected, &stamp)?;
-        let title = store::read(db)?.design(id).expect("open").title.clone();
-        Ok((recorded, title, was_approved))
-    })?;
+    let (recorded, title, cleared) =
+        scope
+            .store
+            .write(&stamp, &format!("design amend {id}"), |db| {
+                let was_approved = store::read(db)?
+                    .design(id)
+                    .is_some_and(|d| d.approved.is_some());
+                let recorded = design::amend(
+                    db,
+                    id,
+                    &repo,
+                    &worktree,
+                    &request,
+                    &scope.changes,
+                    &affected,
+                    &stamp,
+                )?;
+                let title = store::read(db)?.design(id).expect("open").title.clone();
+                Ok((recorded, title, was_approved))
+            })?;
     Ok(recorded_words("amended", &recorded, &title, cleared))
 }
 
@@ -239,7 +300,9 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 /// them. The same approval again writes nothing.
 fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &[], &["by-person"])?;
-    let [id] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
+    let [id] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
     let id = Id::parse(id)?;
     if !args.switch("by-person") {
         fail!(
@@ -248,31 +311,45 @@ fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     if let Some(approved) = store.load()?.design(id).and_then(|d| d.approved.as_ref()) {
-        return Ok(format!("design change {id} was already approved ({})\n", local_minute(approved.at)));
+        return Ok(format!(
+            "design change {id} was already approved ({})\n",
+            local_minute(approved.at)
+        ));
     }
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.write(&stamp, &format!("design approve {id}"), |db| design::approve(db, id, &stamp))?;
-    Ok(format!("design change {id} approved; land.sh --design {} can land it\n", id.0))
+    store.write(&stamp, &format!("design approve {id}"), |db| {
+        design::approve(db, id, &stamp)
+    })?;
+    Ok(format!(
+        "design change {id} approved; land.sh --design {} can land it\n",
+        id.0
+    ))
 }
 
 /// `check N DIR SHA...`: the store is read, not written.
 fn check(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    let [id, dir, shas @ ..] = args.positional() else { fail!("{USAGE}") };
+    let [id, dir, shas @ ..] = args.positional() else {
+        fail!("{USAGE}")
+    };
     if shas.is_empty() {
         fail!("{USAGE}");
     }
     let id = Id::parse(id)?;
     let scope = scope(tool, &args, dir, shas.to_vec())?;
     design::check_changes(&scope.lists, id, &scope.checkout.repo(), &scope.changes)?;
-    Ok(format!("design change {id} resolves every place the commits change and is approved\n"))
+    Ok(format!(
+        "design change {id} resolves every place the commits change and is approved\n"
+    ))
 }
 
 /// `landed N DIR SHA...`: SHAs are on origin/main, as land.sh calls it after
 /// the push; they are stored as full hashes.
 fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    let [id, dir, shas @ ..] = args.positional() else { fail!("{USAGE}") };
+    let [id, dir, shas @ ..] = args.positional() else {
+        fail!("{USAGE}")
+    };
     if shas.is_empty() {
         fail!("{USAGE}");
     }
@@ -283,21 +360,27 @@ fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     for sha in shas {
         let full = design_paths::full_sha(&checkout.top, sha)?;
         if !design_paths::on_origin_main(&checkout.top, &full)? {
-            fail!("commit {sha} is not on origin/main, so design change {id} has not landed with it");
+            fail!(
+                "commit {sha} is not on origin/main, so design change {id} has not landed with it"
+            );
         }
         commits.push(full);
     }
     let repo = checkout.repo();
     // The same commits again write nothing: the version and the log stay.
     if design::already_landed(&lists, id, &repo, &commits)? {
-        return Ok(format!("design change {id} was already recorded as landed with these commits\n"));
+        return Ok(format!(
+            "design change {id} was already recorded as landed with these commits\n"
+        ));
     }
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let result = store.write(&stamp, &format!("design landed {id}"), |db| {
         design::landed(db, id, &repo, &commits, &stamp)
     })?;
     Ok(match result {
-        Landed::Already => format!("design change {id} was already recorded as landed with these commits\n"),
+        Landed::Already => {
+            format!("design change {id} was already recorded as landed with these commits\n")
+        }
         Landed::Closed { ready } => {
             let mut out = format!("design change {id} landed\n");
             for (item, title) in ready {
@@ -310,7 +393,9 @@ fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 
 fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
+    let [id] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     design::show(&store.load()?, Id::parse(id)?)
 }
@@ -327,7 +412,9 @@ fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 /// (`mac.welcome.open-failed`) or its path (`design/mocks/<name>.dc.html`).
 fn render(args: &[String]) -> Result<String> {
     let args = Args::parse(args, &["theme"], &[])?;
-    let [dir, board] = args.exactly(2, USAGE)? else { unreachable!("exactly two") };
+    let [dir, board] = args.exactly(2, USAGE)? else {
+        unreachable!("exactly two")
+    };
     let theme = match args.value("theme")? {
         None | Some("dark") => crate::lists::Theme::Dark,
         Some("light") => crate::lists::Theme::Light,

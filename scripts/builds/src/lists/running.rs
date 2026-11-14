@@ -14,8 +14,8 @@ use crate::claim::Claim;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::store::{Loaded, Store, project_of};
 use crate::lists::item::{self, Item};
+use crate::lists::store::{Loaded, Store, project_of};
 use crate::lists::{Id, Lists, Stamp};
 use crate::places::Places;
 
@@ -62,7 +62,9 @@ pub fn side_worktree_parts(path: &str) -> Option<(String, String)> {
 /// Starts open items <ids> running in <places>: the same places, brief and
 /// moment for each, which is what the first of <places> says.
 pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
-    let Some(first) = places.first() else { fail!("an item runs in at least one worktree") };
+    let Some(first) = places.first() else {
+        fail!("an item runs in at least one worktree")
+    };
     for id in ids {
         item::require_open_item(db, *id)?;
         db.execute(
@@ -72,7 +74,10 @@ pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
         .sql()?;
         for place in places {
             let Some((parent, repo, checkout)) = side_worktree_split(&place.worktree) else {
-                fail!("{} is not a side worktree (<parent>/<repo>-worktrees/side-N)", place.worktree);
+                fail!(
+                    "{} is not a side worktree (<parent>/<repo>-worktrees/side-N)",
+                    place.worktree
+                );
             };
             db.execute(
                 "INSERT INTO running_place (item_id, repo, parent, checkout, branch) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -88,9 +93,16 @@ pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
 /// not run.
 pub fn handoff(db: &Connection, id: Id, brief: &str) -> Result<()> {
     item::require_open_item(db, id)?;
-    let changed = db.execute("UPDATE running SET brief = ?2 WHERE item_id = ?1", params![id, brief]).sql()?;
+    let changed = db
+        .execute(
+            "UPDATE running SET brief = ?2 WHERE item_id = ?1",
+            params![id, brief],
+        )
+        .sql()?;
     if changed == 0 {
-        fail!("{id} is not running; a handoff gives a running item's next agent its brief (`item take` starts one)");
+        fail!(
+            "{id} is not running; a handoff gives a running item's next agent its brief (`item take` starts one)"
+        );
     }
     Ok(())
 }
@@ -107,7 +119,8 @@ pub fn stop(db: &Connection, id: Id) -> Result<()> {
 /// Ends item <id>'s running wherever it runs, if it runs; says how many
 /// items it ended (0 or 1): an item that is done runs nowhere.
 pub fn end(db: &Connection, id: Id) -> Result<usize> {
-    db.execute("DELETE FROM running WHERE item_id = ?1", [id]).sql()
+    db.execute("DELETE FROM running WHERE item_id = ?1", [id])
+        .sql()
 }
 
 /// Where every running item runs, by item.
@@ -126,7 +139,10 @@ pub fn read(db: &Connection) -> Result<BTreeMap<Id, Vec<Running>>> {
                     worktree: row.get(1)?,
                     branch: row.get(2)?,
                     brief: row.get(3)?,
-                    since: Stamp { at: row.get(4)?, by: row.get(5)? },
+                    since: Stamp {
+                        at: row.get(4)?,
+                        by: row.get(5)?,
+                    },
                 },
             ))
         })
@@ -170,13 +186,17 @@ pub fn agent_of(running: &Running) -> Result<Agent> {
 /// is git's word, whatever builds output the repo has.
 fn live_worktree(path: &str) -> Result<Option<Checkout>> {
     let path = Path::new(path);
-    let Ok(wanted) = path.canonicalize() else { return Ok(None) };
+    let Ok(wanted) = path.canonicalize() else {
+        return Ok(None);
+    };
     Ok(Checkout::at(&wanted)?.filter(|checkout| checkout.top == wanted))
 }
 
 /// The agent of an item running in <checkout> (None: no live worktree there).
 fn agent_in(checkout: Option<&Checkout>) -> Result<Agent> {
-    let Some(checkout) = checkout else { return Ok(Agent::WorktreeGone) };
+    let Some(checkout) = checkout else {
+        return Ok(Agent::WorktreeGone);
+    };
     Ok(match Claim::read(&checkout.claim_file())? {
         Some(claim) if !claim.who.is_empty() => Agent::Claimed(claim.who),
         _ => Agent::Unclaimed,
@@ -198,21 +218,30 @@ pub fn marker(running: &Running) -> Result<String> {
 
 /// The open items running in <worktree>.
 pub fn running_in<'a>(lists: &'a Lists, worktree: &str) -> Vec<&'a Item> {
-    lists.items.iter().filter(|item| item.running.iter().any(|r| r.worktree == worktree)).collect()
+    lists
+        .items
+        .iter()
+        .filter(|item| item.running.iter().any(|r| r.worktree == worktree))
+        .collect()
 }
 
 /// `builds release` is refused while an item runs in the worktree: the claim
 /// is what names the agent, so releasing it under a running item would leave
 /// the marker with no one behind it.
 pub fn require_release_allowed(places: &Places, checkout: &Checkout) -> Result<()> {
-    let Some(project) = project_of(places, checkout)? else { return Ok(()) };
+    let Some(project) = project_of(places, checkout)? else {
+        return Ok(());
+    };
     let lists = Store::named(places, &project)?.load()?;
     let top = checkout.top.display().to_string();
     let running = running_in(&lists, &top);
     if running.is_empty() {
         return Ok(());
     }
-    let named: Vec<String> = running.iter().map(|item| format!("{} \"{}\"", item.id, item.title)).collect();
+    let named: Vec<String> = running
+        .iter()
+        .map(|item| format!("{} \"{}\"", item.id, item.title))
+        .collect();
     let first = running[0].id.0;
     fail!(
         "{top} still runs {}: land it (land.sh --done {first}), stop it (builds item stop {first} --why WHY) or hand it \
@@ -239,7 +268,10 @@ pub fn findings(
         let lists = match &project.lists {
             Ok(lists) => lists,
             Err(fault) => {
-                findings.push(format!("lists: project {} fails its check: {fault}", project.project));
+                findings.push(format!(
+                    "lists: project {} fails its check: {fault}",
+                    project.project
+                ));
                 continue;
             }
         };
@@ -268,7 +300,11 @@ const TABLES: [&str; 2] = ["running", "running_place"];
 /// Writes a row of one of running.rs's tables as given, the constraints
 /// still holding: for tests that need a row they refuse.
 #[cfg(test)]
-pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
     crate::db::plant_row(db, &TABLES, table, columns)
 }
 

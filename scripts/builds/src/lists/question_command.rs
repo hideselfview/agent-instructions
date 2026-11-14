@@ -11,16 +11,19 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::{Args, parse_named, read_input, read_request};
 use crate::lists::check::title_fault;
-use crate::lists::derive::{self, ItemState};
-use crate::lists::record::close;
 use crate::lists::decision::{NewDecision, add_decision};
+use crate::lists::derive::{self, ItemState};
 use crate::lists::draft::{require_draft_briefs, work_or_why};
+use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
 use crate::lists::item::{ItemDraft, add_item, add_wait, move_waits_to_question};
 use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, apply_blocked};
-use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
+use crate::lists::record::close;
 use crate::lists::show::{blocks_text, kind_words, stack_entry};
 use crate::lists::store::{self, Store};
-use crate::lists::{How, Id, Kind, Lists, Located, PlanRef, Placement, Position, Question, QuestionKind, Stamp, Standing, Wait};
+use crate::lists::{
+    How, Id, Kind, Lists, Located, Placement, PlanRef, Position, Question, QuestionKind, Stamp,
+    Standing, Wait,
+};
 use crate::tool::Tool;
 
 const USAGE: &str = "usage: builds question ask --title T --kind question|your-step|held --details-file F (--blocks N[,N] | --blocks-nothing WHY) [--from-item N] [--first WHY] [--plan PATH --plan-number Qn]
@@ -43,7 +46,9 @@ pub fn cmd_question(tool: &Tool, args: &[String]) -> Result<()> {
 
 /// Runs one command and returns what it prints.
 pub fn run(tool: &Tool, args: &[String], cwd: &Path, gh: GhRunner<'_>) -> Result<String> {
-    let Some((command, rest)) = args.split_first() else { fail!("{USAGE}") };
+    let Some((command, rest)) = args.split_first() else {
+        fail!("{USAGE}")
+    };
     let words = format!("question {}", args.join(" "));
     match command.as_str() {
         "ask" => ask(tool, rest, cwd, &words),
@@ -61,7 +66,9 @@ pub fn run(tool: &Tool, args: &[String], cwd: &Path, gh: GhRunner<'_>) -> Result
 }
 
 fn question_id(args: &Args) -> Result<Id> {
-    let [id] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
+    let [id] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
     Id::parse(id)
 }
 
@@ -85,7 +92,11 @@ fn open_question(lists: &Lists, id: Id) -> Result<&Question> {
     }
     match lists.locate(id) {
         None => fail!("{id} is not a record"),
-        Some(Located { kind: Kind::Question, standing: Standing::Closed(closed), .. }) => {
+        Some(Located {
+            kind: Kind::Question,
+            standing: Standing::Closed(closed),
+            ..
+        }) => {
             fail!("question {id} is closed ({})", closed.how.label())
         }
         Some(Located { kind, .. }) => fail!("{id} is a {}, not a question", kind.name()),
@@ -95,7 +106,17 @@ fn open_question(lists: &Lists, id: Id) -> Result<&Question> {
 fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
     let args = Args::parse(
         args,
-        &["title", "kind", "details-file", "blocks", "blocks-nothing", "first", "plan", "plan-number", "from-item"],
+        &[
+            "title",
+            "kind",
+            "details-file",
+            "blocks",
+            "blocks-nothing",
+            "first",
+            "plan",
+            "plan-number",
+            "from-item",
+        ],
         &[],
     )?;
     args.exactly(0, USAGE)?;
@@ -103,7 +124,11 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
     if let Some(fault) = title_fault(&title) {
         fail!("{fault}");
     }
-    let kind: QuestionKind = parse_named("--kind", args.require("kind")?, "question, your-step or held")?;
+    let kind: QuestionKind = parse_named(
+        "--kind",
+        args.require("kind")?,
+        "question, your-step or held",
+    )?;
     let details = read_input(args.require("details-file")?)?;
     if details.trim().is_empty() {
         fail!("details are empty; say what is asked");
@@ -111,21 +136,33 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
     let blocks = args.ids("blocks")?.unwrap_or_default();
     let blocks_nothing = args.value("blocks-nothing")?.map(str::to_string);
     if !blocks.is_empty() && blocks_nothing.is_some() {
-        fail!("--blocks and --blocks-nothing contradict each other: it blocks items or it blocks nothing");
+        fail!(
+            "--blocks and --blocks-nothing contradict each other: it blocks items or it blocks nothing"
+        );
     }
-    if blocks_nothing.as_deref().is_some_and(|why| why.trim().is_empty()) {
+    if blocks_nothing
+        .as_deref()
+        .is_some_and(|why| why.trim().is_empty())
+    {
         fail!("--blocks-nothing needs its why");
     }
     let from_item = args.id("from-item")?;
     let placed = match args.value("first")? {
         None => None,
         Some(why) if why.trim().is_empty() => fail!("--first needs its why"),
-        Some(why) => Some(Placement { at: Position::First, why: why.to_string(), by_person: false }),
+        Some(why) => Some(Placement {
+            at: Position::First,
+            why: why.to_string(),
+            by_person: false,
+        }),
     };
     let plan = match (args.value("plan")?, args.value("plan-number")?) {
         (None, None) => None,
         (Some(path), Some(number)) if !path.trim().is_empty() && !number.trim().is_empty() => {
-            Some(PlanRef { path: path.to_string(), number: number.to_string() })
+            Some(PlanRef {
+                path: path.to_string(),
+                number: number.to_string(),
+            })
         }
         _ => fail!("--plan and --plan-number go together, each with a value"),
     };
@@ -185,7 +222,9 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
     let lists = store.load()?;
     let mut out = format!("asked question {id}\n");
     if let Some(from) = from_item {
-        out.push_str(&format!("item {from} moved to the stack; what waited on it now waits on {id}\n"));
+        out.push_str(&format!(
+            "item {from} moved to the stack; what waited on it now waits on {id}\n"
+        ));
     }
     out.push_str(&format!("{}\n", stack_top(&lists)));
     Ok(out)
@@ -221,7 +260,13 @@ struct Request {
     no_work: Option<String>,
 }
 
-fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, closing: Closing) -> Result<String> {
+fn resolve(
+    tool: &Tool,
+    args: &[String],
+    cwd: &Path,
+    words: &str,
+    closing: Closing,
+) -> Result<String> {
     let verb = match closing {
         Closing::Answer => "answer",
         Closing::Settle => "settle",
@@ -237,26 +282,39 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, closing: Closi
     match closing {
         Closing::Answer => {
             if request.by_rule.is_some() {
-                stray("by_rule", "a decision of the person is `decision`, a rule is `question settle`")?;
+                stray(
+                    "by_rule",
+                    "a decision of the person is `decision`, a rule is `question settle`",
+                )?;
             }
         }
         Closing::Settle => {
             if request.decision.is_some() {
-                stray("decision", "settling records none: a question settled from rules is not the person's")?;
+                stray(
+                    "decision",
+                    "settling records none: a question settled from rules is not the person's",
+                )?;
             }
         }
         Closing::Done => {
             if request.decision.is_some() || request.by_rule.is_some() {
-                stray("decision` or `by_rule", "done takes `blocked` and `work` or `no_work`")?;
+                stray(
+                    "decision` or `by_rule",
+                    "done takes `blocked` and `work` or `no_work`",
+                )?;
             }
         }
     }
     let decision = match (closing, request.decision) {
-        (Closing::Answer, None) => fail!("`question answer` needs `decision` {{title, body, by}} in the request"),
+        (Closing::Answer, None) => {
+            fail!("`question answer` needs `decision` {{title, body, by}} in the request")
+        }
         (_, decision) => decision,
     };
     let by_rule = match (closing, request.by_rule) {
-        (Closing::Settle, None) => fail!("`question settle` needs `by_rule`: the rule or code that settles it"),
+        (Closing::Settle, None) => {
+            fail!("`question settle` needs `by_rule`: the rule or code that settles it")
+        }
         (Closing::Settle, Some(rule)) if rule.trim().is_empty() => fail!("`by_rule` is empty"),
         (_, rule) => rule,
     };
@@ -321,7 +379,9 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, closing: Closi
     let ((decision, items), ready) = resolved;
     let lists = store.load()?;
     let mut out = match (closing, decision) {
-        (Closing::Answer, Some(decision)) => format!("answered question {id} with decision {decision}\n"),
+        (Closing::Answer, Some(decision)) => {
+            format!("answered question {id} with decision {decision}\n")
+        }
         (Closing::Settle, _) => format!("settled question {id} by rule (no decision recorded)\n"),
         _ => format!("question {id} done\n"),
     };
@@ -349,7 +409,14 @@ enum Leaving {
 }
 
 /// `drop` and `defer`: the question leaves with nothing waiting on it.
-fn leave(tool: &Tool, args: &[String], cwd: &Path, words: &str, gh: GhRunner<'_>, leaving: Leaving) -> Result<String> {
+fn leave(
+    tool: &Tool,
+    args: &[String],
+    cwd: &Path,
+    words: &str,
+    gh: GhRunner<'_>,
+    leaving: Leaving,
+) -> Result<String> {
     let args = match leaving {
         Leaving::Drop => Args::parse(args, &["why"], &[])?,
         Leaving::Defer => Args::parse(args, &["issue"], &[])?,
@@ -378,33 +445,53 @@ fn leave(tool: &Tool, args: &[String], cwd: &Path, words: &str, gh: GhRunner<'_>
             .items
             .iter()
             .filter(|item| item.waits.contains(&Wait::Question(id)))
-            .map(|item| format!("{} {}: `builds item wait {} --off question:{}`", item.id, item.title, item.id.0, id.0))
+            .map(|item| {
+                format!(
+                    "{} {}: `builds item wait {} --off question:{}`",
+                    item.id, item.title, item.id.0, id.0
+                )
+            })
             .collect();
         if !waiting.is_empty() {
-            fail!("items still wait on question {id}; free each first:\n  {}", waiting.join("\n  "));
+            fail!(
+                "items still wait on question {id}; free each first:\n  {}",
+                waiting.join("\n  ")
+            );
         }
         close(db, id, how, &stamp)
     })?;
     let lists = store.load()?;
-    let verb = if leaving == Leaving::Drop { "dropped" } else { "deferred" };
+    let verb = if leaving == Leaving::Drop {
+        "dropped"
+    } else {
+        "deferred"
+    };
     Ok(format!("{verb} question {id}\n{}\n", stack_top(&lists)))
 }
 
 fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
     let args = Args::parse(args, &["why"], &["by-person"])?;
-    let [id, at] = args.exactly(2, USAGE)? else { unreachable!("exactly two") };
+    let [id, at] = args.exactly(2, USAGE)? else {
+        unreachable!("exactly two")
+    };
     let id = Id::parse(id)?;
     let why = args.why()?;
     let placed = match at.as_str() {
         "auto" => {
             if args.switch("by-person") {
-                fail!("--by-person goes with first or last; auto gives the place back to the order of what it unblocks");
+                fail!(
+                    "--by-person goes with first or last; auto gives the place back to the order of what it unblocks"
+                );
             }
             None
         }
         other => {
             let at: Position = parse_named("the place", other, "first, last or auto")?;
-            Some(Placement { at, why: why.to_string(), by_person: args.switch("by-person") })
+            Some(Placement {
+                at,
+                why: why.to_string(),
+                by_person: args.switch("by-person"),
+            })
         }
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
@@ -414,11 +501,18 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
         question::place(db, id, placed)
     })?;
     let lists = store.load()?;
-    Ok(format!("placed question {id} {at}\n{}\n", stack_top(&lists)))
+    Ok(format!(
+        "placed question {id} {at}\n{}\n",
+        stack_top(&lists)
+    ))
 }
 
 fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
-    let args = Args::parse(args, &["title", "details-file", "blocks-nothing"], &["blocks-something"])?;
+    let args = Args::parse(
+        args,
+        &["title", "details-file", "blocks-nothing"],
+        &["blocks-something"],
+    )?;
     let id = question_id(&args)?;
     let title = args.value("title")?.map(str::to_string);
     if let Some(fault) = title.as_deref().and_then(title_fault) {
@@ -429,7 +523,10 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
         fail!("details are empty; say what is asked");
     }
     let blocks_nothing = args.value("blocks-nothing")?.map(str::to_string);
-    if blocks_nothing.as_deref().is_some_and(|why| why.trim().is_empty()) {
+    if blocks_nothing
+        .as_deref()
+        .is_some_and(|why| why.trim().is_empty())
+    {
         fail!("--blocks-nothing needs its why");
     }
     let blocks_something = args.switch("blocks-something");
@@ -437,7 +534,9 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
         fail!("--blocks-nothing and --blocks-something contradict each other");
     }
     if title.is_none() && details.is_none() && blocks_nothing.is_none() && !blocks_something {
-        fail!("the edit changes nothing: name --title, --details-file, --blocks-nothing or --blocks-something");
+        fail!(
+            "the edit changes nothing: name --title, --details-file, --blocks-nothing or --blocks-something"
+        );
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
@@ -477,7 +576,11 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
         return Ok(out);
     }
     match lists.locate(id) {
-        Some(Located { kind: Kind::Question, standing: Standing::Closed(closed), title }) => Ok(format!(
+        Some(Located {
+            kind: Kind::Question,
+            standing: Standing::Closed(closed),
+            title,
+        }) => Ok(format!(
             "{id} {title}\nclosed {} ({}) by {}\n",
             closed.how.label(),
             crate::text::local_minute(closed.closed.at),
@@ -496,7 +599,11 @@ fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     if stack.is_empty() {
         return Ok("the stack is empty\n".to_string());
     }
-    Ok(stack.iter().enumerate().map(|(n, entry)| stack_entry(n + 1, entry)).collect())
+    Ok(stack
+        .iter()
+        .enumerate()
+        .map(|(n, entry)| stack_entry(n + 1, entry))
+        .collect())
 }
 
 #[cfg(test)]

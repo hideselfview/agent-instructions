@@ -181,8 +181,14 @@ fn open_item(db: &Connection, id: Id) -> Result<()> {
         Some(Located { kind, .. }) if kind != Kind::Item => {
             fail!("place resolved by item {id}, but it is a {}", kind.name())
         }
-        Some(Located { standing: Standing::Closed(closed), .. }) => {
-            fail!("place resolved by item {id}, which is closed ({})", closed.how.label())
+        Some(Located {
+            standing: Standing::Closed(closed),
+            ..
+        }) => {
+            fail!(
+                "place resolved by item {id}, which is closed ({})",
+                closed.how.label()
+            )
         }
         Some(_) => Ok(()),
     }
@@ -265,14 +271,20 @@ fn resolve(
         check_review(review)?;
     }
     let mut held = store::read(db)?;
-    let Some(at) = held.designs.iter().position(|d| d.id == id) else { fail!("{id} is not an open design change") };
+    let Some(at) = held.designs.iter().position(|d| d.id == id) else {
+        fail!("{id} is not an open design change")
+    };
     let design = &mut held.designs[at];
     design.worktree = worktree.to_string();
     // The change holds what the range changes: a stored place it no longer
     // touches (a board renamed before landing) leaves with its board and its
     // place on the review page.
-    let dropped: BTreeSet<String> =
-        design.places.keys().filter(|p| !changed.contains(*p) && !affected.contains(*p)).cloned().collect();
+    let dropped: BTreeSet<String> = design
+        .places
+        .keys()
+        .filter(|p| !changed.contains(*p) && !affected.contains(*p))
+        .cloned()
+        .collect();
     design.places.retain(|path, _| !dropped.contains(path));
     design.boards.retain(|path, _| !dropped.contains(path));
     for section in &mut design.review {
@@ -283,8 +295,11 @@ fn resolve(
     if let Some(review) = &request.review {
         design.review = review.clone();
     }
-    let unresolved: Vec<&str> =
-        changed.iter().filter(|p| !design.places.contains_key(**p)).map(|p| p.as_str()).collect();
+    let unresolved: Vec<&str> = changed
+        .iter()
+        .filter(|p| !design.places.contains_key(**p))
+        .map(|p| p.as_str())
+        .collect();
     if !unresolved.is_empty() {
         fail!(
             "design places left unresolved: {}; give each `item` (an open item), `new` (an item draft) or `matches` (how it was checked)",
@@ -303,10 +318,19 @@ fn resolve(
             unlinked.join(", ")
         );
     }
-    if let Some(path) = design.boards.keys().find(|p| !design.places.contains_key(*p)) {
+    if let Some(path) = design
+        .boards
+        .keys()
+        .find(|p| !design.places.contains_key(*p))
+    {
         fail!("`boards` names {path}, which is no place of this design change");
     }
-    let on_page: BTreeSet<&str> = design.review.iter().flat_map(|s| &s.boards).map(|b| b.board.as_str()).collect();
+    let on_page: BTreeSet<&str> = design
+        .review
+        .iter()
+        .flat_map(|s| &s.boards)
+        .map(|b| b.board.as_str())
+        .collect();
     let missing: Vec<&str> = design
         .places
         .keys()
@@ -323,8 +347,14 @@ fn resolve(
         if why.trim().is_empty() {
             fail!("no_app_place is empty; say why shared design files changed and no drawing did");
         }
-        let drawing = design.places.keys().any(|p| PlaceKind::of(p) == PlaceKind::Component);
-        if (changes.sources.is_empty() && changes.shared.is_empty()) || !changes.places.is_empty() || drawing {
+        let drawing = design
+            .places
+            .keys()
+            .any(|p| PlaceKind::of(p) == PlaceKind::Component);
+        if (changes.sources.is_empty() && changes.shared.is_empty())
+            || !changes.places.is_empty()
+            || drawing
+        {
             fail!(
                 "no_app_place is only for a range that changes shared design files and no board or component, and lists no component whose drawing changes"
             );
@@ -352,7 +382,10 @@ fn check_review(review: &[ReviewSection]) -> Result<()> {
                 fail!("`review` names {}, which is no board file", board.board);
             }
             if board.caption.trim().is_empty() {
-                fail!("the board {} on the review page has an empty caption", board.board);
+                fail!(
+                    "the board {} on the review page has an empty caption",
+                    board.board
+                );
             }
         }
     }
@@ -367,7 +400,11 @@ fn needs_answer(design: &DesignChange, changes: &Changes, what: &str) -> Result<
         return Ok(());
     }
     if !changes.sources.is_empty() {
-        if design.places.keys().any(|p| PlaceKind::of(p) == PlaceKind::Component) {
+        if design
+            .places
+            .keys()
+            .any(|p| PlaceKind::of(p) == PlaceKind::Component)
+        {
             return Ok(());
         }
         fail!(
@@ -385,7 +422,10 @@ fn needs_answer(design: &DesignChange, changes: &Changes, what: &str) -> Result<
 }
 
 fn join(set: &BTreeSet<String>) -> String {
-    set.iter().map(String::as_str).collect::<Vec<_>>().join(", ")
+    set.iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// What a design change starts as: no places, boards or review yet.
@@ -444,8 +484,13 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
     )
     .sql()?;
     // The boards leave with their places, the review boards with their sections.
-    db.execute("DELETE FROM design_place WHERE design_id = ?1", [design.id]).sql()?;
-    db.execute("DELETE FROM review_section WHERE design_id = ?1", [design.id]).sql()?;
+    db.execute("DELETE FROM design_place WHERE design_id = ?1", [design.id])
+        .sql()?;
+    db.execute(
+        "DELETE FROM review_section WHERE design_id = ?1",
+        [design.id],
+    )
+    .sql()?;
     for (path, resolution) in &design.places {
         let (item, matches) = match resolution {
             Resolution::Item(item) => (Some(*item), None),
@@ -458,7 +503,11 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
         .sql()?;
     }
     for (path, board) in &design.boards {
-        db.execute("INSERT INTO design_board (design_id, path, link) VALUES (?1, ?2, ?3)", params![design.id, path, board.link]).sql()?;
+        db.execute(
+            "INSERT INTO design_board (design_id, path, link) VALUES (?1, ?2, ?3)",
+            params![design.id, path, board.link],
+        )
+        .sql()?;
     }
     for (position, section) in design.review.iter().enumerate() {
         db.execute(
@@ -493,11 +542,19 @@ pub fn record(
     }
     let details = require_text("details", request.details.as_ref())?;
     if request.review.is_none() {
-        fail!("a design change needs its `review`: the headings, words and boards of the page the person reviews it on");
+        fail!(
+            "a design change needs its `review`: the headings, words and boards of the page the person reviews it on"
+        );
     }
     let design = open_change(
         db,
-        NewDesign { title, details, repo: repo.to_string(), worktree: worktree.to_string(), no_app_place: None },
+        NewDesign {
+            title,
+            details,
+            repo: repo.to_string(),
+            worktree: worktree.to_string(),
+            no_app_place: None,
+        },
         stamp,
     )?;
     let new_items = resolve(db, design, request, worktree, changes, affected, stamp)?;
@@ -508,8 +565,13 @@ pub fn record(
 fn open_design(lists: &Lists, id: Id) -> Result<&DesignChange> {
     Ok(match lists.locate(id) {
         None => fail!("{id} is not a record"),
-        Some(Located { kind, .. }) if kind != Kind::Design => fail!("{id} is a {}, not a design change", kind.name()),
-        Some(Located { standing: Standing::Closed(_), .. }) => fail!("design change {id} has already landed"),
+        Some(Located { kind, .. }) if kind != Kind::Design => {
+            fail!("{id} is a {}, not a design change", kind.name())
+        }
+        Some(Located {
+            standing: Standing::Closed(_),
+            ..
+        }) => fail!("design change {id} has already landed"),
         Some(_) => lists.design(id).expect("located open"),
     })
 }
@@ -538,7 +600,8 @@ pub fn amend(
     stamp: &Stamp,
 ) -> Result<Recorded> {
     open_design_of(&store::read(db)?, id, repo)?;
-    db.execute("DELETE FROM design_approval WHERE design_id = ?1", [id]).sql()?;
+    db.execute("DELETE FROM design_approval WHERE design_id = ?1", [id])
+        .sql()?;
     if let Some(title) = &request.title {
         if title.trim().is_empty() {
             fail!("title is empty");
@@ -546,14 +609,25 @@ pub fn amend(
         if let Some(fault) = crate::lists::check::title_fault(title) {
             fail!("{fault}");
         }
-        db.execute("UPDATE design SET title = ?2 WHERE id = ?1", params![id, title]).sql()?;
+        db.execute(
+            "UPDATE design SET title = ?2 WHERE id = ?1",
+            params![id, title],
+        )
+        .sql()?;
     }
     if let Some(details) = &request.details {
         let details = require_text("details", Some(details))?;
-        db.execute("UPDATE design SET details = ?2 WHERE id = ?1", params![id, details]).sql()?;
+        db.execute(
+            "UPDATE design SET details = ?2 WHERE id = ?1",
+            params![id, details],
+        )
+        .sql()?;
     }
     let new_items = resolve(db, id, request, worktree, changes, affected, stamp)?;
-    Ok(Recorded { design: id, new_items })
+    Ok(Recorded {
+        design: id,
+        new_items,
+    })
 }
 
 /// Is every place <changes> holds resolved in open design change <id>, and
@@ -565,8 +639,12 @@ pub fn check_changes(lists: &Lists, id: Id, repo: &str, changes: &Changes) -> Re
     if !changes.is_design_change() {
         fail!("the commits change no design files, so design change {id} has nothing to check");
     }
-    let unresolved: Vec<&str> =
-        changes.resolvable().into_iter().filter(|p| !design.places.contains_key(*p)).map(|p| p.as_str()).collect();
+    let unresolved: Vec<&str> = changes
+        .resolvable()
+        .into_iter()
+        .filter(|p| !design.places.contains_key(*p))
+        .map(|p| p.as_str())
+        .collect();
     if !unresolved.is_empty() {
         fail!(
             "design change {id} does not resolve {}; `builds design amend {n}` adds them",
@@ -574,9 +652,10 @@ pub fn check_changes(lists: &Lists, id: Id, repo: &str, changes: &Changes) -> Re
         );
     }
     needs_answer(design, changes, "the commits").map_err(|error| match error {
-        crate::fail::Fail::Message(message) => {
-            crate::fail::Fail::Message(format!("{message} (design change {id}; `builds design amend {}` adds it)", id.0))
-        }
+        crate::fail::Fail::Message(message) => crate::fail::Fail::Message(format!(
+            "{message} (design change {id}; `builds design amend {}` adds it)",
+            id.0
+        )),
         other => other,
     })?;
     if design.approved.is_none() {
@@ -611,7 +690,9 @@ pub enum Landed {
 /// Did design change <id> already land as exactly <commits>? A change that
 /// landed as other commits is refused; one that is open is not landed yet.
 pub fn already_landed(lists: &Lists, id: Id, repo: &str, commits: &[String]) -> Result<bool> {
-    let Some(closed) = lists.closed_record(id) else { return Ok(false) };
+    let Some(closed) = lists.closed_record(id) else {
+        return Ok(false);
+    };
     let (Record::Design(design), How::Landed(was)) = (&closed.record, &closed.how) else {
         fail!("{id} is not a design change that landed");
     };
@@ -622,7 +703,11 @@ pub fn already_landed(lists: &Lists, id: Id, repo: &str, commits: &[String]) -> 
     was.sort();
     now.sort();
     if was != now {
-        fail!("design change {id} already landed as {}, not as {}", was.join(" "), now.join(" "));
+        fail!(
+            "design change {id} already landed as {}, not as {}",
+            was.join(" "),
+            now.join(" ")
+        );
     }
     Ok(true)
 }
@@ -630,7 +715,13 @@ pub fn already_landed(lists: &Lists, id: Id, repo: &str, commits: &[String]) -> 
 /// Records that design change <id> landed as <commits> (full hashes) and
 /// closes it. The same commits again are recorded once; other commits for a
 /// change that landed are refused.
-pub fn landed(db: &Connection, id: Id, repo: &str, commits: &[String], stamp: &Stamp) -> Result<Landed> {
+pub fn landed(
+    db: &Connection,
+    id: Id,
+    repo: &str,
+    commits: &[String],
+    stamp: &Stamp,
+) -> Result<Landed> {
     if commits.is_empty() {
         fail!("design landed names no commits");
     }
@@ -644,7 +735,10 @@ pub fn landed(db: &Connection, id: Id, repo: &str, commits: &[String], stamp: &S
     let ready = lists
         .items
         .iter()
-        .filter(|item| item.waits.contains(&Wait::Design(id)) && derive::item_state(lists, item) == ItemState::Ready)
+        .filter(|item| {
+            item.waits.contains(&Wait::Design(id))
+                && derive::item_state(lists, item) == ItemState::Ready
+        })
         .map(|item| (item.id, item.title.clone()))
         .collect();
     Ok(Landed::Closed { ready })
@@ -653,8 +747,15 @@ pub fn landed(db: &Connection, id: Id, repo: &str, commits: &[String], stamp: &S
 fn resolution_words(lists: &Lists, resolution: &Resolution) -> String {
     match resolution {
         Resolution::Item(id) => match lists.locate(*id) {
-            Some(Located { standing: Standing::Open, title, .. }) => {
-                let state = lists.item(*id).map(|i| derive::item_state(lists, i).label()).unwrap_or("?");
+            Some(Located {
+                standing: Standing::Open,
+                title,
+                ..
+            }) => {
+                let state = lists
+                    .item(*id)
+                    .map(|i| derive::item_state(lists, i).label())
+                    .unwrap_or("?");
                 format!("item {id} [{state}] {title}")
             }
             Some(Located { title, .. }) => format!("item {id} [closed] {title}"),
@@ -670,11 +771,25 @@ fn describe(lists: &Lists, design: &DesignChange, landed: Option<&crate::lists::
         Some(closed) => format!("landed {}", local_minute(closed.closed.at)),
         None => "open".to_string(),
     };
-    let _ = writeln!(out, "{} {} [{state}] repo {}", design.id, design.title, design.repo);
-    let _ = writeln!(out, "opened {} by {}", local_minute(design.opened.at), design.opened.by);
+    let _ = writeln!(
+        out,
+        "{} {} [{state}] repo {}",
+        design.id, design.title, design.repo
+    );
+    let _ = writeln!(
+        out,
+        "opened {} by {}",
+        local_minute(design.opened.at),
+        design.opened.by
+    );
     match &design.approved {
         Some(stamp) => {
-            let _ = writeln!(out, "approved {} (recorded by {})", local_minute(stamp.at), stamp.by);
+            let _ = writeln!(
+                out,
+                "approved {} (recorded by {})",
+                local_minute(stamp.at),
+                stamp.by
+            );
         }
         None if landed.is_none() => {
             let _ = writeln!(out, "waiting on the person's review");
@@ -692,14 +807,25 @@ fn describe(lists: &Lists, design: &DesignChange, landed: Option<&crate::lists::
     for section in &design.review {
         let _ = writeln!(out, "  review: {}", section.heading);
         for board in &section.boards {
-            let _ = writeln!(out, "    {} ({}) {}", board.board, board.theme.word(), board.caption);
+            let _ = writeln!(
+                out,
+                "    {} ({}) {}",
+                board.board,
+                board.theme.word(),
+                board.caption
+            );
         }
     }
     if let Some(why) = &design.no_app_place {
         let _ = writeln!(out, "  no drawing changes: {why}");
     }
     for landing in &design.landed {
-        let _ = writeln!(out, "  landed {} as {}", local_minute(landing.at), landing.commits.join(" "));
+        let _ = writeln!(
+            out,
+            "  landed {} as {}",
+            local_minute(landing.at),
+            landing.commits.join(" ")
+        );
     }
     out
 }
@@ -708,10 +834,20 @@ fn describe(lists: &Lists, design: &DesignChange, landed: Option<&crate::lists::
 pub fn show(lists: &Lists, id: Id) -> Result<String> {
     match lists.locate(id) {
         None => fail!("{id} is not a record"),
-        Some(Located { kind, .. }) if kind != Kind::Design => fail!("{id} is a {}, not a design change", kind.name()),
-        Some(Located { standing: Standing::Open, .. }) => Ok(describe(lists, lists.design(id).expect("open"), None)),
-        Some(Located { standing: Standing::Closed(closed), .. }) => {
-            let Record::Design(design) = &closed.record else { unreachable!("located as a design change") };
+        Some(Located { kind, .. }) if kind != Kind::Design => {
+            fail!("{id} is a {}, not a design change", kind.name())
+        }
+        Some(Located {
+            standing: Standing::Open,
+            ..
+        }) => Ok(describe(lists, lists.design(id).expect("open"), None)),
+        Some(Located {
+            standing: Standing::Closed(closed),
+            ..
+        }) => {
+            let Record::Design(design) = &closed.record else {
+                unreachable!("located as a design change")
+            };
             Ok(describe(lists, design, Some(closed)))
         }
     }
@@ -721,13 +857,21 @@ pub fn show(lists: &Lists, id: Id) -> Result<String> {
 pub fn list(lists: &Lists) -> String {
     let mut out = String::new();
     for design in &lists.designs {
-        let waiting = lists.items.iter().filter(|i| i.waits.contains(&Wait::Design(design.id))).count();
+        let waiting = lists
+            .items
+            .iter()
+            .filter(|i| i.waits.contains(&Wait::Design(design.id)))
+            .count();
         let _ = writeln!(
             out,
             "{} {} ({}, repo {}, {} place{}, {waiting} item{} waiting)",
             design.id,
             design.title,
-            if design.approved.is_some() { "approved" } else { "waiting on review" },
+            if design.approved.is_some() {
+                "approved"
+            } else {
+                "waiting on review"
+            },
             design.repo,
             design.places.len(),
             if design.places.len() == 1 { "" } else { "s" },
@@ -746,60 +890,125 @@ pub fn read(
     closings: &BTreeMap<Id, (How, Stamp)>,
 ) -> Result<Vec<DesignChange>> {
     let mut places: BTreeMap<Id, BTreeMap<String, Resolution>> = BTreeMap::new();
-    let mut statement = db.prepare("SELECT design_id, path, item_id, matches FROM design_place").sql()?;
+    let mut statement = db
+        .prepare("SELECT design_id, path, item_id, matches FROM design_place")
+        .sql()?;
     for row in statement
         .query_map([], |row| {
-            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<Id>>(2)?, row.get::<_, Option<String>>(3)?))
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<Id>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
         })
         .sql()?
     {
         let (design, path, item, matches) = row.sql()?;
         let resolution = match (item, matches) {
             (Some(item), _) => Resolution::Item(item),
-            (None, how) => Resolution::Matches(how.expect("design_place_is_resolved_one_way holds")),
+            (None, how) => {
+                Resolution::Matches(how.expect("design_place_is_resolved_one_way holds"))
+            }
         };
         places.entry(design).or_default().insert(path, resolution);
     }
     let mut boards: BTreeMap<Id, BTreeMap<String, Board>> = BTreeMap::new();
-    let mut statement = db.prepare("SELECT design_id, path, link FROM design_board").sql()?;
+    let mut statement = db
+        .prepare("SELECT design_id, path, link FROM design_board")
+        .sql()?;
     for row in statement
-        .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
         .sql()?
     {
         let (design, path, link) = row.sql()?;
-        boards.entry(design).or_default().insert(path, Board { link });
+        boards
+            .entry(design)
+            .or_default()
+            .insert(path, Board { link });
     }
     let mut review: BTreeMap<Id, Vec<ReviewSection>> = BTreeMap::new();
-    let mut statement = db.prepare("SELECT design_id, heading, words FROM review_section ORDER BY design_id, position").sql()?;
+    let mut statement = db
+        .prepare(
+            "SELECT design_id, heading, words FROM review_section ORDER BY design_id, position",
+        )
+        .sql()?;
     for row in statement
-        .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
         .sql()?
     {
         let (design, heading, words) = row.sql()?;
-        review.entry(design).or_default().push(ReviewSection { heading, words, boards: Vec::new() });
+        review.entry(design).or_default().push(ReviewSection {
+            heading,
+            words,
+            boards: Vec::new(),
+        });
     }
     let mut statement = db
         .prepare("SELECT design_id, section, board, caption, theme FROM review_board ORDER BY design_id, section, position")
         .sql()?;
     for row in statement
         .query_map([], |row| {
-            Ok((row.get::<_, Id>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?))
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
         })
         .sql()?
     {
         let (design, section, board, caption, theme) = row.sql()?;
-        let theme = if theme == "light" { Theme::Light } else { Theme::Dark };
-        review.get_mut(&design).expect("review_board_is_on_a_section holds")[section as usize]
+        let theme = if theme == "light" {
+            Theme::Light
+        } else {
+            Theme::Dark
+        };
+        review
+            .get_mut(&design)
+            .expect("review_board_is_on_a_section holds")[section as usize]
             .boards
-            .push(ReviewBoard { board, caption, theme });
+            .push(ReviewBoard {
+                board,
+                caption,
+                theme,
+            });
     }
     let mut approvals: BTreeMap<Id, Stamp> = BTreeMap::new();
-    let mut statement = db.prepare("SELECT design_id, at, by FROM design_approval").sql()?;
-    for row in statement.query_map([], |row| Ok((row.get::<_, Id>(0)?, Stamp { at: row.get(1)?, by: row.get(2)? }))).sql()? {
+    let mut statement = db
+        .prepare("SELECT design_id, at, by FROM design_approval")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                Stamp {
+                    at: row.get(1)?,
+                    by: row.get(2)?,
+                },
+            ))
+        })
+        .sql()?
+    {
         let (design, stamp) = row.sql()?;
         approvals.insert(design, stamp);
     }
-    let mut statement = db.prepare("SELECT id, title, details, repo, worktree, no_app_place FROM design ORDER BY id").sql()?;
+    let mut statement = db
+        .prepare("SELECT id, title, details, repo, worktree, no_app_place FROM design ORDER BY id")
+        .sql()?;
     let rows = statement
         .query_map([], |row| {
             Ok((
@@ -816,7 +1025,10 @@ pub fn read(
     for row in rows {
         let (id, title, details, repo, worktree, no_app_place) = row.sql()?;
         let landed = match closings.get(&id) {
-            Some((How::Landed(commits), stamp)) => vec![DesignLanding { commits: commits.clone(), at: stamp.at }],
+            Some((How::Landed(commits), stamp)) => vec![DesignLanding {
+                commits: commits.clone(),
+                at: stamp.at,
+            }],
             _ => Vec::new(),
         };
         designs.push(DesignChange {
@@ -839,13 +1051,23 @@ pub fn read(
 
 /// The tables design.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 6] =
-    ["design", "design_approval", "design_place", "design_board", "review_section", "review_board"];
+const TABLES: [&str; 6] = [
+    "design",
+    "design_approval",
+    "design_place",
+    "design_board",
+    "review_section",
+    "review_board",
+];
 
 /// Writes a row of one of design.rs's tables as given, the constraints still
 /// holding: for tests that need a row they refuse.
 #[cfg(test)]
-pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
     crate::db::plant_row(db, &TABLES, table, columns)
 }
 

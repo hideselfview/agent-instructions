@@ -14,8 +14,8 @@ use serde_json::Value;
 use super::objects::dead_objects;
 use super::record::{fingerprint_values, recorded};
 use super::{
-    Guard, INCREMENTAL_DEPTH, OUTPUT_DIRS, OpenFiles, hashed_file, holds_any, lock_guard, lock_profile, names_in,
-    newest_mtime, profile_dirs, remove, unit_dir,
+    Guard, INCREMENTAL_DEPTH, OUTPUT_DIRS, OpenFiles, hashed_file, holds_any, lock_guard,
+    lock_profile, names_in, newest_mtime, profile_dirs, remove, unit_dir,
 };
 use crate::fail::Result;
 use crate::text::{counted, human_bytes, note};
@@ -44,7 +44,11 @@ impl Ages {
             days,
             idle_hours,
             cutoff: now - (days * 86400) as f64,
-            idle_cutoff: if idle_hours == 0 { f64::INFINITY } else { now - (idle_hours * 3600) as f64 },
+            idle_cutoff: if idle_hours == 0 {
+                f64::INFINITY
+            } else {
+                now - (idle_hours * 3600) as f64
+            },
         }
     }
 
@@ -70,7 +74,14 @@ pub struct Unit {
 
 impl Unit {
     fn new(hash: &str) -> Unit {
-        Unit { hash: hash.to_string(), name: None, fingerprint: None, build: None, outputs: Vec::new(), last_use: OnceCell::new() }
+        Unit {
+            hash: hash.to_string(),
+            name: None,
+            fingerprint: None,
+            build: None,
+            outputs: Vec::new(),
+            last_use: OnceCell::new(),
+        }
     }
 
     /// The fingerprint goes first: without it cargo rebuilds the unit before
@@ -108,7 +119,9 @@ impl Unit {
     /// this is older than its last use. A unit no recorded build used has
     /// the time cargo last added a file to the folder.
     fn began(&self) -> Result<f64> {
-        let Some(fingerprint) = &self.fingerprint else { return self.last_use() };
+        let Some(fingerprint) = &self.fingerprint else {
+            return self.last_use();
+        };
         newest_mtime(fingerprint, 0)
     }
 }
@@ -189,20 +202,28 @@ fn incremental_dirs(profile: &Path, units: &Units) -> Result<Vec<(PathBuf, BTree
     for found in &units.list {
         for path in &found.outputs {
             if let Ok(meta) = std::fs::symlink_metadata(path)
-                && meta.nlink() > 1 {
-                    owner.insert((meta.dev(), meta.ino()), found.hash.clone());
-                }
+                && meta.nlink() > 1
+            {
+                owner.insert((meta.dev(), meta.ino()), found.hash.clone());
+            }
         }
     }
     let mut result = Vec::new();
     for crate_dir in crate_dirs {
         let owners = std::sync::Mutex::new(BTreeSet::new());
-        let dev = std::fs::symlink_metadata(&crate_dir).map(|meta| meta.dev()).unwrap_or(0);
+        let dev = std::fs::symlink_metadata(&crate_dir)
+            .map(|meta| meta.dev())
+            .unwrap_or(0);
         crate::usage::walk(&crate_dir, dev, 1, &|_, meta| {
-            if !meta.is_dir() && meta.nlink() > 1
-                && let Some(hash) = owner.get(&(meta.dev(), meta.ino())) {
-                    owners.lock().expect("no panic holding it").insert(hash.clone());
-                }
+            if !meta.is_dir()
+                && meta.nlink() > 1
+                && let Some(hash) = owner.get(&(meta.dev(), meta.ino()))
+            {
+                owners
+                    .lock()
+                    .expect("no panic holding it")
+                    .insert(hash.clone());
+            }
         })?;
         result.push((crate_dir, owners.into_inner().expect("no panic holding it")));
     }
@@ -233,18 +254,27 @@ impl Sources {
     /// by its identity and sources.
     fn conflict(&self, other: &Sources) -> bool {
         fn differ<K: Ord, V: Eq>(mine: &BTreeMap<K, V>, theirs: &BTreeMap<K, V>) -> bool {
-            mine.iter().any(|(key, values)| theirs.get(key).is_some_and(|other| other != values))
+            mine.iter()
+                .any(|(key, values)| theirs.get(key).is_some_and(|other| other != values))
         }
-        self.rustc != other.rustc || differ(&self.paths, &other.paths) || differ(&self.units, &other.units)
+        self.rustc != other.rustc
+            || differ(&self.paths, &other.paths)
+            || differ(&self.units, &other.units)
     }
 
     fn extend(&mut self, other: &Sources) {
         self.rustc.extend(other.rustc.iter().copied());
         for (package, paths) in &other.paths {
-            self.paths.entry(*package).or_default().extend(paths.iter().copied());
+            self.paths
+                .entry(*package)
+                .or_default()
+                .extend(paths.iter().copied());
         }
         for (identity, units) in &other.units {
-            self.units.entry(*identity).or_default().extend(units.iter().copied());
+            self.units
+                .entry(*identity)
+                .or_default()
+                .extend(units.iter().copied());
         }
     }
 }
@@ -304,17 +334,27 @@ impl Copies {
         };
         for (at, (profile, units)) in every.iter().enumerate() {
             for found in &units.list {
-                let Some(fingerprint) = &found.fingerprint else { continue };
+                let Some(fingerprint) = &found.fingerprint else {
+                    continue;
+                };
                 let key = (at, found.hash.clone());
                 let mut names: Vec<String> = match names_in(fingerprint) {
-                    Ok(names) => names.into_iter().filter(|name| name.ends_with(".json")).collect(),
+                    Ok(names) => names
+                        .into_iter()
+                        .filter(|name| name.ends_with(".json"))
+                        .collect(),
                     Err(_) if !fingerprint.exists() => continue,
                     Err(error) => return Err(error),
                 };
                 names.sort();
                 let records: Vec<(String, Value)> = names
                     .iter()
-                    .map(|name| (name.clone(), recorded(fingerprint, &name[..name.len() - ".json".len()])))
+                    .map(|name| {
+                        (
+                            name.clone(),
+                            recorded(fingerprint, &name[..name.len() - ".json".len()]),
+                        )
+                    })
                     .collect();
                 if records.is_empty() || !records.iter().all(|(_, record)| truthy(record)) {
                     continue;
@@ -327,7 +367,13 @@ impl Copies {
                             record.get("features").cloned().unwrap_or(Value::Null),
                             record.get("profile").cloned().unwrap_or(Value::Null),
                             record.get("compile_kind").cloned().unwrap_or(Value::Null),
-                            Value::String(record.get("rustflags").cloned().unwrap_or(Value::Null).to_string()),
+                            Value::String(
+                                record
+                                    .get("rustflags")
+                                    .cloned()
+                                    .unwrap_or(Value::Null)
+                                    .to_string(),
+                            ),
                             record.get("config").cloned().unwrap_or(Value::Null),
                         ])
                     })
@@ -345,16 +391,30 @@ impl Copies {
                 let next = copies.packages.len();
                 let package = *copies.packages.entry(package).or_insert(next);
                 let field = |name: &str| -> Vec<u64> {
-                    records.iter().filter_map(|(_, record)| record.get(name).and_then(Value::as_u64)).collect()
+                    records
+                        .iter()
+                        .filter_map(|(_, record)| record.get(name).and_then(Value::as_u64))
+                        .collect()
                 };
-                copies.own_sources.insert(key.clone(), (package, field("path"), field("rustc")));
+                copies
+                    .own_sources
+                    .insert(key.clone(), (package, field("path"), field("rustc")));
                 let mut listed = Vec::new();
                 for (_, record) in &records {
-                    for dep in record.get("deps").and_then(Value::as_array).into_iter().flatten() {
+                    for dep in record
+                        .get("deps")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
                         if let Value::Array(parts) = dep
                             && parts.len() >= 3
                         {
-                            listed.push((parts[0].to_string(), parts[1].to_string(), parts[parts.len() - 1].as_u64()));
+                            listed.push((
+                                parts[0].to_string(),
+                                parts[1].to_string(),
+                                parts[parts.len() - 1].as_u64(),
+                            ));
                         }
                     }
                 }
@@ -394,7 +454,11 @@ impl Copies {
             }
         }
         parts.sort();
-        let shape = format!("{}\n{}", self.thing.get(key).map(String::as_str).unwrap_or(""), parts.join("\n"));
+        let shape = format!(
+            "{}\n{}",
+            self.thing.get(key).map(String::as_str).unwrap_or(""),
+            parts.join("\n")
+        );
         let next = self.identities.len();
         let identity = *self.identities.entry(shape).or_insert(next);
         self.identity.insert(key.clone(), identity);
@@ -422,7 +486,8 @@ impl Copies {
             return known.clone();
         }
         // A placeholder, should the fingerprints ever name a cycle.
-        self.sources.insert(key.clone(), Rc::new(Sources::default()));
+        self.sources
+            .insert(key.clone(), Rc::new(Sources::default()));
         let mut sources = Sources::default();
         if let Some((package, paths, rustc)) = self.own_sources.get(key).cloned() {
             sources.rustc.extend(rustc);
@@ -443,10 +508,17 @@ impl Copies {
 
     /// Did one of <members>, copies of <key>'s thing, replace it: built from
     /// other sources and used by a build that began after <key>'s last use?
-    fn replaced_by_any(&mut self, key: &Key, members: &[Key], times: &HashMap<Key, (f64, f64)>) -> bool {
+    fn replaced_by_any(
+        &mut self,
+        key: &Key,
+        members: &[Key],
+        times: &HashMap<Key, (f64, f64)>,
+    ) -> bool {
         let used = times[key].0;
         let mine = self.sources_of(key);
-        members.iter().any(|other| times[other].1 > used && self.sources_of(other).conflict(&mine))
+        members
+            .iter()
+            .any(|other| times[other].1 > used && self.sources_of(other).conflict(&mine))
     }
 }
 
@@ -475,7 +547,11 @@ fn truthy(value: &Value) -> bool {
 /// copies of one thing built from other sources, but that build began before
 /// either's last use, so neither replaced the other; and a unit that stays
 /// keeps both.
-fn superseded(every: &[(PathBuf, Units)], free: &HashSet<usize>, cutoff: f64) -> Result<HashSet<Key>> {
+fn superseded(
+    every: &[(PathBuf, Units)],
+    free: &HashSet<usize>,
+    cutoff: f64,
+) -> Result<HashSet<Key>> {
     let mut copies = Copies::new(every)?;
     // Each copy's last use, and when the last build that used it began.
     let mut times: HashMap<Key, (f64, f64)> = HashMap::new();
@@ -487,7 +563,10 @@ fn superseded(every: &[(PathBuf, Units)], free: &HashSet<usize>, cutoff: f64) ->
             if let Some(thing) = copies.thing.get(&key) {
                 times.insert(key.clone(), (found.last_use()?, found.began()?));
                 groups.entry(thing.clone()).or_default().push(key.clone());
-                by_package.entry(copies.own_sources[&key].0).or_default().push(key);
+                by_package
+                    .entry(copies.own_sources[&key].0)
+                    .or_default()
+                    .push(key);
             }
         }
     }
@@ -510,16 +589,24 @@ fn superseded(every: &[(PathBuf, Units)], free: &HashSet<usize>, cutoff: f64) ->
         }
         let mine = copies.dependencies(key);
         let package = copies.own_sources[key].0;
-        let newer: Vec<&Key> = by_package[&package].iter().filter(|other| times[*other].1 > *used).collect();
+        let newer: Vec<&Key> = by_package[&package]
+            .iter()
+            .filter(|other| times[*other].1 > *used)
+            .collect();
         'own: for other in newer {
             let theirs = copies.dependencies(other);
             for dependency in &mine {
                 if theirs.contains(dependency) {
                     continue;
                 }
-                let Some(thing) = copies.thing.get(dependency).cloned() else { continue };
-                let moved: Vec<Key> =
-                    theirs.iter().filter(|theirs| copies.thing.get(*theirs) == Some(&thing)).cloned().collect();
+                let Some(thing) = copies.thing.get(dependency).cloned() else {
+                    continue;
+                };
+                let moved: Vec<Key> = theirs
+                    .iter()
+                    .filter(|theirs| copies.thing.get(*theirs) == Some(&thing))
+                    .cloned()
+                    .collect();
                 let was = copies.sources_of(dependency);
                 for now in moved {
                     if copies.sources_of(&now).conflict(&was) {
@@ -587,7 +674,9 @@ fn prune_profile(
         .collect();
     let every_increment = incremental_dirs(profile, units)?;
     let going = |stale: &[&Unit], older: &[&Unit], owners: &BTreeSet<String>| {
-        owners.iter().all(|hash| stale.iter().chain(older).any(|u| &u.hash == hash))
+        owners
+            .iter()
+            .all(|hash| stale.iter().chain(older).any(|u| &u.hash == hash))
     };
     let mut increments = Vec::new();
     for (crate_dir, owners) in &every_increment {
@@ -600,17 +689,26 @@ fn prune_profile(
     let taken: HashSet<&PathBuf> = increments.iter().map(|(dir, _)| dir).collect();
     let mut idle = Vec::new();
     for (crate_dir, _) in &every_increment {
-        if !taken.contains(crate_dir) && newest_mtime(crate_dir, INCREMENTAL_DEPTH)? < ages.idle_cutoff {
+        if !taken.contains(crate_dir)
+            && newest_mtime(crate_dir, INCREMENTAL_DEPTH)? < ages.idle_cutoff
+        {
             idle.push(crate_dir.clone());
         }
     }
     let remaining: Vec<&Unit> = units
         .list
         .iter()
-        .filter(|u| !stale_hashes.contains(u.hash.as_str()) && !older.iter().any(|o| o.hash == u.hash))
+        .filter(|u| {
+            !stale_hashes.contains(u.hash.as_str()) && !older.iter().any(|o| o.hash == u.hash)
+        })
         .collect();
     let mut objects = dead_objects(profile, &remaining)?;
-    if stale.is_empty() && older.is_empty() && increments.is_empty() && idle.is_empty() && objects.is_empty() {
+    if stale.is_empty()
+        && older.is_empty()
+        && increments.is_empty()
+        && idle.is_empty()
+        && objects.is_empty()
+    {
         return Ok(0);
     }
     let held = open_files.get()?.clone();
@@ -645,7 +743,10 @@ fn prune_profile(
     let mut freed = 0;
     let groups = [
         (&stale, format!("no build used in {} days", ages.days)),
-        (&older, "a later build from other sources replaced".to_string()),
+        (
+            &older,
+            "a later build from other sources replaced".to_string(),
+        ),
     ];
     for (group, why) in groups {
         if group.is_empty() {
@@ -703,7 +804,11 @@ fn prune_profile(
         note(format!(
             "{} {} no build copy left uses from {} ({})",
             verb(dry),
-            counted(increment_dirs.len(), "incremental folder", "incremental folders"),
+            counted(
+                increment_dirs.len(),
+                "incremental folder",
+                "incremental folders"
+            ),
             profile.display(),
             human_bytes(size)
         ));
@@ -728,7 +833,10 @@ fn prune_profile(
             .iter()
             .take(3)
             .map(|at| {
-                let name = idle_dirs[*at].file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let name = idle_dirs[*at]
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 format!("{name} {}", human_bytes(sizes[*at]))
             })
             .collect();
@@ -784,9 +892,16 @@ pub fn prune(ages: &Ages, dry: bool, folders: &[PathBuf]) -> Result<Vec<(PathBuf
     for folder in folders {
         let root = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
         // Held until this folder's units are done with.
-        let guard = if dry { Guard::Absent } else { lock_guard(&root)? };
+        let guard = if dry {
+            Guard::Absent
+        } else {
+            lock_guard(&root)?
+        };
         if let Guard::Busy = guard {
-            note(format!("kept the build copies in {}: a build is running in its checkout", folder.display()));
+            note(format!(
+                "kept the build copies in {}: a build is running in its checkout",
+                folder.display()
+            ));
             result.push((folder.clone(), 0));
             continue;
         }
@@ -829,7 +944,8 @@ pub fn prune(ages: &Ages, dry: bool, folders: &[PathBuf]) -> Result<Vec<(PathBuf
             let mut idle = 0;
             if incremental.is_dir() {
                 for name in names_in(&incremental)? {
-                    if newest_mtime(&incremental.join(name), INCREMENTAL_DEPTH)? < ages.idle_cutoff {
+                    if newest_mtime(&incremental.join(name), INCREMENTAL_DEPTH)? < ages.idle_cutoff
+                    {
                         idle += 1;
                     }
                 }
@@ -849,8 +965,11 @@ pub fn prune(ages: &Ages, dry: bool, folders: &[PathBuf]) -> Result<Vec<(PathBuf
             if !free.contains(&at) {
                 continue;
             }
-            let replaced_here: HashSet<String> =
-                replaced.iter().filter(|(p, _)| *p == at).map(|(_, hash)| hash.clone()).collect();
+            let replaced_here: HashSet<String> = replaced
+                .iter()
+                .filter(|(p, _)| *p == at)
+                .map(|(_, hash)| hash.clone())
+                .collect();
             freed += prune_profile(profile, units, &replaced_here, ages, dry, &mut open_files)?;
         }
         drop(locks);

@@ -5,7 +5,9 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use super::{INCREMENTAL_DEPTH, holds_any, lock_profile, names_in, newest_mtime, profile_dirs, remove};
+use super::{
+    INCREMENTAL_DEPTH, holds_any, lock_profile, names_in, newest_mtime, profile_dirs, remove,
+};
 use crate::fail::Result;
 use crate::usage::freeable;
 
@@ -35,12 +37,20 @@ pub fn idle_increments(folders: &[PathBuf], before: f64) -> Result<Vec<Increment
                 }
                 let newest = newest_mtime(&path, INCREMENTAL_DEPTH)?;
                 if newest < before {
-                    found.push(Increment { path, profile: profile.clone(), newest });
+                    found.push(Increment {
+                        path,
+                        profile: profile.clone(),
+                        newest,
+                    });
                 }
             }
         }
     }
-    found.sort_by(|a, b| a.newest.total_cmp(&b.newest).then_with(|| a.path.cmp(&b.path)));
+    found.sort_by(|a, b| {
+        a.newest
+            .total_cmp(&b.newest)
+            .then_with(|| a.path.cmp(&b.path))
+    });
     Ok(found)
 }
 
@@ -61,7 +71,9 @@ pub enum Outcome {
 /// build holds that lock, something wrote inside it since <before>, or a
 /// process holds a file in it.
 pub fn delete_idle(increment: &Increment, before: f64, held: &HashSet<u64>) -> Result<Outcome> {
-    let Some(_lock) = lock_profile(&increment.profile)? else { return Ok(Outcome::Locked) };
+    let Some(_lock) = lock_profile(&increment.profile)? else {
+        return Ok(Outcome::Locked);
+    };
     if newest_mtime(&increment.path, INCREMENTAL_DEPTH)? >= before {
         return Ok(Outcome::Written);
     }

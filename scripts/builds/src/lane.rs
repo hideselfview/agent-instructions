@@ -81,7 +81,9 @@ impl Lane {
 /// Is <name>, an entry of a repo's folder, one of the lanes' set files or lock
 /// folders?
 pub fn is_lane_file(name: &str) -> bool {
-    Lane::ALL.into_iter().any(|lane| name == lane.checkouts_file_name() || name == lane.locks_dir_name())
+    Lane::ALL
+        .into_iter()
+        .any(|lane| name == lane.checkouts_file_name() || name == lane.locks_dir_name())
 }
 
 #[cfg(test)]
@@ -96,7 +98,10 @@ mod tests {
         assert_eq!(Lane::Android.checkouts_file_name(), "app-android-checkouts");
         assert_eq!(Lane::Android.locks_dir_name(), "app-android.locks");
         assert_eq!(Lane::Android.queue_dir_name(), "app-android.queue");
-        assert_eq!(Lane::Android.legacy_checkout_file_name(), "app-android-checkout");
+        assert_eq!(
+            Lane::Android.legacy_checkout_file_name(),
+            "app-android-checkout"
+        );
         assert_eq!(Lane::Mac.legacy_lock_file_name(), "app.lock");
     }
 
@@ -105,6 +110,8 @@ mod tests {
         assert_eq!(Lane::parse("android"), Some(Lane::Android));
         assert_eq!(Lane::parse("ios"), None);
         assert!(is_lane_file("app-android.locks") && is_lane_file("app-checkouts"));
-        assert!(!is_lane_file("app.queue") && !is_lane_file("app-checkout") && !is_lane_file("side-1"));
+        assert!(
+            !is_lane_file("app.queue") && !is_lane_file("app-checkout") && !is_lane_file("side-1")
+        );
     }
 }

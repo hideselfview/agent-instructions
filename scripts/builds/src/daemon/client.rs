@@ -21,7 +21,13 @@ const PATIENCE: Duration = Duration::from_secs(5);
 /// The daemon's answer for each of <paths> (None for a path it can't answer
 /// for), or None when no daemon answers. <fresh>: see `Question`.
 pub fn measure(places: &Places, paths: &[PathBuf], fresh: bool) -> Option<Vec<Option<Measure>>> {
-    match ask(places, &Question::Measure { paths: paths.to_vec(), fresh })? {
+    match ask(
+        places,
+        &Question::Measure {
+            paths: paths.to_vec(),
+            fresh,
+        },
+    )? {
         Reply::Measure(answers) if answers.len() == paths.len() => Some(answers),
         Reply::Measure(answers) => {
             note(format!(
@@ -56,7 +62,10 @@ fn unexpected(places: &Places, reply: &Reply) {
         Reply::Measure(_) => "sizes".to_string(),
         Reply::Health(_) => "health".to_string(),
     };
-    note(format!("the daemon at {} answered {what}; reading here", places.daemon_socket().display()));
+    note(format!(
+        "the daemon at {} answered {what}; reading here",
+        places.daemon_socket().display()
+    ));
 }
 
 /// Asks the daemon one question; None when none answers in time.
@@ -70,7 +79,10 @@ fn ask(places: &Places, question: &Question) -> Option<Reply> {
         // A socket a daemon left behind when it stopped.
         Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => return None,
         Err(error) => {
-            note(format!("asking the daemon at {}: {error}; measuring here", socket.display()));
+            note(format!(
+                "asking the daemon at {}: {error}; measuring here",
+                socket.display()
+            ));
             return None;
         }
     };
@@ -87,7 +99,10 @@ fn ask(places: &Places, question: &Question) -> Option<Reply> {
     match asked {
         Ok(reply) => Some(reply),
         Err(error) => {
-            note(format!("the daemon at {} did not answer: {error}; reading here", socket.display()));
+            note(format!(
+                "the daemon at {} did not answer: {error}; reading here",
+                socket.display()
+            ));
             None
         }
     }

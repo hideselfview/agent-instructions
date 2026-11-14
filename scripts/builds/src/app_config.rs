@@ -81,7 +81,10 @@ impl ClassTest {
     /// The command with <class> in each word's `{class}`; the class stays one
     /// argument, never read by a shell.
     pub fn command_for(&self, class: &str) -> Vec<String> {
-        self.command.iter().map(|word| word.replace(CLASS_PLACEHOLDER, class)).collect()
+        self.command
+            .iter()
+            .map(|word| word.replace(CLASS_PLACEHOLDER, class))
+            .collect()
     }
 }
 
@@ -165,7 +168,11 @@ pub fn parse_config(text: &str) -> Result<Config> {
             ("mac", "build") => mac_build = Some(words(value)),
             ("mac", "app") => mac_app = Some(value.to_string()),
             ("mac", "bundle") => bundle = Some(value.to_string()),
-            ("android", "build") => android = Some(AndroidApp { build: words(value) }),
+            ("android", "build") => {
+                android = Some(AndroidApp {
+                    build: words(value),
+                })
+            }
             ("step", _) => {
                 let mut words = field.split_whitespace().map(str::to_string);
                 let (Some(lane), Some(name)) = (words.next(), words.next()) else {
@@ -173,7 +180,9 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 };
                 let command = words.collect::<Vec<_>>();
                 let Some(lane) = Lane::parse(&lane) else {
-                    fail!("{CONFIG}: {line:?}: a step starts with its lane, mac or android, not {lane:?}");
+                    fail!(
+                        "{CONFIG}: {line:?}: a step starts with its lane, mac or android, not {lane:?}"
+                    );
                 };
                 if command.is_empty() {
                     fail!("{CONFIG}: step {name} names no command");
@@ -181,18 +190,27 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 if steps.iter().any(|step| step.name == name) {
                     fail!("{CONFIG}: step {name} is named twice");
                 }
-                steps.push(Step { name, lane, command, limit: None });
+                steps.push(Step {
+                    name,
+                    lane,
+                    command,
+                    limit: None,
+                });
             }
             ("test", _) => {
                 let Some(lane) = Lane::parse(name) else {
-                    fail!("{CONFIG}: {line:?}: a test line starts with its lane, mac or android, not {name:?}");
+                    fail!(
+                        "{CONFIG}: {line:?}: a test line starts with its lane, mac or android, not {name:?}"
+                    );
                 };
                 let command = words(value);
                 if command.is_empty() {
                     fail!("{CONFIG}: the test line for {name} names no command");
                 }
                 if !command.iter().any(|word| word.contains(CLASS_PLACEHOLDER)) {
-                    fail!("{CONFIG}: the test line for {name} has no {CLASS_PLACEHOLDER} for the class to go in");
+                    fail!(
+                        "{CONFIG}: the test line for {name} has no {CLASS_PLACEHOLDER} for the class to go in"
+                    );
                 }
                 if tests.iter().any(|test| test.lane == lane) {
                     fail!("{CONFIG}: two test lines for {name}");
@@ -222,7 +240,12 @@ pub fn parse_config(text: &str) -> Result<Config> {
         (None, None, None) => None,
         _ => fail!("{CONFIG}: mac needs build, app and bundle lines"),
     };
-    Ok(Config { mac, android, steps, tests })
+    Ok(Config {
+        mac,
+        android,
+        steps,
+        tests,
+    })
 }
 
 /// Runs git in <top>, failing with what it said.
@@ -253,7 +276,14 @@ pub fn switch_to(top: &Path, commit: &str, force: bool) -> Result<()> {
         command.pre_exec(|| {
             let mut stopping = std::mem::zeroed::<libc::sigset_t>();
             libc::sigemptyset(&mut stopping);
-            for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP, libc::SIGQUIT, libc::SIGUSR1, libc::SIGUSR2] {
+            for signal in [
+                libc::SIGTERM,
+                libc::SIGINT,
+                libc::SIGHUP,
+                libc::SIGQUIT,
+                libc::SIGUSR1,
+                libc::SIGUSR2,
+            ] {
                 libc::sigaddset(&mut stopping, signal);
             }
             libc::sigprocmask(libc::SIG_BLOCK, &stopping, std::ptr::null_mut());
@@ -285,7 +315,11 @@ pub fn run_command(top: &Path, command: &[String], limit: Option<Duration>) -> R
     let Some((program, args)) = command.split_first() else {
         fail!("{CONFIG}: a command names no program");
     };
-    let path = if program.contains('/') { top.join(program) } else { PathBuf::from(program) };
+    let path = if program.contains('/') {
+        top.join(program)
+    } else {
+        PathBuf::from(program)
+    };
     let mut start = Command::new(path);
     start.args(args).current_dir(top);
     lock::run_in_group_within(start, program, limit)
@@ -294,7 +328,8 @@ pub fn run_command(top: &Path, command: &[String], limit: Option<Duration>) -> R
 /// The folder of <repo>'s app checkout <name>.
 pub fn app_checkout_top(places: &Places, repo: &str, name: &str) -> Result<PathBuf> {
     let marker = places.root.join(repo).join(name).join(".checkout");
-    let text = std::fs::read_to_string(&marker).context(|| format!("reading {}", marker.display()))?;
+    let text =
+        std::fs::read_to_string(&marker).context(|| format!("reading {}", marker.display()))?;
     Ok(PathBuf::from(text.trim()))
 }
 

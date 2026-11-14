@@ -27,7 +27,12 @@ const USAGE: &str = "builds item take N [M...] --worktree W --branch B [--worktr
 /// Does branch <branch> exist in the repo of <top>?
 fn branch_exists(top: &Path, branch: &str) -> Result<bool> {
     let status = git(top)
-        .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")])
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -50,7 +55,11 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     if args.positional().is_empty() {
         fail!("usage: {USAGE}");
     }
-    let ids: Vec<Id> = args.positional().iter().map(|id| Id::parse(id)).collect::<Result<_>>()?;
+    let ids: Vec<Id> = args
+        .positional()
+        .iter()
+        .map(|id| Id::parse(id))
+        .collect::<Result<_>>()?;
     for (at, id) in ids.iter().enumerate() {
         if ids[..at].contains(id) {
             fail!("{id} is named twice");
@@ -62,12 +71,20 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         Some(other) => fail!("--as takes design-session, got '{other}'"),
     };
     let worktrees = args.values("worktree");
-    let branches: Vec<String> = args.values("branch").into_iter().map(str::to_string).collect();
+    let branches: Vec<String> = args
+        .values("branch")
+        .into_iter()
+        .map(str::to_string)
+        .collect();
     if worktrees.is_empty() {
         fail!("--worktree is required: {USAGE}");
     }
     if worktrees.len() != branches.len() {
-        fail!("{} --worktree and {} --branch given; each worktree takes the branch of its work, in the same order", worktrees.len(), branches.len());
+        fail!(
+            "{} --worktree and {} --branch given; each worktree takes the branch of its work, in the same order",
+            worktrees.len(),
+            branches.len()
+        );
     }
     let brief = args.require("brief")?.to_string();
 
@@ -75,9 +92,15 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     for (worktree, branch) in worktrees.into_iter().zip(branches) {
         let checkout = Checkout::find(worktree)?;
         if !checkout.is_side() {
-            fail!("{} is not one of the repo's side worktrees (<repo>-worktrees/side-N); items run in those", checkout.top.display());
+            fail!(
+                "{} is not one of the repo's side worktrees (<repo>-worktrees/side-N); items run in those",
+                checkout.top.display()
+            );
         }
-        if let Some(same) = places.iter().find(|place| place.checkout.repo() == checkout.repo()) {
+        if let Some(same) = places
+            .iter()
+            .find(|place| place.checkout.repo() == checkout.repo())
+        {
             fail!(
                 "{} and {} are both worktrees of {}; an item runs in one worktree per repo",
                 same.checkout.top.display(),
@@ -96,7 +119,12 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         if !branch_exists(&checkout.top, &branch)? {
             fail!("{} has no branch {branch}", checkout.top.display());
         }
-        places.push(Place { top: checkout.top.display().to_string(), checkout, branch, agent });
+        places.push(Place {
+            top: checkout.top.display().to_string(),
+            checkout,
+            branch,
+            agent,
+        });
     }
     require_brief_from(cwd, &brief)?;
 
@@ -140,7 +168,14 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         start(db, &ids, &running)
     })?;
     let named: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
-    let wheres: Vec<String> = places.iter().map(|p| format!("{} on {} for {}", p.top, p.branch, p.agent)).collect();
-    note(format!("{} run in {}", named.join(", "), wheres.join(" and ")));
+    let wheres: Vec<String> = places
+        .iter()
+        .map(|p| format!("{} on {} for {}", p.top, p.branch, p.agent))
+        .collect();
+    note(format!(
+        "{} run in {}",
+        named.join(", "),
+        wheres.join(" and ")
+    ));
     Ok(())
 }

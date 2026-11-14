@@ -11,8 +11,8 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::{Args, read_input, read_request};
 use crate::lists::check::title_fault;
-use crate::lists::derive;
 use crate::lists::decision::{self, NewDecision, add_decision};
+use crate::lists::derive;
 use crate::lists::draft::{require_draft_briefs, work_or_why};
 use crate::lists::item::ItemDraft;
 use crate::lists::store::{self, Store};
@@ -41,7 +41,9 @@ pub struct DecisionRequest {
 
 pub fn cmd_decision(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
-    let Some((command, rest)) = args.split_first() else { fail!("{USAGE}") };
+    let Some((command, rest)) = args.split_first() else {
+        fail!("{USAGE}")
+    };
     match command.as_str() {
         "add" => add(tool, rest, &cwd),
         "edit" => edit(tool, rest, &cwd),
@@ -75,7 +77,12 @@ fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
         let made: Vec<String> = added
             .items
             .iter()
-            .map(|id| format!("{id} {}", lists.item(*id).map(|i| i.title.as_str()).unwrap_or("?")))
+            .map(|id| {
+                format!(
+                    "{id} {}",
+                    lists.item(*id).map(|i| i.title.as_str()).unwrap_or("?")
+                )
+            })
             .collect();
         Ok((added.decision, made))
     })?;
@@ -89,7 +96,9 @@ fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
 
 fn edit(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     let args = Args::parse(args, &["title", "body-file"], &[])?;
-    let [id] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
+    let [id] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
     let id = Id::parse(id)?;
     let title = args.value("title")?.map(str::to_string);
     let body = args.value("body-file")?.map(read_input).transpose()?;
@@ -115,7 +124,10 @@ fn edit(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
 
 /// A decision's one line: `#id date title (by)`.
 fn line(decision: &Decision) -> String {
-    format!("{} {} {} ({})", decision.id, decision.date, decision.title, decision.by)
+    format!(
+        "{} {} {} ({})",
+        decision.id, decision.date, decision.title, decision.by
+    )
 }
 
 /// The decisions every word of <words> appears in, in title or body, ignoring
@@ -217,10 +229,14 @@ pub fn render(lists: &Lists, decision: &Decision) -> String {
 
 fn show(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(1, USAGE)? else { unreachable!("exactly one") };
+    let [id] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
     let id = Id::parse(id)?;
     let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
-    let Some(decision) = lists.decision(id) else { fail!("{id} is not a decision") };
+    let Some(decision) = lists.decision(id) else {
+        fail!("{id} is not a decision")
+    };
     print!("{}", render(&lists, decision));
     Ok(())
 }

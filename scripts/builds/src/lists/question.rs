@@ -141,8 +141,11 @@ fn insert(db: &Connection, id: Id, new: &NewQuestion) -> Result<()> {
         insert_placement(db, id, placed)?;
     }
     if let Some(plan) = &new.plan {
-        db.execute("INSERT INTO question_plan (question_id, path, number) VALUES (?1, ?2, ?3)", params![id, plan.path, plan.number])
-            .sql()?;
+        db.execute(
+            "INSERT INTO question_plan (question_id, path, number) VALUES (?1, ?2, ?3)",
+            params![id, plan.path, plan.number],
+        )
+        .sql()?;
     }
     Ok(())
 }
@@ -177,7 +180,11 @@ pub fn place(db: &Connection, id: Id, placed: Option<Placement>) -> Result<()> {
     match placed {
         Some(placed) => insert_placement(db, id, &placed),
         None => {
-            db.execute("DELETE FROM question_placement WHERE question_id = ?1", [id]).sql()?;
+            db.execute(
+                "DELETE FROM question_placement WHERE question_id = ?1",
+                [id],
+            )
+            .sql()?;
             Ok(())
         }
     }
@@ -197,7 +204,13 @@ pub fn edit(
     db.execute(
         "UPDATE question SET title = COALESCE(?2, title), details = COALESCE(?3, details), \
          blocks_nothing = CASE WHEN ?4 THEN ?5 ELSE blocks_nothing END WHERE id = ?1",
-        params![id, title, details, blocks_nothing.is_some(), blocks_nothing.flatten()],
+        params![
+            id,
+            title,
+            details,
+            blocks_nothing.is_some(),
+            blocks_nothing.flatten()
+        ],
     )
     .sql()?;
     Ok(())
@@ -207,27 +220,63 @@ pub fn edit(
 /// record's stamp.
 pub fn read(db: &Connection, opened: &BTreeMap<Id, Stamp>) -> Result<Vec<Question>> {
     let mut placements: BTreeMap<Id, Placement> = BTreeMap::new();
-    let mut statement = db.prepare("SELECT question_id, at, why, by_person FROM question_placement").sql()?;
+    let mut statement = db
+        .prepare("SELECT question_id, at, why, by_person FROM question_placement")
+        .sql()?;
     for row in statement
-        .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, bool>(3)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, bool>(3)?,
+            ))
+        })
         .sql()?
     {
         let (id, at, why, by_person) = row.sql()?;
-        placements.insert(id, Placement { at: if at == "first" { Position::First } else { Position::Last }, why, by_person });
+        placements.insert(
+            id,
+            Placement {
+                at: if at == "first" {
+                    Position::First
+                } else {
+                    Position::Last
+                },
+                why,
+                by_person,
+            },
+        );
     }
     let mut plans: BTreeMap<Id, PlanRef> = BTreeMap::new();
-    let mut statement = db.prepare("SELECT question_id, path, number FROM question_plan").sql()?;
+    let mut statement = db
+        .prepare("SELECT question_id, path, number FROM question_plan")
+        .sql()?;
     for row in statement
-        .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
         .sql()?
     {
         let (id, path, number) = row.sql()?;
         plans.insert(id, PlanRef { path, number });
     }
-    let mut statement = db.prepare("SELECT id, title, details, kind, blocks_nothing FROM question ORDER BY id").sql()?;
+    let mut statement = db
+        .prepare("SELECT id, title, details, kind, blocks_nothing FROM question ORDER BY id")
+        .sql()?;
     let rows = statement
         .query_map([], |row| {
-            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?))
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
         })
         .sql()?;
     let mut questions = Vec::new();
@@ -254,14 +303,23 @@ pub fn read(db: &Connection, opened: &BTreeMap<Id, Stamp>) -> Result<Vec<Questio
 /// Every open item that waits on question <question> directly, which an
 /// answer must say what to do with.
 fn waiting_on(lists: &Lists, question: Id) -> Vec<Id> {
-    lists.items.iter().filter(|i| i.waits.contains(&Wait::Question(question))).map(|i| i.id).collect()
+    lists
+        .items
+        .iter()
+        .filter(|i| i.waits.contains(&Wait::Question(question)))
+        .map(|i| i.id)
+        .collect()
 }
 
 /// Is <blocked> exactly the items waiting on <question>, each with one fate?
 /// Names the items left out, and the ones named that do not wait.
 pub fn check_blocked(lists: &Lists, question: Id, blocked: &BlockedMap) -> Result<()> {
     let waiting = waiting_on(lists, question);
-    let left_out: Vec<String> = waiting.iter().filter(|id| !blocked.contains_key(id)).map(|id| id.to_string()).collect();
+    let left_out: Vec<String> = waiting
+        .iter()
+        .filter(|id| !blocked.contains_key(id))
+        .map(|id| id.to_string())
+        .collect();
     if !left_out.is_empty() {
         fail!(
             "{} wait{} on {question} and `blocked` says nothing about {}: give each `proceeds`, `edit` or `drop`",
@@ -270,13 +328,22 @@ pub fn check_blocked(lists: &Lists, question: Id, blocked: &BlockedMap) -> Resul
             if left_out.len() == 1 { "it" } else { "them" }
         );
     }
-    let stray: Vec<String> = blocked.keys().filter(|id| !waiting.contains(id)).map(|id| id.to_string()).collect();
+    let stray: Vec<String> = blocked
+        .keys()
+        .filter(|id| !waiting.contains(id))
+        .map(|id| id.to_string())
+        .collect();
     if !stray.is_empty() {
-        fail!("`blocked` names {}, which do not wait on {question}", stray.join(", "));
+        fail!(
+            "`blocked` names {}, which do not wait on {question}",
+            stray.join(", ")
+        );
     }
     for (id, fate) in blocked {
         match fate {
-            Blocked::Drop(why) if why.trim().is_empty() => fail!("`blocked` drops {id} with no reason"),
+            Blocked::Drop(why) if why.trim().is_empty() => {
+                fail!("`blocked` drops {id} with no reason")
+            }
             Blocked::Edit(edit) if edit.is_empty() => {
                 fail!("`blocked` edits {id} but names no field; `proceeds` leaves it as it is")
             }
@@ -288,7 +355,12 @@ pub fn check_blocked(lists: &Lists, question: Id, blocked: &BlockedMap) -> Resul
 
 /// Does what <blocked> says to each item that waits on <question>, after
 /// `check_blocked` accepts it.
-pub fn apply_blocked(db: &Connection, question: Id, blocked: &BlockedMap, stamp: &Stamp) -> Result<()> {
+pub fn apply_blocked(
+    db: &Connection,
+    question: Id,
+    blocked: &BlockedMap,
+    stamp: &Stamp,
+) -> Result<()> {
     check_blocked(&store::read(db)?, question, blocked)?;
     for (id, fate) in blocked {
         match fate {
@@ -307,7 +379,11 @@ const TABLES: [&str; 3] = ["question", "question_placement", "question_plan"];
 /// Writes a row of one of question.rs's tables as given, the constraints
 /// still holding: for tests that need a row they refuse.
 #[cfg(test)]
-pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
     crate::db::plant_row(db, &TABLES, table, columns)
 }
 

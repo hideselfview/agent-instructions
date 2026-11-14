@@ -11,7 +11,10 @@ use std::time::Duration;
 const HANG_GUARD: Duration = Duration::from_secs(300);
 
 fn loaded(project: &str, lists: Result<crate::lists::Lists, String>) -> Loaded {
-    Loaded { project: project.to_string(), lists }
+    Loaded {
+        project: project.to_string(),
+        lists,
+    }
 }
 
 fn no_claims(_: &str) -> ClaimFacts {
@@ -33,7 +36,10 @@ fn a_store_that_fails_its_check_is_served_as_the_error() {
 #[test]
 fn no_project_and_several_projects_are_errors_too() {
     assert!(error_of(Ok(vec![])).contains("no lists"));
-    let several = error_of(Ok(vec![loaded("a", Ok(read(&db()))), loaded("b", Ok(read(&db())))]));
+    let several = error_of(Ok(vec![
+        loaded("a", Ok(read(&db()))),
+        loaded("b", Ok(read(&db()))),
+    ]));
     assert!(several.contains("several projects (a, b)"), "{several}");
     assert_eq!(error_of(Err("listing failed".into())), "listing failed");
 }
@@ -44,12 +50,17 @@ fn a_running_item_carries_its_claim_facts_and_nothing_else_does() {
     let running = item(&db, vec![]);
     let idle = item(&db, vec![]);
     let worktree = "/d/bae-worktrees/side-2";
-    crate::lists::running::start(&db, &[running], &[Running {
-        worktree: worktree.into(),
-        branch: "import-tags".into(),
-        brief: "plans/briefs/x.md".into(),
-        since: stamp(NOON),
-    }]).unwrap();
+    crate::lists::running::start(
+        &db,
+        &[running],
+        &[Running {
+            worktree: worktree.into(),
+            branch: "import-tags".into(),
+            brief: "plans/briefs/x.md".into(),
+            since: stamp(NOON),
+        }],
+    )
+    .unwrap();
     let snapshot: Snapshot = Ok(vec![loaded("demo", Ok(read(&db)))]);
     assert_eq!(running_worktrees(&snapshot), vec![worktree.to_string()]);
     let facts = ClaimFacts {
@@ -63,11 +74,29 @@ fn a_running_item_carries_its_claim_facts_and_nothing_else_does() {
         facts.clone()
     }))
     .unwrap();
-    let find = |id: crate::lists::Id| view["items"].as_array().unwrap().iter().find(|i| i["id"] == json!(id.0)).unwrap().clone();
+    let find = |id: crate::lists::Id| {
+        view["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == json!(id.0))
+            .unwrap()
+            .clone()
+    };
     let r = &find(running)["running"][0];
     assert_eq!(
-        (&r["agent"], &r["note"], &r["note_state"], &r["waiting_to_land"]),
-        (&json!("import-tags"), &json!("tests next"), &json!("held"), &json!(2))
+        (
+            &r["agent"],
+            &r["note"],
+            &r["note_state"],
+            &r["waiting_to_land"]
+        ),
+        (
+            &json!("import-tags"),
+            &json!("tests next"),
+            &json!("held"),
+            &json!(2)
+        )
     );
     assert_eq!(find(idle)["running"], json!([]));
 }
@@ -80,7 +109,14 @@ fn a_write_to_the_store_moves_the_version_the_feed_reports() {
     let feed = Feed::start(places);
     let (before, snapshot) = feed.current();
     assert_eq!(before, 1);
-    assert_eq!(snapshot.as_ref().as_ref().unwrap()[0].lists.as_ref().unwrap().version, 3);
+    assert_eq!(
+        snapshot.as_ref().as_ref().unwrap()[0]
+            .lists
+            .as_ref()
+            .unwrap()
+            .version,
+        3
+    );
     let (sent, moved) = mpsc::channel();
     feed.listen(Box::new(move || {
         let _ = sent.send(());
@@ -88,16 +124,35 @@ fn a_write_to_the_store_moves_the_version_the_feed_reports() {
 
     // A write lands in builds.sqlite-wal, not builds.sqlite, and still wakes the feed.
     store.write(&stamp(NOON), "touch", |_| Ok(())).unwrap();
-    moved.recv_timeout(HANG_GUARD).expect("the write reached the feed");
+    moved
+        .recv_timeout(HANG_GUARD)
+        .expect("the write reached the feed");
     let (after, snapshot) = feed.current();
     assert_eq!(after, before + 1);
-    assert_eq!(snapshot.as_ref().as_ref().unwrap()[0].lists.as_ref().unwrap().version, 4);
+    assert_eq!(
+        snapshot.as_ref().as_ref().unwrap()[0]
+            .lists
+            .as_ref()
+            .unwrap()
+            .version,
+        4
+    );
 
     // A store that fails is read and served, not skipped.
-    std::fs::write(store.database(), "not a database, and long enough to have a header of sorts").unwrap();
-    moved.recv_timeout(HANG_GUARD).expect("the damage reached the feed");
+    std::fs::write(
+        store.database(),
+        "not a database, and long enough to have a header of sorts",
+    )
+    .unwrap();
+    moved
+        .recv_timeout(HANG_GUARD)
+        .expect("the damage reached the feed");
     let (_, snapshot) = feed.current();
-    let fault = snapshot.as_ref().as_ref().unwrap()[0].lists.as_ref().unwrap_err().clone();
+    let fault = snapshot.as_ref().as_ref().unwrap()[0]
+        .lists
+        .as_ref()
+        .unwrap_err()
+        .clone();
     assert!(fault.contains("not a database"), "{fault}");
 }
 
@@ -107,7 +162,10 @@ fn an_open_design_change_is_found_by_id_with_its_view_and_a_landed_or_missing_on
     let id = design(&db);
     let snapshot: Snapshot = Ok(vec![loaded("demo", Ok(read(&db)))]);
     let (design, view) = open_design(&snapshot, id.0).expect("open");
-    assert_eq!((design.id, design.worktree.as_str(), view.id), (id, "/d/bae-worktrees/side-2", id));
+    assert_eq!(
+        (design.id, design.worktree.as_str(), view.id),
+        (id, "/d/bae-worktrees/side-2", id)
+    );
     assert!(open_design(&snapshot, id.0 + 1).is_none());
     assert!(open_design(&Ok(vec![]), id.0).is_none());
 }
@@ -146,10 +204,15 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
         }],
     };
     record(&store.dir.join(DATABASE), &run).unwrap();
-    moved.recv_timeout(HANG_GUARD).expect("the run reached the feed");
+    moved
+        .recv_timeout(HANG_GUARD)
+        .expect("the run reached the feed");
     let after = feed.hooks();
     assert!(!std::sync::Arc::ptr_eq(&before, &after));
-    assert!(after.contains("\"runs\":1") && after.contains("\"fmt\""), "{after}");
+    assert!(
+        after.contains("\"runs\":1") && after.contains("\"fmt\""),
+        "{after}"
+    );
     assert_eq!(feed.current().0, version);
 }
 
@@ -165,11 +228,25 @@ fn a_hook_runs_write_reads_no_store_again_and_the_served_snapshot_is_the_same() 
     assert!(!changed && same == first);
     record(
         &store.dir.join(DATABASE),
-        &Run { at: NOON, repo: "demo".into(), worktree: "/d/demo".into(), branch: None, base: None, passed: true, plan_ms: 1, total_ms: 2, files: vec![], checks: vec![] },
+        &Run {
+            at: NOON,
+            repo: "demo".into(),
+            worktree: "/d/demo".into(),
+            branch: None,
+            base: None,
+            passed: true,
+            plan_ms: 1,
+            total_ms: 2,
+            files: vec![],
+            checks: vec![],
+        },
     )
     .unwrap();
     let (after_hook, changed) = crate::lists::store::reload(&places, &first);
-    assert!(!changed && after_hook == first, "a hook run moves no lists version");
+    assert!(
+        !changed && after_hook == first,
+        "a hook run moves no lists version"
+    );
     // A lists write does.
     store.write(&stamp(NOON), "touch", |_| Ok(())).unwrap();
     let (after_write, changed) = crate::lists::store::reload(&places, &first);

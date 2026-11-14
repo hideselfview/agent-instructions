@@ -54,7 +54,10 @@ pub fn serve(listener: TcpListener, port: u16, model: Arc<Model>) {
         let model = model.clone();
         std::thread::spawn(move || {
             if let Err(error) = handle(stream, port, &model)
-                && !matches!(error.kind(), std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset)
+                && !matches!(
+                    error.kind(),
+                    std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+                )
             {
                 eprintln!("builds: serving a request: {error}");
             }
@@ -100,20 +103,38 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
     let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
     let allowed = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
     if !host.is_some_and(|host| allowed.contains(&host)) {
-        return respond(&mut stream, "403 Forbidden", "text/plain; charset=utf-8", b"only for this machine's own browser\n");
+        return respond(
+            &mut stream,
+            "403 Forbidden",
+            "text/plain; charset=utf-8",
+            b"only for this machine's own browser\n",
+        );
     }
     let path = target.split('?').next().unwrap_or("");
     if method == "POST" && (path == "/api/queue" || path == "/api/build-app") {
         if !from_own_page(origin.as_deref(), port) {
-            return respond(&mut stream, "403 Forbidden", "text/plain; charset=utf-8", b"only from the page itself\n");
+            return respond(
+                &mut stream,
+                "403 Forbidden",
+                "text/plain; charset=utf-8",
+                b"only from the page itself\n",
+            );
         }
         if length > MAX_BODY {
-            return respond(&mut stream, "413 Payload Too Large", "text/plain; charset=utf-8", b"too large\n");
+            return respond(
+                &mut stream,
+                "413 Payload Too Large",
+                "text/plain; charset=utf-8",
+                b"too large\n",
+            );
         }
         if path == "/api/build-app" {
             return build_app(&mut stream, model, &body);
         }
-        return json(&mut stream, queue_action(model, &body).map(|()| b"{}".to_vec()));
+        return json(
+            &mut stream,
+            queue_action(model, &body).map(|()| b"{}".to_vec()),
+        );
     }
     if method != "GET" {
         return respond(
@@ -124,14 +145,34 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
         );
     }
     match path {
-        "/" => respond(&mut stream, "200 OK", "text/html; charset=utf-8", PAGE.as_bytes()),
-        "/api/state" => json(&mut stream, model.page().map(|page| serde_json::to_vec(&page).expect("the state serializes"))),
-        "/api/health" => json(&mut stream, model.sample_now().map(|health| serde_json::to_vec(&health).expect("health serializes"))),
+        "/" => respond(
+            &mut stream,
+            "200 OK",
+            "text/html; charset=utf-8",
+            PAGE.as_bytes(),
+        ),
+        "/api/state" => json(
+            &mut stream,
+            model
+                .page()
+                .map(|page| serde_json::to_vec(&page).expect("the state serializes")),
+        ),
+        "/api/health" => json(
+            &mut stream,
+            model
+                .sample_now()
+                .map(|health| serde_json::to_vec(&health).expect("health serializes")),
+        ),
         "/api/lists" => match model.lists_json() {
             Ok(lists) => respond(&mut stream, "200 OK", "application/json", lists.as_bytes()),
             Err(error) => json(&mut stream, Err(error)),
         },
-        "/api/hooks" => respond(&mut stream, "200 OK", "application/json", model.hooks_json().as_bytes()),
+        "/api/hooks" => respond(
+            &mut stream,
+            "200 OK",
+            "application/json",
+            model.hooks_json().as_bytes(),
+        ),
         "/api/hooks/impact" => {
             let query = target.split_once('?').map_or("", |(_, query)| query);
             let (project, change) = (query_value(query, "project"), query_value(query, "change"));
@@ -140,7 +181,12 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
                     let body = model.hook_impact_json(&project, &change);
                     respond(&mut stream, "200 OK", "application/json", body.as_bytes())
                 }
-                _ => respond(&mut stream, "400 Bad Request", "application/json", b"{\"error\":\"needs project and change\"}"),
+                _ => respond(
+                    &mut stream,
+                    "400 Bad Request",
+                    "application/json",
+                    b"{\"error\":\"needs project and change\"}",
+                ),
             }
         }
         "/events" => events(stream, model),
@@ -150,20 +196,42 @@ fn handle(mut stream: TcpStream, port: u16, model: &Model) -> std::io::Result<()
                 DesignRoute::Board(id, n) => model.design_board(id, n),
             });
             match drawn {
-                Some(Ok(page)) => respond(&mut stream, "200 OK", "text/html; charset=utf-8", page.as_bytes()),
-                Some(Err(error)) => {
-                    respond(&mut stream, "500 Internal Server Error", "text/plain; charset=utf-8", format!("{}\n", error.text()).as_bytes())
-                }
-                None => respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"no such open design change or board\n"),
+                Some(Ok(page)) => respond(
+                    &mut stream,
+                    "200 OK",
+                    "text/html; charset=utf-8",
+                    page.as_bytes(),
+                ),
+                Some(Err(error)) => respond(
+                    &mut stream,
+                    "500 Internal Server Error",
+                    "text/plain; charset=utf-8",
+                    format!("{}\n", error.text()).as_bytes(),
+                ),
+                None => respond(
+                    &mut stream,
+                    "404 Not Found",
+                    "text/plain; charset=utf-8",
+                    b"no such open design change or board\n",
+                ),
             }
         }
-        _ => respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"not found\n"),
+        _ => respond(
+            &mut stream,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            b"not found\n",
+        ),
     }
 }
 
 /// The value of <name> in a query string, with `%XX` and `+` decoded.
 fn query_value(query: &str, name: &str) -> Option<String> {
-    let raw = query.split('&').find_map(|pair| pair.split_once('=').filter(|(key, _)| *key == name).map(|(_, value)| value))?;
+    let raw = query.split('&').find_map(|pair| {
+        pair.split_once('=')
+            .filter(|(key, _)| *key == name)
+            .map(|(_, value)| value)
+    })?;
     let bytes = raw.as_bytes();
     let mut out = Vec::new();
     let mut at = 0;
@@ -203,7 +271,10 @@ fn design_route(rest: &str) -> Option<DesignRoute> {
 
 /// Does the Origin header name this server's own page?
 fn from_own_page(origin: Option<&str>, port: u16) -> bool {
-    let own = [format!("http://127.0.0.1:{port}"), format!("http://localhost:{port}")];
+    let own = [
+        format!("http://127.0.0.1:{port}"),
+        format!("http://localhost:{port}"),
+    ];
     origin.is_some_and(|origin| own.iter().any(|own| own == origin))
 }
 
@@ -223,11 +294,20 @@ fn build_app(stream: &mut TcpStream, model: &Model, body: &[u8]) -> std::io::Res
     let request: BuildRequest = match serde_json::from_slice(body) {
         Ok(request) => request,
         Err(error) => {
-            let message = serde_json::json!({ "error": format!("the request: {error}") }).to_string();
-            return respond(stream, "400 Bad Request", "application/json", message.as_bytes());
+            let message =
+                serde_json::json!({ "error": format!("the request: {error}") }).to_string();
+            return respond(
+                stream,
+                "400 Bad Request",
+                "application/json",
+                message.as_bytes(),
+            );
         }
     };
-    match model.runs.start_build(&request.repo, &request.lane, request.reference.as_deref()) {
+    match model
+        .runs
+        .start_build(&request.repo, &request.lane, request.reference.as_deref())
+    {
         Ok(()) => respond(stream, "200 OK", "application/json", b"{}"),
         Err(error) => {
             let status = match error {
@@ -235,7 +315,14 @@ fn build_app(stream: &mut TcpStream, model: &Model, body: &[u8]) -> std::io::Res
                 StartError::Busy(_) => "409 Conflict",
                 StartError::Failed(_) => "500 Internal Server Error",
             };
-            respond(stream, status, "application/json", serde_json::json!({ "error": error.message() }).to_string().as_bytes())
+            respond(
+                stream,
+                status,
+                "application/json",
+                serde_json::json!({ "error": error.message() })
+                    .to_string()
+                    .as_bytes(),
+            )
         }
     }
 }
@@ -256,7 +343,9 @@ fn queue_action(model: &Model, body: &[u8]) -> crate::fail::Result<()> {
     };
     match request.action.as_str() {
         "top" => crate::queue::top(&model.places, &request.repo, request.pid)?,
-        "takeover" => crate::queue::takeover(&model.places, &request.repo, Some(request.pid), None)?,
+        "takeover" => {
+            crate::queue::takeover(&model.places, &request.repo, Some(request.pid), None)?
+        }
         other => crate::fail!("no action {other:?}"),
     }
     model.sample_now().map(|_| ())
@@ -269,13 +358,17 @@ fn json(stream: &mut TcpStream, body: crate::fail::Result<Vec<u8>>) -> std::io::
             stream,
             "500 Internal Server Error",
             "application/json",
-            serde_json::json!({ "error": message }).to_string().as_bytes(),
+            serde_json::json!({ "error": message })
+                .to_string()
+                .as_bytes(),
         ),
         Err(crate::fail::Fail::Exit(code)) => respond(
             stream,
             "500 Internal Server Error",
             "application/json",
-            serde_json::json!({ "error": format!("exit {code}") }).to_string().as_bytes(),
+            serde_json::json!({ "error": format!("exit {code}") })
+                .to_string()
+                .as_bytes(),
         ),
     }
 }
@@ -302,7 +395,11 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
                         crate::fail::Fail::Message(message) => message,
                         crate::fail::Fail::Exit(code) => format!("exit {code}"),
                     };
-                    write!(stream, "event: failure\ndata: {}\n\n", serde_json::json!({ "error": message }))?;
+                    write!(
+                        stream,
+                        "event: failure\ndata: {}\n\n",
+                        serde_json::json!({ "error": message })
+                    )?;
                     stream.flush()?;
                     seen = model.wait_change(seen);
                     continue;
@@ -312,17 +409,28 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
             let data = serde_json::to_string(&page).expect("the state serializes");
             write!(stream, "event: state\ndata: {data}\n\n")?;
             match model.lists_json() {
-                Ok(lists) if !sent_lists.as_ref().is_some_and(|sent| Arc::ptr_eq(sent, &lists)) => {
+                Ok(lists)
+                    if !sent_lists
+                        .as_ref()
+                        .is_some_and(|sent| Arc::ptr_eq(sent, &lists)) =>
+                {
                     write!(stream, "event: lists\ndata: {lists}\n\n")?;
                     sent_lists = Some(lists);
                 }
                 Ok(_) => {}
                 Err(error) => {
-                    write!(stream, "event: failure\ndata: {}\n\n", serde_json::json!({ "error": error.text() }))?;
+                    write!(
+                        stream,
+                        "event: failure\ndata: {}\n\n",
+                        serde_json::json!({ "error": error.text() })
+                    )?;
                 }
             }
             let hooks = model.hooks_json();
-            if !sent_hooks.as_ref().is_some_and(|sent| Arc::ptr_eq(sent, &hooks)) {
+            if !sent_hooks
+                .as_ref()
+                .is_some_and(|sent| Arc::ptr_eq(sent, &hooks))
+            {
                 write!(stream, "event: hooks\ndata: {hooks}\n\n")?;
                 sent_hooks = Some(hooks);
             }

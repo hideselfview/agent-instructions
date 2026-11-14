@@ -41,9 +41,9 @@
 
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::Command;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::fail;
@@ -82,7 +82,10 @@ extern "C" fn take_over(_: libc::c_int) {
 pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
     const USAGE: &str = "usage: builds lock <repo> [--lane mac|android] <command> [<args>...]";
     let (lane, args) = match args {
-        [repo, flag, word, rest @ ..] if flag == "--lane" => (Lane::parse_or_fail(word)?, [std::slice::from_ref(repo), rest].concat()),
+        [repo, flag, word, rest @ ..] if flag == "--lane" => (
+            Lane::parse_or_fail(word)?,
+            [std::slice::from_ref(repo), rest].concat(),
+        ),
         _ => (Lane::Mac, args.to_vec()),
     };
     let [repo, command, rest @ ..] = &args[..] else {
@@ -95,7 +98,9 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
         match run_in_group(start, command)? {
             Ran::Finished => return Ok(()),
             Ran::TakenOver => {
-                note(format!("{command} was stopped for a takeover; it runs again after it"));
+                note(format!(
+                    "{command} was stopped for a takeover; it runs again after it"
+                ));
                 held = held.requeue()?;
             }
         }
@@ -139,7 +144,15 @@ impl Held {
         }
         self.queue.wait_for_turn(&ticket.name)?;
         let (lock, checkout) = take_free_lock(&self.places, &self.repo, self.lane)?;
-        Ok(Held { lock, ticket, queue: self.queue, checkout, places: self.places, repo: self.repo, lane: self.lane })
+        Ok(Held {
+            lock,
+            ticket,
+            queue: self.queue,
+            checkout,
+            places: self.places,
+            repo: self.repo,
+            lane: self.lane,
+        })
     }
 }
 
@@ -153,7 +166,10 @@ fn take_free_lock(places: &Places, repo: &str, lane: Lane) -> Result<(libc::c_in
     loop {
         let checkouts = places.app_checkouts_of(repo, lane)?;
         if checkouts.is_empty() {
-            fail!("{repo} has no {} app checkout recorded; builds app-checkout records one", lane.word());
+            fail!(
+                "{repo} has no {} app checkout recorded; builds app-checkout records one",
+                lane.word()
+            );
         }
         for checkout in checkouts {
             if let Some(lock) = queue::try_lock(&places.app_lock_file(repo, lane, &checkout))? {
@@ -169,7 +185,12 @@ fn take_free_lock(places: &Places, repo: &str, lane: Lane) -> Result<(libc::c_in
 /// the queue let in for a lock takes another free one, or waits for one. The
 /// descriptor holds the lock until closed, and every process started meanwhile
 /// holds it too.
-pub fn take_checkout(places: &Places, repo: &str, lane: Lane, checkout: &str) -> Result<libc::c_int> {
+pub fn take_checkout(
+    places: &Places,
+    repo: &str,
+    lane: Lane,
+    checkout: &str,
+) -> Result<libc::c_int> {
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     let file = places.app_lock_file(repo, lane, checkout);
@@ -179,7 +200,9 @@ pub fn take_checkout(places: &Places, repo: &str, lane: Lane, checkout: &str) ->
             return Ok(lock);
         }
         if !waiting {
-            note(format!("waiting for the build holding {checkout}'s lock to end"));
+            note(format!(
+                "waiting for the build holding {checkout}'s lock to end"
+            ));
             waiting = true;
         }
         std::thread::sleep(Duration::from_millis(100));
@@ -203,11 +226,22 @@ pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
     let queue = Queue::of(places, repo, lane);
     let (ticket, ahead) = queue.join()?;
     if ahead >= queue.slots() {
-        note(format!("{ahead} ahead in {repo}'s {} app queue", lane.word()));
+        note(format!(
+            "{ahead} ahead in {repo}'s {} app queue",
+            lane.word()
+        ));
     }
     queue.wait_for_turn(&ticket.name)?;
     let (lock, checkout) = take_free_lock(places, repo, lane)?;
-    Ok(Held { lock, ticket, queue, checkout, places: places.clone(), repo: repo.to_string(), lane })
+    Ok(Held {
+        lock,
+        ticket,
+        queue,
+        checkout,
+        places: places.clone(),
+        repo: repo.to_string(),
+        lane,
+    })
 }
 
 /// Whether stdin is a terminal this process is the foreground process of.
@@ -274,7 +308,11 @@ pub fn run_in_group(start: Command, command: &str) -> Result<Ran> {
 
 /// `run_in_group`, killing the group once <limit> has passed (when there is
 /// one) and saying `Within::TimedOut`.
-pub fn run_in_group_within(mut start: Command, command: &str, limit: Option<Duration>) -> Result<Within> {
+pub fn run_in_group_within(
+    mut start: Command,
+    command: &str,
+    limit: Option<Duration>,
+) -> Result<Within> {
     // The signals stay blocked until the group is known, so one sent while
     // the command starts is passed on rather than lost; the command starts
     // with them unblocked.

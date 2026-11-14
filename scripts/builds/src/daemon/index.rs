@@ -275,7 +275,8 @@ impl Index {
                 id
             }
         };
-        let linked_before = self.nodes[id as usize].kind == Kind::File && self.nodes[id as usize].nlink > 1;
+        let linked_before =
+            self.nodes[id as usize].kind == Kind::File && self.nodes[id as usize].nlink > 1;
         if linked_before && !(kind == Kind::File && entry.nlink > 1) {
             // Its other names went; it holds its bytes itself again.
             self.leave_linked(self.nodes[id as usize].ino);
@@ -289,7 +290,12 @@ impl Index {
         if kind == Kind::File && entry.nlink > 1 {
             node.bytes = 0;
             self.extents.remove(&id);
-            let shared = self.linked.entry(entry.ino).or_insert(Linked { bytes: 0, mtime: entry.mtime, extents: None, names: 0 });
+            let shared = self.linked.entry(entry.ino).or_insert(Linked {
+                bytes: 0,
+                mtime: entry.mtime,
+                extents: None,
+                names: 0,
+            });
             if !linked_before {
                 shared.names += 1;
             }
@@ -395,11 +401,17 @@ impl Index {
         node.bytes = top.bytes;
         node.mtime = top.mtime;
         node.changed = top.changed;
-        let mut pending: Vec<(NodeId, NodeId)> = top.children.iter().map(|child| (*child, id)).collect();
+        let mut pending: Vec<(NodeId, NodeId)> =
+            top.children.iter().map(|child| (*child, id)).collect();
         while let Some((from, parent)) = pending.pop() {
             let entry = other.entry(from);
             let made = self.set(parent, entry);
-            pending.extend(other.nodes[from as usize].children.iter().map(|child| (*child, made)));
+            pending.extend(
+                other.nodes[from as usize]
+                    .children
+                    .iter()
+                    .map(|child| (*child, made)),
+            );
         }
     }
 
@@ -412,7 +424,9 @@ impl Index {
             Kind::Other | Kind::Free => KindOf::Other,
         };
         let (bytes, mtime, extents) = match self.linked.get(&node.ino) {
-            Some(shared) if node.kind == Kind::File && node.nlink > 1 => (shared.bytes, shared.mtime, shared.extents.clone()),
+            Some(shared) if node.kind == Kind::File && node.nlink > 1 => {
+                (shared.bytes, shared.mtime, shared.extents.clone())
+            }
             _ => (node.bytes, node.mtime, self.extents.get(&id).cloned()),
         };
         Entry {
@@ -455,7 +469,10 @@ impl Index {
         for id in gone {
             self.remove(id);
         }
-        entries.into_iter().map(|entry| self.set(dir, entry)).collect()
+        entries
+            .into_iter()
+            .map(|entry| self.set(dir, entry))
+            .collect()
     }
 
     /// What the subtree at <id> takes and its newest write: each inode and
@@ -500,7 +517,10 @@ impl Index {
                 Kind::Free => {}
             }
         }
-        Measure { kib: bytes / 1024, newest: Some(newest) }
+        Measure {
+            kib: bytes / 1024,
+            newest: Some(newest),
+        }
     }
 
     /// Bytes of memory the index holds, roughly.
@@ -527,7 +547,12 @@ fn change_time(meta: &Metadata) -> i64 {
 /// left out; None when the folder itself is gone.
 pub fn list(dir: &Path) -> std::io::Result<Option<Vec<(Entry, PathBuf)>>> {
     let listed = list_metadata(dir)?;
-    Ok(listed.map(|listed| listed.into_iter().map(|one| (Entry::read(&one.name, &one.path, &one.meta), one.path)).collect()))
+    Ok(listed.map(|listed| {
+        listed
+            .into_iter()
+            .map(|one| (Entry::read(&one.name, &one.path, &one.meta), one.path))
+            .collect()
+    }))
 }
 
 /// One entry of a folder's listing, read no further than its metadata.
@@ -557,13 +582,20 @@ pub fn list_metadata(dir: &Path) -> std::io::Result<Option<Vec<Listed>>> {
             Err(error) if gone(&error) => continue,
             Err(error) => return Err(error),
         };
-        entries.push(Listed { name: entry.file_name().as_bytes().into(), path, meta });
+        entries.push(Listed {
+            name: entry.file_name().as_bytes().into(),
+            path,
+            meta,
+        });
     }
     Ok(Some(entries))
 }
 
 pub fn gone(error: &std::io::Error) -> bool {
-    matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory)
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+    )
 }
 
 /// Walks the folder at <path>, entry <start> of the index behind <index>,
@@ -579,7 +611,10 @@ pub fn walk(index: &Mutex<Index>, start: NodeId, path: &Path, workers: usize) {
         let index = index.lock().expect("no panic holding it");
         (index.dev, index.volume)
     };
-    let queue = Mutex::new(Queue { folders: vec![(start, path.to_path_buf())], busy: 0 });
+    let queue = Mutex::new(Queue {
+        folders: vec![(start, path.to_path_buf())],
+        busy: 0,
+    });
     let ready = Condvar::new();
     let work = || {
         loop {
@@ -619,7 +654,10 @@ pub fn walk(index: &Mutex<Index>, start: NodeId, path: &Path, workers: usize) {
             let mut found = Vec::new();
             if let Some(listed) = listed {
                 let (entries, paths): (Vec<Entry>, Vec<PathBuf>) = listed.into_iter().unzip();
-                let devs: Vec<bool> = entries.iter().map(|e| e.kind == KindOf::Dir && e.dev == dev).collect();
+                let devs: Vec<bool> = entries
+                    .iter()
+                    .map(|e| e.kind == KindOf::Dir && e.dev == dev)
+                    .collect();
                 let mut index = index.lock().expect("no panic holding it");
                 // The folder may have gone from the index since it was queued.
                 if index.nodes[id as usize].kind == Kind::Dir {

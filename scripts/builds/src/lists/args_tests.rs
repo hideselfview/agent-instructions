@@ -6,7 +6,12 @@ fn words(text: &str) -> Vec<String> {
 
 #[test]
 fn flags_values_switches_and_positionals_parse() {
-    let args = Args::parse(&words("12 --title T --json --wait a --wait b --by me"), &["title", "wait"], &["json"]).unwrap();
+    let args = Args::parse(
+        &words("12 --title T --json --wait a --wait b --by me"),
+        &["title", "wait"],
+        &["json"],
+    )
+    .unwrap();
     assert_eq!(args.positional(), ["12"]);
     assert_eq!(args.value("title").unwrap(), Some("T"));
     assert_eq!(args.values("wait"), ["a", "b"]);
@@ -17,8 +22,14 @@ fn flags_values_switches_and_positionals_parse() {
 
 #[test]
 fn a_flag_the_command_lacks_is_refused_by_name() {
-    let error = format!("{:?}", Args::parse(&words("--nope 1"), &["title"], &[]).unwrap_err());
-    assert!(error.contains("--nope") && error.contains("--title"), "{error}");
+    let error = format!(
+        "{:?}",
+        Args::parse(&words("--nope 1"), &["title"], &[]).unwrap_err()
+    );
+    assert!(
+        error.contains("--nope") && error.contains("--title"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -38,7 +49,12 @@ fn double_dash_ends_the_flags_and_a_value_may_start_with_dashes() {
 
 #[test]
 fn ids_come_as_bare_numbers() {
-    let args = Args::parse(&words("--blocks 3,5 --from-item 9"), &["blocks", "from-item"], &[]).unwrap();
+    let args = Args::parse(
+        &words("--blocks 3,5 --from-item 9"),
+        &["blocks", "from-item"],
+        &[],
+    )
+    .unwrap();
     assert_eq!(args.ids("blocks").unwrap(), Some(vec![Id(3), Id(5)]));
     assert_eq!(args.id("from-item").unwrap(), Some(Id(9)));
     assert_eq!(args.id("missing").unwrap(), None);
@@ -53,9 +69,27 @@ fn exactly_counts_positionals() {
 
 #[test]
 fn a_choice_is_a_variant_by_its_serde_spelling() {
-    let args = Args::parse(&words("--for design-session --level sideways"), &["for", "level"], &[]).unwrap();
-    assert_eq!(args.choice::<crate::lists::Audience>("for").unwrap(), Some(crate::lists::Audience::DesignSession));
-    assert_eq!(args.choice::<crate::lists::Audience>("missing").unwrap(), None);
-    let crate::fail::Fail::Message(message) = args.choice::<crate::lists::Level>("level").unwrap_err() else { panic!() };
-    assert!(message.starts_with("--level: unknown variant `sideways`"), "{message}");
+    let args = Args::parse(
+        &words("--for design-session --level sideways"),
+        &["for", "level"],
+        &[],
+    )
+    .unwrap();
+    assert_eq!(
+        args.choice::<crate::lists::Audience>("for").unwrap(),
+        Some(crate::lists::Audience::DesignSession)
+    );
+    assert_eq!(
+        args.choice::<crate::lists::Audience>("missing").unwrap(),
+        None
+    );
+    let crate::fail::Fail::Message(message) =
+        args.choice::<crate::lists::Level>("level").unwrap_err()
+    else {
+        panic!()
+    };
+    assert!(
+        message.starts_with("--level: unknown variant `sideways`"),
+        "{message}"
+    );
 }

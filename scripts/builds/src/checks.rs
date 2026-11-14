@@ -65,9 +65,14 @@ pub struct Planned {
 
 pub fn parse(text: &str) -> Result<Vec<Line>> {
     let mut lines: Vec<Line> = Vec::new();
-    for raw in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+    for raw in text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+    {
         let mut words = raw.split_whitespace().map(str::to_string);
-        let (Some(kind), Some(name), Some(paths)) = (words.next(), words.next(), words.next()) else {
+        let (Some(kind), Some(name), Some(paths)) = (words.next(), words.next(), words.next())
+        else {
             fail!("{CONFIG}: {raw:?} needs a kind, a name, paths and a command");
         };
         let kind = match kind.as_str() {
@@ -83,11 +88,20 @@ pub fn parse(text: &str) -> Result<Vec<Line>> {
         if lines.iter().any(|line| line.name == name) {
             fail!("{CONFIG}: {name} is named twice");
         }
-        let paths: Vec<String> = paths.split(',').filter(|p| !p.is_empty()).map(str::to_string).collect();
+        let paths: Vec<String> = paths
+            .split(',')
+            .filter(|p| !p.is_empty())
+            .map(str::to_string)
+            .collect();
         if paths.is_empty() {
             fail!("{CONFIG}: {name} names no paths");
         }
-        lines.push(Line { kind, name, paths, command });
+        lines.push(Line {
+            kind,
+            name,
+            paths,
+            command,
+        });
     }
     Ok(lines)
 }
@@ -109,7 +123,9 @@ fn segments_match(pattern: &[&str], path: &[&str]) -> bool {
         None => path.is_empty(),
         Some((&"**", rest)) => (0..=path.len()).any(|skip| segments_match(rest, &path[skip..])),
         Some((first, rest)) => match path.split_first() {
-            Some((name, path_rest)) => segment_match(first, name) && segments_match(rest, path_rest),
+            Some((name, path_rest)) => {
+                segment_match(first, name) && segments_match(rest, path_rest)
+            }
             None => false,
         },
     }
@@ -119,8 +135,12 @@ fn segment_match(pattern: &str, name: &str) -> bool {
     match pattern.split_once('*') {
         None => pattern == name,
         Some((head, tail)) => {
-            let Some(after_head) = name.strip_prefix(head) else { return false };
-            (0..=after_head.len()).any(|skip| after_head.is_char_boundary(skip) && segment_match(tail, &after_head[skip..]))
+            let Some(after_head) = name.strip_prefix(head) else {
+                return false;
+            };
+            (0..=after_head.len()).any(|skip| {
+                after_head.is_char_boundary(skip) && segment_match(tail, &after_head[skip..])
+            })
         }
     }
 }
@@ -139,15 +159,28 @@ impl Line {
 /// expanded, in file order. A line that names `{files}` or `{crates}` and has
 /// nothing to hand it (no matching file still there, no crate holding one) is
 /// left out. With <every>, a line is picked whether or not a file matches it.
-pub fn plan(top: &Path, lines: &[Line], kinds: &[Kind], files: &[String], every: bool) -> Result<Vec<Planned>> {
+pub fn plan(
+    top: &Path,
+    lines: &[Line],
+    kinds: &[Kind],
+    files: &[String],
+    every: bool,
+) -> Result<Vec<Planned>> {
     let mut metadata: Option<Vec<Crate>> = None;
     let mut planned = Vec::new();
     for line in lines.iter().filter(|line| kinds.contains(&line.kind)) {
-        let matching: Vec<String> = files.iter().filter(|file| line.matches(file)).cloned().collect();
+        let matching: Vec<String> = files
+            .iter()
+            .filter(|file| line.matches(file))
+            .cloned()
+            .collect();
         if matching.is_empty() && !every {
             continue;
         }
-        let existing: Vec<String> = matching.into_iter().filter(|file| top.join(file).exists()).collect();
+        let existing: Vec<String> = matching
+            .into_iter()
+            .filter(|file| top.join(file).exists())
+            .collect();
         let crates = if line.uses("{crates}") {
             if metadata.is_none() {
                 metadata = Some(workspace_crates(top)?);
@@ -167,11 +200,19 @@ pub fn plan(top: &Path, lines: &[Line], kinds: &[Kind], files: &[String], every:
         for arg in &line.command {
             match arg.as_str() {
                 "{files}" => argv.extend(existing.iter().cloned()),
-                "{crates}" => argv.extend(crates.iter().flat_map(|name| ["-p".to_string(), name.clone()])),
+                "{crates}" => argv.extend(
+                    crates
+                        .iter()
+                        .flat_map(|name| ["-p".to_string(), name.clone()]),
+                ),
                 _ => argv.push(arg.clone()),
             }
         }
-        planned.push(Planned { line: line.clone(), files: existing, argv });
+        planned.push(Planned {
+            line: line.clone(),
+            files: existing,
+            argv,
+        });
     }
     Ok(planned)
 }
@@ -184,27 +225,50 @@ struct Crate {
 
 fn workspace_crates(top: &Path) -> Result<Vec<Crate>> {
     let mut command = Command::new("cargo");
-    command.args(["metadata", "--no-deps", "--offline", "--format-version", "1"]).current_dir(top);
+    command
+        .args([
+            "metadata",
+            "--no-deps",
+            "--offline",
+            "--format-version",
+            "1",
+        ])
+        .current_dir(top);
     for name in git_local_env_vars()? {
         command.env_remove(name);
     }
-    let output = command.output().context(|| "running cargo metadata".to_string())?;
+    let output = command
+        .output()
+        .context(|| "running cargo metadata".to_string())?;
     if !output.status.success() {
-        fail!("cargo metadata failed: {}", String::from_utf8_lossy(&output.stderr).trim());
+        fail!(
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).context(|| "reading cargo metadata".to_string())?;
     let root = std::fs::canonicalize(top).context(|| format!("resolving {}", top.display()))?;
     let mut crates = Vec::new();
     for package in json["packages"].as_array().into_iter().flatten() {
-        let (Some(name), Some(manifest)) = (package["name"].as_str(), package["manifest_path"].as_str()) else {
+        let (Some(name), Some(manifest)) =
+            (package["name"].as_str(), package["manifest_path"].as_str())
+        else {
             fail!("cargo metadata has a package without a name or manifest path");
         };
-        let Some(dir) = PathBuf::from(manifest).parent().and_then(|dir| std::fs::canonicalize(dir).ok()) else {
+        let Some(dir) = PathBuf::from(manifest)
+            .parent()
+            .and_then(|dir| std::fs::canonicalize(dir).ok())
+        else {
             continue;
         };
-        let Ok(relative) = dir.strip_prefix(&root) else { continue };
-        crates.push(Crate { name: name.to_string(), dir: relative.to_string_lossy().into_owned() });
+        let Ok(relative) = dir.strip_prefix(&root) else {
+            continue;
+        };
+        crates.push(Crate {
+            name: name.to_string(),
+            dir: relative.to_string_lossy().into_owned(),
+        });
     }
     Ok(crates)
 }
@@ -221,7 +285,12 @@ fn crates_holding(crates: &[Crate], files: &[String]) -> Vec<String> {
         }
         let holder = crates
             .iter()
-            .filter(|c| c.dir.is_empty() || file.strip_prefix(c.dir.as_str()).is_some_and(|rest| rest.starts_with('/')))
+            .filter(|c| {
+                c.dir.is_empty()
+                    || file
+                        .strip_prefix(c.dir.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'))
+            })
             .max_by_key(|c| c.dir.len());
         if let Some(holder) = holder {
             names.push(holder.name.clone());

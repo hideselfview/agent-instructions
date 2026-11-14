@@ -4,8 +4,8 @@
 use std::path::PathBuf;
 
 use crate::checkout::git_text;
-use crate::claim::write_claim;
 use crate::checkout::{Checkout, git};
+use crate::claim::write_claim;
 use crate::fail::{Fail, Result};
 use crate::lists::fixtures::NOON;
 use crate::lists::store::Store;
@@ -28,8 +28,14 @@ fn add_repo_with_origin(scratch: &Scratch, repo_name: &str) -> PathBuf {
     let main = scratch.dir.join(repo_name);
     repo(&main, "target 1G\n");
     let origin = scratch.dir.join(format!("{repo_name}-origin.git"));
-    run_git(&scratch.dir, &["init", "-q", "--bare", &origin.display().to_string()]);
-    run_git(&main, &["remote", "add", "origin", &origin.display().to_string()]);
+    run_git(
+        &scratch.dir,
+        &["init", "-q", "--bare", &origin.display().to_string()],
+    );
+    run_git(
+        &main,
+        &["remote", "add", "origin", &origin.display().to_string()],
+    );
     run_git(&main, &["push", "-q", "origin", "main"]);
     main
 }
@@ -43,7 +49,12 @@ pub fn demo_over(name: &str, repos: &[&str]) -> Demo {
         add_repo_with_origin(&scratch, other);
     }
     let store = crate::lists::fixtures::make_store(&tool.places, repos);
-    Demo { scratch, tool, main, store }
+    Demo {
+        scratch,
+        tool,
+        main,
+        store,
+    }
 }
 
 impl Demo {
@@ -57,7 +68,18 @@ impl Demo {
         let main = self.scratch.dir.join(repo);
         let top = self.scratch.dir.join(format!("{repo}-worktrees/side-{n}"));
         std::fs::create_dir_all(top.parent().unwrap()).unwrap();
-        run_git(&main, &["worktree", "add", "-q", "-b", branch, &top.display().to_string(), "main"]);
+        run_git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                branch,
+                &top.display().to_string(),
+                "main",
+            ],
+        );
         let checkout = Checkout::find(&top.display().to_string()).unwrap();
         write_claim(&checkout, who, NOON, None, None).unwrap();
         top
@@ -68,7 +90,10 @@ impl Demo {
         std::fs::write(top.join(file), file).unwrap();
         run_git(top, &["add", file]);
         run_git(top, &["commit", "-q", "-m", file]);
-        git_text(git(top).args(["rev-parse", "HEAD"]), "read HEAD").unwrap().trim().to_string()
+        git_text(git(top).args(["rev-parse", "HEAD"]), "read HEAD")
+            .unwrap()
+            .trim()
+            .to_string()
     }
 
     /// Another branch in the repo, for a worktree that takes one branch.
@@ -91,7 +116,12 @@ impl Demo {
 
 pub fn words(args: &[&str]) -> Vec<String> {
     let mut all: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-    all.extend(["--project".into(), "demo".into(), "--by".into(), "tester".into()]);
+    all.extend([
+        "--project".into(),
+        "demo".into(),
+        "--by".into(),
+        "tester".into(),
+    ]);
     all
 }
 

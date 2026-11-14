@@ -63,8 +63,17 @@ impl Drop for Scratch {
 }
 
 pub fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git").arg("-C").arg(dir).args(args).output().expect("git runs");
-    assert!(status.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&status.stderr));
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("git runs");
+    assert!(
+        status.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
 }
 
 /// A repo at <dir> with one commit holding <manifest> as its .build-dirs,
@@ -75,7 +84,10 @@ pub fn repo(dir: &Path, manifest: &str) {
     git(dir, &["config", "user.email", "test@example.com"]);
     git(dir, &["config", "user.name", "test"]);
     std::fs::write(dir.join(".build-dirs"), manifest).expect("writable");
-    let ignored: Vec<&str> = manifest.lines().filter_map(|line| line.split_whitespace().next()).collect();
+    let ignored: Vec<&str> = manifest
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .collect();
     std::fs::write(dir.join(".gitignore"), ignored.join("\n") + "\n").expect("writable");
     git(dir, &["add", ".build-dirs", ".gitignore"]);
     git(dir, &["commit", "-q", "-m", "Start"]);

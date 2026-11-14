@@ -18,8 +18,8 @@ use crate::fail::{Context, Result};
 use crate::floor::keep_floor;
 use crate::manifest::{MANIFEST, build_dirs, has_manifest};
 use crate::prune::{
-    Run, prune_caches, prune_cargo_git, prune_derived_data, prune_root, prune_scratchpads, prune_temp_builds,
-    prune_test_temps,
+    Run, prune_caches, prune_cargo_git, prune_derived_data, prune_root, prune_scratchpads,
+    prune_temp_builds, prune_test_temps,
 };
 use crate::text::note;
 use crate::tool::Tool;
@@ -35,9 +35,11 @@ fn may_delete(tool: &Tool, folder: &Path, checkout: &Checkout) -> Result<bool> {
         if let (Some(owner), Some(_)) = (parts.next(), parts.next()) {
             let owner_root = repo_dir.join(owner);
             if let Some(root) = Root::read(&tool.places, &owner_root)?
-                && root.top != checkout.top && root.live.is_some() {
-                    return Ok(false);
-                }
+                && root.top != checkout.top
+                && root.live.is_some()
+            {
+                return Ok(false);
+            }
         }
     }
     if checkout.is_main() {
@@ -65,15 +67,25 @@ fn may_delete(tool: &Tool, folder: &Path, checkout: &Checkout) -> Result<bool> {
 /// absolute path, so a moved one fails to find its packages. The next build
 /// refills <dest>, cargo mostly from sccache.
 fn place(tool: &Tool, link: &Path, dest: &Path, checkout: &Checkout) -> Result<()> {
-    let shown = link.strip_prefix(&checkout.top).unwrap_or(link).display().to_string();
+    let shown = link
+        .strip_prefix(&checkout.top)
+        .unwrap_or(link)
+        .display()
+        .to_string();
     if link.is_symlink() {
         let current = absolute_link_target(link)?;
         if current != dest {
             if current.is_dir() && may_delete(tool, &current, checkout)? {
                 if !evict(&tool.places, &current, Recreate::No, Removal::Background)? {
-                    fail!("a build is using {}; run builds setup again once it ends", current.display());
+                    fail!(
+                        "a build is using {}; run builds setup again once it ends",
+                        current.display()
+                    );
                 }
-                note(format!("deleted {}, a folder from an older layout", current.display()));
+                note(format!(
+                    "deleted {}, a folder from an older layout",
+                    current.display()
+                ));
             }
             replace_link(dest, link)?;
             note(format!("linked {shown} -> {}", dest.display()));
@@ -82,7 +94,10 @@ fn place(tool: &Tool, link: &Path, dest: &Path, checkout: &Checkout) -> Result<(
         if !evict(&tool.places, link, Recreate::No, Removal::Background)? {
             fail!("a build is using {shown}; run builds setup again once it ends");
         }
-        note(format!("deleted {shown}, a real directory; it builds into {} now", dest.display()));
+        note(format!(
+            "deleted {shown}, a real directory; it builds into {} now",
+            dest.display()
+        ));
         replace_link(dest, link)?;
         note(format!("linked {shown} -> {}", dest.display()));
     } else {
@@ -102,9 +117,14 @@ fn place(tool: &Tool, link: &Path, dest: &Path, checkout: &Checkout) -> Result<(
 /// Points <link> at <dest>, replacing whatever link is there in one rename,
 /// so no tool ever finds the path missing.
 fn replace_link(dest: &Path, link: &Path) -> Result<()> {
-    let name = link.file_name().expect("a link has a name").to_string_lossy();
-    let staged: PathBuf = link.with_file_name(format!(".{name}.builds-link.{}", std::process::id()));
-    std::os::unix::fs::symlink(dest, &staged).context(|| format!("linking {}", staged.display()))?;
+    let name = link
+        .file_name()
+        .expect("a link has a name")
+        .to_string_lossy();
+    let staged: PathBuf =
+        link.with_file_name(format!(".{name}.builds-link.{}", std::process::id()));
+    std::os::unix::fs::symlink(dest, &staged)
+        .context(|| format!("linking {}", staged.display()))?;
     std::fs::rename(&staged, link).context(|| format!("linking {}", link.display()))
 }
 
@@ -120,7 +140,10 @@ pub fn cmd_setup(tool: &Tool, args: &[String]) -> Result<()> {
 
 pub fn setup(tool: &Tool, checkout: &Checkout) -> Result<()> {
     if !has_manifest(&checkout.top) {
-        note(format!("{} has no {MANIFEST}; nothing to link", checkout.top.display()));
+        note(format!(
+            "{} has no {MANIFEST}; nothing to link",
+            checkout.top.display()
+        ));
         return Ok(());
     }
     tool.places.require_volume()?;
@@ -131,15 +154,21 @@ pub fn setup(tool: &Tool, checkout: &Checkout) -> Result<()> {
     std::fs::write(&marker, format!("{}\n", checkout.top.display()))
         .context(|| format!("writing {}", marker.display()))?;
     for entry in build_dirs(&checkout.top)? {
-        place(tool, &checkout.top.join(&entry.path), &root.join(&entry.path), checkout)?;
+        place(
+            tool,
+            &checkout.top.join(&entry.path),
+            &root.join(&entry.path),
+            checkout,
+        )?;
         if entry.path == "target"
-            && let Some(dir) = std::env::var_os("CARGO_TARGET_DIR").filter(|dir| !dir.is_empty()) {
-                note(format!(
-                    "CARGO_TARGET_DIR={} overrides {}/target for cargo run here",
-                    dir.to_string_lossy(),
-                    checkout.top.display()
-                ));
-            }
+            && let Some(dir) = std::env::var_os("CARGO_TARGET_DIR").filter(|dir| !dir.is_empty())
+        {
+            note(format!(
+                "CARGO_TARGET_DIR={} overrides {}/target for cargo run here",
+                dir.to_string_lossy(),
+                checkout.top.display()
+            ));
+        }
     }
     prune_root(tool, &root, checkout, Run::Real, 0, 0)?;
     prune_derived_data(tool, Run::Real, 0)?;

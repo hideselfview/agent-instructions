@@ -44,7 +44,9 @@ impl Id {
     /// never passes it on.
     pub fn parse(text: &str) -> Result<Id> {
         if let Some(bare) = text.strip_prefix('#') {
-            fail!("ids are bare numbers, '{bare}', not '{text}' (an unquoted # starts a shell comment)");
+            fail!(
+                "ids are bare numbers, '{bare}', not '{text}' (an unquoted # starts a shell comment)"
+            );
         }
         match text.parse::<u32>() {
             Ok(n) if n >= 1 && text.bytes().all(|b| b.is_ascii_digit()) => Ok(Id(n)),
@@ -228,19 +230,39 @@ impl Lists {
     /// record has it.
     pub fn locate(&self, id: Id) -> Option<Located<'_>> {
         if let Some(q) = self.question(id) {
-            return Some(Located { kind: Kind::Question, standing: Standing::Open, title: &q.title });
+            return Some(Located {
+                kind: Kind::Question,
+                standing: Standing::Open,
+                title: &q.title,
+            });
         }
         if let Some(i) = self.item(id) {
-            return Some(Located { kind: Kind::Item, standing: Standing::Open, title: &i.title });
+            return Some(Located {
+                kind: Kind::Item,
+                standing: Standing::Open,
+                title: &i.title,
+            });
         }
         if let Some(d) = self.design(id) {
-            return Some(Located { kind: Kind::Design, standing: Standing::Open, title: &d.title });
+            return Some(Located {
+                kind: Kind::Design,
+                standing: Standing::Open,
+                title: &d.title,
+            });
         }
         if let Some(d) = self.decision(id) {
-            return Some(Located { kind: Kind::Decision, standing: Standing::Open, title: &d.title });
+            return Some(Located {
+                kind: Kind::Decision,
+                standing: Standing::Open,
+                title: &d.title,
+            });
         }
         let closed = self.closed_record(id)?;
-        Some(Located { kind: closed.record.kind(), standing: Standing::Closed(closed), title: closed.record.title() })
+        Some(Located {
+            kind: closed.record.kind(),
+            standing: Standing::Closed(closed),
+            title: closed.record.title(),
+        })
     }
 }
 
@@ -258,7 +280,9 @@ pub fn open(db: &Connection, kind: Kind, stamp: &Stamp) -> Result<Id> {
 /// What record <id> is, and how it left its list if it has.
 pub fn standing(db: &Connection, id: Id) -> Result<Option<(Kind, Option<How>)>> {
     let Some(kind) = db
-        .query_row("SELECT kind FROM record WHERE id = ?1", [id], |row| row.get::<_, String>(0))
+        .query_row("SELECT kind FROM record WHERE id = ?1", [id], |row| {
+            row.get::<_, String>(0)
+        })
         .map(Some)
         .or_else(|error| match error {
             rusqlite::Error::QueryReturnedNoRows => Ok(None),
@@ -292,7 +316,9 @@ fn insert_closing(db: &Connection, id: Id, kind: Kind, how: &How, stamp: &Stamp)
     let (decision, question, reason) = match how {
         How::Answered(decision) => (Some(*decision), None, None),
         How::MovedToStack(question) => (None, Some(*question), None),
-        How::Settled(reason) | How::Dropped(reason) | How::Deferred(reason) => (None, None, Some(reason.as_str())),
+        How::Settled(reason) | How::Dropped(reason) | How::Deferred(reason) => {
+            (None, None, Some(reason.as_str()))
+        }
         How::Done | How::Landed(_) => (None, None, None),
     };
     db.execute(
@@ -320,8 +346,15 @@ fn closing_of(db: &Connection, id: Id) -> Result<Option<(How, Stamp)>> {
 /// Every closing, by the id of the record it closed.
 pub fn read_closings(db: &Connection) -> Result<BTreeMap<Id, (How, Stamp)>> {
     let mut commits: BTreeMap<Id, Vec<String>> = BTreeMap::new();
-    let mut statement = db.prepare("SELECT record_id, sha FROM closing_commit ORDER BY record_id, position").sql()?;
-    for row in statement.query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?))).sql()? {
+    let mut statement = db
+        .prepare("SELECT record_id, sha FROM closing_commit ORDER BY record_id, position")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?))
+        })
+        .sql()?
+    {
         let (id, sha) = row.sql()?;
         commits.entry(id).or_default().push(sha);
     }
@@ -333,7 +366,10 @@ pub fn read_closings(db: &Connection) -> Result<BTreeMap<Id, (How, Stamp)>> {
             Ok((
                 row.get::<_, Id>(0)?,
                 row.get::<_, String>(1)?,
-                Stamp { at: row.get(2)?, by: row.get(3)? },
+                Stamp {
+                    at: row.get(2)?,
+                    by: row.get(3)?,
+                },
                 row.get::<_, Option<Id>>(4)?,
                 row.get::<_, Option<Id>>(5)?,
                 row.get::<_, Option<String>>(6)?,
@@ -345,13 +381,17 @@ pub fn read_closings(db: &Connection) -> Result<BTreeMap<Id, (How, Stamp)>> {
         let (id, how, stamp, decision, question, reason) = row.sql()?;
         let reason = || reason.clone().expect("closing_reason_goes_with_how holds");
         let how = match how.as_str() {
-            "answered" => How::Answered(decision.expect("closing_answered_names_its_decision holds")),
+            "answered" => {
+                How::Answered(decision.expect("closing_answered_names_its_decision holds"))
+            }
             "settled" => How::Settled(reason()),
             "done" => How::Done,
             "landed" => How::Landed(commits.remove(&id).unwrap_or_default()),
             "dropped" => How::Dropped(reason()),
             "deferred" => How::Deferred(reason()),
-            "moved-to-stack" => How::MovedToStack(question.expect("closing_moved_names_its_question holds")),
+            "moved-to-stack" => {
+                How::MovedToStack(question.expect("closing_moved_names_its_question holds"))
+            }
             other => unreachable!("closing_how_known holds, but the database has {other:?}"),
         };
         all.insert(id, (how, stamp));
@@ -361,9 +401,19 @@ pub fn read_closings(db: &Connection) -> Result<BTreeMap<Id, (How, Stamp)>> {
 
 /// Every record's opened stamp, by id.
 pub fn read_opened(db: &Connection) -> Result<BTreeMap<Id, Stamp>> {
-    let mut statement = db.prepare("SELECT id, opened_at, opened_by FROM record").sql()?;
+    let mut statement = db
+        .prepare("SELECT id, opened_at, opened_by FROM record")
+        .sql()?;
     let rows = statement
-        .query_map([], |row| Ok((row.get::<_, Id>(0)?, Stamp { at: row.get(1)?, by: row.get(2)? })))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                Stamp {
+                    at: row.get(1)?,
+                    by: row.get(2)?,
+                },
+            ))
+        })
         .sql()?;
     rows.map(|row| row.sql()).collect()
 }
@@ -380,7 +430,13 @@ pub fn move_in_record(db: &Connection, id: Id, kind: Kind, opened: &Stamp) -> Re
 }
 
 /// Puts the closing of <id>, a <kind>, in as it was written elsewhere.
-pub fn move_in_closing(db: &Connection, id: Id, kind: Kind, how: &How, closed: &Stamp) -> Result<()> {
+pub fn move_in_closing(
+    db: &Connection,
+    id: Id,
+    kind: Kind,
+    how: &How,
+    closed: &Stamp,
+) -> Result<()> {
     insert_closing(db, id, kind, how, closed)
 }
 
@@ -391,7 +447,11 @@ const TABLES: [&str; 3] = ["record", "closing", "closing_commit"];
 /// Writes a row of one of record.rs's tables as given, the constraints still
 /// holding: for tests that need a row they refuse.
 #[cfg(test)]
-pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
     crate::db::plant_row(db, &TABLES, table, columns)
 }
 

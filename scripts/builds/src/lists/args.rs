@@ -39,15 +39,24 @@ impl Args {
                 continue;
             };
             if valued.contains(&name) || COMMON.contains(&name) {
-                let Some(value) = rest.next() else { fail!("--{name} needs a value") };
+                let Some(value) = rest.next() else {
+                    fail!("--{name} needs a value")
+                };
                 flags.push((name.to_string(), Some(value.clone())));
             } else if switches.contains(&name) {
                 flags.push((name.to_string(), None));
             } else {
-                let mut known: Vec<String> =
-                    valued.iter().chain(&COMMON).chain(switches).map(|n| format!("--{n}")).collect();
+                let mut known: Vec<String> = valued
+                    .iter()
+                    .chain(&COMMON)
+                    .chain(switches)
+                    .map(|n| format!("--{n}"))
+                    .collect();
                 known.dedup();
-                fail!("unknown flag --{name}; this command takes {}", known.join(", "));
+                fail!(
+                    "unknown flag --{name}; this command takes {}",
+                    known.join(", ")
+                );
             }
         }
         Ok(Args { positional, flags })
@@ -103,12 +112,16 @@ impl Args {
     }
 
     pub fn switch(&self, name: &str) -> bool {
-        self.flags.iter().any(|(flag, value)| flag == name && value.is_none())
+        self.flags
+            .iter()
+            .any(|(flag, value)| flag == name && value.is_none())
     }
 
     /// The value of <name> as a variant of <T> (its serde spelling), if given.
     pub fn choice<T: DeserializeOwned>(&self, name: &str) -> Result<Option<T>> {
-        let Some(text) = self.value(name)? else { return Ok(None) };
+        let Some(text) = self.value(name)? else {
+            return Ok(None);
+        };
         serde_json::from_value(serde_json::Value::String(text.to_string()))
             .map(Some)
             .map_err(|error| crate::fail::Fail::Message(format!("--{name}: {error}")))
@@ -136,7 +149,9 @@ pub fn parse_named<T: DeserializeOwned>(flag: &str, text: &str, names: &str) -> 
 pub fn read_input(spec: &str) -> Result<String> {
     if spec == "-" {
         let mut text = String::new();
-        std::io::stdin().read_to_string(&mut text).context(|| "reading standard input".to_string())?;
+        std::io::stdin()
+            .read_to_string(&mut text)
+            .context(|| "reading standard input".to_string())?;
         return Ok(text);
     }
     std::fs::read_to_string(spec).context(|| format!("reading {spec}"))
@@ -145,8 +160,9 @@ pub fn read_input(spec: &str) -> Result<String> {
 /// A JSON request from <spec> (a file, or `-` for standard input).
 pub fn read_request<T: DeserializeOwned>(spec: &str) -> Result<T> {
     let text = read_input(spec)?;
-    serde_json::from_str(&text)
-        .map_err(|error| crate::fail::Fail::Message(format!("the request in {spec} is not valid: {error}")))
+    serde_json::from_str(&text).map_err(|error| {
+        crate::fail::Fail::Message(format!("the request in {spec} is not valid: {error}"))
+    })
 }
 
 #[cfg(test)]

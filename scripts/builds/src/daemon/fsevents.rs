@@ -41,8 +41,17 @@ const UTF8: u32 = 0x0800_0100;
 
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
-    fn CFStringCreateWithCString(allocator: CFAllocatorRef, text: *const c_char, encoding: u32) -> CFStringRef;
-    fn CFArrayCreate(allocator: CFAllocatorRef, values: *const *const c_void, count: CFIndex, callbacks: *const c_void) -> CFArrayRef;
+    fn CFStringCreateWithCString(
+        allocator: CFAllocatorRef,
+        text: *const c_char,
+        encoding: u32,
+    ) -> CFStringRef;
+    fn CFArrayCreate(
+        allocator: CFAllocatorRef,
+        values: *const *const c_void,
+        count: CFIndex,
+        callbacks: *const c_void,
+    ) -> CFArrayRef;
     fn CFRelease(object: *const c_void);
     static kCFTypeArrayCallBacks: c_void;
 }
@@ -71,7 +80,11 @@ unsafe extern "C" {
 unsafe extern "C" {
     fn dispatch_queue_create(label: *const c_char, attributes: *const c_void) -> DispatchQueue;
     fn dispatch_release(object: *mut c_void);
-    fn dispatch_async_f(queue: DispatchQueue, context: *mut c_void, work: extern "C" fn(*mut c_void));
+    fn dispatch_async_f(
+        queue: DispatchQueue,
+        context: *mut c_void,
+        work: extern "C" fn(*mut c_void),
+    );
 }
 
 /// What an event says about its path.
@@ -140,12 +153,18 @@ fn paths_array(paths: &[&Path]) -> CFArrayRef {
     let strings: Vec<CFStringRef> = paths
         .iter()
         .map(|path| {
-            let text = CString::new(path.as_os_str().as_encoded_bytes()).expect("a path holds no NUL");
+            let text =
+                CString::new(path.as_os_str().as_encoded_bytes()).expect("a path holds no NUL");
             unsafe { CFStringCreateWithCString(std::ptr::null(), text.as_ptr(), UTF8) }
         })
         .collect();
     let array = unsafe {
-        CFArrayCreate(std::ptr::null(), strings.as_ptr(), strings.len() as CFIndex, &kCFTypeArrayCallBacks as *const c_void)
+        CFArrayCreate(
+            std::ptr::null(),
+            strings.as_ptr(),
+            strings.len() as CFIndex,
+            &kCFTypeArrayCallBacks as *const c_void,
+        )
     };
     for string in &strings {
         unsafe { CFRelease(*string) };
@@ -162,8 +181,19 @@ impl Stream {
 
     /// Starts following <folders> as `start_since` does, from the event id
     /// current now.
-    pub fn start(folders: &[&Path], excluded: &[&Path], latency: f64, handler: Handler) -> Option<Stream> {
-        Self::start_since(Self::current_event_id(), folders, excluded, latency, handler)
+    pub fn start(
+        folders: &[&Path],
+        excluded: &[&Path],
+        latency: f64,
+        handler: Handler,
+    ) -> Option<Stream> {
+        Self::start_since(
+            Self::current_event_id(),
+            folders,
+            excluded,
+            latency,
+            handler,
+        )
     }
 
     /// Starts following <folders>, leaving out what happens under <excluded>
@@ -173,7 +203,13 @@ impl Stream {
     /// made after it was taken and before the stream went live is reported,
     /// not lost; the replay's end marker is not handed on. With `WatchRoot`,
     /// a change to a followed folder's own path arrives as ROOT_CHANGED.
-    pub fn start_since(since: u64, folders: &[&Path], excluded: &[&Path], latency: f64, handler: Handler) -> Option<Stream> {
+    pub fn start_since(
+        since: u64,
+        folders: &[&Path],
+        excluded: &[&Path],
+        latency: f64,
+        handler: Handler,
+    ) -> Option<Stream> {
         let array = paths_array(folders);
         let handler = Box::into_raw(Box::new(handler));
         let context = FSEventStreamContext {
@@ -186,7 +222,17 @@ impl Stream {
         // NoDefer: the first event after a quiet spell comes at once.
         // WatchRoot: a followed folder vanishing or moving is reported.
         let create = 0x2 | 0x4;
-        let stream = unsafe { FSEventStreamCreate(std::ptr::null(), deliver, &context, array, since, latency, create) };
+        let stream = unsafe {
+            FSEventStreamCreate(
+                std::ptr::null(),
+                deliver,
+                &context,
+                array,
+                since,
+                latency,
+                create,
+            )
+        };
         unsafe { CFRelease(array) };
         if stream.is_null() {
             drop(unsafe { Box::from_raw(handler) });
@@ -216,7 +262,11 @@ impl Stream {
                 return None;
             }
         }
-        Some(Stream { stream, queue, handler })
+        Some(Stream {
+            stream,
+            queue,
+            handler,
+        })
     }
 
     /// Hands the handler, now, the events the stream holds back for its
@@ -243,7 +293,6 @@ impl Drop for Stream {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -284,8 +333,13 @@ mod tests {
         )
         .expect("a stream");
         loop {
-            let events = heard.recv_timeout(HANG_GUARD).expect("the earlier write was never reported");
-            assert!(events.iter().all(|e| e.flags & flags::HISTORY_DONE == 0), "the end of the history was handed on");
+            let events = heard
+                .recv_timeout(HANG_GUARD)
+                .expect("the earlier write was never reported");
+            assert!(
+                events.iter().all(|e| e.flags & flags::HISTORY_DONE == 0),
+                "the end of the history was handed on"
+            );
             if events.iter().any(|e| e.path == root) {
                 return;
             }
@@ -319,9 +373,16 @@ mod tests {
         std::fs::write(root.join("a"), b"x").expect("a write");
         entered_rx.recv_timeout(HANG_GUARD).expect("a batch");
         drop(stream);
-        assert!(!freed.load(Ordering::SeqCst), "the handler was freed while its batch ran");
-        finished_rx.recv_timeout(HANG_GUARD).expect("the batch ends");
+        assert!(
+            !freed.load(Ordering::SeqCst),
+            "the handler was freed while its batch ran"
+        );
+        finished_rx
+            .recv_timeout(HANG_GUARD)
+            .expect("the batch ends");
         assert!(!seen_freed.load(Ordering::SeqCst));
-        freed_rx.recv_timeout(HANG_GUARD).expect("the handler was never freed");
+        freed_rx
+            .recv_timeout(HANG_GUARD)
+            .expect("the handler was never freed");
     }
 }

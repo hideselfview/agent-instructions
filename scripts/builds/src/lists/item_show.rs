@@ -33,20 +33,43 @@ fn how_words(how: &How) -> String {
 }
 
 fn wait_line(lists: &Lists, wait: &Wait) -> String {
-    let met = if derive::wait_met(lists, wait) { "met" } else { "not met" };
+    let met = if derive::wait_met(lists, wait) {
+        "met"
+    } else {
+        "not met"
+    };
     format!("{} ({met})", wait_words(lists, wait))
 }
 
 /// Item <id>, open or closed, in full.
 pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
     let (item, state, open) = match lists.locate(id) {
-        Some(Located { kind: Kind::Item, standing: Standing::Open, .. }) => {
+        Some(Located {
+            kind: Kind::Item,
+            standing: Standing::Open,
+            ..
+        }) => {
             let item = open_item(lists, id)?;
-            (item, derive::item_state(lists, item).label().to_string(), true)
+            (
+                item,
+                derive::item_state(lists, item).label().to_string(),
+                true,
+            )
         }
-        Some(Located { kind: Kind::Item, standing: Standing::Closed(closed), .. }) => {
-            let crate::lists::Record::Item(item) = &closed.record else { unreachable!("an item's closed record") };
-            let text = format!("closed, {} by {} {}", how_words(&closed.how), closed.closed.by, local_minute(closed.closed.at));
+        Some(Located {
+            kind: Kind::Item,
+            standing: Standing::Closed(closed),
+            ..
+        }) => {
+            let crate::lists::Record::Item(item) = &closed.record else {
+                unreachable!("an item's closed record")
+            };
+            let text = format!(
+                "closed, {} by {} {}",
+                how_words(&closed.how),
+                closed.closed.by,
+                local_minute(closed.closed.at)
+            );
             (item, text, false)
         }
         Some(Located { kind, .. }) => fail!("{id} is a {}, not an item", kind.name()),
@@ -54,12 +77,21 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
     };
     let mut out = String::new();
     let _ = writeln!(out, "{id} {} [{state}]", item.title);
-    let _ = writeln!(out, "area: {}; for: {}", item.area, match item.r#for {
-        Audience::Coordinator => "coordinator",
-        Audience::DesignSession => "design session",
-    });
+    let _ = writeln!(
+        out,
+        "area: {}; for: {}",
+        item.area,
+        match item.r#for {
+            Audience::Coordinator => "coordinator",
+            Audience::DesignSession => "design session",
+        }
+    );
     if let Some(priority) = &item.priority {
-        let level = if priority.level == Level::First { "first" } else { "last" };
+        let level = if priority.level == Level::First {
+            "first"
+        } else {
+            "last"
+        };
         let _ = writeln!(out, "priority {level}: {}", priority.why);
     }
     if let Some(brief) = &item.brief {
@@ -72,17 +104,39 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
     let running = if open { item.running.as_slice() } else { &[] };
     for running in running {
         let _ = writeln!(out, "{}", marker(running)?);
-        let _ = writeln!(out, "running since {} by {}", local_minute(running.since.at), running.since.by);
+        let _ = writeln!(
+            out,
+            "running since {} by {}",
+            local_minute(running.since.at),
+            running.since.by
+        );
     }
     for part in &item.landed {
-        let _ = writeln!(out, "landed in {}: {} ({})", part.repo, part.commits.join(" "), local_minute(part.at));
+        let _ = writeln!(
+            out,
+            "landed in {}: {} ({})",
+            part.repo,
+            part.commits.join(" "),
+            local_minute(part.at)
+        );
     }
     if let Some(from) = item.from {
         let _ = writeln!(out, "made by {from}");
     }
-    let _ = writeln!(out, "opened {} by {}", local_minute(item.opened.at), item.opened.by);
+    let _ = writeln!(
+        out,
+        "opened {} by {}",
+        local_minute(item.opened.at),
+        item.opened.by
+    );
     for note in &item.notes {
-        let _ = writeln!(out, "note {} {}: {}", local_minute(note.at), note.by, note.text);
+        let _ = writeln!(
+            out,
+            "note {} {}: {}",
+            local_minute(note.at),
+            note.by,
+            note.text
+        );
     }
     let _ = write!(out, "\n{}\n", item.details.trim_end());
     Ok(out)
@@ -90,7 +144,9 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
 
 pub fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(1, "builds item show N")? else { unreachable!("exactly one") };
+    let [id] = args.exactly(1, "builds item show N")? else {
+        unreachable!("exactly one")
+    };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     print!("{}", render_item(&store.load()?, Id::parse(id)?)?);
     Ok(())
@@ -98,7 +154,10 @@ pub fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 
 pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["area", "for"], &["running", "ready"])?;
-    args.exactly(0, "builds item list [--running] [--ready] [--area A] [--for F]")?;
+    args.exactly(
+        0,
+        "builds item list [--running] [--ready] [--area A] [--for F]",
+    )?;
     let audience: Option<Audience> = args.choice("for")?;
     let area = args.value("area")?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
@@ -106,13 +165,18 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     if let Some(area) = area
         && !lists.areas.iter().any(|known| known == area)
     {
-        fail!("area '{area}' does not exist (the areas are: {})", lists.areas.join("; "));
+        fail!(
+            "area '{area}' does not exist (the areas are: {})",
+            lists.areas.join("; ")
+        );
     }
     let chosen: Vec<&Item> = lists
         .items
         .iter()
         .filter(|item| !args.switch("running") || !item.running.is_empty())
-        .filter(|item| !args.switch("ready") || derive::item_state(&lists, item) == ItemState::Ready)
+        .filter(|item| {
+            !args.switch("ready") || derive::item_state(&lists, item) == ItemState::Ready
+        })
         .filter(|item| area.is_none_or(|a| item.area == a))
         .filter(|item| audience.is_none_or(|f| item.r#for == f))
         .collect();
@@ -145,7 +209,13 @@ pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             Some(_) => " [last]",
             None => "",
         };
-        println!("{:>3}. {} {}{priority} ({})", number + 1, item.id, item.title, item.area);
+        println!(
+            "{:>3}. {} {}{priority} ({})",
+            number + 1,
+            item.id,
+            item.title,
+            item.area
+        );
         if let Some(brief) = &item.brief {
             println!("       brief {brief}");
         }

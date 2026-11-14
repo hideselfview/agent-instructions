@@ -43,7 +43,9 @@ fn work_or_no_work_is_one_of_them() {
     assert!(refusal(work_or_why(Some(one.clone()), Some("x".into()))).contains("not both"));
     assert!(refusal(work_or_why(None, None)).contains("`work`"));
     assert!(refusal(work_or_why(None, Some(" ".into()))).contains("reason"));
-    assert_eq!(work_or_why(None, Some("nothing follows".into())).unwrap(), vec![]);
+    assert_eq!(
+        work_or_why(None, Some("nothing follows".into())).unwrap(),
+        vec![]
+    );
     assert_eq!(work_or_why(Some(one.clone()), None).unwrap(), one);
 }
-

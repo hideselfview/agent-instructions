@@ -27,10 +27,10 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::Args;
-use crate::lists::record::close;
 use crate::lists::item::{self, open_item};
-use crate::lists::store::{self, Store};
+use crate::lists::record::close;
 use crate::lists::running::{Running, end, side_worktree_parts};
+use crate::lists::store::{self, Store};
 use crate::lists::{Closed, How, Id, Kind, Located, Stamp, Standing};
 use crate::text::note;
 use crate::tool::Tool;
@@ -49,7 +49,11 @@ pub struct LandedPart {
 /// Records on open item <id> that <part> of it is on main.
 pub fn add_part(db: &Connection, id: Id, part: LandedPart) -> Result<()> {
     item::require_open_item(db, id)?;
-    db.execute("INSERT INTO item_landing (item_id, repo, at) VALUES (?1, ?2, ?3)", params![id, part.repo, part.at]).sql()?;
+    db.execute(
+        "INSERT INTO item_landing (item_id, repo, at) VALUES (?1, ?2, ?3)",
+        params![id, part.repo, part.at],
+    )
+    .sql()?;
     let landing = db.last_insert_rowid();
     for (position, sha) in part.commits.iter().enumerate() {
         db.execute(
@@ -64,19 +68,39 @@ pub fn add_part(db: &Connection, id: Id, part: LandedPart) -> Result<()> {
 /// What already landed of every item, by item, in the order it landed.
 pub fn read(db: &Connection) -> Result<BTreeMap<Id, Vec<LandedPart>>> {
     let mut commits: BTreeMap<i64, Vec<String>> = BTreeMap::new();
-    let mut statement = db.prepare("SELECT landing_id, sha FROM item_landing_commit ORDER BY landing_id, position").sql()?;
-    for row in statement.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))).sql()? {
+    let mut statement = db
+        .prepare("SELECT landing_id, sha FROM item_landing_commit ORDER BY landing_id, position")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .sql()?
+    {
         let (landing, sha) = row.sql()?;
         commits.entry(landing).or_default().push(sha);
     }
-    let mut statement = db.prepare("SELECT id, item_id, repo, at FROM item_landing ORDER BY id").sql()?;
+    let mut statement = db
+        .prepare("SELECT id, item_id, repo, at FROM item_landing ORDER BY id")
+        .sql()?;
     let rows = statement
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Id>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Id>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })
         .sql()?;
     let mut all: BTreeMap<Id, Vec<LandedPart>> = BTreeMap::new();
     for row in rows {
         let (landing, item, repo, at) = row.sql()?;
-        all.entry(item).or_default().push(LandedPart { repo, commits: commits.remove(&landing).unwrap_or_default(), at });
+        all.entry(item).or_default().push(LandedPart {
+            repo,
+            commits: commits.remove(&landing).unwrap_or_default(),
+            at,
+        });
     }
     Ok(all)
 }
@@ -98,14 +122,19 @@ struct Landing {
 
 fn parse(args: &[String]) -> Result<Landing> {
     let args = Args::parse(args, &["done", "part"], &[])?;
-    let Some((dir, shas)) = args.positional().split_first() else { fail!("usage: {USAGE}") };
+    let Some((dir, shas)) = args.positional().split_first() else {
+        fail!("usage: {USAGE}")
+    };
     if shas.is_empty() {
         fail!("name the commits: {USAGE}");
     }
     let mut items = Vec::new();
     for (flag, finishes) in [("done", true), ("part", false)] {
         for id in args.values(flag) {
-            items.push(Named { id: Id::parse(id)?, finishes });
+            items.push(Named {
+                id: Id::parse(id)?,
+                finishes,
+            });
         }
     }
     if items.is_empty() {
@@ -113,17 +142,30 @@ fn parse(args: &[String]) -> Result<Landing> {
     }
     for (at, named) in items.iter().enumerate() {
         if items[..at].iter().any(|other| other.id == named.id) {
-            fail!("{} is named twice; a landing finishes or advances an item, not both", named.id);
+            fail!(
+                "{} is named twice; a landing finishes or advances an item, not both",
+                named.id
+            );
         }
     }
     let checkout = Checkout::find(dir)?;
-    Ok(Landing { checkout, items, shas: shas.to_vec(), args })
+    Ok(Landing {
+        checkout,
+        items,
+        shas: shas.to_vec(),
+        args,
+    })
 }
 
 /// <sha> as the full id of a commit in the repo of <dir>.
 fn commit_id(dir: &Path, sha: &str) -> Result<String> {
     let output = git(dir)
-        .args(["rev-parse", "--verify", "--quiet", &format!("{sha}^{{commit}}")])
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{sha}^{{commit}}"),
+        ])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -157,12 +199,18 @@ fn is_ancestor(dir: &Path, commit: &str, rev: &str) -> Result<bool> {
 /// the landing's commits are on. An item that runs only in other repos can't
 /// land from this one.
 fn running_in_repo<'a>(running: &'a [Running], checkout: &Checkout, id: Id) -> Result<&'a Running> {
-    let found = running.iter().find(|r| side_worktree_parts(&r.worktree).is_some_and(|(repo, _)| repo == checkout.repo()));
+    let found = running.iter().find(|r| {
+        side_worktree_parts(&r.worktree).is_some_and(|(repo, _)| repo == checkout.repo())
+    });
     match found {
         Some(running) => Ok(running),
         None => {
             let worktrees: Vec<&str> = running.iter().map(|r| r.worktree.as_str()).collect();
-            fail!("{id} runs in {}, not in a worktree of {}, the repo being landed", worktrees.join(" and "), checkout.repo())
+            fail!(
+                "{id} runs in {}, not in a worktree of {}, the repo being landed",
+                worktrees.join(" and "),
+                checkout.repo()
+            )
         }
     }
 }
@@ -175,10 +223,17 @@ pub fn check_landing(tool: &Tool, args: &[String]) -> Result<()> {
     for named in &landing.items {
         let item = open_item(&lists, named.id)?;
         if item.running.is_empty() {
-            fail!("{} is not running, and a landing is an agent's branch arriving: `builds item take` it first", named.id);
+            fail!(
+                "{} is not running, and a landing is an agent's branch arriving: `builds item take` it first",
+                named.id
+            );
         }
         let running = running_in_repo(&item.running, &landing.checkout, named.id)?;
-        branches.push((named.id, running.worktree.clone(), format!("refs/heads/{}", running.branch)));
+        branches.push((
+            named.id,
+            running.worktree.clone(),
+            format!("refs/heads/{}", running.branch),
+        ));
     }
     for sha in &landing.shas {
         let commit = commit_id(&landing.checkout.top, sha)?;
@@ -190,12 +245,22 @@ pub fn check_landing(tool: &Tool, args: &[String]) -> Result<()> {
             }
         }
         if !reached {
-            let named: Vec<String> =
-                branches.iter().map(|(id, _, branch)| format!("{id} ({})", branch.trim_start_matches("refs/heads/"))).collect();
-            fail!("{sha} is on the branch of none of the items named: {}", named.join(", "));
+            let named: Vec<String> = branches
+                .iter()
+                .map(|(id, _, branch)| {
+                    format!("{id} ({})", branch.trim_start_matches("refs/heads/"))
+                })
+                .collect();
+            fail!(
+                "{sha} is on the branch of none of the items named: {}",
+                named.join(", ")
+            );
         }
     }
-    note(format!("the landing checks out against {} item(s)", landing.items.len()));
+    note(format!(
+        "the landing checks out against {} item(s)",
+        landing.items.len()
+    ));
     Ok(())
 }
 
@@ -209,33 +274,72 @@ fn same_set(a: &[String], b: &[String]) -> bool {
 
 /// Records on <lists> that <commits> of <repo> landed for <items>; the same
 /// call again records nothing more. Returns what each item did.
-fn record(db: &Connection, items: &[Named], repo: &str, commits: &[String], stamp: &Stamp) -> Result<Vec<String>> {
+fn record(
+    db: &Connection,
+    items: &[Named],
+    repo: &str,
+    commits: &[String],
+    stamp: &Stamp,
+) -> Result<Vec<String>> {
     let lists = store::read(db)?;
     let mut did = Vec::new();
     for named in items {
         let id = named.id;
         match lists.locate(id) {
             None => fail!("{id} is not a record"),
-            Some(Located { kind, .. }) if kind != Kind::Item => fail!("{id} is a {}, not an item", kind.name()),
-            Some(Located { standing: Standing::Closed(Closed { how: How::Landed(done), .. }), .. }) => {
+            Some(Located { kind, .. }) if kind != Kind::Item => {
+                fail!("{id} is a {}, not an item", kind.name())
+            }
+            Some(Located {
+                standing:
+                    Standing::Closed(Closed {
+                        how: How::Landed(done),
+                        ..
+                    }),
+                ..
+            }) => {
                 if !same_set(done, commits) {
-                    fail!("{id} is closed as landed with other commits ({}); a different set of commits is refused", done.join(" "));
+                    fail!(
+                        "{id} is closed as landed with other commits ({}); a different set of commits is refused",
+                        done.join(" ")
+                    );
                 }
                 did.push(format!("{id} was already recorded"));
             }
-            Some(Located { standing: Standing::Closed(closed), .. }) => {
-                fail!("{id} is closed ({}), so no landing records on it", closed.how.label())
+            Some(Located {
+                standing: Standing::Closed(closed),
+                ..
+            }) => {
+                fail!(
+                    "{id} is closed ({}), so no landing records on it",
+                    closed.how.label()
+                )
             }
-            Some(Located { standing: Standing::Open, .. }) => {
+            Some(Located {
+                standing: Standing::Open,
+                ..
+            }) => {
                 let item = lists.item(id).expect("located open");
                 if named.finishes {
                     end(db, id)?;
                     close(db, id, How::Landed(commits.to_vec()), stamp)?;
                     did.push(format!("{id} landed"));
-                } else if item.landed.iter().any(|part| part.repo == repo && same_set(&part.commits, commits)) {
+                } else if item
+                    .landed
+                    .iter()
+                    .any(|part| part.repo == repo && same_set(&part.commits, commits))
+                {
                     did.push(format!("{id} already had this part"));
                 } else {
-                    add_part(db, id, LandedPart { repo: repo.to_string(), commits: commits.to_vec(), at: stamp.at })?;
+                    add_part(
+                        db,
+                        id,
+                        LandedPart {
+                            repo: repo.to_string(),
+                            commits: commits.to_vec(),
+                            at: stamp.at,
+                        },
+                    )?;
                     did.push(format!("{id} gained a landed part"));
                 }
             }
@@ -251,24 +355,31 @@ pub fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     for sha in &landing.shas {
         let commit = commit_id(top, sha)?;
         if !is_ancestor(top, &commit, "refs/remotes/origin/main")? {
-            fail!("{sha} is not on origin/main in {}; `landed` records commits the push put there", top.display());
+            fail!(
+                "{sha} is not on origin/main in {}; `landed` records commits the push put there",
+                top.display()
+            );
         }
         commits.push(commit);
     }
     let store = Store::resolve(&tool.places, &landing.args, top)?;
     let stamp = Stamp::resolve(tool.now, &landing.args, cwd)?;
     let repo = landing.checkout.repo();
-    let did = store.write(&stamp, &format!("item landed {}", commits.join(" ")), |db| {
-        let lists = store::read(db)?;
-        for named in &landing.items {
-            if let Ok(item) = open_item(&lists, named.id)
-                && !item.running.is_empty()
-            {
-                running_in_repo(&item.running, &landing.checkout, named.id)?;
+    let did = store.write(
+        &stamp,
+        &format!("item landed {}", commits.join(" ")),
+        |db| {
+            let lists = store::read(db)?;
+            for named in &landing.items {
+                if let Ok(item) = open_item(&lists, named.id)
+                    && !item.running.is_empty()
+                {
+                    running_in_repo(&item.running, &landing.checkout, named.id)?;
+                }
             }
-        }
-        record(db, &landing.items, &repo, &commits, &stamp)
-    })?;
+            record(db, &landing.items, &repo, &commits, &stamp)
+        },
+    )?;
     for line in did {
         note(line);
     }
@@ -282,7 +393,11 @@ const TABLES: [&str; 2] = ["item_landing", "item_landing_commit"];
 /// Writes a row of one of landing.rs's tables as given, the constraints
 /// still holding: for tests that need a row they refuse.
 #[cfg(test)]
-pub fn plant(db: &Connection, table: &str, columns: &[(&str, rusqlite::types::Value)]) -> rusqlite::Result<usize> {
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
     crate::db::plant_row(db, &TABLES, table, columns)
 }
 

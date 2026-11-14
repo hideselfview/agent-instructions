@@ -141,7 +141,9 @@ impl Checkout {
     /// else made (Claude Code's harness puts agents' under
     /// <main>/.claude/worktrees) is not one, and no command treats it as one.
     pub fn is_side(&self) -> bool {
-        let Some(parent) = self.main.parent() else { return false };
+        let Some(parent) = self.main.parent() else {
+            return false;
+        };
         let folder = parent.join(format!("{}-worktrees", self.repo()));
         self.top.parent() == Some(folder.as_path())
             && file_name(&self.top)
@@ -151,7 +153,11 @@ impl Checkout {
 
     /// `main`, or the worktree's folder name.
     pub fn name(&self) -> String {
-        if self.is_main() { "main".to_string() } else { file_name(&self.top) }
+        if self.is_main() {
+            "main".to_string()
+        } else {
+            file_name(&self.top)
+        }
     }
 
     pub fn build_root(&self, places: &Places) -> PathBuf {
@@ -173,7 +179,11 @@ impl Checkout {
             .output()
             .context(|| format!("running git in {}", self.top.display()))?;
         let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Ok(if branch.is_empty() { None } else { Some(branch) })
+        Ok(if branch.is_empty() {
+            None
+        } else {
+            Some(branch)
+        })
     }
 
     /// A repo's folder sits beside DerivedData, caches and .trash at the
@@ -224,7 +234,11 @@ impl Root {
         } else {
             None
         };
-        Ok(Some(Root { path: path.to_path_buf(), top, live }))
+        Ok(Some(Root {
+            path: path.to_path_buf(),
+            top,
+            live,
+        }))
     }
 
     pub fn name(&self) -> String {
@@ -280,7 +294,12 @@ pub fn all_root_paths(places: &Places) -> Result<Vec<PathBuf>> {
     sort_collated(&mut markers);
     Ok(markers
         .into_iter()
-        .map(|marker| marker.parent().expect("a marker has a folder").to_path_buf())
+        .map(|marker| {
+            marker
+                .parent()
+                .expect("a marker has a folder")
+                .to_path_buf()
+        })
         .collect())
 }
 
@@ -354,13 +373,17 @@ pub fn absolute_link_target(link: &Path) -> Result<PathBuf> {
         return Ok(target);
     }
     let parent = link.parent().expect("a link has a folder");
-    let parent = std::fs::canonicalize(parent).context(|| format!("resolving {}", parent.display()))?;
+    let parent =
+        std::fs::canonicalize(parent).context(|| format!("resolving {}", parent.display()))?;
     Ok(parent.join(target))
 }
 
 /// The worktrees of <top>'s repo, as `git worktree list` gives them.
 pub fn worktrees_of(top: &Path) -> Result<Vec<PathBuf>> {
-    let text = git_text(git(top).args(["worktree", "list", "--porcelain"]), "list worktrees")?;
+    let text = git_text(
+        git(top).args(["worktree", "list", "--porcelain"]),
+        "list worktrees",
+    )?;
     Ok(text
         .lines()
         .filter_map(|line| line.strip_prefix("worktree "))

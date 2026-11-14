@@ -116,14 +116,22 @@ impl Tracker {
     /// stream to deliver its mark. How long FSEvents takes depends on every
     /// write on the machine, so a caller that must have the answer gives a
     /// wait it will not reach unless the stream is stuck.
-    pub fn start_waiting(root: &Path, marks_dir: &Path, mark_wait: std::time::Duration) -> std::io::Result<Arc<Tracker>> {
+    pub fn start_waiting(
+        root: &Path,
+        marks_dir: &Path,
+        mark_wait: std::time::Duration,
+    ) -> std::io::Result<Arc<Tracker>> {
         let meta = std::fs::symlink_metadata(root)?;
         std::fs::create_dir_all(marks_dir)?;
         // Marks a daemon killed mid-question left; no question waits on
         // them, since one daemon follows a root.
         for entry in std::fs::read_dir(marks_dir)? {
             let entry = entry?;
-            if entry.file_name().to_str().is_some_and(|name| name.starts_with("mark-")) {
+            if entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.starts_with("mark-"))
+            {
                 if entry.file_type()?.is_dir() {
                     std::fs::remove_dir_all(entry.path())?;
                 } else {
@@ -152,13 +160,19 @@ impl Tracker {
                 marks_prefix: format!(
                     "mark-{}-{}-",
                     std::process::id(),
-                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0)
                 ),
                 marks: Mutex::new(Marks::default()),
                 delivered: Condvar::new(),
                 mark_wait,
                 index: Mutex::new(Index::new(root, &meta)),
-                flags: Mutex::new(Flags { restart: true, ..Flags::default() }),
+                flags: Mutex::new(Flags {
+                    restart: true,
+                    ..Flags::default()
+                }),
                 wake: Condvar::new(),
                 stream: Mutex::new(None),
                 queue: Mutex::new(Vec::new()),
@@ -214,11 +228,15 @@ impl Tracker {
             *self.stream.lock().expect("no panic holding it") = None;
             self.flags.lock().expect("no panic holding it").followed = None;
             let Ok(meta) = std::fs::symlink_metadata(&self.root) else {
-                eprintln!("builds: {} is gone; waiting for it to come back", self.root.display());
+                eprintln!(
+                    "builds: {} is gone; waiting for it to come back",
+                    self.root.display()
+                );
                 continue;
             };
             *self.index.lock().expect("no panic holding it") = Index::new(&self.root, &meta);
-            self.flags.lock().expect("no panic holding it").followed = Some((meta.dev(), meta.ino()));
+            self.flags.lock().expect("no panic holding it").followed =
+                Some((meta.dev(), meta.ino()));
             let me = Arc::downgrade(&self);
             let trash = self.root.join(".trash");
             let stream = Stream::start(
@@ -227,7 +245,11 @@ impl Tracker {
                 0.2,
                 Box::new(move |events| {
                     if let Some(tracker) = me.upgrade() {
-                        tracker.queue.lock().expect("no panic holding it").extend(events);
+                        tracker
+                            .queue
+                            .lock()
+                            .expect("no panic holding it")
+                            .extend(events);
                         tracker.queued.notify_all();
                     }
                 }),
@@ -280,7 +302,9 @@ impl Tracker {
     /// Is the root no longer the folder its stream started on?
     fn root_replaced(&self) -> bool {
         let followed = self.flags.lock().expect("no panic holding it").followed;
-        let now = std::fs::symlink_metadata(&self.root).ok().map(|meta| (meta.dev(), meta.ino()));
+        let now = std::fs::symlink_metadata(&self.root)
+            .ok()
+            .map(|meta| (meta.dev(), meta.ino()));
         now.is_none() || now != followed
     }
 
@@ -305,7 +329,15 @@ impl Tracker {
         let mark = events
             .iter()
             .filter(|event| event.path.parent() == Some(self.marks_dir.as_path()))
-            .filter_map(|event| event.path.file_name()?.to_str()?.strip_prefix(&self.marks_prefix)?.parse::<u64>().ok())
+            .filter_map(|event| {
+                event
+                    .path
+                    .file_name()?
+                    .to_str()?
+                    .strip_prefix(&self.marks_prefix)?
+                    .parse::<u64>()
+                    .ok()
+            })
             .max()
             .unwrap_or(0);
         let paths: Vec<PathBuf> = events.iter().map(|event| event.path.clone()).collect();
@@ -322,7 +354,8 @@ impl Tracker {
         // The stream also says ROOT_CHANGED when a folder above the root
         // changes, the root itself staying where it was.
         let root_changed = events.iter().any(|event| {
-            event.flags & (flags::ROOT_CHANGED | flags::UNMOUNT) != 0 && event.path.starts_with(&self.root)
+            event.flags & (flags::ROOT_CHANGED | flags::UNMOUNT) != 0
+                && event.path.starts_with(&self.root)
         });
         if root_changed && self.root_replaced() {
             self.signal_restart("moved or unmounted");
@@ -344,7 +377,8 @@ impl Tracker {
         // than the root.
         let whole = events.iter().find(|event| {
             let lost = event.flags & (flags::USER_DROPPED | flags::KERNEL_DROPPED) != 0;
-            (lost && event.flags & flags::MUST_SCAN_SUBDIRS == 0) || event.flags & flags::EVENT_IDS_WRAPPED != 0
+            (lost && event.flags & flags::MUST_SCAN_SUBDIRS == 0)
+                || event.flags & flags::EVENT_IDS_WRAPPED != 0
         });
         if let Some(event) = whole {
             // Every other event in the batch came before the walk, which
@@ -353,8 +387,9 @@ impl Tracker {
             self.rewalk(&self.root.clone(), flags);
             return;
         }
-        let (scans, others): (Vec<Event>, Vec<Event>) =
-            events.into_iter().partition(|event| event.flags & flags::MUST_SCAN_SUBDIRS != 0);
+        let (scans, others): (Vec<Event>, Vec<Event>) = events
+            .into_iter()
+            .partition(|event| event.flags & flags::MUST_SCAN_SUBDIRS != 0);
         self.apply(others);
         // A folder under another one walked again is walked with it.
         let mut folders: Vec<(PathBuf, u32)> = scans
@@ -388,7 +423,10 @@ impl Tracker {
             // Gone, or no longer a folder: what is there now is read like
             // any change.
             _ => {
-                self.apply(vec![Event { path: folder.to_path_buf(), flags: 0 }]);
+                self.apply(vec![Event {
+                    path: folder.to_path_buf(),
+                    flags: 0,
+                }]);
                 return;
             }
         };
@@ -403,9 +441,18 @@ impl Tracker {
             self.wake.notify_all();
             entries
         } else {
-            if self.index.lock().expect("no panic holding it").lookup(folder).is_none() {
+            if self
+                .index
+                .lock()
+                .expect("no panic holding it")
+                .lookup(folder)
+                .is_none()
+            {
                 // A folder the index doesn't hold yet: applying it walks it.
-                self.apply(vec![Event { path: folder.to_path_buf(), flags: 0 }]);
+                self.apply(vec![Event {
+                    path: folder.to_path_buf(),
+                    flags: 0,
+                }]);
                 return;
             }
             let fresh = Mutex::new(Index::of_folder(folder, &meta));
@@ -429,8 +476,13 @@ impl Tracker {
 
     /// Is <path> in one of the root's entries the index leaves out?
     fn left_out(&self, path: &Path) -> bool {
-        let Ok(rest) = path.strip_prefix(&self.root) else { return false };
-        let first = rest.components().next().map(|c| c.as_os_str().to_string_lossy().into_owned());
+        let Ok(rest) = path.strip_prefix(&self.root) else {
+            return false;
+        };
+        let first = rest
+            .components()
+            .next()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned());
         first.is_some_and(|name| crate::places::unfollowed(&name))
     }
 
@@ -447,28 +499,56 @@ impl Tracker {
             let meta = match std::fs::symlink_metadata(&path) {
                 Ok(meta) => meta,
                 Err(error) if gone(&error) => {
-                    read.push(Listing { path, meta: None, names: None, listed: Vec::new() });
+                    read.push(Listing {
+                        path,
+                        meta: None,
+                        names: None,
+                        listed: Vec::new(),
+                    });
                     continue;
                 }
                 Err(error) => {
-                    eprintln!("builds: reading {}: {error}; left as it was", path.display());
+                    eprintln!(
+                        "builds: reading {}: {error}; left as it was",
+                        path.display()
+                    );
                     continue;
                 }
             };
             if !meta.is_dir() {
-                read.push(Listing { path, meta: Some(meta), names: None, listed: Vec::new() });
+                read.push(Listing {
+                    path,
+                    meta: Some(meta),
+                    names: None,
+                    listed: Vec::new(),
+                });
                 continue;
             }
             match list_metadata(&path) {
                 Ok(Some(mut listed)) => {
                     if path == self.root {
-                        listed.retain(|one| !std::str::from_utf8(&one.name).is_ok_and(crate::places::unfollowed));
+                        listed.retain(|one| {
+                            !std::str::from_utf8(&one.name).is_ok_and(crate::places::unfollowed)
+                        });
                     }
                     let names = Some(listed.iter().map(|one| one.name.clone()).collect());
-                    read.push(Listing { path, meta: Some(meta), names, listed });
+                    read.push(Listing {
+                        path,
+                        meta: Some(meta),
+                        names,
+                        listed,
+                    });
                 }
-                Ok(None) => read.push(Listing { path, meta: None, names: None, listed: Vec::new() }),
-                Err(error) => eprintln!("builds: listing {}: {error}; left as it was", path.display()),
+                Ok(None) => read.push(Listing {
+                    path,
+                    meta: None,
+                    names: None,
+                    listed: Vec::new(),
+                }),
+                Err(error) => eprintln!(
+                    "builds: listing {}: {error}; left as it was",
+                    path.display()
+                ),
             }
         }
         // Only the entries that changed are read further (a big file's
@@ -477,22 +557,44 @@ impl Tracker {
             let index = self.index.lock().expect("no panic holding it");
             for listing in &mut read {
                 let Some(meta) = &listing.meta else { continue };
-                let held = index.lookup(&listing.path).filter(|id| index.is_dir(*id) && index.ino(*id) == meta.ino());
+                let held = index
+                    .lookup(&listing.path)
+                    .filter(|id| index.is_dir(*id) && index.ino(*id) == meta.ino());
                 if let Some(id) = held {
-                    listing.listed.retain(|one| !index.unchanged(id, &one.name, &one.meta));
+                    listing
+                        .listed
+                        .retain(|one| !index.unchanged(id, &one.name, &one.meta));
                 }
             }
         }
         let changed: Vec<Changed> = read
             .into_iter()
-            .map(|Listing { path, meta, names, listed }| {
-                let own = meta.map(|meta| {
-                    let name = path.file_name().map(|n| n.as_encoded_bytes().to_vec()).unwrap_or_default();
-                    Entry::read(&name, &path, &meta)
-                });
-                let entries = listed.iter().map(|one| Entry::read(&one.name, &one.path, &one.meta)).collect();
-                Changed { path, own, names, entries }
-            })
+            .map(
+                |Listing {
+                     path,
+                     meta,
+                     names,
+                     listed,
+                 }| {
+                    let own = meta.map(|meta| {
+                        let name = path
+                            .file_name()
+                            .map(|n| n.as_encoded_bytes().to_vec())
+                            .unwrap_or_default();
+                        Entry::read(&name, &path, &meta)
+                    });
+                    let entries = listed
+                        .iter()
+                        .map(|one| Entry::read(&one.name, &one.path, &one.meta))
+                        .collect();
+                    Changed {
+                        path,
+                        own,
+                        names,
+                        entries,
+                    }
+                },
+            )
             .collect();
         let mut walks: Vec<(NodeId, PathBuf)> = Vec::new();
         {
@@ -501,7 +603,9 @@ impl Tracker {
             // by its inode wherever the batch lists it.
             let mut limbo: HashMap<u64, NodeId> = HashMap::new();
             for one in &changed {
-                let Some(id) = index.lookup(&one.path) else { continue };
+                let Some(id) = index.lookup(&one.path) else {
+                    continue;
+                };
                 match (&one.own, &one.names) {
                     (None, _) if one.path != self.root => take(&mut index, id, &mut limbo),
                     (Some(_), Some(names)) if index.is_dir(id) => {
@@ -521,7 +625,10 @@ impl Tracker {
                     index.set_root(&own);
                     ROOT
                 } else {
-                    let parent_path = one.path.parent().expect("a path below the root has a parent");
+                    let parent_path = one
+                        .path
+                        .parent()
+                        .expect("a path below the root has a parent");
                     let Some(parent) = index.lookup(parent_path) else {
                         // A folder the index lost track of: walk from the
                         // first one missing.
@@ -533,8 +640,13 @@ impl Tracker {
                             missing = up;
                         }
                         if let Ok(meta) = std::fs::symlink_metadata(missing) {
-                            let up = index.lookup(missing.parent().expect("below the root")).expect("found above");
-                            let name = missing.file_name().map(|n| n.as_encoded_bytes().to_vec()).unwrap_or_default();
+                            let up = index
+                                .lookup(missing.parent().expect("below the root"))
+                                .expect("found above");
+                            let name = missing
+                                .file_name()
+                                .map(|n| n.as_encoded_bytes().to_vec())
+                                .unwrap_or_default();
                             let id = index.set(up, Entry::read(&name, missing, &meta));
                             if meta.is_dir() {
                                 walks.push((id, missing.to_path_buf()));
@@ -588,7 +700,10 @@ impl Tracker {
             .and_then(|()| std::fs::create_dir(&mark))
             .and_then(|()| std::fs::write(mark.join("mark"), b""))
         {
-            eprintln!("builds: writing {}: {error}; answering nothing", mark.display());
+            eprintln!(
+                "builds: writing {}: {error}; answering nothing",
+                mark.display()
+            );
             return false;
         }
         if let Some(stream) = self.stream.lock().expect("no panic holding it").as_ref() {
@@ -601,16 +716,28 @@ impl Tracker {
             if marks.seen >= n {
                 let took = asked.elapsed();
                 if took > std::time::Duration::from_secs(1) {
-                    eprintln!("builds: FSEvents took {:.1}s to deliver {}", took.as_secs_f64(), mark.display());
+                    eprintln!(
+                        "builds: FSEvents took {:.1}s to deliver {}",
+                        took.as_secs_f64(),
+                        mark.display()
+                    );
                 }
                 break true;
             }
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             if left.is_zero() {
-                eprintln!("builds: FSEvents did not deliver {} in {}s; answering nothing", mark.display(), self.mark_wait.as_secs());
+                eprintln!(
+                    "builds: FSEvents did not deliver {} in {}s; answering nothing",
+                    mark.display(),
+                    self.mark_wait.as_secs()
+                );
                 break false;
             }
-            marks = self.delivered.wait_timeout(marks, left).expect("no panic holding it").0;
+            marks = self
+                .delivered
+                .wait_timeout(marks, left)
+                .expect("no panic holding it")
+                .0;
         };
         drop(marks);
         if let Err(error) = std::fs::remove_dir_all(&mark) {
@@ -635,12 +762,15 @@ impl Tracker {
         paths
             .iter()
             .map(|path| {
-                if !path.starts_with(&self.root)
-                    || self.left_out(path)
-                {
+                if !path.starts_with(&self.root) || self.left_out(path) {
                     return None;
                 }
-                Some(index.lookup(path).map(|id| index.measure(id)).unwrap_or_default())
+                Some(
+                    index
+                        .lookup(path)
+                        .map(|id| index.measure(id))
+                        .unwrap_or_default(),
+                )
             })
             .collect()
     }
@@ -667,13 +797,19 @@ impl Tracker {
         let hang_guard = std::time::Instant::now() + std::time::Duration::from_secs(120);
         let mut flags = self.flags.lock().expect("no panic holding it");
         loop {
-            let now = std::fs::symlink_metadata(&self.root).ok().map(|meta| (meta.dev(), meta.ino()));
+            let now = std::fs::symlink_metadata(&self.root)
+                .ok()
+                .map(|meta| (meta.dev(), meta.ino()));
             if flags.ready && now.is_some() && flags.followed == now {
                 return;
             }
             let left = hang_guard.saturating_duration_since(std::time::Instant::now());
             assert!(!left.is_zero(), "the root was never followed again");
-            flags = self.wake.wait_timeout(flags, left).expect("no panic holding it").0;
+            flags = self
+                .wake
+                .wait_timeout(flags, left)
+                .expect("no panic holding it")
+                .0;
         }
     }
 
@@ -711,7 +847,12 @@ struct Changed {
 
 /// The children of <id> that <names>, its listing, no longer has.
 fn unlisted(index: &Index, id: NodeId, names: &HashSet<Box<[u8]>>) -> Vec<NodeId> {
-    index.children(id).iter().copied().filter(|child| !names.contains(index.name(*child))).collect()
+    index
+        .children(id)
+        .iter()
+        .copied()
+        .filter(|child| !names.contains(index.name(*child)))
+        .collect()
 }
 
 /// Takes <id> out of the index: a folder into <limbo> by its inode, to be
@@ -728,11 +869,18 @@ fn take(index: &mut Index, id: NodeId, limbo: &mut HashMap<u64, NodeId>) {
 /// Records <entry> as <parent>'s child: a folder the index holds keeps what
 /// it holds, one in <limbo> with its inode is put back here. Returns the
 /// child, and whether it is a folder the index never held, to walk.
-fn place(index: &mut Index, parent: NodeId, entry: Entry, limbo: &mut HashMap<u64, NodeId>) -> (NodeId, bool) {
+fn place(
+    index: &mut Index,
+    parent: NodeId,
+    entry: Entry,
+    limbo: &mut HashMap<u64, NodeId>,
+) -> (NodeId, bool) {
     if entry.kind != KindOf::Dir {
         return (index.set(parent, entry), false);
     }
-    let held = index.child_of(parent, &entry.name).is_some_and(|id| index.is_dir(id) && index.ino(id) == entry.ino);
+    let held = index
+        .child_of(parent, &entry.name)
+        .is_some_and(|id| index.is_dir(id) && index.ino(id) == entry.ino);
     if held {
         return (index.set(parent, entry), false);
     }

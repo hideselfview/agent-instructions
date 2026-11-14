@@ -11,16 +11,36 @@ fn three_checkouts(scratch: &Scratch, tool: &Tool) {
     repo(&main, "target 1G\n");
     for side in ["side-1", "side-2"] {
         let dir = scratch.dir.join("demo-worktrees").join(side);
-        git(&main, &["worktree", "add", "-q", "--detach", &dir.display().to_string()]);
+        git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                &dir.display().to_string(),
+            ],
+        );
     }
-    for top in [main.clone(), scratch.dir.join("demo-worktrees/side-1"), scratch.dir.join("demo-worktrees/side-2")] {
+    for top in [
+        main.clone(),
+        scratch.dir.join("demo-worktrees/side-1"),
+        scratch.dir.join("demo-worktrees/side-2"),
+    ] {
         let checkout = Checkout::find(&top.display().to_string()).unwrap();
         crate::setup::setup(tool, &checkout).unwrap();
         let target = checkout.build_root(&tool.places).join("target");
         fill(&target.join("blob"), 2048);
         age_all(&target, 2);
     }
-    let side1 = Checkout::find(&scratch.dir.join("demo-worktrees/side-1").display().to_string()).unwrap();
+    let side1 = Checkout::find(
+        &scratch
+            .dir
+            .join("demo-worktrees/side-1")
+            .display()
+            .to_string(),
+    )
+    .unwrap();
     write_claim(&side1, "agent A", tool.now, None, None).unwrap();
 }
 
@@ -34,10 +54,22 @@ fn under_the_floor_only_an_unclaimed_side_worktree_goes() {
     let roots = all_roots(&tool.places).unwrap();
     keep_floor(&tool, &roots).unwrap();
     let root = tool.places.root.join("demo");
-    assert!(root.join("main/target/blob").exists(), "main's folder was deleted");
-    assert!(root.join("side-1/target/blob").exists(), "a claimed worktree's folder was deleted");
-    assert!(!root.join("side-2/target/blob").exists(), "the idle unclaimed folder was kept");
-    assert!(root.join("side-2/target").is_dir(), "the deleted folder was not recreated");
+    assert!(
+        root.join("main/target/blob").exists(),
+        "main's folder was deleted"
+    );
+    assert!(
+        root.join("side-1/target/blob").exists(),
+        "a claimed worktree's folder was deleted"
+    );
+    assert!(
+        !root.join("side-2/target/blob").exists(),
+        "the idle unclaimed folder was kept"
+    );
+    assert!(
+        root.join("side-2/target").is_dir(),
+        "the deleted folder was not recreated"
+    );
 }
 
 #[test]
@@ -88,9 +120,17 @@ fn under_the_floor_idle_incremental_folders_go_in_every_checkout() {
         .spawn()
         .unwrap();
     let mut said = String::new();
-    std::io::BufRead::read_line(&mut std::io::BufReader::new(build.stdout.take().unwrap()), &mut said).unwrap();
+    std::io::BufRead::read_line(
+        &mut std::io::BufReader::new(build.stdout.take().unwrap()),
+        &mut said,
+    )
+    .unwrap();
     assert_eq!(said, "held\n");
-    let mut sleeper = std::process::Command::new("sleep").arg("60").current_dir(held.join("s-1")).spawn().unwrap();
+    let mut sleeper = std::process::Command::new("sleep")
+        .arg("60")
+        .current_dir(held.join("s-1"))
+        .spawn()
+        .unwrap();
 
     let tool = scratch.tool(1 << 30);
     let roots = all_roots(&tool.places).unwrap();
@@ -100,12 +140,30 @@ fn under_the_floor_idle_incremental_folders_go_in_every_checkout() {
     build.kill().unwrap();
     build.wait().unwrap();
     kept.unwrap();
-    assert!(!idle.exists(), "a claimed worktree's idle incremental folder was kept");
-    assert!(!main_idle.exists(), "main's idle incremental folder was kept");
-    assert!(fresh.exists(), "an incremental folder written just now was deleted");
-    assert!(held.exists(), "an incremental folder a process works in was deleted");
-    assert!(locked.exists(), "an incremental folder whose profile a build holds was deleted");
-    assert!(root.join("side-1/target/blob").exists(), "a claimed worktree's folder was deleted");
+    assert!(
+        !idle.exists(),
+        "a claimed worktree's idle incremental folder was kept"
+    );
+    assert!(
+        !main_idle.exists(),
+        "main's idle incremental folder was kept"
+    );
+    assert!(
+        fresh.exists(),
+        "an incremental folder written just now was deleted"
+    );
+    assert!(
+        held.exists(),
+        "an incremental folder a process works in was deleted"
+    );
+    assert!(
+        locked.exists(),
+        "an incremental folder whose profile a build holds was deleted"
+    );
+    assert!(
+        root.join("side-1/target/blob").exists(),
+        "a claimed worktree's folder was deleted"
+    );
 }
 
 #[test]
@@ -113,12 +171,28 @@ fn an_app_checkout_keeps_warm_only_the_folders_its_lane_builds_into() {
     let scratch = Scratch::new("floor-lanes");
     let tool = scratch.tool(0);
     let main = scratch.dir.join("demo");
-    repo(&main, "target 1G\nxcode 1G lane mac\ngradle 1G lane android\n");
+    repo(
+        &main,
+        "target 1G\nxcode 1G lane mac\ngradle 1G lane android\n",
+    );
     std::fs::create_dir_all(tool.places.root.join("demo")).unwrap();
     for (side, lane) in [("side-1", Lane::Mac), ("side-2", Lane::Android)] {
         let dir = scratch.dir.join("demo-worktrees").join(side);
-        git(&main, &["worktree", "add", "-q", "--detach", &dir.display().to_string()]);
-        std::fs::write(tool.places.app_checkouts_file("demo", lane), format!("{side}\n")).unwrap();
+        git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                &dir.display().to_string(),
+            ],
+        );
+        std::fs::write(
+            tool.places.app_checkouts_file("demo", lane),
+            format!("{side}\n"),
+        )
+        .unwrap();
         let checkout = Checkout::find(&dir.display().to_string()).unwrap();
         crate::setup::setup(&tool, &checkout).unwrap();
         for folder in ["target", "xcode", "gradle"] {
@@ -132,8 +206,17 @@ fn an_app_checkout_keeps_warm_only_the_folders_its_lane_builds_into() {
     keep_floor(&tool, &roots).unwrap();
     let root = tool.places.root.join("demo");
     for (side, own, other) in [("side-1", "xcode", "gradle"), ("side-2", "gradle", "xcode")] {
-        assert!(root.join(side).join(own).join("blob").exists(), "{side}: its lane's folder was deleted");
-        assert!(root.join(side).join("target/blob").exists(), "{side}: the host folder was deleted");
-        assert!(!root.join(side).join(other).join("blob").exists(), "{side}: the other lane's idle folder was kept");
+        assert!(
+            root.join(side).join(own).join("blob").exists(),
+            "{side}: its lane's folder was deleted"
+        );
+        assert!(
+            root.join(side).join("target/blob").exists(),
+            "{side}: the host folder was deleted"
+        );
+        assert!(
+            !root.join(side).join(other).join("blob").exists(),
+            "{side}: the other lane's idle folder was kept"
+        );
     }
 }

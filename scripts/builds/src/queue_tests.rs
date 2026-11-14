@@ -34,7 +34,11 @@ fn a_ticket_names_its_process_and_counts_its_own() {
     assert_eq!(ahead, 1);
     assert_eq!(queue.order(), vec![first.name.clone(), second.name.clone()]);
     assert_eq!(pid_of(&first.name), Some(std::process::id() as i32));
-    assert_eq!(queue.waiting(), vec![std::process::id() as i32], "the head is the holder, not waiting");
+    assert_eq!(
+        queue.waiting(),
+        vec![std::process::id() as i32],
+        "the head is the holder, not waiting"
+    );
     close(&first);
     close(&second);
 }
@@ -47,8 +51,14 @@ fn a_reissued_ticket_takes_the_old_ones_place() {
     let (second, _) = queue.join().unwrap();
     let (third, _) = queue.join().unwrap();
     let new = queue.reissue(&second).unwrap();
-    assert_eq!(queue.order(), vec![first.name.clone(), new.name.clone(), third.name.clone()]);
-    assert!(!queue.ticket_path(&second.name).exists(), "the old ticket's file is gone");
+    assert_eq!(
+        queue.order(),
+        vec![first.name.clone(), new.name.clone(), third.name.clone()]
+    );
+    assert!(
+        !queue.ticket_path(&second.name).exists(),
+        "the old ticket's file is gone"
+    );
     for ticket in [&first, &second, &third, &new] {
         close(ticket);
     }
@@ -63,7 +73,10 @@ fn a_waiter_moves_to_right_behind_the_holder() {
     }
     queue.move_to_top(40).unwrap();
     assert_eq!(queue.order(), vec!["10-1", "40-1", "20-1", "30-1"]);
-    assert!(queue.move_to_top(10).is_err(), "the holder is already first");
+    assert!(
+        queue.move_to_top(10).is_err(),
+        "the holder is already first"
+    );
     assert!(queue.move_to_top(99).is_err(), "no such waiter");
 }
 
@@ -81,8 +94,15 @@ fn a_dead_ticket_in_line_lets_no_one_past_the_holder() {
         waiting.wait_for_turn(&name).unwrap();
         done.send(()).unwrap();
     });
-    assert!(finished.recv_timeout(SETTLE).is_err(), "the holder's ticket is still held");
-    assert_eq!(queue.order(), vec![holder.name.clone(), last.name.clone()], "the dead ticket is taken away");
+    assert!(
+        finished.recv_timeout(SETTLE).is_err(),
+        "the holder's ticket is still held"
+    );
+    assert_eq!(
+        queue.order(),
+        vec![holder.name.clone(), last.name.clone()],
+        "the dead ticket is taken away"
+    );
     assert!(!queue.ticket_path("1-1").exists());
     close(&holder);
     finished.recv_timeout(Duration::from_secs(10)).unwrap();
@@ -117,10 +137,15 @@ fn a_signal_between_reading_the_order_and_waiting_is_not_lost() {
             .unwrap();
         done.send(()).unwrap();
     });
-    assert!(finished.recv_timeout(SETTLE).is_err(), "the first ticket is still held");
+    assert!(
+        finished.recv_timeout(SETTLE).is_err(),
+        "the first ticket is still held"
+    );
     // Waiting on the second ticket, still held, would never end.
     close(&first);
-    finished.recv_timeout(Duration::from_secs(10)).expect("the wait was re-pointed to the first ticket");
+    finished
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the wait was re-pointed to the first ticket");
     close(&second);
     close(&last);
 }
@@ -140,7 +165,11 @@ fn a_queue_has_a_slot_for_each_app_checkout_and_at_least_one() {
     set_slots(&queue, 3);
     assert_eq!(queue.slots(), 3);
     let tickets: Vec<_> = (0..5).map(|_| queue.join().unwrap().0).collect();
-    assert_eq!(queue.waiting().len(), 2, "the first three hold or may take a lock");
+    assert_eq!(
+        queue.waiting().len(),
+        2,
+        "the first three hold or may take a lock"
+    );
     for ticket in &tickets {
         close(ticket);
     }
@@ -163,10 +192,15 @@ fn as_many_waiters_as_slots_go_at_once_and_the_next_goes_when_any_of_them_leaves
         waiting.wait_for_turn(&name).unwrap();
         done.send(()).unwrap();
     });
-    assert!(finished.recv_timeout(SETTLE).is_err(), "both slots are taken");
+    assert!(
+        finished.recv_timeout(SETTLE).is_err(),
+        "both slots are taken"
+    );
     // The first leaves, not the third's predecessor.
     close(&first);
-    finished.recv_timeout(Duration::from_secs(10)).expect("the third took the slot the first left");
+    finished
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the third took the slot the first left");
     assert_eq!(queue.order(), vec![second.name.clone(), third.name.clone()]);
     close(&second);
     close(&third);
@@ -183,10 +217,16 @@ fn a_waiter_moves_to_right_behind_the_holders() {
     // Both locks are held.
     let locks = [queue.lock_path("side-1"), queue.lock_path("side-2")];
     std::fs::create_dir_all(locks[0].parent().unwrap()).unwrap();
-    let held: Vec<_> = locks.iter().map(|lock| open_with(lock, libc::O_CREAT | libc::O_CLOEXEC).unwrap()).collect();
+    let held: Vec<_> = locks
+        .iter()
+        .map(|lock| open_with(lock, libc::O_CREAT | libc::O_CLOEXEC).unwrap())
+        .collect();
     queue.move_to_top(40).unwrap();
     assert_eq!(queue.order(), vec!["10-1", "20-1", "40-1", "30-1"]);
-    assert!(queue.move_to_top(20).is_err(), "a holder is already among the first");
+    assert!(
+        queue.move_to_top(20).is_err(),
+        "a holder is already among the first"
+    );
     for fd in held {
         unsafe { libc::close(fd) };
     }

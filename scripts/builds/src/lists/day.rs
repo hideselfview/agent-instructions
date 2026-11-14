@@ -10,7 +10,11 @@ pub fn parse(date: &str) -> Option<(i64, i64, i64)> {
     }
     let digits = |range: std::ops::Range<usize>| -> Option<i64> {
         let part = &date[range];
-        if part.bytes().all(|b| b.is_ascii_digit()) { part.parse().ok() } else { None }
+        if part.bytes().all(|b| b.is_ascii_digit()) {
+            part.parse().ok()
+        } else {
+            None
+        }
     };
     let (year, month, day) = (digits(0..4)?, digits(5..7)?, digits(8..10)?);
     if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
@@ -42,7 +46,8 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719468;
     let era = z.div_euclid(146097);
     let day_of_era = z - era * 146097;
-    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let mp = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * mp + 2) / 5 + 1;

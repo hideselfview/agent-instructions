@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::cargo_run::builds_incrementally;
-use crate::checkout::{Checkout, Root, git_text, git, app_lane};
+use crate::checkout::{Checkout, Root, app_lane, git, git_text};
 use crate::evict::{Recreate, Removal, evict, make_temp_dir};
 use crate::fail;
-use crate::free_worktrees::retire_idle;
 use crate::fail::{Context, Result};
+use crate::free_worktrees::retire_idle;
 use crate::manifest::{SHARED_CACHES, build_dirs, has_manifest};
 use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_MINUTES};
 use crate::temp_builds::temp_build_folders;
@@ -38,10 +38,20 @@ impl Run {
 /// also deletes folders nothing wrote to for that long, and with <warm_idle>
 /// above 0 the same for the folders that stay warm in <root> (main's, an app
 /// checkout's own lane's).
-pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle: u64, warm_idle: u64) -> Result<()> {
+pub fn prune_root(
+    tool: &Tool,
+    root: &Path,
+    checkout: &Checkout,
+    run: Run,
+    idle: u64,
+    warm_idle: u64,
+) -> Result<()> {
     let manifest = build_dirs(&checkout.top)?;
-    let folders: Vec<PathBuf> =
-        manifest.iter().map(|entry| root.join(&entry.path)).filter(|folder| folder.is_dir()).collect();
+    let folders: Vec<PathBuf> = manifest
+        .iter()
+        .map(|entry| root.join(&entry.path))
+        .filter(|folder| folder.is_dir())
+        .collect();
     if folders.is_empty() {
         return Ok(());
     }
@@ -54,18 +64,28 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
     let measures = tool.measure_all(&folders)?;
     for entry in &manifest {
         let folder = root.join(&entry.path);
-        let Some(at) = folders.iter().position(|f| *f == folder) else { continue };
+        let Some(at) = folders.iter().position(|f| *f == folder) else {
+            continue;
+        };
         let measured = measures[at];
         let mut kib = measured.kib;
         if run.dry() {
             // Nothing was deleted; measure the folder as pruning would leave
             // it.
-            let pruned: u64 = freed.iter().filter(|(f, _)| *f == folder).map(|(_, kib)| *kib).sum();
+            let pruned: u64 = freed
+                .iter()
+                .filter(|(f, _)| *f == folder)
+                .map(|(_, kib)| *kib)
+                .sum();
             kib = kib.saturating_sub(pruned);
         }
         let app = entry.is_app_in(lane);
         let cap_kib = entry.cap_kib(app);
-        let idle = if checkout.is_main() || app { warm_idle } else { idle };
+        let idle = if checkout.is_main() || app {
+            warm_idle
+        } else {
+            idle
+        };
         let reason = if kib > cap_kib {
             format!("{} > {}", human(kib), human(cap_kib))
         } else if idle > 0 && kib > 1024 && !tool.written_within(&measured, idle) {
@@ -81,7 +101,14 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
             note(format!("claimed, kept: {} ({reason})", folder.display()));
             continue;
         }
-        delete_folder(tool, &folder, run, &reason, Recreate::Yes, "; the next build refills it")?;
+        delete_folder(
+            tool,
+            &folder,
+            run,
+            &reason,
+            Recreate::Yes,
+            "; the next build refills it",
+        )?;
     }
     Ok(())
 }
@@ -90,7 +117,11 @@ pub fn prune_root(tool: &Tool, root: &Path, checkout: &Checkout, run: Run, idle:
 /// the idle hours where its builds compile incrementally, and every one where
 /// they don't, since no build there reads them.
 fn cargo_ages(tool: &Tool, checkout: &Checkout) -> Result<units::prune::Ages> {
-    let idle = if builds_incrementally(checkout) { tool.rules.incremental_hours } else { 0 };
+    let idle = if builds_incrementally(checkout) {
+        tool.rules.incremental_hours
+    } else {
+        0
+    };
     Ok(units::prune::Ages::new(tool.rules.unused_days, idle))
 }
 
@@ -113,7 +144,14 @@ pub fn prune_after_build(tool: &Tool, checkout: &Checkout) -> Result<()> {
 }
 
 /// Deletes <folder> for <reason>, or says it would, or that it is in use.
-fn delete_folder(tool: &Tool, folder: &Path, run: Run, reason: &str, recreate: Recreate, after: &str) -> Result<bool> {
+fn delete_folder(
+    tool: &Tool,
+    folder: &Path,
+    run: Run,
+    reason: &str,
+    recreate: Recreate,
+    after: &str,
+) -> Result<bool> {
     if run.dry() {
         note(format!("would delete {} ({reason})", folder.display()));
         Ok(false)
@@ -147,7 +185,11 @@ pub fn derived_data(tool: &Tool) -> Result<(Measure, Vec<Entry>)> {
         .into_iter()
         .skip(1)
         .zip(measures)
-        .map(|(path, measured)| Entry { path, kib: measured.kib, newest: measured.newest.unwrap_or(0) })
+        .map(|(path, measured)| Entry {
+            path,
+            kib: measured.kib,
+            newest: measured.newest.unwrap_or(0),
+        })
         .collect();
     entries.sort_by(|a, b| a.newest.cmp(&b.newest).then_with(|| a.path.cmp(&b.path)));
     Ok((total, entries))
@@ -170,11 +212,19 @@ pub fn prune_derived_data(tool: &Tool, run: Run, idle: u64) -> Result<()> {
         return Ok(());
     }
     for entry in entries {
-        let measured = Measure { kib: entry.kib, newest: Some(entry.newest) };
+        let measured = Measure {
+            kib: entry.kib,
+            newest: Some(entry.newest),
+        };
         let reason = if idle > 0 && !tool.written_within(&measured, idle) {
             format!("{}, no write in {idle}m", human(entry.kib))
         } else if total > cap && !tool.written_within(&measured, FLOOR_IDLE_MINUTES) {
-            format!("{}; DerivedData is {} > {}", human(entry.kib), human(total), human(cap))
+            format!(
+                "{}; DerivedData is {} > {}",
+                human(entry.kib),
+                human(total),
+                human(cap)
+            )
         } else {
             continue;
         };
@@ -197,14 +247,22 @@ pub fn prune_derived_data(tool: &Tool, run: Run, idle: u64) -> Result<()> {
 
 /// Copies the settings files <settings> that <dir> holds into a new folder
 /// beside it, and returns that folder; None when <dir> holds none of them.
-fn stage_settings(tool: &Tool, dir: &Path, name: &str, settings: &[&str]) -> Result<Option<PathBuf>> {
+fn stage_settings(
+    tool: &Tool,
+    dir: &Path,
+    name: &str,
+    settings: &[&str],
+) -> Result<Option<PathBuf>> {
     let mut keep: Option<PathBuf> = None;
     for path in settings {
         if !dir.join(path).exists() {
             continue;
         }
         if keep.is_none() {
-            keep = Some(make_temp_dir(&tool.places.caches(), &format!(".settings-{name}."))?);
+            keep = Some(make_temp_dir(
+                &tool.places.caches(),
+                &format!(".settings-{name}."),
+            )?);
         }
         let keep = keep.as_ref().expect("made above");
         let target = keep.join(path);
@@ -263,13 +321,18 @@ pub fn prune_caches(tool: &Tool, run: Run) -> Result<()> {
             if evict(&tool.places, &dir, Recreate::Yes, Removal::Background)? {
                 if let Some(keep) = &keep {
                     copy_preserving(&keep.join("."), &dir.join(""))?;
-                    std::fs::remove_dir_all(keep).context(|| format!("removing {}", keep.display()))?;
+                    std::fs::remove_dir_all(keep)
+                        .context(|| format!("removing {}", keep.display()))?;
                     reason += "; its settings put back";
                 }
-                note(format!("deleted {} ({reason}); every checkout downloads into it again", dir.display()));
+                note(format!(
+                    "deleted {} ({reason}); every checkout downloads into it again",
+                    dir.display()
+                ));
             } else {
                 if let Some(keep) = &keep {
-                    std::fs::remove_dir_all(keep).context(|| format!("removing {}", keep.display()))?;
+                    std::fs::remove_dir_all(keep)
+                        .context(|| format!("removing {}", keep.display()))?;
                 }
                 note(format!("in use, kept: {} ({reason})", dir.display()));
             }
@@ -286,7 +349,9 @@ fn prune_listed(run: Run, what: &str, listing: std::result::Result<Vec<PathBuf>,
     let entries = match listing {
         Ok(entries) => entries,
         Err(errors) => {
-            note(format!("listing {what} failed, so none were deleted: {errors}"));
+            note(format!(
+                "listing {what} failed, so none were deleted: {errors}"
+            ));
             return;
         }
     };
@@ -310,7 +375,10 @@ fn prune_listed(run: Run, what: &str, listing: std::result::Result<Vec<PathBuf>,
     if errors.is_empty() {
         note(format!("deleted {count} {what}"));
     } else {
-        note(format!("deleting {count} {what} failed partway: {}", errors.join(" ")));
+        note(format!(
+            "deleting {count} {what} failed partway: {}",
+            errors.join(" ")
+        ));
     }
 }
 
@@ -326,7 +394,8 @@ fn old_entries(
     use std::os::unix::fs::MetadataExt;
     let mut found = Vec::new();
     for folder in folders {
-        let entries = std::fs::read_dir(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+        let entries =
+            std::fs::read_dir(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
         for entry in entries {
             let entry = entry.map_err(|error| format!("{}: {error}", folder.display()))?;
             let meta = match std::fs::symlink_metadata(entry.path()) {
@@ -446,7 +515,9 @@ fn live_sessions(
 
 /// The names a shell's `*` matches in <dir>; none when it can't be listed.
 fn visible_names(dir: &Path) -> Vec<std::ffi::OsString> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
     entries
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.file_name())
@@ -458,14 +529,24 @@ fn visible_names(dir: &Path) -> Vec<std::ffi::OsString> {
 /// left behind: nothing reads one a day after it was last written. Newer ones
 /// may belong to a test still running.
 pub fn prune_test_temps(tool: &Tool, run: Run) -> Result<()> {
-    let Some(tmpdir) = &tool.places.tmpdir else { return Ok(()) };
+    let Some(tmpdir) = &tool.places.tmpdir else {
+        return Ok(());
+    };
     if !tmpdir.is_dir() {
         return Ok(());
     }
-    let listing = old_entries(std::slice::from_ref(tmpdir), 1, tool.places.uid, tool.now, |name, meta| {
-        name.starts_with(".tmp") && meta.is_dir()
-    });
-    prune_listed(run, &format!("test temp folders older than a day in {}", tmpdir.display()), listing);
+    let listing = old_entries(
+        std::slice::from_ref(tmpdir),
+        1,
+        tool.places.uid,
+        tool.now,
+        |name, meta| name.starts_with(".tmp") && meta.is_dir(),
+    );
+    prune_listed(
+        run,
+        &format!("test temp folders older than a day in {}", tmpdir.display()),
+        listing,
+    );
     Ok(())
 }
 
@@ -488,7 +569,10 @@ pub fn prune_temp_builds(tool: &Tool, run: Run) -> Result<()> {
         } else if evict(&tool.places, &folder, Recreate::No, Removal::Background)? {
             note(format!("deleted {} ({what})", folder.display()));
         } else {
-            note(format!("in use, kept: {} (build output in a temporary folder)", folder.display()));
+            note(format!(
+                "in use, kept: {} (build output in a temporary folder)",
+                folder.display()
+            ));
         }
     }
     Ok(())
@@ -498,10 +582,17 @@ pub fn prune_temp_builds(tool: &Tool, run: Run) -> Result<()> {
 /// tool knows pins goes. The git databases stay, and cargo checks a commit
 /// out of them again in seconds when a branch needs it.
 pub fn prune_cargo_git(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
-    let tops: Vec<PathBuf> = roots.iter().filter_map(|root| root.live.as_ref()).map(|c| c.top.clone()).collect();
+    let tops: Vec<PathBuf> = roots
+        .iter()
+        .filter_map(|root| root.live.as_ref())
+        .map(|c| c.top.clone())
+        .collect();
     let listed = crate::checkout::parallel_map(&tops, |top| {
-        git_text(git(top).args(["ls-files", "--", "Cargo.lock", "*/Cargo.lock"]), "list Cargo.lock files")
-            .map(|text| text.lines().map(|line| top.join(line)).collect::<Vec<_>>())
+        git_text(
+            git(top).args(["ls-files", "--", "Cargo.lock", "*/Cargo.lock"]),
+            "list Cargo.lock files",
+        )
+        .map(|text| text.lines().map(|line| top.join(line)).collect::<Vec<_>>())
     });
     let mut lockfiles = Vec::new();
     for found in listed {
@@ -531,7 +622,9 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
                 if minutes.is_empty() || !minutes.bytes().all(|b| b.is_ascii_digit()) {
                     fail!("prune: --idle takes minutes");
                 }
-                idle = minutes.parse().context(|| "prune: --idle takes minutes".to_string())?;
+                idle = minutes
+                    .parse()
+                    .context(|| "prune: --idle takes minutes".to_string())?;
             }
             other => fail!("prune: unknown option {other}"),
         }
@@ -555,9 +648,20 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
             }
             continue;
         };
-        prune_root(tool, &root.path, checkout, run, idle, if warm { idle } else { 0 })?;
+        prune_root(
+            tool,
+            &root.path,
+            checkout,
+            run,
+            idle,
+            if warm { idle } else { 0 },
+        )?;
     }
-    let derived_idle = if idle > 0 && idle < DERIVED_DATA_IDLE_MINUTES { idle } else { DERIVED_DATA_IDLE_MINUTES };
+    let derived_idle = if idle > 0 && idle < DERIVED_DATA_IDLE_MINUTES {
+        idle
+    } else {
+        DERIVED_DATA_IDLE_MINUTES
+    };
     prune_derived_data(tool, run, derived_idle)?;
     prune_caches(tool, run)?;
     prune_test_temps(tool, run)?;

@@ -15,15 +15,19 @@ fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
 }
 
 fn names_in(dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> =
-        std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
     names.sort();
     names
 }
 
 /// Everything the store holds: the lists as read and the write log.
 fn held(store: &Store) -> String {
-    let db = db::open_reader(&store.database()).unwrap().expect("a store");
+    let db = db::open_reader(&store.database())
+        .unwrap()
+        .expect("a store");
     format!("{:?}\n{:?}", read(&db).unwrap(), read_log(&db).unwrap())
 }
 
@@ -41,11 +45,28 @@ fn new_project(repos: &[&str]) -> NewProject {
 fn create_writes_the_first_version_and_load_reads_it_back() {
     let scratch = Scratch::new("lists-create");
     let store = Store::named(&scratch.places(), "demo").unwrap();
-    store.create(&new_project(&["bae", "coven"]), &stamp(NOON), "lists init demo").unwrap();
+    store
+        .create(
+            &new_project(&["bae", "coven"]),
+            &stamp(NOON),
+            "lists init demo",
+        )
+        .unwrap();
     let loaded = store.load().unwrap();
-    assert_eq!((loaded.version, loaded.repos.clone()), (1, vec!["bae".to_string(), "coven".to_string()]));
+    assert_eq!(
+        (loaded.version, loaded.repos.clone()),
+        (1, vec!["bae".to_string(), "coven".to_string()])
+    );
     let db = db::open_reader(&store.database()).unwrap().unwrap();
-    assert_eq!(read_log(&db).unwrap(), vec![(1, NOON, "coordinator".to_string(), "lists init demo".to_string())]);
+    assert_eq!(
+        read_log(&db).unwrap(),
+        vec![(
+            1,
+            NOON,
+            "coordinator".to_string(),
+            "lists init demo".to_string()
+        )]
+    );
     assert_eq!(db::stamp_of(&db, &store.database()).unwrap(), db::stamp());
 }
 
@@ -54,7 +75,10 @@ fn init_refuses_an_existing_store_and_leaves_it() {
     let scratch = Scratch::new("lists-twice");
     let store = fresh(&scratch);
     let before = held(&store);
-    assert!(message(store.create(&new_project(&["bae"]), &stamp(NOON + 9), "lists init demo")).contains("already exist"));
+    assert!(
+        message(store.create(&new_project(&["bae"]), &stamp(NOON + 9), "lists init demo"))
+            .contains("already exist")
+    );
     assert_eq!(held(&store), before);
 }
 
@@ -62,10 +86,15 @@ fn init_refuses_an_existing_store_and_leaves_it() {
 fn init_refuses_a_state_that_fails_the_check_and_makes_no_project() {
     let scratch = Scratch::new("lists-bad-init");
     let store = Store::named(&scratch.places(), "demo").unwrap();
-    assert!(message(store.create(&new_project(&[]), &stamp(NOON), "lists init demo")).contains("no repos"));
+    assert!(
+        message(store.create(&new_project(&[]), &stamp(NOON), "lists init demo"))
+            .contains("no repos")
+    );
     assert!(message(store.load()).contains("builds lists init demo"));
     // The same init, repaired, makes the store.
-    store.create(&new_project(&["bae"]), &stamp(NOON), "lists init demo").unwrap();
+    store
+        .create(&new_project(&["bae"]), &stamp(NOON), "lists init demo")
+        .unwrap();
     assert_eq!(store.load().unwrap().version, 1);
 }
 
@@ -82,11 +111,28 @@ fn a_write_commits_whole_with_its_log_line_and_the_next_version() {
         .unwrap();
     assert_eq!(areas, 3);
     let loaded = store.load().unwrap();
-    assert_eq!((loaded.version, loaded.areas.clone()), (before.version + 1, vec!["Alpha".to_string(), "Beta".to_string(), "Gamma".to_string()]));
+    assert_eq!(
+        (loaded.version, loaded.areas.clone()),
+        (
+            before.version + 1,
+            vec!["Alpha".to_string(), "Beta".to_string(), "Gamma".to_string()]
+        )
+    );
     let db = db::open_reader(&store.database()).unwrap().unwrap();
     let line = read_log(&db).unwrap().pop().unwrap();
-    assert_eq!(line, (loaded.version, NOON + 5, "coordinator".to_string(), "area add Gamma".to_string()));
-    assert_eq!(names_in(&store.dir), vec!["builds.sqlite", "builds.sqlite-shm", "builds.sqlite-wal"]);
+    assert_eq!(
+        line,
+        (
+            loaded.version,
+            NOON + 5,
+            "coordinator".to_string(),
+            "area add Gamma".to_string()
+        )
+    );
+    assert_eq!(
+        names_in(&store.dir),
+        vec!["builds.sqlite", "builds.sqlite-shm", "builds.sqlite-wal"]
+    );
 }
 
 #[test]
@@ -133,12 +179,22 @@ fn a_write_the_database_refuses_changes_nothing() {
         plan: None,
     };
     let work = [draft("One two three four five"), draft("Short")];
-    let result = store.write(&stamp(NOON + 1), "decision add", |db| add_decision(db, &new, &work, &stamp(NOON + 1)));
+    let result = store.write(&stamp(NOON + 1), "decision add", |db| {
+        add_decision(db, &new, &work, &stamp(NOON + 1))
+    });
     assert!(message(result).contains("1 words"));
     assert_eq!(held(&store), before);
     // A constraint of the table, hit by a write that skipped the owner's own check.
     let result = store.write(&stamp(NOON + 1), "words", |db| {
-        crate::lists::area::plant(db, &[("name", "Alpha".to_string().into()), ("position", 9_i64.into())]).map(|_| ()).sql()
+        crate::lists::area::plant(
+            db,
+            &[
+                ("name", "Alpha".to_string().into()),
+                ("position", 9_i64.into()),
+            ],
+        )
+        .map(|_| ())
+        .sql()
     });
     assert!(message(result).contains("UNIQUE constraint failed: area.name"));
     assert_eq!(held(&store), before);
@@ -165,11 +221,22 @@ fn a_reader_sees_the_last_committed_snapshot_during_a_write() {
     };
     entered_rx.recv().unwrap();
     // The write holds the write lock with its change uncommitted.
-    let other = Connection::open_with_flags(store.database(), rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
+    let other = Connection::open_with_flags(
+        store.database(),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+    )
+    .unwrap();
     other.busy_timeout(std::time::Duration::ZERO).unwrap();
-    assert!(other.execute_batch("BEGIN IMMEDIATE").is_err(), "the write lock is held");
+    assert!(
+        other.execute_batch("BEGIN IMMEDIATE").is_err(),
+        "the write lock is held"
+    );
     let seen = store.load().unwrap();
-    assert_eq!((seen.version, seen.areas.len()), (3, 2), "the reader sees what was committed before the write");
+    assert_eq!(
+        (seen.version, seen.areas.len()),
+        (3, 2),
+        "the reader sees what was committed before the write"
+    );
     go_tx.send(()).unwrap();
     writer.join().unwrap();
     let after = store.load().unwrap();
@@ -200,7 +267,13 @@ fn a_second_write_waits_for_the_first_to_commit_and_then_sees_it() {
         let store = store.clone();
         std::thread::spawn(move || {
             // Only reached once the first has committed.
-            store.write(&stamp(NOON + 2), "area add Delta", crate::lists::area::areas).unwrap()
+            store
+                .write(
+                    &stamp(NOON + 2),
+                    "area add Delta",
+                    crate::lists::area::areas,
+                )
+                .unwrap()
         })
     };
     go_tx.send(()).unwrap();
@@ -217,7 +290,10 @@ fn a_database_of_another_schema_is_refused_by_every_open() {
     other.pragma_update(None, "user_version", 99).unwrap();
     drop(other);
     assert!(message(store.load()).contains("made by another builds schema"));
-    assert!(message(store.write(&stamp(NOON), "w", |_| Ok(()))).contains("made by another builds schema"));
+    assert!(
+        message(store.write(&stamp(NOON), "w", |_| Ok(())))
+            .contains("made by another builds schema")
+    );
     assert!(message(store.revision()).contains("made by another builds schema"));
 }
 
@@ -227,11 +303,17 @@ fn lists_still_in_json_are_refused_by_every_open_naming_the_move() {
     let store = fresh(&scratch);
     std::fs::write(store.dir.join(JSON_STATE), "{}").unwrap();
     let text = message(store.load());
-    assert!(text.contains("still in lists.json") && text.contains("builds install"), "{text}");
+    assert!(
+        text.contains("still in lists.json") && text.contains("builds install"),
+        "{text}"
+    );
     assert!(message(store.write(&stamp(NOON), "w", |_| Ok(()))).contains("builds install"));
     std::fs::rename(store.dir.join(JSON_STATE), store.dir.join(JSON_MOVING)).unwrap();
     let text = message(store.load());
-    assert!(text.contains("mid-move") && text.contains("builds install"), "{text}");
+    assert!(
+        text.contains("mid-move") && text.contains("builds install"),
+        "{text}"
+    );
     assert!(message(store.create(&new_project(&["bae"]), &stamp(NOON), "w")).contains("mid-move"));
 }
 
@@ -268,7 +350,11 @@ fn the_store_touches_only_its_own_folder() {
     let scratch = Scratch::new("lists-confined");
     let places = scratch.places();
     let store = fresh(&scratch);
-    store.write(&stamp(NOON), "w", |db| crate::lists::area::add_area(db, "Gamma", None)).unwrap();
+    store
+        .write(&stamp(NOON), "w", |db| {
+            crate::lists::area::add_area(db, "Gamma", None)
+        })
+        .unwrap();
     assert_eq!(names_in(&places.lists), vec!["demo"]);
     assert_eq!(names_in(&scratch.dir), vec!["lists", "tmp", "volume"]);
 }
@@ -284,7 +370,11 @@ fn a_folder_with_only_hook_stats_is_no_store_and_one_with_json_is() {
     std::fs::create_dir_all(&json).unwrap();
     std::fs::write(json.join(JSON_STATE), "{}").unwrap();
     fresh(&scratch);
-    let names: Vec<String> = stores(&places).unwrap().into_iter().map(|s| s.project).collect();
+    let names: Vec<String> = stores(&places)
+        .unwrap()
+        .into_iter()
+        .map(|s| s.project)
+        .collect();
     assert_eq!(names, vec!["demo", "json"]);
 }
 
@@ -304,7 +394,10 @@ fn two_process_child() {
     ) else {
         return;
     };
-    let store = Store { project: "demo".into(), dir: PathBuf::from(dir) };
+    let store = Store {
+        project: "demo".into(),
+        dir: PathBuf::from(dir),
+    };
     let started = std::time::Instant::now();
     while !Path::new(&go).exists() {
         assert!(started.elapsed().as_secs() < 60, "the parent never said go");
@@ -312,9 +405,11 @@ fn two_process_child() {
     }
     for i in 0..WRITES {
         store
-            .write(&stamp(NOON + i as i64), &format!("area add {who}-{i}"), |db| {
-                crate::lists::area::add_area(db, &format!("{who}-{i}"), None)
-            })
+            .write(
+                &stamp(NOON + i as i64),
+                &format!("area add {who}-{i}"),
+                |db| crate::lists::area::add_area(db, &format!("{who}-{i}"), None),
+            )
             .unwrap();
     }
 }
@@ -342,9 +437,17 @@ fn two_writers_in_two_processes_both_land() {
     assert_eq!(loaded.areas.len(), 2 + 2 * WRITES);
     assert_eq!(loaded.version, 3 + 2 * WRITES as u64);
     for who in ["a", "b"] {
-        let mine: Vec<&String> = loaded.areas.iter().filter(|area| area.starts_with(who)).collect();
+        let mine: Vec<&String> = loaded
+            .areas
+            .iter()
+            .filter(|area| area.starts_with(who))
+            .collect();
         let expected: Vec<String> = (0..WRITES).map(|i| format!("{who}-{i}")).collect();
-        assert_eq!(mine, expected.iter().collect::<Vec<_>>(), "{who}'s writes keep their order");
+        assert_eq!(
+            mine,
+            expected.iter().collect::<Vec<_>>(),
+            "{who}'s writes keep their order"
+        );
     }
 }
 
@@ -358,16 +461,34 @@ fn project_of_finds_the_one_project_a_repo_is_in() {
     // No lists folder at all.
     assert_eq!(project_of(&places, &checkout).unwrap(), None);
     fresh(&scratch);
-    assert_eq!(project_of(&places, &checkout).unwrap(), Some("demo".to_string()));
+    assert_eq!(
+        project_of(&places, &checkout).unwrap(),
+        Some("demo".to_string())
+    );
     let elsewhere = scratch.dir.join("web");
     repo(&elsewhere, "target 1\n");
-    assert_eq!(project_of(&places, &Checkout::at(&elsewhere).unwrap().unwrap()).unwrap(), None);
+    assert_eq!(
+        project_of(&places, &Checkout::at(&elsewhere).unwrap().unwrap()).unwrap(),
+        None
+    );
     // A folder with no state (an interrupted init) is not a project.
     std::fs::create_dir_all(places.lists.join("stray")).unwrap();
-    assert_eq!(project_of(&places, &checkout).unwrap(), Some("demo".to_string()));
+    assert_eq!(
+        project_of(&places, &checkout).unwrap(),
+        Some("demo".to_string())
+    );
     // A repo in two projects is refused.
     let second = Store::named(&places, "second").unwrap();
-    second.create(&NewProject { name: "second".into(), ..new_project(&["bae"]) }, &stamp(NOON), "lists init second").unwrap();
+    second
+        .create(
+            &NewProject {
+                name: "second".into(),
+                ..new_project(&["bae"])
+            },
+            &stamp(NOON),
+            "lists init second",
+        )
+        .unwrap();
     assert!(message(project_of(&places, &checkout)).contains("two projects (demo, second)"));
 }
 
@@ -379,9 +500,15 @@ fn resolve_takes_project_flag_else_the_repo_of_the_directory() {
     repo(&repo_dir, "target 1\n");
     fresh(&scratch);
     let none = Args::parse(&[], &[], &[]).unwrap();
-    assert_eq!(Store::resolve(&places, &none, &repo_dir).unwrap().project, "demo");
+    assert_eq!(
+        Store::resolve(&places, &none, &repo_dir).unwrap().project,
+        "demo"
+    );
     let named = Args::parse(&["--project".into(), "other".into()], &[], &[]).unwrap();
-    assert_eq!(Store::resolve(&places, &named, &repo_dir).unwrap().project, "other");
+    assert_eq!(
+        Store::resolve(&places, &named, &repo_dir).unwrap().project,
+        "other"
+    );
     let outside = scratch.dir.join("volume");
     assert!(message(Store::resolve(&places, &none, &outside)).contains("--project"));
     let lone = scratch.dir.join("lone");
@@ -398,27 +525,57 @@ fn who_wrote_is_by_else_the_claim_else_refused() {
     assert!(message(resolve_by(&none, &repo_dir)).contains("say who you are with --by"));
     assert!(message(resolve_by(&none, &scratch.dir)).contains("--by"));
     let checkout = Checkout::at(&repo_dir).unwrap().unwrap();
-    Claim { who: "import-tags".into(), since: "2026-11-13 10:00".into(), note: None, note_state: None }
-        .write(&checkout.claim_file())
-        .unwrap();
+    Claim {
+        who: "import-tags".into(),
+        since: "2026-11-13 10:00".into(),
+        note: None,
+        note_state: None,
+    }
+    .write(&checkout.claim_file())
+    .unwrap();
     assert_eq!(resolve_by(&none, &repo_dir).unwrap(), "import-tags");
     let given = Args::parse(&["--by".into(), "me".into()], &[], &[]).unwrap();
     assert_eq!(resolve_by(&given, &repo_dir).unwrap(), "me");
     let blank = Args::parse(&["--by".into(), " ".into()], &[], &[]).unwrap();
     assert!(resolve_by(&blank, &repo_dir).is_err());
-    assert_eq!(Stamp::resolve(7, &given, &repo_dir).unwrap(), Stamp { at: 7, by: "me".into() });
+    assert_eq!(
+        Stamp::resolve(7, &given, &repo_dir).unwrap(),
+        Stamp {
+            at: 7,
+            by: "me".into()
+        }
+    );
 }
 
 #[test]
 fn every_named_constraint_of_the_write_log_refuses_its_row() {
     use crate::lists::fixtures::{Refusals, db, row, v};
     let db = db();
-    let line = [("version", v(10)), ("at", v(1)), ("by", v("a")), ("words", v("w"))];
+    let line = [
+        ("version", v(10)),
+        ("at", v(1)),
+        ("by", v("a")),
+        ("words", v("w")),
+    ];
     plant(&db, "write_log", &row(&line, &[("version", v(10))])).unwrap();
     let mut refused = Refusals::new(include_str!("store.sql"));
-    refused.check("write_log_version_positive", plant(&db, "write_log", &row(&line, &[("version", v(0))])));
-    refused.check("write_log_by_says_something", plant(&db, "write_log", &row(&line, &[("version", v(11)), ("by", v(" "))])));
-    refused.check_as("write_log_version_once", "UNIQUE constraint failed: write_log.version", plant(&db, "write_log", &line));
+    refused.check(
+        "write_log_version_positive",
+        plant(&db, "write_log", &row(&line, &[("version", v(0))])),
+    );
+    refused.check(
+        "write_log_by_says_something",
+        plant(
+            &db,
+            "write_log",
+            &row(&line, &[("version", v(11)), ("by", v(" "))]),
+        ),
+    );
+    refused.check_as(
+        "write_log_version_once",
+        "UNIQUE constraint failed: write_log.version",
+        plant(&db, "write_log", &line),
+    );
     refused.covered_without_a_name(&["write_log_version_once"]);
     refused.done();
 }
@@ -431,13 +588,36 @@ fn the_integrity_checks_name_a_row_that_points_at_nothing_and_one_that_breaks_a_
     assert_eq!(integrity(&places), Vec::<String>::new());
     // Written with the foreign keys and checks off, as the sqlite3 shell does.
     let db = db::open(&store.database(), Make::Never).unwrap();
-    db.execute_batch("PRAGMA foreign_keys = OFF; PRAGMA ignore_check_constraints = ON").unwrap();
-    db.execute("INSERT INTO item_wait_item (item_id, on_item) VALUES (41, 42)", []).unwrap();
-    db.execute("UPDATE area SET name = 'two\nlines' WHERE name = 'Beta'", []).unwrap();
+    db.execute_batch("PRAGMA foreign_keys = OFF; PRAGMA ignore_check_constraints = ON")
+        .unwrap();
+    db.execute(
+        "INSERT INTO item_wait_item (item_id, on_item) VALUES (41, 42)",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE area SET name = 'two\nlines' WHERE name = 'Beta'",
+        [],
+    )
+    .unwrap();
     drop(db);
     let found = integrity(&places);
-    assert!(found.iter().any(|f| f.contains("item_wait_item") && f.contains("points at nothing")), "{found:?}");
-    assert!(found.iter().any(|f| f.contains("area_name_is_one_line") || f.contains("CHECK")), "{found:?}");
-    assert!(found.iter().all(|f| f.contains("project demo's database fails its integrity check")), "{found:?}");
+    assert!(
+        found
+            .iter()
+            .any(|f| f.contains("item_wait_item") && f.contains("points at nothing")),
+        "{found:?}"
+    );
+    assert!(
+        found
+            .iter()
+            .any(|f| f.contains("area_name_is_one_line") || f.contains("CHECK")),
+        "{found:?}"
+    );
+    assert!(
+        found
+            .iter()
+            .all(|f| f.contains("project demo's database fails its integrity check")),
+        "{found:?}"
+    );
 }
-

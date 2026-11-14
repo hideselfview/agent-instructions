@@ -83,8 +83,12 @@ fn commits(top: &Path, rev: &[&str]) -> Result<Vec<Commit>, String> {
         found.push(Commit {
             sha: fields[i].trim().to_string(),
             full: fields[i + 1].to_string(),
-            time: fields[i + 2].parse().map_err(|_| format!("git log printed a time {:?}", fields[i + 2]))?,
-            authored: fields[i + 3].parse().map_err(|_| format!("git log printed a time {:?}", fields[i + 3]))?,
+            time: fields[i + 2]
+                .parse()
+                .map_err(|_| format!("git log printed a time {:?}", fields[i + 2]))?,
+            authored: fields[i + 3]
+                .parse()
+                .map_err(|_| format!("git log printed a time {:?}", fields[i + 3]))?,
             subject: fields[i + 4].to_string(),
         });
         i += 5;
@@ -103,12 +107,20 @@ fn commits(top: &Path, rev: &[&str]) -> Result<Vec<Commit>, String> {
 /// both keep.
 fn waiting_to_land(top: &Path) -> Result<Vec<Commit>, String> {
     let marks = run(top, &["cherry", "origin/main", "HEAD"])?;
-    let unmatched: HashSet<&str> = marks.lines().filter_map(|line| line.strip_prefix("+ ")).collect();
-    let landed: HashSet<(i64, String)> =
-        commits(top, &["HEAD..origin/main"])?.into_iter().map(|c| (c.authored, c.subject)).collect();
+    let unmatched: HashSet<&str> = marks
+        .lines()
+        .filter_map(|line| line.strip_prefix("+ "))
+        .collect();
+    let landed: HashSet<(i64, String)> = commits(top, &["HEAD..origin/main"])?
+        .into_iter()
+        .map(|c| (c.authored, c.subject))
+        .collect();
     Ok(commits(top, &["origin/main..HEAD"])?
         .into_iter()
-        .filter(|c| unmatched.contains(c.full.as_str()) && !landed.contains(&(c.authored, c.subject.clone())))
+        .filter(|c| {
+            unmatched.contains(c.full.as_str())
+                && !landed.contains(&(c.authored, c.subject.clone()))
+        })
         .collect())
 }
 
@@ -129,9 +141,10 @@ fn uncommitted(top: &Path) -> Result<(usize, Option<i64>), String> {
         }
         count += 1;
         if let Some(path) = entry.get(3..)
-            && let Ok(meta) = std::fs::symlink_metadata(top.join(path)) {
-                newest = Some(newest.map_or(meta.mtime(), |n| n.max(meta.mtime())));
-            }
+            && let Ok(meta) = std::fs::symlink_metadata(top.join(path))
+        {
+            newest = Some(newest.map_or(meta.mtime(), |n| n.max(meta.mtime())));
+        }
         // A rename or copy names its source in the entry after it.
         let bytes = entry.as_bytes();
         if matches!(bytes.first(), Some(b'R' | b'C')) || matches!(bytes.get(1), Some(b'R' | b'C')) {
@@ -147,7 +160,13 @@ pub fn read(top: &Path) -> SideGit {
     let read = || -> Result<SideGit, String> {
         let head = commits(top, &["-1", "HEAD"])?.into_iter().next();
         let (count, newest) = uncommitted(top)?;
-        Ok(SideGit { head, ahead: waiting_to_land(top)?, uncommitted: Some(count), last_write: newest, error: None })
+        Ok(SideGit {
+            head,
+            ahead: waiting_to_land(top)?,
+            uncommitted: Some(count),
+            last_write: newest,
+            error: None,
+        })
     };
     read().unwrap_or_else(|error| SideGit {
         head: None,

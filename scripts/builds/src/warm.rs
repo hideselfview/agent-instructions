@@ -83,8 +83,14 @@ fn try_hold(candidate: &Candidate) -> Result<Option<Held>> {
 }
 
 fn hold_rest(candidate: &Candidate, guard: Guard) -> Result<Option<Held>> {
-    let Some(locks) = cargo_locks(&target_of(&candidate.root))? else { return Ok(None) };
-    Ok(Some(Held { candidate: candidate.clone(), _guard: guard, _locks: locks }))
+    let Some(locks) = cargo_locks(&target_of(&candidate.root))? else {
+        return Ok(None);
+    };
+    Ok(Some(Held {
+        candidate: candidate.clone(),
+        _guard: guard,
+        _locks: locks,
+    }))
 }
 
 /// Takes the best candidate no build holds; when every one is held, waits for
@@ -97,7 +103,9 @@ pub fn acquire(ranked: &[Candidate]) -> Result<Option<Held>> {
             return Ok(Some(held));
         }
     }
-    let Some(best) = ranked.first() else { return Ok(None) };
+    let Some(best) = ranked.first() else {
+        return Ok(None);
+    };
     let file = lock_exclusive_creating(&best.root.join(GUARD))?;
     hold_rest(best, Guard::Held(file))
 }
@@ -111,13 +119,21 @@ fn clone_dir(source: &Path, staging: &Path) -> Result<()> {
     let from = CString::new(source.as_os_str().as_bytes()).expect("a path holds no NUL");
     let to = CString::new(staging.as_os_str().as_bytes()).expect("a path holds no NUL");
     if unsafe { libc::clonefile(from.as_ptr(), to.as_ptr(), CLONE_NOFOLLOW) } != 0 {
-        fail!("cloning {} to {}: {}", source.display(), staging.display(), std::io::Error::last_os_error());
+        fail!(
+            "cloning {} to {}: {}",
+            source.display(),
+            staging.display(),
+            std::io::Error::last_os_error()
+        );
     }
     Ok(())
 }
 
 fn is_empty_dir(dir: &Path) -> Result<bool> {
-    Ok(std::fs::read_dir(dir).context(|| format!("listing {}", dir.display()))?.next().is_none())
+    Ok(std::fs::read_dir(dir)
+        .context(|| format!("listing {}", dir.display()))?
+        .next()
+        .is_none())
 }
 
 /// The blob git has for Cargo.lock at <rev> in <dir>, or "" when <rev> has
@@ -151,7 +167,9 @@ fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Cand
     let wanted = lock_blob(&checkout.top, "origin/main")?;
     let mut found: Vec<(Root, Checkout)> = Vec::new();
     for root in tool.roots()? {
-        let Some(live) = root.live.clone() else { continue };
+        let Some(live) = root.live.clone() else {
+            continue;
+        };
         if live.main != checkout.main || root.path == dest_root {
             continue;
         }
@@ -160,7 +178,10 @@ fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Cand
         }
         found.push((root, live));
     }
-    let folders: Vec<PathBuf> = found.iter().map(|(root, _)| target_of(&root.path)).collect();
+    let folders: Vec<PathBuf> = found
+        .iter()
+        .map(|(root, _)| target_of(&root.path))
+        .collect();
     let sizes = tool.measure_all(&folders)?;
     let mut candidates = Vec::new();
     for ((root, live), size) in found.into_iter().zip(sizes) {
@@ -187,7 +208,9 @@ fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Cand
 /// deleted). Nothing to clone from is not a failure: the first build is cold,
 /// as it always was.
 pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
-    let Some(entry) = build_dirs(&checkout.top)?.into_iter().find(|entry| entry.path == "target" && entry.lane.is_none())
+    let Some(entry) = build_dirs(&checkout.top)?
+        .into_iter()
+        .find(|entry| entry.path == "target" && entry.lane.is_none())
     else {
         return Ok(());
     };
@@ -199,21 +222,29 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
     let mut ranked = candidates(tool, checkout, entry.cap_kib(false))?;
     rank(&mut ranked);
     let Some(held) = acquire(&ranked)? else {
-        note(format!("no warm host build of {} to clone; its first build is cold", checkout.repo()));
+        note(format!(
+            "no warm host build of {} to clone; its first build is cold",
+            checkout.repo()
+        ));
         return Ok(());
     };
     let source = target_of(&held.candidate.root);
     let staging = root.join(format!(".target.warm.{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&staging);
     let cloned = clone_dir(&source, &staging).and_then(|()| {
-        std::fs::rename(&staging, &dest).context(|| format!("moving the clone into {}", dest.display()))
+        std::fs::rename(&staging, &dest)
+            .context(|| format!("moving the clone into {}", dest.display()))
     });
     if let Err(error) = cloned {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(error);
     }
     drop(held);
-    note(format!("cloned {} into {}", source.display(), dest.display()));
+    note(format!(
+        "cloned {} into {}",
+        source.display(),
+        dest.display()
+    ));
     // The source's incremental folders and the like: a side worktree's
     // builds read none of them.
     prune_root(tool, &root, checkout, Run::Real, 0, 0)

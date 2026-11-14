@@ -59,7 +59,11 @@ fn workspace(scratch: &Scratch) -> std::path::PathBuf {
     let top = scratch.dir.join("ws");
     std::fs::create_dir_all(&top).unwrap();
     git(&top, &["init", "-q", "-b", "main"]);
-    std::fs::write(top.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\nresolver = \"2\"\n").unwrap();
+    std::fs::write(
+        top.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\nresolver = \"2\"\n",
+    )
+    .unwrap();
     for name in ["a", "b"] {
         let dir = top.join("crates").join(name);
         std::fs::create_dir_all(dir.join("src")).unwrap();
@@ -75,19 +79,29 @@ fn workspace(scratch: &Scratch) -> std::path::PathBuf {
 }
 
 fn crates_argv(top: &Path, staged: &[&str]) -> Vec<String> {
-    let lines = parse("check c *.rs,Cargo.toml,Cargo.lock cargo clippy {crates} -- -D warnings\n").unwrap();
+    let lines =
+        parse("check c *.rs,Cargo.toml,Cargo.lock cargo clippy {crates} -- -D warnings\n").unwrap();
     let planned = plan(top, &lines, &[Kind::Check], &files(staged), false).unwrap();
-    planned.into_iter().next().map(|p| p.argv).unwrap_or_default()
+    planned
+        .into_iter()
+        .next()
+        .map(|p| p.argv)
+        .unwrap_or_default()
 }
 
 #[test]
 fn crates_expand_to_the_crates_holding_a_staged_file() {
     let scratch = Scratch::new("checks-crates");
     let top = workspace(&scratch);
-    assert_eq!(crates_argv(&top, &["crates/a/src/lib.rs"]), files(&["cargo", "clippy", "-p", "a", "--", "-D", "warnings"]));
+    assert_eq!(
+        crates_argv(&top, &["crates/a/src/lib.rs"]),
+        files(&["cargo", "clippy", "-p", "a", "--", "-D", "warnings"])
+    );
     assert_eq!(
         crates_argv(&top, &["crates/b/src/lib.rs", "crates/a/src/lib.rs"]),
-        files(&["cargo", "clippy", "-p", "a", "-p", "b", "--", "-D", "warnings"])
+        files(&[
+            "cargo", "clippy", "-p", "a", "-p", "b", "--", "-D", "warnings"
+        ])
     );
 }
 
@@ -95,11 +109,16 @@ fn crates_expand_to_the_crates_holding_a_staged_file() {
 fn a_root_cargo_toml_or_lock_counts_as_every_crate() {
     let scratch = Scratch::new("checks-root");
     let top = workspace(&scratch);
-    let every = files(&["cargo", "clippy", "-p", "a", "-p", "b", "--", "-D", "warnings"]);
+    let every = files(&[
+        "cargo", "clippy", "-p", "a", "-p", "b", "--", "-D", "warnings",
+    ]);
     assert_eq!(crates_argv(&top, &["Cargo.toml"]), every);
     assert_eq!(crates_argv(&top, &["Cargo.lock"]), every);
     // A crate's own manifest counts as that crate only.
-    assert_eq!(crates_argv(&top, &["crates/b/Cargo.toml"]), files(&["cargo", "clippy", "-p", "b", "--", "-D", "warnings"]));
+    assert_eq!(
+        crates_argv(&top, &["crates/b/Cargo.toml"]),
+        files(&["cargo", "clippy", "-p", "b", "--", "-D", "warnings"])
+    );
 }
 
 #[test]
@@ -110,7 +129,11 @@ fn a_line_with_nothing_to_hand_its_placeholder_is_left_out() {
     assert!(crates_argv(&top, &["tools/x.rs"]).is_empty());
     // Matches, but is not on disk.
     let lines = parse("check f *.rs tool {files}\n").unwrap();
-    assert!(plan(&top, &lines, &[Kind::Check], &files(&["gone.rs"]), false).unwrap().is_empty());
+    assert!(
+        plan(&top, &lines, &[Kind::Check], &files(&["gone.rs"]), false)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -122,7 +145,14 @@ fn files_expand_to_the_matching_files_in_order_and_gates_run_whole() {
         std::fs::write(top.join(f), "").unwrap();
     }
     let lines = parse("check sh *.sh lint --x {files}\ncheck gate *.md ./gate.sh\n").unwrap();
-    let planned = plan(&top, &lines, &[Kind::Check], &files(&["b.sh", "a.sh", "c.md"]), false).unwrap();
+    let planned = plan(
+        &top,
+        &lines,
+        &[Kind::Check],
+        &files(&["b.sh", "a.sh", "c.md"]),
+        false,
+    )
+    .unwrap();
     assert_eq!(planned[0].argv, files(&["lint", "--x", "b.sh", "a.sh"]));
     assert_eq!(planned[1].argv, files(&["./gate.sh"]));
     let only_md = plan(&top, &lines, &[Kind::Check], &files(&["c.md"]), false).unwrap();

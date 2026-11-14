@@ -28,7 +28,19 @@ fn add_places_an_area_at_the_end_or_after_another() {
 fn rename_follows_the_open_items_and_move_reorders() {
     let demo = demo("area-rename");
     let details = demo.brief("d");
-    cmd_item(&demo.tool, &words(&["add", "--title", "Do the first thing now", "--area", "Alpha", "--details-file", &details])).unwrap();
+    cmd_item(
+        &demo.tool,
+        &words(&[
+            "add",
+            "--title",
+            "Do the first thing now",
+            "--area",
+            "Alpha",
+            "--details-file",
+            &details,
+        ]),
+    )
+    .unwrap();
     area(&demo, &["rename", "Alpha", "First"]).unwrap();
     assert_eq!(demo.store.load().unwrap().items[0].area, "First");
     assert!(refusal(area(&demo, &["rename", "First", "Beta"])).contains("exists already"));
@@ -42,9 +54,24 @@ fn rename_follows_the_open_items_and_move_reorders() {
 fn remove_is_refused_while_an_item_is_in_the_area() {
     let demo = demo("area-remove");
     let details = demo.brief("d");
-    cmd_item(&demo.tool, &words(&["add", "--title", "Do the first thing now", "--area", "Alpha", "--details-file", &details])).unwrap();
+    cmd_item(
+        &demo.tool,
+        &words(&[
+            "add",
+            "--title",
+            "Do the first thing now",
+            "--area",
+            "Alpha",
+            "--details-file",
+            &details,
+        ]),
+    )
+    .unwrap();
     let refused = refusal(area(&demo, &["remove", "Alpha"]));
-    assert!(refused.contains("still holds #1") && refused.contains("item edit N --area"), "{refused}");
+    assert!(
+        refused.contains("still holds #1") && refused.contains("item edit N --area"),
+        "{refused}"
+    );
     area(&demo, &["remove", "Beta"]).unwrap();
     assert_eq!(names(&demo), ["Alpha"]);
 }
@@ -53,14 +80,28 @@ fn remove_is_refused_while_an_item_is_in_the_area() {
 fn demo_with_a_closed_item(name: &str) -> Demo {
     let demo = demo(name);
     let details = demo.brief("d");
-    cmd_item(&demo.tool, &words(&["add", "--title", "Do the first thing now", "--area", "Alpha", "--details-file", &details])).unwrap();
+    cmd_item(
+        &demo.tool,
+        &words(&[
+            "add",
+            "--title",
+            "Do the first thing now",
+            "--area",
+            "Alpha",
+            "--details-file",
+            &details,
+        ]),
+    )
+    .unwrap();
     cmd_item(&demo.tool, &words(&["drop", "1", "--why", "not needed"])).unwrap();
     demo
 }
 
 fn closed_area(demo: &Demo, id: u32) -> String {
     let lists = demo.store.load().unwrap();
-    let Record::Item(item) = &lists.closed_record(Id(id)).unwrap().record else { panic!("an item") };
+    let Record::Item(item) = &lists.closed_record(Id(id)).unwrap().record else {
+        panic!("an item")
+    };
     item.area.clone()
 }
 
@@ -90,10 +131,23 @@ fn every_named_constraint_of_the_area_table_refuses_its_row() {
     plant(&db, &area).unwrap();
     let mut refused = Refusals::new(include_str!("area.sql"));
     for name in ["", " x", "x ", "a\nb", "a\tb"] {
-        refused.check("area_name_is_one_line", plant(&db, &row(&area, &[("name", v(name))])));
+        refused.check(
+            "area_name_is_one_line",
+            plant(&db, &row(&area, &[("name", v(name))])),
+        );
     }
-    refused.check("area_position_not_negative", plant(&db, &row(&area, &[("name", v("Delta")), ("position", v(-1))])));
-    refused.check_as("area_position_is_its_own", "UNIQUE constraint failed: area.position", plant(&db, &row(&area, &[("name", v("Delta"))])));
+    refused.check(
+        "area_position_not_negative",
+        plant(
+            &db,
+            &row(&area, &[("name", v("Delta")), ("position", v(-1))]),
+        ),
+    );
+    refused.check_as(
+        "area_position_is_its_own",
+        "UNIQUE constraint failed: area.position",
+        plant(&db, &row(&area, &[("name", v("Delta"))])),
+    );
     refused.done();
 }
 
@@ -103,12 +157,24 @@ fn a_rename_carries_every_item_open_or_closed_through_the_foreign_key() {
     let db = db();
     let open = item(&db, vec![]);
     let closed = item(&db, vec![]);
-    crate::lists::record::close(&db, closed, crate::lists::How::Dropped("x".into()), &stamp(1)).unwrap();
+    crate::lists::record::close(
+        &db,
+        closed,
+        crate::lists::How::Dropped("x".into()),
+        &stamp(1),
+    )
+    .unwrap();
     rename_area(&db, "Alpha", "Renamed").unwrap();
     let lists = read(&db);
     assert_eq!(lists.areas, ["Renamed", "Beta"]);
     assert_eq!(lists.item(open).unwrap().area, "Renamed");
-    let Some(crate::lists::Closed { record: crate::lists::Record::Item(item), .. }) = lists.closed_record(closed) else { panic!() };
+    let Some(crate::lists::Closed {
+        record: crate::lists::Record::Item(item),
+        ..
+    }) = lists.closed_record(closed)
+    else {
+        panic!()
+    };
     assert_eq!(item.area, "Renamed");
 }
 

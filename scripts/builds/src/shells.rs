@@ -85,7 +85,8 @@ pub struct Entry {
 
 fn is_agent_shell(entry: &Entry) -> bool {
     let name = entry.argv.first().map(|a| basename(a)).unwrap_or_default();
-    matches!(name, "zsh" | "bash" | "sh") && entry.argv.iter().any(|arg| arg.contains("shell-snapshots"))
+    matches!(name, "zsh" | "bash" | "sh")
+        && entry.argv.iter().any(|arg| arg.contains("shell-snapshots"))
 }
 
 fn basename(path: &str) -> &str {
@@ -95,7 +96,14 @@ fn basename(path: &str) -> &str {
 /// The agent shells of <uid> and everything under them, read now.
 pub fn gather(processes: &Processes, uid: u32) -> Vec<Entry> {
     let read = |pid: i32, ppid: i32, started: i64| {
-        args(pid).map(|argv| Entry { pid, ppid, started, cpu_seconds: tree_cpu(pid).unwrap_or(0.0), argv, cwd: cwd(pid) })
+        args(pid).map(|argv| Entry {
+            pid,
+            ppid,
+            started,
+            cpu_seconds: tree_cpu(pid).unwrap_or(0.0),
+            argv,
+            cwd: cwd(pid),
+        })
     };
     let mut children: HashMap<i32, Vec<usize>> = HashMap::new();
     for (at, process) in processes.list.iter().enumerate() {
@@ -141,7 +149,10 @@ fn command_of(argv: &[String]) -> String {
     match line.find("eval '") {
         Some(at) => {
             let rest = &line[at + "eval '".len()..];
-            let end = rest.rfind("' && pwd -P").or_else(|| rest.rfind("' < /dev/null")).unwrap_or(rest.len());
+            let end = rest
+                .rfind("' && pwd -P")
+                .or_else(|| rest.rfind("' < /dev/null"))
+                .unwrap_or(rest.len());
             rest[..end].replace("'\"'\"'", "'")
         }
         None => line,
@@ -154,20 +165,28 @@ fn flat(text: &str) -> String {
 }
 
 fn shown(text: &str) -> String {
-    if text.chars().count() > SHOWN { format!("{}…", text.chars().take(SHOWN).collect::<String>()) } else { text.to_string() }
+    if text.chars().count() > SHOWN {
+        format!("{}…", text.chars().take(SHOWN).collect::<String>())
+    } else {
+        text.to_string()
+    }
 }
 
 /// Is <command> `builds dashboard`, which runs until it is stopped on
 /// purpose?
 pub fn runs_the_dashboard(command: &str) -> bool {
     let words: Vec<&str> = command.split_whitespace().collect();
-    words.windows(2).next().is_some_and(|pair| (pair[0] == "builds" || pair[0].ends_with("/builds")) && pair[1] == "dashboard")
+    words.windows(2).next().is_some_and(|pair| {
+        (pair[0] == "builds" || pair[0].ends_with("/builds")) && pair[1] == "dashboard"
+    })
 }
 
 /// A leading `cd <dir> &&` (or `;`) of <command>: the folder and the rest.
 fn strip_cd(command: &str) -> (Option<String>, &str) {
     let trimmed = command.trim_start();
-    let Some(rest) = trimmed.strip_prefix("cd ") else { return (None, trimmed) };
+    let Some(rest) = trimmed.strip_prefix("cd ") else {
+        return (None, trimmed);
+    };
     let rest = rest.trim_start();
     let (dir, after) = match rest.chars().next() {
         Some(quote @ ('\'' | '"')) => match rest[1..].find(quote) {
@@ -188,7 +207,11 @@ fn strip_cd(command: &str) -> (Option<String>, &str) {
 
 /// The folder a `cd` names, against the shell's <cwd>.
 fn resolve(dir: &str, cwd: Option<&Path>, home: &Path) -> Option<PathBuf> {
-    let dir = dir.strip_prefix("${HOME}").or_else(|| dir.strip_prefix("$HOME")).map(|rest| format!("~{rest}")).unwrap_or(dir.to_string());
+    let dir = dir
+        .strip_prefix("${HOME}")
+        .or_else(|| dir.strip_prefix("$HOME"))
+        .map(|rest| format!("~{rest}"))
+        .unwrap_or(dir.to_string());
     if dir == "~" {
         Some(home.to_path_buf())
     } else if let Some(rest) = dir.strip_prefix("~/") {
@@ -232,13 +255,33 @@ fn commands(text: &str) -> Vec<Vec<String>> {
         }
     }
     fn is_prefix(word: &str) -> bool {
-        matches!(word, "{" | "}" | "do" | "then" | "else" | "elif" | "if" | "!" | "time" | "exec" | "command" | "builtin" | "nohup")
-            || word.split_once('=').is_some_and(|(name, _)| {
-                !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !name.starts_with(|c: char| c.is_ascii_digit())
-            })
+        matches!(
+            word,
+            "{" | "}"
+                | "do"
+                | "then"
+                | "else"
+                | "elif"
+                | "if"
+                | "!"
+                | "time"
+                | "exec"
+                | "command"
+                | "builtin"
+                | "nohup"
+        ) || word.split_once('=').is_some_and(|(name, _)| {
+            !name.is_empty()
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                && !name.starts_with(|c: char| c.is_ascii_digit())
+        })
     }
     let c: Vec<char> = text.chars().collect();
-    let mut scan = Scan { out: Vec::new(), command: Vec::new(), word: String::new(), has_word: false };
+    let mut scan = Scan {
+        out: Vec::new(),
+        command: Vec::new(),
+        word: String::new(),
+        has_word: false,
+    };
     let mut heredocs: Vec<String> = Vec::new();
     let mut i = 0;
     while i < c.len() {
@@ -300,7 +343,11 @@ fn commands(text: &str) -> Vec<Vec<String>> {
                 i += 1;
                 for delimiter in heredocs.drain(..) {
                     while i < c.len() {
-                        let end = c[i..].iter().position(|ch| *ch == '\n').map(|n| i + n).unwrap_or(c.len());
+                        let end = c[i..]
+                            .iter()
+                            .position(|ch| *ch == '\n')
+                            .map(|n| i + n)
+                            .unwrap_or(c.len());
                         let line: String = c[i..end].iter().collect();
                         i = (end + 1).min(c.len());
                         if line.trim() == delimiter {
@@ -335,20 +382,39 @@ fn waits_as(argv: &[String]) -> Option<String> {
     let rest = &argv[1..];
     match name {
         "sleep" => Some("sleep".to_string()),
-        "caffeinate" if rest.iter().any(|a| a.starts_with('-') && a.chars().skip(1).any(|c| c == 't' || c == 'w')) => {
+        "caffeinate"
+            if rest
+                .iter()
+                .any(|a| a.starts_with('-') && a.chars().skip(1).any(|c| c == 't' || c == 'w')) =>
+        {
             Some("caffeinate -t/-w".to_string())
         }
-        "lsof" if rest.iter().any(|a| a.starts_with("+r") || a.starts_with("+R")) => Some("lsof +r".to_string()),
-        n if n.starts_with("python") && rest.iter().any(|a| a.contains("time.sleep")) => Some("time.sleep".to_string()),
+        "lsof"
+            if rest
+                .iter()
+                .any(|a| a.starts_with("+r") || a.starts_with("+R")) =>
+        {
+            Some("lsof +r".to_string())
+        }
+        n if n.starts_with("python") && rest.iter().any(|a| a.contains("time.sleep")) => {
+            Some("time.sleep".to_string())
+        }
         "until" => Some("an until loop".to_string()),
-        "while" if !rest.first().is_some_and(|a| a == "read" || a.starts_with("IFS")) => Some("a while loop".to_string()),
+        "while"
+            if !rest
+                .first()
+                .is_some_and(|a| a == "read" || a.starts_with("IFS")) =>
+        {
+            Some("a while loop".to_string())
+        }
         _ => None,
     }
 }
 
 /// Whether <parsed> loops over a counted sequence: `for … in $(seq …)`.
 fn loops_over_seq(parsed: &[Vec<String>]) -> bool {
-    parsed.iter().any(|c| c.first().is_some_and(|w| w == "for")) && parsed.iter().any(|c| c.first().is_some_and(|w| w == "seq"))
+    parsed.iter().any(|c| c.first().is_some_and(|w| w == "for"))
+        && parsed.iter().any(|c| c.first().is_some_and(|w| w == "seq"))
 }
 
 /// What <argv> searches as, when it is a `find` or `du` over `/` or the home
@@ -358,8 +424,19 @@ fn whole_disk(argv: &[String], home: &Path) -> Option<String> {
     let rest = &argv[1..];
     let operands: Vec<&String> = match name {
         "find" => {
-            let skip = rest.iter().take_while(|a| matches!(a.as_str(), "-H" | "-L" | "-P" | "-E" | "-X" | "-x" | "-d" | "-s")).count();
-            rest[skip..].iter().take_while(|a| !a.starts_with('-') && !a.starts_with('(') && !a.starts_with('!')).collect()
+            let skip = rest
+                .iter()
+                .take_while(|a| {
+                    matches!(
+                        a.as_str(),
+                        "-H" | "-L" | "-P" | "-E" | "-X" | "-x" | "-d" | "-s"
+                    )
+                })
+                .count();
+            rest[skip..]
+                .iter()
+                .take_while(|a| !a.starts_with('-') && !a.starts_with('(') && !a.starts_with('!'))
+                .collect()
         }
         "du" => rest.iter().filter(|a| !a.starts_with('-')).collect(),
         _ => return None,
@@ -369,7 +446,10 @@ fn whole_disk(argv: &[String], home: &Path) -> Option<String> {
         let path = path.trim_end_matches('/');
         path.is_empty() || matches!(path, "~" | "$HOME" | "${HOME}" | "/Users") || path == home
     };
-    operands.into_iter().find(|operand| wide(operand)).map(|operand| format!("{name} {operand}"))
+    operands
+        .into_iter()
+        .find(|operand| wide(operand))
+        .map(|operand| format!("{name} {operand}"))
 }
 
 /// One agent shell as the judgement sees it.
@@ -389,13 +469,23 @@ struct Candidate {
 /// Judges every agent shell in <entries> at <now>: which are junk, and why.
 /// <queued> holds the pids of `builds` processes waiting in an app queue
 /// (`Queue::waiting`): a shell with one in its tree waits on purpose.
-pub fn judge(entries: &[Entry], now: i64, home: &Path, places: &[Place], queued: &HashSet<i32>) -> Shells {
+pub fn judge(
+    entries: &[Entry],
+    now: i64,
+    home: &Path,
+    places: &[Place],
+    queued: &HashSet<i32>,
+) -> Shells {
     let mut children: HashMap<i32, Vec<&Entry>> = HashMap::new();
     for entry in entries {
         children.entry(entry.ppid).or_default().push(entry);
     }
-    let tops: Vec<&Entry> =
-        entries.iter().filter(|e| is_agent_shell(e) && !entries.iter().any(|p| p.pid == e.ppid && is_agent_shell(p))).collect();
+    let tops: Vec<&Entry> = entries
+        .iter()
+        .filter(|e| {
+            is_agent_shell(e) && !entries.iter().any(|p| p.pid == e.ppid && is_agent_shell(p))
+        })
+        .collect();
     let mut candidates = Vec::new();
     for top in &tops {
         let mut tree = Vec::new();
@@ -421,13 +511,26 @@ pub fn judge(entries: &[Entry], now: i64, home: &Path, places: &[Place], queued:
             continue;
         }
         let parsed = commands(&command);
-        let members: Vec<&Entry> = tree.iter().filter(|e| !is_agent_shell(e)).copied().collect();
-        let argvs: Vec<&Vec<String>> = parsed.iter().chain(members.iter().map(|e| &e.argv)).collect();
+        let members: Vec<&Entry> = tree
+            .iter()
+            .filter(|e| !is_agent_shell(e))
+            .copied()
+            .collect();
+        let argvs: Vec<&Vec<String>> = parsed
+            .iter()
+            .chain(members.iter().map(|e| &e.argv))
+            .collect();
         let junk = argvs
             .iter()
             .find_map(|argv| waits_as(argv).map(Reason::Waits))
-            .or_else(|| loops_over_seq(&parsed).then(|| Reason::Waits("a for loop over seq".to_string())))
-            .or_else(|| argvs.iter().find_map(|argv| whole_disk(argv, home).map(Reason::WholeDisk)));
+            .or_else(|| {
+                loops_over_seq(&parsed).then(|| Reason::Waits("a for loop over seq".to_string()))
+            })
+            .or_else(|| {
+                argvs
+                    .iter()
+                    .find_map(|argv| whole_disk(argv, home).map(Reason::WholeDisk))
+            });
         candidates.push(Candidate {
             pid: top.pid,
             started: top.started,
@@ -436,7 +539,11 @@ pub fn judge(entries: &[Entry], now: i64, home: &Path, places: &[Place], queued:
             junk,
             cpu_seconds: tree.iter().map(|e| e.cpu_seconds).sum(),
             queued: tree.iter().any(|e| queued.contains(&e.pid)),
-            compiling: members.iter().any(|e| e.argv.first().is_some_and(|a| matches!(basename(a), "sccache" | "rustc"))),
+            compiling: members.iter().any(|e| {
+                e.argv
+                    .first()
+                    .is_some_and(|a| matches!(basename(a), "sccache" | "rustc"))
+            }),
         });
     }
     let running = tops.len();
@@ -453,8 +560,14 @@ pub fn judge(entries: &[Entry], now: i64, home: &Path, places: &[Place], queued:
         let age = now - this.started;
         let junk = if oldest.pid != this.pid && age >= COPY_SECONDS {
             Some(Reason::Duplicate { of: oldest.pid })
-        } else if age >= IDLE_MINUTES * 60 && !this.queued && !this.compiling && this.cpu_seconds / (age as f64) < IDLE_SHARE {
-            Some(Reason::Idle { percent: this.cpu_seconds / (age as f64) * 100.0 })
+        } else if age >= IDLE_MINUTES * 60
+            && !this.queued
+            && !this.compiling
+            && this.cpu_seconds / (age as f64) < IDLE_SHARE
+        {
+            Some(Reason::Idle {
+                percent: this.cpu_seconds / (age as f64) * 100.0,
+            })
         } else {
             None
         };
@@ -478,10 +591,24 @@ pub fn judge(entries: &[Entry], now: i64, home: &Path, places: &[Place], queued:
 
 /// The lines `builds health` prints for <shells>.
 pub fn lines(shells: &Shells) -> Vec<String> {
-    let mut out = vec![format!("shells: {} running, {} junk", shells.running, shells.junk.len())];
+    let mut out = vec![format!(
+        "shells: {} running, {} junk",
+        shells.running,
+        shells.junk.len()
+    )];
     for j in &shells.junk {
-        let age = if j.minutes >= 60 { format!("{}h{:02}m", j.minutes / 60, j.minutes % 60) } else { format!("{}m", j.minutes) };
-        out.push(format!("    pid {} {age}  {}  {}: {}", j.pid, j.worktree, j.reason.describe(), j.command));
+        let age = if j.minutes >= 60 {
+            format!("{}h{:02}m", j.minutes / 60, j.minutes % 60)
+        } else {
+            format!("{}m", j.minutes)
+        };
+        out.push(format!(
+            "    pid {} {age}  {}  {}: {}",
+            j.pid,
+            j.worktree,
+            j.reason.describe(),
+            j.command
+        ));
     }
     out
 }

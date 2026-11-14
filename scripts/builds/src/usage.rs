@@ -58,8 +58,18 @@ pub fn extents(path: &Path, size: u64) -> Option<Vec<(i64, u64)>> {
     let mut found = Vec::new();
     let mut offset: u64 = 0;
     while offset < size {
-        let mut query = Log2Phys { flags: 0, contigbytes: (size - offset) as i64, devoffset: offset as i64 };
-        let rc = unsafe { libc::fcntl(file.as_raw_fd(), F_LOG2PHYS_EXT, &mut query as *mut Log2Phys) };
+        let mut query = Log2Phys {
+            flags: 0,
+            contigbytes: (size - offset) as i64,
+            devoffset: offset as i64,
+        };
+        let rc = unsafe {
+            libc::fcntl(
+                file.as_raw_fd(),
+                F_LOG2PHYS_EXT,
+                &mut query as *mut Log2Phys,
+            )
+        };
         if rc == -1 {
             return None;
         }
@@ -90,15 +100,17 @@ impl Seen {
             }
         }
         let allocated = meta.blocks() * 512;
-        if meta.is_file() && allocated >= CLONE_MIN
-            && let Some(found) = extents(path, meta.size()) {
-                let mut seen = self.extents.lock().expect("no panic holding it");
-                return found
-                    .into_iter()
-                    .filter(|(device, _)| seen.insert((meta.dev(), *device)))
-                    .map(|(_, bytes)| bytes.div_ceil(BLOCK) * BLOCK)
-                    .sum();
-            }
+        if meta.is_file()
+            && allocated >= CLONE_MIN
+            && let Some(found) = extents(path, meta.size())
+        {
+            let mut seen = self.extents.lock().expect("no panic holding it");
+            return found
+                .into_iter()
+                .filter(|(device, _)| seen.insert((meta.dev(), *device)))
+                .map(|(_, bytes)| bytes.div_ceil(BLOCK) * BLOCK)
+                .sum();
+        }
         allocated
     }
 }
@@ -117,7 +129,9 @@ pub fn measure_many(paths: &[PathBuf]) -> Result<Vec<Measure>> {
     if let [path] = paths {
         return Ok(vec![measure_with(path, WORKERS)?]);
     }
-    crate::checkout::parallel_map(paths, |path| measure_with(path, 1)).into_iter().collect()
+    crate::checkout::parallel_map(paths, |path| measure_with(path, 1))
+        .into_iter()
+        .collect()
 }
 
 fn mtime(meta: &Metadata) -> i64 {
@@ -139,20 +153,32 @@ fn measure_with(path: &Path, workers: usize) -> Result<Measure> {
             newest.fetch_max(mtime(entry), Ordering::Relaxed);
         })?;
     }
-    Ok(Measure { kib: bytes.into_inner() / 1024, newest: Some(newest.into_inner()) })
+    Ok(Measure {
+        kib: bytes.into_inner() / 1024,
+        newest: Some(newest.into_inner()),
+    })
 }
 
 /// Calls <visit> with every entry under the folder <root> (not <root>
 /// itself), <workers> folders at a time, descending into folders on <dev>.
 /// An entry that vanishes while it is listed is skipped: it takes nothing
 /// now.
-pub fn walk(root: &Path, dev: u64, workers: usize, visit: &(dyn Fn(&Path, &Metadata) + Sync)) -> Result<()> {
+pub fn walk(
+    root: &Path,
+    dev: u64,
+    workers: usize,
+    visit: &(dyn Fn(&Path, &Metadata) + Sync),
+) -> Result<()> {
     struct Queue {
         folders: Vec<PathBuf>,
         busy: usize,
         error: Option<String>,
     }
-    let queue = Mutex::new(Queue { folders: vec![root.to_path_buf()], busy: 0, error: None });
+    let queue = Mutex::new(Queue {
+        folders: vec![root.to_path_buf()],
+        busy: 0,
+        error: None,
+    });
     let ready = Condvar::new();
     let work = || {
         loop {
@@ -229,7 +255,10 @@ fn list(
 
 /// The error a path deleted while it was being read gives.
 fn gone(error: &std::io::Error) -> bool {
-    matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory)
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+    )
 }
 
 /// Bytes <path> takes, a file or a whole folder, counting what <seen>
@@ -259,7 +288,11 @@ pub fn freeable(path: &Path) -> Result<u64> {
         Err(error) => fail!("reading {}: {error}", path.display()),
     };
     if !meta.is_dir() {
-        return Ok(if meta.nlink() == 1 { meta.blocks() * 512 } else { 0 });
+        return Ok(if meta.nlink() == 1 {
+            meta.blocks() * 512
+        } else {
+            0
+        });
     }
     let total = AtomicU64::new(0);
     walk(path, meta.dev(), 1, &|_, entry| {

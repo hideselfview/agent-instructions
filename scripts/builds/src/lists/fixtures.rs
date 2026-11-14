@@ -3,10 +3,10 @@
 
 use crate::lists::area::add_area;
 use crate::lists::design::{Board, NewDesign, Resolution, ReviewSection, open_change, save};
-use crate::lists::store::Store;
 use crate::lists::item::{ItemDraft, ItemEdit, add_item, add_wait};
 use crate::lists::project::{self, NewProject};
 use crate::lists::question::{NewQuestion, ask, edit};
+use crate::lists::store::Store;
 use crate::lists::store::log_write;
 use crate::lists::{Audience, Id, Lists, QuestionKind, Stamp, Wait};
 use rusqlite::Connection;
@@ -17,7 +17,10 @@ use std::collections::BTreeMap;
 pub const NOON: i64 = 1_794_571_200;
 
 pub fn stamp(at: i64) -> Stamp {
-    Stamp { at, by: "coordinator".to_string() }
+    Stamp {
+        at,
+        by: "coordinator".to_string(),
+    }
 }
 
 /// A store's lists in a new in-memory database: project `demo` over repos
@@ -49,7 +52,11 @@ pub fn read(db: &Connection) -> Lists {
 
 /// The id the next record gets.
 pub fn next_id(db: &Connection) -> Id {
-    Id(db.query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM record", [], |row| row.get(0)).unwrap())
+    Id(db
+        .query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM record", [], |row| {
+            row.get(0)
+        })
+        .unwrap())
 }
 
 /// An open coordinator item in Alpha, opened at `NOON + id`, titled with
@@ -80,12 +87,28 @@ pub fn item_opened(db: &Connection, waits: Vec<Wait>, opened: Stamp) -> Id {
 
 /// Sets whose work open item <id> is.
 pub fn set_audience(db: &Connection, id: Id, audience: Audience) {
-    ItemEdit { title: None, area: None, details: None, brief: None, r#for: Some(audience) }.apply(db, id).unwrap();
+    ItemEdit {
+        title: None,
+        area: None,
+        details: None,
+        brief: None,
+        r#for: Some(audience),
+    }
+    .apply(db, id)
+    .unwrap();
 }
 
 /// Moves open item <id> to area <area>.
 pub fn set_area(db: &Connection, id: Id, area: &str) {
-    ItemEdit { title: None, area: Some(area.into()), details: None, brief: None, r#for: None }.apply(db, id).unwrap();
+    ItemEdit {
+        title: None,
+        area: Some(area.into()),
+        details: None,
+        brief: None,
+        r#for: None,
+    }
+    .apply(db, id)
+    .unwrap();
 }
 
 /// An open question that blocks nothing, opened at `NOON + id`.
@@ -119,8 +142,14 @@ pub fn question_kind(db: &Connection, kind: QuestionKind) -> Id {
 /// Everything <store> holds, for comparing before and after a command: the
 /// lists as read and the write log.
 pub fn state_of(store: &Store) -> String {
-    let db = crate::db::open_reader(&store.database()).unwrap().expect("a store");
-    format!("{:?}\n{:?}", crate::lists::store::read(&db).unwrap(), crate::lists::store::read_log(&db).unwrap())
+    let db = crate::db::open_reader(&store.database())
+        .unwrap()
+        .expect("a store");
+    format!(
+        "{:?}\n{:?}",
+        crate::lists::store::read(&db).unwrap(),
+        crate::lists::store::read_log(&db).unwrap()
+    )
 }
 
 /// A decision, made by `add_decision`, that is to answer open question <question>
@@ -134,7 +163,9 @@ pub fn decision_answering(db: &Connection, question: Id) -> Id {
         replaces: None,
         plan: None,
     };
-    crate::lists::decision::add_decision(db, &new, &[], &stamp(NOON)).unwrap().decision
+    crate::lists::decision::add_decision(db, &new, &[], &stamp(NOON))
+        .unwrap()
+        .decision
 }
 
 /// Clears the why of open question <id> for blocking nothing: it must have
@@ -163,13 +194,25 @@ pub fn design(db: &Connection) -> Id {
 /// A design change drawn in <worktree>: each of <boards> (a board path and
 /// its canvas link) is a place of it, checked by hand, with that link, and
 /// <review> is its review page.
-pub fn design_drawn(db: &Connection, worktree: &str, boards: &[(&str, &str)], review: Vec<ReviewSection>) -> Id {
+pub fn design_drawn(
+    db: &Connection,
+    worktree: &str,
+    boards: &[(&str, &str)],
+    review: Vec<ReviewSection>,
+) -> Id {
     let id = design(db);
     let mut change = read(db).design(id).unwrap().clone();
     change.worktree = worktree.to_string();
     for (path, link) in boards {
-        change.places.insert(path.to_string(), Resolution::Matches("checked".into()));
-        change.boards.insert(path.to_string(), Board { link: link.to_string() });
+        change
+            .places
+            .insert(path.to_string(), Resolution::Matches("checked".into()));
+        change.boards.insert(
+            path.to_string(),
+            Board {
+                link: link.to_string(),
+            },
+        );
     }
     change.review = review;
     save(db, &change).unwrap();
@@ -188,8 +231,16 @@ pub fn make_store(places: &crate::places::Places, repos: &[&str]) -> Store {
         specs: BTreeMap::new(),
     };
     store.create(&new, &stamp(NOON), "lists init demo").unwrap();
-    store.write(&stamp(NOON), "area add Alpha", |db| add_area(db, "Alpha", None)).unwrap();
-    store.write(&stamp(NOON), "area add Beta", |db| add_area(db, "Beta", None)).unwrap();
+    store
+        .write(&stamp(NOON), "area add Alpha", |db| {
+            add_area(db, "Alpha", None)
+        })
+        .unwrap();
+    store
+        .write(&stamp(NOON), "area add Beta", |db| {
+            add_area(db, "Beta", None)
+        })
+        .unwrap();
     store
 }
 
@@ -220,8 +271,15 @@ pub fn draft(title: &str) -> ItemDraft {
 pub type Row = Vec<(&'static str, rusqlite::types::Value)>;
 
 /// <base> with the columns <over> given instead.
-pub fn row(base: &[(&'static str, rusqlite::types::Value)], over: &[(&'static str, rusqlite::types::Value)]) -> Row {
-    let mut row: Row = base.iter().filter(|(name, _)| !over.iter().any(|(o, _)| o == name)).cloned().collect();
+pub fn row(
+    base: &[(&'static str, rusqlite::types::Value)],
+    over: &[(&'static str, rusqlite::types::Value)],
+) -> Row {
+    let mut row: Row = base
+        .iter()
+        .filter(|(name, _)| !over.iter().any(|(o, _)| o == name))
+        .cloned()
+        .collect();
     row.extend(over.iter().cloned());
     row
 }
@@ -234,7 +292,9 @@ pub fn v(value: impl rusqlite::ToSql) -> rusqlite::types::Value {
             rusqlite::types::ValueRef::Null => rusqlite::types::Value::Null,
             rusqlite::types::ValueRef::Integer(n) => rusqlite::types::Value::Integer(n),
             rusqlite::types::ValueRef::Real(n) => rusqlite::types::Value::Real(n),
-            rusqlite::types::ValueRef::Text(t) => rusqlite::types::Value::Text(String::from_utf8_lossy(t).into_owned()),
+            rusqlite::types::ValueRef::Text(t) => {
+                rusqlite::types::Value::Text(String::from_utf8_lossy(t).into_owned())
+            }
             rusqlite::types::ValueRef::Blob(b) => rusqlite::types::Value::Blob(b.to_vec()),
         },
         other => panic!("not a plain value: {other:?}"),
@@ -253,7 +313,10 @@ pub struct Refusals {
 
 impl Refusals {
     pub fn new(sql: &'static str) -> Refusals {
-        Refusals { sql, covered: Default::default() }
+        Refusals {
+            sql,
+            covered: Default::default(),
+        }
     }
 
     /// <result> is refused naming the CHECK <name>.
@@ -268,7 +331,10 @@ impl Refusals {
             Ok(_) => panic!("{name}: the row was accepted"),
             Err(error) => error.to_string(),
         };
-        assert!(message.contains(expected), "{name}: refused as '{message}', not '{expected}'");
+        assert!(
+            message.contains(expected),
+            "{name}: refused as '{message}', not '{expected}'"
+        );
         self.covered.insert(name.to_string());
     }
 
@@ -283,6 +349,10 @@ impl Refusals {
     pub fn done(self) {
         let mut named = crate::db::constraint_names(self.sql);
         named.sort();
-        assert_eq!(self.covered.into_iter().collect::<Vec<_>>(), named, "a named constraint has no refused row");
+        assert_eq!(
+            self.covered.into_iter().collect::<Vec<_>>(),
+            named,
+            "a named constraint has no refused row"
+        );
     }
 }

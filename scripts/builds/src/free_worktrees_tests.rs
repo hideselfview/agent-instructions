@@ -9,8 +9,14 @@ fn demo(scratch: &Scratch) -> (Tool, std::path::PathBuf) {
     let main = scratch.dir.join("demo");
     repo(&main, "target 1G\n");
     let origin = scratch.dir.join("origin.git");
-    git(&scratch.dir, &["init", "-q", "--bare", &origin.display().to_string()]);
-    git(&main, &["remote", "add", "origin", &origin.display().to_string()]);
+    git(
+        &scratch.dir,
+        &["init", "-q", "--bare", &origin.display().to_string()],
+    );
+    git(
+        &main,
+        &["remote", "add", "origin", &origin.display().to_string()],
+    );
     git(&main, &["push", "-q", "origin", "main"]);
     (tool, main)
 }
@@ -30,7 +36,13 @@ fn new(tool: &Tool, main: &Path, extra: &[&str]) {
 }
 
 fn head(top: &Path) -> String {
-    git_text(crate::checkout::git(top).args(["rev-parse", "HEAD"]), "read HEAD").unwrap().trim().to_string()
+    git_text(
+        crate::checkout::git(top).args(["rev-parse", "HEAD"]),
+        "read HEAD",
+    )
+    .unwrap()
+    .trim()
+    .to_string()
 }
 
 /// Commits a file in <top>.
@@ -57,12 +69,22 @@ fn new_hands_out_a_free_worktree_before_adding_one() {
     git(&main, &["push", "-q", "origin", "main"]);
 
     new(&tool, &main, &["-b", "second", "--for", "agent B"]);
-    assert!(!side(&scratch, 2).exists(), "a second worktree was added while side-1 was free");
+    assert!(
+        !side(&scratch, 2).exists(),
+        "a second worktree was added while side-1 was free"
+    );
     let top = side(&scratch, 1);
-    assert_eq!(head(&top), head(&main), "the reused worktree is not at origin/main");
+    assert_eq!(
+        head(&top),
+        head(&main),
+        "the reused worktree is not at origin/main"
+    );
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
     assert_eq!(checkout.branch().unwrap().as_deref(), Some("second"));
-    assert_eq!(Claim::read(&checkout.claim_file()).unwrap().unwrap().who, "agent B");
+    assert_eq!(
+        Claim::read(&checkout.claim_file()).unwrap().unwrap().who,
+        "agent B"
+    );
     assert!(top.join("target").is_symlink());
 }
 
@@ -72,15 +94,33 @@ fn new_adds_a_worktree_when_none_is_free() {
     let (tool, main) = demo(&scratch);
     new(&tool, &main, &["--for", "agent A"]);
     new(&tool, &main, &["--for", "agent B"]);
-    assert!(side(&scratch, 2).join(".git").exists(), "the claimed side-1 was handed out again");
+    assert!(
+        side(&scratch, 2).join(".git").exists(),
+        "the claimed side-1 was handed out again"
+    );
     let checkout = Checkout::find(&side(&scratch, 2).display().to_string()).unwrap();
-    assert_eq!(Claim::read(&checkout.claim_file()).unwrap().unwrap().who, "agent B");
+    assert_eq!(
+        Claim::read(&checkout.claim_file()).unwrap().unwrap().who,
+        "agent B"
+    );
 
     // A dirty one and the app checkout are not free either.
-    cmd_release(&scratch.places(), &[side(&scratch, 1).display().to_string()]).unwrap();
-    cmd_release(&scratch.places(), &[side(&scratch, 2).display().to_string()]).unwrap();
+    cmd_release(
+        &scratch.places(),
+        &[side(&scratch, 1).display().to_string()],
+    )
+    .unwrap();
+    cmd_release(
+        &scratch.places(),
+        &[side(&scratch, 2).display().to_string()],
+    )
+    .unwrap();
     std::fs::write(side(&scratch, 1).join("stray"), "x").unwrap();
-    crate::worktree::cmd_app_checkout(&tool, &["mac".to_string(), side(&scratch, 2).display().to_string()]).unwrap();
+    crate::worktree::cmd_app_checkout(
+        &tool,
+        &["mac".to_string(), side(&scratch, 2).display().to_string()],
+    )
+    .unwrap();
     new(&tool, &main, &[]);
     assert!(side(&scratch, 3).exists());
 }
@@ -103,9 +143,15 @@ fn a_worktree_with_an_unlanded_commit_is_kept() {
     }
 
     retire_idle(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
-    assert!(top.exists(), "a worktree holding an unlanded commit was retired");
+    assert!(
+        top.exists(),
+        "a worktree holding an unlanded commit was retired"
+    );
     new(&tool, &main, &[]);
-    assert!(side(&scratch, 3).exists(), "a worktree holding an unlanded commit was handed out");
+    assert!(
+        side(&scratch, 3).exists(),
+        "a worktree holding an unlanded commit was handed out"
+    );
 }
 
 #[test]
@@ -123,7 +169,8 @@ fn an_idle_free_worktree_is_retired_and_the_rest_stay() {
     }
     // side-1 is the long-lived one, side-4 stays claimed, side-5 is the app
     // checkout.
-    crate::worktree::cmd_app_checkout(&tool, &["mac".to_string(), tops[4].display().to_string()]).unwrap();
+    crate::worktree::cmd_app_checkout(&tool, &["mac".to_string(), tops[4].display().to_string()])
+        .unwrap();
     for top in &tops {
         let checkout = Checkout::find(&top.display().to_string()).unwrap();
         age_all(&checkout.build_root(&tool.places), 48);
@@ -140,7 +187,10 @@ fn an_idle_free_worktree_is_retired_and_the_rest_stay() {
     retire_idle(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
     assert!(!tops[1].exists(), "an idle free worktree was kept");
     assert!(!tool.places.root.join("demo/side-2").exists());
-    assert!(tops[0].exists(), "side-1, the long-lived worktree, was retired");
+    assert!(
+        tops[0].exists(),
+        "side-1, the long-lived worktree, was retired"
+    );
     assert!(tops[2].exists(), "a worktree used an hour ago was retired");
     assert!(tops[3].exists(), "a claimed worktree was retired");
     assert!(tops[4].exists(), "the app checkout was retired");
@@ -155,8 +205,18 @@ fn two_concurrent_news_never_get_the_same_worktree() {
     release(&scratch, 1);
     let other = scratch.tool(0);
     let (a, b) = std::thread::scope(|scope| {
-        let a = scope.spawn(|| cmd_new(&tool, &[main.display().to_string(), "--for".into(), "A".into()]));
-        let b = scope.spawn(|| cmd_new(&other, &[main.display().to_string(), "--for".into(), "B".into()]));
+        let a = scope.spawn(|| {
+            cmd_new(
+                &tool,
+                &[main.display().to_string(), "--for".into(), "A".into()],
+            )
+        });
+        let b = scope.spawn(|| {
+            cmd_new(
+                &other,
+                &[main.display().to_string(), "--for".into(), "B".into()],
+            )
+        });
         (a.join().unwrap(), b.join().unwrap())
     });
     a.unwrap();
@@ -167,7 +227,10 @@ fn two_concurrent_news_never_get_the_same_worktree() {
             Claim::read(&checkout.claim_file()).unwrap().unwrap().who
         })
         .collect();
-    assert!(whos.contains(&"A".to_string()) && whos.contains(&"B".to_string()), "{whos:?}");
+    assert!(
+        whos.contains(&"A".to_string()) && whos.contains(&"B".to_string()),
+        "{whos:?}"
+    );
     assert!(!side(&scratch, 3).exists());
 }
 
@@ -177,14 +240,27 @@ fn new_without_for_still_claims() {
     let (tool, main) = demo(&scratch);
     new(&tool, &main, &[]);
     let checkout = Checkout::find(&side(&scratch, 1).display().to_string()).unwrap();
-    assert_eq!(Claim::read(&checkout.claim_file()).unwrap().unwrap().who, "builds new");
+    assert_eq!(
+        Claim::read(&checkout.claim_file()).unwrap().unwrap().who,
+        "builds new"
+    );
 }
 
 /// A worktree Claude Code's harness made inside the main checkout, set up the
 /// way a build tool would find it: with a build root.
 fn harness_worktree(tool: &Tool, main: &Path) -> std::path::PathBuf {
     let top = main.join(".claude/worktrees/agent-abc123");
-    git(main, &["worktree", "add", "-q", "--detach", &top.display().to_string(), "origin/main"]);
+    git(
+        main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &top.display().to_string(),
+            "origin/main",
+        ],
+    );
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
     crate::setup::setup(tool, &checkout).unwrap();
     // Nothing has touched it for days.
@@ -201,10 +277,19 @@ fn a_harness_worktree_is_never_handed_out() {
     let (tool, main) = demo(&scratch);
     let harness = harness_worktree(&tool, &main);
     new(&tool, &main, &["--for", "agent"]);
-    assert!(side(&scratch, 1).join(".git").exists(), "new did not add its own side-1");
+    assert!(
+        side(&scratch, 1).join(".git").exists(),
+        "new did not add its own side-1"
+    );
     let checkout = Checkout::find(&harness.display().to_string()).unwrap();
-    assert!(Claim::read(&checkout.claim_file()).unwrap().is_none(), "a harness worktree was claimed");
-    assert!(find_free(&tool, &main).unwrap().is_none(), "a harness worktree counted as free");
+    assert!(
+        Claim::read(&checkout.claim_file()).unwrap().is_none(),
+        "a harness worktree was claimed"
+    );
+    assert!(
+        find_free(&tool, &main).unwrap().is_none(),
+        "a harness worktree counted as free"
+    );
 }
 
 #[test]
@@ -215,7 +300,10 @@ fn a_harness_worktree_is_never_retired() {
     retire_idle(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
     assert!(harness.exists(), "prune retired a harness worktree");
     let error = crate::worktree::cmd_retire(&tool, &[harness.display().to_string()]).unwrap_err();
-    assert!(harness.exists(), "retire removed a harness worktree: {error:?}");
+    assert!(
+        harness.exists(),
+        "retire removed a harness worktree: {error:?}"
+    );
 }
 
 #[test]
@@ -223,9 +311,20 @@ fn a_harness_worktree_is_never_recorded_as_an_app_checkout() {
     let scratch = Scratch::new("free-harness-app");
     let (tool, main) = demo(&scratch);
     let harness = harness_worktree(&tool, &main);
-    let result = crate::worktree::cmd_app_checkout(&tool, &["mac".to_string(), harness.display().to_string()]);
-    assert!(result.is_err(), "a harness worktree was recorded as the app checkout");
-    assert!(tool.places.app_lane_of("demo", "agent-abc123").unwrap().is_none());
+    let result = crate::worktree::cmd_app_checkout(
+        &tool,
+        &["mac".to_string(), harness.display().to_string()],
+    );
+    assert!(
+        result.is_err(),
+        "a harness worktree was recorded as the app checkout"
+    );
+    assert!(
+        tool.places
+            .app_lane_of("demo", "agent-abc123")
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -236,7 +335,10 @@ fn health_does_not_list_a_harness_worktree() {
     std::fs::write(harness.join("stray"), "x").unwrap();
     let health = crate::health::health(&tool).unwrap();
     assert!(
-        health.worktrees.iter().all(|worktree| !worktree.path.contains("agent-abc123")),
+        health
+            .worktrees
+            .iter()
+            .all(|worktree| !worktree.path.contains("agent-abc123")),
         "health listed a harness worktree"
     );
 }

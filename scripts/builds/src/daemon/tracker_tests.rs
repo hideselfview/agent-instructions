@@ -5,7 +5,12 @@ use crate::usage::measure as walk_and_measure;
 /// A tracker whose questions wait for the stream as long as it takes, up to a
 /// hang guard no loaded machine reaches.
 fn start(root: &Path) -> Arc<Tracker> {
-    Tracker::start_waiting(root, &root.join(".builds-daemon"), std::time::Duration::from_secs(300)).unwrap()
+    Tracker::start_waiting(
+        root,
+        &root.join(".builds-daemon"),
+        std::time::Duration::from_secs(300),
+    )
+    .unwrap()
 }
 
 /// The folders each batch the tracker handled named, from when it was made.
@@ -32,7 +37,10 @@ impl Handled {
         let guard = std::time::Instant::now() + std::time::Duration::from_secs(300);
         while !waiting.is_empty() {
             let left = guard.saturating_duration_since(std::time::Instant::now());
-            let paths = self.0.recv_timeout(left).unwrap_or_else(|_| panic!("no event named {waiting:?}"));
+            let paths = self
+                .0
+                .recv_timeout(left)
+                .unwrap_or_else(|_| panic!("no event named {waiting:?}"));
             waiting.retain(|folder| !paths.contains(folder));
         }
     }
@@ -43,12 +51,20 @@ fn agrees(tracker: &Tracker, paths: &[PathBuf], when: &str) {
     let answers = tracker.measure(paths, true);
     for (path, answer) in paths.iter().zip(answers) {
         let walked = walk_and_measure(path).unwrap();
-        assert_eq!(answer, Some(walked), "{when}: {} differs from a walk", path.display());
+        assert_eq!(
+            answer,
+            Some(walked),
+            "{when}: {} differs from a walk",
+            path.display()
+        );
     }
 }
 
 fn run(command: &str, args: &[&std::ffi::OsStr]) {
-    let status = std::process::Command::new(command).args(args).status().unwrap();
+    let status = std::process::Command::new(command)
+        .args(args)
+        .status()
+        .unwrap();
     assert!(status.success(), "{command} {args:?}");
 }
 
@@ -63,19 +79,36 @@ fn follows_writes_links_clones_renames_and_deletions() {
     let tracker = start(&root);
     tracker.wait_ready();
     let handled = Handled::listen(&tracker);
-    assert!(!root.join(".builds-daemon/mark-7").exists(), "a killed daemon's mark was left");
+    assert!(
+        !root.join(".builds-daemon/mark-7").exists(),
+        "a killed daemon's mark was left"
+    );
     // Not the root itself: each answer's mark writes in the daemon's own
     // folder there, after the answer.
-    let folders = [root.join("demo"), target.clone(), target.join("debug/incremental")];
+    let folders = [
+        root.join("demo"),
+        target.clone(),
+        target.join("debug/incremental"),
+    ];
     agrees(&tracker, &folders, "after the walk");
 
     let deps = target.join("debug/deps");
     let linked = target.join("debug/incremental/one-1/s-1");
-    handled.after(&[deps.clone(), linked.clone(), target.join("debug")], || {
-        fill(&deps.join("libtwo.rlib"), 2048);
-        std::fs::hard_link(deps.join("libtwo.rlib"), linked.join("two.o")).unwrap();
-        run("cp", &["-c".as_ref(), deps.join("libtwo.rlib").as_os_str(), target.join("debug/libtwo.rlib").as_os_str()]);
-    });
+    handled.after(
+        &[deps.clone(), linked.clone(), target.join("debug")],
+        || {
+            fill(&deps.join("libtwo.rlib"), 2048);
+            std::fs::hard_link(deps.join("libtwo.rlib"), linked.join("two.o")).unwrap();
+            run(
+                "cp",
+                &[
+                    "-c".as_ref(),
+                    deps.join("libtwo.rlib").as_os_str(),
+                    target.join("debug/libtwo.rlib").as_os_str(),
+                ],
+            );
+        },
+    );
     agrees(&tracker, &folders, "after a write, a hard link and a clone");
 
     // A write through one name of a linked file shows through the other.
@@ -87,15 +120,25 @@ fn follows_writes_links_clones_renames_and_deletions() {
         std::fs::create_dir_all(side_2.join("a/b/c")).unwrap();
         fill(&side_2.join("a/b/c/file"), 64);
     });
-    agrees(&tracker, &[side_2.clone(), root.join("demo")], "after a new tree");
+    agrees(
+        &tracker,
+        &[side_2.clone(), root.join("demo")],
+        "after a new tree",
+    );
 
     // A folder renamed in place, then moved into another folder.
-    handled.after(&[side_2.clone()], || std::fs::rename(side_2.join("a"), side_2.join("z")).unwrap());
+    handled.after(&[side_2.clone()], || {
+        std::fs::rename(side_2.join("a"), side_2.join("z")).unwrap()
+    });
     agrees(&tracker, &[side_2.clone()], "after a rename in place");
     handled.after(&[side_2.join("z"), target.join("debug")], || {
         std::fs::rename(side_2.join("z/b"), target.join("debug/b")).unwrap();
     });
-    agrees(&tracker, &[side_2.clone(), target.clone(), root.join("demo")], "after a move between folders");
+    agrees(
+        &tracker,
+        &[side_2.clone(), target.clone(), root.join("demo")],
+        "after a move between folders",
+    );
 
     // An eviction: renamed into the trash, then removed. The trash isn't
     // followed, so a question about it gets no answer.
@@ -105,12 +148,24 @@ fn follows_writes_links_clones_renames_and_deletions() {
         std::fs::rename(&target, slot.join("target")).unwrap();
         std::fs::create_dir(&target).unwrap();
     });
-    agrees(&tracker, &[target.clone(), root.join("demo")], "after a rename into the trash");
-    assert_eq!(tracker.measure(&[slot.clone(), root.join(".trash")], true), vec![None, None], "the trash was answered");
+    agrees(
+        &tracker,
+        &[target.clone(), root.join("demo")],
+        "after a rename into the trash",
+    );
+    assert_eq!(
+        tracker.measure(&[slot.clone(), root.join(".trash")], true),
+        vec![None, None],
+        "the trash was answered"
+    );
     std::fs::remove_dir_all(&slot).unwrap();
     agrees(&tracker, &[root.join("demo")], "after the trash emptied");
 
-    assert_eq!(tracker.measure(&[scratch.dir.join("elsewhere")], true), vec![None], "a path outside the root was answered");
+    assert_eq!(
+        tracker.measure(&[scratch.dir.join("elsewhere")], true),
+        vec![None],
+        "a path outside the root was answered"
+    );
 }
 
 #[test]
@@ -126,7 +181,11 @@ fn a_replaced_root_is_walked_again() {
     fill(&root.join("demo/main/target/b"), 300);
     std::fs::create_dir_all(root.join(".builds-daemon")).unwrap();
     tracker.wait_following_current_root();
-    agrees(&tracker, &[root.join("demo/main/target"), root.join("demo")], "after the root came back");
+    agrees(
+        &tracker,
+        &[root.join("demo/main/target"), root.join("demo")],
+        "after the root came back",
+    );
 }
 
 #[test]
@@ -138,8 +197,15 @@ fn dropped_events_and_a_rescan_read_the_disk_again() {
     tracker.wait_ready();
     fill(&root.join("demo/side-1/target/deep/b"), 200);
     std::fs::remove_file(root.join("demo/side-1/target/a")).unwrap();
-    tracker.on_events(vec![Event { path: root.join("demo/side-1"), flags: flags::MUST_SCAN_SUBDIRS }]);
-    agrees(&tracker, &[root.join("demo/side-1/target")], "after a rescan of a subtree");
+    tracker.on_events(vec![Event {
+        path: root.join("demo/side-1"),
+        flags: flags::MUST_SCAN_SUBDIRS,
+    }]);
+    agrees(
+        &tracker,
+        &[root.join("demo/side-1/target")],
+        "after a rescan of a subtree",
+    );
     // A lost batch naming a folder walks that folder alone again.
     fill(&root.join("demo/side-2/target/c"), 50);
     let walks = tracker.flags.lock().unwrap().walks;
@@ -147,11 +213,30 @@ fn dropped_events_and_a_rescan_read_the_disk_again() {
         path: root.join("demo/side-2"),
         flags: flags::MUST_SCAN_SUBDIRS | flags::USER_DROPPED,
     }]);
-    agrees(&tracker, &[root.join("demo/side-2/target"), root.join("demo")], "after events lost under a folder");
-    assert_eq!(tracker.flags.lock().unwrap().walks, walks, "a lost batch naming a folder walked the whole root");
+    agrees(
+        &tracker,
+        &[root.join("demo/side-2/target"), root.join("demo")],
+        "after events lost under a folder",
+    );
+    assert_eq!(
+        tracker.flags.lock().unwrap().walks,
+        walks,
+        "a lost batch naming a folder walked the whole root"
+    );
     // One naming no folder walks the whole root.
     fill(&root.join("demo/side-2/target/d"), 70);
-    tracker.on_events(vec![Event { path: root.clone(), flags: flags::USER_DROPPED }]);
-    agrees(&tracker, &[root.join("demo/side-2/target"), root.join("demo")], "after dropped events");
-    assert_eq!(tracker.flags.lock().unwrap().walks, walks + 1, "a lost batch naming no folder didn't walk the root");
+    tracker.on_events(vec![Event {
+        path: root.clone(),
+        flags: flags::USER_DROPPED,
+    }]);
+    agrees(
+        &tracker,
+        &[root.join("demo/side-2/target"), root.join("demo")],
+        "after dropped events",
+    );
+    assert_eq!(
+        tracker.flags.lock().unwrap().walks,
+        walks + 1,
+        "a lost batch naming no folder didn't walk the root"
+    );
 }

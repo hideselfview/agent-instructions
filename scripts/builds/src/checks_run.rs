@@ -27,7 +27,7 @@ use crate::checks::{CONFIG, Kind, Line, Planned, parse, plan};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::hook_impact;
-use crate::hook_stats::{self, CheckRecord, Change, Outcome, Run, StagedFile};
+use crate::hook_stats::{self, Change, CheckRecord, Outcome, Run, StagedFile};
 use crate::lists::args::Args;
 use crate::lists::store::{Store, project_of};
 use crate::places::Places;
@@ -81,8 +81,11 @@ fn hook(top: &Path) -> Result<()> {
 /// project, which has nowhere to record.
 fn hook_database(top: &Path) -> Result<Option<PathBuf>> {
     let places = Places::from_env()?;
-    let Some(checkout) = Checkout::at_keeping_env(top)? else { return Ok(None) };
-    Ok(project_of(&places, &checkout)?.map(|project| places.lists.join(project).join(hook_stats::DATABASE)))
+    let Some(checkout) = Checkout::at_keeping_env(top)? else {
+        return Ok(None);
+    };
+    Ok(project_of(&places, &checkout)?
+        .map(|project| places.lists.join(project).join(hook_stats::DATABASE)))
 }
 
 /// `builds checks stats [--project P] [--since DATE] [--change REV]`.
@@ -110,12 +113,18 @@ fn stats(args: &[String]) -> Result<()> {
         return Ok(());
     }
     let stats = hook_stats::stats(&store.dir.join(hook_stats::DATABASE), start.unwrap_or(0))?;
-    print!("{}", hook_stats::report(&store.project, since, stats.as_ref()));
+    print!(
+        "{}",
+        hook_stats::report(&store.project, since, stats.as_ref())
+    );
     Ok(())
 }
 
 fn top_of(dir: &Path) -> Result<PathBuf> {
-    let text = git_text(git(dir).args(["rev-parse", "--show-toplevel"]), &format!("find the top of {}", dir.display()))?;
+    let text = git_text(
+        git(dir).args(["rev-parse", "--show-toplevel"]),
+        &format!("find the top of {}", dir.display()),
+    )?;
     Ok(PathBuf::from(text.trim()))
 }
 
@@ -125,13 +134,22 @@ fn load(top: &Path) -> Result<Vec<Line>> {
 }
 
 fn z_list(text: &str) -> Vec<String> {
-    text.split('\0').filter(|name| !name.is_empty()).map(str::to_string).collect()
+    text.split('\0')
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// `git diff --cached --name-only --diff-filter=ACMR`.
 fn staged(top: &Path) -> Result<Vec<String>> {
     let text = git_text(
-        git(top).args(["diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"]),
+        git(top).args([
+            "diff",
+            "--cached",
+            "--name-only",
+            "-z",
+            "--diff-filter=ACMR",
+        ]),
         "list the staged files",
     )?;
     Ok(z_list(&text))
@@ -139,7 +157,12 @@ fn staged(top: &Path) -> Result<Vec<String>> {
 
 /// Which of <files> have changes in the working tree that are not staged.
 fn unstaged_among(top: &Path, files: &[String]) -> Result<Vec<String>> {
-    let text = git_text(git(top).args(["diff", "--name-only", "-z", "--"]).args(files), "list the unstaged changes")?;
+    let text = git_text(
+        git(top)
+            .args(["diff", "--name-only", "-z", "--"])
+            .args(files),
+        "list the unstaged changes",
+    )?;
     Ok(z_list(&text))
 }
 
@@ -160,7 +183,11 @@ struct Ran {
 /// Runs <planned> in <top>, keeping its output unless <stream>.
 fn execute(top: &Path, planned: &Planned, stream: bool) -> Result<Ran> {
     let (program, args) = planned.argv.split_first().expect("a line has a program");
-    let path = if program.contains('/') { top.join(program) } else { PathBuf::from(program) };
+    let path = if program.contains('/') {
+        top.join(program)
+    } else {
+        PathBuf::from(program)
+    };
     let mut command = Command::new(path);
     command.args(args).current_dir(top).stdin(Stdio::null());
     for name in git_local_env_vars()? {
@@ -169,15 +196,27 @@ fn execute(top: &Path, planned: &Planned, stream: bool) -> Result<Ran> {
     let started = Instant::now();
     if stream {
         let ok = command.status().is_ok_and(|status| status.success());
-        return Ok(Ran { ok, took: started.elapsed(), output: String::new() });
+        return Ok(Ran {
+            ok,
+            took: started.elapsed(),
+            output: String::new(),
+        });
     }
     Ok(match command.output() {
         Ok(output) => Ran {
             ok: output.status.success(),
             took: started.elapsed(),
-            output: format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)),
+            output: format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
         },
-        Err(error) => Ran { ok: false, took: started.elapsed(), output: format!("could not run {program}: {error}\n") },
+        Err(error) => Ran {
+            ok: false,
+            took: started.elapsed(),
+            output: format!("could not run {program}: {error}\n"),
+        },
     })
 }
 
@@ -198,22 +237,32 @@ fn staged_diff(top: &Path) -> Result<Vec<StagedFile>> {
     let mut lines = std::collections::HashMap::new();
     for entry in numstat.split('\0').filter(|entry| !entry.is_empty()) {
         let mut parts = entry.splitn(3, '\t');
-        let (Some(added), Some(removed), Some(path)) = (parts.next(), parts.next(), parts.next()) else {
+        let (Some(added), Some(removed), Some(path)) = (parts.next(), parts.next(), parts.next())
+        else {
             fail!("git diff --numstat printed {entry:?}");
         };
         // A binary file has `-` for both counts.
-        lines.insert(path.to_string(), added.parse::<u64>().ok().zip(removed.parse::<u64>().ok()));
+        lines.insert(
+            path.to_string(),
+            added.parse::<u64>().ok().zip(removed.parse::<u64>().ok()),
+        );
     }
     let mut names = status.split('\0').filter(|entry| !entry.is_empty());
     let mut files = Vec::new();
     while let Some(letter) = names.next() {
-        let Some(path) = names.next() else { fail!("git diff --name-status printed {letter:?} with no path") };
+        let Some(path) = names.next() else {
+            fail!("git diff --name-status printed {letter:?} with no path")
+        };
         let change = match letter {
             "A" => Change::Added,
             "D" => Change::Deleted,
             _ => Change::Modified,
         };
-        files.push(StagedFile { path: path.to_string(), change, lines: lines.get(path).copied().flatten() });
+        files.push(StagedFile {
+            path: path.to_string(),
+            change,
+            lines: lines.get(path).copied().flatten(),
+        });
     }
     Ok(files)
 }
@@ -246,7 +295,12 @@ fn begin(top: &Path) -> Result<Run> {
 
 /// The commit HEAD points at; None in a repo with no commit.
 fn head(top: &Path) -> Option<String> {
-    let output = git(top).args(["rev-parse", "--verify", "-q", "HEAD"]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    let output = git(top)
+        .args(["rev-parse", "--verify", "-q", "HEAD"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
     (output.status.success() && !text.is_empty()).then_some(text)
 }
@@ -306,29 +360,55 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
     for planned in &picked {
         let name = planned.line.name.as_str();
         let before: Vec<(String, Option<u64>)> = match planned.line.kind {
-            Kind::Fix => planned.files.iter().map(|file| (file.clone(), fingerprint(top, file))).collect(),
+            Kind::Fix => planned
+                .files
+                .iter()
+                .map(|file| (file.clone(), fingerprint(top, file)))
+                .collect(),
             _ => Vec::new(),
         };
-        let unstaged = if before.is_empty() { Vec::new() } else { unstaged_among(top, &planned.files)? };
+        let unstaged = if before.is_empty() {
+            Vec::new()
+        } else {
+            unstaged_among(top, &planned.files)?
+        };
         let ran = execute(top, planned, false)?;
         let mut problem = (!ran.ok).then(|| ran.output.clone());
         if ran.ok && planned.line.kind == Kind::Fix {
-            let changed: Vec<String> =
-                before.into_iter().filter(|(file, was)| fingerprint(top, file) != *was).map(|(file, _)| file).collect();
+            let changed: Vec<String> = before
+                .into_iter()
+                .filter(|(file, was)| fingerprint(top, file) != *was)
+                .map(|(file, _)| file)
+                .collect();
             if let Some(partial) = changed.iter().find(|file| unstaged.contains(file)) {
                 problem = Some(String::new());
                 refusals.push(format!(
                     "{name} changed {partial}, which has changes that are not staged; staging it would add them to the commit, so nothing was staged. Stage or stash the rest of the file and commit again"
                 ));
             } else if !changed.is_empty() {
-                git_text(git(top).args(["add", "--"]).args(&changed), "stage the files a fix changed")?;
+                git_text(
+                    git(top).args(["add", "--"]).args(&changed),
+                    "stage the files a fix changed",
+                )?;
             }
         }
         if let Some(run) = run.as_deref_mut() {
-            let record = run.checks.iter_mut().find(|c| c.name == name).expect("every picked line is recorded");
-            record.outcome = if problem.is_none() { Outcome::Passed } else { Outcome::Failed };
+            let record = run
+                .checks
+                .iter_mut()
+                .find(|c| c.name == name)
+                .expect("every picked line is recorded");
+            record.outcome = if problem.is_none() {
+                Outcome::Passed
+            } else {
+                Outcome::Failed
+            };
             record.handed = Some((
-                if planned.line.command.iter().any(|arg| arg == "{files}") { planned.files.len() as u32 } else { 0 },
+                if planned.line.command.iter().any(|arg| arg == "{files}") {
+                    planned.files.len() as u32
+                } else {
+                    0
+                },
                 if planned.line.command.iter().any(|arg| arg == "{crates}") {
                     planned.argv.iter().filter(|arg| *arg == "-p").count() as u32
                 } else {
@@ -338,33 +418,72 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
             record.ms = Some(millis(ran.took));
         }
         match problem {
-            None => note(format!("{} {name}: ok, {}", planned.line.kind.word(), seconds(ran.took))),
+            None => note(format!(
+                "{} {name}: ok, {}",
+                planned.line.kind.word(),
+                seconds(ran.took)
+            )),
             Some(output) => {
-                note(format!("{} {name}: FAILED, {}", planned.line.kind.word(), seconds(ran.took)));
+                note(format!(
+                    "{} {name}: FAILED, {}",
+                    planned.line.kind.word(),
+                    seconds(ran.took)
+                ));
                 eprint!("{output}");
                 failed.push(name);
             }
         }
     }
-    note(format!("{} run, {} failed, {}", picked.len(), failed.len(), seconds(started.elapsed())));
+    note(format!(
+        "{} run, {} failed, {}",
+        picked.len(),
+        failed.len(),
+        seconds(started.elapsed())
+    ));
     if failed.is_empty() {
         Ok(())
     } else {
-        Err(Fail::Message(format!("failed: {}{}", failed.join(", "), refusals.iter().map(|r| format!("\n{r}")).collect::<String>())))
+        Err(Fail::Message(format!(
+            "failed: {}{}",
+            failed.join(", "),
+            refusals
+                .iter()
+                .map(|r| format!("\n{r}"))
+                .collect::<String>()
+        )))
     }
 }
 
 pub fn list_staged(top: &Path) -> Result<String> {
     let lines = load(top)?;
     let picked = plan(top, &lines, &[Kind::Check, Kind::Fix], &staged(top)?, false)?;
-    Ok(picked.iter().map(|p| format!("{} {}: {}\n", p.line.kind.word(), p.line.name, p.argv.join(" "))).collect())
+    Ok(picked
+        .iter()
+        .map(|p| {
+            format!(
+                "{} {}: {}\n",
+                p.line.kind.word(),
+                p.line.name,
+                p.argv.join(" ")
+            )
+        })
+        .collect())
 }
 
 /// The `test` lines that the files changed in `<since>..HEAD` match, and, when
 /// <since> is not a commit here, every test with the reason why.
-pub fn select_tests(top: &Path, lines: &[Line], since: &str) -> Result<(Vec<Planned>, Option<String>)> {
+pub fn select_tests(
+    top: &Path,
+    lines: &[Line],
+    since: &str,
+) -> Result<(Vec<Planned>, Option<String>)> {
     let known = git(top)
-        .args(["rev-parse", "--verify", "--quiet", &format!("{since}^{{commit}}")])
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{since}^{{commit}}"),
+        ])
         .stdin(Stdio::null())
         .output()
         .context(|| "running git rev-parse".to_string())?
@@ -372,14 +491,29 @@ pub fn select_tests(top: &Path, lines: &[Line], since: &str) -> Result<(Vec<Plan
         .success();
     if known {
         let text = git_text(
-            git(top).args(["diff", "--name-only", "-z", "--no-renames", &format!("{since}..HEAD")]),
+            git(top).args([
+                "diff",
+                "--name-only",
+                "-z",
+                "--no-renames",
+                &format!("{since}..HEAD"),
+            ]),
             "list the changed files",
         )?;
-        Ok((plan(top, lines, &[Kind::Test], &z_list(&text), false)?, None))
+        Ok((
+            plan(top, lines, &[Kind::Test], &z_list(&text), false)?,
+            None,
+        ))
     } else {
-        let everything = z_list(&git_text(git(top).args(["ls-files", "-z"]), "list the files")?);
+        let everything = z_list(&git_text(
+            git(top).args(["ls-files", "-z"]),
+            "list the files",
+        )?);
         let why = format!("{since} is not in the history, so every test runs");
-        Ok((plan(top, lines, &[Kind::Test], &everything, true)?, Some(why)))
+        Ok((
+            plan(top, lines, &[Kind::Test], &everything, true)?,
+            Some(why),
+        ))
     }
 }
 
@@ -398,12 +532,21 @@ fn tests(top: &Path, since: &str, run: bool) -> Result<()> {
     for p in &picked {
         note(format!("test {}: {}", p.line.name, p.argv.join(" ")));
         let ran = execute(top, p, true)?;
-        note(format!("test {}: {}, {}", p.line.name, if ran.ok { "ok" } else { "FAILED" }, seconds(ran.took)));
+        note(format!(
+            "test {}: {}, {}",
+            p.line.name,
+            if ran.ok { "ok" } else { "FAILED" },
+            seconds(ran.took)
+        ));
         if !ran.ok {
             failed.push(p.line.name.as_str());
         }
     }
-    if failed.is_empty() { Ok(()) } else { Err(Fail::Message(format!("failed: {}", failed.join(", ")))) }
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(Fail::Message(format!("failed: {}", failed.join(", "))))
+    }
 }
 
 #[cfg(test)]

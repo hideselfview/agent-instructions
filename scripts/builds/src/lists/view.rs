@@ -6,8 +6,8 @@ use serde::Serialize;
 
 use crate::lists::derive::{self, FLOW_DAYS, FlowDay};
 use crate::lists::{
-    Audience, DesignChange, Id, Item, LandedPart, Lists, Located, Note, PlanRef, Placement, Priority,
-    QuestionKind, Resolution, Stamp, Standing, Wait, side_worktree_parts,
+    Audience, DesignChange, Id, Item, LandedPart, Lists, Located, Note, Placement, PlanRef,
+    Priority, QuestionKind, Resolution, Stamp, Standing, Wait, side_worktree_parts,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -182,7 +182,14 @@ impl View {
                     title: entry.question.title.clone(),
                     kind: entry.question.kind,
                     details: entry.question.details.clone(),
-                    blocks: entry.blocks.iter().map(|i| Named { id: i.id, title: i.title.clone() }).collect(),
+                    blocks: entry
+                        .blocks
+                        .iter()
+                        .map(|i| Named {
+                            id: i.id,
+                            title: i.title.clone(),
+                        })
+                        .collect(),
                     blocked_count: entry.blocked_count,
                     blocks_nothing: entry.question.blocks_nothing.clone(),
                     placed: entry.question.placed.clone(),
@@ -191,7 +198,11 @@ impl View {
                 })
                 .collect(),
             areas: lists.areas.clone(),
-            items: lists.items.iter().map(|item| item_view(lists, item)).collect(),
+            items: lists
+                .items
+                .iter()
+                .map(|item| item_view(lists, item))
+                .collect(),
             designs: designs(lists, now),
             decisions: decisions(lists),
             flow: derive::flow(lists, now),
@@ -202,13 +213,25 @@ impl View {
 fn wait_view(lists: &Lists, wait: &Wait) -> WaitView {
     let named = |kind: &'static str, id: Id| {
         let title = lists.locate(id).map(|found| found.title.to_string());
-        WaitView { kind, id: Some(id), title, text: None, met: derive::wait_met(lists, wait) }
+        WaitView {
+            kind,
+            id: Some(id),
+            title,
+            text: None,
+            met: derive::wait_met(lists, wait),
+        }
     };
     match wait {
         Wait::Item(id) => named("item", *id),
         Wait::Question(id) => named("question", *id),
         Wait::Design(id) => named("design", *id),
-        Wait::Condition(text) => WaitView { kind: "condition", id: None, title: None, text: Some(text.clone()), met: false },
+        Wait::Condition(text) => WaitView {
+            kind: "condition",
+            id: None,
+            title: None,
+            text: Some(text.clone()),
+            met: false,
+        },
     }
 }
 
@@ -222,13 +245,17 @@ fn item_view(lists: &Lists, item: &Item) -> ItemView {
         state: derive::item_state(lists, item),
         priority: item.priority.clone(),
         brief: item.brief.clone(),
-        waits: item.waits.iter().map(|wait| wait_view(lists, wait)).collect(),
+        waits: item
+            .waits
+            .iter()
+            .map(|wait| wait_view(lists, wait))
+            .collect(),
         running: item
             .running
             .iter()
             .map(|running| {
-                let (repo, checkout) =
-                    side_worktree_parts(&running.worktree).expect("a stored running worktree passed the check on load");
+                let (repo, checkout) = side_worktree_parts(&running.worktree)
+                    .expect("a stored running worktree passed the check on load");
                 RunningView {
                     worktree: running.worktree.clone(),
                     repo,
@@ -249,13 +276,26 @@ fn item_view(lists: &Lists, item: &Item) -> ItemView {
 
 fn place_item(lists: &Lists, id: Id) -> PlaceItem {
     match lists.locate(id) {
-        Some(Located { standing: Standing::Open, title, .. }) => PlaceItem {
+        Some(Located {
+            standing: Standing::Open,
+            title,
+            ..
+        }) => PlaceItem {
             id,
             title: title.to_string(),
-            state: derive::item_state(lists, lists.item(id).expect("located as an open item")).label(),
+            state: derive::item_state(lists, lists.item(id).expect("located as an open item"))
+                .label(),
         },
-        Some(Located { title, .. }) => PlaceItem { id, title: title.to_string(), state: "closed" },
-        None => PlaceItem { id, title: String::new(), state: "closed" },
+        Some(Located { title, .. }) => PlaceItem {
+            id,
+            title: title.to_string(),
+            state: "closed",
+        },
+        None => PlaceItem {
+            id,
+            title: String::new(),
+            state: "closed",
+        },
     }
 }
 
@@ -269,15 +309,26 @@ pub fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) 
             .places
             .iter()
             .map(|(path, resolution)| match resolution {
-                Resolution::Item(id) => PlaceView { path: path.clone(), item: Some(place_item(lists, *id)), matches: None },
-                Resolution::Matches(how) => PlaceView { path: path.clone(), item: None, matches: Some(how.clone()) },
+                Resolution::Item(id) => PlaceView {
+                    path: path.clone(),
+                    item: Some(place_item(lists, *id)),
+                    matches: None,
+                },
+                Resolution::Matches(how) => PlaceView {
+                    path: path.clone(),
+                    item: None,
+                    matches: Some(how.clone()),
+                },
             })
             .collect(),
         blocks: lists
             .items
             .iter()
             .filter(|item| item.waits.contains(&Wait::Design(design.id)))
-            .map(|item| Named { id: item.id, title: item.title.clone() })
+            .map(|item| Named {
+                id: item.id,
+                title: item.title.clone(),
+            })
             .collect(),
         no_app_place: design.no_app_place.clone(),
         approved: design.approved.clone(),
@@ -291,7 +342,11 @@ pub fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) 
 /// days.
 fn designs(lists: &Lists, now: i64) -> Vec<DesignView> {
     let recent = now - FLOW_DAYS as i64 * 86400;
-    let mut views: Vec<DesignView> = lists.designs.iter().map(|d| design_view(lists, d, None)).collect();
+    let mut views: Vec<DesignView> = lists
+        .designs
+        .iter()
+        .map(|d| design_view(lists, d, None))
+        .collect();
     for closed in lists.closed.iter().rev() {
         if let crate::lists::Record::Design(design) = &closed.record
             && closed.closed.at >= recent
@@ -317,7 +372,10 @@ fn decisions(lists: &Lists) -> Vec<DecisionView> {
                 .iter()
                 .map(|id| WorkView {
                     id: *id,
-                    title: lists.locate(*id).map(|found| found.title.to_string()).unwrap_or_default(),
+                    title: lists
+                        .locate(*id)
+                        .map(|found| found.title.to_string())
+                        .unwrap_or_default(),
                     open: lists.item(*id).is_some(),
                 })
                 .collect(),

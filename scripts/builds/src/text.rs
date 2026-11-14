@@ -111,7 +111,9 @@ pub fn glob_names(dir: &Path) -> Result<Vec<OsString>> {
     let mut visible = Vec::new();
     let mut hidden = Vec::new();
     for entry in entries {
-        let name = entry.context(|| format!("listing {}", dir.display()))?.file_name();
+        let name = entry
+            .context(|| format!("listing {}", dir.display()))?
+            .file_name();
         let bytes = name.as_bytes();
         if bytes.first() == Some(&b'.') {
             if bytes.get(1) != Some(&b'.') && bytes.len() > 1 {

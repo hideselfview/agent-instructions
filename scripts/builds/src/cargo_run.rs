@@ -40,7 +40,9 @@ pub fn builds_incrementally(checkout: &Checkout) -> bool {
 /// in the same checkout. The argument changes only what it sets.
 fn role_config(checkout: Option<&Checkout>) -> &'static [&'static str] {
     match checkout {
-        Some(checkout) if !builds_incrementally(checkout) => &["--config", "build.incremental=false"],
+        Some(checkout) if !builds_incrementally(checkout) => {
+            &["--config", "build.incremental=false"]
+        }
         _ => &[],
     }
 }
@@ -86,7 +88,9 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
         command.spawn().map(|_| ())
     })();
     if let Err(error) = started {
-        crate::text::note(format!("starting the prune of the build copies this build replaced: {error}"));
+        crate::text::note(format!(
+            "starting the prune of the build copies this build replaced: {error}"
+        ));
     }
 }
 
@@ -96,12 +100,18 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
 /// recorder's when cargo succeeded and a reported unit could not be recorded.
 pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let (subcommand, format): (&[String], &str) = match args.first().map(String::as_str) {
-        Some("build" | "check" | "clippy" | "doc" | "rustc" | "rustdoc" | "test" | "bench" | "run" | "install") => {
-            (&args[..1], "--message-format=json-render-diagnostics")
-        }
+        Some(
+            "build" | "check" | "clippy" | "doc" | "rustc" | "rustdoc" | "test" | "bench" | "run"
+            | "install",
+        ) => (&args[..1], "--message-format=json-render-diagnostics"),
         Some("nextest") => match args.get(1).map(String::as_str) {
-            Some("run" | "list" | "archive") => (&args[..2], "--cargo-message-format=json-render-diagnostics"),
-            other => fail!("cargo: cargo nextest {} builds nothing; run it without builds", other.unwrap_or("")),
+            Some("run" | "list" | "archive") => {
+                (&args[..2], "--cargo-message-format=json-render-diagnostics")
+            }
+            other => fail!(
+                "cargo: cargo nextest {} builds nothing; run it without builds",
+                other.unwrap_or("")
+            ),
         },
         None => fail!("usage: builds cargo <subcommand> [<args>...]"),
         Some(other) => fail!("cargo: cargo {other} builds nothing; run it without builds"),
@@ -111,7 +121,10 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let checkout = Checkout::at_keeping_env(&dir)?;
     let config = role_config(checkout.as_ref());
     // Held until cargo has exited and the recorder has read its last line.
-    let root = checkout.as_ref().map(|checkout| checkout.build_root(&places)).filter(|root| root.is_dir());
+    let root = checkout
+        .as_ref()
+        .map(|checkout| checkout.build_root(&places))
+        .filter(|root| root.is_dir());
     let guard = match &root {
         Some(root) => Some(crate::evict::lock_shared_creating(&root.join(GUARD))?),
         None => None,
@@ -142,7 +155,11 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     };
     if !status.success() {
         use std::os::unix::process::ExitStatusExt;
-        return Err(Fail::Exit(status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0))));
+        return Err(Fail::Exit(
+            status
+                .code()
+                .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)),
+        ));
     }
     match recorded {
         0 => Ok(()),
@@ -168,7 +185,16 @@ mod tests {
         repo(&main, "target 1G\n");
         for name in ["side-1", "side-2"] {
             let side = scratch.dir.join("demo-worktrees").join(name);
-            git(&main, &["worktree", "add", "-q", "--detach", &side.display().to_string()]);
+            git(
+                &main,
+                &[
+                    "worktree",
+                    "add",
+                    "-q",
+                    "--detach",
+                    &side.display().to_string(),
+                ],
+            );
         }
         let side_1 = scratch.dir.join("demo-worktrees/side-1");
         std::fs::create_dir_all(side_1.join("crate/src")).unwrap();
@@ -178,7 +204,11 @@ mod tests {
         let off: &[&str] = &["--config", "build.incremental=false"];
         assert_eq!(role(&side_1), off, "the app checkout");
         assert_eq!(role(&side_1.join("crate/src")), off);
-        assert_eq!(role(&scratch.dir.join("demo-worktrees/side-2")), off, "another side worktree");
+        assert_eq!(
+            role(&scratch.dir.join("demo-worktrees/side-2")),
+            off,
+            "another side worktree"
+        );
         assert_eq!(role(&main), none);
         assert_eq!(role(&main.join("crate")), none);
         assert_eq!(role(&scratch.dir), none, "outside any checkout");

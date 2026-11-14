@@ -54,13 +54,18 @@ pub enum Recreate {
 /// when the folder is in use.
 pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) -> Result<bool> {
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
-    let parent = folder.parent().expect("a folder to delete has a parent").to_path_buf();
+    let parent = folder
+        .parent()
+        .expect("a folder to delete has a parent")
+        .to_path_buf();
     let same_volume = device(&parent)? == device(&places.root)?;
     let _guard = match crate::units::lock_guard_creating(&folder)? {
         crate::units::Guard::Busy => return Ok(false),
         guard => guard,
     };
-    let Some(_locks) = cargo_locks(&folder)? else { return Ok(false) };
+    let Some(_locks) = cargo_locks(&folder)? else {
+        return Ok(false);
+    };
     if held_by_a_process(&folder)? {
         return Ok(false);
     }
@@ -89,10 +94,19 @@ pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) 
 /// Renames <folder> into <slot>: false, moving nothing, when another process
 /// renamed it away first. Two processes can pick the same folder (a DerivedData
 /// entry has no lock of its own), and the rename decides which one deletes it.
-pub(crate) fn move_in(folder: &Path, slot: &Path, name: &std::ffi::OsStr, recreate: Recreate) -> Result<bool> {
+pub(crate) fn move_in(
+    folder: &Path,
+    slot: &Path,
+    name: &std::ffi::OsStr,
+    recreate: Recreate,
+) -> Result<bool> {
     match std::fs::rename(folder, slot.join(name)) {
         Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound && !folder.exists() && slot.is_dir() => {
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                && !folder.exists()
+                && slot.is_dir() =>
+        {
             return Ok(false);
         }
         Err(error) => {
@@ -112,7 +126,9 @@ pub(crate) fn move_in(folder: &Path, slot: &Path, name: &std::ffi::OsStr, recrea
 }
 
 fn device(path: &Path) -> Result<u64> {
-    Ok(std::fs::metadata(path).context(|| format!("reading {}", path.display()))?.dev())
+    Ok(std::fs::metadata(path)
+        .context(|| format!("reading {}", path.display()))?
+        .dev())
 }
 
 /// Every .cargo-lock in <folder> and two levels below, each taken without
@@ -128,7 +144,9 @@ pub(crate) fn cargo_locks(folder: &Path) -> Result<Option<Vec<File>>> {
         };
         for entry in entries {
             let entry = entry.context(|| format!("listing {}", dir.display()))?;
-            let kind = entry.file_type().context(|| format!("reading {}", entry.path().display()))?;
+            let kind = entry
+                .file_type()
+                .context(|| format!("reading {}", entry.path().display()))?;
             if entry.file_name() == ".cargo-lock" && kind.is_file() {
                 match try_lock(&entry.path())? {
                     Some(file) => held.push(file),
@@ -225,7 +243,9 @@ pub fn held_by_a_process(folder: &Path) -> Result<bool> {
             Some(b'p') => pid = &line[1..],
             Some(b'n') if pid != me.as_bytes() => {
                 let name = &line[1..];
-                if name == folder || (name.starts_with(folder) && name.get(folder.len()) == Some(&b'/')) {
+                if name == folder
+                    || (name.starts_with(folder) && name.get(folder.len()) == Some(&b'/'))
+                {
                     return Ok(true);
                 }
             }
@@ -242,10 +262,16 @@ pub fn make_temp_dir(dir: &Path, prefix: &str) -> Result<PathBuf> {
     let mut bytes = template.into_bytes_with_nul();
     let made = unsafe { libc::mkdtemp(bytes.as_mut_ptr().cast()) };
     if made.is_null() {
-        fail!("creating a folder in {}: {}", dir.display(), std::io::Error::last_os_error());
+        fail!(
+            "creating a folder in {}: {}",
+            dir.display(),
+            std::io::Error::last_os_error()
+        );
     }
     bytes.pop();
-    Ok(PathBuf::from(std::ffi::OsString::from(std::ffi::OsStr::from_bytes(&bytes))))
+    Ok(PathBuf::from(std::ffi::OsString::from(
+        std::ffi::OsStr::from_bytes(&bytes),
+    )))
 }
 
 /// Removes <slot> now (warning, and leaving it, when it cannot be finished), or starts `rm -rf` on it in a session of its own, so
@@ -278,7 +304,9 @@ pub fn background_rm(path: &Path) -> Result<()> {
             Ok(())
         });
     }
-    command.spawn().context(|| format!("starting rm -rf {}", path.display()))?;
+    command
+        .spawn()
+        .context(|| format!("starting rm -rf {}", path.display()))?;
     Ok(())
 }
 
