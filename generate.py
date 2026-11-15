@@ -61,7 +61,12 @@ def main():
     for name, fname, digest in entries:
         lines.append(f"- **{name}** (`rules/{fname}`) - {digest}")
 
-    agent = (ROOT / "instructions-agent.md").read_text().rstrip()
+    agent = (
+        (ROOT / "instructions-agent.md")
+        .read_text()
+        .rstrip()
+        .replace("{{agent-instructions}}", str(ROOT))
+    )
     CLAUDE_OUT.parent.mkdir(parents=True, exist_ok=True)
     CODEX_OUT.parent.mkdir(parents=True, exist_ok=True)
     CLAUDE_OUT.write_text(agent + "\n")
