@@ -243,6 +243,67 @@ impl RemoteApp {
         Ok(start)
     }
 
+    /// Copies the shots report in <dir> (a folder of the checkout on the
+    /// host: its `index.html` and the files that page shows) to the folder
+    /// <into> here, replacing what is there.
+    pub fn fetch_report(&mut self, dir: &str, into: &Path) -> Result<()> {
+        let html = self.transport().capture(
+            &format!("cat {}", sh_quote(&format!("{dir}/index.html"))),
+            "reading the shots report",
+        )?;
+        let staging = crate::shot_findings::staging_of(into);
+        let _ = std::fs::remove_dir_all(&staging);
+        std::fs::create_dir_all(&staging).context(|| format!("creating {}", staging.display()))?;
+        std::fs::write(staging.join("index.html"), &html)
+            .context(|| format!("writing {}", staging.join("index.html").display()))?;
+        let files = crate::shot_findings::report_files(&html);
+        if !files.is_empty() {
+            let script = format!(
+                "cd {} && tar -chf - {}",
+                sh_quote(dir),
+                files
+                    .iter()
+                    .map(|file| sh_quote(file))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+            let mut sender = self
+                .transport()
+                .command(&script)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .context(|| format!("copying the shots report from host {}", self.host.name))?;
+            let archive = sender.stdout.take().expect("stdout was piped");
+            let received = Command::new("tar")
+                .args(["-xf", "-", "-C"])
+                .arg(&staging)
+                .stdin(Stdio::from(archive))
+                .output()
+                .context(|| "running tar".to_string())?;
+            let sent = sender
+                .wait_with_output()
+                .context(|| format!("waiting for host {}", self.host.name))?;
+            if !sent.status.success() {
+                fail!(
+                    "copying the shots report from host {} failed ({}): {}",
+                    self.host.name,
+                    sent.status,
+                    String::from_utf8_lossy(&sent.stderr).trim()
+                );
+            }
+            if !received.status.success() {
+                fail!(
+                    "unpacking the shots report from host {} failed: {}",
+                    self.host.name,
+                    String::from_utf8_lossy(&received.stderr).trim()
+                );
+            }
+        }
+        crate::shot_findings::install_folder(&staging, into)
+    }
+
     /// Copies each of <paths> (folders of the checkout) from the host to
     /// `local_folder()/<path>`, replacing what is there; a path the checkout
     /// has not made is left out.

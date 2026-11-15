@@ -516,7 +516,15 @@ Commands:
                               print the findings stored for <ref>'s commit,
                               the lane and the shot-name prefix, with a line
                               (on stderr) that says how old they are and which
-                              shots version made them. With none stored, it
+                              shots version made them, and the path of the
+                              run's report (its index.html and pictures, kept
+                              under the project's store folder in
+                              shots/<commit>-<lane>-<prefix>-<version>/, the
+                              newest 30 runs). A --shots run copies the
+                              report there when it ends, from a host's
+                              checkout too, and prints that path, so the next
+                              run in the checkout cannot take it. With none
+                              stored, it
                               fails and names the app-build command that
                               makes them. The "before" side of a shots check
                               is read from here, never built again

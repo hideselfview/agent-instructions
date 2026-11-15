@@ -71,7 +71,11 @@ here are only those it can't check.
    the shots anyway. The stored findings are those a run printed against
    `origin/main`'s record at the time it ran; CI's shots job keeps no findings
    in its artifacts that builds can read, so only runs through
-   `builds app-build` fill the store.
+   `builds app-build` fill the store. Each run also keeps its report and
+   pictures in the store's folder, copied from a host's checkout when the run
+   ends, and prints the report's local path (`builds shots findings` prints it
+   again); an agent opens that path and never copies from a checkout's `shots/`
+   folder, which the next run there rewrites.
 6. **Commit and report** the SHA, base and checks; the coordinator lands it.
 
 Every agent the coordinator starts shares its session's scratchpad directory, so

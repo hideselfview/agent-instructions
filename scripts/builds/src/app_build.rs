@@ -327,7 +327,7 @@ fn run_local_step(
     };
     let kept = lock::Captured::default();
     let outcome = run_command_capturing(top, &step.command, Some(step.limit()), &kept);
-    store.keep_of(&outcome, &kept, step, top, &mut || resolve(top, "HEAD"));
+    store.keep_of(&outcome, &kept, step, top, &mut LocalRun(top));
     outcome
 }
 
@@ -487,7 +487,7 @@ fn run_remote_step(
             let ran = lock::run_in_group_capturing(start, &step.command[0], limit, &kept);
             // The commit is the host's checkout's, which this Mac holds too.
             let source = remote.source()?;
-            store.keep_of(&ran, &kept, step, &source, &mut || remote.head());
+            store.keep_of(&ran, &kept, step, &source, remote);
             ran
         }
         _ => lock::run_in_group_within(start, &step.command[0], limit),
@@ -559,7 +559,7 @@ impl ShotsStore {
         kept: &lock::Captured,
         step: &Step,
         source: &Path,
-        head: &mut dyn FnMut() -> Result<String>,
+        site: &mut dyn RunSite,
     ) {
         let exit = match outcome {
             Ok(Within::Ran(Ran::Finished)) => 0,
@@ -568,21 +568,15 @@ impl ShotsStore {
         };
         let prefix = step.name.strip_prefix(PickKind::Shots.step_prefix());
         let text = String::from_utf8_lossy(&kept.lock().expect("no panic holding it")).into_owned();
-        self.keep(source, head, prefix.unwrap_or(&step.name), exit, &text);
+        self.keep(source, site, prefix.unwrap_or(&step.name), exit, &text);
     }
 
     /// Keeps what a run of <prefix> that exited <exit> printed in <output>,
-    /// as the findings of the commit <head> names, found in <source>. A run
-    /// that printed no findings, or a write that fails, is said and changes
-    /// nothing about the build's result.
-    fn keep(
-        &self,
-        source: &Path,
-        head: &mut dyn FnMut() -> Result<String>,
-        prefix: &str,
-        exit: i64,
-        output: &str,
-    ) {
+    /// as the findings of the commit the site is on, found in <source>, and
+    /// copies the report it names from the site (shot_findings.rs). A run
+    /// that printed no findings, or a write or copy that fails, is said and
+    /// changes nothing about the build's result.
+    fn keep(&self, source: &Path, site: &mut dyn RunSite, prefix: &str, exit: i64, output: &str) {
         let findings = shot_findings::findings_of(output);
         if !shot_findings::has_findings(exit, findings) {
             note(format!(
@@ -590,7 +584,7 @@ impl ShotsStore {
             ));
             return;
         }
-        let stored = head().and_then(|commit| {
+        let stored = site.commit().and_then(|commit| {
             let key = shot_findings::Key {
                 repo: self.repo.clone(),
                 version: shot_findings::version_at(source, &commit, &self.source)?,
@@ -598,11 +592,64 @@ impl ShotsStore {
                 lane: self.lane,
                 prefix: prefix.to_string(),
             };
-            shot_findings::store(&self.database, &key, exit, findings)
+            shot_findings::store(&self.database, &key, exit, findings)?;
+            Ok(key)
         });
-        if let Err(error) = stored {
-            note(format!("the shot findings were not kept: {}", error.text()));
+        let key = match stored {
+            Ok(key) => key,
+            Err(error) => {
+                note(format!("the shot findings were not kept: {}", error.text()));
+                return;
+            }
+        };
+        let Some(dir) = shot_findings::report_dir_in(output) else {
+            note(format!(
+                "the shots run of {prefix} printed no report path, so no report was kept"
+            ));
+            return;
+        };
+        let folder = shot_findings::report_folder(&self.database, &key);
+        match site.fetch_report(&dir, &folder) {
+            Ok(()) => {
+                note(format!(
+                    "shots report for {prefix}: {}",
+                    folder.join("index.html").display()
+                ));
+                if let Some(shots) = folder.parent() {
+                    shot_findings::prune_reports(shots);
+                }
+            }
+            Err(error) => note(format!("the shots report was not kept: {}", error.text())),
         }
+    }
+}
+
+/// Where a shots run ran: what `ShotsStore::keep` asks of it.
+trait RunSite {
+    /// The commit the checkout is on.
+    fn commit(&mut self) -> Result<String>;
+    /// Copies the report in the checkout's folder <dir> to <into>.
+    fn fetch_report(&mut self, dir: &str, into: &Path) -> Result<()>;
+}
+
+/// An app checkout on this Mac.
+struct LocalRun<'a>(&'a Path);
+
+impl RunSite for LocalRun<'_> {
+    fn commit(&mut self) -> Result<String> {
+        resolve(self.0, "HEAD")
+    }
+    fn fetch_report(&mut self, dir: &str, into: &Path) -> Result<()> {
+        shot_findings::copy_report(Path::new(dir), into)
+    }
+}
+
+impl RunSite for RemoteApp {
+    fn commit(&mut self) -> Result<String> {
+        self.head()
+    }
+    fn fetch_report(&mut self, dir: &str, into: &Path) -> Result<()> {
+        RemoteApp::fetch_report(self, dir, into)
     }
 }
 
@@ -809,6 +856,9 @@ pub fn serve_stored(
             Some(stored) => {
                 note("printing the stored findings instead of running (--fresh runs)");
                 shot_findings::print(&stored);
+                if let Some(database) = &database {
+                    shot_findings::note_report(database, &stored.key);
+                }
             }
             None => left.push(pick),
         }

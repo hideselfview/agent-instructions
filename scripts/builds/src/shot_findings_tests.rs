@@ -69,3 +69,30 @@ fn a_stored_run_is_found_by_its_whole_key_and_a_later_run_of_the_key_replaces_it
 fn store_run(database: &Path, key: &Key, exit: i64, findings: &str) {
     store(database, key, exit, findings).unwrap();
 }
+
+#[test]
+fn the_report_folder_and_its_pictures_are_read_from_the_shots_programs_lines_and_page() {
+    let output = "x\nbae-shots: report at /w/side-1/shots/report/index.html\n";
+    assert_eq!(
+        report_dir_in(output).as_deref(),
+        Some("/w/side-1/shots/report")
+    );
+    assert_eq!(report_dir_in("no report here\n"), None);
+    let html = r#"<img src="img/a.png"><img src="img/a.png"><img src="/etc/x"><img src="../up.png"><img src="https://x/y.png"><img src="img/b c.png">"#;
+    assert_eq!(report_files(html), vec!["img/a.png", "img/b c.png"]);
+}
+
+#[test]
+fn only_the_newest_reports_are_kept() {
+    let scratch = crate::testing::Scratch::new("shots-prune");
+    let shots = scratch.dir.join("shots");
+    for n in 0..KEEP_REPORTS + 3 {
+        let folder = shots.join(format!("run-{n:03}"));
+        std::fs::create_dir_all(&folder).unwrap();
+        crate::testing::age(&folder, (KEEP_REPORTS + 3 - n) as u64);
+    }
+    prune_reports(&shots);
+    let left = std::fs::read_dir(&shots).unwrap().count();
+    assert_eq!(left, KEEP_REPORTS);
+    assert!(!shots.join("run-000").exists() && shots.join("run-032").exists());
+}

@@ -16,6 +16,16 @@
 //! stores nothing. What is stored is what the shots program printed, from the
 //! line that starts it (cargo's `Running` line) to the end.
 //!
+//! The run's report and pictures are kept beside the findings, so the next
+//! run in the same app checkout (which rewrites the checkout's `shots/`
+//! folder) cannot take them. When the shots program prints `bae-shots: report
+//! at <folder>/index.html`, the run copies that `index.html` and the files it
+//! names (`img/...`) from the checkout, or from a host's checkout, to
+//! `<store folder>/shots/<commit>-<platform>-<prefix>-<version>/`: the folder
+//! of the run's key, replaced by a later run of the same key, and kept for
+//! only the newest `KEEP_REPORTS` runs. The run prints the local path of the
+//! report when it ends, and `builds shots findings` prints it again.
+//!
 //! `builds shots findings <repo> <ref> <platform> <prefix>` prints a stored
 //! run. `builds app-build <repo> <ref> --shots <prefix>` (or, in its lane form,
 //! `--shots <platform> <prefix>` with no build step) prints it too, in
@@ -55,6 +65,149 @@ pub struct Key {
     pub lane: Lane,
     pub prefix: String,
     pub version: String,
+}
+
+/// How many runs' report folders a store keeps: the newest by their time.
+pub const KEEP_REPORTS: usize = 30;
+
+/// The line the shots program prints before the path of its report.
+const REPORT_AT: &str = "bae-shots: report at ";
+
+/// The folder of the shots report <output> names (the folder that holds the
+/// `index.html` its last `bae-shots: report at` line gives), if it does.
+pub fn report_dir_in(output: &str) -> Option<String> {
+    let line = output
+        .lines()
+        .rev()
+        .find_map(|line| line.trim().strip_prefix(REPORT_AT))?;
+    let dir = line.trim().strip_suffix("/index.html")?;
+    (!dir.is_empty()).then(|| dir.to_string())
+}
+
+/// The files, relative to the report's folder, that the report page <html>
+/// shows: each `src="..."` that is a plain relative path.
+pub fn report_files(html: &str) -> Vec<String> {
+    let mut files: Vec<String> = Vec::new();
+    for part in html.split("src=\"").skip(1) {
+        let Some((path, _)) = part.split_once('"') else {
+            continue;
+        };
+        let plain = !path.is_empty()
+            && !path.starts_with('/')
+            && !path.contains(':')
+            && !path.split('/').any(|piece| piece == "..");
+        if plain && !files.iter().any(|known| known == path) {
+            files.push(path.to_string());
+        }
+    }
+    files
+}
+
+/// The folder that keeps the report of the run <key> in the store whose
+/// database is <database>.
+pub fn report_folder(database: &Path, key: &Key) -> std::path::PathBuf {
+    let word = |text: &str| -> String {
+        text.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '.' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect()
+    };
+    database
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("shots")
+        .join(format!(
+            "{}-{}-{}-{}",
+            &key.commit[..key.commit.len().min(12)],
+            key.lane.word(),
+            word(&key.prefix),
+            &key.version[..key.version.len().min(12)]
+        ))
+}
+
+/// The folder next to <into> that a copy fills before it replaces <into>.
+pub fn staging_of(into: &Path) -> std::path::PathBuf {
+    let mut name = into.file_name().unwrap_or_default().to_os_string();
+    name.push(".part");
+    into.with_file_name(name)
+}
+
+/// Makes <staging> the folder <into>, replacing what is there.
+pub fn install_folder(staging: &Path, into: &Path) -> Result<()> {
+    if into.exists() {
+        std::fs::remove_dir_all(into)
+            .map_err(|e| crate::fail::Fail::Message(format!("removing {}: {e}", into.display())))?;
+    }
+    std::fs::rename(staging, into).map_err(|e| {
+        crate::fail::Fail::Message(format!(
+            "moving {} to {}: {e}",
+            staging.display(),
+            into.display()
+        ))
+    })
+}
+
+/// Copies the report in <from> (its `index.html` and the files that page
+/// shows) to the folder <into>.
+pub fn copy_report(from: &Path, into: &Path) -> Result<()> {
+    let page = from.join("index.html");
+    let html = std::fs::read_to_string(&page)
+        .map_err(|e| crate::fail::Fail::Message(format!("reading {}: {e}", page.display())))?;
+    let staging = staging_of(into);
+    let _ = std::fs::remove_dir_all(&staging);
+    let copy = |name: &str| -> Result<()> {
+        let to = staging.join(name);
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                crate::fail::Fail::Message(format!("creating {}: {e}", parent.display()))
+            })?;
+        }
+        std::fs::copy(from.join(name), &to)
+            .map(|_| ())
+            .map_err(|e| {
+                crate::fail::Fail::Message(format!("copying {name} from {}: {e}", from.display()))
+            })
+    };
+    std::fs::create_dir_all(&staging)
+        .map_err(|e| crate::fail::Fail::Message(format!("creating {}: {e}", staging.display())))?;
+    copy("index.html")?;
+    for name in report_files(&html) {
+        copy(&name)?;
+    }
+    install_folder(&staging, into)
+}
+
+/// Deletes the report folders in <shots> beyond the newest `KEEP_REPORTS`.
+pub fn prune_reports(shots: &Path) {
+    let Ok(entries) = std::fs::read_dir(shots) else {
+        return;
+    };
+    let mut folders: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
+        .collect();
+    folders.sort_by_key(|folder| std::cmp::Reverse(folder.0));
+    for (_, folder) in folders.into_iter().skip(KEEP_REPORTS) {
+        let _ = std::fs::remove_dir_all(folder);
+    }
+}
+
+/// Says where <key>'s stored report is, when its folder is there.
+pub fn note_report(database: &Path, key: &Key) {
+    let page = report_folder(database, key).join("index.html");
+    if page.exists() {
+        note(format!(
+            "shots report for {}: {}",
+            key.prefix,
+            page.display()
+        ));
+    }
 }
 
 /// A stored run.
@@ -240,6 +393,9 @@ pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
     match stored {
         Some(stored) => {
             print(&stored);
+            if let Some(database) = &database {
+                note_report(database, &stored.key);
+            }
             Ok(())
         }
         None => fail!(

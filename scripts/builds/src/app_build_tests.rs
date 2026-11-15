@@ -571,3 +571,40 @@ fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
         "{message}"
     );
 }
+
+const REPORT_RUN: &str = "mkdir -p shots/report/img; echo png > shots/report/img/a.png; echo stale > shots/report/img/old.png; echo \"<img src=\\\"img/a.png\\\">\" > shots/report/index.html; echo '    Running `target/debug/bae-shots run`' >&2; echo 'bae-shots: report at '\"$PWD\"'/shots/report/index.html' >&2; exit 0";
+
+#[test]
+fn a_shots_run_keeps_its_report_and_the_pictures_it_shows_under_its_key_in_the_store() {
+    let scratch = crate::testing::Scratch::new("shots-report");
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    let database = store.dir.join(app_timing::DATABASE);
+    let top = scratch.dir.join("repo");
+    let kept = shots_store(&top, &database);
+    let step = fake("shots mac.a.", &["sh", "-c", REPORT_RUN], None);
+    run_steps(&top, &[step], &mut Vec::new(), Some(&kept)).unwrap();
+    let commit = resolve(&top, "HEAD").unwrap();
+    let key = shot_findings::Key {
+        repo: "demo".to_string(),
+        version: shot_findings::version_at(&top, &commit, "bae-shots").unwrap(),
+        commit,
+        lane: Lane::Mac,
+        prefix: "mac.a.".to_string(),
+    };
+    let folder = shot_findings::report_folder(&database, &key);
+    assert!(folder.starts_with(store.dir.join("shots")), "{folder:?}");
+    assert_eq!(
+        std::fs::read_to_string(folder.join("img/a.png")).unwrap(),
+        "png\n"
+    );
+    assert!(folder.join("index.html").exists());
+    assert!(
+        !folder.join("img/old.png").exists(),
+        "only the pictures the page shows are kept"
+    );
+    // The next run in the checkout rewrites the checkout's folder; the kept
+    // copy stays.
+    std::fs::remove_dir_all(top.join("shots")).unwrap();
+    assert!(folder.join("img/a.png").exists());
+}
