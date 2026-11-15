@@ -57,8 +57,9 @@ devices through the person's cloud storage, merges writes that devices made
 while offline, and gives bae live queries: SQL queries that coven reruns
 whenever a write changes what they read.
 
-Move bae's coven pin as soon as coven lands what bae needs. While coven lands a
-planned series of commits, move the pin once, after the series.
+bae's `Cargo.toml` pins coven to one commit (`rev`). Move the pin as soon as
+coven lands what bae needs. While coven lands a planned series of commits, move
+the pin once, after the series.
 
 ### bae writes as if it were the only device
 
@@ -81,15 +82,16 @@ crate's parts in crate order. A schema change edits its domain's SQL file and
 never adds a second migration. No library has to advance from an older schema:
 `scripts/reset-bae.py` resets development data.
 
-Only a domain's own code writes its tables, as the `[database]` rows of
-`owner-construction-check.toml` list them, and the checker's `database-boundary`
-rule checks every crate for that. Tests build library state through the owning
-domain's writes, never by writing tables on a bare connection. A named function
-in the owning domain plants the damage a test needs (a value a CHECK refuses, a
-failing write), and a bare file open goes only through
-`bae_store::test_fixtures::planted_damage::plant_in_library_file`. bae-store
-gives no `Connection` to other crates: a domain's tests open their own in-memory
-library with `Schema::open_bare_library(&conn)`.
+Only a domain's own code writes its tables. The pre-commit hook runs coven's
+structural checker (`scripts/owner-construction-check.sh`), and its
+`database-boundary` rule refuses a crate that writes a table its `[database]`
+rows in `owner-construction-check.toml` don't give it. Tests build library state
+through the owning domain's writes, never by writing tables on a bare
+connection. A named function in the owning domain plants the damage a test needs
+(a value a CHECK refuses, a failing write), and a bare file open goes only
+through `bae_store::test_fixtures::planted_damage::plant_in_library_file`.
+bae-store gives no `Connection` to other crates: a domain's tests open their own
+in-memory library with `Schema::open_bare_library(&conn)`.
 
 A trigger never waits for a parent row. Foreign keys are satisfied for every
 local write, and coven applies another device's rows in the order they were
@@ -132,6 +134,11 @@ a change's reads and fast values against them. A plan that proposes a shape they
 forbid is wrong: raise it instead of building it.
 
 ## How work is tracked
+
+Four kinds of session work on bae. The person decides what bae does. A
+coordinator session plans the work, dispatches agents to do it, reviews what
+they make and lands it. The agents each do one task in a side worktree. A design
+session draws the screens as boards that the apps are then built to match.
 
 ### The decision stack and the work queue
 
