@@ -1043,7 +1043,10 @@ agent-instructions and run `review replay --rules-root` on it.
                               anything is fetched and its refusal ends the
                               landing; `review landed` runs after the push,
                               beside the items' and the design change's
-                              records
+                              records. Each record names the landing worktree
+                              and takes who landed from its claim, so in a
+                              repo of a project land refuses an unclaimed
+                              landing worktree before it fetches anything
   builds review [run] <worktree> [<base>] [--landing <key>] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
                               review the worktree's commits past <base>
                               (default origin/main) against the rules in
@@ -1101,7 +1104,8 @@ agent-instructions and run `review replay --rules-root` on it.
   builds review landed <worktree> --project P <sha>... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]
                               what `builds land` records after the push: the
                               landing under review whose review takes the
-                              commits landed, with its review run. A change
+                              commits landed, with its review run, written by
+                              --by, else the landing worktree's claim. A change
                               recorded already is left as it is, so the rerun
                               land prints is safe. It then decides whether the
                               landing is audited and, when it is, starts

@@ -3,7 +3,11 @@
 //! cherry-pick), retrying the whole step on a refused push.
 //!
 //! WORKTREE is a detached landing worktree, claimed by whoever lands (`builds
-//! claim`; the claim names who lands, and the store records that name). One
+//! claim`; the claim names who lands, and the store records that name). In a
+//! repo of a project, land refuses an unclaimed landing worktree before it
+//! fetches anything: each record after the push names the landing worktree and
+//! takes who wrote it from that worktree's claim, not from the directory land
+//! runs in, so land never pushes commits it cannot record. One
 //! landing at a time runs in a worktree: two landings in one worktree move
 //! each other's HEAD, and one pushed the other's commits and called them
 //! landed, so each waits for the worktree to itself (an exclusive flock on
@@ -652,6 +656,26 @@ impl Landing<'_> {
     }
 }
 
+/// Refuses a landing worktree that no one has claimed: the records after the
+/// push take who landed from its claim.
+fn require_claim(workdir: &Path, out: &mut dyn Write) -> Result<()> {
+    let claimed = match crate::checkout::Checkout::at(workdir)? {
+        Some(checkout) => crate::claim::Claim::read(&checkout.claim_file())?
+            .is_some_and(|claim| !claim.who.is_empty()),
+        None => false,
+    };
+    if !claimed {
+        return Err(refuse(
+            out,
+            format!(
+                "refusing: {} is not claimed; claim it for whoever lands (builds claim), since the store records the landing under that name",
+                workdir.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// The landing, with the program that answers the `builds` commands it runs
 /// (this program; tests pass a stand-in) and <out> for what it says.
 pub fn land(program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> {
@@ -690,6 +714,9 @@ pub fn land(program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> 
         ));
     }
     landing.project = (!project.is_empty()).then_some(project);
+    if landing.project.is_some() {
+        require_claim(&landing.workdir, out)?;
+    }
     landing.check_lists(out)?;
     landing.put_on_main(out)
 }

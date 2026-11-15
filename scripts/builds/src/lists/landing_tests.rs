@@ -66,17 +66,10 @@ fn check(l: &Landing, extra: &[&str]) -> Result<()> {
 }
 
 fn landed(l: &Landing, extra: &[&str]) -> Result<()> {
-    let mut args = vec!["landed", l.lander.to_str().unwrap()];
+    let mut args = vec![l.lander.to_str().unwrap()];
     args.extend_from_slice(extra);
-    // builds land runs it inside the landing worktree.
-    let _ = &l.agent;
-    let cwd = l.lander.clone();
-    landed_in(l, &args[1..], &cwd)
-}
-
-fn landed_in(l: &Landing, args: &[&str], cwd: &Path) -> Result<()> {
     let owned: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-    super::landed(&l.demo.tool, &owned, cwd)
+    super::landed(&l.demo.tool, &owned)
 }
 
 /// Puts the commit on origin/main and fetches it into the landing worktree,
@@ -153,6 +146,17 @@ fn landed_records_a_part_then_closes_and_is_idempotent() {
         "the repeat is a logged write that adds no record"
     );
     let _ = after_first;
+}
+
+#[test]
+fn landed_records_the_landing_worktrees_claim_wherever_it_runs() {
+    let l = setup("landing-who");
+    push(&l);
+    // The test process runs in no claimed worktree, as builds land does when
+    // the coordinator runs it from the person's checkout.
+    landed(&l, &["--part", "1", "--done", "2", &l.commit]).unwrap();
+    let lists = l.demo.store.load().unwrap();
+    assert_eq!(lists.closed[0].closed.by, "coordinator (landing)");
 }
 
 /// What `item show` prints for item <id>.
@@ -240,7 +244,7 @@ fn landed_in_another_repo_than_the_item_runs_in_is_refused() {
         .collect();
     let mut with_dir = vec![other.display().to_string()];
     with_dir.extend(args);
-    let refused = refusal(super::landed(&l.demo.tool, &with_dir, &other));
+    let refused = refusal(super::landed(&l.demo.tool, &with_dir));
     assert!(refused.contains("not in a worktree of other"), "{refused}");
 }
 
@@ -441,7 +445,7 @@ fn a_part_from_one_repo_leaves_the_item_running_and_done_from_the_other_closes_i
     let other_check = land_args(&t.other_lander, &["--done", "1", &t.other_commit]);
     check_landing(&t.demo.tool, &other_check).unwrap();
 
-    super::landed(&t.demo.tool, &demo_check, &t.demo_lander).unwrap();
+    super::landed(&t.demo.tool, &demo_check).unwrap();
     let lists = t.demo.store.load().unwrap();
     let item = lists.item(Id(1)).unwrap();
     assert_eq!(
@@ -453,7 +457,7 @@ fn a_part_from_one_repo_leaves_the_item_running_and_done_from_the_other_closes_i
         (2, 1, "demo")
     );
 
-    super::landed(&t.demo.tool, &other_check, &t.other_lander).unwrap();
+    super::landed(&t.demo.tool, &other_check).unwrap();
     let lists = t.demo.store.load().unwrap();
     assert!(lists.item(Id(1)).is_none());
     assert!(matches!(&lists.closed[0].how, How::Landed(c) if *c == [t.other_commit.clone()]));

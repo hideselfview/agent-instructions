@@ -46,7 +46,7 @@ pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
         "defer" => defer(tool, rest, &cwd, &issue::real_gh),
         "place" => place(tool, rest, &cwd),
         "check-landing" => landing::check_landing(tool, rest),
-        "landed" => landing::landed(tool, rest, &cwd),
+        "landed" => landing::landed(tool, rest),
         "show" => item_show::show(tool, rest, &cwd),
         "list" => item_show::list(tool, rest, &cwd),
         other => fail!("unknown item command {other}\n{USAGE}"),

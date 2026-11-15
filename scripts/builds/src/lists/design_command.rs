@@ -51,7 +51,7 @@ pub fn run_in_session(
         "amend" => amend(tool, rest, &cwd, session()?.as_ref()),
         "approve" => approve(tool, rest, &cwd),
         "check" => check(tool, rest),
-        "landed" => landed(tool, rest, &cwd),
+        "landed" => landed(tool, rest),
         "show" => show(tool, rest, &cwd),
         "list" => list(tool, rest, &cwd),
         "render" => render(tool, rest),
@@ -398,8 +398,9 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
 }
 
 /// `landed N DIR SHA...`: SHAs are on origin/main, as builds land calls it after
-/// the push; they are stored as full hashes.
-fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
+/// the push; they are stored as full hashes. Who landed is `--by`, else the
+/// claim of DIR, the landing worktree.
+fn landed(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let [id, dir, shas @ ..] = args.positional() else {
         fail!("{USAGE}")
@@ -427,7 +428,7 @@ fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
             "design change {id} was already recorded as landed with these commits\n"
         ));
     }
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, &args, &checkout.top)?;
     let result = store.write(&stamp, &format!("design landed {id}"), |db| {
         design::landed(db, id, &repo, &commits, &stamp)
     })?;

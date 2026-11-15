@@ -277,3 +277,32 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
     );
     assert_eq!(record::open_landing(&conn, "branch:work").unwrap(), None);
 }
+
+#[test]
+fn landed_records_the_landing_worktrees_claim_wherever_it_runs() {
+    let demo = demo("landing-who");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let a = demo.commit(&side, "a.rs");
+    review_of(&demo, &fake, &side);
+    let lander = demo.add_side(2, "coordinator (landing)", "landing");
+    crate::testing::git(&lander, &["checkout", "-q", "--detach", "main"]);
+    let words: Vec<String> = [
+        lander.display().to_string(),
+        a,
+        "--project".to_string(),
+        "demo".to_string(),
+        "--rules-root".to_string(),
+        fake.root.display().to_string(),
+    ]
+    .into();
+    let args = Args::parse(&words, &["project", "rules-root"], &[]).unwrap();
+    // The test process runs in no claimed worktree, as builds land does when
+    // the coordinator runs it from the person's checkout.
+    assert!(record_landing(&demo.tool, &args).unwrap().is_some());
+    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let log = crate::lists::store::read_log(&conn).unwrap();
+    let (_, _, by, words) = log.last().unwrap();
+    assert!(words.starts_with("review landed"), "{words}");
+    assert_eq!(by, "coordinator (landing)");
+}

@@ -24,7 +24,9 @@ from one counter per project, printed #N. Commands take ids as bare numbers
 
 Every write records who wrote it: `--by WHO` when given, else the claim of the
 worktree the command runs in; with neither, the command is refused ("say who
-you are with --by"). The project comes from `--project P`, else from the repo
+you are with --by"). The records builds land writes after its push (`item
+landed`, `design landed`, `review landed`) take the claim of the landing
+worktree they name instead, wherever they run. The project comes from `--project P`, else from the repo
 of the folder the command runs in (a repo in no project, or in two, is
 refused). Long text comes from a file (--details-file F; `-` is standard
 input), and a compound write takes one JSON request (--request F), refused
@@ -185,7 +187,8 @@ no commit); an absolute path is itself.
       and --done closes the item as landed and ends its running everywhere, so
       an item that spans two repos lands --part from one and --done from the
       other. The same call twice records once; a different set of commits for
-      an item already closed as landed is refused.
+      an item already closed as landed is refused. landed records who landed
+      as --by, else DIR's claim.
 
   builds item show N | builds item list [--running] [--ready] [--area A] [--for F]
       list --running prints each running item's marker line, one per
@@ -371,7 +374,8 @@ sent again.
   builds design landed N DIR SHA...
       What builds land runs after the push, with SHAs on origin/main: records
       them and closes N, which frees the items waiting on it. The same commits
-      again record once; other commits for a landed change are refused.
+      again record once; other commits for a landed change are refused. Who
+      landed is --by, else DIR's claim.
 
   builds design show N | builds design list
       One design change, open or landed; the open ones, one line each.

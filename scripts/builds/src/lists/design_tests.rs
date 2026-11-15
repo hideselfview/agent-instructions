@@ -672,6 +672,40 @@ fn landed_closes_the_change_frees_its_items_and_is_idempotent() {
 }
 
 #[test]
+fn landed_records_the_landing_worktrees_claim_wherever_it_runs() {
+    let w = world("design-landed-who");
+    w.commit(&["design/mocks/A.dc.html"]);
+    w.request(base_request(
+        &w,
+        json!({ "design/mocks/A.dc.html": { "new": draft("Build the grid the board shows") } }),
+    ))
+    .unwrap();
+    let sha = w.sha("HEAD");
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let checkout = crate::checkout::Checkout::at(&w.dir).unwrap().unwrap();
+    crate::claim::Claim {
+        who: "coordinator (landing)".into(),
+        since: "2026-11-15 10:00".into(),
+        note: None,
+        note_state: None,
+    }
+    .write(&checkout.claim_file())
+    .unwrap();
+    // No --by, and the test process runs in no claimed worktree, as builds
+    // land does when the coordinator runs it from the person's checkout.
+    let args: Vec<String> = ["landed", "1", &w.worktree(), &sha]
+        .iter()
+        .map(|word| word.to_string())
+        .collect();
+    run_to_text(&w.tool, &args).unwrap();
+    let state = w.state();
+    assert_eq!(
+        state.closed_record(Id(1)).unwrap().closed.by,
+        "coordinator (landing)"
+    );
+}
+
+#[test]
 fn a_design_change_waited_on_by_an_item_that_also_waits_elsewhere_stays_waiting() {
     let w = world("design-landed-waits");
     w.commit(&["design/mocks/A.dc.html"]);

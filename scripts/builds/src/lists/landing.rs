@@ -12,8 +12,9 @@
 //! that spans repos runs in a worktree of each, and a landing from any of
 //! them is accepted; `--part` leaves it running everywhere, `--done` closes
 //! it); `landed` runs after the push,
-//! so its SHAs are the commits now on origin/main and must be there. Git runs
-//! before the store's lock.
+//! so its SHAs are the commits now on origin/main and must be there. `landed`
+//! records who landed as `--by`, else the claim of DIR, the landing worktree,
+//! wherever the command runs. Git runs before the store's lock.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -348,7 +349,7 @@ fn record(
     Ok(did)
 }
 
-pub fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+pub fn landed(tool: &Tool, args: &[String]) -> Result<()> {
     let landing = parse(args)?;
     let top = &landing.checkout.top;
     let mut commits = Vec::new();
@@ -363,7 +364,7 @@ pub fn landed(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         commits.push(commit);
     }
     let store = Store::resolve(&tool.places, &landing.args, top)?;
-    let stamp = Stamp::resolve(tool.now, &landing.args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, &landing.args, top)?;
     let repo = landing.checkout.repo();
     // The worktrees each item that this landing finishes runs in, read before
     // closing it ends them.

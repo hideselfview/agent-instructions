@@ -91,12 +91,26 @@ fn fixture(name: &str, checks: &str, compile: Option<&str>) -> Fixture {
     );
     identify(&land);
     git_out(&land, &["checkout", "-q", "--detach", "origin/main"]);
+    claim(&land);
     Fixture {
         scratch,
         origin,
         agent,
         land,
     }
+}
+
+/// Claims <dir> for the coordinator that lands, as `builds claim` does.
+fn claim(dir: &Path) {
+    let checkout = crate::checkout::Checkout::at(dir).unwrap().unwrap();
+    crate::claim::Claim {
+        who: "coordinator (landing)".into(),
+        since: "2026-11-15 10:00".into(),
+        note: None,
+        note_state: None,
+    }
+    .write(&checkout.claim_file())
+    .unwrap();
 }
 
 /// What the stand-in `builds` answers: the project `lists project-of` prints
@@ -316,6 +330,25 @@ fn a_project_repo_names_its_work_item_before_anything_moves() {
         ]
     );
     assert!(!calls.iter().any(|c| c.starts_with("design landed")));
+}
+
+#[test]
+fn an_unclaimed_landing_worktree_of_a_project_is_refused_before_anything_moves() {
+    let f = fixture("land-unclaimed", "true\n", None);
+    let (a, b) = two_sibling_commits(&f);
+    let checkout = crate::checkout::Checkout::at(&f.land).unwrap().unwrap();
+    std::fs::remove_file(checkout.claim_file()).unwrap();
+    let before = git_out(&f.land, &["rev-parse", "HEAD"]);
+    let (code, out, calls) = run_land(&f, &["--done", "7", &a], project());
+    assert!(
+        code == 1 && out.contains("is not claimed") && main_of(&f) != a,
+        "{out}"
+    );
+    assert_eq!(git_out(&f.land, &["rev-parse", "HEAD"]), before);
+    assert_eq!(calls, [format!("lists project-of {}", f.land.display())]);
+    // A repo in no project records nothing, so it lands unclaimed.
+    let (code, out, _) = run_land(&f, &[&b], Cues::default());
+    assert!(code == 0 && main_of(&f) == b, "{out}");
 }
 
 #[test]

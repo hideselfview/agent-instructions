@@ -34,7 +34,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::args::Args;
-use crate::lists::store::Store;
+use crate::lists::store::{Store, resolve_by};
 use crate::review::commits::{self, Commit};
 use crate::review::record::{self, LandingRow};
 use crate::review::render;
@@ -418,16 +418,23 @@ fn record_landed(asked: &Asked, stamp: &Stamp) -> Result<Option<i64>> {
     Ok(Some(landing))
 }
 
+/// Records the landing that `builds review landed` names, written by `--by`,
+/// else by the claim of DIR, the landing worktree, wherever the command runs.
+/// Returns what it asked and the landing when this recorded it.
+fn record_landing(tool: &Tool, args: &Args) -> Result<Option<(Asked, i64)>> {
+    let asked = ask(tool, args)?;
+    let stamp = Stamp {
+        at: tool.now,
+        by: resolve_by(args, &asked.dir)?,
+    };
+    Ok(record_landed(&asked, &stamp)?.map(|landing| (asked, landing)))
+}
+
 /// `builds review landed DIR --project P SHA...`: records the landing, then
 /// starts the audit of a sampled one. The audit never fails the landing.
 pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root", "roll", "reviewer"], &[])?;
-    let asked = ask(tool, &args)?;
-    let stamp = Stamp {
-        at: tool.now,
-        by: args.value("by")?.unwrap_or("builds land").to_string(),
-    };
-    let Some(landing) = record_landed(&asked, &stamp)? else {
+    let Some((asked, landing)) = record_landing(tool, &args)? else {
         return Ok(());
     };
     let roll = match args.value("roll")? {
