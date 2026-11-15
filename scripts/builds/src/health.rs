@@ -83,22 +83,17 @@ impl Advice {
     }
 }
 
-/// One line of what needs acting on.
+/// One line of what needs acting on: what it is about, and what it says.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finding {
     pub kind: FindingKind,
-    pub text: String,
-    /// The command the text suggests, which the dashboard shows apart.
-    pub command: Option<String>,
+    #[serde(flatten)]
+    pub advice: Advice,
 }
 
 impl Finding {
     pub fn new(kind: FindingKind, advice: Advice) -> Finding {
-        Finding {
-            kind,
-            text: advice.text,
-            command: advice.command,
-        }
+        Finding { kind, advice }
     }
 }
 
@@ -986,7 +981,7 @@ pub fn lines(health: &Health) -> Vec<String> {
     } else {
         out.push("needs action:".to_string());
         for finding in &health.findings {
-            out.push(format!("    {}", finding.text));
+            out.push(format!("    {}", finding.advice.text));
         }
     }
     out
@@ -1164,6 +1159,7 @@ mod tests {
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
         assert!(
             health.findings[0]
+                .advice
                 .text
                 .starts_with("worktree: demo/side-1 "),
             "{:?}",
@@ -1236,6 +1232,7 @@ mod tests {
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
         assert!(
             health.findings[0]
+                .advice
                 .text
                 .starts_with("worktree: demo/side-1 has no claim and 1 commit waiting to land"),
             "{:?}",
@@ -1260,11 +1257,11 @@ mod tests {
         let found = host_findings(&busy, &[refusal]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
-        assert_eq!(found[0].command.as_deref(), Some("builds host list"));
+        assert_eq!(found[0].advice.command.as_deref(), Some("builds host list"));
         assert!(
-            found[0].text.contains("`builds host list`"),
+            found[0].advice.text.contains("`builds host list`"),
             "{}",
-            found[0].text
+            found[0].advice.text
         );
     }
 }
