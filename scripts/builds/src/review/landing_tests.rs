@@ -20,12 +20,16 @@ fn stamp() -> Stamp {
 }
 
 fn review_of(demo: &Demo, fake: &Fake, side: &Path) -> super::super::Reported {
+    review_past(demo, fake, side, "main")
+}
+
+fn review_past(demo: &Demo, fake: &Fake, side: &Path, base: &str) -> super::super::Reported {
     review(&Inputs {
         store: &demo.store,
         project: "demo",
         repo: "demo",
         worktree: side,
-        base: "main",
+        base,
         head: None,
         key: "branch:work",
         root: &fake.root,
@@ -41,8 +45,8 @@ fn review_of(demo: &Demo, fake: &Fake, side: &Path) -> super::super::Reported {
 fn verdict_of(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> (Verdict, Option<String>) {
     let asked = asked(demo, fake, side, shas);
     let conn = db::open_reader(&asked.store.database()).unwrap();
-    let verdict = judge(conn.as_ref(), "demo", &asked.commits, &asked.needed).unwrap();
-    let words = refusal(conn.as_ref(), "demo", &asked.commits, &verdict).unwrap();
+    let verdict = judge(conn.as_ref(), "demo", &asked.needs).unwrap();
+    let words = refusal(&asked.commits(), &verdict);
     (verdict, words)
 }
 
@@ -100,9 +104,10 @@ fn commits_no_review_read_are_refused_and_commits_no_group_covers_need_none() {
     let a = demo.commit(&side, "a.rs");
     let asked = verdict_of(&demo, &fake, &side, std::slice::from_ref(&a));
     assert_eq!(asked.0, Verdict::NoRun);
+    let words = refused(&asked);
     assert!(
-        refused(&asked).contains("no review run covers the commits this lands"),
-        "{asked:?}"
+        words.contains("no review read the commits this lands") && words.contains(ONE_REVIEW),
+        "{words}"
     );
     let notes = demo.commit(&side, "notes.txt");
     assert_eq!(
@@ -133,7 +138,7 @@ fn an_unsettled_finding_is_refused_and_a_settled_review_takes_the_commits() {
 }
 
 #[test]
-fn a_confirmed_finding_needs_its_fix_among_the_commits_landed() {
+fn a_named_fix_lands_with_the_reviewed_commits_and_no_review_of_its_own() {
     let demo = demo("landing-fix");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
@@ -144,44 +149,93 @@ fn a_confirmed_finding_needs_its_fix_among_the_commits_landed() {
     settle(&demo, finding, "confirmed");
     let asked = verdict_of(&demo, &fake, &side, std::slice::from_ref(&a));
     assert!(refused(&asked).contains("names no fix"), "{asked:?}");
-    // The fix is a new commit; a review of the commits without it covers
-    // nothing that holds the fix.
+    // The fix is a new commit, which the review never reads.
     let b = demo.commit(&side, "b.rs");
+    let asked = verdict_of(&demo, &fake, &side, &[a.clone(), b.clone()]);
+    assert!(
+        refused(&asked).contains(&format!("commit {} is not one the review read", &b[..10])),
+        "{asked:?}"
+    );
     fix(&demo, &side, finding, &b);
     let asked = verdict_of(&demo, &fake, &side, std::slice::from_ref(&a));
     assert!(
         refused(&asked).contains("not among the commits this lands"),
         "{asked:?}"
     );
-    // The final range, reviewed, lands; the fix is among its commits.
-    fake.answer("alpha", &[("rule-a", None)]);
-    review_of(&demo, &fake, &side);
+    fake.prompts();
     let asked = verdict_of(&demo, &fake, &side, &[a, b]);
     assert!(matches!(asked.0, Verdict::Takes(_)), "{asked:?}");
+    assert!(fake.prompts().is_empty(), "nothing reviewed the fix");
 }
 
 #[test]
-fn a_run_over_other_commits_does_not_cover_a_landing_and_the_refusal_says_how_they_differ() {
-    let demo = demo("landing-other-diff");
+fn a_commit_added_after_the_review_lands_as_a_change_of_its_own() {
+    let demo = demo("landing-new-work");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
     let a = demo.commit(&side, "a.rs");
     let b = demo.commit(&side, "b.rs");
     review_of(&demo, &fake, &side);
-    let asked = verdict_of(&demo, &fake, &side, std::slice::from_ref(&a));
-    assert_eq!(asked.0, Verdict::NoRun);
-    let words = refused(&asked);
+    let c = demo.commit(&side, "c.rs");
+    let said = verdict_of(&demo, &fake, &side, &[a.clone(), b.clone(), c.clone()]);
+    let Verdict::Unfinished(_, unfinished) = &said.0 else {
+        panic!("{said:?}")
+    };
+    assert_eq!(unfinished.unreviewed.len(), 1);
+    let words = refused(&said);
     assert!(
-        words.contains("it also read") && words.contains(&b[..10]),
+        words.contains(&format!("commit {} is not one the review read", &c[..10]))
+            && words.contains(ONE_REVIEW)
+            && words.contains("review it as a change of its own"),
         "{words}"
     );
-    let c = demo.commit(&side, "c.rs");
-    let asked = verdict_of(&demo, &fake, &side, &[a.clone(), b.clone(), c.clone()]);
-    assert!(refused(&asked).contains(&format!("it lacks {}", &c[..10])));
+    // The reviewed commits land without it, every one of them or a part.
     assert!(matches!(
-        verdict_of(&demo, &fake, &side, &[a, b]).0,
+        verdict_of(&demo, &fake, &side, std::slice::from_ref(&a)).0,
         Verdict::Takes(_)
     ));
+    let reviewed = asked(&demo, &fake, &side, &[a, b]);
+    assert!(record_landed(&reviewed, &stamp()).unwrap().is_some());
+    // The new commit is a change of its own: the branch's key opens a new
+    // landing, and its review reads only the new commit.
+    fake.prompts();
+    let second = review_past(&demo, &fake, &side, &reviewed.needs[1].commit.sha);
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1);
+    assert!(prompts[0].1.contains("+c.rs") && !prompts[0].1.contains("+a.rs"));
+    assert!(second.refusal.is_none(), "{:?}", second.refusal);
+    assert!(matches!(
+        verdict_of(&demo, &fake, &side, &[c]).0,
+        Verdict::Takes(_)
+    ));
+}
+
+#[test]
+fn a_rebased_commit_whose_patch_id_changed_is_a_new_diff() {
+    let demo = demo("landing-rebased");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let a = demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.rs");
+    review_of(&demo, &fake, &side);
+    // Another change in the last commit, as a rebase that resolves a conflict
+    // makes.
+    std::fs::write(side.join("b.rs"), "resolved\n").unwrap();
+    crate::testing::git(&side, &["commit", "-q", "--amend", "-a", "--no-edit"]);
+    let changed = crate::checkout::git_text(
+        crate::checkout::git(&side).args(["rev-parse", "HEAD"]),
+        "read HEAD",
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    let asked = verdict_of(&demo, &fake, &side, &[a, changed.clone()]);
+    let Verdict::Unfinished(_, unfinished) = &asked.0 else {
+        panic!("{asked:?}")
+    };
+    assert_eq!(unfinished.unreviewed.len(), 1);
+    assert_eq!(unfinished.unreviewed[0].sha, changed);
+    assert!(refused(&asked).contains("one whose patch id a rebase changed"));
 }
 
 #[test]
@@ -206,13 +260,7 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
     let asked_picked = asked(&demo, &fake, &other, std::slice::from_ref(&picked));
     let conn = db::open_reader(&demo.store.database()).unwrap();
     assert!(matches!(
-        judge(
-            conn.as_ref(),
-            "demo",
-            &asked_picked.commits,
-            &asked_picked.needed
-        )
-        .unwrap(),
+        judge(conn.as_ref(), "demo", &asked_picked.needs).unwrap(),
         Verdict::Takes(_)
     ));
     drop(conn);

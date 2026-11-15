@@ -321,7 +321,7 @@ pub fn replay_case(
         changed: files.iter().map(|f| f.path.clone()).collect(),
     };
     let picked = material.groups.pick(&material.rules, &diff.changed);
-    let asked = ask_groups(material, reviewer, &picked, &diff, None, &|_| Vec::new());
+    let asked = ask_groups(material, reviewer, &picked, &diff, None);
     let (calls, repeat) = (asked.calls, asked.repeat);
     let accepted: Vec<&crate::review::record::NewFinding> = calls
         .iter()

@@ -135,7 +135,9 @@ edits.
 ## Code review
 
 Every branch is reviewed against the rules before it lands, with one reviewer
-per group of rules, one folder of `rules/` each, and `builds land` refuses
-commits that no finished review read. The `code-rules-review` skill says how to
-run the review, settle its findings and name their fixes, and `builds help`
-describes each review command.
+per group of rules, one folder of `rules/` each. No diff is reviewed more than
+once. Each change gets one review; the coordinator reads the fixes for its
+confirmed findings. `builds land` refuses a commit that is neither read by a
+finished review nor named as the fix of one of its confirmed findings. The
+`code-rules-review` skill says how to run the review, settle its findings and
+name their fixes, and `builds help` describes each review command.

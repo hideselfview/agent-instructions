@@ -1,6 +1,5 @@
-//! What one reviewer is told and how it must answer. A reviewer has no tools:
-//! the rules, the project's instructions, the brief, the
-//! settled findings and the diff are all in its prompt.
+//! What one reviewer is told and how it must answer. The rules, the
+//! project's instructions, the brief and the diff are all in its prompt.
 
 use serde_json::{Value, json};
 
@@ -12,20 +11,6 @@ pub const PROJECT_FACTS: &str = "project-facts";
 
 pub const SYSTEM: &str = "You review one change against one group of rules. The message holds the change. When you have read-only tools, they read the repository as it is at the commit under review. Answer with the JSON the schema asks for and nothing else. Write plain, literal, active sentences.";
 
-/// A finding the coordinator already settled, passed to a rerun so the
-/// reviewer does not raise it again, reworded.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Settled {
-    pub rule: String,
-    pub file: String,
-    pub code: String,
-    /// `confirmed` or `dropped`.
-    pub how: String,
-    pub why: String,
-    /// The commit that fixed a confirmed one, when it names one.
-    pub fix: Option<String>,
-}
-
 pub struct Input<'a> {
     pub group: &'a Group,
     pub rules: &'a [&'a Rule],
@@ -33,7 +18,6 @@ pub struct Input<'a> {
     pub project_text: &'a str,
     /// (path, text) of the landing's brief, when it has one.
     pub brief: Option<&'a (String, String)>,
-    pub settled: &'a [Settled],
     pub diff: &'a str,
     /// The new text of the diff's file around each hunk, when the group
     /// reviews one file per call; empty otherwise.
@@ -139,8 +123,7 @@ fn change_part(input: &Input) -> String {
     out
 }
 
-/// What is the group's own: its question, how to answer, its rules and the
-/// findings already settled.
+/// What is the group's own: its question, how to answer and its rules.
 pub fn group_part(input: &Input) -> String {
     let group = input.group;
     let mut out = String::new();
@@ -168,16 +151,14 @@ pub fn group_part(input: &Input) -> String {
              - The message holds one changed file: its diff, then its new text around each hunk with line numbers. Read the new text to see what each value is, where it comes from and what the code around the site does with it.\n\
              - First list every site in the diff that {sites}. Give each site its file, the line number in the new file, its kind, and its code copied exactly from the diff.\n\
              - Consider only sites on lines the diff adds or changes. A diff with no such site has an empty `sites`, and `summary` says so; otherwise `summary` says in a sentence what the diff does.\n\
-             - Then give each site a verdict against the rules listed above: `none` when it breaks none of them; otherwise `finding`, with `rule` set to the rule's name, `clause` copied exactly from that rule's text below, and one or two plain sentences on what goes wrong. A site that breaks two rules is listed twice, once per rule.\n\
-             - Do not raise again a finding listed under \"Findings already settled\".\n",
+             - Then give each site a verdict against the rules listed above: `none` when it breaks none of them; otherwise `finding`, with `rule` set to the rule's name, `clause` copied exactly from that rule's text below, and one or two plain sentences on what goes wrong. A site that breaks two rules is listed twice, once per rule.\n",
         ));
     } else {
         out.push_str(
             "\nHow to answer. Put your answer in `rules`, and leave `summary` and `sites` out.\n\
              - Give one verdict for every rule listed: \"finding\" or \"none\". A rule the change does not touch gets \"none\" and an empty findings list.\n\
              - A finding has three quotes and a sentence. The clause is copied exactly from that rule's text below. The code is copied exactly from the diff, with the file's path and the line number in the new file. The problem says in one or two plain sentences what goes wrong.\n\
-             - Raise findings only for lines the diff adds or changes.\n\
-             - Do not raise again a finding listed under \"Findings already settled\".\n",
+             - Raise findings only for lines the diff adds or changes.\n",
         );
     }
     out.push_str(
@@ -189,23 +170,6 @@ pub fn group_part(input: &Input) -> String {
     out.push_str("\n# Rules\n");
     for rule in input.rules {
         out.push_str(&format!("\n## {}\n\n{}\n", rule.slug, rule.text.trim_end()));
-    }
-    if !input.settled.is_empty() {
-        out.push_str("\n# Findings already settled\n\n");
-        for s in input.settled {
-            out.push_str(&format!(
-                "- {} in {}, code `{}`: settled {}: {}{}\n",
-                s.rule,
-                s.file,
-                s.code.replace('\n', " "),
-                s.how,
-                s.why,
-                s.fix
-                    .as_ref()
-                    .map(|sha| format!(" (fixed in commit {sha})"))
-                    .unwrap_or_default()
-            ));
-        }
     }
     out
 }

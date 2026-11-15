@@ -16,12 +16,15 @@
 //! ```
 //!
 //! `run` reviews the worktree's commits past BASE (default `origin/main`)
-//! before they land. The groups whose rules cover a changed path each get one
-//! `claude -p`, told what the coordinator settled on earlier runs of the same
-//! KEY; a group that already answered over the same commits is not asked
-//! again. It records the commits it read with their patch ids, then says what
-//! `builds land` would say of those commits (`landing.rs`), and exits 1 unless
-//! land would take them.
+//! before they land. No diff is reviewed more than once. Each change gets one
+//! review; the coordinator reads the fixes for its confirmed findings. The
+//! groups whose rules cover a changed path each get one `claude -p`. The run
+//! records the commits it read with their patch ids under the change's KEY,
+//! then says what `builds land` would say of the branch's commits
+//! (`landing.rs`), and exits 1 unless land would take them. A KEY reviewed
+//! already gets no second review: the run asks only the groups that gave that
+//! review no answer, over the same diff, and refuses when every group
+//! answered.
 
 mod audit;
 mod call;
@@ -50,7 +53,6 @@ use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of, resolve_by};
 use crate::tool::Tool;
 
-use prompt::Settled;
 use record::Kind;
 
 const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review fixed FINDING SHA\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
@@ -142,7 +144,7 @@ pub struct Inputs<'a> {
     /// The commit to review, read from a copy of its files; the worktree's
     /// HEAD, read in place, when none.
     pub head: Option<&'a str>,
-    /// Names the landing across reruns.
+    /// Names the change, and so its landing under review.
     pub key: &'a str,
     pub root: &'a Path,
     pub reviewer: &'a Path,
@@ -152,6 +154,7 @@ pub struct Inputs<'a> {
 }
 
 /// What a review found.
+#[derive(Debug)]
 pub struct Reported {
     pub landing: Option<i64>,
     /// Everything to print.
@@ -161,7 +164,10 @@ pub struct Reported {
     pub refusal: Option<String>,
 }
 
-/// Reviews the worktree's change past the base and records it.
+/// Reviews the worktree's change past the base and records it. A change gets
+/// one review: when its key has one already, this asks only the groups that
+/// gave that review no answer, over the same diff, and refuses when there are
+/// none.
 pub fn review(inputs: &Inputs) -> Result<Reported> {
     let diff = match inputs.head {
         Some(head) => {
@@ -185,148 +191,196 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         &commits::in_range(inputs.worktree, &diff.base, &diff.head)?,
     )?;
     let material = run::Material::load(inputs.root, inputs.project)?;
-    let picked_all = material.groups.pick(&material.rules, &diff.changed);
-    if picked_all.is_empty() {
+    if material.group_names(&diff.changed).is_empty() {
         return Ok(Reported {
             landing: None,
             text: "no group's rules cover the changed paths: nothing to review, and builds land needs no review\n".to_string(),
             refusal: None,
         });
     }
-    let needed: Vec<String> = picked_all.iter().map(|(g, _)| g.name.clone()).collect();
-    // What earlier reviews of this change settled, and the groups that
-    // answered over these same commits already.
-    let (prior, answered, settled) = match db::open_reader(&inputs.store.database())? {
-        None => (None, Vec::new(), Vec::new()),
+    let prior = match db::open_reader(&inputs.store.database())? {
+        None => None,
         Some(conn) => match record::open_landing(&conn, inputs.key)? {
-            None => (None, Vec::new(), Vec::new()),
-            Some(landing) => {
-                let answered = landing::groups_answered(&conn, landing, &commits, &needed)?;
-                let settled: Vec<(String, Settled)> = record::findings_of_landing(&conn, landing)?
-                    .into_iter()
-                    .filter_map(|f| {
-                        f.settled.map(|(how, why)| {
-                            (
-                                f.group,
-                                Settled {
-                                    rule: f.rule,
-                                    file: f.file,
-                                    code: f.code,
-                                    how,
-                                    why,
-                                    fix: f.fix.map(|fix| fix.sha),
-                                },
-                            )
-                        })
-                    })
-                    .collect();
-                (Some(landing), answered, settled)
-            }
+            None => None,
+            Some(landing) => Some(unanswered(&conn, inputs, &material, &commits, landing)?),
         },
     };
-    let mut picked = picked_all;
-    picked.retain(|(group, _)| !answered.contains(&group.name));
-    let skipped = !answered.is_empty();
-    let mut text = String::new();
-    let mut landing_id = prior;
-    if picked.is_empty() {
-        text.push_str(&format!(
-            "every group that covers the changed paths answered over these commits already (landing {})\n",
-            prior.expect("groups answered in a landing")
-        ));
-    } else {
-        let settled_for = |group: &str| -> Vec<Settled> {
-            settled
-                .iter()
-                .filter(|(g, _)| g == group)
-                .map(|(_, s)| s.clone())
-                .collect()
-        };
-        let running = Running::start(running_file(&inputs.store.dir, &diff.head))?;
-        let calls = run::ask_groups(
-            &material,
-            inputs.reviewer,
-            &picked,
-            &diff,
-            inputs.brief.as_ref(),
-            &settled_for,
+    // The diff the reviewers read, the commits it holds, and the groups asked:
+    // each group that covers a path one of those commits changes, so that
+    // builds land finds an answer for every commit it lands.
+    let (asked_diff, asked_commits, asked_groups) = match &prior {
+        None => (
+            diff,
+            commits.clone(),
+            material.group_names(&commit_paths(inputs.worktree, &commits)?),
+        ),
+        Some(prior) => (
+            run::diff_between(inputs.worktree, &prior.run.base, &prior.run.head).map(|mut d| {
+                if let Some(source) = &mut d.source {
+                    source.in_place = false;
+                }
+                d
+            })?,
+            prior.read.clone(),
+            prior.missing.clone(),
+        ),
+    };
+    let picked: Vec<_> = material
+        .groups
+        .pick(
+            &material.rules,
+            &commit_paths(inputs.worktree, &asked_commits)?,
         )
-        .calls;
-        let stamp = inputs.stamp;
-        let (landing, run_id, stored_calls, findings) =
-            inputs
-                .store
-                .write(stamp, &format!("review {}", inputs.key), |db| {
-                    let landing = match prior {
-                        Some(id) => id,
-                        None => record::add_landing(db, inputs.key, inputs.repo, stamp.at)?,
-                    };
-                    let (run_id, _) = record::add_run(
-                        db,
-                        &record::NewRun {
-                            landing: Some(landing),
-                            kind: Kind::Review,
-                            label: None,
-                            at: stamp.at,
-                            base: &diff.base,
-                            head: &diff.head,
-                            commits: &commits,
-                            grouping: &material.grouping,
-                            rules_version: &run::rules_version(inputs.root),
-                        },
-                        &calls,
-                    )?;
-                    // A finding the coordinator dropped on an earlier run, raised
-                    // again, is the same finding: it stays dropped.
-                    let earlier: Vec<record::Finding> = record::findings_of_landing(db, landing)?
-                        .into_iter()
-                        .filter(|f| f.run_id != run_id)
-                        .collect();
-                    for finding in record::findings_of_run(db, run_id)? {
-                        if !finding.counts() {
-                            continue;
-                        }
-                        let same = earlier.iter().find(|e| {
-                            e.settled_as("dropped")
-                                && e.rule == finding.rule
-                                && e.file == finding.file
-                                && check::squash(&e.code) == check::squash(&finding.code)
-                        });
-                        if let Some(same) = same {
-                            record::inherit_drop(db, finding.id, same, stamp.at)?;
-                        }
-                    }
-                    let stored = record::calls_of_run(db, run_id)?;
-                    let findings = record::findings_of_run(db, run_id)?;
-                    Ok((landing, run_id, stored, findings))
-                })?;
-        drop(running);
-        landing_id = Some(landing);
+        .into_iter()
+        .filter(|(group, _)| asked_groups.contains(&group.name))
+        .collect();
+    let running = Running::start(running_file(&inputs.store.dir, &asked_diff.head))?;
+    let calls = run::ask_groups(
+        &material,
+        inputs.reviewer,
+        &picked,
+        &asked_diff,
+        inputs.brief.as_ref(),
+    )
+    .calls;
+    let stamp = inputs.stamp;
+    let prior_landing = prior.as_ref().map(|p| p.landing);
+    let (landing, run_id, stored_calls, findings) =
+        inputs
+            .store
+            .write(stamp, &format!("review {}", inputs.key), |db| {
+                let landing = match prior_landing {
+                    Some(id) => id,
+                    None => record::add_landing(db, inputs.key, inputs.repo, stamp.at)?,
+                };
+                let (run_id, _) = record::add_run(
+                    db,
+                    &record::NewRun {
+                        landing: Some(landing),
+                        kind: Kind::Review,
+                        label: None,
+                        at: stamp.at,
+                        base: &asked_diff.base,
+                        head: &asked_diff.head,
+                        commits: &asked_commits,
+                        grouping: &material.grouping,
+                        rules_version: &run::rules_version(inputs.root),
+                    },
+                    &calls,
+                )?;
+                let stored = record::calls_of_run(db, run_id)?;
+                let findings = record::findings_of_run(db, run_id)?;
+                Ok((landing, run_id, stored, findings))
+            })?;
+    drop(running);
+    let mut text = format!(
+        "review of {} (landing {landing}, run {run_id}) over {}...{}\n",
+        inputs.key,
+        short(&asked_diff.base),
+        short(&asked_diff.head)
+    );
+    if let Some(prior) = &prior {
         text.push_str(&format!(
-            "review of {} (landing {landing}, run {run_id}) over {}...{}\n",
-            inputs.key,
-            short(&diff.base),
-            short(&diff.head)
+            "asked only the groups that gave run {} no answer, over the diff it read: {}\n",
+            prior.run.id,
+            prior.missing.join(", ")
         ));
-        if skipped {
-            text.push_str(&format!(
-                "asked only the groups with no answer over these commits yet; {} answered before\n",
-                answered.join(", ")
-            ));
-        }
-        text.push_str(&render::run_report(&stored_calls, &findings));
     }
-    // What builds land would say of these commits now.
+    text.push_str(&render::run_report(&stored_calls, &findings));
+    // What builds land would say of the branch's commits now.
+    let needs = landing::needs(inputs.worktree, commits.clone(), |paths| {
+        material.group_names(paths)
+    })?;
     let conn = db::open_reader(&inputs.store.database())?;
-    let verdict = landing::judge(conn.as_ref(), inputs.repo, &commits, &needed)?;
-    let refusal = landing::refusal(conn.as_ref(), inputs.repo, &commits, &verdict)?;
+    let verdict = landing::judge(conn.as_ref(), inputs.repo, &needs)?;
+    let refusal = landing::refusal(&commits, &verdict);
     if refusal.is_none() {
-        text.push_str("builds land takes these commits: every finding is settled and every confirmed one is fixed among them\n");
+        text.push_str(&format!("builds land: {}\n", landing::taken(&verdict)));
     }
     Ok(Reported {
-        landing: landing_id,
+        landing: Some(landing),
         text,
         refusal,
+    })
+}
+
+/// Every path one of <commits> changes in the repo at <dir>.
+fn commit_paths(dir: &Path, commits: &[commits::Commit]) -> Result<Vec<String>> {
+    let shas: Vec<String> = commits.iter().map(|c| c.sha.clone()).collect();
+    commits::paths(dir, &shas)
+}
+
+/// The review a change has already, and the groups that gave it no answer.
+struct Prior {
+    landing: i64,
+    /// The newest review run, whose diff the groups with no answer read.
+    run: record::RunRow,
+    read: Vec<commits::Commit>,
+    missing: Vec<String>,
+}
+
+/// The review <landing> holds for <inputs>' key, with the groups that cover a
+/// path its diff changes and gave no answer over it. Fails with why builds
+/// review reviews no change twice when every group answered.
+fn unanswered(
+    conn: &rusqlite::Connection,
+    inputs: &Inputs,
+    material: &run::Material,
+    commits: &[commits::Commit],
+    landing: i64,
+) -> Result<Prior> {
+    let runs = landing::review_runs(conn, landing)?;
+    let (run, read) = runs
+        .last()
+        .cloned()
+        .expect("a landing is opened with its review run");
+    let needed = material.group_names(&commit_paths(inputs.worktree, &read)?);
+    let answered: Vec<String> = record::calls_of_landing(conn, landing)?
+        .into_iter()
+        .filter(|c| {
+            c.failure.is_none()
+                && runs
+                    .iter()
+                    .any(|(r, over)| r.id == c.run_id && commits::same_change(over, &read))
+        })
+        .map(|c| c.group)
+        .collect();
+    let missing: Vec<String> = needed
+        .into_iter()
+        .filter(|g| !answered.contains(g))
+        .collect();
+    if missing.is_empty() {
+        let read_patches: Vec<&str> = read.iter().map(|c| c.patch_id.as_str()).collect();
+        let since: Vec<&commits::Commit> = commits
+            .iter()
+            .filter(|c| !read_patches.contains(&c.patch_id.as_str()))
+            .collect();
+        let mut why = format!(
+            "{}\nrun {} of review landing {landing} ({}) reviewed this change over {}, so builds review does not review it again.\n",
+            landing::ONE_REVIEW,
+            run.id,
+            inputs.key,
+            read.iter()
+                .map(|c| short(&c.sha))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        if !since.is_empty() {
+            why.push_str(&format!(
+                "Commits the review did not read: {}. Read each that fixes a confirmed finding against it and name it with builds review fixed <finding> <sha>. A commit that fixes no finding is new work, which lands as a change of its own after this one.\n",
+                since.iter().map(|c| short(&c.sha)).collect::<Vec<_>>().join(" ")
+            ));
+        }
+        why.push_str(&format!(
+            "builds review show {landing} lists the review and its findings."
+        ));
+        fail!("{why}");
+    }
+    Ok(Prior {
+        landing,
+        run,
+        read,
+        missing,
     })
 }
 
@@ -482,7 +536,7 @@ fn fixed(tool: &Tool, args: &[String]) -> Result<()> {
         record::record_fix(db, id, &fix, stamp.at, &stamp.by)
     })?;
     println!(
-        "finding {id} is fixed by {}; review the commits that hold it before builds land",
+        "finding {id} is fixed by {}. builds does not review a fix: read it against the finding before builds land",
         short(&fix.sha)
     );
     Ok(())

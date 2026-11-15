@@ -40,11 +40,14 @@
 //! after its hook ran is a tree no hook has seen.
 //!
 //! In a repo of a project, the commits must have been reviewed against the
-//! rules before they land: `builds review check-landing`, run after the lists'
-//! checks and before anything is fetched, refuses unless a review run read
-//! exactly these changes (the same patch ids, so a rebase or cherry-pick that
-//! keeps them counts) and that review is finished: every group that covers a
-//! changed path answered, every finding is settled, and every confirmed one is
+//! rules before they land. No diff is reviewed more than once. Each change
+//! gets one review; the coordinator reads the fixes for its confirmed
+//! findings. `builds review check-landing`, run after the lists' checks and
+//! before anything is fetched, refuses unless each commit is one a change's
+//! review read (by patch id, so a rebase or cherry-pick that keeps its change
+//! counts) or the named fix of one of that review's confirmed findings, and
+//! the review is finished: every group that covers a path a reviewed commit
+//! changes answered, every finding is settled, and every confirmed one is
 //! fixed by one of the commits. Commits whose paths no group covers need no
 //! review. After the push, `builds review landed` records the review's
 //! landing as landed beside the items and the design change, and starts the

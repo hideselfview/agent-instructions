@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use super::cards::{ItemWait, ReviewWait};
 use crate::review::commits::{self, Commit};
-use crate::review::landing::{self, Verdict};
+use crate::review::landing::{self, Need, Verdict};
 use crate::review::run::Material;
 use crate::side_git;
 
@@ -22,8 +22,8 @@ const RULES_FOR: Duration = Duration::from_secs(10);
 /// A worktree and its commits (full hashes, oldest first).
 type ReadKey = (PathBuf, Vec<String>);
 
-/// The commits of a worktree with their patch ids, and the paths they change.
-type Read = Option<(Vec<Commit>, Vec<String>)>;
+/// The commits of a worktree with their patch ids, and the paths each changes.
+type Read = Option<(Vec<Commit>, Vec<Vec<String>>)>;
 
 /// What git said of each worktree's commits, kept until they differ, and the
 /// rules of each project as last read.
@@ -59,7 +59,10 @@ impl Reads {
         // A worktree that stops existing or a failed git read says nothing;
         // the next page build asks again.
         let read = commits::with_patch_ids(top, shas)
-            .and_then(|with| Ok((with, commits::paths(top, shas)?)))
+            .and_then(|with| {
+                let paths = commits::paths_of_each(top, &with)?;
+                Ok((with, paths))
+            })
             .ok();
         if known.len() > 256 {
             known.clear();
@@ -68,9 +71,10 @@ impl Reads {
         read
     }
 
-    /// The names of <project>'s groups whose rules cover one of <changed>;
-    /// None when the rules can't be read.
-    fn needed(&self, project: &str, changed: &[String]) -> Option<Vec<String>> {
+    /// Each of <commits>, which change <paths>, with the names of
+    /// <project>'s groups whose rules cover a path it changes; None when the
+    /// rules can't be read.
+    fn needs(&self, project: &str, commits: &[Commit], paths: &[Vec<String>]) -> Option<Vec<Need>> {
         let root = self.root.as_ref()?;
         let mut rules = self.rules.lock().expect("no panic holding it");
         let fresh = rules
@@ -84,11 +88,13 @@ impl Reads {
         }
         let material = rules.get(project)?.1.as_ref()?;
         Some(
-            material
-                .groups
-                .pick(&material.rules, changed)
-                .into_iter()
-                .map(|(group, _)| group.name.clone())
+            commits
+                .iter()
+                .zip(paths)
+                .map(|(commit, paths)| Need {
+                    commit: commit.clone(),
+                    groups: material.group_names(paths),
+                })
                 .collect(),
         )
     }
@@ -107,9 +113,9 @@ impl Reads {
     ) -> Option<ItemWait> {
         let newest = ahead.first()?;
         let shas: Vec<String> = ahead.iter().rev().map(|c| c.full.clone()).collect();
-        let (commits, changed) = self.commits(top, &shas)?;
-        let needed = self.needed(project, &changed)?;
-        if needed.is_empty() {
+        let (commits, paths) = self.commits(top, &shas)?;
+        let needs = self.needs(project, &commits, &paths)?;
+        if needs.iter().all(|n| n.groups.is_empty()) {
             return None;
         }
         if crate::review::is_running(store_dir, &newest.full) {
@@ -117,7 +123,7 @@ impl Reads {
         }
         let database = store_dir.join(crate::db::DATABASE);
         let conn = crate::db::open_reader(&database).ok()?;
-        let wait = match landing::judge(conn.as_ref(), repo, &commits, &needed).ok()? {
+        let wait = match landing::judge(conn.as_ref(), repo, &needs).ok()? {
             Verdict::NotNeeded | Verdict::Takes(_) => return None,
             Verdict::NoRun => ReviewWait::NotRun,
             Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {
@@ -125,6 +131,9 @@ impl Reads {
             }
             Verdict::Unfinished(_, unfinished) if !unfinished.unanswered.is_empty() => {
                 ReviewWait::NotRun
+            }
+            Verdict::Unfinished(_, unfinished) if !unfinished.unreviewed.is_empty() => {
+                ReviewWait::Unreviewed(unfinished.unreviewed.len())
             }
             Verdict::Unfinished(_, unfinished) => {
                 ReviewWait::Unfixed(unfinished.unfixed.len() + unfinished.fixed_elsewhere.len())

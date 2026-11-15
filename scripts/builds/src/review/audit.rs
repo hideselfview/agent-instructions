@@ -281,10 +281,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
                 (g, members)
             })
             .collect();
-        run::ask_groups(&material, inputs.reviewer, &picked, &diff, None, &|_| {
-            Vec::new()
-        })
-        .calls
+        run::ask_groups(&material, inputs.reviewer, &picked, &diff, None).calls
     };
     let calls_rules = ask(&per_rule);
     let calls_shuffled = ask(&shuffled);

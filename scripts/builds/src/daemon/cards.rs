@@ -43,6 +43,9 @@ pub enum ReviewWait {
     ToSettle(usize),
     /// This many confirmed findings wait on a commit that fixes them.
     Unfixed(usize),
+    /// This many commits are neither ones the review read nor named fixes:
+    /// they land as a change of their own.
+    Unreviewed(usize),
 }
 
 impl ReviewWait {
@@ -53,6 +56,7 @@ impl ReviewWait {
             ReviewWait::Running => "Reviewing",
             ReviewWait::ToSettle(_) => "Findings to settle",
             ReviewWait::Unfixed(_) => "Waiting on fixes",
+            ReviewWait::Unreviewed(_) => "Unreviewed commits",
         }
     }
 
@@ -75,6 +79,10 @@ impl ReviewWait {
                 "{} on a commit that fixes {}.",
                 findings(n, "confirmed review"),
                 if n == 1 { "it" } else { "them" }
+            ),
+            ReviewWait::Unreviewed(1) => "The review did not read 1 commit, and no finding names it as a fix: it lands as a change of its own.".to_string(),
+            ReviewWait::Unreviewed(n) => format!(
+                "The review did not read {n} commits, and no finding names them as fixes: they land as a change of their own."
             ),
         }
     }

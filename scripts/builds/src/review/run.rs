@@ -14,7 +14,7 @@ use crate::review::call;
 use crate::review::check::{DiffFile, clause_in, code_in, parse_diff};
 use crate::review::files::{self, FileDiff, Source};
 use crate::review::groups::{Group, Groups};
-use crate::review::prompt::{self, PROJECT_FACTS, Settled};
+use crate::review::prompt::{self, PROJECT_FACTS};
 use crate::review::record::{NewCall, NewExchange, NewFinding};
 use crate::review::rules::{self, Rule};
 
@@ -45,6 +45,15 @@ impl Material {
             rules,
             project_text,
         })
+    }
+
+    /// The names of the groups whose rules cover one of <changed>.
+    pub fn group_names(&self, changed: &[String]) -> Vec<String> {
+        self.groups
+            .pick(&self.rules, changed)
+            .into_iter()
+            .map(|(group, _)| group.name.clone())
+            .collect()
     }
 
     /// The same material with every group asked in <model>.
@@ -146,7 +155,6 @@ pub fn ask_groups(
     picked: &[(&Group, Vec<&Rule>)],
     diff: &Diff,
     brief: Option<&(String, String)>,
-    settled: &(dyn Fn(&str) -> Vec<Settled> + Sync),
 ) -> Asked {
     let mut files = parse_diff(&diff.text);
     let by_file = files::split(&diff.text);
@@ -195,7 +203,6 @@ pub fn ask_groups(
     }
     let one = |unit: &Unit, pass: usize| {
         let group = unit.group;
-        let settled = settled(&group.name);
         let (text_diff, context) = match &unit.file {
             Some(file) => (
                 file.text.as_str(),
@@ -208,7 +215,6 @@ pub fn ask_groups(
             rules: unit.members,
             project_text: &material.project_text,
             brief,
-            settled: &settled,
             diff: text_diff,
             context: &context,
         });

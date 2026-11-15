@@ -11,6 +11,10 @@ fn stamp() -> Stamp {
 }
 
 fn run_review(demo: &Demo, fake: &Fake, side: &Path, key: &str) -> Reported {
+    try_review(demo, fake, side, key).unwrap()
+}
+
+fn try_review(demo: &Demo, fake: &Fake, side: &Path, key: &str) -> Result<Reported> {
     review(&Inputs {
         store: &demo.store,
         project: "demo",
@@ -24,7 +28,6 @@ fn run_review(demo: &Demo, fake: &Fake, side: &Path, key: &str) -> Reported {
         stamp: &stamp(),
         brief: None,
     })
-    .unwrap()
 }
 
 const BAD: Raised = (
@@ -71,7 +74,8 @@ fn only_the_groups_whose_rules_cover_a_changed_path_run() {
     assert!(prompts[0].1.contains("Demo project facts."));
     assert!(prompts[0].1.contains("+a.rs"));
     assert!(
-        reported.text.contains("builds land takes these commits"),
+        reported.text.contains("builds land: review landing")
+            && reported.text.contains("takes these commits"),
         "{}",
         reported.text
     );
@@ -135,9 +139,8 @@ fn a_finding_whose_quote_is_not_in_the_diff_is_dropped_and_recorded_as_dropped()
 }
 
 #[test]
-fn a_finding_waits_to_be_settled_and_a_review_of_new_commits_asks_every_group_with_what_was_settled()
- {
-    let demo = demo("review-rerun");
+fn a_change_gets_one_review_and_a_second_run_is_refused() {
+    let demo = demo("review-once");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
@@ -154,70 +157,26 @@ fn a_finding_waits_to_be_settled_and_a_review_of_new_commits_asks_every_group_wi
         "{refusal}"
     );
     let finding = findings_of(&demo, first.landing.unwrap())[0].id;
-    settle_as(
-        &demo,
-        finding,
-        "dropped",
-        "the fixture does this on purpose",
-    );
-    // The same commits again: every group answered over them already.
-    let again = run_review(&demo, &fake, &side, "k");
+    settle_as(&demo, finding, "confirmed", "a real break");
+    // The same commits: the change has its review, and no reviewer is asked.
+    let again = try_review(&demo, &fake, &side, "k").unwrap_err().text();
     assert!(fake.prompts().is_empty());
-    assert!(again.text.contains("answered over these commits already"));
-    assert!(again.refusal.is_none(), "{:?}", again.refusal);
-    // A new commit: every group is asked, told what was settled, and the same
-    // finding raised again, worded differently, stays dropped.
-    demo.commit(&side, "c.rs");
-    fake.answer(
-        "alpha",
-        &[(
-            "rule-a",
-            Some((
-                "Never do the bad thing here.",
-                "a.rs",
-                1,
-                "a.rs",
-                "Another wording of the problem.",
-            )),
-        )],
-    );
-    let second = run_review(&demo, &fake, &side, "k");
-    let prompts = fake.prompts();
-    assert_eq!(prompts.len(), 2, "both groups read the new commits");
-    let alpha = &prompts.iter().find(|(g, _)| g == "alpha").unwrap().1;
     assert!(
-        alpha.contains("settled dropped: the fixture does this on purpose"),
-        "{alpha}"
+        again.contains(landing::ONE_REVIEW)
+            && again.contains("so builds review does not review it again")
+            && !again.contains("did not read"),
+        "{again}"
     );
-    assert!(second.refusal.is_none(), "{:?}", second.refusal);
-    assert_eq!(second.landing, first.landing);
-    let again = findings_of(&demo, second.landing.unwrap());
-    let inherited = again.last().unwrap();
-    assert_eq!(inherited.settled.as_ref().unwrap().0, "dropped");
-    assert!(
-        inherited
-            .settled
-            .as_ref()
-            .unwrap()
-            .1
-            .contains(&format!("same finding as {finding}"))
-    );
-}
-
-#[test]
-fn a_confirmed_finding_waits_on_its_fix_and_a_review_of_the_fix_lets_the_commits_land() {
-    let demo = demo("review-confirmed");
-    let fake = fake(&demo.scratch.dir);
-    let side = demo.add_side(1, "agent", "work");
-    demo.commit(&side, "a.rs");
-    fake.answer("alpha", &[("rule-a", Some(BAD))]);
-    let first = run_review(&demo, &fake, &side, "k");
-    let finding = findings_of(&demo, first.landing.unwrap())[0].id;
-    settle_as(&demo, finding, "confirmed", "it is a real break");
-    let still = run_review(&demo, &fake, &side, "k");
-    let refusal = still.refusal.expect("a confirmed finding needs its fix");
-    assert!(refusal.contains("names no fix"), "{refusal}");
+    // A fix commit is not reviewed either: the refusal names it as a commit
+    // the review did not read, for the coordinator to read and name.
     let fix = demo.commit(&side, "fix.rs");
+    let again = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(fake.prompts().is_empty());
+    assert!(
+        again.contains(&format!("Commits the review did not read: {}", &fix[..10]))
+            && again.contains("builds review fixed <finding> <sha>"),
+        "{again}"
+    );
     let commit = landing::fix_commit(&side, &fix).unwrap();
     let stamp = stamp();
     demo.store
@@ -225,16 +184,14 @@ fn a_confirmed_finding_waits_on_its_fix_and_a_review_of_the_fix_lets_the_commits
             record::record_fix(db, finding, &commit, stamp.at, "tester")
         })
         .unwrap();
-    fake.prompts();
-    fake.answer("alpha", &[("rule-a", None)]);
-    let clean = run_review(&demo, &fake, &side, "k");
-    let alpha = fake.prompts();
-    assert!(
-        alpha[0].1.contains(&format!("(fixed in commit {fix})")),
-        "{}",
-        alpha[0].1
+    // The record holds the one review run.
+    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    assert_eq!(
+        landing::review_runs(&conn, first.landing.unwrap())
+            .unwrap()
+            .len(),
+        1
     );
-    assert!(clean.refusal.is_none(), "{:?}", clean.refusal);
 }
 
 #[test]
@@ -249,7 +206,7 @@ fn a_reviewer_that_fails_keeps_the_commits_from_landing_and_only_it_is_asked_aga
     assert!(reported.text.contains("boom"), "{}", reported.text);
     let refusal = reported.refusal.expect("a failed review keeps the commits");
     assert!(
-        refusal.contains("group alpha covers a changed path and has no answer"),
+        refusal.contains("group alpha covers a path a reviewed commit changes and gave no answer"),
         "{refusal}"
     );
     fake.prompts();
@@ -258,7 +215,15 @@ fn a_reviewer_that_fails_keeps_the_commits_from_landing_and_only_it_is_asked_aga
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1);
     assert_eq!(prompts[0].0, "alpha");
+    assert!(
+        again.text.contains("asked only the groups that gave run"),
+        "{}",
+        again.text
+    );
     assert!(again.refusal.is_none(), "{:?}", again.refusal);
+    // Every group has answered now, so the change gets no further run.
+    let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(refused.contains(landing::ONE_REVIEW), "{refused}");
 }
 
 #[test]

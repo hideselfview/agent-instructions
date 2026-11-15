@@ -150,6 +150,14 @@ pub fn paths(repo: &Path, revs: &[String]) -> Result<Vec<String>> {
     Ok(all)
 }
 
+/// The paths each of <commits> adds, changes or deletes, in the order given.
+pub fn paths_of_each(repo: &Path, commits: &[Commit]) -> Result<Vec<Vec<String>>> {
+    commits
+        .iter()
+        .map(|commit| paths(repo, std::slice::from_ref(&commit.sha)))
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "commits_tests.rs"]
 mod tests;

@@ -1,6 +1,6 @@
 //! What reviews wrote down, in the tables of `record.sql`: this file is the
 //! only code that writes them. A change under review keeps one landing, found
-//! by its key, across its runs until it lands; a run holds the commits it read
+//! by its key, until it lands; a run holds the commits it read
 //! and one call per group, a call holds a verdict for every rule and the
 //! findings; the coordinator settles a finding as confirmed or dropped, and
 //! names the commit that fixed a confirmed one.
@@ -452,6 +452,7 @@ pub fn landing(db: &Connection, landing: i64) -> Result<LandingRow> {
 }
 
 /// A run as the store holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunRow {
     pub id: i64,
     pub kind: String,
@@ -535,20 +536,6 @@ pub fn audited_landings(db: &Connection) -> Result<Vec<i64>> {
         .sql()?;
     let rows = statement.query_map([], |row| row.get(0)).sql()?;
     rows.map(|row| row.sql()).collect()
-}
-
-/// Marks finding <id> settled as `dropped` because it repeats <earlier>.
-pub fn inherit_drop(db: &Connection, id: i64, earlier: &Finding, now: i64) -> Result<()> {
-    let why = format!(
-        "the same finding as {}, settled dropped: {}",
-        earlier.id,
-        earlier
-            .settled
-            .as_ref()
-            .map(|(_, why)| why.as_str())
-            .unwrap_or("")
-    );
-    settle(db, id, "dropped", &why, now, "builds")
 }
 
 /// Moves a store's review tables from before reviews ran before landing to

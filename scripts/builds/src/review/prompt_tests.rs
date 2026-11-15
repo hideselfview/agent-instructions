@@ -23,7 +23,6 @@ fn parts_of(group: &Group, rule: &Rule, diff: &str) -> Parts {
         rules: &[rule],
         project_text: "Project facts.\n",
         brief: Some(&("plans/b.md".to_string(), "The brief.\n".to_string())),
-        settled: &[],
         diff,
         context: "7: let x = 1;\n",
     })
