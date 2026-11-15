@@ -281,6 +281,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-work > summary .l-wt { font: 400 12px var(--mono); color: var(--muted-2); white-space: nowrap; margin-left: auto; }
 .l-work > :not(summary) { background: var(--bg); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; }
 .l-plain { display: flex; flex-direction: column; gap: 8px; }
+.l-id { font: 400 12px var(--mono); color: var(--muted-2); white-space: nowrap; margin-right: 6px; }
 .l-title { font-size: 14px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
 .l-sub { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .l-fact { font-size: 13px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
@@ -1227,6 +1228,8 @@ function fold(key, id, summaryKids, body, cls) {
   return el;
 }
 const mono = text => h("span", {class: "mono"}, text);
+// A row's record number, first in its summary, in the muted mono face.
+const idChip = (...ids) => h("span", {class: "l-id"}, ids.map(i => "#" + i).join(" "));
 function fact(label, ...kids) { return h("div", {class: "l-fact"}, h("span", {class: "k"}, label + " "), kids.flat(Infinity)); }
 function stamp(at) { return when(new Date(at * 1000)); }
 function opened(rec, verb) { return h("span", {class: "l-sub"}, agoSpan(rec.opened.at, verb + " ", " ago by " + rec.opened.by)); }
@@ -1275,7 +1278,7 @@ function renderTags() {
 function questionRow(q) {
   const direct = q.blocks.length;
   return fold("q:" + q.id, q.id,
-    [h("span", {class: "l-title"}, q.title, tagChips(q.tags))],
+    [h("span", {class: "l-title"}, idChip(q.id), q.title, tagChips(q.tags))],
     () => h("div", {class: "l-plain"},
       direct ? h("div", {class: "l-facts"},
         fact("Blocks", plural(Math.max(q.blocked_count, direct), "item", "items") +
@@ -1341,7 +1344,7 @@ function itemBody(it) {
 function itemRow(it) {
   const sub = itemSub(it);
   return fold("i:" + it.id, it.id,
-    [h("span", {class: "l-title"}, it.title, tagChips(it.tags)), h("span", {class: "l-wt"}, "#" + it.id)],
+    [h("span", {class: "l-title"}, idChip(it.id), it.title, tagChips(it.tags))],
     () => h("div", {class: "l-plain"}, sub ? h("span", {class: "l-sub"}, sub) : null, itemBody(it)),
     "l-work");
 }
@@ -1351,7 +1354,7 @@ function itemRow(it) {
 function workRow(w) {
   const first = w.items[0].id;
   return fold("i:" + first, first,
-    [h("span", {class: "l-title"}, w.title, tagChips(workTags(w))), h("span", {class: "l-wt"}, w.repo + " " + w.checkout)],
+    [h("span", {class: "l-title"}, idChip(...w.items.map(i => i.id)), w.title, tagChips(workTags(w))), h("span", {class: "l-wt"}, w.repo + " " + w.checkout)],
     () => h("div", {class: "l-plain"},
       w.now ? h("div", {class: "l-fact"}, inline(w.now)) : null,
       h("div", {class: "l-facts"},
@@ -1459,7 +1462,7 @@ function designRow(g) {
     h("span", {class: "l-sub"}, "#" + g.id + " · ", opened(g, "Recorded")),
     g.closed ? md(g.details) : h("button", {type: "button", class: "l-details", onclick: () => openReview(g)}, "Details"));
   return fold("g:" + g.id, g.id,
-    [h("span", {class: "l-title"}, g.title), h("span", {class: "l-wt"}, g.repo + " design")], body, "l-work");
+    [h("span", {class: "l-title"}, idChip(g.id), g.title), h("span", {class: "l-wt"}, g.repo + " design")], body, "l-work");
 }
 const reviewDialog = document.getElementById("review"), reviewFrame = document.getElementById("rv-frame");
 // The review page of an open design change, drawn by the daemon from the
