@@ -554,11 +554,7 @@ fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
     let args = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     // Served from the store: no lane process starts (one would run this test
     // program as `builds`, and wait for a lock that does not exist).
-    cmd_app_build(
-        &places,
-        &args(&["demo", "HEAD", "--shots", "mac", "mac.a."]),
-    )
-    .unwrap();
+    cmd_app_build(&places, &args(&["demo", "HEAD", "--shots", "mac.a."])).unwrap();
     crate::shot_findings::cmd_shots(
         &places,
         &args(&["findings", "demo", "HEAD", "mac", "mac.a."]),

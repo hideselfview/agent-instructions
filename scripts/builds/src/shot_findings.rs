@@ -17,9 +17,9 @@
 //! line that starts it (cargo's `Running` line) to the end.
 //!
 //! `builds shots findings <repo> <ref> <platform> <prefix>` prints a stored
-//! run. `builds app-build <repo> <ref> --shots <platform> <prefix>` with no
-//! build step prints it too, in place of taking the lane's lock, unless the
-//! command has `--fresh`.
+//! run. `builds app-build <repo> <ref> --shots <prefix>` (or, in its lane form,
+//! `--shots <platform> <prefix>` with no build step) prints it too, in
+//! place of taking the lane's lock, unless the command has `--fresh`.
 
 use std::path::Path;
 
@@ -217,12 +217,8 @@ fn age(seconds: i64) -> String {
 const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix>";
 
 /// The command a missing run is made with.
-pub fn how_to_make(repo: &str, git_ref: &str, lane: Lane, prefix: &str) -> String {
-    format!(
-        "builds app-build {repo} {git_ref} <the {} step that builds the app> --shots {} {prefix}",
-        lane.word(),
-        lane.word()
-    )
+pub fn how_to_make(repo: &str, git_ref: &str, prefix: &str) -> String {
+    format!("builds app-build {repo} {git_ref} --shots {prefix}")
 }
 
 pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
@@ -251,7 +247,7 @@ pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
             lane.word(),
             &key.commit[..12.min(key.commit.len())],
             &key.version[..12.min(key.version.len())],
-            how_to_make(repo, git_ref, lane, prefix)
+            how_to_make(repo, git_ref, prefix)
         ),
     }
 }

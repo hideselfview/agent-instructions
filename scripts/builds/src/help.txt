@@ -403,14 +403,28 @@ Commands:
                               pid names its lane, and with none and builds
                               waiting in both lanes, --lane does.
                               The dashboard's queue has both as buttons
-  builds app-build <repo> <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--fresh]
+  builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--fresh]
+                              with no step named, build <ref> where and as
+                              needed, chosen by builds: the paths <ref>
+                              changes from its merge-base with origin/main
+                              pick the steps through .app-build's `on
+                              <pattern> <step>...` lines (a Rust-only branch
+                              builds nothing), a --test class goes to the lane
+                              whose `sources <lane> <folder>...` folders
+                              declare it, a --shots prefix to the lane it
+                              starts with (mac. or android.), a lane with runs
+                              and no step to build builds its `needs <lane>
+                              <step>...` steps, and each lane takes the free
+                              checkout on the less loaded host. Stored shot
+                              findings print instead of running (--fresh
+                              runs). No caller names a step, lane or host
+  builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--fresh]
                               check out <ref> in a free app checkout of each
-                              lane the steps are in (every step's lane when
-                              none is named), on that checkout's app lock, and run the
-                              lane's steps its .app-build names (`step <lane>
-                              <name> <command>` lines), in the order given,
-                              all of them in the order written when none is
-                              named, stopping at the first failure. The lanes
+                              lane the steps are in, on that checkout's app
+                              lock, and run the lane's steps its .app-build
+                              names (`step <lane> <name> <command>` lines),
+                              in the order given, stopping at the first
+                              failure. The lanes
                               build at the same time, each line of output
                               behind [<lane> <checkout>] ([<lane>] until a
                               lock is held), and the build fails if either
@@ -447,11 +461,12 @@ Commands:
                               --test in any order) does the same through the
                               lane's `shots <lane> <command>` line with the
                               prefix of the shots' names in its {select},
-                              each run limited to 20 minutes. With no step
-                              named, only the --test and --shots runs happen,
-                              and only when the app checkout's last build
-                              finished and is of <ref> (else it refuses,
-                              naming what was built). The line is required,
+                              each run limited to 20 minutes. In the
+                              `--lane` form with no step named, only the
+                              --test and --shots runs happen, and only when
+                              the app checkout's last build finished and is
+                              of <ref> (else it refuses, naming what was
+                              built). The line is required,
                               and a class or prefix is one argument, never
                               read by a shell. Each lane's run is recorded in
                               its repo's project store when it ends: the

@@ -9,9 +9,8 @@
 //! `top` names that process) and no stdin, and prefixes every line of their
 //! output with `[<lane>] `, which becomes `[<lane> <checkout>] ` once the
 //! lane's process holds a lock and so knows the checkout it builds in (it says
-//! so in a marker line the parent reads and does not print). Without a step named it runs every step, in the
-//! order written; with steps named, each lane runs its own in the order
-//! named. It exits 1 if either lane fails, saying which.
+//! so in a marker line the parent reads and does not print). Each lane runs the steps
+//! named that are in it, in the order named. It exits 1 if either lane fails, saying which.
 //!
 //! A lane's process takes the first free lock among the lane's app checkouts
 //! (queue.rs: first come, first served across the set), checks <ref> out in
@@ -19,6 +18,10 @@
 //! `run_in_group`, stopping at the first one that fails. A step has a time
 //! limit (app_config.rs): past it the step's process group is killed and the
 //! build fails, which gives up the lock.
+//! With no step named, `builds app-build <repo> <ref> [--test <Class>]...
+//! [--shots <prefix>]... [--fresh]` chooses the steps, the lanes and the
+//! checkouts itself from the branch's diff (derive.rs); the rest of this
+//! comment is the form that names steps.
 //! `builds app-build <repo> --list` prints the steps and the test and shots
 //! lines.
 //!
@@ -26,7 +29,7 @@
 //! in any order, after the steps) add, to the end of that lane's steps, the
 //! lane's `test` or `shots` line (app_config.rs) with the class or the prefix
 //! in it, one run per flag, each with the kind's limit. With such flags and
-//! no step named, only those runs happen, not every step.
+//! no step named in the `--lane` form, only those runs happen.
 //!
 //! A run of picks with no step named tests what the checkout holds, so it
 //! refuses unless the checkout's last build (`Built`, kept beside the lock's
@@ -69,7 +72,7 @@ use crate::places::Places;
 use crate::shot_findings;
 use crate::text::note;
 
-const USAGE: &str = "usage: builds app-build <repo> <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--fresh] | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]...";
+const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--fresh] | builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--fresh] | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]...";
 
 /// Set by the parent in each lane's process: print the marker line below once
 /// the checkout is known.
@@ -123,7 +126,7 @@ fn chosen(config: &Config, lane: Lane, names: &[String]) -> Result<Vec<Step>> {
 }
 
 /// A `--test <lane> <Class>` or `--shots <lane> <prefix>` flag.
-type Pick = (Lane, PickKind, String);
+pub type Pick = (Lane, PickKind, String);
 
 /// The kind of step <name> is, when it is the run of a pick.
 fn pick_kind_of(name: &str) -> Option<PickKind> {
@@ -164,7 +167,7 @@ fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
 }
 
 /// The refusal for a pick of a kind whose line <config> lacks in <lane>.
-fn missing_line(lane: Lane, kind: PickKind, arg: &str) -> Fail {
+pub fn missing_line(lane: Lane, kind: PickKind, arg: &str) -> Fail {
     Fail::Message(format!(
         "{CONFIG} has no `{} {} ...` line, so it cannot run the {} {arg}",
         kind.line(),
@@ -780,7 +783,7 @@ fn build_lane(
 /// `--test` picks, and the `--shots` picks with no stored run (a repo with no
 /// `shots-source` line stores none). A run of picks with no step builds
 /// nothing, so a stored run is printed in place of taking the lane.
-fn serve_stored(
+pub fn serve_stored(
     places: &Places,
     repo: &str,
     git_ref: &str,
@@ -862,7 +865,7 @@ fn copy_lines(
 
 /// Runs the lanes in <lanes> at the same time, each as a process of its own;
 /// fails, naming the lanes, if any does.
-fn run_lanes(
+pub fn run_lanes(
     repo: &str,
     commit: &str,
     lanes: &[(Lane, Vec<String>)],
@@ -982,6 +985,10 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
     };
     if commit.starts_with('-') {
         fail!("{USAGE}");
+    }
+    if tail.first().is_none_or(|arg| arg.starts_with("--")) {
+        // No step named: the diff chooses them (derive.rs).
+        return crate::derive::derive_and_run(places, args);
     }
     let fresh = tail.iter().any(|arg| arg == "--fresh");
     let tail: Vec<String> = tail

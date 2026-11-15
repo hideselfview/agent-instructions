@@ -557,7 +557,7 @@ fn moving_the_last_waiter_to_the_top_leaves_no_cycle() {
 fn a_takeover_runs_an_app_build_again_from_its_first_step() {
     let mut volume = Volume::new("app-build");
     volume.app_repo();
-    volume.spawn(&["app-build", "demo", "main"]);
+    volume.spawn(&["app-build", "demo", "main", "one", "two"]);
     volume.until_logged("start one");
     volume.lock("W");
     volume.until_queued(2);
@@ -617,7 +617,7 @@ fn a_step_past_its_limit_fails_the_build_and_the_lock_goes_to_the_next_in_line()
     volume.app_repo_with("step mac one ./one.sh\nlimit one 1s\n");
     let mut build = volume
         .builds()
-        .args(["app-build", "demo", "main"])
+        .args(["app-build", "demo", "main", "one"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -670,7 +670,7 @@ fn finish(mut build: Child) -> (std::process::ExitStatus, String) {
 fn an_app_build_runs_the_lanes_at_the_same_time_each_in_its_own_checkout() {
     let volume = Volume::new("two-lanes");
     volume.app_repo_with(LANES);
-    let build = start_app_build(&volume, &[]);
+    let build = start_app_build(&volume, &["one", "two", "droid"]);
     // Both lanes' first steps run before either is let go.
     volume.until_logged("start one");
     volume.until_logged("start droid");
@@ -752,7 +752,7 @@ fn a_lane_waits_for_its_own_lock_only() {
 fn a_build_failing_in_one_lane_fails_the_build_naming_the_lane_and_the_other_lane_finishes() {
     let volume = Volume::new("lane-fails");
     volume.app_repo_with("step mac bad ./bad.sh\nstep android droid ./droid.sh\n");
-    let build = start_app_build(&volume, &[]);
+    let build = start_app_build(&volume, &["bad", "droid"]);
     volume.until_logged("end bad");
     volume.until_logged("start droid");
     volume.open_gate("droid");
@@ -909,7 +909,16 @@ fn a_class_only_run_tests_the_commit_the_checkout_last_built() {
         .app_repo_with("step mac one ./one.sh\nstep mac two ./two.sh\ntest mac ./one.sh {class}\n");
     let said = |output: &std::process::Output| String::from_utf8_lossy(&output.stderr).into_owned();
     // Nothing built yet.
-    let none = volume.run(&["app-build", "demo", "main", "--test", "mac", "Foo"]);
+    let none = volume.run(&[
+        "app-build",
+        "demo",
+        "--lane",
+        "mac",
+        "main",
+        "--test",
+        "mac",
+        "Foo",
+    ]);
     assert!(
         !none.status.success() && said(&none).contains("no finished build"),
         "{}",
@@ -921,7 +930,16 @@ fn a_class_only_run_tests_the_commit_the_checkout_last_built() {
     let built = volume.run(&["app-build", "demo", "main", "two"]);
     assert!(built.status.success(), "{}", said(&built));
     std::fs::write(volume.dir.join("go-one"), "").unwrap();
-    let tested = volume.run(&["app-build", "demo", "main", "--test", "mac", "Foo"]);
+    let tested = volume.run(&[
+        "app-build",
+        "demo",
+        "--lane",
+        "mac",
+        "main",
+        "--test",
+        "mac",
+        "Foo",
+    ]);
     assert!(tested.status.success(), "{}", said(&tested));
     assert_eq!(
         volume.log(),
@@ -946,7 +964,16 @@ fn a_class_only_run_tests_the_commit_the_checkout_last_built() {
     let built_commit = git(&["rev-parse", "HEAD"]);
     let other = git(&["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "Other"]);
     git(&["push", "-q", "origin", &format!("{other}:refs/heads/other")]);
-    let refused = volume.run(&["app-build", "demo", "origin/other", "--test", "mac", "Foo"]);
+    let refused = volume.run(&[
+        "app-build",
+        "demo",
+        "--lane",
+        "mac",
+        "origin/other",
+        "--test",
+        "mac",
+        "Foo",
+    ]);
     let text = said(&refused);
     assert!(
         !refused.status.success() && text.contains(&built_commit) && text.contains("two"),
@@ -969,6 +996,8 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
     let none = volume.run(&[
         "app-build",
         "demo",
+        "--lane",
+        "mac",
         "main",
         "--shots",
         "mac",
@@ -987,6 +1016,8 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
     let shot = volume.run(&[
         "app-build",
         "demo",
+        "--lane",
+        "mac",
         "main",
         "--shots",
         "mac",
@@ -1004,7 +1035,16 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
         Some("two"),
         "a shots run leaves what was built as it was: {kept:?}"
     );
-    let missing = volume.run(&["app-build", "demo", "main", "--shots", "android", "a."]);
+    let missing = volume.run(&[
+        "app-build",
+        "demo",
+        "--lane",
+        "android",
+        "main",
+        "--shots",
+        "android",
+        "a.",
+    ]);
     assert!(
         !missing.status.success() && said(&missing).contains("no `shots android ...` line"),
         "{}",

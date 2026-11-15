@@ -172,7 +172,7 @@ fn a_run_of_tests_copies_the_results_back_whether_it_passes_or_fails() {
         std::fs::read_to_string(&report).unwrap(),
         "report of Good\n"
     );
-    let output = world.app_build(&["main", "--test", "android", "Bad"]);
+    let output = world.app_build(&["--lane", "android", "main", "--test", "android", "Bad"]);
     let (out, err) = (text(&output.stdout), text(&output.stderr));
     assert!(!output.status.success(), "{out}\n{err}");
     assert!(err.contains("exit 4"), "{err}");

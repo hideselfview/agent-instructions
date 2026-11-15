@@ -17,6 +17,8 @@
 //! shots-source bae-shots
 //! ```
 //!
+//! A line starting with `#` is a comment.
+//!
 //! A `test <lane> <command>` line, at most one per lane, is the command that
 //! runs one test class, `{class}` in a word standing for the class:
 //! `builds app-build <repo> <ref> --test <lane> <Class>` runs it, so a class
@@ -38,6 +40,25 @@
 //! Mac, never on a host (app_remote.rs): the signed macOS app for the person,
 //! whose signing identity only this Mac has. A lane's build with such a step
 //! takes only a checkout here.
+//!
+//! Three kinds of line let `builds app-build` with no step named (derive.rs) choose the steps of a
+//! branch, so no caller names one:
+//!
+//! ```text
+//! on bae-macos/ macos-tests
+//! on bae-bridge/ macos-tests android-bridge android
+//! needs mac macos-tests
+//! sources mac bae-macos BaeKit
+//! ```
+//!
+//! An `on <pattern> <step>...` line says that a changed path matching the
+//! pattern needs those steps (a pattern ending in `/` or naming a path
+//! matches the paths under or at it; one starting with `*` matches the paths
+//! ending in the rest). A `needs <lane> <step>...` line names the steps a
+//! test or shots run in the lane needs built first when the branch changes
+//! nothing the lane's `on` lines match. A `sources <lane> <path>...` line
+//! names the folders that declare the lane's tests, to find the lane of a
+//! test class.
 //!
 //! A step belongs to a lane (`mac` or `android`, lane.rs), named first: the
 //! lane's app checkout and lock are where it runs.
@@ -85,6 +106,29 @@ pub struct Config {
     pub results: Vec<(Lane, String)>,
     /// The steps that run only on this Mac, from the `here` lines.
     pub here: Vec<String>,
+    /// The `on` lines: which changed paths need which steps.
+    pub rules: Vec<Rule>,
+    /// The `needs` lines: the steps a pick in the lane needs built first.
+    pub needs: Vec<(Lane, Vec<String>)>,
+    /// The `sources` lines: the folders that declare the lane's tests.
+    pub sources: Vec<(Lane, String)>,
+}
+
+/// An `on <pattern> <step>...` line.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Rule {
+    pub pattern: String,
+    pub steps: Vec<String>,
+}
+
+impl Rule {
+    /// Does the changed path <path> (relative to the repo's top) match?
+    pub fn matches(&self, path: &str) -> bool {
+        match self.pattern.strip_prefix('*') {
+            Some(ending) => path.ends_with(ending),
+            None => path.starts_with(&self.pattern),
+        }
+    }
 }
 
 impl Config {
@@ -264,7 +308,14 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let mut shots_source: Option<String> = None;
     let mut results: Vec<(Lane, String)> = Vec::new();
     let mut here: Vec<String> = Vec::new();
-    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+    let mut rules: Vec<Rule> = Vec::new();
+    let mut needs: Vec<(Lane, Vec<String>)> = Vec::new();
+    let mut sources: Vec<(Lane, String)> = Vec::new();
+    for line in text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+    {
         let (platform, field) = line.split_once(' ').unwrap_or((line, ""));
         let (name, value) = field.trim().split_once(' ').unwrap_or((field.trim(), ""));
         let value = value.trim();
@@ -344,6 +395,48 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     fail!("{CONFIG}: two shots-source lines");
                 }
             }
+            ("on", _) => {
+                let mut named = words(field);
+                if named.len() < 2 {
+                    fail!("{CONFIG}: {line:?} needs a pattern and a step");
+                }
+                let pattern = named.remove(0);
+                rules.push(Rule {
+                    pattern,
+                    steps: named,
+                });
+            }
+            ("needs", _) => {
+                let Some(lane) = Lane::parse(name) else {
+                    fail!(
+                        "{CONFIG}: {line:?}: a needs line starts with its lane, mac or android, not {name:?}"
+                    );
+                };
+                let named = words(value);
+                if named.is_empty() {
+                    fail!("{CONFIG}: the needs line for {name} names no step");
+                }
+                needs.push((lane, named));
+            }
+            ("sources", _) => {
+                let Some(lane) = Lane::parse(name) else {
+                    fail!(
+                        "{CONFIG}: {line:?}: a sources line starts with its lane, mac or android, not {name:?}"
+                    );
+                };
+                let paths = words(value);
+                if paths.is_empty() {
+                    fail!("{CONFIG}: the sources line for {name} names no folder");
+                }
+                for path in paths {
+                    if path.starts_with('/') || path.split('/').any(|part| part == "..") {
+                        fail!(
+                            "{CONFIG}: sources path {path:?} must be a folder inside the checkout"
+                        );
+                    }
+                    sources.push((lane, path));
+                }
+            }
             ("here", _) => {
                 let named = words(field);
                 if named.is_empty() {
@@ -393,6 +486,28 @@ pub fn parse_config(text: &str) -> Result<Config> {
             fail!("{CONFIG}: here names step {name}, which {CONFIG} does not name");
         }
     }
+    for step in rules
+        .iter()
+        .flat_map(|rule| rule.steps.iter())
+        .chain(needs.iter().flat_map(|(_, steps)| steps.iter()))
+    {
+        if !steps.iter().any(|known| known.name == *step) {
+            fail!("{CONFIG}: a rule names step {step}, which {CONFIG} does not name");
+        }
+    }
+    for (lane, named) in &needs {
+        for name in named {
+            if steps
+                .iter()
+                .any(|step| step.name == *name && step.lane != *lane)
+            {
+                fail!(
+                    "{CONFIG}: the needs line for {} names step {name}, which is in the other lane",
+                    lane.word()
+                );
+            }
+        }
+    }
     let mac = match (mac_build, mac_app, bundle) {
         (Some(build), Some(app), Some(bundle)) => Some(MacApp { build, app, bundle }),
         (None, None, None) => None,
@@ -406,6 +521,9 @@ pub fn parse_config(text: &str) -> Result<Config> {
         shots_source,
         results,
         here,
+        rules,
+        needs,
+        sources,
     })
 }
 

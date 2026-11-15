@@ -43,6 +43,9 @@ fn a_config_names_each_platforms_build() {
             shots_source: None,
             results: Vec::new(),
             here: Vec::new(),
+            rules: Vec::new(),
+            needs: Vec::new(),
+            sources: Vec::new(),
         }
     );
 }
@@ -382,4 +385,39 @@ fn a_here_line_names_steps_that_stay_on_this_mac() {
     assert_eq!(config.here, vec!["a", "b", "a"]);
     assert!(parse_config("here a").is_err(), "a step it does not name");
     assert!(parse_config("step mac a ./a\nhere").is_err());
+}
+
+#[test]
+fn rule_lines_name_the_steps_a_changed_path_needs() {
+    let config = parse_config(
+        "step mac a ./a\nstep android b ./b\non app/ a\non *.kt a b\nneeds mac a\nsources mac app lib\n",
+    )
+    .unwrap();
+    assert_eq!(config.rules.len(), 2);
+    assert!(config.rules[0].matches("app/x/y.swift") && !config.rules[0].matches("other/app/x"));
+    assert!(config.rules[1].matches("any/where/Foo.kt") && !config.rules[1].matches("Foo.kts"));
+    assert_eq!(config.needs, vec![(Lane::Mac, vec!["a".to_string()])]);
+    assert_eq!(
+        config.sources,
+        vec![
+            (Lane::Mac, "app".to_string()),
+            (Lane::Mac, "lib".to_string())
+        ]
+    );
+}
+
+#[test]
+fn a_rule_naming_a_step_the_config_lacks_or_the_other_lane_is_refused() {
+    assert!(parse_config("step mac a ./a\non app/ nope\n").is_err());
+    assert!(parse_config("step mac a ./a\nneeds mac nope\n").is_err());
+    assert!(parse_config("step android b ./b\nneeds mac b\n").is_err());
+    assert!(parse_config("on app/\n").is_err());
+    assert!(parse_config("sources ios app\n").is_err());
+    assert!(parse_config("sources mac ../app\n").is_err());
+}
+
+#[test]
+fn a_line_starting_with_a_hash_is_a_comment() {
+    let config = parse_config("# why\nstep mac a ./a\n  # indented too\n").unwrap();
+    assert_eq!(config.steps.len(), 1);
 }
