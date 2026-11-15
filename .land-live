@@ -1,4 +1,4 @@
-# builds land reads this file's presence: after each landing it fast-forwards
-# this repo's main checkout to origin/main, and the main checkout's post-merge
-# hook runs install.sh, which links that checkout's files and builds builds
-# from it.
+# builds land checks whether this file exists. When it does, builds land
+# fast-forwards this repo's main checkout to origin/main after each landing,
+# and the main checkout's post-merge hook runs install.sh, which links that
+# checkout's files and builds builds from it.

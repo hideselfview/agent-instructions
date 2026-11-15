@@ -74,10 +74,10 @@ fn git_dir_written(checkout: &Checkout) -> i64 {
 
 /// Retires each free side worktree among <roots> that nothing has used for
 /// FREE_WORKTREE_IDLE_MINUTES: no claim, no write to its tree's git dir or
-/// build folders, no build process there. Never main, the app checkout, side-1
-/// (the repo's long-lived side worktree) or a claimed one. The worktrees that
-/// keep commits
-/// missing from origin/main stay (health lists them).
+/// build folders, no build process there. It never retires main, the app
+/// checkout, side-1 (the repo's long-lived side worktree) or a claimed
+/// worktree, and it keeps the worktrees that hold commits missing from
+/// origin/main (health lists them).
 pub fn retire_idle(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     let places = places_of(roots);
     let processes = Processes::read();

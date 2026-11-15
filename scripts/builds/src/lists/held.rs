@@ -62,10 +62,10 @@ fn hold_fault(lists: &Lists, worktree: &str) -> Option<String> {
     }
 }
 
-/// `builds note --state held` is refused unless every item running in the
-/// worktree waits on an open question, item, design change or condition. An
-/// app checkout (the recorded app-checkout list) is a standing role that holds
-/// no item, and is never refused.
+/// Refuses `builds note --state held` unless every item running in the
+/// worktree waits on an open question, item, design change or condition.
+/// Never refuses it for an app checkout (the recorded app-checkout list),
+/// which runs no item.
 pub fn require_hold_allowed(places: &Places, checkout: &Checkout) -> Result<()> {
     let top = checkout.top.display().to_string();
     if checkout.is_side()
@@ -184,7 +184,8 @@ pub fn findings(
             continue;
         };
         let top = worktree.top.display().to_string();
-        // An app checkout is a standing role: held with no item.
+        // An app checkout runs no item, so health reports neither a hold nor
+        // a claim on it for that.
         let standing = worktree.app_checkout;
         if !standing
             && worktree.claim.note_state.as_deref() == Some("held")

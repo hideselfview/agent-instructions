@@ -6,18 +6,20 @@
 //! builds review landed DIR --project P SHA... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]
 //! ```
 //!
-//! DIR is the worktree the commits land from and the SHAs are the commits
-//! `builds land` was given. No diff is reviewed more than once. Each change gets one review; the
-//! coordinator reads the fixes for its confirmed findings. So a landing's
-//! commits are taken when one change's review covers them: each commit whose
-//! paths a group's rules cover is either one the review read, matched by patch
-//! id (`commits.rs`) so that a rebase or a cherry-pick that keeps its change
-//! keeps its review, or the fix the coordinator named for one of the review's
-//! confirmed findings. Every group that covers a path a reviewed commit changes
-//! must have answered over it, every finding must be settled, and every
-//! confirmed one must name a fix among the commits landed. A commit that is
-//! neither reviewed nor a named fix is new work, which lands as a change of its
-//! own. A landing whose changed paths no group covers needs no review.
+//! DIR is the worktree builds land runs in, and the SHAs are the commits its
+//! caller passed to `builds land`. The review reads each diff only once. Each
+//! change gets one review; the coordinator reads the fixes for its confirmed
+//! findings. So check-landing takes a landing's commits when one change's
+//! review covers them: each commit whose paths a group's rules cover is either
+//! one the review read, matched by patch id (`commits.rs`) so that a rebase or
+//! a cherry-pick that keeps its change keeps its review, or the fix the
+//! coordinator named for one of the review's confirmed findings. Every group
+//! that covers a path a reviewed commit changes must have answered over it, the
+//! coordinator must have settled every finding, and every confirmed finding
+//! must name a fix among the commits landed. A commit that the review did not
+//! read and that no finding names as its fix is new work, which builds land
+//! takes only as a separate change. A landing whose changed paths no group
+//! covers needs no review.
 //!
 //! `landed` records the landing as landed with the change's review run, then
 //! decides whether to audit it (`audit.rs`) and, when it is sampled, starts
@@ -419,7 +421,7 @@ fn record_landed(asked: &Asked, stamp: &Stamp) -> Result<Option<i64>> {
 }
 
 /// Records the landing that `builds review landed` names, written by `--by`,
-/// else by the claim of DIR, the worktree the commits land from, wherever the
+/// else by the claim of DIR, the worktree builds land runs in, wherever the
 /// command runs.
 /// Returns what it asked and the landing when this recorded it.
 fn record_landing(tool: &Tool, args: &Args) -> Result<Option<(Asked, i64)>> {

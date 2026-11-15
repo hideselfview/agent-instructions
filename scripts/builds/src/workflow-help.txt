@@ -80,10 +80,11 @@ PLAN, BRIEF, EXECUTE, REVIEW
     settles it as confirmed or dropped with why (`builds review settle`), and
     sends each confirmed one back to the agent that made it. The agent fixes
     it in a new commit. builds does not review that commit: the coordinator
-    reads it against its finding, names it (`builds review fixed`), and lands
-    the reviewed commits with their fixes in the branch's worktree once the
-    agent is done there (LANDING). `builds land` refuses commits that
-    lack this step (`builds help`, LANDING AND REVIEW). Each settle, with its
+    reads it against its finding, names it (`builds review fixed`), and runs
+    `builds land` with the reviewed commits and their fixes in the branch's
+    worktree once the agent is done there (LANDING). `builds land` refuses
+    commits that lack this step (`builds help`, LANDING AND REVIEW). Each
+    settle, with its
     `--why`, is the record that scores the reviews: a confirmed finding counts
     as a true positive and a dropped one as a false positive (`builds review
     scores`), and `builds review replay --landing` scores other models and
@@ -118,8 +119,8 @@ WHAT AN IMPLEMENTING AGENT DOES
      its own, since no diff is reviewed more than once: the coordinator reads
      it against its finding.
   7. Commit, and report the SHA, the base and the checks. Leave nothing
-     uncommitted: the coordinator lands the branch in this worktree, and
-     land refuses a worktree with uncommitted changes.
+     uncommitted: the coordinator runs `builds land` in this worktree, which
+     refuses a worktree with uncommitted changes.
 
 Agents share their coordinator's scratchpad folder, so each keeps its scratch
 files (commit messages, probes) in a folder of its own, named for its branch.
@@ -147,9 +148,10 @@ DISPATCH
   - Take items from `builds next`. Claim the worktree (`builds claim`), mark
     the items running (`builds item take`), keep the worktree's note current
     (`builds note`) on every dispatch and handoff. A landing that leaves
-    nothing to land releases the worktree; release by hand only work that
-    moves on without landing. `builds item list --running` shows what runs
-    after a compact.
+    nothing to land releases the worktree; release a worktree by hand only when
+    its work stops, or moves to another worktree, before `builds land` puts it
+    on origin/main. `builds item list --running` shows what runs after a
+    compact.
   - Read-only agents (planners, audits) read origin/main through `git show`
     and `git grep`, never a checkout.
   - Disk is a queue limit, never a question for the person: under the floor,
@@ -183,25 +185,27 @@ both.
 
 LANDING
 
-Land each branch with `builds land` in its own worktree, the claimed side
-worktree its agent worked in, once the agent is done there: land moves that
-worktree's HEAD while it builds and checks the result. Its help says what it
-checks. Review each branch first (PLAN, BRIEF, EXECUTE, REVIEW): land refuses
-commits that are neither read by a finished review nor named as the fix of
-one of its confirmed findings.
+Run `builds land` for each branch in its own worktree, the claimed side
+worktree its agent worked in, once the agent is done there: land checks out
+other commits in that worktree while it builds and checks the result. The land
+help says what it checks. Review each branch first (PLAN, BRIEF, EXECUTE,
+REVIEW): land refuses a commit unless a finished review read it or the review
+names it as the fix of one of its confirmed findings.
 
-  - Landings in different worktrees may run at the same time; the push of
-    the one that main moved under is refused, and it tries again from a
-    fresh fetch. Two landings in one worktree run one after the other.
+  - Landings in different worktrees may run at the same time. When origin/main
+    moves while a landing runs, origin refuses that landing's push, and the
+    landing fetches again and pushes again. Two landings in one worktree run
+    one after the other.
   - A landing that leaves nothing to land on the branch leaves the worktree
-    detached at the landed commit and releases it; one that leaves commits
-    there puts the worktree back on the branch and keeps the claim, and so
-    does a --part.
+    detached at the landed commit and releases it. A landing that leaves
+    commits on the branch checks the branch out again and keeps the claim, and
+    a landing that names a --part keeps the claim too.
   - After landing commits whose base is behind main and that touch shared
     code (schema, test stores, bridge types), build main (`check --workspace
     --all-targets --all-features`) before landing more, and send agents whose
     base changed under them back to rebase.
-  - Don't land in a worktree while its agent or a check still runs there.
+  - Don't run `builds land` in a worktree while its agent or a check still runs
+    there.
   - When `builds land` prints `LANDED, NOT RECORDED:`, run the `rerun:`
     command it prints.
   - No diff is reviewed more than once. Each change gets one review; the
@@ -247,12 +251,12 @@ other.
   4. The person approves with the page's Approve button, which sends "Design
      change #N of project P approved: land it." to the session that recorded
      the change. That message is the cue to land: run `builds land <worktree>
-     --design N <sha>...` with the worktree the boards were drawn in (the
-     approval is already recorded; never run `builds design approve` for it),
-     then publish the canvas, which only a Claude session can do. When that
-     session has ended, the next design session lands the change. `builds
-     design approve N --by-person` is for an approval the person gives in
-     words.
+     --design N <sha>...` with the worktree where the design session drew the
+     boards (the Approve button recorded the approval; never run `builds design
+     approve` for it), then publish the canvas, which only a Claude session can
+     do. When that session has ended, the next design session runs `builds
+     land` for the change. `builds design approve N --by-person` is for an
+     approval the person gives in words.
      When a rule group covers a path the commits change, `builds land`
      refuses them until the rules review is finished, as for any branch
      (PLAN, BRIEF, EXECUTE, REVIEW): run `builds review` on them once,

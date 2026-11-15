@@ -249,9 +249,9 @@ every agent.
 Each item's title is for the person to read. An agent's brief names the item ids
 it takes, and its work lands (is rebased onto `main` and pushed) through
 `builds land` with those ids. An item with an implementation brief names its
-file, `plans/briefs/<area>.md` in the main checkout (git ignores `plans/`). A
-branch lands from its own worktree, the side worktree its agent worked in, once
-the agent is done there.
+file, `plans/briefs/<area>.md` in the main checkout (git ignores `plans/`). The
+coordinator runs `builds land` in the side worktree the branch's agent worked
+in, once the agent is done there.
 
 ### Design-session items
 

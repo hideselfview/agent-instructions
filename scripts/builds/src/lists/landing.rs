@@ -5,19 +5,19 @@
 //! `check-landing DIR [--done N]... [--part N]... SHA...`
 //! `landed DIR [--done N]... [--part N]... SHA...`
 //!
-//! DIR is the worktree the commits land from, the one the branch's agent
-//! worked in. `--done` names an item the commits finish, `--part` one they
-//! advance. `check-landing` runs before the commits are fetched or picked, so
-//! the SHAs are the agent's branch commits and must be reachable from the
+//! DIR is the worktree builds land runs in, the one the branch's agent worked
+//! in. `--done` names an item the commits finish, `--part` one they advance.
+//! `check-landing` runs before builds land fetches or cherry-picks the commits,
+//! so the SHAs are the agent's branch commits and must be reachable from the
 //! branch the named item runs on in DIR's repo (an item that spans repos runs
-//! in a worktree of each, and a landing from any of them is accepted; `--part`
-//! leaves it running everywhere, `--done` closes it). The item must run in
-//! DIR itself: a landing moves DIR's HEAD, so landing an item from a worktree
-//! another item's agent works in would move that agent's HEAD under it.
-//! `landed` runs after the push, so its SHAs are the commits now on
-//! origin/main and must be there. `landed` records who landed as `--by`, else
-//! the claim of DIR, wherever the command runs. Git runs before the store's
-//! lock.
+//! in a worktree of each, and check-landing accepts a landing from any of them;
+//! `--part` leaves it running everywhere, `--done` closes it). The item must
+//! run in DIR itself: builds land checks out other commits in DIR while it
+//! builds the result, so landing an item from a worktree where another item's
+//! agent works would change that agent's checkout without the agent knowing.
+//! `landed` runs after the push, so its SHAs are the commits now on origin/main
+//! and must be there. `landed` records who landed as `--by`, else the claim of
+//! DIR, wherever the command runs. Git runs before the store's lock.
 
 use std::collections::BTreeMap;
 use std::path::Path;

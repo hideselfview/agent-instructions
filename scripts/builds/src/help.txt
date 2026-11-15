@@ -25,9 +25,10 @@ its files into ~/.claude and ~/.codex. Its post-commit and post-merge hooks run
 install.sh again when a commit or merge on its main branch changes what
 install.sh consumes, scripts/builds/ included. A commit on a side worktree's
 branch installs nothing; it goes live once it is on main and the main
-checkout's main moves to it, which `builds land` does after each landing (the
-repo's .land-live file asks for it). To try an edit to builds before it lands,
-run the binary your worktree built (scripts/builds/target/debug/builds).
+checkout's main moves to it. Because the repo holds a .land-live file, `builds
+land` moves it after each landing. To try an edit to builds before `builds
+land` puts it on main, run the binary your worktree built
+(scripts/builds/target/debug/builds).
 
 
 BUILD VOLUME
@@ -139,13 +140,14 @@ the others and `builds prune` retires them once they are idle.
 A claim records who works in a side worktree, so that no other session takes
 it: whoever hands out the worktree (a coordinator dispatching an agent, or the
 person) claims it. A landing that leaves nothing to land releases it (`builds
-land`); whoever handed it out releases it when the work moves on without
-landing. A claim is a file in the worktree's git dir, so it goes when the
-worktree does; `status` shows it, and `retire` refuses a claimed worktree. A
-claim is not a lock: an agent runs a series of separate commands, so nothing
-could hold one, and a session that ends without releasing leaves its claim
-behind, with its age in `status`. Exclusive use for one command, such as a
-build in an app checkout, takes a real lock.
+land`); whoever handed it out releases it when the work stops, or moves to
+another worktree, before `builds land` puts it on origin/main. A claim is a
+file in the worktree's git dir, so retiring the worktree deletes its claim;
+`status` shows it, and `retire` refuses a claimed worktree. A claim is not a
+lock: an agent runs a series of separate commands, so nothing could hold one,
+and a session that ends without releasing leaves its claim behind, with its age
+in `status`. Exclusive use for one command, such as a build in an app checkout,
+takes a real lock.
 
 A claim may carry a one-line note that says what its work waits on ("waiting on
 Linux CI"), which `status` and the dashboard show, and the note may carry a
@@ -170,15 +172,15 @@ you, Held, Ready to land (commits waiting to land, claimed or not: an unclaimed
 worktree with such commits holds work an agent left behind), Winding down,
 Working (claimed) and Free. Commits waiting to land show as Ready to land only
 when `builds land` would take them as far as the rules review goes; until then
-the card is in review and says where the review stands: Needs review (no review
-read these commits, or a group still has to answer: the coordinator runs
-`builds review`), Reviewing (a review of the branch's newest commit runs),
-Findings to settle (with the count), Waiting on fixes (confirmed findings with
-no fixing commit among them) or Unreviewed commits (commits the review did not
-read that no finding names as its fix, which land as a change of their own). A
-commit waits to land while origin/main has no commit with the same change (`git
-log --cherry-pick --right-only origin/main...HEAD`), because landing rebases or
-cherry-picks it.
+the card shows the review's progress instead: Needs review (no review read
+these commits, or a group still has to answer: the coordinator runs `builds
+review`), Reviewing (a review of the branch's newest commit runs), Findings to
+settle (with the count), Waiting on fixes (confirmed findings with no fixing
+commit among them) or Unreviewed commits (commits the review did not read that
+no finding names as its fix, which `builds land` takes only as a separate
+change). A commit waits to land while origin/main has no commit with the same
+change (`git log --cherry-pick --right-only origin/main...HEAD`), because
+landing rebases or cherry-picks it.
 
   builds new [<repo>] [-b <branch>] [--for <who>] [--project P]
                               hand out a free side worktree (no claim, a clean
@@ -210,8 +212,8 @@ cherry-picks it.
                               held is refused unless every item running in the
                               worktree waits on an open question, item, design
                               change or condition (`builds item wait N --on
-                              REF`); an app checkout, which runs no item, is
-                              never refused
+                              REF`); note never refuses it for an app
+                              checkout, which runs no item
   builds release <checkout>   remove its claim; refused while an item runs in
                               the worktree
   builds retire <checkout>    remove a clean, unclaimed side worktree and its
@@ -933,12 +935,12 @@ matching file is staged.
 
 LANDING AND REVIEW
 
-A coordinator lands commits, putting them on origin/main, with `builds land`
-in the worktree whose branch holds them, once that branch's agent is done
-there. In a repo of a project with lists, every branch is reviewed against
-agent-instructions' rules before it lands. No diff is reviewed more than once.
-Each change gets one review; the coordinator reads the fixes for its confirmed
-findings:
+A coordinator puts commits on origin/main by running `builds land` in the
+worktree whose branch holds them, once that branch's agent is done there. In a
+repo of a project with lists, the coordinator reviews every branch against
+agent-instructions' rules with `builds review` before it runs `builds land` on
+the branch. `builds review` reads each diff only once. Each change gets one
+review; the coordinator reads the fixes for its confirmed findings:
 
   1. The coordinator runs `builds review` on the branch's commits once.
   2. It judges each finding against the code and the rule, and settles it as
@@ -1061,59 +1063,63 @@ every rule. To test another grouping, change the folders in a worktree of
 agent-instructions and run `review replay --rules-root` on it.
 
   builds land <worktree> [--done N]... [--part N]... [--design N] <sha>...
-                              put the commits on origin/main from the
-                              worktree whose branch holds them: a
-                              fast-forward when origin/main is their base,
-                              else a cherry-pick, trying a refused push again
-                              from a fresh fetch up to five times. Before it
-                              fetches anything, land refuses the worktree
-                              while it has uncommitted changes (its agent is
-                              not done there) and refuses a commit that is
-                              not on its HEAD. It builds the result on a
-                              detached HEAD at origin/main. One landing runs
-                              in a worktree at a time; landings in different
-                              worktrees run together, and the push retry
-                              orders them. After the push the worktree stays
-                              detached at the landed commit when its branch
-                              has nothing left to land, else it goes back on
-                              the branch; a refused landing goes back on the
-                              branch too. Once every record is written, a
-                              landing that leaves nothing to land and names
-                              no --part releases the worktree (`builds
-                              release`; a refusal keeps the claim and fails
-                              nothing). The repo's `whole` checks and its
-                              .land-compile (the compile check of the touched
-                              crates) run on the result before the push,
-                              fast-forward included, each whole check's time
-                              printed; a failure names every failing check
-                              with its output, pushes nothing and puts the
-                              worktree back on its branch. --done N finishes
-                              item N and --part N records a landed part of it
-                              (checked before anything is fetched, recorded
-                              after the push). Commits that change design
-                              places need --design N, an approved design
-                              change, and commits that are all design files
-                              take it alone (`builds help lists`). In a repo
-                              of a project, `review check-landing` runs before
-                              anything is fetched and its refusal ends the
-                              landing; `review landed` runs after the push,
-                              beside the items' and the design change's
-                              records. Each record names the worktree, and
-                              land reads who landed from the worktree's
-                              claim and passes it to each record as --by, so
-                              in a repo of a project land refuses an
-                              unclaimed worktree before it fetches anything.
-                              `item check-landing` refuses an item that runs
-                              in another worktree: landing there would move
-                              that agent's HEAD. When the landed tree holds
+                              put the commits on origin/main from the worktree
+                              whose branch holds them: a fast-forward when
+                              origin/main is their base, else a cherry-pick.
+                              When origin refuses the push because origin/main
+                              moved, land fetches again and tries again, up to
+                              five times. Before it fetches anything, land
+                              refuses the worktree while it has uncommitted
+                              changes (its agent is not done there) and refuses
+                              a commit that is not on its HEAD. Land builds the
+                              result on a detached HEAD at origin/main. One
+                              landing runs in a worktree at a time; landings in
+                              different worktrees run together, and a landing
+                              whose push origin refuses because the other
+                              pushed first fetches again and pushes after it.
+                              Before the push, land runs the repo's `whole`
+                              checks and its .land-compile (the compile check
+                              of the touched crates) on the result, a
+                              fast-forward included, and prints each whole
+                              check's time; when one fails, land names every
+                              failing check with its output, pushes nothing and
+                              checks the branch out again. After the push, land
+                              leaves the worktree detached at the landed commit
+                              when its branch has nothing left to land, and
+                              checks the branch out again when commits on it
+                              still wait to land. --done N finishes item N and
+                              --part N records a landed part of it: land checks
+                              both before it fetches anything and records them
+                              after the push. Commits that change design places
+                              need --design N, an approved design change, and
+                              commits that are all design files take it alone
+                              (`builds help lists`). In a repo of a project,
+                              land runs `review check-landing` before it
+                              fetches anything, and a refusal ends the landing;
+                              it runs `review landed` after the push, beside
+                              the records of the items and the design change.
+                              Each record names the worktree, and land reads
+                              who landed from the worktree's claim and passes
+                              it to each record as --by, so in a repo of a
+                              project land refuses an unclaimed worktree before
+                              it fetches anything. `item check-landing` refuses
+                              an item that runs in another worktree, since
+                              landing it there would check out other commits in
+                              the worktree that item's agent works in. Once
+                              land writes every record, a landing that leaves
+                              nothing to land and names no --part releases the
+                              worktree (`builds release`; when release refuses,
+                              the worktree keeps its claim and the landing
+                              still succeeds). When the landed tree holds
                               .land-live (agent-instructions), land then
                               fast-forwards the repo's main checkout to
-                              origin/main, whose post-merge hook makes the
-                              landing live; when the main checkout is not on
-                              main, or the person's commits or edits there
-                              stop the fast-forward, land leaves it as it
-                              is, prints NOT LIVE with the command to run,
-                              and the landing still counts as landed
+                              origin/main, and the checkout's post-merge hook
+                              makes the landing live. When the main checkout is
+                              not on main, or the person's commits or edits
+                              there stop the fast-forward, land leaves the
+                              checkout as it is and prints a NOT LIVE line with
+                              the command to run; the commits stay on
+                              origin/main and the records stay written
   builds review [run] <worktree> [<base>] [--landing <key>] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
                               review the worktree's commits past <base>
                               (default origin/main) against the rules in
@@ -1172,17 +1178,17 @@ agent-instructions and run `review replay --rules-root` on it.
                               what `builds land` records after the push: the
                               landing under review whose review takes the
                               commits landed, with its review run, written by
-                              --by, else the worktree's claim. A change
-                              recorded already is left as it is, so the rerun
-                              land prints is safe. It then decides whether the
-                              landing is audited and, when it is, starts
-                              `builds review audit` in the background, which
-                              never fails a landing. About 5% of landings are
-                              audited; 25% when a group the landing ran has
-                              missed more in its latest 10 audits than before;
-                              and every landing until 20 have been reviewed
-                              under the current groups. --roll N (0 to 1)
-                              replaces the random draw
+                              --by, else the worktree's claim. `review landed`
+                              leaves a change it recorded already as it is, so
+                              the rerun that land prints is safe. Then it
+                              decides whether to audit the landing and, when it
+                              does, starts `builds review audit` in the
+                              background, which never fails a landing. It
+                              audits about 5% of landings; 25% when a group the
+                              landing ran has missed more in its latest 10
+                              audits than before; and every landing until the
+                              current groups have reviewed 20. --roll N (0 to
+                              1) replaces the random draw
   builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
                               list the groups of rules, and fail naming every
                               rule outside a group folder (one with no

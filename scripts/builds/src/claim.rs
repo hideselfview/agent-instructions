@@ -271,9 +271,9 @@ pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Removes <checkout>'s claim and the project it names, and returns the
-/// claim, or None when there was none. The project goes with the claim: a
-/// later claim that names no project would otherwise take this one's.
+/// Removes <checkout>'s claim and the project file it names, and returns the
+/// claim, or None when there was none. A project file left behind would give
+/// its project to a later claim that names no project.
 pub fn release(checkout: &Checkout) -> Result<Option<Claim>> {
     let file = checkout.claim_file();
     let claim = Claim::read(&file)?;

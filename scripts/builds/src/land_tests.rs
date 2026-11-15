@@ -223,7 +223,11 @@ fn a_fast_forward_of_a_passing_tree_lands_and_a_cherry_pick_failing_a_check_is_r
         "{out}"
     );
     assert_eq!(main_of(&f), a);
-    assert_eq!(branch_of(&two).as_deref(), Some("b"), "back on its branch");
+    assert_eq!(
+        branch_of(&two).as_deref(),
+        Some("b"),
+        "the refused landing checks the branch out again"
+    );
     assert_eq!(head_of(&two), b);
     assert_eq!(git_out(&two, &["status", "--porcelain"]), "");
 }
@@ -247,7 +251,7 @@ fn a_refused_landing_whose_reset_fails_stays_on_the_result_and_says_so() {
     assert_eq!(
         branch_of(&one),
         None,
-        "no checkout runs after the failed reset"
+        "land runs no checkout after the failed reset"
     );
 }
 
@@ -380,7 +384,7 @@ fn a_project_repo_names_its_work_item_before_anything_moves() {
             format!("item landed {dir} --done 7 --part 8 {a} --by agent A"),
             format!("review landed {dir} --project bae {a} --by agent A")
         ],
-        "every record names the worktree's claim; a part keeps the claim"
+        "every record names the worktree's claim; a --part landing keeps the claim"
     );
     assert!(!calls.iter().any(|c| c.starts_with("design landed")));
 }
@@ -398,8 +402,8 @@ fn an_unclaimed_worktree_of_a_project_is_refused_before_anything_moves() {
     );
     assert_eq!(head_of(&one), a);
     assert_eq!(calls, [format!("lists project-of {}", one.display())]);
-    // A repo in no project records nothing, so it lands unclaimed, and
-    // there is no claim to release.
+    // A repo in no project records nothing, so land takes the unclaimed
+    // worktree and has no claim to release.
     let (code, out, calls) = run_land(&f, &one, &[&a], Cues::default());
     assert!(code == 0 && main_of(&f) == a, "{out}");
     assert!(!calls.iter().any(|c| c.starts_with("release")), "{calls:?}");
@@ -425,7 +429,11 @@ fn a_cherry_picked_landing_records_the_new_commit_on_main_and_releases_the_workt
         "the items record the commit on main; the review the commit it read"
     );
     assert_eq!(branch_of(&two), None, "{out}");
-    assert_eq!(head_of(&two), new, "left detached at the landed commit");
+    assert_eq!(
+        head_of(&two),
+        new,
+        "the landing leaves the worktree detached at the landed commit"
+    );
     assert!(out.contains(&format!("released {dir}")), "{out}");
 }
 
@@ -688,7 +696,7 @@ fn a_failed_design_record_after_a_design_only_push_exits_with_the_rerun() {
     assert!(!out.contains("item landed"));
     assert!(
         !calls.iter().any(|c| c.starts_with("release")),
-        "an unrecorded landing keeps the claim: {calls:?}"
+        "a landing whose records failed keeps the claim: {calls:?}"
     );
 }
 
@@ -729,7 +737,9 @@ fn a_commit_not_on_the_worktrees_head_is_refused() {
     assert!(
         code == 1
             && out.contains(&format!("{b} is not on branch a in {}", one.display()))
-            && out.contains("land a branch from the worktree it is checked out in"),
+            && out.contains(
+                "run builds land in the worktree that has the commit's branch checked out"
+            ),
         "{out}"
     );
     assert!(calls.is_empty(), "{calls:?}");
@@ -962,8 +972,8 @@ fn a_failing_check_stops_the_landing_before_its_record_and_a_repo_in_no_project_
 #[test]
 fn a_landing_that_main_moved_under_tries_again_from_a_fresh_fetch() {
     // The check pushes another clone's commit to origin the first time it
-    // runs, as a landing in another worktree would, so the first push is
-    // refused.
+    // runs, as a landing in another worktree would, so origin refuses the
+    // first push.
     let f = fixture(
         "land-retry",
         "[ -e {root}/moved ] || { touch {root}/moved; git -C {root}/other push -q origin HEAD:main; }\n",
@@ -1000,8 +1010,8 @@ fn a_landing_that_main_moved_under_tries_again_from_a_fresh_fetch() {
 fn landings_in_two_worktrees_run_at_the_same_time() {
     // Each landing's first check writes a mark into its own pipe and reads
     // the other landing's mark, so neither check passes until both landings
-    // are in their checks. Both ends of each pipe are opened for reading and
-    // writing, so no open waits and the read gives up after a minute. A
+    // are in their checks. The script opens each pipe for reading and
+    // writing, so no open waits, and the read gives up after a minute. A
     // second run of the check, after a refused push, passes at once.
     let f = fixture(
         "land-two-worktrees",
@@ -1128,9 +1138,13 @@ fn a_main_checkout_that_cannot_fast_forward_leaves_the_landing_landed_and_says_h
         code == 0 && out.contains("NOT LIVE") && out.contains(&command),
         "{out}"
     );
-    assert_eq!(main_of(&f), a, "the landing counts as landed");
+    assert_eq!(main_of(&f), a, "the commits stay on origin/main");
     assert!(calls.iter().any(|c| c.starts_with("item landed")));
-    assert_eq!(head_of(&f.main), local, "the person's commit stays");
+    assert_eq!(
+        head_of(&f.main),
+        local,
+        "land leaves the person's commit in place"
+    );
 
     // The person's uncommitted file that the landing would overwrite.
     git_out(&f.main, &["reset", "-q", "--hard", "origin/main"]);

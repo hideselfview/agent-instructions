@@ -562,7 +562,7 @@ fn landing_the_last_item_releases_the_worktree_it_ran_in() {
     );
     assert!(
         !checkout.project_file().exists(),
-        "the claim's project goes with it"
+        "releasing the claim removes the claim's project file"
     );
 }
 
