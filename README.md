@@ -58,8 +58,9 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
 - `.githooks/` holds this repo's git hooks.
   - `pre-commit` runs `builds checks run`, which runs the checks `.checks` lists
     on the staged files.
-  - `post-commit` and `post-merge` run `install.sh` again in the main checkout
-    when a change touches what it installs.
+  - `post-commit` and `post-merge` run `install.sh` again when a commit or merge
+    on the main checkout's main branch touches what it installs. A commit on a
+    side worktree's branch installs nothing.
 
 ## Where a rule goes
 
@@ -101,6 +102,22 @@ git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instruc
 - builds `builds` from the committed HEAD and runs `builds install`
 
 It always links the main checkout, whichever worktree runs it.
+
+## Making a change
+
+Agents change this repo the way they change bae and coven
+(`builds help workflow`): each change is a branch in a side worktree that
+`builds new ~/dev/agent-instructions --for <who> --project builds` hands out
+(`--project bae` for bae's rules and project file), reviewed with
+`builds review` and landed with `builds land`. No agent commits in the main
+checkout, which is the person's.
+
+The main checkout is also the live copy that `install.sh` links, so nothing goes
+live until it is on main there. After a landing,
+`git -C ~/dev/agent-instructions merge --ff-only origin/main` moves the main
+checkout's main to the landed commits, and its post-merge hook runs
+`install.sh`, which installs the new `builds` and links the new rules and
+skills.
 
 ## Per-project setup
 

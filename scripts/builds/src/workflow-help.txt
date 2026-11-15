@@ -33,6 +33,12 @@ branch, not the worktree, is the unit of work.
   - App checkouts keep the app builds built, and agents take turns in them
     through `builds app-build`; every other side worktree builds host Rust
     output only (`builds help`, APP BUILDS).
+  - agent-instructions, which holds builds, works the same way: agents
+    commit on a branch in a side worktree from `builds new
+    ~/dev/agent-instructions --for <who> --project builds` (`--project bae`
+    for bae's rules and project file), never in the main checkout. The main
+    checkout is the live copy that install.sh links, so a commit on a side
+    branch installs nothing (`builds help`).
 
 Each checkout builds into its own folders on /Volumes/Builds. Never set
 CARGO_TARGET_DIR or another CARGO_* variable on a command: the path is part of
@@ -195,6 +201,12 @@ fix of one of its confirmed findings.
     of its own. When the reviewed commits can't land without it, ask the
     person how to land them.
   - A CI run on main that fails or stalls is the coordinator's to run down.
+  - Commits landed in agent-instructions go live when the main checkout's
+    main moves to them: `git -C ~/dev/agent-instructions merge --ff-only
+    origin/main` after the landing, whose post-merge hook runs install.sh,
+    which installs the landed builds and links the landed rules and skills.
+    When the merge refuses (the person has uncommitted edits to a file the
+    landing changed), tell the person; never stash or reset their edits.
 
 
 DESIGN CHANGES

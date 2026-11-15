@@ -1,0 +1,12 @@
+# Build output paths and the size each may reach before the `builds` tool
+# deletes it whole for the next build to refill (cargo mostly from sccache).
+# `builds new` links each path in a side worktree to
+# /Volumes/Builds/agent-instructions/<checkout>/<path>, which also puts the
+# worktree on `builds status` and the dashboard.
+#
+# scripts/builds/target is the builds tool's cargo target. The main checkout's
+# held 4.2G of incremental debug builds on 2026-11-15; a side worktree builds
+# without incremental output, so its cap is about twice that.
+#
+# path                    cap
+scripts/builds/target     10G
