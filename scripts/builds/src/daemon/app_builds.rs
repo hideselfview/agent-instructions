@@ -4,7 +4,9 @@
 
 use serde::Serialize;
 
+use super::cards::{ItemWait, QueuedBuild};
 use super::model::{CheckoutPage, RepoPage};
+use crate::health::{Holder, LockHealth};
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Program {
@@ -38,18 +40,39 @@ pub enum Now {
     },
 }
 
+/// One app checkout of a lane: a row of the lane's card.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AppBuild {
-    pub lane: String,
-    /// The app checkout, `side-N`.
+    /// The app checkout, `side-N`, or `host:name` for one on another Mac.
     pub checkout: String,
     /// A branch, or `detached at <commit>`.
     pub checked_out: String,
     pub disk_kib: Option<u64>,
+    /// Is it a checkout on another Mac? Its disk, CPU and memory are not
+    /// read from here.
+    pub remote: bool,
     pub now: Now,
-    /// What waits for a lock of the lane, next first: the branch of the
-    /// worktree each build started from.
-    pub waiting: Vec<String>,
+}
+
+/// One build waiting for a checkout of the lane.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Waiting {
+    /// The branch the build is for, else what it is ("your test app").
+    pub branch: String,
+    /// The worktree it was started from; None when its folder is unknown.
+    pub worktree: Option<String>,
+    pub minutes: i64,
+}
+
+/// One app build lane of a repo: its checkouts, and the one queue they share.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AppLane {
+    pub lane: String,
+    /// The checkouts that build for the lane, local ones first by name, then
+    /// those on other Macs.
+    pub checkouts: Vec<AppBuild>,
+    /// What waits for a lock of the lane, next first.
+    pub waiting: Vec<Waiting>,
 }
 
 /// What an `app-build` or `build-app` command line asks for.
@@ -119,12 +142,21 @@ fn asked_words(asked: &Asked) -> String {
     }
 }
 
+/// "8m" or "3h": <minutes> as a card's line says how long ago.
+fn short_age(minutes: i64) -> String {
+    if minutes >= 60 {
+        format!("{}h", minutes / 60)
+    } else {
+        format!("{minutes}m")
+    }
+}
+
 /// What <repo>'s app build lanes do for <branch>: the lane, whether the
 /// build runs, and in words how far it is: the checkout that builds it and
 /// for how long, or its place in the lane's queue and how long it has
 /// waited, then the steps it asked for. The running build first; None when
 /// no build of the branch runs or waits.
-pub fn build_for(repo: &RepoPage, branch: &str) -> Option<(String, bool, String)> {
+pub fn build_for(repo: &RepoPage, branch: &str) -> Option<ItemWait> {
     let lane_name = |lane: &str| {
         let mut word = lane.to_string();
         if let Some(first) = word.get_mut(..1) {
@@ -138,31 +170,48 @@ pub fn build_for(repo: &RepoPage, branch: &str) -> Option<(String, bool, String)
             continue;
         };
         if let Some(asked) = named(&holder.command) {
-            return Some((
-                lane_name(&lock.lane),
-                true,
-                format!(
+            return Some(ItemWait::AppBuild {
+                lane: lane_name(&lock.lane),
+                running: true,
+                how: format!(
                     "builds in {} for {}, {}",
                     lock.checkout,
                     minutes_word(holder.minutes),
                     asked_words(&asked)
                 ),
-            ));
+                queued: None,
+            });
         }
     }
     for queue in &repo.queues {
         for (at, waiting) in queue.queue.iter().enumerate() {
             if let Some(asked) = named(&waiting.command) {
-                return Some((
-                    lane_name(&queue.lane),
-                    false,
-                    format!(
+                let (steps, sentence) = if asked.test_app {
+                    (None, "to build the test app".to_string())
+                } else if asked.steps.is_empty() {
+                    (None, "to run every step".to_string())
+                } else {
+                    (
+                        Some(asked.steps.join(" ")),
+                        format!("to run {}", asked.steps.join(" ")),
+                    )
+                };
+                return Some(ItemWait::AppBuild {
+                    lane: lane_name(&queue.lane),
+                    running: false,
+                    how: format!(
                         "place {} in the queue, waiting {}, {}",
                         at + 1,
                         minutes_word(waiting.minutes),
                         asked_words(&asked)
                     ),
-                ));
+                    queued: Some(QueuedBuild {
+                        place: at + 1,
+                        of: queue.queue.len(),
+                        line: format!("Asked {} ago {}.", short_age(waiting.minutes), sentence),
+                        steps,
+                    }),
+                });
             }
         }
     }
@@ -208,86 +257,152 @@ fn who(repo: &RepoPage, from: Option<&str>) -> String {
     }
 }
 
-/// One entry per live app checkout of <repo>, mac lane first.
-pub fn build(repo: &RepoPage) -> Vec<AppBuild> {
-    let mut found: Vec<AppBuild> =
-        repo.checkouts
+/// What a holder of a lock builds now, as a row says it.
+fn now_of(
+    repo: &RepoPage,
+    holder: Option<&Holder>,
+    programs: Vec<Program>,
+    cpu: f64,
+    memory: u64,
+) -> Now {
+    match holder {
+        None => Now::Idle,
+        Some(holder) if !holder.driver_running => Now::Stuck {
+            minutes: holder.minutes,
+            running: holder.running.iter().map(|r| plain_command(r)).collect(),
+        },
+        Some(holder) => Now::Building {
+            who: who(repo, holder.started_from.as_deref()),
+            branch: branch_of(&holder.command),
+            minutes: holder.minutes,
+            programs,
+            cpu,
+            memory,
+        },
+    }
+}
+
+/// The programs of <processes>, each counted.
+fn programs_of<'a>(names: impl Iterator<Item = &'a str>) -> Vec<Program> {
+    let mut programs: Vec<Program> = Vec::new();
+    for name in names {
+        match programs.iter_mut().find(|p| p.name == name) {
+            Some(program) => program.count += 1,
+            None => programs.push(Program {
+                name: name.to_string(),
+                count: 1,
+            }),
+        }
+    }
+    programs
+}
+
+/// The row of the app checkout <c>.
+fn local_row(repo: &RepoPage, c: &CheckoutPage, lane: &str) -> AppBuild {
+    let holder = repo
+        .locks
+        .iter()
+        .find(|l| l.lane == lane && l.checkout == c.name)
+        .and_then(|l| l.holder.as_ref());
+    let programs = programs_of(c.activity.processes.iter().map(|p| p.name.as_str()));
+    AppBuild {
+        checkout: c.name.clone(),
+        checked_out: match &c.branch {
+            Some(branch) => branch.clone(),
+            None => match c.git.as_ref().and_then(|g| g.head.as_ref()) {
+                Some(head) => format!(
+                    "detached at {}",
+                    head.sha.chars().take(7).collect::<String>()
+                ),
+                None => "detached".to_string(),
+            },
+        },
+        disk_kib: c.total_kib,
+        remote: false,
+        now: now_of(repo, holder, programs, c.activity.cpu, c.activity.memory),
+    }
+}
+
+/// The row of the checkout <lock> is for on another Mac: only the lock and
+/// its holder are known here.
+fn remote_row(repo: &RepoPage, lock: &LockHealth) -> AppBuild {
+    let programs = lock
+        .holder
+        .as_ref()
+        .map(|h| {
+            let names: Vec<String> = h
+                .running
+                .iter()
+                .map(|r| plain_command(r).split(' ').next().unwrap_or("").to_string())
+                .collect();
+            programs_of(names.iter().map(String::as_str))
+        })
+        .unwrap_or_default();
+    AppBuild {
+        checkout: lock.checkout.clone(),
+        checked_out: match lock.holder.as_ref().and_then(|h| h.app_head.as_ref()) {
+            Some(head) => format!("detached at {}", head.chars().take(7).collect::<String>()),
+            None => "detached".to_string(),
+        },
+        disk_kib: None,
+        remote: true,
+        now: now_of(repo, lock.holder.as_ref(), programs, 0.0, 0),
+    }
+}
+
+/// Who waits for the lane <lane> of <repo>, next first.
+fn waiting_in(repo: &RepoPage, lane: &str) -> Vec<Waiting> {
+    let Some(queue) = repo.queues.iter().find(|q| q.lane == lane) else {
+        return Vec::new();
+    };
+    queue
+        .queue
+        .iter()
+        .map(|waiting| Waiting {
+            branch: started_from(repo, waiting.started_from.as_deref()).unwrap_or_else(|| {
+                if waiting.command.contains("build-app") {
+                    "your test app".to_string()
+                } else {
+                    "a build".to_string()
+                }
+            }),
+            worktree: waiting
+                .started_from
+                .as_deref()
+                .map(|from| from.rsplit('/').next().unwrap_or(from).to_string()),
+            minutes: waiting.minutes,
+        })
+        .collect()
+}
+
+/// One lane per app build lane of <repo> that has a checkout, mac first: each
+/// live app checkout here, then each checkout on another Mac (its lock is
+/// the only thing read from here), and the lane's queue.
+pub fn build(repo: &RepoPage) -> Vec<AppLane> {
+    let mut found: Vec<AppLane> = Vec::new();
+    for lane in crate::lane::Lane::ALL {
+        let word = lane.word();
+        let mut checkouts: Vec<AppBuild> = repo
+            .checkouts
             .iter()
-            .filter(|c| c.live && c.app_checkout)
-            .filter_map(|c| {
-                let lane = c.app_lane?;
-                let holder = repo
-                    .locks
-                    .iter()
-                    .find(|l| l.lane == lane && l.checkout == c.name)
-                    .and_then(|l| l.holder.as_ref());
-                let now = match holder {
-                    None => Now::Idle,
-                    Some(holder) if !holder.driver_running => Now::Stuck {
-                        minutes: holder.minutes,
-                        running: holder.running.iter().map(|r| plain_command(r)).collect(),
-                    },
-                    Some(holder) => {
-                        let mut programs: Vec<Program> = Vec::new();
-                        for process in &c.activity.processes {
-                            match programs.iter_mut().find(|p| p.name == process.name) {
-                                Some(program) => program.count += 1,
-                                None => programs.push(Program {
-                                    name: process.name.clone(),
-                                    count: 1,
-                                }),
-                            }
-                        }
-                        Now::Building {
-                            who: who(repo, holder.started_from.as_deref()),
-                            branch: branch_of(&holder.command),
-                            minutes: holder.minutes,
-                            programs,
-                            cpu: c.activity.cpu,
-                            memory: c.activity.memory,
-                        }
-                    }
-                };
-                let waiting =
-                    repo.queues
-                        .iter()
-                        .find(|q| q.lane == lane)
-                        .map(|q| {
-                            q.queue
-                                .iter()
-                                .map(|waiting| {
-                                    started_from(repo, waiting.started_from.as_deref())
-                                        .unwrap_or_else(|| {
-                                            if waiting.command.contains("build-app") {
-                                                "your test app".to_string()
-                                            } else {
-                                                "a build".to_string()
-                                            }
-                                        })
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                Some(AppBuild {
-                    lane: lane.to_string(),
-                    checkout: c.name.clone(),
-                    checked_out: match &c.branch {
-                        Some(branch) => branch.clone(),
-                        None => match c.git.as_ref().and_then(|g| g.head.as_ref()) {
-                            Some(head) => format!(
-                                "detached at {}",
-                                head.sha.chars().take(7).collect::<String>()
-                            ),
-                            None => "detached".to_string(),
-                        },
-                    },
-                    disk_kib: c.total_kib,
-                    now,
-                    waiting,
-                })
-            })
+            .filter(|c| c.live && c.app_checkout && c.app_lane == Some(word))
+            .map(|c| local_row(repo, c, word))
             .collect();
-    found.sort_by(|a, b| (b.lane.as_str(), &a.checkout).cmp(&(a.lane.as_str(), &b.checkout)));
+        checkouts.sort_by(|a, b| a.checkout.cmp(&b.checkout));
+        checkouts.extend(
+            repo.locks
+                .iter()
+                .filter(|l| l.lane == word && crate::app_remote::split(&l.checkout).is_some())
+                .map(|l| remote_row(repo, l)),
+        );
+        if !checkouts.is_empty() {
+            found.push(AppLane {
+                lane: word.to_string(),
+                checkouts,
+                waiting: waiting_in(repo, word),
+            });
+        }
+    }
     found
 }
 

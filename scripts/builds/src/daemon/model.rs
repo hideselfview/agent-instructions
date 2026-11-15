@@ -842,12 +842,8 @@ impl Model {
                 .iter()
                 .filter(|c| c.live && !c.app_checkout && !c.main)
                 .filter_map(|c| {
-                    let (lane, running, how) =
-                        super::app_builds::build_for(repo, c.branch.as_deref()?)?;
-                    Some((
-                        c.name.clone(),
-                        super::cards::ItemWait::AppBuild { lane, running, how },
-                    ))
+                    let wait = super::app_builds::build_for(repo, c.branch.as_deref()?)?;
+                    Some((c.name.clone(), wait))
                 })
                 .collect();
             for checkout in &mut repo.checkouts {
@@ -885,6 +881,9 @@ impl Model {
                         .min_by_key(super::cards::ItemWait::rank);
                     if super::cards::keeps_working(checkout.state, shell, wait.as_ref()) {
                         checkout.state = Some("working");
+                    }
+                    if super::cards::waits_in_queue(checkout.state, wait.as_ref()) {
+                        checkout.state = Some("queued");
                     }
                     if wait
                         .as_ref()
@@ -1108,7 +1107,7 @@ pub struct RepoPage {
     /// The latest build-app run the page started in each lane.
     pub runs: Vec<RunPage>,
     /// The app checkouts as build lanes (app_builds.rs).
-    pub app_builds: Vec<super::app_builds::AppBuild>,
+    pub app_builds: Vec<super::app_builds::AppLane>,
     pub checkouts: Vec<CheckoutPage>,
 }
 

@@ -233,6 +233,7 @@ fn a_branch_with_an_app_build_waits_on_it_and_is_not_ready_to_land() {
             lane: "Mac".into(),
             running: false,
             how: "place 2 in the queue".into(),
+            queued: None,
         }),
     );
     assert_eq!(card.chip, Some("Working"));
@@ -248,6 +249,7 @@ fn ready_to_land_needs_no_active_shell_no_app_build_and_no_waiting_item() {
         lane: "Mac".into(),
         running: true,
         how: "builds in side-1 for 1 minute".into(),
+        queued: None,
     };
     let item = ItemWait::Item {
         id: 1,
@@ -263,4 +265,43 @@ fn ready_to_land_needs_no_active_shell_no_app_build_and_no_waiting_item() {
         Some(&ItemWait::Unrecorded)
     ));
     assert!(!keeps_working(Some("working"), true, None));
+}
+
+fn queued_wait(running: bool) -> ItemWait {
+    ItemWait::AppBuild {
+        lane: "Mac".into(),
+        running,
+        how: "place 1 in the queue".into(),
+        queued: (!running).then(|| QueuedBuild {
+            place: 1,
+            of: 4,
+            line: "Asked 8m ago to run macos macos-tests.".into(),
+            steps: Some("macos macos-tests".into()),
+        }),
+    }
+}
+
+#[test]
+fn a_worktree_whose_app_build_has_not_started_is_queued_and_one_whose_build_runs_is_working() {
+    assert!(waits_in_queue(Some("working"), Some(&queued_wait(false))));
+    assert!(!waits_in_queue(Some("working"), Some(&queued_wait(true))));
+    assert!(!waits_in_queue(
+        Some("waiting-on-you"),
+        Some(&queued_wait(false))
+    ));
+    assert!(!waits_in_queue(Some("working"), None));
+}
+
+#[test]
+fn a_queued_card_names_the_lane_and_carries_its_place_and_what_it_asked() {
+    let card = words(
+        &card(Some("queued"), claim(None), Some(0)),
+        &[],
+        Some(&queued_wait(false)),
+    );
+    assert_eq!(card.chip, Some("Waiting on Mac"));
+    assert_eq!(card.line, "Asked 8m ago to run macos macos-tests.");
+    let queued = card.queued.unwrap();
+    assert_eq!((queued.place, queued.of), (1, 4));
+    assert_eq!(queued.steps.as_deref(), Some("macos macos-tests"));
 }

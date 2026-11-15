@@ -119,6 +119,19 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .orun .slow { flex-basis: 100%; padding-left: 58px; }
 .orun .checks { padding: 2px 0 6px 58px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 1px; }
 
+.lanes { align-items: start; }
+/* A lane's checkouts, each with what builds there, and the queue they share. */
+.lane-co + .lane-co { border-top: 1px solid color-mix(in srgb, var(--working) 25%, transparent); }
+.lane-co .co { display: flex; justify-content: space-between; align-items: baseline; }
+.lane-co .co .br { font: 500 12px var(--mono); }
+.lane-co .co .disk { font: 500 13px var(--mono); }
+.lane-wait { list-style: none; margin: 0; padding: 0 16px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.lane-wait li { display: grid; grid-template-columns: 18px minmax(0, 1fr) max-content max-content; gap: 10px; align-items: baseline; }
+.lane-wait .qp { font: 500 13px var(--mono); }
+.lane-wait .qb { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lane-wait .br, .lane-wait .qt { font: 12px var(--mono); color: var(--muted); }
+.lane.building .lane-wait .br, .lane.building .lane-wait .qt { color: color-mix(in srgb, var(--working) 80%, transparent); }
+
 /* A lane's wait figure and the times it opens: its steps, costliest first. */
 .wait-open .wp-steps { width: 100%; }
 .wait-open .wp-steps .wp-kind { color: var(--muted); font-size: 12px; width: 60px; }
@@ -159,6 +172,11 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .bar.building { background: var(--working-bg); color: var(--working); }
 .bar.ready { background: var(--ready-bg); color: var(--ready); }
 .bar.you { background: var(--you-bg); color: var(--you); }
+/* A worktree whose branch waits in an app build lane's queue. */
+.bar.queued { background: var(--winding-bg); color: var(--winding); }
+.bar.queued .disk { color: var(--winding); }
+.wt-card .steps { font: 12px var(--mono); }
+.bar .qplace { font: 500 12px var(--mono); margin-left: 4px; }
 .bar .grp { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; }
 .bar .state { font-weight: 600; }
 .bar .disk { margin-left: auto; font: 500 13px var(--mono); }
@@ -332,7 +350,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 "use strict";
 // The states the daemon derives for each side worktree (worktree_state in
 // model.rs), in the order the cards sort.
-const ORDER = ["waiting-on-you", "ready-to-land", "winding-down", "working", "held", "landing", "free"];
+const ORDER = ["waiting-on-you", "ready-to-land", "queued", "winding-down", "working", "held", "landing", "free"];
 const LISTS_HIDDEN_KEY = "builds-dashboard-lists-hidden";
 let state = null, streamError = "", connectionDown = false;
 let hooks = null, hooksError = "";
@@ -448,7 +466,8 @@ function detachedAt(c) {
 // in the order the cards sort. The main checkout has no card.
 function split(repo) {
   const sides = repo.checkouts.filter(c => c.live && !c.main && !c.app_checkout);
-  sides.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || byActivity(a, b));
+  const place = c => c.words.queued ? c.words.queued.place : 0;
+  sides.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || place(a) - place(b) || byActivity(a, b));
   return {sides};
 }
 
@@ -628,10 +647,18 @@ function commitCells(commits) {
 // that bar's second line, its title, one plain line, the commit waiting to
 // land, and a footer of times and tree state. The daemon words the state, the
 // line and the tree (cards.rs).
+// The card's line, with the steps a queued build asked for in the mono face.
+function queuedLine(words) {
+  const steps = words.queued && words.queued.steps;
+  const at = steps ? words.line.indexOf(steps) : -1;
+  if (at < 0) return words.line;
+  return [words.line.slice(0, at), h("span", {class: "steps"}, steps), words.line.slice(at + steps.length)];
+}
 function worktreeCard(c) {
   const g = c.git, a = c.activity, building = a.processes.length > 0;
   const chip = c.words.chip;
-  const tone = chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
+  const queued = c.words.queued;
+  const tone = queued ? " queued" : chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
   const ahead = g && !g.error ? g.ahead : [];
   const land = ahead.length ? h("div", {class: "land"},
     h("div", {class: "c"}, commitCells(ahead.slice(0, 1))),
@@ -639,13 +666,14 @@ function worktreeCard(c) {
       h("div", {class: "c"}, commitCells(ahead.slice(1)))) : null) : null;
   return h("article", {class: "wt-card"},
     h("div", {class: "bar" + tone},
-      h("span", {class: "grp"}, chip ? h("span", {class: "state"}, chip) : null,
+      h("span", {class: "grp"}, chip ? h("span", {class: "state"}, chip,
+        queued ? [" ", h("span", {class: "qplace"}, queued.place + "/" + queued.of)] : null) : null,
         building ? h("span", {}, Math.round(a.cpu) + "% CPU · " + bytes(a.memory)) : null),
       diskSpan(c),
       building ? h("span", {class: "bar-procs"}, icon("build", a.started), " · " + programs(programCounts(a.processes))) : null),
     h("div", {class: "t"}, h("span", {}, h("b", {}, c.name), " ", h("span", {class: "br", title: detachedAt(c)}, detachedAt(c)))),
     c.words.titles.map(title => h("div", {class: "title"}, title)),
-    c.words.line ? h("div", {class: "what"}, c.words.line) : null,
+    c.words.line ? h("div", {class: "what"}, queuedLine(c.words)) : null,
     g && g.error ? h("div", {class: "error"}, g.error) : null,
     land,
     cardLine(c));
@@ -653,42 +681,70 @@ function worktreeCard(c) {
 function hours(minutes) {
   return minutes >= 120 ? Math.round(minutes / 60) + " hours" : minutes === 1 ? "1 minute" : minutes + " minutes";
 }
-// An app checkout as a build lane: nobody owns it and builds take turns, so
-// it shows who builds now, what runs, and the builds waiting for it. The
-// daemon decides whether a held lock still belongs to a running build
-// (app_builds.rs).
-function laneCard(repo, ab) {
-  const lane = ab.lane.charAt(0).toUpperCase() + ab.lane.slice(1);
-  const key = repo.name + " " + ab.lane;
+// What builds in one app checkout of a lane: who, the programs, CPU and
+// memory. A checkout on another Mac shows no CPU and memory: only its lock is
+// read from here.
+function checkoutNow(ab) {
   const now = ab.now;
-  let nowEl;
   if (now.state === "building") {
-    nowEl = h("div", {class: "lane-now"},
+    return [
       h("div", {class: "who"}, now.who + " is building"),
       h("div", {class: "procs"}, icon("build", 0, now.minutes + "m"), " · " + programs(now.programs)),
-      h("div", {class: "use"}, Math.round(now.cpu) + "% CPU · " + bytes(now.memory)));
-  } else if (now.state === "stuck") {
-    nowEl = h("div", {class: "lane-now stuck"},
-      h("div", {class: "who"}, "Lock held " + hours(now.minutes) + " by a build that no longer runs"),
-      now.running.length ? h("div", {class: "procs-plain"}, now.running.join(", ")) : null);
-  } else {
-    nowEl = h("div", {class: "lane-now"}, h("div", {class: "who"}, "Nobody is building here."));
+      ab.remote ? null : h("div", {class: "use"}, Math.round(now.cpu) + "% CPU · " + bytes(now.memory))];
   }
-  const waiting = queueOf(repo, ab.lane).length;
+  if (now.state === "stuck") {
+    return [
+      h("div", {class: "who"}, "Lock held " + hours(now.minutes) + " by a build that no longer runs"),
+      now.running.length ? h("div", {class: "procs-plain"}, now.running.join(", ")) : null];
+  }
+  return [h("div", {class: "who"}, "Nobody is building here.")];
+}
+function capitalWord(word) { return word.charAt(0).toUpperCase() + word.slice(1); }
+// The count of waiting builds with its Build… button, then the queue's controls
+// when its count is clicked.
+function laneQueue(repo, al) {
+  const key = repo.name + " " + al.lane;
   const toggle = set => () => { if (!set.delete(key)) set.add(key); render(); };
-  return h("article", {class: "lane" + (now.state === "building" ? " building" : "")},
-    h("div", {class: "lane-head"},
-      h("span", {}, h("b", {}, lane + " app builds"), " ", h("span", {class: "br"}, ab.checkout + " · " + (now.state === "building" && now.branch ? now.branch : ab.checked_out))),
-      h("span", {class: "disk"}, ab.disk_kib === null ? "…" : size(ab.disk_kib))),
-    nowEl,
+  return [
     h("div", {class: "lane-q"},
-      h("span", {class: "qn"}, String(waiting)),
+      h("span", {class: "qn"}, String(al.waiting.length)),
       h("span", {class: "qw", role: "button", tabindex: "0", title: "Click to reorder or take out a waiting build", onclick: toggle(openQueue),
         onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(openQueue)(); } }}, "waiting"),
-      here ? h("button", {type: "button", class: "qbtn", title: "builds build-app " + repo.name + " " + ab.lane + " [ref]: build a ref here, default origin/main",
+      here ? h("button", {type: "button", class: "qbtn", title: "builds build-app " + repo.name + " " + al.lane + " [ref]: build a ref here, default origin/main",
         onclick: toggle(openBuild)}, "Build…") : h("span", {class: "queued"}, "Build: " + ONLY_HERE.toLowerCase())),
-    openQueue.has(key) ? queueList(repo, ab.lane) : null,
-    here && openBuild.has(key) ? buildPanelOf(repo, ab.lane).el : null);
+    openQueue.has(key) ? queueList(repo, al.lane) : null,
+    here && openBuild.has(key) ? buildPanelOf(repo, al.lane).el : null];
+}
+// An app build lane: nobody owns its checkouts and builds take turns, so it
+// shows, for each checkout, who builds now and what runs, then the builds
+// waiting for a checkout of the lane. A lane with one checkout is one block;
+// a lane with several has a row for each and lists its queue. The daemon decides
+// whether a held lock still belongs to a running build (app_builds.rs).
+function laneCard(repo, al) {
+  const lane = capitalWord(al.lane);
+  const building = al.checkouts.some(c => c.now.state === "building");
+  const cls = "lane" + (building ? " building" : "");
+  if (al.checkouts.length === 1) {
+    const ab = al.checkouts[0];
+    return h("article", {class: cls},
+      h("div", {class: "lane-head"},
+        h("span", {}, h("b", {}, lane + " app builds"), " ", h("span", {class: "br"}, ab.checkout + " · " + (ab.now.state === "building" && ab.now.branch ? ab.now.branch : ab.checked_out))),
+        ab.remote ? null : h("span", {class: "disk"}, ab.disk_kib === null ? "…" : size(ab.disk_kib))),
+      h("div", {class: "lane-now" + (ab.now.state === "stuck" ? " stuck" : "")}, checkoutNow(ab)),
+      laneQueue(repo, al));
+  }
+  const q = laneQueue(repo, al);
+  return h("article", {class: cls},
+    h("div", {class: "lane-head"}, h("span", {}, h("b", {}, lane + " app builds"), " ", h("span", {class: "br"}, al.checkouts.length + " checkouts"))),
+    al.checkouts.map(ab => h("div", {class: "lane-now lane-co" + (ab.now.state === "stuck" ? " stuck" : "")},
+      h("div", {class: "co"}, h("span", {class: "br", title: ab.now.state === "building" && ab.now.branch ? ab.now.branch : ab.checked_out}, ab.checkout),
+        ab.remote ? null : h("span", {class: "disk"}, ab.disk_kib === null ? "…" : size(ab.disk_kib))),
+      checkoutNow(ab))),
+    q[0],
+    h("ol", {class: "lane-wait"}, al.waiting.map((w, i) => h("li", {},
+      h("span", {class: "qp"}, String(i + 1)), h("span", {class: "qb"}, w.branch),
+      h("span", {class: "br"}, w.worktree || ""), h("span", {class: "qt"}, w.minutes + "m")))),
+    q.slice(1));
 }
 
 // Puts <items> ({key, data, make}) in <parent> in order, keeping each
@@ -742,10 +798,10 @@ function reposView(root) {
     const open = showFree.has(repo.name) && free.length > 0;
     const lanes = group.querySelector(".lanes");
     lanes.hidden = repo.app_builds.length === 0;
-    patch(lanes, repo.app_builds.map(ab => ({key: "lane " + ab.lane + " " + ab.checkout,
-      data: [ab, queueOf(repo, ab.lane), openQueue.has(repo.name + " " + ab.lane), openBuild.has(repo.name + " " + ab.lane),
-        openQueue.has(repo.name + " " + ab.lane) ? repo.locks.filter(l => l.lane === ab.lane) : null],
-      make: () => laneCard(repo, ab)})));
+    patch(lanes, repo.app_builds.map(al => ({key: "lane " + al.lane,
+      data: [al, queueOf(repo, al.lane), openQueue.has(repo.name + " " + al.lane), openBuild.has(repo.name + " " + al.lane),
+        openQueue.has(repo.name + " " + al.lane) ? repo.locks.filter(l => l.lane === al.lane) : null],
+      make: () => laneCard(repo, al)})));
     const cards = [...busy, ...(open ? free : [])].map(c => ({key: c.name, data: c, make: () => worktreeCard(c)}));
     if (free.length) cards.push({key: "free-tile", data: [free.length, open], make: () => freeTile(repo, free.length, open)});
     patch(group.querySelector(".wts"), cards);

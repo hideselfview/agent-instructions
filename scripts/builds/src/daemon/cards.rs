@@ -18,11 +18,26 @@ pub enum ItemWait {
         lane: String,
         running: bool,
         how: String,
+        /// Its place in the lane's queue, when it has not started.
+        queued: Option<QueuedBuild>,
     },
     /// Another item.
     Item { id: u32, title: String },
     /// Commits of a design branch that no recorded design change covers.
     Unrecorded,
+}
+
+/// A build that waits in a lane's queue.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct QueuedBuild {
+    /// Its place, 1 for the next build to start.
+    pub place: usize,
+    /// How many builds wait in the lane.
+    pub of: usize,
+    /// "Asked 8m ago to run macos macos-tests."
+    pub line: String,
+    /// The steps in `line`, which the page draws in the mono face.
+    pub steps: Option<String>,
 }
 
 impl ItemWait {
@@ -58,6 +73,7 @@ impl ItemWait {
                 lane,
                 running: true,
                 how,
+                ..
             } => format!("{lane} app build: {how}"),
             ItemWait::AppBuild { lane, how, .. } => {
                 format!("Waits on the {lane} app build: {how}")
@@ -83,6 +99,14 @@ pub fn keeps_working(state: Option<&str>, shell: bool, wait: Option<&ItemWait>) 
             ))
 }
 
+/// Does a worktree in <state> wait for an app build that has not started? Its
+/// running item's build waits in a lane's queue, so the card says so in place
+/// of Working.
+pub fn waits_in_queue(state: Option<&str>, wait: Option<&ItemWait>) -> bool {
+    matches!(state, Some("working"))
+        && matches!(wait, Some(ItemWait::AppBuild { running: false, .. }))
+}
+
 /// What a card says in words.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Words {
@@ -98,6 +122,9 @@ pub struct Words {
     pub line: String,
     /// `clean` or `N files changed`; None when git was not read here.
     pub tree: Option<String>,
+    /// The place in a lane's queue of a worktree that waits for its app
+    /// build to start.
+    pub queued: Option<QueuedBuild>,
 }
 
 fn tree(checkout: &CheckoutPage) -> Option<String> {
@@ -119,6 +146,7 @@ pub fn words(checkout: &CheckoutPage, titles: &[String], wait: Option<&ItemWait>
             titles: Vec::new(),
             line: "Your checkout. No agent works or builds here.".into(),
             tree,
+            queued: None,
         };
     }
     // A running item's title replaces the claim note.
@@ -137,6 +165,10 @@ pub fn words(checkout: &CheckoutPage, titles: &[String], wait: Option<&ItemWait>
         }
     };
     let (chip, line) = match checkout.state {
+        Some("queued") => match wait {
+            Some(ItemWait::AppBuild { lane, .. }) => (Some(queued_chip(lane)), String::new()),
+            _ => (Some("Working"), String::new()),
+        },
         Some("waiting-on-you") if wait.is_some_and(ItemWait::needs_person) => (
             Some("Waiting on you"),
             wait.map(|w| w.line(titled)).unwrap_or_default(),
@@ -185,8 +217,37 @@ pub fn words(checkout: &CheckoutPage, titles: &[String], wait: Option<&ItemWait>
             Some(ItemWait::Review { title, .. }) if !titled => vec![title.clone()],
             _ => titles.to_vec(),
         },
-        line,
+        line: match (checkout.state, wait) {
+            (
+                Some("queued"),
+                Some(ItemWait::AppBuild {
+                    queued: Some(queued),
+                    ..
+                }),
+            ) => queued.line.clone(),
+            _ => line,
+        },
         tree,
+        queued: match (checkout.state, wait) {
+            (
+                Some("queued"),
+                Some(ItemWait::AppBuild {
+                    queued: Some(queued),
+                    ..
+                }),
+            ) => Some(queued.clone()),
+            _ => None,
+        },
+    }
+}
+
+/// The chip of a worktree that waits for the app build lane <lane> to start
+/// its build.
+fn queued_chip(lane: &str) -> &'static str {
+    if lane == "Android" {
+        "Waiting on Android"
+    } else {
+        "Waiting on Mac"
     }
 }
 

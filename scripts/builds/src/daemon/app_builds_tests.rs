@@ -125,7 +125,7 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
     );
     let lanes = build(&page);
     assert_eq!(lanes.len(), 1);
-    let lane = &lanes[0];
+    let lane = &lanes[0].checkouts[0];
     assert_eq!(lane.checked_out, "detached at 9e8d3d5");
     assert_eq!(lane.disk_kib, Some(18_000_000));
     assert_eq!(
@@ -148,10 +148,19 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
             memory: 6_000,
         }
     );
+    let waiting: Vec<(&str, Option<&str>)> = lanes[0]
+        .waiting
+        .iter()
+        .map(|w| (w.branch.as_str(), w.worktree.as_deref()))
+        .collect();
     assert_eq!(
-        lane.waiting,
-        vec!["read-shape-apps-b2".to_string(), "bae-main".to_string()]
+        waiting,
+        vec![
+            ("read-shape-apps-b2", Some("side-9")),
+            ("bae-main", Some("bae-main"))
+        ]
     );
+    assert_eq!(lanes[0].waiting[0].minutes, 1);
 }
 
 #[test]
@@ -169,7 +178,7 @@ fn a_lock_only_leftover_processes_hold_is_stuck_and_a_running_build_is_not() {
         Vec::new(),
     );
     assert_eq!(
-        build(&stuck)[0].now,
+        build(&stuck)[0].checkouts[0].now,
         Now::Stuck {
             minutes: 37 * 60,
             running: vec!["adb -L tcp:5037".into()]
@@ -182,7 +191,10 @@ fn a_lock_only_leftover_processes_hold_is_stuck_and_a_running_build_is_not() {
         vec![lock("side-13", 37 * 60, "/d/bae-worktrees/side-2", &[])],
         Vec::new(),
     );
-    assert!(matches!(build(&building)[0].now, Now::Building { .. }));
+    assert!(matches!(
+        build(&building)[0].checkouts[0].now,
+        Now::Building { .. }
+    ));
 }
 
 #[test]
@@ -196,8 +208,27 @@ fn a_free_lock_is_idle_and_the_mac_lane_comes_first() {
         lanes.iter().map(|l| l.lane.as_str()).collect::<Vec<_>>(),
         vec!["mac", "android"]
     );
-    assert_eq!(lanes[0].now, Now::Idle);
-    assert_eq!(lanes[1].checked_out, "android-branch");
+    assert_eq!(lanes[0].checkouts[0].now, Now::Idle);
+    assert_eq!(lanes[1].checkouts[0].checked_out, "android-branch");
+}
+
+/// The wait of a build as `build_for` words it, ignoring a queued build's
+/// place, which its own test checks.
+fn app_build(lane: &str, running: bool, how: &str) -> (String, bool, String) {
+    (lane.to_string(), running, how.to_string())
+}
+
+fn flat(wait: Option<ItemWait>) -> Option<(String, bool, String)> {
+    match wait? {
+        ItemWait::AppBuild {
+            lane, running, how, ..
+        } => Some((lane, running, how)),
+        other => panic!("not an app build: {other:?}"),
+    }
+}
+
+fn how_of(wait: Option<ItemWait>) -> String {
+    flat(wait).unwrap().2
 }
 
 fn branch_built_by(command: &str) -> Option<String> {
@@ -205,7 +236,12 @@ fn branch_built_by(command: &str) -> Option<String> {
     app.activity.processes = vec![process("xcodebuild")];
     let mut held = lock("side-1", 3, "/d/bae-worktrees/side-5", &[]);
     held.holder.as_mut().unwrap().command = command.into();
-    match build(&repo(vec![app], vec![held], vec![])).remove(0).now {
+    match build(&repo(vec![app], vec![held], vec![]))
+        .remove(0)
+        .checkouts
+        .remove(0)
+        .now
+    {
         Now::Building { branch, .. } => branch,
         other => panic!("not building: {other:?}"),
     }
@@ -251,19 +287,19 @@ fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
         ],
     );
     assert_eq!(
-        build_for(&page, "mac-alerts"),
-        Some((
-            "Mac".into(),
+        flat(build_for(&page, "mac-alerts")),
+        Some(app_build(
+            "Mac",
             true,
-            "builds in side-1 for 6 minutes, asked for macos".into()
+            "builds in side-1 for 6 minutes, asked for macos"
         ))
     );
     assert_eq!(
-        build_for(&page, "reads-import-count"),
-        Some((
-            "Mac".into(),
+        flat(build_for(&page, "reads-import-count")),
+        Some(app_build(
+            "Mac",
             false,
-            "place 2 in the queue, waiting 1 minute, asked for every step".into()
+            "place 2 in the queue, waiting 1 minute, asked for every step"
         ))
     );
     assert_eq!(build_for(&page, "no-build"), None);
@@ -337,31 +373,108 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
         queue,
     );
     assert_eq!(
-        build_for(&page, "mac-alerts"),
-        Some((
-            "Mac".into(),
+        flat(build_for(&page, "mac-alerts")),
+        Some(app_build(
+            "Mac",
             false,
-            "place 1 in the queue, waiting 20 minutes, asked for macos macos-tests".into()
+            "place 1 in the queue, waiting 20 minutes, asked for macos macos-tests"
         ))
     );
     assert_eq!(
-        build_for(&page, "reads-import-count").unwrap().2,
+        how_of(build_for(&page, "reads-import-count")),
         "place 2 in the queue, waiting 20 minutes, asked for macos macos-tests"
     );
     assert_eq!(
-        build_for(&page, "reads-storage").unwrap().2,
+        how_of(build_for(&page, "reads-storage")),
         "place 3 in the queue, waiting 20 minutes, asked for macos macos-tests"
     );
     assert_eq!(
-        build_for(&page, "reads-auto-picks"),
-        Some((
-            "Mac".into(),
+        flat(build_for(&page, "reads-auto-picks")),
+        Some(app_build(
+            "Mac",
             true,
-            "builds in side-1 for 27 minutes, asked for macos macos-tests".into()
+            "builds in side-1 for 27 minutes, asked for macos macos-tests"
         ))
     );
     assert_eq!(
         branch_of(&line("mac-alerts", "macos")),
         Some("mac-alerts".into())
     );
+}
+
+#[test]
+fn a_queued_build_knows_its_place_the_queues_length_and_what_it_asked() {
+    let page = repo(
+        vec![checkout("side-1", Some("mac"), None)],
+        Vec::new(),
+        vec![
+            queued(
+                "/d/bae-worktrees/side-9",
+                "builds app-build bae other macos",
+            ),
+            Queued {
+                minutes: 8,
+                ..queued(
+                    "/d/bae-worktrees/side-4",
+                    "builds app-build bae --lane mac mine macos macos-tests",
+                )
+            },
+            queued("/d/bae-worktrees/side-5", "builds app-build bae third"),
+        ],
+    );
+    let Some(ItemWait::AppBuild {
+        running: false,
+        queued: Some(queued),
+        ..
+    }) = build_for(&page, "mine")
+    else {
+        panic!("not a queued build");
+    };
+    assert_eq!((queued.place, queued.of), (2, 3));
+    assert_eq!(queued.line, "Asked 8m ago to run macos macos-tests.");
+    assert_eq!(queued.steps.as_deref(), Some("macos macos-tests"));
+    let Some(ItemWait::AppBuild {
+        queued: Some(every),
+        ..
+    }) = build_for(&page, "third")
+    else {
+        panic!("not a queued build");
+    };
+    assert_eq!(every.line, "Asked 1m ago to run every step.");
+    assert_eq!(every.steps, None);
+}
+
+#[test]
+fn a_lane_has_a_row_for_each_checkout_here_and_for_each_on_another_mac() {
+    let mut remote = lock(
+        "m1:mac-1",
+        4,
+        "/d/bae-worktrees/side-5",
+        &["/usr/bin/xcodebuild -x"],
+    );
+    remote.holder.as_mut().unwrap().app_head = Some("abcdef0123456789".into());
+    let page = repo(
+        vec![
+            checkout("side-14", Some("mac"), None),
+            checkout("side-1", Some("mac"), None),
+        ],
+        vec![remote, lock("side-1", 6, "/d/bae-worktrees/side-5", &[])],
+        Vec::new(),
+    );
+    let lanes = build(&page);
+    assert_eq!(lanes.len(), 1);
+    let rows: Vec<(&str, bool)> = lanes[0]
+        .checkouts
+        .iter()
+        .map(|c| (c.checkout.as_str(), c.remote))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![("side-1", false), ("side-14", false), ("m1:mac-1", true)]
+    );
+    let m1 = &lanes[0].checkouts[2];
+    assert_eq!(m1.disk_kib, None);
+    assert_eq!(m1.checked_out, "detached at abcdef0");
+    assert!(matches!(&m1.now, Now::Building { programs, .. } if programs[0].name == "xcodebuild"));
+    assert_eq!(lanes[0].checkouts[1].now, Now::Idle);
 }
