@@ -177,11 +177,7 @@ pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
     match project {
         Some(project) => set_project(places, &checkout, Some(project))?,
         None => {
-            let kept = match std::fs::read_to_string(checkout.project_file()) {
-                Ok(text) => Some(text.trim().to_string()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => fail!("reading {}: {error}", checkout.project_file().display()),
-            };
+            let kept = checkout.claimed_project()?;
             require_project_named(places, &checkout.repo(), kept.as_deref())?;
         }
     }

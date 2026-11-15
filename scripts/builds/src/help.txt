@@ -200,8 +200,8 @@ landing rebases or cherry-picks it.
                               it is, and a repo that two projects hold
                               (agent-instructions is in bae and builds)
                               requires it: every lists command run in the
-                              worktree, `release` and the dashboard then use
-                              P's lists
+                              worktree, `release`, `health` and the dashboard
+                              then use P's lists
   builds claim <checkout> <who> [--project P]
                               record that <who> works in the side worktree
                               (--project as for `new`; a claim renewed without

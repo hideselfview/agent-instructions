@@ -770,6 +770,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
             top: checkout.top.clone(),
             repo: checkout.repo(),
             claim: claim.clone(),
+            project: checkout.claimed_project()?,
             app_checkout: tool
                 .places
                 .app_lane_of(&checkout.repo(), &checkout.name())?

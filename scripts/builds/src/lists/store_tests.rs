@@ -628,3 +628,34 @@ fn the_integrity_checks_name_a_row_that_points_at_nothing_and_one_that_breaks_a_
         "{found:?}"
     );
 }
+
+#[test]
+fn the_lists_of_a_repo_two_projects_hold_are_those_of_the_project_a_claim_names() {
+    let both = |name: &str| {
+        let mut lists = crate::lists::fixtures::read(&crate::lists::fixtures::db());
+        lists.project = name.to_string();
+        lists.repos = vec!["agent-instructions".into()];
+        Loaded {
+            project: name.to_string(),
+            lists: Ok(lists),
+        }
+    };
+    let top = Path::new("/w/agent-instructions-worktrees/side-1");
+    let two = Ok(vec![both("bae"), both("builds")]);
+    let name = |found: Option<&Lists>| found.map(|l| l.project.clone());
+    assert_eq!(name(lists_of(&two, top, "agent-instructions", None)), None);
+    assert_eq!(
+        name(lists_of(&two, top, "agent-instructions", Some("builds"))),
+        Some("builds".to_string())
+    );
+    assert_eq!(
+        name(lists_of(&two, top, "agent-instructions", Some("web"))),
+        None
+    );
+    assert_eq!(name(lists_of(&two, top, "elsewhere", None)), None);
+    let one = Ok(vec![both("bae")]);
+    assert_eq!(
+        name(lists_of(&one, top, "agent-instructions", None)),
+        Some("bae".to_string())
+    );
+}

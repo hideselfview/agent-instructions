@@ -502,29 +502,68 @@ pub fn projects_holding(places: &Places, repo: &str) -> Result<Vec<String>> {
 /// worktree that names none, is refused.
 pub fn project_of(places: &Places, checkout: &Checkout) -> Result<Option<String>> {
     let repo = checkout.repo();
-    let mut found = projects_holding(places, &repo)?;
-    match std::fs::read_to_string(checkout.project_file()) {
-        Ok(text) => {
-            let named = text.trim();
-            if !found.iter().any(|held| held == named) {
-                fail!(
-                    "{} is claimed for project {named}, which does not hold repo {repo}; \
-                     builds claim it again with --project",
-                    checkout.top.display()
-                );
-            }
-            return Ok(Some(named.to_string()));
+    choose_project(
+        &checkout.top,
+        &repo,
+        checkout.claimed_project()?.as_deref(),
+        projects_holding(places, &repo)?,
+    )
+}
+
+/// The lists of the project a worktree at <top> of <repo>, whose claim names
+/// <named>, is in, chosen among <loaded> as `project_of` chooses. None when
+/// the repo is in no project, when the choice is refused, or when the
+/// project's store fails its check.
+pub fn lists_of<'a>(
+    loaded: &'a std::result::Result<Vec<Loaded>, String>,
+    top: &Path,
+    repo: &str,
+    named: Option<&str>,
+) -> Option<&'a Lists> {
+    let loaded = loaded.as_deref().ok()?;
+    let holding = loaded
+        .iter()
+        .filter(
+            |one| matches!(&one.lists, Ok(lists) if lists.repos.iter().any(|held| held == repo)),
+        )
+        .map(|one| one.project.clone())
+        .collect();
+    let project = choose_project(top, repo, named, holding).ok()??;
+    loaded
+        .iter()
+        .find(|one| one.project == project)?
+        .lists
+        .as_ref()
+        .ok()
+}
+
+/// The project of a worktree at <top> of <repo> among <holding>, the projects
+/// that hold the repo: the one its claim names (<named>), else the only one.
+/// Refused when the named project does not hold the repo, or when two hold it
+/// and the claim names none.
+fn choose_project(
+    top: &Path,
+    repo: &str,
+    named: Option<&str>,
+    mut holding: Vec<String>,
+) -> Result<Option<String>> {
+    if let Some(named) = named {
+        if !holding.iter().any(|held| held == named) {
+            fail!(
+                "{} is claimed for project {named}, which does not hold repo {repo}; \
+                 builds claim it again with --project",
+                top.display()
+            );
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => fail!("reading {}: {error}", checkout.project_file().display()),
+        return Ok(Some(named.to_string()));
     }
-    match found.len() {
+    match holding.len() {
         0 => Ok(None),
-        1 => Ok(found.pop()),
+        1 => Ok(holding.pop()),
         _ => fail!(
             "repo {repo} is in two projects ({}); say which with --project, or claim the \
              worktree with --project",
-            found.join(", ")
+            holding.join(", ")
         ),
     }
 }

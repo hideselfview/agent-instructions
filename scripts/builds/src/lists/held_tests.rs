@@ -132,6 +132,7 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
             note: Some("kept".into()),
             note_state: state.map(str::to_string),
         },
+        project: None,
         app_checkout: false,
         ahead,
     }
@@ -354,5 +355,31 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
         findings(&loaded(read(&db)), &[waiting])
             .iter()
             .all(|line| !line.contains("no item runs there"))
+    );
+}
+
+#[test]
+fn health_reads_the_lists_of_the_project_a_claim_names_in_a_repo_two_projects_hold() {
+    // Both projects hold the fixture's repo bae; the item runs in the second's lists.
+    let named = |project: &str, db: &rusqlite::Connection| {
+        let mut lists = read(db);
+        lists.project = project.into();
+        Loaded {
+            project: project.into(),
+            lists: Ok(lists),
+        }
+    };
+    let (first, second) = (db(), db());
+    let id = item(&second, vec![]);
+    running_in_db(&second, id, "/w/bae-worktrees/side-1");
+    let loaded = Ok(vec![named("first", &first), named("second", &second)]);
+    let mut tree = bae_worktree(None);
+    tree.project = Some("second".into());
+    assert!(findings(&loaded, std::slice::from_ref(&tree)).is_empty());
+    tree.project = Some("first".into());
+    let found = findings(&loaded, std::slice::from_ref(&tree));
+    assert!(
+        found.len() == 1 && found[0].contains("no item runs there"),
+        "{found:?}"
     );
 }

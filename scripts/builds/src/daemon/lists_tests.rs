@@ -387,33 +387,6 @@ fn a_running_item_waits_on_its_question_before_another_item() {
 }
 
 #[test]
-fn a_repo_two_projects_hold_resolves_by_the_name_a_claim_gives() {
-    let both = |name: &str| {
-        let mut lists = read(&db());
-        lists.project = name.to_string();
-        lists.repos = vec!["agent-instructions".into()];
-        loaded(name, Ok(lists))
-    };
-    let snapshot: Snapshot = Ok(vec![both("bae"), both("builds")]);
-    let name = |found: Option<&crate::lists::Lists>| found.map(|l| l.project.clone());
-    assert_eq!(name(lists_for(&snapshot, "agent-instructions", None)), None);
-    assert_eq!(
-        name(lists_for(&snapshot, "agent-instructions", Some("builds"))),
-        Some("builds".to_string())
-    );
-    assert_eq!(
-        name(lists_for(&snapshot, "agent-instructions", Some("web"))),
-        None
-    );
-    assert_eq!(name(lists_for(&snapshot, "elsewhere", None)), None);
-    let one: Snapshot = Ok(vec![both("bae")]);
-    assert_eq!(
-        name(lists_for(&one, "agent-instructions", None)),
-        Some("bae".to_string())
-    );
-}
-
-#[test]
 fn a_design_change_id_two_projects_both_hold_opens_by_its_project() {
     let with_design = |name: &str| {
         let db = db();

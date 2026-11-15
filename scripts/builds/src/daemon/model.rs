@@ -964,16 +964,18 @@ impl Model {
                 .collect();
             for checkout in &mut repo.checkouts {
                 if checkout.live && !checkout.app_checkout {
-                    // The project its claim names, for a repo two projects hold.
                     let claimed = state
                         .roots
                         .iter()
                         .filter_map(|root| root.live.as_ref())
                         .find(|live| live.top == Path::new(&checkout.path))
-                        .and_then(|live| std::fs::read_to_string(live.project_file()).ok())
-                        .map(|text| text.trim().to_string());
-                    let project =
-                        super::lists::lists_for(&snapshot, &repo.name, claimed.as_deref());
+                        .and_then(|live| live.claimed_project().ok().flatten());
+                    let project = crate::lists::store::lists_of(
+                        &snapshot,
+                        Path::new(&checkout.path),
+                        &repo.name,
+                        claimed.as_deref(),
+                    );
                     let titles = project
                         .map(|lists| super::lists::running_titles(lists, &checkout.path))
                         .unwrap_or_default();
@@ -1127,6 +1129,7 @@ fn claimed_of(
             top: checkout.top.clone(),
             repo: checkout.repo(),
             claim: claim.clone(),
+            project: checkout.claimed_project()?,
             app_checkout: tool_places
                 .app_lane_of(&checkout.repo(), &checkout.name())?
                 .is_some(),

@@ -167,32 +167,6 @@ pub fn running_worktrees(snapshot: &Snapshot) -> Vec<String> {
         .collect()
 }
 
-/// The lists a worktree of <repo> belongs to: the project <claimed> names
-/// (the worktree's claim, for a repo two projects hold), else the one
-/// project that holds the repo. None for no project, a repo several hold with
-/// none named, or a store that fails its check.
-pub fn lists_for<'a>(
-    snapshot: &'a Snapshot,
-    repo: &str,
-    claimed: Option<&str>,
-) -> Option<&'a crate::lists::Lists> {
-    let holders: Vec<&Loaded> = snapshot
-        .as_deref()
-        .ok()?
-        .iter()
-        .filter(|loaded| match &loaded.lists {
-            Ok(lists) => lists.repos.iter().any(|held| held == repo),
-            Err(_) => false,
-        })
-        .collect();
-    let found = match (claimed, holders.as_slice()) {
-        (Some(named), _) => holders.iter().find(|loaded| loaded.project == named)?,
-        (None, [one]) => one,
-        _ => return None,
-    };
-    found.lists.as_ref().ok()
-}
-
 /// The items running in <worktree>, in the order the items are listed.
 fn running_items<'a>(
     lists: &'a crate::lists::Lists,

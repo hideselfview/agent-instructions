@@ -13,7 +13,7 @@ use crate::fail::Result;
 use crate::lists::design::DesignChange;
 use crate::lists::design_paths::{Changes, Globs, changes_of};
 use crate::lists::running::running_in;
-use crate::lists::store::{Loaded, Store, project_of};
+use crate::lists::store::{Loaded, Store, lists_of, project_of};
 use crate::lists::{Item, Lists, Located, Standing, Wait};
 use crate::places::Places;
 
@@ -95,10 +95,20 @@ pub struct Worktree {
     pub top: PathBuf,
     pub repo: String,
     pub claim: Claim,
+    /// The project the claim names (`builds claim --project`), None when it
+    /// names none.
+    pub project: Option<String>,
     /// Is it one of the repo's recorded app checkouts?
     pub app_checkout: bool,
     /// The commits origin/main has no copy of, oldest first.
     pub ahead: Vec<String>,
+}
+
+impl Worktree {
+    /// The lists of the project its work is in (`store::lists_of`).
+    fn lists<'a>(&self, loaded: &'a std::result::Result<Vec<Loaded>, String>) -> Option<&'a Lists> {
+        lists_of(loaded, &self.top, &self.repo, self.project.as_deref())
+    }
 }
 
 /// Does open design change <design> hold every place <changes> changes?
@@ -133,17 +143,10 @@ pub fn awaiting_review(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
 ) -> Vec<String> {
-    let Ok(loaded) = loaded else {
-        return Vec::new();
-    };
     worktrees
         .iter()
         .filter(|worktree| {
-            let Some(lists) = loaded
-                .iter()
-                .filter_map(|project| project.lists.as_ref().ok())
-                .find(|lists| lists.repos.contains(&worktree.repo))
-            else {
+            let Some(lists) = worktree.lists(loaded) else {
                 return false;
             };
             let globs = Globs::of(lists, &worktree.repo);
@@ -171,16 +174,9 @@ pub fn findings(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
 ) -> Vec<String> {
-    let Ok(loaded) = loaded else {
-        return Vec::new();
-    };
     let mut found = Vec::new();
     for worktree in worktrees {
-        let Some(lists) = loaded
-            .iter()
-            .filter_map(|project| project.lists.as_ref().ok())
-            .find(|lists| lists.repos.contains(&worktree.repo))
-        else {
+        let Some(lists) = worktree.lists(loaded) else {
             continue;
         };
         let top = worktree.top.display().to_string();

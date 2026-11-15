@@ -178,6 +178,15 @@ impl Checkout {
         self.git_dir.join("builds-project")
     }
 
+    /// The project the worktree's project file names, None when it has none.
+    pub fn claimed_project(&self) -> Result<Option<String>> {
+        match std::fs::read_to_string(self.project_file()) {
+            Ok(text) => Ok(Some(text.trim().to_string())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => fail!("reading {}: {error}", self.project_file().display()),
+        }
+    }
+
     /// The branch checked out, or None when HEAD is detached.
     pub fn branch(&self) -> Result<Option<String>> {
         let output = git(&self.top)
