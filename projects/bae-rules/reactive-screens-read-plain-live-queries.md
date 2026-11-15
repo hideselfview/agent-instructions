@@ -1,5 +1,5 @@
 ---
-digest: What a bae screen shows is what its SQL query returns, with no cache, enrichment or other step between the query and the screen, except values that change many times a second (keyed latest-value streams) and state that lives only on screen (held by the view). A read that follows changes is one coven live query; any other read is a plain SQL read. Each window of a long list is its own live query bounded by a key at both ends. Rust and the apps never keep memory between reads, run a side pass, force a rerun, pick a read path by size, or filter, sort, join, group or count rows SQL returned, and nothing answers from the rows a screen has loaded.
+digest: A bae screen shows the rows of its SQL query, with no cache, enrichment or other step between the query and the screen, except values that change many times a second (keyed latest-value streams) and state that exists only on screen (kept by the view). A read that follows changes is one coven live query; any other read is a plain SQL read. Each window of a long list is its own live query bounded by a key at both ends. Rust and the apps never keep memory between reads, run a side pass, force a rerun, pick a read path by size, or filter, sort, join, group or count rows SQL returned, and nothing answers from the rows a screen has loaded.
 paths:
   - bae-*/src/**/*.rs
   - '**/*.sql'
@@ -11,8 +11,8 @@ blocking: true
 
 ## Reactive screens read plain live queries
 
-What a screen shows is what its SQL query returns: its rows, and their counts,
-totals, section headers, "N of M", sums and facets. Rust turns the rows into
+A screen shows the rows of its SQL query, and the counts, totals, section
+headers, "N of M", sums and facets that come with them. Rust turns the rows into
 bridge types and the app draws them, with no cache, enrichment or other step
 between the query and the screen. A long list shows several windows at a time,
 and each window is its own live query.
