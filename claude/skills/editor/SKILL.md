@@ -58,6 +58,25 @@ own sense ("lands") the first time it appears.
 Section headers give the structure. A header names what the section holds
 ("Crates and apps"), never a vague stand-in for it ("The parts", "Data").
 
+## Break long bullets into sub-bullets
+
+This applies only to text that is already a list; don't turn prose into lists.
+Inside a list, don't shy away from sub-bullets: look for every chance to turn a
+long bullet into a short bullet with sub-bullets.
+
+- Keep a bullet's first line to the one statement that names its thing ("bae-ios
+  is paused until macOS and Android are done"), and put the details in
+  sub-bullets under it.
+- When a bullet names several items, each with its own detail, give each item
+  its own sub-bullet.
+- Give each thing of the same kind its own bullet at the same level. Four apps
+  are four bullets, not one bullet about two apps with the other two nested
+  under it.
+- Nest a bullet only under the thing it belongs to. A sub-bullet says something
+  about its parent: the iOS app's rules go under the iOS app.
+- Introduce a list with a sentence ("bae has four apps:"), never with a label
+  ("The apps:").
+
 ## Fix each sentence
 
 Every sentence is plain, literal and active
@@ -66,7 +85,9 @@ Every sentence is plain, literal and active
 - Read every verb and ask whether it says literally what happens. Verbs of place
   and body (sits, lives, holds, lands, draws, frees) are the usual figures of
   speech: "bae-app sits over bae-library" becomes "bae-app uses bae-library",
-  and "keep the build warm" becomes "keep it built".
+  and "keep the build warm" becomes "keep it built". "Point at" and "aim at" are
+  figures too: "point the agent at the file" becomes "give the agent the file's
+  path".
 - Cull "The X" labels hard: a header or bold label made of "the" and a noun
   ("The parts", "**The keychain.**") stands where a name or a statement belongs.
   Name what the section holds, or start the list item with its sentence. A bold
@@ -75,6 +96,15 @@ Every sentence is plain, literal and active
 - Give each sentence one idea, but don't split by rule: one sentence with a list
   of parallel items reads better than four sentences in a row that start
   "Don't".
+- Don't announce what comes next ("I'll make three points", "Here's what you
+  need to know", "There are two exceptions."): say it. This is the sentence form
+  of the section list the overview leaves out.
+- Cut hype: dramatic stakes, grand framing, or importance the facts don't carry
+  ("this changes everything", "the heart of bae", "a critical safeguard"). Say
+  what the thing does and let the reader judge its weight.
+- Eradicate clefts. A cleft splits a plain sentence in two to stage it: "What a
+  screen shows is what its query returns", "What matters is X", "It is X that
+  Y". Write the plain sentence: "A screen shows its query's rows."
 - Use one term for each thing; don't rotate synonyms.
 - Match the wording to the strength of the rule: "must" for a rule, never "can".
 - Don't let an example suggest it is the only case. When many things work the
