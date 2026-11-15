@@ -271,8 +271,12 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 a.l-ref { color: var(--accent); text-decoration: underline dotted; text-underline-offset: 2px; cursor: pointer; }
 a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .l-note { background: var(--waiting-bg); border-radius: 8px; padding: 6px 10px; font-size: 13px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
-.l-flow { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--text-2); }
-.l-flow .k { color: var(--muted); }
+.l-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.l-flow .fl-col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.l-flow .fl-k { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 2px; }
+.l-flow .fl-row { display: flex; align-items: baseline; gap: 6px; font-size: 13px; color: var(--text-2); }
+.l-flow .fl-n { font: 500 18px var(--mono); color: var(--text); }
+.l-flow .fl-by { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .l-empty { font-size: 13px; color: var(--muted); padding: 4px 2px; }
 .l-sep { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; width: 100%; }
 @keyframes l-flash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 3px transparent; } }
@@ -1224,22 +1228,29 @@ function workRow(w) {
     "l-work");
 }
 function sum(obj) { return Object.values(obj || {}).reduce((a, b) => a + b, 0); }
-function split2(obj) { const parts = Object.entries(obj || {}).map(([k, v]) => k + " " + v); return parts.length ? " (" + parts.join(", ") + ")" : ""; }
+// "design-session" reads "design session"; the person reads "you".
+function openerWord(by) { return by === "person" ? "you" : by.replace(/-/g, " "); }
 function localDay(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
-function flowLine(label, days) {
+// The counts of some days as a column: the number opened and who opened them,
+// then the number closed and how, most first.
+function flowColumn(label, days) {
   const opened = {}, closed = {};
   for (const d of days) {
-    for (const [k, v] of Object.entries(d.opened || {})) opened[k] = (opened[k] || 0) + v;
+    for (const [k, v] of Object.entries(d.opened || {})) { const w = openerWord(k); opened[w] = (opened[w] || 0) + v; }
     for (const [k, v] of Object.entries(d.closed || {})) closed[k] = (closed[k] || 0) + v;
   }
-  return h("div", {class: "l-fact"}, h("span", {class: "k"}, label), " opened ", String(sum(opened)), split2(opened),
-    ", closed ", String(sum(closed)), split2(closed));
+  const split = obj => Object.entries(obj).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, v]) => k + " " + v).join(" · ");
+  return h("div", {class: "fl-col"}, h("span", {class: "fl-k"}, label),
+    h("div", {class: "fl-row"}, h("span", {class: "fl-n"}, String(sum(opened))), h("span", {}, "opened")),
+    h("div", {class: "fl-by"}, split(opened)),
+    h("div", {class: "fl-row"}, h("span", {class: "fl-n"}, String(sum(closed))), h("span", {}, "closed")),
+    h("div", {class: "fl-by"}, split(closed)));
 }
 function workHead() {
   const today = localDay(new Date());
   return h("div", {class: "l-flow"},
-    flowLine("Today:", lists.flow.filter(d => d.day === today)),
-    flowLine("Last " + RECENT_DAYS + " days:", lists.flow));
+    flowColumn("Today", lists.flow.filter(d => d.day === today)),
+    flowColumn("Last " + RECENT_DAYS + " days", lists.flow));
 }
 function rows(its, one) { return h("div", {class: "l-works"}, its.map(one || itemRow)); }
 // A running work whose worktree has commits waiting to land is Ready to land;
