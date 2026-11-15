@@ -72,7 +72,7 @@ rules = [
   "a-mechanism-must-be-load-bearing",
   "settle-edge-cases-from-the-facts-not-with-special-case-ui",
 ]
-principles = ["question-necessity", "yagni"]
+principles = []
 
 [[group]]
 name = "duplication and types"
@@ -85,7 +85,7 @@ rules = [
   "many-fields-none-together-means-a-missing-type",
   "enums",
 ]
-principles = ["composable-primitives"]
+principles = []
 
 [[group]]
 name = "boundaries and dispatch"
@@ -99,7 +99,7 @@ rules = [
   "precondition-gates-belong-at-the-call-site",
   "fix-at-the-lowest-level-the-bug-allows",
 ]
-principles = ["revealing-structure"]
+principles = []
 
 [[group]]
 name = "UI state flow"
@@ -168,8 +168,9 @@ rules = [
   "no-music-note-imagery",
   "no-real-artist-album-song-names-in-artifacts",
   "no-restyling-a-component-from-outside",
+  "build-each-screen-to-match-its-board",
 ]
-principles = ["drawing-screens", "design-to-implementation"]
+principles = []
 
 [[group]]
 name = "repo and commit"

@@ -18,8 +18,20 @@ function loses its last caller, check its callees — any whose only caller was
 that function are dead too. Trace to the deepest dead node and delete the entire
 chain, not just the top. (Rust's `dead_code` lint does this transitively, but
 only for non-`pub` items; a `pub` chain across a crate boundary stays silent, so
-trace it by hand.) *(See `principles/yagni.md`. Pairs with question-necessity:
-YAGNI is retrospective, question-necessity is prospective.)*
+trace it by hand.) Grep for every caller of the definition, not only the path
+you came in by. When the only callers are tests, delete both. *(Pairs with
+question-necessity: YAGNI is retrospective, question-necessity is prospective.)*
+
+Examples:
+
+- **A dead event variant.** A `Complete` variant is emitted but no consumer uses
+  it. Don't filter it in the consumer: delete the emission, the variant, and the
+  optional fields that existed only because it left them empty.
+- **An optional field that is always None at one call site.** Don't add a check
+  at the call site: find out why it's None. When no call site ever sets it,
+  delete the field. When only some do, two concepts share one type: split them.
+- **An enum case nothing populates.** Don't skip it in a match arm: remove the
+  case from the enum.
 
 ### Rust: delete unused code or `#[cfg]`-restrict it, never `#[allow(dead_code)]`
 

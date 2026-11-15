@@ -55,5 +55,4 @@ A wrapper that holds a distinct state with its own invariants is a real type
 (`Request → AuthorizedRequest`); keep it. The test is whether the domain has two
 things or the build does.
 
-Related: `principles/revealing-structure.md` ("Wrapper chain"),
-`rules/don-t-create-duplicate-types.md`.
+Related: `rules/don-t-create-duplicate-types.md`.

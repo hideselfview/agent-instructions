@@ -167,9 +167,9 @@ everything.
 Each item's title is for the person to read. An agent's brief names the item ids
 it takes, and its work lands (is rebased onto `main` and pushed) through
 `builds land` with those ids. An item with an implementation brief points at it
-in `plans/briefs/<area>.md`. `principles/coordinating-agents.md` says how the
-coordinator plans, briefs, dispatches, reviews and lands. bae lands from its
-landing worktree (side-7), and coven from side-1.
+in `plans/briefs/<area>.md`. `builds help workflow` says how the coordinator
+plans, briefs, dispatches, reviews and lands. bae lands from its landing
+worktree (side-7), and coven from side-1.
 
 ### Design-session items
 
@@ -177,8 +177,9 @@ The design session owns the boards (`design/mocks`), the design system
 (`design/system`) and the canvas, the published page of all the boards. The
 coordinator never picks up or dispatches a design-session item, and app work
 that waits on a board waits until the board lands. How the design session draws,
-records, reviews and lands a change is in `principles/drawing-screens.md` and
-`principles/design-to-implementation.md`.
+records, reviews and lands a change is in `builds help workflow`, and how
+boards, shots and the apps' views fit together is in
+`projects/bae-rules/build-each-screen-to-match-its-board.md`.
 
 ## Making a change
 

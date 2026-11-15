@@ -83,5 +83,4 @@ it is*, not by trying them all.
 tolerates the drift that rule forbids; with
 `many-fields-none-together-means-a-missing-type` and
 `state-describes-what-is-not-what-should-happen` — the missing discriminator is
-often a type that wants modeling; and with the revealing-structure principle —
-dispatch reveals the shape a search hides.)*
+often a type that wants modeling.)*

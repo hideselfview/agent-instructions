@@ -30,5 +30,4 @@ A domain name in the new primitive's name (a specific provider, ontology,
 vendor, external service) is a tell that you're baking a specific case into
 vocabulary that should stay generic. This is about reusing existing
 types/behaviors as building blocks — not a scalar field that copies another
-field's value. *(See `principles/composable-primitives.md`. Pairs with
-question-necessity and YAGNI.)*
+field's value. *(Pairs with question-necessity and YAGNI.)*
