@@ -525,7 +525,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
         finding.text.starts_with("host m1 refuses jobs (since ")
             && finding.text.contains("sudo xcodebuild -license")
             && finding.text.contains("Fix what m1 said on m1")
-            && finding.text.contains("`builds host list`"),
+            && !finding.text.contains('`'),
         "{finding:?}"
     );
     assert_eq!(finding.command.as_deref(), Some("builds host list"));

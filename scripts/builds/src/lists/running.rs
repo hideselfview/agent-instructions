@@ -287,13 +287,12 @@ pub fn findings(
                     Agent::Unclaimed => "has no claim",
                     Agent::Claimed(_) => continue,
                 };
-                let command = format!("builds item stop {}", item.id.0);
                 findings.push(Advice::run(
                     format!(
-                        "lists: item {} \"{}\" runs in {}, which {fault}; `{command}` ends it",
+                        "lists: item {} \"{}\" runs in {}, which {fault}; end it with",
                         item.id.0, item.title, running.worktree
                     ),
-                    command,
+                    format!("builds item stop {}", item.id.0),
                 ));
             }
         }

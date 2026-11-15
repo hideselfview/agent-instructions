@@ -363,19 +363,18 @@ fn is_fseventsd(row: &Row) -> bool {
 fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Option<Advice> {
     let limit = DEFAULT_STEP_LIMIT.as_secs() as i64;
     let kill = format!("kill {}", row.pid);
-    let stop = format!("stop it with `{kill}`");
     let sample = sampling.command(host, row.pid);
     match owner {
         Owner::Builds { minutes: m, .. } if m * 60 >= limit => Some(Advice::run(
             format!(
-                "its build has run {m}m, past the {}m step limit; {stop}",
+                "its build has run {m}m, past the {}m step limit; stop it with",
                 minutes(limit)
             ),
             kill,
         )),
         Owner::Agent { .. } if row.age_seconds >= limit => Some(Advice::run(
             format!(
-                "it has run {}m under an agent, past the {}m step limit; {stop}",
+                "it has run {}m under an agent, past the {}m step limit; stop it with",
                 minutes(row.age_seconds),
                 minutes(limit)
             ),
@@ -383,7 +382,7 @@ fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Opti
         )),
         Owner::Test { .. } if row.age_seconds >= TEST_SECONDS => Some(Advice::run(
             format!(
-                "this test binary has run {}m, longer than a test run takes ({}m); {stop}",
+                "this test binary has run {}m, longer than a test run takes ({}m); stop it with",
                 minutes(row.age_seconds),
                 minutes(TEST_SECONDS)
             ),
@@ -391,7 +390,7 @@ fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Opti
         )),
         Owner::System { name } if name == FSEVENTSD => Some(Advice::run(
             format!(
-                "fseventsd is busy ({:.0}% now, {} of CPU); sample it before anyone stops it: run `{sample}`, then read the sample before killing fseventsd",
+                "fseventsd is busy ({:.0}% now, {} of CPU); read a sample of it before anyone kills fseventsd, and take the sample with",
                 row.cpu_percent,
                 duration(row.cpu_seconds as i64),
             ),
@@ -399,7 +398,7 @@ fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Opti
         )),
         Owner::System { .. } if row.cpu_seconds >= DAEMON_CPU_SECONDS => Some(Advice::run(
             format!(
-                "this system daemon has used {} of CPU and still runs busy; sample it before anyone stops it: run `{sample}`, then read the sample before killing it",
+                "this system daemon has used {} of CPU and still runs busy; read a sample of it before anyone kills it, and take the sample with",
                 duration(row.cpu_seconds as i64),
             ),
             sample,
@@ -508,10 +507,9 @@ pub fn wedged(host: &str, rows: &[Row], event_id: u64, sampling: &Sampling) -> O
         pid: row.pid,
         finding: Advice::run(
             format!(
-                "fseventsd does not answer: {host} pid {} has run {} and refuses every client (its current event id is 0); sample it before anyone stops it: run `{sample}`, read the sample, then run `sudo kill -9 {}` (a plain kill does not end a wedged fseventsd)",
-                row.pid,
+                "fseventsd does not answer: {host} pid {pid} has run {} and refuses every client (its current event id is 0). A plain kill does not end an fseventsd that does not answer, so end it with sudo kill -9 {pid} once you have read a sample of it. Take the sample with",
                 duration(row.age_seconds),
-                row.pid
+                pid = row.pid,
             ),
             sample,
         ),

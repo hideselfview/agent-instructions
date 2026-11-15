@@ -311,14 +311,13 @@ pub fn refusals(places: &Places) -> Result<Vec<Refusal>> {
 /// The line `builds health` prints under "needs action" for <refusal>.
 pub fn refusal_finding(refusal: &Refusal) -> crate::health::Advice {
     let name = &refusal.host;
-    let command = "builds host list".to_string();
     crate::health::Advice::run(
         format!(
-            "host {name} refuses jobs (since {}), so builds runs its jobs on this Mac. Fix what {name} said on {name}; builds uses {name} again once a probe finds it answering with git running (`{command}` probes every host, and so does each `builds cargo` that may leave this Mac). {name} said: {}",
+            "host {name} refuses jobs (since {}), so builds runs its jobs on this Mac. {name} said: {}. Fix what {name} said on {name}. builds uses {name} again once a probe finds it answering with git running; each builds cargo that may leave this Mac probes it, and so does a probe of every host, which you start with",
             local_minute(refusal.at),
-            refusal.said
+            refusal.said.trim_end_matches('.')
         ),
-        command,
+        "builds host list".to_string(),
     )
 }
 

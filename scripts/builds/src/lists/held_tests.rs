@@ -351,10 +351,7 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
     let found = findings(&loaded(read(&db)), std::slice::from_ref(&tree));
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
-        found[0].text.contains("no item runs there")
-            && found[0]
-                .text
-                .contains("`builds release /w/bae-worktrees/side-1`"),
+        found[0].text.contains("no item runs there") && !found[0].text.contains('`'),
         "{found:?}"
     );
     assert_eq!(

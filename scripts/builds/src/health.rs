@@ -57,8 +57,9 @@ pub enum FindingKind {
     Host,
 }
 
-/// What a finding says, and the command it suggests running, which the text
-/// names too; None when it suggests none.
+/// What a finding says, and the command it suggests running, if any. The
+/// text names no command: a text that suggests one ends with the words that
+/// lead into it ("stop it with"), and `line` puts the command after them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Advice {
     pub text: String,
@@ -79,6 +80,14 @@ impl Advice {
         Advice {
             text,
             command: Some(command),
+        }
+    }
+
+    /// The text followed by its command, as `builds health` prints it.
+    pub fn line(&self) -> String {
+        match &self.command {
+            Some(command) => format!("{} `{command}`", self.text),
+            None => self.text.clone(),
         }
     }
 }
@@ -591,15 +600,18 @@ pub fn assess(
         }
     }
     if !machine.shells.junk.is_empty() {
-        let command = "builds health --stop-junk".to_string();
         findings.push(Finding::new(
             FindingKind::Shells,
             Advice::run(
                 format!(
-                    "shells: {} junk, listed under shells; `{command}` stops them",
-                    machine.shells.junk.len()
+                    "shells: {}, listed under shells; stop them with",
+                    crate::text::counted(
+                        machine.shells.junk.len(),
+                        "junk shell runs",
+                        "junk shells run"
+                    )
                 ),
-                command,
+                "builds health --stop-junk".to_string(),
             ),
         ));
     }
@@ -981,7 +993,7 @@ pub fn lines(health: &Health) -> Vec<String> {
     } else {
         out.push("needs action:".to_string());
         for finding in &health.findings {
-            out.push(format!("    {}", finding.advice.text));
+            out.push(format!("    {}", finding.advice.line()));
         }
     }
     out
@@ -1259,9 +1271,12 @@ mod tests {
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(found[0].advice.command.as_deref(), Some("builds host list"));
         assert!(
-            found[0].advice.text.contains("`builds host list`"),
+            found[0]
+                .advice
+                .line()
+                .ends_with("which you start with `builds host list`"),
             "{}",
-            found[0].advice.text
+            found[0].advice.line()
         );
     }
 }

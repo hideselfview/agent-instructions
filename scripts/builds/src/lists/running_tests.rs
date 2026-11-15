@@ -71,8 +71,7 @@ fn a_running_item_in_an_unclaimed_or_gone_worktree_is_named() {
     let unclaimed = findings(&scratch.places(), &Ok(loaded_running_in(&top))).unwrap();
     assert_eq!(unclaimed.len(), 1);
     assert!(
-        unclaimed[0].text.contains("has no claim")
-            && unclaimed[0].text.contains("`builds item stop 1`"),
+        unclaimed[0].text.contains("has no claim") && !unclaimed[0].text.contains('`'),
         "{unclaimed:?}"
     );
     assert_eq!(unclaimed[0].command.as_deref(), Some("builds item stop 1"));

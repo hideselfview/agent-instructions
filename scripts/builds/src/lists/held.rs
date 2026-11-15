@@ -206,13 +206,12 @@ pub fn findings(
             && worktree.claim.note_state.as_deref() == Some("held")
             && let Some(fault) = hold_fault(lists, &top)
         {
-            let command = format!("builds note {top} TEXT");
             found.push(Advice::run(
                 format!(
-                    "lists: {} is held, but {fault}; start its work again (builds item take/handoff), then clear the hold with `{command}`",
+                    "lists: {} is held, but {fault}; start its work again (builds item take or builds item handoff), then clear the hold with",
                     worktree.label
                 ),
-                command,
+                format!("builds note {top} TEXT"),
             ));
         }
         if !standing
@@ -220,13 +219,12 @@ pub fn findings(
             && worktree.ahead.is_empty()
             && running_in(lists, &top).is_empty()
         {
-            let command = format!("builds release {top}");
             found.push(Advice::run(
                 format!(
-                    "lists: {} is claimed by {}, but no item runs there and nothing waits to land; `{command}` frees it",
-                    worktree.label, worktree.claim.who
+                    "lists: {} claims {}, but no item runs there and it has no commits that origin/main lacks; release it with",
+                    worktree.claim.who, worktree.label
                 ),
-                command,
+                format!("builds release {top}"),
             ));
         }
         if worktree.ahead.is_empty() {
@@ -252,14 +250,13 @@ pub fn findings(
                         .chain(changes.shared.iter().map(String::as_str))
                         .chain(changes.deleted.iter().map(String::as_str))
                         .collect();
-                    let command = "builds design record".to_string();
                     found.push(Advice::run(
                         format!(
-                            "lists: {} has commits that change design files ({}) and no recorded design change covers them; `{command}` records one",
+                            "lists: {} has commits that change design files ({}) and no recorded design change covers them; record one with",
                             worktree.label,
                             named.join(", ")
                         ),
-                        command,
+                        "builds design record".to_string(),
                     ));
                 }
             }
