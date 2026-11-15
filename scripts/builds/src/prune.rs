@@ -525,9 +525,10 @@ fn visible_names(dir: &Path) -> Vec<std::ffi::OsString> {
         .collect()
 }
 
-/// Tests' temporary folders (tempfile's `.tmp*` under $TMPDIR) that a test
-/// left behind: nothing reads one a day after it was last written. Newer ones
-/// may belong to a test still running.
+/// Temporary folders a test or a Swift tool left behind under $TMPDIR
+/// (tempfile's `.tmp*`, SwiftPM's and swift-driver's `TemporaryDirectory.*`,
+/// 84,000 of them in a few weeks): nothing reads one a day after it was last
+/// written. Newer ones may belong to a run still going.
 pub fn prune_test_temps(tool: &Tool, run: Run) -> Result<()> {
     let Some(tmpdir) = &tool.places.tmpdir else {
         return Ok(());
@@ -540,11 +541,16 @@ pub fn prune_test_temps(tool: &Tool, run: Run) -> Result<()> {
         1,
         tool.places.uid,
         tool.now,
-        |name, meta| name.starts_with(".tmp") && meta.is_dir(),
+        |name, meta| {
+            (name.starts_with(".tmp") || name.starts_with("TemporaryDirectory.")) && meta.is_dir()
+        },
     );
     prune_listed(
         run,
-        &format!("test temp folders older than a day in {}", tmpdir.display()),
+        &format!(
+            "temporary folders of tests and Swift tools older than a day in {}",
+            tmpdir.display()
+        ),
         listing,
     );
     Ok(())

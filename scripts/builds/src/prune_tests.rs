@@ -7,7 +7,13 @@ fn test_temps_go_after_a_day_and_scratch_entries_after_three() {
     let mut tool = scratch.tool(0);
     let tmpdir = scratch.dir.join("T");
     tool.places.tmpdir = Some(tmpdir.clone());
-    for (name, hours) in [(".tmpOld", 25), (".tmpNew", 23), ("other", 48)] {
+    for (name, hours) in [
+        (".tmpOld", 25),
+        (".tmpNew", 23),
+        ("TemporaryDirectory.Old", 25),
+        ("TemporaryDirectory.New", 23),
+        ("other", 48),
+    ] {
         fill(&tmpdir.join(name).join("f"), 1);
         age(&tmpdir.join(name), hours);
     }
@@ -25,7 +31,15 @@ fn test_temps_go_after_a_day_and_scratch_entries_after_three() {
         !tmpdir.join(".tmpOld").exists(),
         "a test temp folder a day old was kept"
     );
-    assert!(tmpdir.join(".tmpNew").exists() && tmpdir.join("other").exists());
+    assert!(
+        !tmpdir.join("TemporaryDirectory.Old").exists(),
+        "a Swift tool's temporary folder a day old was kept"
+    );
+    assert!(
+        tmpdir.join(".tmpNew").exists()
+            && tmpdir.join("TemporaryDirectory.New").exists()
+            && tmpdir.join("other").exists()
+    );
     assert!(
         !pad.join("old").exists(),
         "a scratch entry three days old was kept"
