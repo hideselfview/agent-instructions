@@ -119,10 +119,15 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .orun .slow { flex-basis: 100%; padding-left: 58px; }
 .orun .checks { padding: 2px 0 6px 58px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 1px; }
 
-/* The app builds' times, under the hook figures' details. */
-.app-timing .at-repo { display: flex; flex-direction: column; gap: 8px; }
-.app-timing .at-repo + .at-repo { border-top: 1px solid var(--line); padding-top: 10px; }
-.app-timing .lane-col { color: var(--muted); }
+/* A lane's wait figure and the times it opens: its steps, costliest first. */
+.wait-open .wp-steps { width: 100%; }
+.wait-open .wp-steps .wp-kind { color: var(--muted); font-size: 12px; width: 60px; }
+.wait-open .wp-steps .wp-name { font: 12px var(--mono); color: var(--text-2); }
+.wait-open .wp-total { width: 40%; position: relative; }
+.wait-open .wp-bar { display: inline-block; height: 8px; border-radius: 2px; background: var(--accent); opacity: .55; vertical-align: middle; margin-right: 8px; }
+.wait-open .wp-tv { font: 500 12px var(--mono); color: var(--text); vertical-align: middle; }
+.wait-open .wp-steps .wp-more td { color: var(--muted); font-size: 12px; border-top: 1px solid var(--line-soft); padding-top: 6px; cursor: pointer; }
+.wait-open .wp-steps .wp-more td:hover { color: var(--text); }
 
 /* The checkouts, grouped by repo. */
 #findings:empty, #errors:empty { display: none; }
@@ -296,10 +301,10 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
   </div>
   <div class="conn" id="conn" hidden>Lost the connection to the daemon. This page reconnects by itself.</div>
   <section class="hook-open" id="hook-open" hidden></section>
+  <section class="hook-open wait-open" id="wait-open" hidden></section>
 </header>
 <div id="findings"></div>
 <div id="errors"></div>
-<section class="hook-open app-timing" id="app-timing" hidden></section>
 <main id="view"><div class="loading">Reading the checkouts</div></main>
 </div>
 <aside class="lists" id="lists" aria-label="Lists">
@@ -328,6 +333,7 @@ const LISTS_HIDDEN_KEY = "builds-dashboard-lists-hidden";
 let state = null, streamError = "", connectionDown = false;
 let hooks = null, hooksError = "";
 let openHook = null;           // the repo whose commit hook details are open
+let openWait = null;           // "repo lane" of the lane whose app build times are open
 const showFree = new Set();    // repos whose free worktrees are open
 const openQueue = new Set();   // "repo lane" of each lane whose queue is open
 const openBuild = new Set();   // "repo lane" of each lane whose build form is open
@@ -815,8 +821,8 @@ function hookFigure(name) {
   const open = openHook === name;
   return h("div", {class: "fig hook line" + (open ? " on" : ""), tabindex: "0", role: "button", "aria-expanded": String(open),
       title: "Median time, then one bar per run. Commit hook runs in " + name + ", oldest to newest. The dashed line is the " + limitText(limit) + " limit. Click for each run.",
-      onclick: () => { openHook = open ? null : name; render(); },
-      onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openHook = open ? null : name; render(); } }},
+      onclick: () => { openHook = open ? null : name; openWait = null; render(); },
+      onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openHook = open ? null : name; openWait = null; render(); } }},
     h("div", {class: "row"}, h("span", {class: "h"}, title), h("span", {class: "v"}, secs(r.median_ms)), chart));
 }
 
@@ -874,52 +880,112 @@ function hookDetails() {
         hiddenOver > 0 ? moreToggle("over", allOver ? "Fewer" : hiddenOver + " more") : null)));
 }
 
-// ---- The app builds' times: each step's median, last runs and slowest, each
-// lane's queue wait, and the runs that waited longest, over the trailing 12
-// hours (app_timing.rs, in each project's `app_builds` of the hooks JSON).
-function appBuildRepos() {
-  if (!hooks || hooks.error) return [];
+// ---- The app build wait figures: per lane, the median queue wait and a bar
+// per build, then the lane's times under the figures (app_timing.rs, in each
+// project's `app_builds` of the hooks JSON; the daemon computes every figure).
+const STEPS_SHOWN = 10;
+const KIND_WORD = {step: "Build", shots: "Shots", test: "Test"};
+// 12m 26s, 2h 05m, 45s: the time a person reads, in minutes and seconds.
+function span(ms) {
+  const total = Math.round(ms / 1000), s = total % 60, m = Math.floor(total / 60) % 60, hrs = Math.floor(total / 3600);
+  const two = n => String(n).padStart(2, "0");
+  if (hrs > 0) return hrs + "h " + two(m) + "m";
+  if (m > 0) return m + "m " + two(s) + "s";
+  return s + "s";
+}
+// The median wait on the figure: whole minutes, or seconds under one.
+function waitFigureTime(ms) {
+  const total = Math.round(ms / 1000);
+  return total < 60 ? total + "s" : Math.floor(total / 60) + "m";
+}
+// "4 minutes" for the line under the tenth step: whole minutes, seconds under one.
+function wholeTime(ms) {
+  const total = Math.floor(ms / 1000), m = Math.floor(total / 60);
+  return m > 0 ? plural(m, "minute", "minutes") : plural(total, "second", "seconds");
+}
+function capital(word) { return word.charAt(0).toUpperCase() + word.slice(1); }
+// The app build lanes of each repo, mac first: [{repo, lane, figures, error}].
+function waitLanes() {
   const out = [];
-  for (const p of hooks.projects) {
-    const a = p.app_builds;
-    if (!a) continue;
-    if (a.error) out.push({error: p.project + ": " + a.error});
-    else for (const r of a.repos) out.push({repo: r, window: a.window_seconds, last: a.last_runs});
+  if (!state) return out;
+  for (const r of state.repos) {
+    const lanes = [...new Set(r.app_builds.map(a => a.lane))];
+    if (!lanes.length) continue;
+    let repo = null, error = null;
+    if (hooks && !hooks.error) {
+      for (const p of hooks.projects) {
+        const a = p.app_builds;
+        if (!a) continue;
+        if (a.error) { error = p.project + ": " + a.error; continue; }
+        const found = a.repos.find(x => x.repo === r.name);
+        if (found) repo = {window: a.window_seconds, ...found};
+      }
+    }
+    for (const lane of lanes) {
+      out.push({repo: r.name, lane, key: r.name + " " + lane, error,
+        window: repo && repo.window, figures: repo && repo.lanes.find(l => l.lane === lane)});
+    }
   }
   return out;
 }
-function waitRow(w) {
-  return h("tr", {}, h("td", {class: "n"}, secs(w.wait_ms)), h("td", {class: "lane-col"}, w.lane + " " + w.checkout),
-    h("td", {}, w.ref), h("td", {class: "lane-col"}, w.who || ""), h("td", {class: "lane-col"}, when(new Date(w.at * 1000))));
+function waitFigure(w, all) {
+  const name = capital(w.lane);
+  const title = (new Set(all.map(x => x.repo)).size > 1 ? w.repo + " " : "") + name + " wait";
+  const f = w.figures;
+  const barsMax = Math.max(1, ...all.filter(x => x.repo === w.repo && x.figures).flatMap(x => x.figures.waits_ms));
+  const n = f ? f.waits_ms.length : 0;
+  const chart = svg("svg", {width: String(Math.max(0, n * 6 - 2)), height: String(BAR_HEIGHT), viewBox: "0 0 " + Math.max(0, n * 6 - 2) + " " + BAR_HEIGHT,
+    preserveAspectRatio: "none", "aria-hidden": "true"});
+  if (!f) {
+    return h("div", {class: "fig hook line wait empty", title: "Builds in the " + name + " lane: none in the last 12 hours, so there is nothing to draw."},
+      h("div", {class: "row"}, h("span", {class: "h"}, title), h("span", {class: "v"}, "–")));
+  }
+  f.waits_ms.forEach((ms, i) => {
+    const hgt = Math.max(2, Math.round(ms / barsMax * BAR_HEIGHT));
+    const bar = svg("rect", {class: "b-ok", x: String(i * 6), y: String(BAR_HEIGHT - hgt), width: "4", height: String(hgt), rx: "1.5"});
+    const tip = svg("title", {});
+    tip.textContent = span(ms);
+    bar.append(tip);
+    chart.append(bar);
+  });
+  const open = openWait === w.key;
+  const toggle = () => { openWait = open ? null : w.key; openHook = null; render(); };
+  return h("div", {class: "fig hook line wait" + (open ? " on" : ""), tabindex: "0", role: "button", "aria-expanded": String(open),
+      title: "Median wait in the " + name + " lane's queue over the last 12 hours, then one bar per build, oldest to newest. Click for the lane's times.",
+      onclick: toggle,
+      onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }},
+    h("div", {class: "row"}, h("span", {class: "h"}, title), h("span", {class: "v"}, waitFigureTime(f.median_wait_ms)), chart));
 }
-function appBuildRepo({repo, window, last}) {
-  const hours = window / 3600;
-  const steps = repo.steps;
-  const lanes = repo.lanes;
-  return h("div", {class: "at-repo"},
-    h("div", {class: "ho-head"}, h("b", {}, repo.repo + " app builds"),
-      h("span", {}, plural(repo.runs, "run", "runs") + " in the last " + plural(hours, "hour", "hours"))),
-    h("div", {class: "ho-cols"},
-      h("div", {}, h("h3", {}, "Steps that passed"),
-        h("table", {}, h("tr", {}, h("th", {}, "Step"), h("th", {}, "Lane"), h("th", {class: "n"}, "Runs"), h("th", {class: "n"}, "Median"),
-          h("th", {class: "n", title: "Median of the last " + last + " runs"}, "Last " + last), h("th", {class: "n"}, "Slowest"),
-          h("th", {class: "n", title: "Median CPU time of the step's processes"}, "CPU")),
-          steps.map(s => h("tr", {}, h("td", {}, s.name), h("td", {class: "lane-col"}, s.lane), h("td", {class: "n"}, String(s.ran)),
-            h("td", {class: "n"}, secs(s.median_ms)), h("td", {class: "n"}, secs(s.last_median_ms)),
-            h("td", {class: "n"}, secs(s.slowest_ms)), h("td", {class: "n"}, secs(s.cpu_median_ms)))))),
-      h("div", {}, h("h3", {}, "Wait in the lane's queue"),
-        h("table", {}, h("tr", {}, h("th", {}, "Lane"), h("th", {class: "n"}, "Runs"), h("th", {class: "n"}, "Median"), h("th", {class: "n"}, "Slowest")),
-          lanes.map(l => h("tr", {}, h("td", {}, l.lane), h("td", {class: "n"}, String(l.runs)),
-            h("td", {class: "n"}, secs(l.median_ms)), h("td", {class: "n"}, secs(l.slowest_ms))))),
-        h("h3", {}, "Runs that waited longest"),
-        h("table", {}, repo.longest_waits.map(waitRow)))));
+function stepRow(s, top) {
+  const width = Math.max(1, Math.round(s.total_ms / top * 75));
+  return h("tr", {}, h("td", {class: "wp-kind"}, KIND_WORD[s.kind]), h("td", {}, h("span", {class: "wp-name"}, s.name)),
+    h("td", {class: "wp-total"}, h("span", {class: "wp-bar", style: "width:" + width + "%"}), h("span", {class: "wp-tv"}, span(s.total_ms))),
+    h("td", {class: "n"}, String(s.ran)), h("td", {class: "n"}, span(s.median_ms)), h("td", {class: "n"}, span(s.slowest_ms)));
 }
-function appBuildPanel() {
-  const box = document.getElementById("app-timing");
-  const found = appBuildRepos();
-  if (!found.length) { box.hidden = true; box.replaceChildren(); return; }
+function waitDetails() {
+  const box = document.getElementById("wait-open");
+  const w = openWait ? waitLanes().find(x => x.key === openWait) : null;
+  if (!w || !w.figures) { box.hidden = true; box.replaceChildren(); return; }
+  const f = w.figures;
+  const key = "steps " + w.key;
+  const all = moreOf.has(key);
+  const steps = all ? f.steps : f.steps.slice(0, STEPS_SHOWN);
+  const hidden = f.steps.length - STEPS_SHOWN;
+  const top = f.steps.length ? Math.max(1, f.steps[0].total_ms) : 1;
+  const more = hidden > 0
+    ? h("tr", {class: "wp-more"}, h("td", {colspan: "6", onclick: () => { if (!moreOf.delete(key)) moreOf.add(key); render(); }},
+        all ? "Fewer steps" : plural(hidden, "more step", "more steps") + ", each under " + wholeTime(f.steps[STEPS_SHOWN - 1].total_ms) + " in all"))
+    : null;
   box.hidden = false;
-  box.replaceChildren(...found.map(f => f.error ? h("div", {class: "error"}, "The app build times: " + f.error) : appBuildRepo(f)));
+  box.replaceChildren(
+    h("div", {class: "ho-head"}, h("b", {}, capital(w.lane) + " app builds"),
+      h("span", {}, plural(f.runs, "build", "builds") + " in " + plural(w.window / 3600, "hour", "hours") + " · " + span(f.median_wait_ms) + " median wait"),
+      h("button", {type: "button", class: "ho-close", title: "Close", "aria-label": "Close", onclick: () => { openWait = null; render(); }}, "×")),
+    h("h3", {}, "Where the time goes"),
+    h("table", {class: "wp-steps"},
+      h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Step"), h("th", {}, "Time in all"), h("th", {class: "n"}, "Runs"),
+        h("th", {class: "n"}, "Median"), h("th", {class: "n"}, "Slowest")),
+      steps.map(s => stepRow(s, top)), more));
 }
 
 // What needs attention and nothing else on the page shows: a worktree with
@@ -944,11 +1010,13 @@ function render() {
   const errors = [streamError, hooksError].filter(Boolean);
   document.getElementById("errors").replaceChildren(...errors.map(e => h("div", {class: "error"}, e)));
   if (!state) return;
+  const timingErrors = [...new Set(waitLanes().map(w => w.error).filter(Boolean))];
+  document.getElementById("errors").append(...timingErrors.map(e => h("div", {class: "error"}, "The app build times: " + e)));
   for (const repo of state.repos) for (const {lane} of repo.lanes) buildPanelOf(repo, lane);
   document.getElementById("top").replaceChildren(loadFigure(state.load), diskFigure(state.volume),
-    ...state.repos.map(r => hookFigure(r.name)));
+    ...state.repos.map(r => hookFigure(r.name)), ...waitLanes().map((w, _, all) => waitFigure(w, all)));
   hookDetails();
-  appBuildPanel();
+  waitDetails();
   findingsView(state.health);
   if (lists && !lists.error) renderLists();
   const root = document.getElementById("view");

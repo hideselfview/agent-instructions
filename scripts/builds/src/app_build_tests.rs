@@ -408,15 +408,28 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
     )
     .unwrap();
     timing.record(&places, "demo", Lane::Mac, "my-branch", true);
-    let repo = &app_timing::stats(&store.dir.join(app_timing::DATABASE), 0).unwrap()[0];
+    let path = store.dir.join(app_timing::DATABASE);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let row: (i64, String, String, bool) = conn
+        .query_row(
+            "SELECT wait_ms, checkout, built_ref, passed FROM app_build_runs",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        row,
+        (1500, "side-3".to_string(), "my-branch".to_string(), true)
+    );
+    let repo = &app_timing::stats(&path, 0).unwrap()[0];
     assert_eq!(repo.repo, "demo");
-    assert_eq!(repo.longest_waits[0].wait_ms, 1500);
-    assert_eq!(repo.longest_waits[0].checkout, "side-3");
-    assert_eq!(repo.longest_waits[0].built_ref, "my-branch");
-    assert!(repo.longest_waits[0].passed);
-    let names: Vec<&str> = repo.steps.iter().map(|s| s.name.as_str()).collect();
+    let names: Vec<&str> = repo.lanes[0]
+        .steps
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
     assert_eq!(names.len(), 2);
-    assert!(names.contains(&"build") && names.contains(&"test Foo"));
+    assert!(names.contains(&"build") && names.contains(&"Foo"));
 }
 
 #[test]

@@ -74,35 +74,43 @@ fn a_recorded_run_comes_back_in_the_figures_with_its_steps() {
     .unwrap();
     let repos = stats(&path, NOW - WINDOW_SECONDS).unwrap();
     assert_eq!(repos.len(), 1);
-    let names: Vec<(&str, &str, u64)> = repos[0]
+    let mac = &repos[0].lanes[0];
+    assert_eq!(
+        (mac.lane, mac.runs, mac.median_wait_ms),
+        (Lane::Mac, 1, 2_000)
+    );
+    let names: Vec<(&str, StepKind, u64)> = mac
         .steps
         .iter()
-        .map(|s| (s.name.as_str(), s.kind.as_str(), s.median_ms))
+        .map(|s| (s.name.as_str(), s.kind, s.median_ms))
         .collect();
     assert_eq!(
         names,
         vec![
-            ("macos", "step", 60_000),
-            ("test Foo", "test", 8_000),
-            ("shots mac.a.", "shots", 4_000)
+            ("macos", StepKind::Step, 60_000),
+            ("Foo", StepKind::Test, 8_000),
+            ("mac.a.*", StepKind::Shots, 4_000)
         ]
-    );
-    assert_eq!(repos[0].steps[0].cpu_median_ms, 30_000);
-    assert_eq!(repos[0].lanes.len(), 1);
-    assert_eq!(repos[0].lanes[0].median_ms, 2_000);
-    let wait = &repos[0].longest_waits[0];
-    assert_eq!(
-        (
-            wait.who.as_deref(),
-            wait.built_ref.as_str(),
-            wait.checkout.as_str()
-        ),
-        (Some("agent"), "branch", "side-1")
     );
 }
 
 #[test]
-fn step_figures_count_passing_runs_in_the_window_and_the_last_ten_are_the_newest() {
+fn a_shot_run_of_one_board_keeps_its_name_and_a_prefix_gets_a_star() {
+    assert_eq!(
+        step_word("shots mac.welcome.", StepKind::Shots),
+        "mac.welcome.*"
+    );
+    assert_eq!(step_word("shots mac.", StepKind::Shots), "mac.*");
+    assert_eq!(
+        step_word("shots mac.component.progress", StepKind::Shots),
+        "mac.component.progress"
+    );
+    assert_eq!(step_word("test FooTests", StepKind::Test), "FooTests");
+    assert_eq!(step_word("macos-tests", StepKind::Step), "macos-tests");
+}
+
+#[test]
+fn a_steps_figures_count_passing_runs_in_the_window_and_total_runs_times_median() {
     let scratch = Scratch::new("timing-figures");
     let path = store(&scratch);
     // An old run outside the window, 12 passing runs of 1s..12s, and a failed run.
@@ -159,21 +167,66 @@ fn step_figures_count_passing_runs_in_the_window_and_the_last_ten_are_the_newest
         ),
     )
     .unwrap();
-    let repo = &stats(&path, NOW - WINDOW_SECONDS).unwrap()[0];
-    let macos = &repo.steps[0];
+    let lane = &stats(&path, NOW - WINDOW_SECONDS).unwrap()[0].lanes[0];
+    let macos = &lane.steps[0];
     assert_eq!(macos.ran, 12, "the old and the failed run are not counted");
     assert_eq!(macos.median_ms, 6_500);
     assert_eq!(macos.slowest_ms, 12_000);
-    // The newest ten are 3s..12s.
-    assert_eq!(macos.last_median_ms, 7_500);
+    assert_eq!(macos.total_ms, 78_000);
     assert_eq!(
-        repo.runs, 13,
+        lane.runs, 13,
         "the waits count every run in the window, the failed one too"
     );
 }
 
 #[test]
-fn queue_waits_are_per_lane_and_the_longest_come_first() {
+fn steps_are_ranked_by_the_time_they_took_in_all() {
+    let scratch = Scratch::new("timing-rank");
+    let path = store(&scratch);
+    // 5 runs of 2s (10s in all) outrank 1 run of 9s.
+    for n in 0..5 {
+        record(
+            &path,
+            &run(
+                NOW - 100 + n,
+                Lane::Mac,
+                0,
+                true,
+                vec![step(
+                    "fast",
+                    StepKind::Step,
+                    NOW - 100 + n,
+                    2_000,
+                    StepResult::Passed,
+                )],
+            ),
+        )
+        .unwrap();
+    }
+    record(
+        &path,
+        &run(
+            NOW - 50,
+            Lane::Mac,
+            0,
+            true,
+            vec![step(
+                "slow",
+                StepKind::Step,
+                NOW - 50,
+                9_000,
+                StepResult::Passed,
+            )],
+        ),
+    )
+    .unwrap();
+    let lane = &stats(&path, NOW - WINDOW_SECONDS).unwrap()[0].lanes[0];
+    let order: Vec<&str> = lane.steps.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(order, vec!["fast", "slow"]);
+}
+
+#[test]
+fn queue_waits_are_per_lane_oldest_first_with_the_lanes_median() {
     let scratch = Scratch::new("timing-waits");
     let path = store(&scratch);
     for (n, wait) in [(1, 1_000), (2, 9_000), (3, 5_000)] {
@@ -189,17 +242,36 @@ fn queue_waits_are_per_lane_and_the_longest_come_first() {
     )
     .unwrap();
     let repo = &stats(&path, NOW - WINDOW_SECONDS).unwrap()[0];
-    let lanes: Vec<(&str, u32, u64, u64)> = repo
+    let lanes: Vec<(Lane, u32, u64, Vec<u64>)> = repo
         .lanes
         .iter()
-        .map(|l| (l.lane.as_str(), l.runs, l.median_ms, l.slowest_ms))
+        .map(|l| (l.lane, l.runs, l.median_wait_ms, l.waits_ms.clone()))
         .collect();
     assert_eq!(
         lanes,
-        vec![("mac", 3, 5_000, 9_000), ("android", 1, 40_000, 40_000)]
+        vec![
+            (Lane::Mac, 3, 5_000, vec![1_000, 9_000, 5_000]),
+            (Lane::Android, 1, 40_000, vec![40_000])
+        ]
     );
-    let longest: Vec<u64> = repo.longest_waits.iter().map(|w| w.wait_ms).collect();
-    assert_eq!(longest, vec![40_000, 9_000, 5_000, 1_000]);
+}
+
+#[test]
+fn only_the_latest_waits_get_a_bar() {
+    let scratch = Scratch::new("timing-bars");
+    let path = store(&scratch);
+    for n in 0..(WAITS_SHOWN as i64 + 5) {
+        record(
+            &path,
+            &run(NOW - 1000 + n, Lane::Mac, n as u64, true, Vec::new()),
+        )
+        .unwrap();
+    }
+    let lane = &stats(&path, NOW - WINDOW_SECONDS).unwrap()[0].lanes[0];
+    assert_eq!(lane.runs, WAITS_SHOWN as u32 + 5);
+    assert_eq!(lane.waits_ms.len(), WAITS_SHOWN);
+    assert_eq!(lane.waits_ms[0], 5);
+    assert_eq!(*lane.waits_ms.last().unwrap(), WAITS_SHOWN as u64 + 4);
 }
 
 #[test]
@@ -244,10 +316,13 @@ fn the_dashboard_json_names_the_window_and_each_repos_figures() {
     assert_eq!(json["window_seconds"], WINDOW_SECONDS);
     let repo = &json["repos"][0];
     assert_eq!(repo["repo"], "bae");
-    assert_eq!(repo["steps"][0]["name"], "android");
-    assert_eq!(repo["steps"][0]["median_ms"], 7_000);
-    assert_eq!(repo["lanes"][0]["slowest_ms"], 3_000);
-    assert_eq!(repo["longest_waits"][0]["ref"], "branch");
+    let lane = &repo["lanes"][0];
+    assert_eq!(lane["lane"], "android");
+    assert_eq!(lane["median_wait_ms"], 3_000);
+    assert_eq!(lane["waits_ms"][0], 3_000);
+    assert_eq!(lane["steps"][0]["name"], "android");
+    assert_eq!(lane["steps"][0]["kind"], "step");
+    assert_eq!(lane["steps"][0]["total_ms"], 7_000);
 }
 
 #[test]

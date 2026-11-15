@@ -244,7 +244,7 @@ fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
     let store = make_store(&places, &["bae", "coven"]);
     let feed = Feed::start_with_clock(places, Box::new(|| NOON));
     let before = feed.hooks();
-    assert!(!before.contains("side-4"), "{before}");
+    assert!(!before.contains("\"median_wait_ms\""), "{before}");
     let (sent, moved) = mpsc::channel();
     feed.listen(Box::new(move || {
         let _ = sent.send(());
@@ -274,7 +274,9 @@ fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
         .expect("the run reached the feed");
     let after = feed.hooks();
     assert!(
-        after.contains("\"app_builds\"") && after.contains("side-4") && after.contains("\"macos\""),
+        after.contains("\"app_builds\"")
+            && after.contains("\"median_wait_ms\":1234")
+            && after.contains("\"macos\""),
         "{after}"
     );
 }
