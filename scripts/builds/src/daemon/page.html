@@ -1110,7 +1110,7 @@ function render() {
   const timingErrors = [...new Set(waitLanes().map(w => w.error).filter(Boolean))];
   document.getElementById("errors").append(...timingErrors.map(e => h("div", {class: "error"}, "The app build times: " + e)));
   for (const repo of state.repos) for (const {lane} of repo.lanes) buildPanelOf(repo, lane);
-  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "this Mac" : null), ...state.hosts.map(hostLoadFigure), diskFigure(state.volume),
+  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), diskFigure(state.volume),
     ...state.repos.map(r => hookFigure(r.name)), ...waitLanes().map((w, _, all) => waitFigure(w, all)));
   hookDetails();
   waitDetails();
