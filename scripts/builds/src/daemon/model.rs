@@ -16,7 +16,7 @@ use super::fsevents::{Stream, flags};
 use super::lists::{Feed, compose, running_worktrees};
 use super::runs::{RunPage, Runs};
 use super::tracker::Tracker;
-use crate::checkout::{Root, absolute_link_target, all_roots, parallel_map};
+use crate::checkout::{Checkout, Root, absolute_link_target, all_roots, parallel_map};
 use crate::claim::Claim;
 use crate::health::{
     Claimed, Health, Machine, Unclaimed, assess, locks_of, places_of, sample, sccache_reading,
@@ -956,6 +956,7 @@ impl Model {
                             processes,
                         },
                         words: Default::default(),
+                        errors: Vec::new(),
                     }
                 }
                 None => CheckoutPage {
@@ -974,6 +975,7 @@ impl Model {
                     total_kib: facts.gone_kib,
                     activity: Activity::default(),
                     words: Default::default(),
+                    errors: Vec::new(),
                 },
             };
             repos
@@ -996,18 +998,34 @@ impl Model {
                 .collect();
             for checkout in &mut repo.checkouts {
                 if checkout.live && !checkout.app_checkout {
-                    let claimed = state
+                    let claimed = match state
                         .roots
                         .iter()
                         .filter_map(|root| root.live.as_ref())
                         .find(|live| live.top == Path::new(&checkout.path))
-                        .and_then(|live| live.claimed_project().ok().flatten());
-                    let project = crate::lists::store::lists_of(
-                        &snapshot,
-                        Path::new(&checkout.path),
-                        &repo.name,
-                        claimed.as_deref(),
-                    );
+                        .map(Checkout::claimed_project)
+                        .transpose()
+                    {
+                        Ok(claimed) => Ok(claimed.flatten()),
+                        Err(error) => Err(error.text()),
+                    };
+                    let project = claimed.and_then(|claimed| {
+                        crate::lists::store::lists_of(
+                            &snapshot,
+                            Path::new(&checkout.path),
+                            &repo.name,
+                            claimed.as_deref(),
+                        )
+                    });
+                    let project = match project {
+                        Ok(project) => project,
+                        Err(error) => {
+                            checkout.errors.push(format!(
+                                "The daemon can't choose this worktree's lists: {error}"
+                            ));
+                            None
+                        }
+                    };
                     let titles = project
                         .map(|lists| super::lists::running_titles(lists, &checkout.path))
                         .unwrap_or_default();
@@ -1023,17 +1041,29 @@ impl Model {
                         (Some(lists), Some(git))
                             if checkout.state == Some("ready-to-land") && git.error.is_none() =>
                         {
-                            crate::lists::store::Store::named(&self.places, &lists.project)
-                                .ok()
-                                .and_then(|store| {
-                                    self.review_reads.standing(
-                                        &store.dir,
-                                        &lists.project,
-                                        &repo.name,
-                                        Path::new(&checkout.path),
-                                        &git.ahead,
-                                    )
-                                })
+                            let standing =
+                                crate::lists::store::Store::named(&self.places, &lists.project)
+                                    .map_err(crate::fail::Fail::text)
+                                    .and_then(|store| {
+                                        self.review_reads.standing(
+                                            &store,
+                                            &repo.name,
+                                            Path::new(&checkout.path),
+                                            &git.ahead,
+                                        )
+                                    });
+                            match standing {
+                                Ok(standing) => standing,
+                                Err(error) => {
+                                    checkout.errors.push(format!(
+                                        "The daemon can't read the rules review of this worktree's commits: {error}"
+                                    ));
+                                    // Unread, the review may not take the commits: the card
+                                    // says Needs review, never Ready to land.
+                                    checkout.state = Some("in-review");
+                                    None
+                                }
+                            }
                         }
                         _ => None,
                     };
@@ -1317,6 +1347,10 @@ pub struct CheckoutPage {
     /// The words of the worktree's card (cards.rs); empty for a gone root
     /// and an app checkout, which have no card.
     pub words: super::cards::Words,
+    /// What the daemon could not read to say where the worktree's work
+    /// stands, which the card shows: the claim's project, the project's
+    /// lists, or its rules review.
+    pub errors: Vec<String>,
 }
 
 #[derive(Default, Serialize)]

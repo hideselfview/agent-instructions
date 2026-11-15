@@ -10,6 +10,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use super::cards::{ItemWait, ReviewWait};
+use crate::fail::Fail;
+use crate::lists::store::Store;
 use crate::review::commits::{self, Commit};
 use crate::review::landing::{self, Need, Verdict};
 use crate::review::run::Material;
@@ -100,31 +102,36 @@ impl Reads {
     }
 
     /// Where the review of <top>'s commits stands, for a worktree of <repo>
-    /// in <project>, whose store folder is <store_dir> and whose commits not
-    /// on origin/main are <ahead> (newest first); None when land would take
-    /// them as far as the review goes, or when they need no review.
+    /// whose project's store is <store> and whose commits not on origin/main
+    /// are <ahead> (newest first); None when land would take them as far as
+    /// the review goes, or when they need no review. Fails, saying why, when
+    /// the store can't be opened or read.
     pub fn standing(
         &self,
-        store_dir: &Path,
-        project: &str,
+        store: &Store,
         repo: &str,
         top: &Path,
         ahead: &[side_git::Commit],
-    ) -> Option<ItemWait> {
-        let newest = ahead.first()?;
+    ) -> Result<Option<ItemWait>, String> {
+        let Some(newest) = ahead.first() else {
+            return Ok(None);
+        };
         let shas: Vec<String> = ahead.iter().rev().map(|c| c.full.clone()).collect();
-        let (commits, paths) = self.commits(top, &shas)?;
-        let needs = self.needs(project, &commits, &paths)?;
+        let Some((commits, paths)) = self.commits(top, &shas) else {
+            return Ok(None);
+        };
+        let Some(needs) = self.needs(&store.project, &commits, &paths) else {
+            return Ok(None);
+        };
         if needs.iter().all(|n| n.groups.is_empty()) {
-            return None;
+            return Ok(None);
         }
-        if crate::review::is_running(store_dir, &newest.full) {
-            return Some(ItemWait::RulesReview(ReviewWait::Running));
+        if crate::review::is_running(&store.dir, &newest.full) {
+            return Ok(Some(ItemWait::RulesReview(ReviewWait::Running)));
         }
-        let database = store_dir.join(crate::db::DATABASE);
-        let conn = crate::db::open_reader(&database).ok()??;
-        let wait = match landing::judge(&conn, repo, &needs).ok()? {
-            Verdict::NotNeeded | Verdict::Takes(_) => return None,
+        let conn = store.open_existing().map_err(Fail::text)?;
+        let wait = match landing::judge(&conn, repo, &needs).map_err(Fail::text)? {
+            Verdict::NotNeeded | Verdict::Takes(_) => return Ok(None),
             Verdict::NoRun => ReviewWait::NotRun,
             Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {
                 ReviewWait::ToSettle(unfinished.unsettled.len())
@@ -139,7 +146,7 @@ impl Reads {
                 ReviewWait::Unfixed(unfinished.unfixed.len() + unfinished.fixed_elsewhere.len())
             }
         };
-        Some(ItemWait::RulesReview(wait))
+        Ok(Some(ItemWait::RulesReview(wait)))
     }
 }
 

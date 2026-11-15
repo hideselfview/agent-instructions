@@ -704,6 +704,7 @@ function worktreeCard(c) {
     c.words.titles.map(title => h("div", {class: "title"}, title)),
     c.words.line ? h("div", {class: "what"}, queuedLine(c.words)) : null,
     g && g.error ? h("div", {class: "error"}, g.error) : null,
+    c.errors.map(error => h("div", {class: "error"}, error)),
     land,
     cardLine(c));
 }

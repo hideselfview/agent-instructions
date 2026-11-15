@@ -394,4 +394,21 @@ fn health_reads_the_lists_of_the_project_a_claim_names_in_a_repo_two_projects_ho
         found.len() == 1 && found[0].text.contains("no item runs there"),
         "{found:?}"
     );
+    // A claim that names no project, or one that does not hold the repo, is a
+    // finding of its own.
+    for (named, fault) in [
+        (None, "two projects (first, second)"),
+        (Some("third"), "does not hold repo bae"),
+    ] {
+        tree.project = named.map(str::to_string);
+        let found = findings(&loaded, std::slice::from_ref(&tree));
+        assert!(
+            found.len() == 1
+                && found[0]
+                    .text
+                    .starts_with("lists: health can't choose the lists of demo/side-1: ")
+                && found[0].text.contains(fault),
+            "{found:?}"
+        );
+    }
 }

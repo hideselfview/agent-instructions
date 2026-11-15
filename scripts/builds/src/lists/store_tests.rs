@@ -642,20 +642,40 @@ fn the_lists_of_a_repo_two_projects_hold_are_those_of_the_project_a_claim_names(
     };
     let top = Path::new("/w/agent-instructions-worktrees/side-1");
     let two = Ok(vec![both("bae"), both("builds")]);
-    let name = |found: Option<&Lists>| found.map(|l| l.project.clone());
-    assert_eq!(name(lists_of(&two, top, "agent-instructions", None)), None);
+    let name = |found: std::result::Result<Option<&Lists>, String>| {
+        found.map(|found| found.map(|l| l.project.clone()))
+    };
+    assert!(
+        name(lists_of(&two, top, "agent-instructions", None))
+            .unwrap_err()
+            .contains("two projects (bae, builds)")
+    );
     assert_eq!(
         name(lists_of(&two, top, "agent-instructions", Some("builds"))),
-        Some("builds".to_string())
+        Ok(Some("builds".to_string()))
     );
-    assert_eq!(
-        name(lists_of(&two, top, "agent-instructions", Some("web"))),
-        None
+    assert!(
+        name(lists_of(&two, top, "agent-instructions", Some("web")))
+            .unwrap_err()
+            .contains("does not hold repo agent-instructions")
     );
-    assert_eq!(name(lists_of(&two, top, "elsewhere", None)), None);
+    assert_eq!(name(lists_of(&two, top, "elsewhere", None)), Ok(None));
     let one = Ok(vec![both("bae")]);
     assert_eq!(
         name(lists_of(&one, top, "agent-instructions", None)),
-        Some("bae".to_string())
+        Ok(Some("bae".to_string()))
+    );
+    let failing = Ok(vec![Loaded {
+        project: "builds".to_string(),
+        lists: Err("ids repeat".to_string()),
+    }]);
+    assert_eq!(
+        name(lists_of(
+            &failing,
+            top,
+            "agent-instructions",
+            Some("builds")
+        )),
+        Err("the lists of project builds fail their check: ids repeat".to_string())
     );
 }

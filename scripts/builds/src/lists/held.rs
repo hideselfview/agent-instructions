@@ -107,7 +107,10 @@ pub struct Worktree {
 
 impl Worktree {
     /// The lists of the project its work is in (`store::lists_of`).
-    fn lists<'a>(&self, loaded: &'a std::result::Result<Vec<Loaded>, String>) -> Option<&'a Lists> {
+    fn lists<'a>(
+        &self,
+        loaded: &'a std::result::Result<Vec<Loaded>, String>,
+    ) -> std::result::Result<Option<&'a Lists>, String> {
         lists_of(loaded, &self.top, &self.repo, self.project.as_deref())
     }
 }
@@ -147,7 +150,8 @@ pub fn awaiting_review(
     worktrees
         .iter()
         .filter(|worktree| {
-            let Some(lists) = worktree.lists(loaded) else {
+            // `findings` names a worktree whose lists can't be chosen.
+            let Ok(Some(lists)) = worktree.lists(loaded) else {
                 return false;
             };
             let globs = Globs::of(lists, &worktree.repo);
@@ -169,16 +173,30 @@ pub fn awaiting_review(
 /// held worktree
 /// whose item waits on nothing open (the record it waited on closed, or
 /// nothing runs there), and a branch whose commits change design files that
-/// no open design change covers. A store that fails its check is named by
-/// `running::findings`, not here.
+/// no open design change covers. It also names a worktree whose lists it
+/// can't choose: its claim names a project that does not hold its repo,
+/// names none of the two that do, or names a project whose store fails its
+/// check. `running::findings` names stores that can't be listed or that fail
+/// their check, so this says nothing more when the stores can't be listed.
 pub fn findings(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
 ) -> Vec<Advice> {
+    if loaded.is_err() {
+        return Vec::new();
+    }
     let mut found = Vec::new();
     for worktree in worktrees {
-        let Some(lists) = worktree.lists(loaded) else {
-            continue;
+        let lists = match worktree.lists(loaded) {
+            Ok(Some(lists)) => lists,
+            Ok(None) => continue,
+            Err(fault) => {
+                found.push(Advice::said(format!(
+                    "lists: health can't choose the lists of {}: {fault}",
+                    worktree.label
+                )));
+                continue;
+            }
         };
         let top = worktree.top.display().to_string();
         // An app checkout runs no item, so health reports neither a hold nor

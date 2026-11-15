@@ -510,17 +510,28 @@ pub fn project_of(places: &Places, checkout: &Checkout) -> Result<Option<String>
     )
 }
 
-/// The lists of the project a worktree at <top> of <repo>, whose claim names
-/// <named>, is in, chosen among <loaded> as `project_of` chooses. None when
-/// the repo is in no project, when the choice is refused, or when the
-/// project's store fails its check.
+/// Finds the project of the worktree at <top> of <repo> among <loaded> the
+/// way `project_of` does, from the project its claim names (<named>), and
+/// returns that project's lists. Returns None when no project holds the repo.
+/// Fails, saying why, when the stores could not be listed, when the project's
+/// store fails its check, or when `choose_project` refuses the claim.
 pub fn lists_of<'a>(
     loaded: &'a std::result::Result<Vec<Loaded>, String>,
     top: &Path,
     repo: &str,
     named: Option<&str>,
-) -> Option<&'a Lists> {
-    let loaded = loaded.as_deref().ok()?;
+) -> std::result::Result<Option<&'a Lists>, String> {
+    let loaded = loaded.as_deref().map_err(String::clone)?;
+    let failed = |project: &str, fault: &str| {
+        format!("the lists of project {project} fail their check: {fault}")
+    };
+    if let Some(named) = named
+        && let Some(Loaded {
+            lists: Err(fault), ..
+        }) = loaded.iter().find(|one| one.project == named)
+    {
+        return Err(failed(named, fault));
+    }
     let holding = loaded
         .iter()
         .filter(
@@ -528,13 +539,18 @@ pub fn lists_of<'a>(
         )
         .map(|one| one.project.clone())
         .collect();
-    let project = choose_project(top, repo, named, holding).ok()??;
-    loaded
-        .iter()
-        .find(|one| one.project == project)?
-        .lists
-        .as_ref()
-        .ok()
+    let Some(project) = choose_project(top, repo, named, holding).map_err(Fail::text)? else {
+        return Ok(None);
+    };
+    match loaded.iter().find(|one| one.project == project) {
+        Some(Loaded {
+            lists: Ok(lists), ..
+        }) => Ok(Some(lists)),
+        Some(Loaded {
+            lists: Err(fault), ..
+        }) => Err(failed(&project, fault)),
+        None => Err(format!("there is no store for project {project}")),
+    }
 }
 
 /// The project of a worktree at <top> of <repo> among <holding>, the projects

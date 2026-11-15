@@ -23,7 +23,9 @@ fn ahead(side: &Path) -> Vec<side_git::Commit> {
 }
 
 fn standing(reads: &Reads, demo: &Demo, side: &Path) -> Option<ItemWait> {
-    reads.standing(&demo.store.dir, "demo", "demo", side, &ahead(side))
+    reads
+        .standing(&demo.store, "demo", side, &ahead(side))
+        .unwrap()
 }
 
 fn review(demo: &Demo, root: &Path, program: &Path, side: &Path, key: &str) {
@@ -116,5 +118,19 @@ fn a_card_follows_the_review_from_none_to_findings_to_fixes_and_says_nothing_onc
     assert_eq!(
         standing(&reads, &demo, &clean),
         Some(ItemWait::RulesReview(ReviewWait::Unreviewed(1)))
+    );
+}
+
+#[test]
+fn a_card_whose_project_has_no_store_says_so_and_never_that_land_takes_its_commits() {
+    let demo = demo("review-cards-no-store");
+    let fake = fake(&demo.scratch.dir);
+    let reads = Reads::with_root(Some(fake.root.clone()));
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    let ghost = Store::named(&demo.tool.places, "ghost").unwrap();
+    assert_eq!(
+        reads.standing(&ghost, "demo", &side, &ahead(&side)),
+        Err("there is no store for project ghost".to_string())
     );
 }
