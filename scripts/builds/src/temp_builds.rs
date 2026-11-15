@@ -12,11 +12,13 @@
 //!   a SwiftPM folder              workspace-state.json beside checkouts,
 //!                                 repositories or artifacts
 //!
-//! At the top of each temporary folder, entries named claude-*, com.apple.*
-//! and tmux-* are skipped whole: Claude Code sessions' scratch folders (pruned
-//! by their own rule), launchd's per-session socket folders, and the tmux
-//! server's socket folder, whose deletion strands a running server. Only
-//! folders the caller owns are listed, and links are never followed.
+//! At the top of each temporary folder, entries named claude-*, com.apple.*,
+//! tmux-* and TemporaryDirectory.* (Swift tools' scratch folders, which hold
+//! no build output and pile up by the tens of thousands) are skipped
+//! whole: Claude Code sessions' scratch folders (pruned by their own rule),
+//! launchd's per-session socket folders, and the tmux server's socket folder,
+//! whose deletion strands a running server. Only folders the caller owns are
+//! listed, and links are never followed.
 
 use std::collections::HashSet;
 use std::os::unix::fs::MetadataExt;
@@ -31,7 +33,7 @@ use crate::trees::{is_swiftpm_folder, is_xcode_tree};
 /// $TMPDIR/<tool>-<id>/<package>/.build; a build folder's own contents are
 /// never walked.
 const MAX_DEPTH: usize = 4;
-const SKIPPED_PREFIXES: [&str; 3] = ["claude-", "com.apple.", "tmux-"];
+const SKIPPED_PREFIXES: [&str; 4] = ["claude-", "com.apple.", "tmux-", "TemporaryDirectory."];
 
 /// The temporary folders build output can land in: /private/tmp, the user's
 /// temporary folder, and this session's TMPDIR when it is another, unless it
