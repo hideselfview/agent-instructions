@@ -50,10 +50,6 @@ devices through the person's cloud storage, merges writes that devices made
 while offline, and gives bae live queries: SQL queries that coven reruns
 whenever a write changes what they read.
 
-bae's `Cargo.toml` pins coven to one commit (`rev`). Move the pin as soon as
-coven lands what bae needs. While coven lands a planned series of commits, move
-the pin once, after the series.
-
 ### bae writes as if it were the only device
 
 bae writes as though every device wrote to this one database, one write at a
@@ -63,45 +59,19 @@ in which remote rows apply. coven handles concurrent writes, rows whose parent
 another device deleted, and conflicts. If a bae write cannot be written as
 local, coven lacks something: fix coven, and never work around it in bae.
 
-### Tables belong to their domain
+### Each domain owns its tables
 
 Each table is in the crate of the domain that owns it: records are in
 bae-records and the import's tables in bae-import, for example. bae-store has
-none. A domain's SQL files are in the same folder as a `.rs` file of the same
-name, with their trigger tests in `<stem>_tests.rs`.
-
-The schema is one migration, which bae-library assembles (`SCHEMA`) from each
-crate's parts in crate order. A schema change edits its domain's SQL file and
-never adds a second migration. No library has to advance from an older schema:
-`scripts/reset-bae.py` resets development data.
-
-Only a domain's own code writes its tables. The pre-commit hook checks this: it
-runs coven's structural checker (`scripts/owner-construction-check.sh`), whose
-`database-boundary` rule refuses any crate that writes a table
-`owner-construction-check.toml` doesn't assign to it.
-
-Tests follow the same rule. A test builds the library state it needs through the
-owning domain's own writes, never by writing tables directly. When a test needs
-damaged data, such as a value a CHECK refuses or a write that fails, a named
-function in the owning domain writes it, and a test that must open a library
-file directly does so only through `plant_in_library_file` in
-`bae_store::test_fixtures::planted_damage`. bae-store gives no `Connection` to
-other crates, so a domain's tests open their own in-memory library with
-`Schema::open_bare_library(&conn)`.
+none. Only a domain's own code writes its tables, and tests follow the same
+rule. "Changing a table" below says where the SQL goes and how the rule is
+checked.
 
 ### Shapes change in one commit, with no compatibility code
 
-bae and coven follow
-`rules/necessary-code/change-a-shape-in-one-commit-with-no-compatibility-code.md`
-for each of these shapes:
-
-- a table
-- a bridge type
-- an event payload
-- an on-disk file layout
-- the sync membership chain format
-- an encryption scheme
-- a cloud storage path
+This holds in bae and coven, for the sync, encryption and cloud storage formats
+as much as for tables and bridge types
+(`rules/necessary-code/change-a-shape-in-one-commit-with-no-compatibility-code.md`).
 
 Never mention a reset to the person, even when a change that needs one lands.
 
@@ -119,6 +89,123 @@ and `projects/bae-rules/ui-views/native-views-draw-fast-changing-values.md`.
 They load only when an agent edits matching files, so every plan, brief and
 review checks a change's reads and fast values against them. A plan that
 proposes a shape they forbid is wrong: raise it instead of building it.
+
+## Building and testing
+
+The `builds` tool manages checkouts, build folders and app builds
+(`builds help`, `builds help workflow`).
+
+### Checkouts
+
+`~/dev/bae` and `~/dev/coven` are the person's checkouts. No agent edits,
+builds, commits or cherry-picks there, the coordinator included. Agents work in
+side worktrees, and the dashboard (http://127.0.0.1:7787/) shows who has each
+one.
+
+### Rust builds
+
+Run every cargo command through `scripts/cargo.sh`, never bare `cargo`
+(`builds help`, CARGO). `scripts/cargo.sh test`, `clippy`, `check`, `doc` and
+`nextest` run on this Mac or the M1 (a second Mac that builds also uses),
+whichever has more free cores. A test that needs this Mac's keychain, a local
+server or a file outside the checkout fails on the M1: run it with
+`BUILDS_CARGO_HOST=local`.
+
+Don't delete build folders yourself: `builds` deletes the ones no build has used
+for days and keeps the rest under their size caps.
+
+### App builds
+
+A change to Swift, Kotlin, C# or a bridge shape the apps compile against needs
+an app build. Commit on your branch, then run this as a background task:
+
+```sh
+builds app-build bae <branch> [--test <Class>]... [--shots <prefix>]...
+```
+
+`--shots <prefix>` runs the shots (pictures of app views, each checked against
+its board) whose names start with the prefix (`mac.` or `android.`).
+`builds help` (APP BUILDS) says how builds picks what to build and where.
+
+Never run the `macos-tests-run`, `macos-tests-all` or `android-tests` steps as a
+check: they run every test and put windows on the person's screen, and CI runs
+the suites. To build something else in an app checkout, add a `step` line and an
+`on` line to `.app-build`.
+
+Notarized macOS releases come only from `main`, and `scripts/release-macos.sh`
+builds them on CI.
+
+### iOS simulators
+
+Keep at most one iOS simulator runtime and one simulator device installed. When
+you install a new runtime, delete the old runtime and its devices
+(`xcrun simctl runtime list`, `xcrun simctl runtime delete`,
+`xcrun simctl delete`). Each runtime takes 8 to 20 GB of the disk the builds
+share.
+
+## Making a change
+
+### Every commit keeps the spec current
+
+`spec/bae.md` states what bae does. Every commit checks whether it changes or
+adds anything the spec states or should state (behavior, a schema or sync shape,
+a user-visible rule), and if it does, edits the spec in the same commit. A
+commit without its spec edit is unfinished.
+
+### Changing a table
+
+A domain's SQL files are in the same folder as a `.rs` file of the same name,
+with their trigger tests in `<stem>_tests.rs`. The schema is one migration,
+which bae-library assembles (`SCHEMA`) from each crate's parts in crate order. A
+schema change edits its domain's SQL file and never adds a second migration. No
+library has to advance from an older schema: `scripts/reset-bae.py` resets
+development data.
+
+The pre-commit hook checks that only a domain's own code writes its tables: it
+runs coven's structural checker (`scripts/owner-construction-check.sh`), whose
+`database-boundary` rule refuses any crate that writes a table
+`owner-construction-check.toml` doesn't assign to it.
+
+A test builds the library state it needs through the owning domain's own writes,
+never by writing tables directly. When a test needs damaged data, such as a
+value a CHECK refuses or a write that fails, a named function in the owning
+domain writes it, and a test that must open a library file directly does so only
+through `plant_in_library_file` in `bae_store::test_fixtures::planted_damage`.
+bae-store gives no `Connection` to other crates, so a domain's tests open their
+own in-memory library with `Schema::open_bare_library(&conn)`.
+
+### Moving the coven pin
+
+bae's `Cargo.toml` pins coven to one commit (`rev`). Move the pin as soon as
+coven lands what bae needs. While coven lands a planned series of commits, move
+the pin once, after the series.
+
+### File size
+
+A source file must not exceed 1,000 lines (`scripts/check-source-file-size.py`,
+with its frozen per-file exceptions). A Rust file over 1,000 lines keeps its
+`#[cfg(test)]` module in a sibling `_tests.rs` file. Split production code along
+its domain and ownership boundaries. Don't expose an owner's state or duplicate
+types to make a split compile.
+
+### Checking a change
+
+Before you commit, run the pre-commit hook (the `.checks` lines the staged files
+reach: formatters and static checks only) and the tests of the components the
+change affects. Then commit and push. When a CI job fails, reproduce that job
+locally.
+
+Test a crate with the features the hook builds it with, so the test reuses the
+hook's build instead of compiling every crate again:
+`scripts/cargo.sh test -p <crate> --features test-utils <filter>` for a crate
+that declares `test-utils`, no features for one that doesn't, and
+`--features oauth-providers,cloudkit,cast,test-keyring,dev-reset` for
+bae-bridge. Use another feature set only to check that feature set.
+
+Tests, benches and probes never write to the person's keychain: use an in-memory
+keychain (`Coven::in_memory`) or a temporary one. An entry in the synced iCloud
+Keychain reaches every device on the person's Apple account. Read the person's
+keychain only when they ask, for that task.
 
 ## How work is tracked
 
@@ -174,95 +261,6 @@ that waits on a board waits until the board lands. How the design session draws,
 records, reviews and lands a change is in `builds help workflow`, and how
 boards, shots and the apps' views fit together is in
 `projects/bae-rules/screen-content/build-each-screen-to-match-its-board.md`.
-
-## Making a change
-
-### Every commit keeps the spec current
-
-`spec/bae.md` states what bae does. Every commit checks whether it changes or
-adds anything the spec states or should state (behavior, a schema or sync shape,
-a user-visible rule), and if it does, edits the spec in the same commit. A
-commit without its spec edit is unfinished.
-
-### File size
-
-A source file must not exceed 1,000 lines (`scripts/check-source-file-size.py`,
-with its frozen per-file exceptions). A Rust file over 1,000 lines keeps its
-`#[cfg(test)]` module in a sibling `_tests.rs` file. Split production code along
-its domain and ownership boundaries. Don't expose an owner's state or duplicate
-types to make a split compile.
-
-### Checking a change
-
-Before you commit, run the pre-commit hook (the `.checks` lines the staged files
-reach: formatters and static checks only) and the tests of the components the
-change affects. Then commit and push. When a CI job fails, reproduce that job
-locally.
-
-Test a crate with the features the hook builds it with, so the test reuses the
-hook's build instead of compiling every crate again:
-`scripts/cargo.sh test -p <crate> --features test-utils <filter>` for a crate
-that declares `test-utils`, no features for one that doesn't, and
-`--features oauth-providers,cloudkit,cast,test-keyring,dev-reset` for
-bae-bridge. Use another feature set only to check that feature set.
-
-Tests, benches and probes never write to the person's keychain: use an in-memory
-keychain (`Coven::in_memory`) or a temporary one. An entry in the synced iCloud
-Keychain reaches every device on the person's Apple account. Read the person's
-keychain only when they ask, for that task.
-
-## Building and testing
-
-The `builds` tool manages checkouts, build folders and app builds
-(`builds help`, `builds help workflow`).
-
-### Checkouts
-
-`~/dev/bae` and `~/dev/coven` are the person's checkouts. No agent edits,
-builds, commits or cherry-picks there, the coordinator included. Agents work in
-side worktrees, and the dashboard (http://127.0.0.1:7787/) shows who has each
-one.
-
-### Rust builds
-
-Run every cargo command through `scripts/cargo.sh`, never bare `cargo`
-(`builds help`, CARGO). `scripts/cargo.sh test`, `clippy`, `check`, `doc` and
-`nextest` run on this Mac or the M1 (a second Mac that builds also uses),
-whichever has more free cores. A test that needs this Mac's keychain, a local
-server or a file outside the checkout fails on the M1: run it with
-`BUILDS_CARGO_HOST=local`.
-
-Don't delete build folders yourself: `builds` deletes the ones no build has used
-for days and keeps the rest under their size caps.
-
-### App builds
-
-A change to Swift, Kotlin, C# or a bridge shape the apps compile against needs
-an app build. Commit on your branch, then run this as a background task:
-
-```sh
-builds app-build bae <branch> [--test <Class>]... [--shots <prefix>]...
-```
-
-`--shots <prefix>` runs the shots (pictures of app views, each checked against
-its board) whose names start with the prefix (`mac.` or `android.`).
-`builds help` (APP BUILDS) says how builds picks what to build and where.
-
-Never run the `macos-tests-run`, `macos-tests-all` or `android-tests` steps as a
-check: they run every test and put windows on the person's screen, and CI runs
-the suites. To build something else in an app checkout, add a `step` line and an
-`on` line to `.app-build`.
-
-Notarized macOS releases come only from `main`, and `scripts/release-macos.sh`
-builds them on CI.
-
-### iOS simulators
-
-Keep at most one iOS simulator runtime and one simulator device installed. When
-you install a new runtime, delete the old runtime and its devices
-(`xcrun simctl runtime list`, `xcrun simctl runtime delete`,
-`xcrun simctl delete`). Each runtime takes 8 to 20 GB of the disk the builds
-share.
 
 ## Logs and known build failures
 
