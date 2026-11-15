@@ -224,10 +224,11 @@ pub struct SiteScore {
     pub unlabelled: usize,
 }
 
-/// Whether the code of a reviewer's finding and a label name one site: one
-/// holds the other, once whitespace and markdown marks are gone.
-fn same_code(finding: &str, label: &str) -> bool {
-    let (a, b) = (squash(finding), squash(label));
+/// Whether two quotes of code (a reviewer's finding and a label, or two
+/// findings) name one site: one holds the other, once whitespace and markdown
+/// marks are gone.
+pub(super) fn same_code(a: &str, b: &str) -> bool {
+    let (a, b) = (squash(a), squash(b));
     !a.is_empty() && !b.is_empty() && (a.contains(&b) || b.contains(&a))
 }
 
@@ -404,7 +405,7 @@ fn commit_of(patch: &str) -> Option<String> {
 }
 
 /// Whether two paths name one file, one possibly shortened from the left.
-fn same_file(a: &str, b: &str) -> bool {
+pub(super) fn same_file(a: &str, b: &str) -> bool {
     a == b || a.ends_with(&format!("/{b}")) || b.ends_with(&format!("/{a}"))
 }
 
@@ -470,6 +471,8 @@ pub struct Totals {
     pub tokens_written: i64,
     /// Of those, what the passes after each group's first used.
     pub repeat: Tokens,
+    /// What `claude -p` reported the calls cost, in millionths of a US dollar.
+    pub cost_microdollars: i64,
 }
 
 pub fn totals(results: &[CaseResult]) -> Totals {
@@ -483,6 +486,7 @@ pub fn totals(results: &[CaseResult]) -> Totals {
         tokens_cached: 0,
         tokens_written: 0,
         repeat: Tokens::default(),
+        cost_microdollars: 0,
     };
     for r in results {
         t.expected += r.expected;
@@ -494,6 +498,7 @@ pub fn totals(results: &[CaseResult]) -> Totals {
         t.tokens_out += o;
         t.tokens_cached += r.calls.iter().map(|c| c.tokens_cached).sum::<i64>();
         t.tokens_written += r.calls.iter().map(|c| c.tokens_written).sum::<i64>();
+        t.cost_microdollars += r.calls.iter().map(|c| c.cost_microdollars).sum::<i64>();
         t.repeat.input += r.repeat.input;
         t.repeat.cached += r.repeat.cached;
         t.repeat.written += r.repeat.written;
@@ -582,7 +587,7 @@ pub fn report(results: &[CaseResult]) -> String {
     let t = totals(results);
     let percent = (t.found * 100).checked_div(t.expected).unwrap_or(100);
     out.push_str(&format!(
-        "recall {} of {} expected findings ({percent}%), {} false blocking findings on clean cases, {} failed calls, {} tokens in ({} uncached, {} read from the cache, {} written to it), {} out\n",
+        "recall {} of {} expected findings ({percent}%), {} false blocking findings on clean cases, {} failed calls, {} tokens in ({} uncached, {} read from the cache, {} written to it), {} out, ${:.2}\n",
         t.found,
         t.expected,
         t.false_blocking,
@@ -591,7 +596,8 @@ pub fn report(results: &[CaseResult]) -> String {
         t.tokens_in - t.tokens_cached - t.tokens_written,
         t.tokens_cached,
         t.tokens_written,
-        t.tokens_out
+        t.tokens_out,
+        t.cost_microdollars as f64 / 1_000_000.0
     ));
     if t.repeat != Tokens::default() {
         out.push_str(&format!(

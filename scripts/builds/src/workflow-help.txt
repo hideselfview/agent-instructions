@@ -76,7 +76,12 @@ PLAN, BRIEF, EXECUTE, REVIEW
     it in a new commit. builds does not review that commit: the coordinator
     reads it against its finding, names it (`builds review fixed`), and lands
     the reviewed commits with their fixes. `builds land` refuses commits that
-    lack this step (`builds help`, LANDING AND REVIEW).
+    lack this step (`builds help`, LANDING AND REVIEW). Each settle, with its
+    `--why`, is the record that scores the reviews: a confirmed finding counts
+    as a true positive and a dropped one as a false positive (`builds review
+    scores`), and `builds review replay --landing` scores other models and
+    prompts against it. So the coordinator settles each finding on what the
+    code does, and its why says what makes the finding real or wrong.
   - At every step, check the shape against the project's standing rules,
     which a plan's author never loads by touching files; the project file
     names them. A plan that proposes a shape they forbid is rewritten before

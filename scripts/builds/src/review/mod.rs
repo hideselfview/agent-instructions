@@ -10,8 +10,9 @@
 //! builds review check-landing | landed DIR --project P SHA...
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
 //! builds review replay [--case NAME]... [--source REPO] [--model M] [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model M] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review audit LANDING --repo-dir DIR
-//! builds review misses | rates
+//! builds review misses | rates | scores
 //! builds review case add ...
 //! ```
 //!
@@ -25,6 +26,11 @@
 //! already gets no second review: the run asks only the groups that gave that
 //! review no answer, over the same diff, and refuses when every group
 //! answered.
+//!
+//! Every call records its setup (its group's model and prompt), its tokens and
+//! its cost. `scores` counts how each setup did from the settled findings, and
+//! `replay --landing` asks again over recorded diffs and counts the replay the
+//! same way (`score.rs`).
 
 mod audit;
 mod call;
@@ -39,8 +45,10 @@ pub mod landing;
 mod prompt;
 pub mod record;
 mod render;
+mod rerun;
 mod rules;
 pub mod run;
+mod score;
 
 use std::path::{Path, PathBuf};
 
@@ -55,7 +63,7 @@ use crate::tool::Tool;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review fixed FINDING SHA\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review fixed FINDING SHA\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -129,6 +137,7 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
         "audit" => audit_command(tool, rest),
         "misses" => misses(tool, rest),
         "rates" => rates(tool, rest),
+        "scores" => scores(tool, rest),
         "case" => case_command(tool, rest),
         _ => run_command(tool, args),
     }
@@ -593,14 +602,35 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
 
 /// `builds review replay`: runs a grouping over every case of the checkout's
 /// `review/cases` and prints the recall, the false blocking findings and the
-/// tokens. Each replayed case is recorded in its project's store.
+/// tokens. Each replayed case is recorded in its project's store. With
+/// `--landing`, it replays the diffs of recorded reviews instead (`rerun.rs`).
 fn replay(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(
         args,
-        &["case", "rules-root", "reviewer", "source", "model"],
+        &[
+            "case",
+            "rules-root",
+            "reviewer",
+            "source",
+            "model",
+            "landing",
+            "repo-dir",
+            "group",
+        ],
         &[],
     )?;
     args.exactly(0, USAGE)?;
+    if let Some(model) = args.value("model")?
+        && !["opus", "sonnet", "haiku"].contains(&model)
+    {
+        fail!("--model is opus, sonnet or haiku, not {model}");
+    }
+    if !args.values("landing").is_empty() {
+        return replay_landings(tool, &args);
+    }
+    if args.value("repo-dir")?.is_some() || !args.values("group").is_empty() {
+        fail!("--repo-dir and --group go with --landing\n{USAGE}");
+    }
     let root = rules_root(&args)?;
     let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
     let source = args.value("source")?.map(PathBuf::from);
@@ -640,6 +670,46 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
     }
     print!("{}", cases::report(&results));
     if cases::totals(&results).failed_calls > 0 {
+        return Err(Fail::Exit(1));
+    }
+    Ok(())
+}
+
+/// `builds review replay --landing N...`: replays the diffs the reviews of
+/// those landings read and scores the replay against their settled findings.
+fn replay_landings(tool: &Tool, args: &Args) -> Result<()> {
+    if !args.values("case").is_empty() || args.value("source")?.is_some() {
+        fail!(
+            "--landing replays recorded reviews, and --case and --source replay cases: give one or the other"
+        );
+    }
+    let landings: Vec<i64> = args
+        .values("landing")
+        .into_iter()
+        .map(|landing| {
+            landing
+                .parse()
+                .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))
+        })
+        .collect::<Result<_>>()?;
+    let store = store_of(tool, args)?;
+    let root = rules_root(args)?;
+    let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let repo_dir = PathBuf::from(args.require("repo-dir")?);
+    let stamp = Stamp::resolve(tool.now, args, &current_dir()?)?;
+    let replayed = rerun::replay(&rerun::Inputs {
+        store: &store,
+        project: &store.project,
+        repo_dir: &repo_dir,
+        landings: &landings,
+        root: &root,
+        reviewer: &reviewer,
+        model: args.value("model")?,
+        groups: &args.values("group"),
+        stamp: &stamp,
+    })?;
+    print!("{}", replayed.text);
+    if replayed.failed {
         return Err(Fail::Exit(1));
     }
     Ok(())
@@ -752,6 +822,22 @@ fn rates(tool: &Tool, args: &[String]) -> Result<()> {
             if rate.risen() { " (risen)" } else { "" }
         );
     }
+    Ok(())
+}
+
+/// `builds review scores`: precision and recall per group and rule, for each
+/// setup, from the settled findings and audits in the store.
+fn scores(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &[], &[])?;
+    args.exactly(0, USAGE)?;
+    let store = store_of(tool, &args)?;
+    let Some(conn) = db::open_reader(&store.database())? else {
+        fail!("there is no store for project {}", store.project);
+    };
+    print!(
+        "{}",
+        score::store_report(&store.project, &score::of_store(&conn)?)
+    );
     Ok(())
 }
 

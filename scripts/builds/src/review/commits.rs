@@ -65,6 +65,32 @@ pub fn in_range(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
     )
 }
 
+/// Whether the repo at <repo> has the commit <sha>.
+pub fn exists(repo: &Path, sha: &str) -> bool {
+    git(repo)
+        .args(["cat-file", "-e", &format!("{sha}^{{commit}}")])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// The newest <count> commits of the repo's HEAD, oldest first.
+pub fn newest(repo: &Path, count: usize) -> Result<Vec<String>> {
+    Ok(git_text(
+        repo,
+        &[
+            "rev-list",
+            "--reverse",
+            &format!("--max-count={count}"),
+            "HEAD",
+        ],
+    )?
+    .lines()
+    .map(str::to_string)
+    .collect())
+}
+
 /// Each of <revs> with the patch id of its change, in the order given. A
 /// commit that changes nothing (and a merge, whose change `git log -p` does not
 /// show) has no patch id and is left out.

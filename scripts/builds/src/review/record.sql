@@ -43,6 +43,12 @@ CREATE TABLE review_call (
     run_id INTEGER NOT NULL REFERENCES review_run (id),
     group_name TEXT NOT NULL,
     model TEXT NOT NULL,
+    -- The group's prompt without what each review brings (the change, the
+    -- project's instructions and the brief): the system prompt's opening, the
+    -- group's question, how to answer, its rules' text, its passes and the
+    -- answer schema (prompt::setup). Calls with the same model and prompt ran
+    -- the same setup.
+    prompt TEXT NOT NULL REFERENCES review_text (hash),
     -- The rule slugs the reviewer answers for, as a JSON array.
     rules TEXT NOT NULL,
     -- All input tokens: uncached, read from the cache and written to it.
@@ -51,6 +57,10 @@ CREATE TABLE review_call (
     -- Of tokens_in, the part read from the prompt cache and the part written to it.
     tokens_cached INTEGER NOT NULL CONSTRAINT review_call_tokens_cached_not_negative CHECK (tokens_cached >= 0),
     tokens_written INTEGER NOT NULL CONSTRAINT review_call_tokens_written_not_negative CHECK (tokens_written >= 0),
+    -- What `claude -p` reported the call cost, in millionths of a US dollar,
+    -- summed over its processes; null for a call made before builds recorded
+    -- the cost.
+    cost_microdollars INTEGER CONSTRAINT review_call_cost_not_negative CHECK (cost_microdollars >= 0),
     -- For a group that lists the sites it judges: its summary and the sites, as JSON.
     sites TEXT,
     -- Why the call gave no usable answer; null when it did.
@@ -58,8 +68,9 @@ CREATE TABLE review_call (
 ) STRICT;
 CREATE INDEX review_call_run ON review_call (run_id);
 
--- The text a reviewer was sent and the text it answered with, kept once each
--- by its hash (an FNV-1a hash and the length).
+-- The texts a reviewer was sent (each exchange's system prompt and message)
+-- and each call's prompt, kept once each by its hash (an FNV-1a hash and the
+-- length).
 CREATE TABLE review_text (
     hash TEXT PRIMARY KEY,
     text TEXT NOT NULL

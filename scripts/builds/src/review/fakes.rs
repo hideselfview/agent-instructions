@@ -86,6 +86,7 @@ impl Fake {
             .collect();
         let body = serde_json::json!({
             "is_error": false,
+            "total_cost_usd": 0.01,
             "usage": {"input_tokens": 100, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 10},
             "structured_output": {"rules": entries}
         });
@@ -101,6 +102,7 @@ impl Fake {
     pub fn answer_task(&self, task: &str, body: serde_json::Value) {
         let envelope = serde_json::json!({
             "is_error": false,
+            "total_cost_usd": 0.005,
             "usage": {"input_tokens": 50, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 5},
             "structured_output": body
         });

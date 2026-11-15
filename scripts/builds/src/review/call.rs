@@ -38,6 +38,9 @@ pub struct Output {
     pub tokens_out: i64,
     pub tokens_cached: i64,
     pub tokens_written: i64,
+    /// What `claude -p` reported the process cost, in millionths of a US
+    /// dollar.
+    pub cost_microdollars: i64,
     /// The answer, or why there is none.
     pub answer: Result<Answer, String>,
 }
@@ -50,6 +53,9 @@ pub struct Invoked {
     pub tokens_out: i64,
     pub tokens_cached: i64,
     pub tokens_written: i64,
+    /// `total_cost_usd` in millionths of a US dollar: what the process cost;
+    /// 0 when it printed no cost, as a process that failed does.
+    pub cost_microdollars: i64,
     pub body: Result<Value, String>,
 }
 
@@ -92,6 +98,7 @@ pub fn invoke(
         tokens_out: 0,
         tokens_cached: 0,
         tokens_written: 0,
+        cost_microdollars: 0,
         body: Err(why),
     };
     let mut child = match command.spawn() {
@@ -131,6 +138,7 @@ pub fn envelope(text: &str) -> Invoked {
             tokens_out: 0,
             tokens_cached: 0,
             tokens_written: 0,
+            cost_microdollars: 0,
             body: Err("the reviewer printed no JSON".to_string()),
         };
     };
@@ -145,6 +153,8 @@ pub fn envelope(text: &str) -> Invoked {
         tokens_out,
         tokens_cached: count("cache_read_input_tokens"),
         tokens_written: count("cache_creation_input_tokens"),
+        cost_microdollars: (value["total_cost_usd"].as_f64().unwrap_or(0.0) * 1_000_000.0).round()
+            as i64,
         body,
     }
 }
@@ -195,6 +205,7 @@ fn output_of(invoked: Invoked, names: &[String], enumerate: bool) -> Output {
         tokens_out: invoked.tokens_out,
         tokens_cached: invoked.tokens_cached,
         tokens_written: invoked.tokens_written,
+        cost_microdollars: invoked.cost_microdollars,
         answer: invoked.body.and_then(|body| {
             if enumerate {
                 sites_of(&body, names)

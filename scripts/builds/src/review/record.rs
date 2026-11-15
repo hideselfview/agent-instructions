@@ -49,11 +49,16 @@ pub struct NewExchange {
 pub struct NewCall {
     pub group: String,
     pub model: String,
+    /// The group's prompt without what each review brings (`prompt::setup`).
+    pub prompt: String,
     pub rules: Vec<String>,
     pub tokens_in: i64,
     pub tokens_out: i64,
     pub tokens_cached: i64,
     pub tokens_written: i64,
+    /// What `claude -p` reported the call's processes cost, in millionths of
+    /// a US dollar.
+    pub cost_microdollars: i64,
     /// The sites a group that lists them judged, as JSON.
     pub sites: Option<String>,
     pub failure: Option<String>,
@@ -124,11 +129,26 @@ pub struct Call {
     pub kind: String,
     pub group: String,
     pub model: String,
+    /// The hash its prompt is kept under in `review_text`.
+    pub prompt: String,
+    /// The rule slugs it answers for.
+    pub rules: Vec<String>,
     pub tokens_in: i64,
     pub tokens_out: i64,
     pub tokens_cached: i64,
     pub tokens_written: i64,
+    /// None for a call made before builds recorded the cost.
+    pub cost_microdollars: Option<i64>,
     pub failure: Option<String>,
+}
+
+/// A rule's verdict in a call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Verdict {
+    pub call_id: i64,
+    pub rule: String,
+    /// `finding` or `none`.
+    pub verdict: String,
 }
 
 /// The landing of <key> whose change has not landed, if any.
@@ -224,9 +244,10 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
     let mut ids = Vec::new();
     for call in calls {
         let rules = serde_json::to_string(&call.rules).expect("strings serialize");
+        let prompt = keep_text(db, &call.prompt)?;
         db.execute(
-            "INSERT INTO review_call (run_id, group_name, model, rules, tokens_in, tokens_out, tokens_cached, tokens_written, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![run_id, call.group, call.model, rules, call.tokens_in, call.tokens_out, call.tokens_cached, call.tokens_written, call.sites, call.failure],
+            "INSERT INTO review_call (run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![run_id, call.group, call.model, prompt, rules, call.tokens_in, call.tokens_out, call.tokens_cached, call.tokens_written, call.cost_microdollars, call.sites, call.failure],
         )
         .sql()?;
         let call_id = db.last_insert_rowid();
@@ -396,24 +417,84 @@ pub fn calls_of_run(db: &Connection, run: i64) -> Result<Vec<Call>> {
     calls_where(db, "c.run_id = ?1", run)
 }
 
-fn calls_where(db: &Connection, condition: &str, value: i64) -> Result<Vec<Call>> {
+/// The calls of every run of <kind> (`review`, `replay` or `audit`).
+pub fn calls_of_kind(db: &Connection, kind: Kind) -> Result<Vec<Call>> {
+    calls_where(db, "r.kind = ?1", kind.word())
+}
+
+fn calls_where(db: &Connection, condition: &str, value: impl rusqlite::ToSql) -> Result<Vec<Call>> {
     let sql = format!(
-        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.tokens_in, c.tokens_out, c.tokens_cached, c.tokens_written, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
+        "SELECT c.id, c.run_id, r.kind, c.group_name, c.model, c.prompt, c.rules, c.tokens_in, c.tokens_out, c.tokens_cached, c.tokens_written, c.cost_microdollars, c.failure FROM review_call c JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY c.id"
     );
     let mut statement = db.prepare(&sql).sql()?;
     let rows = statement
         .query_map(params![value], |row| {
+            let rules: String = row.get(6)?;
             Ok(Call {
                 id: row.get(0)?,
                 run_id: row.get(1)?,
                 kind: row.get(2)?,
                 group: row.get(3)?,
                 model: row.get(4)?,
-                tokens_in: row.get(5)?,
-                tokens_out: row.get(6)?,
-                tokens_cached: row.get(7)?,
-                tokens_written: row.get(8)?,
-                failure: row.get(9)?,
+                prompt: row.get(5)?,
+                rules: serde_json::from_str(&rules).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        6,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?,
+                tokens_in: row.get(7)?,
+                tokens_out: row.get(8)?,
+                tokens_cached: row.get(9)?,
+                tokens_written: row.get(10)?,
+                cost_microdollars: row.get(11)?,
+                failure: row.get(12)?,
+            })
+        })
+        .sql()?;
+    rows.map(|row| row.sql()).collect()
+}
+
+/// The verdicts of the calls of <landing>'s runs.
+pub fn verdicts_of_landing(db: &Connection, landing: i64) -> Result<Vec<Verdict>> {
+    verdicts_where(db, "r.landing_id = ?1", landing)
+}
+
+/// The verdicts of the calls of <run>.
+pub fn verdicts_of_run(db: &Connection, run: i64) -> Result<Vec<Verdict>> {
+    verdicts_where(db, "c.run_id = ?1", run)
+}
+
+fn verdicts_where(db: &Connection, condition: &str, value: i64) -> Result<Vec<Verdict>> {
+    let sql = format!(
+        "SELECT v.call_id, v.rule, v.verdict FROM review_verdict v JOIN review_call c ON c.id = v.call_id JOIN review_run r ON r.id = c.run_id WHERE {condition} ORDER BY v.call_id, v.rule"
+    );
+    let mut statement = db.prepare(&sql).sql()?;
+    let rows = statement
+        .query_map(params![value], |row| {
+            Ok(Verdict {
+                call_id: row.get(0)?,
+                rule: row.get(1)?,
+                verdict: row.get(2)?,
+            })
+        })
+        .sql()?;
+    rows.map(|row| row.sql()).collect()
+}
+
+/// Every landing under review, oldest first.
+pub fn all_landings(db: &Connection) -> Result<Vec<LandingRow>> {
+    let mut statement = db
+        .prepare("SELECT id, key, repo, landed_run FROM review_landing ORDER BY id")
+        .sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(LandingRow {
+                id: row.get(0)?,
+                key: row.get(1)?,
+                repo: row.get(2)?,
+                landed_run: row.get(3)?,
             })
         })
         .sql()?;
@@ -459,12 +540,14 @@ pub struct RunRow {
     pub base: String,
     pub head: String,
     pub grouping: String,
+    /// The commit of the rules checkout the run read.
+    pub rules_version: String,
 }
 
 /// The runs of <landing>.
 pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
     let mut statement = db
-        .prepare("SELECT id, kind, base, head, grouping FROM review_run WHERE landing_id = ?1 ORDER BY id")
+        .prepare("SELECT id, kind, base, head, grouping, rules_version FROM review_run WHERE landing_id = ?1 ORDER BY id")
         .sql()?;
     let rows = statement
         .query_map(params![landing], |row| {
@@ -474,6 +557,7 @@ pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
                 base: row.get(2)?,
                 head: row.get(3)?,
                 grouping: row.get(4)?,
+                rules_version: row.get(5)?,
             })
         })
         .sql()?;
@@ -570,6 +654,71 @@ DROP TABLE review_landing_old;
 {index}
 {commit}
 {fix}
+PRAGMA legacy_alter_table = OFF;"
+    ))
+    .sql()
+}
+
+/// Moves a store's `review_call` from before calls kept their prompt and
+/// cost to today's, with the statements taken from record.sql so the result
+/// equals a fresh database's. Each call's prompt is read from the system
+/// prompt of its first exchange, its passes from its exchanges' passes, and
+/// whether it read the commit messages from an exchange over them; its cost
+/// stays null, since nobody recorded it. A call with no exchange holds no
+/// prompt to read, so the move fails and the store stays as it was.
+/// migrate.rs runs it with the foreign keys off, and the rename runs under
+/// `legacy_alter_table`, so the tables that point at `review_call` keep naming
+/// it.
+pub fn move_to_scored_calls(db: &Connection) -> Result<()> {
+    let schema = crate::db::REVIEW_PART;
+    let slice = |from: &str, end: &str| {
+        let start = schema.find(from).expect("record.sql has it");
+        let stop = start + schema[start..].find(end).expect("it ends") + end.len();
+        &schema[start..stop]
+    };
+    let call = slice("CREATE TABLE review_call", "STRICT;");
+    let index = slice("CREATE INDEX review_call_run", ";");
+    db.execute_batch(&format!(
+        "PRAGMA legacy_alter_table = ON;
+ALTER TABLE review_call RENAME TO review_call_old;
+{call}"
+    ))
+    .sql()?;
+    let ids: Vec<i64> = {
+        let mut statement = db
+            .prepare("SELECT id FROM review_call_old ORDER BY id")
+            .sql()?;
+        let rows = statement.query_map([], |row| row.get(0)).sql()?;
+        rows.map(|row| row.sql()).collect::<Result<_>>()?
+    };
+    for id in ids {
+        let (system, passes, commit_text): (Option<String>, Option<i64>, Option<bool>) = db
+            .query_row(
+                "SELECT (SELECT t.text FROM review_exchange e JOIN review_text t ON t.hash = e.system_hash WHERE e.call_id = ?1 ORDER BY e.pass, e.id LIMIT 1), MAX(pass) + 1, MAX(unit = ?2) FROM review_exchange WHERE call_id = ?1",
+                params![id, crate::review::files::COMMIT_MESSAGE],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .sql()?;
+        let (Some(system), Some(passes), Some(commit_text)) = (system, passes, commit_text) else {
+            fail!("review call {id} has no exchange to read its prompt from");
+        };
+        let Some(prompt) =
+            crate::review::prompt::setup_of_system(&system, passes as usize, commit_text)
+        else {
+            fail!("the system prompt of review call {id} holds no group part");
+        };
+        let prompt = keep_text(db, &prompt)?;
+        db.execute(
+            "INSERT INTO review_call (id, run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars, sites, failure)
+                SELECT id, run_id, group_name, model, ?2, rules, tokens_in, tokens_out, tokens_cached, tokens_written, NULL, sites, failure
+                FROM review_call_old WHERE id = ?1",
+            params![id, prompt],
+        )
+        .sql()?;
+    }
+    db.execute_batch(&format!(
+        "DROP TABLE review_call_old;
+{index}
 PRAGMA legacy_alter_table = OFF;"
     ))
     .sql()

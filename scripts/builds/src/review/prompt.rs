@@ -123,12 +123,15 @@ fn change_part(input: &Input) -> String {
     out
 }
 
+/// How the group's part of a system prompt starts.
+const GROUP_START: &str = "\n---\n\nGroup: ";
+
 /// What is the group's own: its question, how to answer and its rules.
 pub fn group_part(input: &Input) -> String {
     let group = input.group;
     let mut out = String::new();
     out.push_str(&format!(
-        "\n---\n\nGroup: {}\nQuestion: {}\n\n",
+        "{GROUP_START}{}\nQuestion: {}\n\n",
         group.name, group.question
     ));
     out.push_str("You answer for these rules:\n");
@@ -188,6 +191,40 @@ pub fn build(input: &Input) -> Parts {
         system: format!("{SYSTEM}\n\n{}{}", project_part(input), group_part(input)),
         message: change_part(input),
     }
+}
+
+/// The prompt a group is given apart from what each review brings (the
+/// change, the project's instructions and the brief): the system prompt's
+/// opening, the group's part, its passes, whether it reads the commit
+/// messages, and the answer schema. The store keeps it with every call, so
+/// calls with the same model and the same prompt ran the same setup.
+pub fn setup(group: &Group, rules: &[&Rule]) -> String {
+    let part = group_part(&Input {
+        group,
+        rules,
+        project_text: "",
+        brief: None,
+        diff: "",
+        context: "",
+    });
+    setup_text(SYSTEM, &part, group.passes, group.commit_text)
+}
+
+fn setup_text(opening: &str, group_part: &str, passes: usize, commit_text: bool) -> String {
+    format!(
+        "{opening}\n\n{group_part}\n# Settings\n\npasses: {passes}\ncommit messages read: {}\n\n# Answer schema\n\n{}\n",
+        if commit_text { "yes" } else { "no" },
+        schema()
+    )
+}
+
+/// The setup (`setup`) of a call that was sent the system prompt <system>
+/// (`build`), made <passes> passes and read the commit messages when
+/// <commit_text>; None when <system> holds no group part.
+pub fn setup_of_system(system: &str, passes: usize, commit_text: bool) -> Option<String> {
+    let opening = &system[..system.find("\n\n")?];
+    let part = &system[system.find(GROUP_START)?..];
+    Some(setup_text(opening, part, passes, commit_text))
 }
 
 #[cfg(test)]

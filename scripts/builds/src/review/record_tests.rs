@@ -5,11 +5,13 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
     NewCall {
         group: group.to_string(),
         model: "sonnet".to_string(),
+        prompt: format!("the prompt of {group}"),
         rules: vec!["r".to_string()],
         tokens_in: 10,
         tokens_out: 2,
         tokens_cached: 4,
         tokens_written: 3,
+        cost_microdollars: 500_000,
         sites: None,
         failure: None,
         exchanges: vec![NewExchange {
@@ -189,7 +191,10 @@ fn every_exchange_of_a_call_is_kept_with_its_texts_once_each() {
     let texts: i64 = db
         .query_row("SELECT COUNT(*) FROM review_text", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(texts, 3, "the shared system prompt is kept once");
+    assert_eq!(
+        texts, 4,
+        "the shared system prompt is kept once, beside the two messages and the call's prompt"
+    );
     let kept: String = db
         .query_row(
             "SELECT t.text FROM review_exchange e JOIN review_text t ON t.hash = e.message_hash WHERE e.unit = 'other'",

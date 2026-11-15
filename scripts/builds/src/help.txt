@@ -904,7 +904,7 @@ the fixes for its confirmed findings:
   2. It judges each finding against the code and the rule, and settles it as
      confirmed or dropped, with why (`builds review settle`). The settled
      findings stay in the project's store as the record of what reviews catch
-     and miss.
+     and miss, and every settle feeds the review's scores (`review scores`).
   3. It has each confirmed finding fixed in a new commit, reads that commit
      against its finding itself, since builds does not review a fix, and
      names it (`builds review fixed`).
@@ -952,8 +952,14 @@ code with its file and line, and what goes wrong. builds drops a finding whose
 clause is not in the rule or whose code is not in the diff, and records it as
 dropped. Every review goes in the project's store: the change's landing under
 review (found by its key until the change lands), the commits the review read,
-the group, rules, model, tokens, verdicts, findings, how each was settled and
-the commit that fixed each confirmed one. A rule's `blocking` marks its
+the group, rules, model, prompt, tokens, cost, verdicts, findings, how each was
+settled and the commit that fixed each confirmed one. A call's prompt is its
+system prompt without the project's instructions and the brief (the opening,
+the group's question, how to answer and its rules' text), with its passes,
+whether it reads the commit messages, and the answer schema; builds keeps the
+text and names it by its hash. A group's model and prompt are its setup: two
+calls with the same setup were asked the same way. Every audit and replay
+records the same, with the commit of the rules checkout it read. A rule's `blocking` marks its
 findings blocking in the reviewer's prompt and the report; every finding,
 blocking or not, must be settled before the commits land.
 
@@ -962,6 +968,22 @@ run. A sample of landed reviews is audited for findings they
 missed. The person curates a confirmed miss into a case: a recorded change in
 the review/cases folder of an agent-instructions worktree, with the findings
 it must produce, which `review replay` runs a grouping over.
+
+The settled findings score the reviews. A confirmed finding is a true positive
+(TP), a dropped finding a false positive (FP), a candidate miss an audit raised
+and the coordinator confirmed a false negative (FN), and a rule a reviewer
+answered "none" for, over a diff with no confirmed miss in it, a true negative
+(TN). Precision is TP / (TP + FP) and recall TP / (TP + FN). `review scores`
+prints them per group and rule for each setup. `review replay --landing` asks
+again over the diffs a landing's reviews read, under another model, rules
+checkout or set of groups, and scores the replay against the same settled
+findings: a confirmed finding it raises again is a TP and one it misses an FN,
+and a dropped finding it raises again is an FP. A replay finding names the same
+site as a settled one when both name the same rule and file (one path may be
+shortened from the left) and one quote of code holds the other, once whitespace
+and markdown marks are gone; failing that, when their lines are at most three
+apart. Each settled finding pairs with one replay finding at most. A replay
+finding that pairs with none is new, and nobody has judged it.
 
 Every rule is in exactly one group. A group is a folder rules/<group-dir>/ of
 agent-instructions that holds its group.toml; its rules are the .md files in
@@ -1113,6 +1135,22 @@ agent-instructions and run `review replay --rules-root` on it.
                               --source REPO gives each reviewer the commit a
                               case came from, and --model runs every group on
                               one of opus, sonnet and haiku
+  builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
+                              ask again over each diff the reviews of landing
+                              N read, with the groups and rules of the
+                              checkout (--rules-root), only the groups --group
+                              names when given, every group on --model when
+                              given, and no brief. DIR's repo gives the diff
+                              by the run's base and head, or, when it lacks
+                              them, by the commits among its newest 1000 that
+                              carry the run's patch ids, one after another.
+                              Prints each diff's new findings, then per group
+                              and rule the counts of the recorded reviews
+                              ("in use") beside the replay's, over the rules
+                              the replay asked, with each side's setups,
+                              calls, tokens and cost. Each replay goes in the
+                              store. Exits 1 when a diff could not be read or
+                              a call gave no answer
   builds review audit <landing> --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]
                               audit a landing whose change landed, over the
                               commits of the run it landed with, read in DIR's
@@ -1127,6 +1165,15 @@ agent-instructions and run `review replay --rules-root` on it.
   builds review rates [--rules-root DIR]
                               each group's audited miss rate: audits, confirmed
                               misses, and the latest 10 audits
+  builds review scores        the reviews' scores from every settled finding
+                              and confirmed miss in the store: per group, each
+                              setup (model and the first 8 digits of its
+                              prompt's hash) with the rules commits it read,
+                              its calls, tokens and cost, its TP, FP, FN, TN,
+                              unsettled findings, precision and recall, then
+                              the same per rule; then what audits and
+                              replays cost. A call made before builds
+                              recorded cost counts as "cost not recorded"
   builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR [--name NAME]
                               add the change of a confirmed finding as a case
                               expecting it, written in the review/cases folder

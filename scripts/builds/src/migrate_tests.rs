@@ -638,6 +638,7 @@ fn schema_before_design_fix() -> String {
 /// `review_commit` or `review_fix`. A schema without the review's tables is
 /// left as it is.
 fn without_landing_review(schema: String) -> String {
+    let schema = without_scored_calls(schema);
     let added = "\n-- The commits a review read, in order,";
     let Some(start) = schema.find(added) else {
         return schema;
@@ -842,5 +843,252 @@ fn the_landing_review_stamp_is_the_schema_before_landing_reviews() {
     assert_eq!(
         i64::from(hash % (i32::MAX as u32 - 2)) + 2,
         BEFORE_LANDING_REVIEW_STAMP
+    );
+}
+
+/// <schema> as the text read before each review call kept its prompt and
+/// cost: `review_call` without both columns and `review_text`'s comment as it
+/// read then. A schema without the review's tables is left as it is.
+fn without_scored_calls(schema: String) -> String {
+    if !schema.contains("CREATE TABLE review_call") {
+        return schema;
+    }
+    let mut old = schema;
+    for (now, then) in [
+        (
+            "    -- The group's prompt without what each review brings (the change, the
+    -- project's instructions and the brief): the system prompt's opening, the
+    -- group's question, how to answer, its rules' text, its passes and the
+    -- answer schema (prompt::setup). Calls with the same model and prompt ran
+    -- the same setup.
+    prompt TEXT NOT NULL REFERENCES review_text (hash),
+",
+            "",
+        ),
+        (
+            "    -- What `claude -p` reported the call cost, in millionths of a US dollar,
+    -- summed over its processes; null for a call made before builds recorded
+    -- the cost.
+    cost_microdollars INTEGER CONSTRAINT review_call_cost_not_negative CHECK (cost_microdollars >= 0),
+",
+            "",
+        ),
+        (
+            "-- The texts a reviewer was sent (each exchange's system prompt and message)
+-- and each call's prompt, kept once each by its hash (an FNV-1a hash and the
+-- length).
+",
+            "-- The text a reviewer was sent and the text it answered with, kept once each
+-- by its hash (an FNV-1a hash and the length).
+",
+        ),
+    ] {
+        assert_eq!(old.matches(now).count(), 1, "{now}");
+        old = old.replace(now, then);
+    }
+    old
+}
+
+/// The schema text before each review call kept its prompt and cost.
+fn schema_before_scored_calls() -> String {
+    without_scored_calls(db::schema())
+}
+
+/// The system prompt a call of group <group> was sent, with the project's
+/// instructions before the group's part.
+fn system_of(group: &str) -> String {
+    format!(
+        "You review one change.\n\n# Project instructions\n\nFacts.\n\n---\n\nGroup: {group}\nQuestion: q\n\n# Rules\n\n## r\n\nRule text.\n"
+    )
+}
+
+/// A store as the schema before calls kept their prompt and cost made it, with
+/// one review whose call made two passes over a file and the commit messages,
+/// and one audit call with a single exchange, or none when not <audit_asked>.
+fn store_before_scored_calls(dir: &std::path::Path, audit_asked: bool) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&schema_before_scored_calls()).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_SCORED_CALLS_STAMP)
+        .unwrap();
+    plant_run(&conn);
+    crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+    let plant = |table: &str, columns: &[(&str, rusqlite::types::Value)]| {
+        crate::review::record::plant(&conn, table, columns).unwrap();
+    };
+    let text = |s: &str| -> rusqlite::types::Value { s.to_string().into() };
+    plant(
+        "review_landing",
+        &[
+            ("id", 1_i64.into()),
+            ("key", text("branch:work")),
+            ("repo", text("bae")),
+            ("opened_at", 5_i64.into()),
+        ],
+    );
+    for (id, kind) in [(10_i64, "review"), (11, "audit")] {
+        plant(
+            "review_run",
+            &[
+                ("id", id.into()),
+                ("landing_id", 1_i64.into()),
+                ("kind", text(kind)),
+                ("at", 6_i64.into()),
+                ("base", text("b")),
+                ("head", text("h")),
+                ("grouping", text("g")),
+                ("rules_version", text("")),
+            ],
+        );
+    }
+    for (id, run, group) in [(20_i64, 10_i64, "words"), (21, 11, "audit r")] {
+        plant(
+            "review_call",
+            &[
+                ("id", id.into()),
+                ("run_id", run.into()),
+                ("group_name", text(group)),
+                ("model", text("opus")),
+                ("rules", text("[\"r\"]")),
+                ("tokens_in", 100_i64.into()),
+                ("tokens_out", 10_i64.into()),
+                ("tokens_cached", 0_i64.into()),
+                ("tokens_written", 0_i64.into()),
+            ],
+        );
+    }
+    for (hash, body) in [
+        ("s-words", system_of("words")),
+        ("s-audit", system_of("audit r")),
+        ("m", "the diff".to_string()),
+    ] {
+        plant(
+            "review_text",
+            &[("hash", text(hash)), ("text", body.into())],
+        );
+    }
+    for (id, call, unit, pass, system) in [
+        (30_i64, 20_i64, "a.rs", 0_i64, "s-words"),
+        (31, 20, "COMMIT_MESSAGE", 0, "s-words"),
+        (32, 20, "a.rs", 1, "s-words"),
+        (33, 20, "COMMIT_MESSAGE", 1, "s-words"),
+        (34, 21, "", 0, "s-audit"),
+    ]
+    .into_iter()
+    .filter(|(_, call, ..)| audit_asked || *call != 21)
+    {
+        plant(
+            "review_exchange",
+            &[
+                ("id", id.into()),
+                ("call_id", call.into()),
+                ("model", text("opus")),
+                ("unit", text(unit)),
+                ("pass", pass.into()),
+                ("system_hash", text(system)),
+                ("message_hash", text("m")),
+                ("output", text("{}")),
+                ("tokens_in", 25_i64.into()),
+                ("tokens_out", 2_i64.into()),
+                ("tokens_cached", 0_i64.into()),
+                ("tokens_written", 0_i64.into()),
+            ],
+        );
+    }
+    plant(
+        "review_verdict",
+        &[
+            ("call_id", 20_i64.into()),
+            ("rule", text("r")),
+            ("verdict", text("none")),
+        ],
+    );
+    path
+}
+
+#[test]
+fn a_store_from_before_scored_calls_keeps_each_call_with_the_prompt_its_exchanges_were_sent() {
+    let scratch = Scratch::new("move-scored-calls");
+    let places = scratch.places();
+    let path = store_before_scored_calls(&places.lists.join("bae"), true);
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let calls: Vec<(i64, String, Option<i64>, i64)> = conn
+        .prepare("SELECT c.id, t.text, c.cost_microdollars, c.tokens_in FROM review_call c JOIN review_text t ON t.hash = c.prompt ORDER BY c.id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .unwrap()
+        .map(|row| row.unwrap())
+        .collect();
+    assert_eq!(calls.len(), 2);
+    let (id, prompt, cost, tokens) = &calls[0];
+    assert_eq!((*id, *cost, *tokens), (20, None, 100));
+    assert!(
+        prompt.starts_with("You review one change.\n\n\n---\n\nGroup: words\n"),
+        "the project's instructions are not part of the prompt: {prompt}"
+    );
+    assert!(
+        prompt.contains("Rule text.") && prompt.contains("passes: 2\ncommit messages read: yes")
+    );
+    assert!(
+        calls[1].1.contains("Group: audit r")
+            && calls[1].1.contains("passes: 1\ncommit messages read: no")
+    );
+    let kept: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM review_exchange e JOIN review_call c ON c.id = e.call_id",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(kept, 5, "every exchange keeps its call");
+    let verdicts: i64 = conn
+        .query_row("SELECT COUNT(*) FROM review_verdict", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(verdicts, 1);
+}
+
+#[test]
+fn a_call_with_no_exchange_to_read_its_prompt_from_leaves_the_store_as_it_was() {
+    let scratch = Scratch::new("move-scored-calls-bare");
+    let places = scratch.places();
+    let path = store_before_scored_calls(&places.lists.join("bae"), false);
+    let refused = migrate_stores(&places).unwrap_err().text();
+    assert!(
+        refused.contains("review call 21 has no exchange"),
+        "{refused}"
+    );
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(
+        db::stamp_of(&conn, &path).unwrap(),
+        BEFORE_SCORED_CALLS_STAMP
+    );
+    let columns: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('review_call') WHERE name = 'prompt'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(columns, 0);
+}
+
+#[test]
+fn the_scored_calls_stamp_is_the_schema_before_scored_calls() {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in schema_before_scored_calls().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    assert_eq!(
+        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        BEFORE_SCORED_CALLS_STAMP
     );
 }

@@ -219,6 +219,7 @@ pub fn ask_groups(
             context: &context,
         });
         let names = prompt::answer_names(group, unit.members);
+        let setup = prompt::setup(group, unit.members);
         let output = call::run(
             reviewer,
             &group.model,
@@ -249,6 +250,7 @@ pub fn ask_groups(
             &material.project_text,
             &files,
             &names,
+            setup,
             output,
         );
         call.exchanges.push(exchange);
@@ -336,11 +338,13 @@ fn failed_all(picked: &[(&Group, Vec<&Rule>)], why: &str) -> Vec<NewCall> {
         .map(|(group, members)| NewCall {
             group: group.name.clone(),
             model: group.model.clone(),
+            prompt: prompt::setup(group, members),
             rules: prompt::answer_names(group, members),
             tokens_in: 0,
             tokens_out: 0,
             tokens_cached: 0,
             tokens_written: 0,
+            cost_microdollars: 0,
             sites: None,
             failure: Some(why.to_string()),
             verdicts: Vec::new(),
@@ -358,6 +362,7 @@ fn merge(held: &mut NewCall, more: NewCall) {
     held.tokens_out += more.tokens_out;
     held.tokens_cached += more.tokens_cached;
     held.tokens_written += more.tokens_written;
+    held.cost_microdollars += more.cost_microdollars;
     held.failure = match (held.failure.take(), more.failure) {
         (Some(a), Some(b)) => Some(format!("{a}; {b}")),
         (a, b) => a.or(b),
@@ -403,16 +408,19 @@ fn checked(
     project_text: &str,
     files: &[DiffFile],
     names: &[String],
+    setup: String,
     output: call::Output,
 ) -> NewCall {
     let mut call = NewCall {
         group: group.name.clone(),
         model: group.model.clone(),
+        prompt: setup,
         rules: names.to_vec(),
         tokens_in: output.tokens_in,
         tokens_out: output.tokens_out,
         tokens_cached: output.tokens_cached,
         tokens_written: output.tokens_written,
+        cost_microdollars: output.cost_microdollars,
         sites: None,
         failure: None,
         verdicts: Vec::new(),

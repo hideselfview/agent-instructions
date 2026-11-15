@@ -82,3 +82,36 @@ fn every_group_gets_the_same_schema() {
         schema()["properties"]["sites"].is_object() && schema()["properties"]["rules"].is_object()
     );
 }
+
+#[test]
+fn the_setup_read_back_from_a_system_prompt_is_the_one_a_call_records() {
+    let rule = Rule::parse("a", "---\npaths: ['**']\n---\nRule A body.\n");
+    let mut one = group("one", true);
+    one.passes = 2;
+    one.commit_text = true;
+    let recorded = setup(&one, &[&rule]);
+    let sent = parts_of(&one, &rule, "diff --git a/a.rs b/a.rs\n+x\n").system;
+    assert_eq!(
+        setup_of_system(&sent, 2, true).as_deref(),
+        Some(recorded.as_str())
+    );
+    assert!(recorded.contains("Rule A body.") && recorded.contains("passes: 2"));
+    assert!(
+        !recorded.contains("Project facts.") && !recorded.contains("The brief."),
+        "what each review brings is not part of the setup"
+    );
+    // The rules' text, the group's settings and its passes each change it;
+    // the model is recorded beside it.
+    let edited = Rule::parse("a", "---\npaths: ['**']\n---\nRule A body, edited.\n");
+    assert_ne!(setup(&one, &[&edited]), recorded);
+    let mut asked_otherwise = one.clone();
+    asked_otherwise.instructions = Some("Look harder.".to_string());
+    assert_ne!(setup(&asked_otherwise, &[&rule]), recorded);
+    let mut once = one.clone();
+    once.passes = 1;
+    assert_ne!(setup(&once, &[&rule]), recorded);
+    let mut on_haiku = one.clone();
+    on_haiku.model = "haiku".to_string();
+    assert_eq!(setup(&on_haiku, &[&rule]), recorded);
+    assert_eq!(setup_of_system("no group part here", 1, false), None);
+}

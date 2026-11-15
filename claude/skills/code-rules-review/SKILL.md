@@ -29,6 +29,12 @@ branch this way:
   it with `builds review settle <finding> confirmed|dropped --why <text>`.
   - The settled findings are the record of what reviews catch and miss: say in
     `--why` what makes the finding real or wrong.
+  - Every settle scores the reviews: a confirmed finding counts as a true
+    positive and a dropped one as a false positive. `builds review scores`
+    prints precision and recall per group and rule for each model and prompt,
+    and `builds review replay --landing N` scores another model or prompt
+    against the same settled findings. Settle on what the code does, so the
+    scores show what each rule catches and what it raises wrongly.
 - Have each confirmed finding fixed in a new commit.
   - builds does not review the fix: read it yourself against its finding, and
     send it back when it does not fix the finding or breaks a rule.

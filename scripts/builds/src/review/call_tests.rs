@@ -6,7 +6,7 @@ fn names() -> Vec<String> {
 
 fn wrap(body: &str) -> String {
     format!(
-        r#"{{"is_error":false,"usage":{{"input_tokens":2,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"output_tokens":7}},"structured_output":{body}}}"#
+        r#"{{"is_error":false,"total_cost_usd":0.25,"usage":{{"input_tokens":2,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"output_tokens":7}},"structured_output":{body}}}"#
     )
 }
 
@@ -15,6 +15,7 @@ fn an_answer_gives_verdicts_findings_and_tokens() {
     let body = r#"{"rules":[{"rule":"a","verdict":"none","findings":[]},{"rule":"b","verdict":"finding","findings":[{"clause":"c","file":"f.rs","line":3,"code":"x","problem":"p"}]}]}"#;
     let out = parse(&wrap(body), &names());
     assert_eq!((out.tokens_in, out.tokens_out), (17, 7));
+    assert_eq!(out.cost_microdollars, 250_000);
     let answer = out.answer.unwrap();
     assert_eq!(
         answer.verdicts,
@@ -49,7 +50,12 @@ fn an_answer_is_refused_when_it_skips_a_rule_or_contradicts_itself() {
 fn a_text_result_is_read_when_there_is_no_structured_output_and_an_error_is_named() {
     let body = r#"{\"rules\":[{\"rule\":\"a\",\"verdict\":\"none\",\"findings\":[]},{\"rule\":\"b\",\"verdict\":\"none\",\"findings\":[]}]}"#;
     let text = format!(r#"{{"is_error":false,"usage":{{}},"result":"{body}"}}"#);
-    assert!(parse(&text, &names()).answer.is_ok());
+    let read = parse(&text, &names());
+    assert!(read.answer.is_ok());
+    assert_eq!(
+        read.cost_microdollars, 0,
+        "an envelope that names no cost adds none"
+    );
     let error = r#"{"is_error":true,"result":"rate limited","usage":{}}"#;
     assert!(
         parse(error, &names())
