@@ -177,15 +177,27 @@ pub fn missing_line(lane: Lane, kind: PickKind, arg: &str) -> Fail {
 }
 
 /// What <lane> runs: its steps (<names>, or every one when none is named and
-/// no pick is), then the line of each of <picks> that is the lane's.
-fn lane_steps(config: &Config, lane: Lane, names: &[String], picks: &[Pick]) -> Result<Vec<Step>> {
+/// no pick is), then the line of each of <picks> that is the lane's. A test
+/// class runs through the program <program_of> names for it, the lane's
+/// default when None.
+fn lane_steps(
+    config: &Config,
+    lane: Lane,
+    names: &[String],
+    picks: &[Pick],
+    program_of: &dyn Fn(&str) -> Result<Option<String>>,
+) -> Result<Vec<Step>> {
     let mut steps = if names.is_empty() && !picks.is_empty() {
         Vec::new()
     } else {
         chosen(config, lane, names)?
     };
     for (_, kind, arg) in picks.iter().filter(|(own, _, _)| *own == lane) {
-        let Some(picker) = config.picker(lane, *kind) else {
+        let program = match kind {
+            PickKind::Class => program_of(arg)?,
+            PickKind::Shots => None,
+        };
+        let Some(picker) = config.picker_in(lane, *kind, program.as_deref()) else {
             return Err(missing_line(lane, *kind, arg));
         };
         steps.push(Step {
@@ -745,7 +757,9 @@ fn build_lane(
     // A step the repo keeps on this Mac (`here` lines) keeps the build off
     // the hosts' checkouts.
     let config = config_at(places, repo, commit)?;
-    let allowed = if lane_steps(&config, lane, names, picks)?
+    let source = local_source(places, repo)?;
+    let program_of = |class: &str| crate::derive::program_of(&source, &config, commit, lane, class);
+    let allowed = if lane_steps(&config, lane, names, picks, &program_of)?
         .iter()
         .any(|step| config.here.contains(&step.name))
     {
@@ -786,7 +800,17 @@ fn build_lane(
             Built::clear(&built_file)?;
         }
         let config = site.check_out(places, repo, commit)?;
-        let steps = lane_steps(&config, lane, names, picks)?;
+        let program_of = |class: &str| {
+            let program = crate::derive::program_of(&source, &config, commit, lane, class)?;
+            if let Some(program) = &program {
+                note(format!(
+                    "{class} is declared in the {program} sources, so the {} test line for {program} runs it",
+                    lane.word()
+                ));
+            }
+            Ok(program)
+        };
+        let steps = lane_steps(&config, lane, names, picks, &program_of)?;
         if steps.is_empty() {
             fail!("{CONFIG} names no step in the {} lane", lane.word());
         }

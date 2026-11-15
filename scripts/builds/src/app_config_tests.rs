@@ -182,11 +182,13 @@ fn a_test_line_gives_a_lane_the_command_that_runs_one_class() {
             Picker {
                 lane: Lane::Mac,
                 kind: PickKind::Class,
+                program: None,
                 command: words("./t.sh --run-only {class}")
             },
             Picker {
                 lane: Lane::Android,
                 kind: PickKind::Class,
+                program: None,
                 command: words("./g.sh --tests *{class}")
             },
         ]
@@ -228,6 +230,7 @@ fn the_class_fills_each_word_it_stands_in() {
     let test = Picker {
         lane: Lane::Mac,
         kind: PickKind::Class,
+        program: None,
         command: words("./g.sh --tests *{class}"),
     };
     assert_eq!(
@@ -400,8 +403,16 @@ fn rule_lines_name_the_steps_a_changed_path_needs() {
     assert_eq!(
         config.sources,
         vec![
-            (Lane::Mac, "app".to_string()),
-            (Lane::Mac, "lib".to_string())
+            Source {
+                lane: Lane::Mac,
+                program: None,
+                folder: "app".to_string()
+            },
+            Source {
+                lane: Lane::Mac,
+                program: None,
+                folder: "lib".to_string()
+            }
         ]
     );
 }
@@ -420,4 +431,32 @@ fn a_rule_naming_a_step_the_config_lacks_or_the_other_lane_is_refused() {
 fn a_line_starting_with_a_hash_is_a_comment() {
     let config = parse_config("# why\nstep mac a ./a\n  # indented too\n").unwrap();
     assert_eq!(config.steps.len(), 1);
+}
+
+#[test]
+fn a_test_line_and_its_sources_can_name_a_program_of_the_lane() {
+    let config = parse_config(
+        "step mac a ./a\nsources mac app\nsources mac:shots app/shots\ntest mac ./t {class}\ntest mac:shots ./s {class}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        config.picker(Lane::Mac, PickKind::Class).unwrap().command[0],
+        "./t"
+    );
+    assert_eq!(
+        config
+            .picker_in(Lane::Mac, PickKind::Class, Some("shots"))
+            .unwrap()
+            .command[0],
+        "./s"
+    );
+    assert_eq!(config.sources[1].program.as_deref(), Some("shots"));
+    // A program's sources need its test line; only tests have programs.
+    assert!(parse_config("step mac a ./a\nsources mac:shots x\ntest mac ./t {class}\n").is_err());
+    assert!(parse_config("step mac a ./a\nshots mac:x ./t {select}\n").is_err());
+    assert!(
+        parse_config("step mac a ./a\ntest mac:shots ./s {class}\ntest mac:shots ./s2 {class}\n")
+            .is_err()
+    );
+    assert!(parse_config("step mac a ./a\ntest mac: ./s {class}\n").is_err());
 }

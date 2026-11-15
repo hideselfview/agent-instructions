@@ -246,3 +246,31 @@ fn a_branch_without_rule_lines_takes_origin_mains() {
     adopt_main_rules(&top, &mut own).unwrap();
     assert_eq!(own.rules.len(), 1, "a branch with its own rules keeps them");
 }
+
+#[test]
+fn the_program_that_runs_a_class_is_the_one_whose_sources_declare_it() {
+    let scratch = Scratch::new("check-program");
+    let top = scratch.dir.join("repo");
+    repo(&top, "target 1G\n");
+    std::fs::create_dir_all(top.join("bae-macos/baeShots")).unwrap();
+    std::fs::write(top.join("bae-macos/AppTests.swift"), "struct AppTests {}\n").unwrap();
+    std::fs::write(
+        top.join("bae-macos/baeShots/ShotTests.swift"),
+        "struct ShotTests {}\n",
+    )
+    .unwrap();
+    git(&top, &["add", "."]);
+    git(&top, &["commit", "-q", "-m", "Add types"]);
+    let config = parse_config(
+        "step mac macos-tests ./mt\nsources mac bae-macos\nsources mac:shots bae-macos/baeShots\ntest mac ./t {class}\ntest mac:shots ./s {class}\n",
+    )
+    .unwrap();
+    let program = |class: &str| program_of(&top, &config, "HEAD", Lane::Mac, class).unwrap();
+    assert_eq!(program("ShotTests").as_deref(), Some("shots"));
+    assert_eq!(program("AppTests"), None);
+    assert_eq!(program("Missing"), None);
+    assert_eq!(
+        lanes_declaring(&top, &config, "HEAD", "ShotTests").unwrap(),
+        vec![Lane::Mac]
+    );
+}

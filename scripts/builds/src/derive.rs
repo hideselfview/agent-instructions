@@ -95,6 +95,41 @@ fn declaration_pattern(class: &str) -> String {
     format!("(^|[^A-Za-z0-9_])({DECLARING_WORDS})[[:space:]]+{class}([^A-Za-z0-9_]|$)")
 }
 
+/// Does a file in <folders> at <commit> declare the type <class>?
+fn declares(top: &Path, commit: &str, class: &str, folders: &[&str]) -> Result<bool> {
+    let output = git(top)
+        .args([
+            "grep",
+            "-l",
+            "-E",
+            "-e",
+            &declaration_pattern(class),
+            commit,
+            "--",
+        ])
+        .args(folders)
+        .output()
+        .context(|| "running git to search the sources".to_string())?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => fail!(
+            "git failed to search the sources: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+    }
+}
+
+/// <lane>'s `sources` folders for <program> (None: the lane's default).
+fn folders_of<'a>(config: &'a Config, lane: Lane, program: Option<&str>) -> Vec<&'a str> {
+    config
+        .sources
+        .iter()
+        .filter(|source| source.lane == lane && source.program.as_deref() == program)
+        .map(|source| source.folder.as_str())
+        .collect()
+}
+
 /// The lanes whose `sources` folders hold a file at <commit> that declares
 /// the type <class> (a plain mention of the name does not count).
 fn lanes_declaring(top: &Path, config: &Config, commit: &str, class: &str) -> Result<Vec<Lane>> {
@@ -103,36 +138,41 @@ fn lanes_declaring(top: &Path, config: &Config, commit: &str, class: &str) -> Re
         let folders: Vec<&str> = config
             .sources
             .iter()
-            .filter(|(own, _)| *own == lane)
-            .map(|(_, folder)| folder.as_str())
+            .filter(|source| source.lane == lane)
+            .map(|source| source.folder.as_str())
             .collect();
-        if folders.is_empty() {
-            continue;
-        }
-        let output = git(top)
-            .args([
-                "grep",
-                "-l",
-                "-E",
-                "-e",
-                &declaration_pattern(class),
-                commit,
-                "--",
-            ])
-            .args(&folders)
-            .output()
-            .context(|| "running git to search the sources".to_string())?;
-        match output.status.code() {
-            Some(0) => found.push(lane),
-            Some(1) => {}
-            _ => fail!(
-                "git failed to search the {} sources: {}",
-                lane.word(),
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
+        if !folders.is_empty() && declares(top, commit, class, &folders)? {
+            found.push(lane);
         }
     }
     Ok(found)
+}
+
+/// The program that runs the test class <class> in <lane>: the named program
+/// (a `test <lane>:<program>` line) whose `sources` folders declare it at
+/// <commit>, else None, the lane's default. The class's folder decides, so
+/// `--test` needs no word for the program.
+pub fn program_of(
+    top: &Path,
+    config: &Config,
+    commit: &str,
+    lane: Lane,
+    class: &str,
+) -> Result<Option<String>> {
+    let mut programs: Vec<&str> = config
+        .sources
+        .iter()
+        .filter(|source| source.lane == lane)
+        .filter_map(|source| source.program.as_deref())
+        .collect();
+    programs.dedup();
+    for program in programs {
+        let folders = folders_of(config, lane, Some(program));
+        if declares(top, commit, class, &folders)? {
+            return Ok(Some(program.to_string()));
+        }
+    }
+    Ok(None)
 }
 
 /// The lane of the class <class>, from the <declaring> lanes.

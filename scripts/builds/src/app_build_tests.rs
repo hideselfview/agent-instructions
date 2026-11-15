@@ -229,7 +229,7 @@ fn a_lane_runs_its_steps_then_its_picks_and_only_the_picks_when_no_step_is_named
         (Lane::Mac, PickKind::Shots, "mac.welcome.".to_string()),
         (Lane::Mac, PickKind::Class, "C".to_string()),
     ];
-    let steps = lane_steps(&config, Lane::Mac, &args(&["one"]), &picks).unwrap();
+    let steps = lane_steps(&config, Lane::Mac, &args(&["one"]), &picks, &|_| Ok(None)).unwrap();
     assert_eq!(
         names(&steps),
         vec!["one", "test A", "shots mac.welcome.", "test C"]
@@ -238,12 +238,12 @@ fn a_lane_runs_its_steps_then_its_picks_and_only_the_picks_when_no_step_is_named
     assert_eq!(steps[1].limit(), PickKind::Class.limit());
     assert_eq!(steps[2].command, args(&["./s", "--select", "mac.welcome."]));
     assert_eq!(steps[2].limit(), PickKind::Shots.limit());
-    let only = lane_steps(&config, Lane::Mac, &[], &picks).unwrap();
+    let only = lane_steps(&config, Lane::Mac, &[], &picks, &|_| Ok(None)).unwrap();
     assert_eq!(names(&only), vec!["test A", "shots mac.welcome.", "test C"]);
-    let android = lane_steps(&config, Lane::Android, &[], &picks).unwrap();
+    let android = lane_steps(&config, Lane::Android, &[], &picks, &|_| Ok(None)).unwrap();
     assert_eq!(names(&android), vec!["test B"]);
     assert_eq!(
-        names(&lane_steps(&config, Lane::Mac, &[], &[]).unwrap()),
+        names(&lane_steps(&config, Lane::Mac, &[], &[], &|_| Ok(None)).unwrap()),
         vec!["one"]
     );
 }
@@ -256,6 +256,7 @@ fn a_lane_without_the_line_refuses_a_pick() {
         Lane::Mac,
         &[],
         &[(Lane::Mac, PickKind::Shots, "mac.x.".to_string())],
+        &|_| Ok(None),
     ) else {
         panic!("refused")
     };
@@ -265,10 +266,29 @@ fn a_lane_without_the_line_refuses_a_pick() {
         Lane::Android,
         &[],
         &[(Lane::Android, PickKind::Class, "A".to_string())],
+        &|_| Ok(None),
     ) else {
         panic!("refused")
     };
     assert!(message.contains("no `test android ...` line"), "{message}");
+}
+
+#[test]
+fn a_class_runs_through_the_program_its_folder_names() {
+    let config = parse_config(
+        "step mac one ./one\nsources mac:shots shots\ntest mac ./t {class}\ntest mac:shots ./s --only {class}\n",
+    )
+    .unwrap();
+    let picks = [
+        (Lane::Mac, PickKind::Class, "AppTests".to_string()),
+        (Lane::Mac, PickKind::Class, "ShotTests".to_string()),
+    ];
+    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &|class| {
+        Ok((class == "ShotTests").then(|| "shots".to_string()))
+    })
+    .unwrap();
+    assert_eq!(steps[0].command, args(&["./t", "AppTests"]));
+    assert_eq!(steps[1].command, args(&["./s", "--only", "ShotTests"]));
 }
 
 #[test]

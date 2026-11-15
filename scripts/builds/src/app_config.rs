@@ -49,6 +49,8 @@
 //! on bae-bridge/ macos-tests android-bridge android
 //! needs mac macos-tests
 //! sources mac bae-macos BaeKit
+//! sources mac:shots bae-macos/bae/baeShots
+//! test mac:shots ./bae-macos/test.sh --bundle baeShots {class}
 //! ```
 //!
 //! An `on <pattern> <step>...` line says that a changed path matching the
@@ -111,7 +113,7 @@ pub struct Config {
     /// The `needs` lines: the steps a pick in the lane needs built first.
     pub needs: Vec<(Lane, Vec<String>)>,
     /// The `sources` lines: the folders that declare the lane's tests.
-    pub sources: Vec<(Lane, String)>,
+    pub sources: Vec<Source>,
 }
 
 /// An `on <pattern> <step>...` line.
@@ -141,10 +143,42 @@ impl Config {
             .collect()
     }
 
+    /// The lane's default picker of <kind>: the line with no program.
     pub fn picker(&self, lane: Lane, kind: PickKind) -> Option<&Picker> {
-        self.pickers
-            .iter()
-            .find(|picker| picker.lane == lane && picker.kind == kind)
+        self.picker_in(lane, kind, None)
+    }
+
+    /// The lane's picker of <kind> for the named <program> (a `test
+    /// <lane>:<program>` line), or the default one when <program> is None.
+    pub fn picker_in(&self, lane: Lane, kind: PickKind, program: Option<&str>) -> Option<&Picker> {
+        self.pickers.iter().find(|picker| {
+            picker.lane == lane && picker.kind == kind && picker.program.as_deref() == program
+        })
+    }
+}
+
+/// A `sources <lane>[:<program>] <folder>...` line's folder: where the lane's
+/// test classes are declared, and the program (a named `test` line) that runs
+/// the classes declared there; None for the lane's default program.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Source {
+    pub lane: Lane,
+    pub program: Option<String>,
+    pub folder: String,
+}
+
+/// <word> (`mac`, or `mac:shots` for a named program of the lane) as the lane
+/// and the program.
+fn lane_and_program(word: &str) -> Option<(Lane, Option<String>)> {
+    match word.split_once(':') {
+        None => Some((Lane::parse(word)?, None)),
+        Some((lane, program)) => {
+            let plain = !program.is_empty()
+                && program
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+            plain.then(|| Some((Lane::parse(lane)?, Some(program.to_string()))))?
+        }
     }
 }
 
@@ -219,6 +253,9 @@ impl PickKind {
 pub struct Picker {
     pub lane: Lane,
     pub kind: PickKind,
+    /// The named program of a `test <lane>:<program>` line; None for the
+    /// lane's default.
+    pub program: Option<String>,
     pub command: Vec<String>,
 }
 
@@ -310,7 +347,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let mut here: Vec<String> = Vec::new();
     let mut rules: Vec<Rule> = Vec::new();
     let mut needs: Vec<(Lane, Vec<String>)> = Vec::new();
-    let mut sources: Vec<(Lane, String)> = Vec::new();
+    let mut sources: Vec<Source> = Vec::new();
     for line in text
         .lines()
         .map(str::trim)
@@ -359,11 +396,14 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     PickKind::Shots
                 };
                 let placeholder = kind.placeholder();
-                let Some(lane) = Lane::parse(name) else {
+                let Some((lane, program)) = lane_and_program(name) else {
                     fail!(
-                        "{CONFIG}: {line:?}: a {keyword} line starts with its lane, mac or android, not {name:?}"
+                        "{CONFIG}: {line:?}: a {keyword} line starts with its lane, mac or android (and for test, a program after a colon), not {name:?}"
                     );
                 };
+                if program.is_some() && kind != PickKind::Class {
+                    fail!("{CONFIG}: {line:?}: only a test line names a program");
+                }
                 let command = words(value);
                 if command.is_empty() {
                     fail!("{CONFIG}: the {keyword} line for {name} names no command");
@@ -374,15 +414,15 @@ pub fn parse_config(text: &str) -> Result<Config> {
                         kind.what()
                     );
                 }
-                if pickers
-                    .iter()
-                    .any(|picker| picker.lane == lane && picker.kind == kind)
-                {
+                if pickers.iter().any(|picker| {
+                    picker.lane == lane && picker.kind == kind && picker.program == program
+                }) {
                     fail!("{CONFIG}: two {keyword} lines for {name}");
                 }
                 pickers.push(Picker {
                     lane,
                     kind,
+                    program,
                     command,
                 });
             }
@@ -419,9 +459,9 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 needs.push((lane, named));
             }
             ("sources", _) => {
-                let Some(lane) = Lane::parse(name) else {
+                let Some((lane, program)) = lane_and_program(name) else {
                     fail!(
-                        "{CONFIG}: {line:?}: a sources line starts with its lane, mac or android, not {name:?}"
+                        "{CONFIG}: {line:?}: a sources line starts with its lane, mac or android, optionally with a program after a colon, not {name:?}"
                     );
                 };
                 let paths = words(value);
@@ -434,7 +474,11 @@ pub fn parse_config(text: &str) -> Result<Config> {
                             "{CONFIG}: sources path {path:?} must be a folder inside the checkout"
                         );
                     }
-                    sources.push((lane, path));
+                    sources.push(Source {
+                        lane,
+                        program: program.clone(),
+                        folder: path,
+                    });
                 }
             }
             ("here", _) => {
@@ -506,6 +550,21 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     lane.word()
                 );
             }
+        }
+    }
+    for source in &sources {
+        if let Some(program) = &source.program
+            && !pickers.iter().any(|picker| {
+                picker.lane == source.lane
+                    && picker.kind == PickKind::Class
+                    && picker.program.as_deref() == Some(program.as_str())
+            })
+        {
+            fail!(
+                "{CONFIG}: sources for {}:{program}, which has no `test {}:{program}` line",
+                source.lane.word(),
+                source.lane.word()
+            );
         }
     }
     let mac = match (mac_build, mac_app, bundle) {
