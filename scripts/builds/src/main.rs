@@ -105,6 +105,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "checks" => return checks_run::cmd_checks(args),
         "install-hook" => return install_hook::cmd_install_hook(args),
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
+        "record-run" => return app_timing::cmd_record_run(args),
         "app-build" => return app_build::cmd_app_build(&Places::from_env()?, args),
         "shots" => return shot_findings::cmd_shots(&Places::from_env()?, args),
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),

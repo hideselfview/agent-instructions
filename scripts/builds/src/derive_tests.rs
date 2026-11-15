@@ -160,3 +160,89 @@ fn the_changed_paths_are_those_after_the_merge_base_with_origin_main_and_a_class
             .is_empty()
     );
 }
+
+fn declared(file: &str, text: &str, class: &str) -> Vec<Lane> {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let scratch = Scratch::new(&format!(
+        "check-declare-{}",
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    ));
+    let top = scratch.dir.join("repo");
+    repo(&top, "target 1G\n");
+    std::fs::create_dir_all(top.join("bae-macos")).unwrap();
+    std::fs::create_dir_all(top.join("bae-android")).unwrap();
+    std::fs::write(top.join(file), text).unwrap();
+    git(&top, &["add", "."]);
+    git(&top, &["commit", "-q", "-m", "Add a type"]);
+    lanes_declaring(&top, &config(), "HEAD", class).unwrap()
+}
+
+#[test]
+fn a_test_type_is_found_however_its_language_declares_it() {
+    for text in [
+        "final class FooTests: XCTestCase {}\n",
+        "@Suite struct FooTests {\n",
+        "struct FooTests {\n",
+        "enum FooTests {}\n",
+        "actor FooTests {}\n",
+        "@MainActor\nfinal class FooTests {}\n",
+    ] {
+        assert_eq!(
+            declared("bae-macos/FooTests.swift", text, "FooTests"),
+            vec![Lane::Mac],
+            "{text}"
+        );
+    }
+    for text in [
+        "class FooTest {\n",
+        "internal class FooTest : Base() {\n",
+        "object FooTest {\n",
+        "data class FooTest(val a: Int)\n",
+    ] {
+        assert_eq!(
+            declared("bae-android/FooTest.kt", text, "FooTest"),
+            vec![Lane::Android],
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn a_mention_or_a_longer_name_is_not_a_declaration() {
+    for text in [
+        "let x = FooTests()\n",
+        "// class FooTestsHelper\n",
+        "struct FooTestsExtra {}\n",
+        "struct MyFooTests {}\n",
+    ] {
+        assert!(
+            declared("bae-macos/Other.swift", text, "FooTests").is_empty(),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn a_branch_without_rule_lines_takes_origin_mains() {
+    let scratch = Scratch::new("check-adopt");
+    let top = scratch.dir.join("repo");
+    repo(&top, "target 1G\n");
+    let origin = scratch.dir.join("origin.git");
+    git(
+        &scratch.dir,
+        &["init", "-q", "--bare", origin.to_str().unwrap()],
+    );
+    git(&top, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    std::fs::write(top.join(CONFIG), CONFIG_TEXT).unwrap();
+    git(&top, &["add", CONFIG]);
+    git(&top, &["commit", "-q", "-m", "Rules"]);
+    git(&top, &["push", "-q", "origin", "main"]);
+    git(&top, &["fetch", "-q", "origin"]);
+    let mut old = parse_config("step mac macos-tests ./mt\n").unwrap();
+    adopt_main_rules(&top, &mut old).unwrap();
+    assert_eq!(old.rules.len(), 4);
+    assert_eq!(old.sources.len(), 3);
+    let mut own = parse_config("step mac macos-tests ./mt\non x/ macos-tests\n").unwrap();
+    adopt_main_rules(&top, &mut own).unwrap();
+    assert_eq!(own.rules.len(), 1, "a branch with its own rules keeps them");
+}

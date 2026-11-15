@@ -33,7 +33,7 @@ pub const WINDOW_SECONDS: i64 = crate::hook_stats::DASHBOARD_WINDOW_SECONDS;
 pub const WAITS_SHOWN: usize = 20;
 
 /// What kind of step a row is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum StepKind {
     /// A step of `.app-build`.
     Step,
@@ -63,7 +63,7 @@ impl StepKind {
 }
 
 /// How a step ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum StepResult {
     Passed,
     Failed,
@@ -83,7 +83,7 @@ impl StepResult {
 }
 
 /// One step a run started.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StepRecord {
     pub name: String,
     pub kind: StepKind,
@@ -95,7 +95,7 @@ pub struct StepRecord {
 }
 
 /// One lane's run, as `record` writes it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RunRecord {
     /// When it joined the lane's queue, seconds since 1970.
     pub started_at: i64,
@@ -169,6 +169,65 @@ pub fn database_of(
             found.join(", ")
         ),
     }
+}
+
+/// Has the builds program installed now write <run> to the database at <path>:
+/// `builds record-run <path>` with the run as JSON on its stdin. A run lasts
+/// minutes to hours, and `builds install` may replace this program and move
+/// the store to a newer schema meanwhile; the program that started the run
+/// would then be refused by the store it must write. The path of this program
+/// names whatever is installed there now. Falls back to writing here when the
+/// program cannot be started.
+pub fn record_with_installed(path: &Path, run: &RunRecord) -> Result<()> {
+    use std::io::Write;
+    let json = serde_json::to_string(run).expect("a run record is plain data");
+    // Only the installed `builds` program: a test program is not one.
+    let started = std::env::current_exe()
+        .ok()
+        .filter(|exe| exe.file_stem().is_some_and(|name| name == "builds"))
+        .and_then(|exe| {
+            std::process::Command::new(exe)
+                .arg("record-run")
+                .arg(path)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .ok()
+        });
+    let Some(mut child) = started else {
+        return record(path, run);
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(json.as_bytes());
+    }
+    let output = child
+        .wait_with_output()
+        .context(|| "waiting for builds record-run".to_string())?;
+    if !output.status.success() {
+        fail!(
+            "builds record-run failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+/// `builds record-run <database>`: reads a run as JSON on stdin and writes it
+/// to the database (`record_with_installed` starts it).
+pub fn cmd_record_run(args: &[String]) -> Result<()> {
+    use std::io::Read;
+    let [path] = args else {
+        fail!("usage: builds record-run <database> (the run as JSON on stdin)");
+    };
+    let mut text = String::new();
+    std::io::stdin()
+        .read_to_string(&mut text)
+        .context(|| "reading the run".to_string())?;
+    let run: RunRecord = serde_json::from_str(&text)
+        .map_err(|e| crate::fail::Fail::Message(format!("reading the run: {e}")))?;
+    record(Path::new(path), &run)
 }
 
 /// Writes <run> and its steps to the existing database at <path>, in one

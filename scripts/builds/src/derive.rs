@@ -84,8 +84,19 @@ pub fn changed_paths(top: &Path, commit: &str) -> Result<Vec<String>> {
     Ok(diff.lines().map(str::to_string).collect())
 }
 
-/// The lanes whose `sources` folders hold a file at <commit> that has <class>
-/// as a whole word.
+/// The keywords that declare a test type: Swift's `class`, `struct`, `enum` and
+/// `actor` (Swift Testing suites are structs), Kotlin's `class` and `object`
+/// (with any modifiers before them).
+const DECLARING_WORDS: &str = "class|struct|enum|actor|object";
+
+/// The extended regular expression that matches a line declaring the type
+/// <class>: a declaring keyword, spaces, the whole name.
+fn declaration_pattern(class: &str) -> String {
+    format!("(^|[^A-Za-z0-9_])({DECLARING_WORDS})[[:space:]]+{class}([^A-Za-z0-9_]|$)")
+}
+
+/// The lanes whose `sources` folders hold a file at <commit> that declares
+/// the type <class> (a plain mention of the name does not count).
 fn lanes_declaring(top: &Path, config: &Config, commit: &str, class: &str) -> Result<Vec<Lane>> {
     let mut found = Vec::new();
     for lane in Lane::ALL {
@@ -99,7 +110,15 @@ fn lanes_declaring(top: &Path, config: &Config, commit: &str, class: &str) -> Re
             continue;
         }
         let output = git(top)
-            .args(["grep", "-l", "-w", "-F", "-e", class, commit, "--"])
+            .args([
+                "grep",
+                "-l",
+                "-E",
+                "-e",
+                &declaration_pattern(class),
+                commit,
+                "--",
+            ])
             .args(&folders)
             .output()
             .context(|| "running git to search the sources".to_string())?;
@@ -167,10 +186,37 @@ fn parse_picks(
                 kind.what()
             );
         }
+        if kind == PickKind::Class && !arg.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            fail!("--test takes a type name (letters, digits, underscores), not {arg:?}");
+        }
         picks.push((lane_of(kind, arg)?, kind, arg.clone()));
         rest = after;
     }
     Ok((picks, fresh))
+}
+
+/// A branch cut before the repo declared the `on`, `needs` and `sources` lines
+/// has none in its `.app-build`, and so no way to choose steps or find a
+/// class's lane: it takes those lines from `origin/main`'s `.app-build`. A
+/// branch with any of the three keeps its own.
+fn adopt_main_rules(top: &Path, config: &mut Config) -> Result<()> {
+    if !(config.rules.is_empty() && config.needs.is_empty() && config.sources.is_empty()) {
+        return Ok(());
+    }
+    let Ok(text) = run_git(top, &["show", &format!("origin/main:{CONFIG}")]) else {
+        return Ok(());
+    };
+    let main = crate::app_config::parse_config(&text)?;
+    if main.rules.is_empty() && main.needs.is_empty() && main.sources.is_empty() {
+        return Ok(());
+    }
+    note(format!(
+        "this branch's {CONFIG} has no on, needs or sources lines; using origin/main's"
+    ));
+    config.rules = main.rules;
+    config.needs = main.needs;
+    config.sources = main.sources;
+    Ok(())
 }
 
 pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
@@ -180,7 +226,8 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
     if git_ref.starts_with('-') {
         fail!("{USAGE}");
     }
-    let (top, commit, config) = app_build::commit_and_config(places, repo, git_ref)?;
+    let (top, commit, mut config) = app_build::commit_and_config(places, repo, git_ref)?;
+    adopt_main_rules(&top, &mut config)?;
     let (mut picks, fresh) = parse_picks(tail, |kind, arg| match kind {
         PickKind::Shots => lane_of_prefix(arg),
         PickKind::Class => lane_of_class(&lanes_declaring(&top, &config, &commit, arg)?, arg),

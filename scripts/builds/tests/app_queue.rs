@@ -1081,8 +1081,8 @@ fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_
     git(&["checkout", "-q", "-b", "work"]);
     std::fs::create_dir_all(top.join("mac")).unwrap();
     std::fs::create_dir_all(top.join("droid")).unwrap();
-    std::fs::write(top.join("mac/MacFoo.txt"), "MacFoo\n").unwrap();
-    std::fs::write(top.join("droid/DroidFoo.txt"), "DroidFoo\n").unwrap();
+    std::fs::write(top.join("mac/MacFoo.txt"), "struct MacFoo {}\n").unwrap();
+    std::fs::write(top.join("droid/DroidFoo.txt"), "object DroidFoo {}\n").unwrap();
     git(&["add", "mac", "droid"]);
     git(&["commit", "-q", "-m", "Change both lanes"]);
     git(&["push", "-q", "origin", "work"]);
