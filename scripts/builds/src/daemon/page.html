@@ -894,16 +894,25 @@ function hookOf(name) {
   for (const p of hooks.projects) for (const r of p.repos || []) if (r.repo === name) return r;
   return null;
 }
+// A repo's name as the hook figures show it: agent-instructions is where builds
+// lives, so its figure says builds.
+function hookRepoName(name) { return name === "agent-instructions" ? "builds" : name; }
+// The figure's label: a commit glyph (a line through a ring) and the repo's name.
+function hookLabel(name) {
+  const glyph = svg("svg", {viewBox: "0 0 16 16", width: "14", height: "14", fill: "none", stroke: "currentColor", "stroke-width": "1.5", "aria-hidden": "true"});
+  glyph.append(svg("circle", {cx: "8", cy: "8", r: "3"}), svg("path", {d: "M1 8h4M11 8h4"}));
+  return h("span", {class: "h", title: "Commit hook runs in " + name}, glyph, " " + hookRepoName(name));
+}
 function hookFigure(name) {
   const r = hookOf(name);
-  const title = name + " commits";
+  const title = hookLabel(name);
   const limit = r && r.limit_ms ? r.limit_ms : 45000;
   const chart = svg("svg", {width: "158", height: String(BAR_HEIGHT), viewBox: "0 0 158 " + BAR_HEIGHT, preserveAspectRatio: "none", "aria-hidden": "true"});
   const y = BAR_HEIGHT - BAR_HEIGHT * Math.min(1, limit / 1000 / BAR_SECONDS);
   chart.append(svg("line", {class: "limit", x1: "0", x2: "158", y1: String(y), y2: String(y)}));
   if (!r || !r.runs || r.error) {
     return h("div", {class: "fig hook line empty", title: "Commit hook runs in " + name + ": no passing run in the last 12 hours, so there is nothing to draw."},
-      h("div", {class: "row"}, h("span", {class: "h"}, title), h("span", {class: "v"}, "–"), chart));
+      h("div", {class: "row"}, title, h("span", {class: "v"}, "–"), chart));
   }
   const runs = r.recent.slice().reverse();
   runs.forEach((run, i) => {
@@ -920,7 +929,7 @@ function hookFigure(name) {
       title: "Median time, then one bar per run. Commit hook runs in " + name + ", oldest to newest. The dashed line is the " + limitText(limit) + " limit. Click for each run.",
       onclick: () => { openHook = open ? null : name; openWait = null; render(); },
       onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openHook = open ? null : name; openWait = null; render(); } }},
-    h("div", {class: "row"}, h("span", {class: "h"}, title), h("span", {class: "v"}, secs(r.median_ms)), chart));
+    h("div", {class: "row"}, title, h("span", {class: "v"}, secs(r.median_ms)), chart));
 }
 
 // A repo's hook details, under the figures: each check, then the runs over the limit.
@@ -962,7 +971,7 @@ function hookDetails() {
   const hiddenOver = r.over_count - OVER_SHOWN;
   box.hidden = false;
   box.replaceChildren(
-    h("div", {class: "ho-head"}, h("b", {}, openHook + " commits"),
+    h("div", {class: "ho-head"}, h("b", {}, hookRepoName(openHook) + " commits"),
       h("span", {}, plural(r.runs, "passing run", "passing runs") + " in the last 12 hours · ",
         h("span", {class: r.over_count ? "warn" : ""}, r.over_count + " over " + limitText(limit))),
       h("button", {type: "button", class: "ho-close", title: "Close", "aria-label": "Close", onclick: () => { openHook = null; render(); }}, "×")),
