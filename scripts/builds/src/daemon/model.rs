@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -108,6 +108,10 @@ pub struct Model {
     viewers: AtomicUsize,
     viewing: Condvar,
     viewing_lock: Mutex<()>,
+    /// Held while a process reading runs, so `stop` waits for one in progress.
+    sampling: Mutex<()>,
+    /// The process reading ends at its next turn.
+    stopped: AtomicBool,
     git_stream: Mutex<Option<(Vec<PathBuf>, Stream)>>,
     lists: Arc<Feed>,
     /// What git said the commits of design branches change.
@@ -150,6 +154,8 @@ impl Model {
             viewers: AtomicUsize::new(0),
             viewing: Condvar::new(),
             viewing_lock: Mutex::new(()),
+            sampling: Mutex::new(()),
+            stopped: AtomicBool::new(false),
             git_stream: Mutex::new(None),
             lists: Feed::start(places),
             design_reads: Default::default(),
@@ -458,7 +464,13 @@ impl Model {
     /// daemon. Pages watching make it faster.
     fn sample_loop(self: Arc<Self>) {
         loop {
-            if let Err(error) = self.sample_now() {
+            let reading = self.sampling.lock().expect("no panic holding it");
+            if self.stopped.load(Ordering::SeqCst) {
+                return;
+            }
+            let read = self.sample_now();
+            drop(reading);
+            if let Err(error) = read {
                 eprintln!(
                     "builds: reading the processes: {}",
                     match error {
@@ -477,6 +489,17 @@ impl Model {
             let guard = self.viewing_lock.lock().expect("no panic holding it");
             let _ = self.viewing.wait_timeout(guard, pace);
         }
+    }
+
+    /// Ends the process reading, after one in progress. A test calls it before
+    /// it removes its scratch folder, which a reading writes into.
+    #[cfg(test)]
+    pub fn stop_sampling(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        let _guard = self.viewing_lock.lock().expect("no panic holding it");
+        self.viewing.notify_all();
+        drop(_guard);
+        drop(self.sampling.lock().expect("no panic holding it"));
     }
 
     /// The health the last reading judged, None before the first reading.

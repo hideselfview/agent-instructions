@@ -45,6 +45,12 @@ fn setup(name: &str) -> Setup {
     }
 }
 
+impl Drop for Setup {
+    fn drop(&mut self) {
+        self.runs.kill_started();
+    }
+}
+
 impl Setup {
     fn page(&self, lane: &str) -> Option<RunPage> {
         self.runs

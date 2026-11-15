@@ -13,6 +13,13 @@ struct Server {
     model: Arc<Model>,
 }
 
+impl Drop for Server {
+    fn drop(&mut self) {
+        self.model.runs.kill_started();
+        self.model.stop_sampling();
+    }
+}
+
 const WAIT_THEN_FAIL: &str = "while [ ! -e \"$0\" ]; do sleep 0.05; done; echo \"ran: $*\"; exit 3";
 
 fn server(name: &str) -> Server {

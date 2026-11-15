@@ -404,6 +404,21 @@ impl Runs {
     }
 }
 
+impl Runs {
+    /// Kills, by pid, each build this daemon started that has not ended. A
+    /// test calls it as it ends, so a build waiting on a file in the test's
+    /// scratch folder does not outlive the folder.
+    #[cfg(test)]
+    pub fn kill_started(&self) {
+        let state = self.state.lock().expect("no panic holding it");
+        for run in state.values() {
+            if run.owned && run.record.ended.is_none() {
+                unsafe { libc::kill(run.record.pid, libc::SIGKILL) };
+            }
+        }
+    }
+}
+
 /// The end of the log at <path>, and whether more came before it. A log that
 /// can't be read is said in its place.
 fn tail(path: &Path) -> (String, bool) {
