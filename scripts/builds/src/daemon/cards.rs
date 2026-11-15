@@ -186,8 +186,8 @@ pub struct Words {
     /// item shows its design change's title.
     pub titles: Vec<String>,
     /// The numbers of the items running here, in list order. The page shows
-    /// them first in the top bar. Set where the card's items are read
-    /// (model.rs), not by `words`.
+    /// them first in the top bar. model.rs sets them when it reads the
+    /// card's items; `words` leaves them empty.
     pub numbers: Vec<u32>,
     /// The plain line of what the worktree waits on or does. With a title
     /// above it, the claim note is left out.

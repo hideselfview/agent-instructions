@@ -193,13 +193,21 @@ pub fn lists_for<'a>(
     found.lists.as_ref().ok()
 }
 
-/// The titles of the items running in <worktree>, in the order the items
-/// are listed.
-pub fn running_titles(lists: &crate::lists::Lists, worktree: &str) -> Vec<String> {
+/// The items running in <worktree>, in the order the items are listed.
+fn running_items<'a>(
+    lists: &'a crate::lists::Lists,
+    worktree: &'a str,
+) -> impl Iterator<Item = &'a crate::lists::Item> {
     lists
         .items
         .iter()
-        .filter(|item| item.running.iter().any(|r| r.worktree == worktree))
+        .filter(move |item| item.running.iter().any(|r| r.worktree == worktree))
+}
+
+/// The titles of the items running in <worktree>, in the order the items
+/// are listed.
+pub fn running_titles(lists: &crate::lists::Lists, worktree: &str) -> Vec<String> {
+    running_items(lists, worktree)
         .map(|item| item.title.clone())
         .collect()
 }
@@ -207,10 +215,7 @@ pub fn running_titles(lists: &crate::lists::Lists, worktree: &str) -> Vec<String
 /// The numbers of the items running in <worktree>, in the order the items
 /// are listed.
 pub fn running_numbers(lists: &crate::lists::Lists, worktree: &str) -> Vec<u32> {
-    lists
-        .items
-        .iter()
-        .filter(|item| item.running.iter().any(|r| r.worktree == worktree))
+    running_items(lists, worktree)
         .map(|item| item.id.0)
         .collect()
 }
