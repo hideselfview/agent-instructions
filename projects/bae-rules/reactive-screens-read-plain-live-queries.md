@@ -22,8 +22,21 @@ Two things a screen shows don't come from SQL:
 - A value that changes many times a second (playback position, transfer bytes,
   rates, levels) travels on a keyed latest-value stream
   (`high-frequency-values-skip-observed-ui-state.md`).
-- State that lives only on screen (hover, focus, an open popover or menu, a drag
-  in progress) stays in the view and never goes into SQL.
+- State that exists only on screen (hover, focus, an open popover or menu, a
+  drag in progress) stays in the view and never goes into SQL.
+
+### Why
+
+The database is bae's own: SQLite on the device's disk, with no server or
+network in between. SQLite reads and writes fast, and coven reruns a query
+whenever a write changes what it read, so a screen that shows a query's result
+stays current with no other code.
+
+Data that Rust copies into memory and works on there (a structure built from
+rows, a filter, a sort, a count, a cache) stops following the database. Some
+other code then has to notice each change and redo the work, and until it does,
+the screen shows an old copy. That code does what SQLite and coven already do,
+worse. So nothing goes between the query and the screen.
 
 ### Two kinds of read
 
@@ -41,8 +54,12 @@ Every answer is SQL, and so is every fix:
 - Grouping, counting, joining, ranking: GROUP BY, COUNT, JOIN, a window
   function.
 - A slow query: a better query or an index.
-- A value too slow to compute on each read: a device-local table that triggers
-  keep in the same write (`notes/screens-as-queries.md`).
+- A value too slow to compute on each read, or computed across tables that
+  SQLite can't index together: a device-local table that triggers write in the
+  same write that changes any table the value comes from, with an index on it.
+  The album grid sorts by `album_listing`, and the import list reads its tabs,
+  states, groups, dates and shown text from `import_list_placement`
+  (`bae-import/src/tables/import_list/placement.sql`).
 
 Start from the plain query over the domain's own tables, and add an index or a
 trigger table when the plain query can't serve the screen.
