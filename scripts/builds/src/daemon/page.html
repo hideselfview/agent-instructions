@@ -1114,11 +1114,15 @@ function waitDetails() {
       steps.map(s => stepRow(s, top)), more));
 }
 
-// What `builds health` lists under "needs action", each finding's text with
-// the command it suggests.
+// What `builds health` lists under "needs action", each finding's text
+// followed by the command it suggests. The disk figure already shows the free
+// space in red under its floor, so the box leaves out the disk finding. It
+// keeps the finding for a worktree with no change: a card marks a worktree
+// quiet only when it has uncommitted files.
+const SHOWN_ELSEWHERE = new Set(["disk"]);
 function findingsView(health) {
   const box = document.getElementById("findings");
-  const findings = health ? health.findings : [];
+  const findings = (health ? health.findings : []).filter(f => !SHOWN_ELSEWHERE.has(f.kind));
   box.replaceChildren(...(findings.length ? [h("div", {class: "act"}, h("b", {}, "Needs attention"),
     findings.map(f => h("span", {}, f.text, f.command ? h("code", {}, f.command) : null)))] : []));
 }
