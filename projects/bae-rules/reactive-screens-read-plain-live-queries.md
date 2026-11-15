@@ -1,23 +1,10 @@
 ---
 digest: Everything a bae screen shows comes from SQL, with two exceptions, values that change many times a second (keyed latest-value streams), and state that lives only on screen, such as hover, focus, an open popover or menu, or a drag in progress (held by the view, never in SQL). A read that must follow changes is a plain coven live query, a one-off read a plain SQL read, never a live query read once; nothing is kept in Rust or app memory between reads, no side pass, no field or write count kept to force a rerun, no size cutoff between read paths, Rust and the apps never filter, sort, join (a second statement keyed by the first one's rows is a join), group, count or derive what a screen shows, and nothing answers from the rows a screen has loaded.
 paths:
-  - bae-store/src/**/*.rs
-  - bae-views/src/**/*.rs
-  - bae-import/src/**/*.rs
-  - bae-library/src/**/*.rs
-  - bae-bridge/src/**/*.rs
-  - bae-transfers/src/**/*.rs
-  - bae-playback/src/**/*.rs
-  - bae-people/src/**/*.rs
-  - bae-records/src/**/*.rs
-  - bae-macos/**/*.swift
-  - BaeKit/**/*.swift
-  - bae-android/**/*.kt
-  - bae-automation/src/**/*.rs
-  - bae-mcp/src/**/*.rs
+  - bae-*/src/**/*.rs
   - '**/*.sql'
-  - BaeKit/**/*.swift
   - bae-macos/**/*.swift
+  - BaeKit/**/*.swift
   - bae-android/**/*.kt
 blocking: true
 ---
