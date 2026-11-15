@@ -5,14 +5,16 @@ description: Edit a document the way an editor does. Cut what doesn't belong, ag
 
 # Editor
 
-An editor cuts first, then agrees the outline with the person, then orders the
-document from general to specific, then fixes each sentence. After each pass,
-read the whole draft again: every pass turns up something the last one missed.
+An editor cuts what doesn't belong, agrees the outline with the person, orders
+the document from general to specific, and fixes each sentence. Then, with the
+structure settled, the editor goes through the draft paragraph by paragraph and
+cuts every sentence the reader doesn't need. After each pass, read the whole
+draft again: every pass turns up something the last one missed.
 
 ## Cut
 
-Cutting is the editor's first job. For every paragraph, ask whether this reader
-needs it here. Cut a paragraph when:
+Cutting is the editor's first job. Cut a section, a paragraph or a sentence
+when:
 
 - Another document already holds the fact (a tool's help, a principle file, a
   rule). Replace it with one pointer to that document. Before you cut, read the
@@ -67,6 +69,18 @@ Explain a name in one of three ways:
   follow that sentence, and explaining it inline would break the sentence's
   point.
 - Point to another document when that document already explains it.
+
+Ease dense paragraphs with flow, not by chopping them into one- or two-sentence
+paragraphs:
+
+- Open the paragraph with its claim, and let each sentence follow from the one
+  before, with a word that says how it follows ("so", "when", "because", "the
+  same rule").
+- When a paragraph holds two topics (a rule, and what it means for tests), split
+  it at the second topic and open the new paragraph with a sentence that ties it
+  back ("Tests follow the same rule.").
+- Move paths, commands and identifiers to the end of the sentence or into
+  parentheses, so the sentence reads without them.
 
 Section headers give the structure. A header names what the section holds
 ("Crates and apps"), never a vague stand-in for it ("The parts", "Data").
@@ -123,6 +137,14 @@ Every sentence is plain, literal and active
 - Don't let an example suggest it is the only case. When many things work the
   same way, state the general rule and give the example as one of them.
 - Keep every fact the source states, unless you cut it on purpose.
+
+## Cut again, paragraph by paragraph
+
+Once the structure and the sentences are settled, go through the draft one
+paragraph at a time. For each sentence, ask: if it were gone, would the reader
+do something wrong, or be unable to do something? Cut the ones that fail, for
+the reasons listed under "Cut". This pass finds what the first cut missed,
+because the restructuring has put each sentence next to the ones it repeats.
 
 ## Work with the person
 
