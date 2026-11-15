@@ -80,12 +80,13 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .fig.hook.on { border-color: var(--accent); }
 .fig.hook.empty { cursor: default; }
 .fig.hook.empty:hover { border-color: var(--line); }
-.fig svg .b-ok { fill: var(--muted-2); opacity: .55; }
+.fig svg .b-ok, .lane-head .b-ok { fill: var(--muted-2); opacity: .55; }
 .fig svg .b-over { fill: var(--warn); }
 .fig svg .limit { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 2; }
 .fig .spark { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 .fig .cores { stroke: var(--muted-2); stroke-width: 1; stroke-dasharray: 2 2; }
-.fig.hook svg { width: 72px; height: 24px; }
+.fig.hook svg:not(.glyph) { width: 72px; height: 24px; }
+.fig.hook .h svg.glyph { width: 12px; height: 12px; vertical-align: -1px; margin-left: 4px; }
 .fig .row svg[aria-label] { width: 64px; }
 .fig.line { flex-direction: row; align-items: center; padding: 6px 12px; }
 .fig.line .row { align-items: center; gap: 8px; }
@@ -202,9 +203,16 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .lane.building .lane-head b, .lane.building .lane-q .qn { color: var(--working); }
 .lane.building .lane-head .br, .lane.building .lane-head .disk, .lane.building .lane-q { color: color-mix(in srgb, var(--working) 80%, transparent); }
 .lane-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-.lane-head > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane-head > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .lane-head b { font-size: 15px; font-weight: 700; }
-.lane-head .br { font: 400 12px var(--mono); color: var(--muted); margin-left: 4px; }
+.lane-head .br { font: 400 12px var(--mono); color: var(--muted); margin-left: 4px; white-space: nowrap; }
+.lane-head .wf { flex: none; display: flex; align-items: center; gap: 8px; cursor: pointer; border-radius: 6px; }
+.lane-head .wf.empty { cursor: default; }
+.lane-head .wf .h { font-size: 12px; color: var(--muted); }
+.lane-head .wf .v { font: 500 13px var(--mono); color: var(--text); }
+.lane-head .wf.on .v { color: var(--accent); }
+.lane-head .wf:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lane.building .lane-head .wf .h, .lane.building .lane-head .wf .v { color: var(--working); }
 .lane-head .disk { font: 500 13px var(--mono); color: var(--muted); }
 .lane-now { flex: 1; padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
 .lane-now .who { font-weight: 600; }
@@ -619,7 +627,7 @@ function icon(name, epoch, text) {
   const [label, title, paths] = ICONS[name];
   const el = h("span", {class: "ic", title}, text === undefined ? agoSpan(epoch) : text);
   const svgEl = document.createElementNS(SVG, "svg");
-  for (const [k, v] of Object.entries({viewBox: "0 0 16 16", width: "14", height: "14", fill: "none", stroke: "currentColor",
+  for (const [k, v] of Object.entries({viewBox: "0 0 16 16", width: "12", height: "12", fill: "none", stroke: "currentColor",
     "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-label": label})) svgEl.setAttribute(k, v);
   svgEl.innerHTML = paths;
   el.prepend(svgEl);
@@ -735,25 +743,17 @@ function laneQueue(repo, al) {
 }
 // An app build lane: nobody owns its checkouts and builds take turns, so it
 // shows, for each checkout, who builds now and what runs, then the builds
-// waiting for a checkout of the lane. A lane with one checkout is one block;
-// a lane with several has a row for each and lists its queue. The daemon decides
+// waiting for a checkout of the lane. Every lane has a row for each
+// checkout, one or several, and lists its queue. The daemon decides
 // whether a held lock still belongs to a running build (app_builds.rs).
-function laneCard(repo, al) {
+function laneCard(repo, al, waits) {
   const lane = capitalWord(al.lane);
   const building = al.checkouts.some(c => c.now.state === "building");
   const cls = "lane" + (building ? " building" : "");
-  if (al.checkouts.length === 1) {
-    const ab = al.checkouts[0];
-    return h("article", {class: cls},
-      h("div", {class: "lane-head"},
-        h("span", {}, h("b", {}, lane + " app builds"), " ", h("span", {class: "br"}, ab.checkout + " · " + (ab.now.state === "building" && ab.now.branch ? ab.now.branch : ab.checked_out))),
-        ab.remote ? null : h("span", {class: "disk"}, ab.disk_kib === null ? "…" : size(ab.disk_kib))),
-      h("div", {class: "lane-now" + (ab.now.state === "stuck" ? " stuck" : "")}, checkoutNow(ab)),
-      laneQueue(repo, al));
-  }
   const q = laneQueue(repo, al);
   return h("article", {class: cls},
-    h("div", {class: "lane-head"}, h("span", {}, h("b", {}, lane + " app builds"), " ", h("span", {class: "br"}, al.checkouts.length + " checkouts"))),
+    h("div", {class: "lane-head"}, h("span", {}, h("b", {}, lane + " app builds"), " ", h("span", {class: "br"}, al.checkouts.length + (al.checkouts.length === 1 ? " checkout" : " checkouts"))),
+      waits.length ? waitFigure(waits.find(x => x.repo === repo.name && x.lane === al.lane), waits) : null),
     al.checkouts.map(ab => h("div", {class: "lane-now lane-co" + (ab.now.state === "stuck" ? " stuck" : "")},
       h("div", {class: "co"}, h("span", {class: "br", title: ab.now.state === "building" && ab.now.branch ? ab.now.branch : ab.checked_out}, ab.checkout),
         ab.remote ? null : h("span", {class: "disk"}, ab.disk_kib === null ? "…" : size(ab.disk_kib))),
@@ -806,20 +806,27 @@ function freeTile(repo, n, open) {
     open ? "Hide " + n + " free " + word : "+" + n + " free " + word);
 }
 // Each repo's group: its app build lanes, then its worktree cards, then one
-// tile that opens its free worktrees.
+// tile that opens its free worktrees. A repo with no app lane and no claimed,
+// unlanded or changed worktree has no group. The builds repo (agent-instructions)
+// is the last group.
 function reposView(root) {
-  const groups = state.repos.map(repo => {
-    const group = slot(root, "repo:" + repo.name, () => h("section", {class: "group"},
-      h("h2", {}, repo.name), h("div", {class: "lanes"}), h("div", {class: "wts"})));
+  const last = r => r.name === "agent-instructions" ? 1 : 0;
+  const waits = waitLanes();
+  const shown = [...state.repos].sort((a, b) => last(a) - last(b)).map(repo => {
     const {sides} = split(repo);
-    const busy = sides.filter(c => c.state !== "free"), free = sides.filter(c => c.state === "free");
+    const quiet = c => c.state === "free" && !(c.git && c.git.uncommitted);
+    return {repo, busy: sides.filter(c => !quiet(c)), free: sides.filter(quiet)};
+  }).filter(g => g.busy.length > 0 || g.repo.app_builds.length > 0);
+  const groups = shown.map(({repo, busy, free}) => {
+    const group = slot(root, "repo:" + repo.name, () => h("section", {class: "group"},
+      h("h2", {}, repoDisplayName(repo.name)), h("div", {class: "lanes"}), h("div", {class: "wts"})));
     const open = showFree.has(repo.name) && free.length > 0;
     const lanes = group.querySelector(".lanes");
     lanes.hidden = repo.app_builds.length === 0;
     patch(lanes, repo.app_builds.map(al => ({key: "lane " + al.lane,
-      data: [al, queueOf(repo, al.lane), openQueue.has(repo.name + " " + al.lane), openBuild.has(repo.name + " " + al.lane),
+      data: [al, waits.filter(x => x.repo === repo.name), openWait === repo.name + " " + al.lane, queueOf(repo, al.lane), openQueue.has(repo.name + " " + al.lane), openBuild.has(repo.name + " " + al.lane),
         openQueue.has(repo.name + " " + al.lane) ? repo.locks.filter(l => l.lane === al.lane) : null],
-      make: () => laneCard(repo, al)})));
+      make: () => laneCard(repo, al, waits)})));
     const cards = [...busy, ...(open ? free : [])].map(c => ({key: c.name, data: c, make: () => worktreeCard(c)}));
     if (free.length) cards.push({key: "free-tile", data: [free.length, open], make: () => freeTile(repo, free.length, open)});
     patch(group.querySelector(".wts"), cards);
@@ -894,14 +901,14 @@ function hookOf(name) {
   for (const p of hooks.projects) for (const r of p.repos || []) if (r.repo === name) return r;
   return null;
 }
-// A repo's name as the hook figures show it: agent-instructions is where builds
-// lives, so its figure says builds.
-function hookRepoName(name) { return name === "agent-instructions" ? "builds" : name; }
-// The figure's label: a commit glyph (a line through a ring) and the repo's name.
+// A repo's name as the page shows it anywhere: agent-instructions is where
+// builds lives, so the page says builds.
+function repoDisplayName(name) { return name === "agent-instructions" ? "builds" : name; }
+// The figure's label: the repo's name and a commit glyph (a line through a ring).
 function hookLabel(name) {
-  const glyph = svg("svg", {viewBox: "0 0 16 16", width: "14", height: "14", fill: "none", stroke: "currentColor", "stroke-width": "1.5", "aria-hidden": "true"});
+  const glyph = svg("svg", {class: "glyph", viewBox: "0 0 16 16", width: "12", height: "12", fill: "none", stroke: "currentColor", "stroke-width": "1.5", "aria-hidden": "true"});
   glyph.append(svg("circle", {cx: "8", cy: "8", r: "3"}), svg("path", {d: "M1 8h4M11 8h4"}));
-  return h("span", {class: "h", title: "Commit hook runs in " + name}, glyph, " " + hookRepoName(name));
+  return h("span", {class: "h", title: "Commit hook runs in " + name}, repoDisplayName(name), glyph);
 }
 function hookFigure(name) {
   const r = hookOf(name);
@@ -971,7 +978,7 @@ function hookDetails() {
   const hiddenOver = r.over_count - OVER_SHOWN;
   box.hidden = false;
   box.replaceChildren(
-    h("div", {class: "ho-head"}, h("b", {}, hookRepoName(openHook) + " commits"),
+    h("div", {class: "ho-head"}, h("b", {}, repoDisplayName(openHook) + " commits"),
       h("span", {}, plural(r.runs, "passing run", "passing runs") + " in the last 12 hours · ",
         h("span", {class: r.over_count ? "warn" : ""}, r.over_count + " over " + limitText(limit))),
       h("button", {type: "button", class: "ho-close", title: "Close", "aria-label": "Close", onclick: () => { openHook = null; render(); }}, "×")),
@@ -1034,21 +1041,23 @@ function waitLanes() {
   }
   return out;
 }
+// A lane's wait figure, at the right end of its card's header: the median wait
+// and one small bar per build. Clicking it opens the lane's times.
+const WAIT_BAR_HEIGHT = 16;
 function waitFigure(w, all) {
   const name = capital(w.lane);
-  const title = (new Set(all.map(x => x.repo)).size > 1 ? w.repo + " " : "") + name + " wait";
   const f = w.figures;
-  const barsMax = Math.max(1, ...all.filter(x => x.repo === w.repo && x.figures).flatMap(x => x.figures.waits_ms));
-  const n = f ? f.waits_ms.length : 0;
-  const chart = svg("svg", {width: String(Math.max(0, n * 6 - 2)), height: String(BAR_HEIGHT), viewBox: "0 0 " + Math.max(0, n * 6 - 2) + " " + BAR_HEIGHT,
-    preserveAspectRatio: "none", "aria-hidden": "true"});
   if (!f) {
-    return h("div", {class: "fig hook line wait empty", title: "Builds in the " + name + " lane: none in the last 12 hours, so there is nothing to draw."},
-      h("div", {class: "row"}, h("span", {class: "h"}, title), h("span", {class: "v"}, "–")));
+    return h("span", {class: "wf empty", title: "Builds in the " + name + " lane: none in the last 12 hours, so there is nothing to draw."},
+      h("span", {class: "h"}, "wait"), h("span", {class: "v"}, "–"));
   }
+  const barsMax = Math.max(1, ...all.filter(x => x.repo === w.repo && x.figures).flatMap(x => x.figures.waits_ms));
+  const n = f.waits_ms.length, width = Math.max(0, n * 6 - 2);
+  const chart = svg("svg", {class: "wf-chart", width: String(width), height: String(WAIT_BAR_HEIGHT), viewBox: "0 0 " + width + " " + WAIT_BAR_HEIGHT,
+    preserveAspectRatio: "none", "aria-hidden": "true"});
   f.waits_ms.forEach((ms, i) => {
-    const hgt = Math.max(2, Math.round(ms / barsMax * BAR_HEIGHT));
-    const bar = svg("rect", {class: "b-ok", x: String(i * 6), y: String(BAR_HEIGHT - hgt), width: "4", height: String(hgt), rx: "1.5"});
+    const hgt = Math.max(2, Math.round(ms / barsMax * WAIT_BAR_HEIGHT));
+    const bar = svg("rect", {class: "b-ok", x: String(i * 6), y: String(WAIT_BAR_HEIGHT - hgt), width: "4", height: String(hgt), rx: "1.5"});
     const tip = svg("title", {});
     tip.textContent = span(ms);
     bar.append(tip);
@@ -1056,11 +1065,11 @@ function waitFigure(w, all) {
   });
   const open = openWait === w.key;
   const toggle = () => { openWait = open ? null : w.key; openHook = null; render(); };
-  return h("div", {class: "fig hook line wait" + (open ? " on" : ""), tabindex: "0", role: "button", "aria-expanded": String(open),
+  return h("span", {class: "wf" + (open ? " on" : ""), tabindex: "0", role: "button", "aria-expanded": String(open),
       title: "Median wait in the " + name + " lane's queue over the last 12 hours, then one bar per build, oldest to newest. Click for the lane's times.",
       onclick: toggle,
       onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }},
-    h("div", {class: "row"}, h("span", {class: "h"}, title), h("span", {class: "v"}, waitFigureTime(f.median_wait_ms)), chart));
+    h("span", {class: "h"}, "wait"), h("span", {class: "v"}, waitFigureTime(f.median_wait_ms)), chart);
 }
 function stepRow(s, top) {
   const width = Math.max(1, Math.round(s.total_ms / top * 75));
@@ -1120,7 +1129,7 @@ function render() {
   document.getElementById("errors").append(...timingErrors.map(e => h("div", {class: "error"}, "The app build times: " + e)));
   for (const repo of state.repos) for (const {lane} of repo.lanes) buildPanelOf(repo, lane);
   document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), diskFigure(state.volume),
-    ...state.repos.map(r => hookFigure(r.name)), ...waitLanes().map((w, _, all) => waitFigure(w, all)));
+    ...state.repos.map(r => hookFigure(r.name)));
   hookDetails();
   waitDetails();
   findingsView(state.health);
@@ -1344,7 +1353,7 @@ function itemBody(it) {
   if (it.priority) facts.push(fact("Priority " + it.priority.level + ":", it.priority.why));
   if (it.brief) facts.push(fact("Brief", mono(it.brief)));
   if (it.from !== null && it.from !== undefined) facts.push(fact("Made by", recLink(it.from)));
-  for (const l of it.landed) facts.push(fact("Landed in " + l.repo + ":", mono(l.commits.join(" ")), " " + stamp(l.at)));
+  for (const l of it.landed) facts.push(fact("Landed in " + repoDisplayName(l.repo) + ":", mono(l.commits.join(" ")), " " + stamp(l.at)));
   const notes = it.notes.length ? h("div", {class: "l-facts"}, it.notes.map(n =>
     h("div", {class: "l-fact"}, h("span", {class: "k"}, stamp(n.at) + " " + n.by + ":"), " ", inline(n.text)))) : null;
   return h("div", {class: "l-plain"},
@@ -1363,7 +1372,7 @@ function itemRow(it) {
 function workRow(w) {
   const first = w.items[0].id;
   return fold("i:" + first, first,
-    [h("span", {class: "l-title"}, idChip(...w.items.map(i => i.id)), w.title, tagChips(workTags(w))), h("span", {class: "l-wt"}, w.repo + " " + w.checkout)],
+    [h("span", {class: "l-title"}, idChip(...w.items.map(i => i.id)), w.title, tagChips(workTags(w))), h("span", {class: "l-wt"}, repoDisplayName(w.repo) + " " + w.checkout)],
     () => h("div", {class: "l-plain"},
       w.now ? h("div", {class: "l-fact"}, inline(w.now)) : null,
       h("div", {class: "l-facts"},
@@ -1471,7 +1480,7 @@ function designRow(g) {
     h("span", {class: "l-sub"}, "#" + g.id + " · ", opened(g, "Recorded")),
     g.closed ? md(g.details) : h("button", {type: "button", class: "l-details", onclick: () => openReview(g)}, "Details"));
   return fold("g:" + g.id, g.id,
-    [h("span", {class: "l-title"}, idChip(g.id), g.title), h("span", {class: "l-wt"}, g.repo + " design")], body, "l-work");
+    [h("span", {class: "l-title"}, idChip(g.id), g.title), h("span", {class: "l-wt"}, repoDisplayName(g.repo) + " design")], body, "l-work");
 }
 const reviewDialog = document.getElementById("review"), reviewFrame = document.getElementById("rv-frame");
 // The review page of an open design change, drawn by the daemon from the
