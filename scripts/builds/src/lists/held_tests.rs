@@ -223,24 +223,12 @@ fn health_accepts_design_commits_an_open_design_change_covers() {
 }
 
 #[test]
-fn health_skips_the_landing_worktree_and_branches_with_no_design_files() {
-    let (demo, mut tree, lists) = design_branch("held-design-skip", false);
-    tree.claim.who = "coordinator (landing)".into();
-    assert!(findings(&loaded(lists.clone()), &[tree]).is_empty());
+fn health_skips_branches_with_no_design_files() {
+    let (demo, _tree, lists) = design_branch("held-design-skip", false);
     let top = demo.add_side(2, "agent", "other");
     let sha = demo.commit(&top, "src.rs");
     let plain = worktree(&top, "agent", None, vec![sha]);
     assert!(findings(&loaded(lists), &[plain]).is_empty());
-}
-
-#[test]
-fn a_landing_worktree_is_held_with_no_item_and_health_leaves_it() {
-    let demo = demo("held-landing");
-    let top = demo.add_side(1, "coordinator (landing)", "work");
-    held(&demo, &top).unwrap();
-    let mut tree = bae_worktree(Some("held"));
-    tree.claim.who = "coordinator (landing)".into();
-    assert!(findings(&loaded(read(&db())), &[tree]).is_empty());
 }
 
 #[test]
@@ -367,11 +355,4 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
             .iter()
             .all(|line| !line.contains("no item runs there"))
     );
-    let landing = worktree(
-        std::path::Path::new("/w/bae-worktrees/side-1"),
-        "coordinator (landing)",
-        None,
-        Vec::new(),
-    );
-    assert!(findings(&loaded(read(&db)), &[landing]).is_empty());
 }

@@ -62,24 +62,12 @@ fn hold_fault(lists: &Lists, worktree: &str) -> Option<String> {
     }
 }
 
-/// Does a claim whose holder is <who> belong to the coordinator's landing
-/// worktree? Landing worktrees are standing roles: held with no item.
-fn is_landing(who: &str) -> bool {
-    who.ends_with("(landing)")
-}
-
 /// `builds note --state held` is refused unless every item running in the
-/// worktree waits on an open question, item, design change or condition. A
-/// landing worktree (its claim ends "(landing)") and an app checkout (the
-/// recorded app-checkout list) are standing roles that hold no item, and are
-/// never refused.
+/// worktree waits on an open question, item, design change or condition. An
+/// app checkout (the recorded app-checkout list) is a standing role that holds
+/// no item, and is never refused.
 pub fn require_hold_allowed(places: &Places, checkout: &Checkout) -> Result<()> {
     let top = checkout.top.display().to_string();
-    if let Some(claim) = Claim::read(&checkout.claim_file())?
-        && is_landing(&claim.who)
-    {
-        return Ok(());
-    }
     if checkout.is_side()
         && places
             .app_lane_of(&checkout.repo(), &checkout.name())?
@@ -196,7 +184,8 @@ pub fn findings(
             continue;
         };
         let top = worktree.top.display().to_string();
-        let standing = is_landing(&worktree.claim.who) || worktree.app_checkout;
+        // An app checkout is a standing role: held with no item.
+        let standing = worktree.app_checkout;
         if !standing
             && worktree.claim.note_state.as_deref() == Some("held")
             && let Some(fault) = hold_fault(lists, &top)
@@ -216,7 +205,7 @@ pub fn findings(
                 worktree.label, worktree.claim.who
             ));
         }
-        if is_landing(&worktree.claim.who) || worktree.ahead.is_empty() {
+        if worktree.ahead.is_empty() {
             continue;
         }
         let globs = Globs::of(lists, &worktree.repo);

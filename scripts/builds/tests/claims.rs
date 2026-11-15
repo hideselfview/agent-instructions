@@ -751,8 +751,8 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     demo.run(&["note", &side2, "--state", "waiting-on-you", "run the reset"]);
     states("waiting-on-you", "waiting-on-you");
     demo.run(&["release", &side2]);
-    demo.run(&["claim", &side2, "coordinator (landing)"]);
-    states("waiting-on-you", "landing");
+    demo.run(&["claim", &side2, "agent B"]);
+    states("waiting-on-you", "working");
     // A held claim shows as held, commits waiting to land or not.
     // An app checkout is a standing role that a hold never has to justify
     // with a running item.
@@ -778,9 +778,9 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
         .map(|w| &w["claim"]["note_state"])
         .collect();
     assert_eq!(held, [&Value::from("held")], "health missed the hold");
-    states("held", "landing");
+    states("held", "working");
     demo.run(&["release", &side]);
-    states("ready-to-land", "landing");
+    states("ready-to-land", "working");
 
     // Once the daemon is gone, status measures again.
     unsafe { libc::kill(server_pid, libc::SIGTERM) };

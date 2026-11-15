@@ -8,8 +8,7 @@
 //! stands, and the note may carry a state git can't show: waiting-on-you (a
 //! question or step only the person can take), winding-down (the agent's
 //! last item, then its handoff) or held (kept on purpose with no work
-//! running, the note saying why and until when). A claim whose who ends in "(landing)" is the
-//! worktree its coordinator lands commits from.
+//! running, the note saying why and until when).
 //!
 //! The file is one line in the worktree's git dir: `<who>\t<since>`, then
 //! `\t<note>` when it has a note, then `\t<state>` when the note has a state.

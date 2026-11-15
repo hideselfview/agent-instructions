@@ -377,7 +377,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 "use strict";
 // The states the daemon derives for each side worktree (worktree_state in
 // model.rs), in the order the cards sort.
-const ORDER = ["waiting-on-you", "ready-to-land", "in-review", "queued", "winding-down", "working", "held", "landing", "free"];
+const ORDER = ["waiting-on-you", "ready-to-land", "in-review", "queued", "winding-down", "working", "held", "free"];
 const LISTS_HIDDEN_KEY = "builds-dashboard-lists-hidden";
 let state = null, streamError = "", connectionDown = false;
 let hooks = null, hooksError = "";

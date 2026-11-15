@@ -137,14 +137,14 @@ the others and `builds prune` retires them once they are idle.
 
 A claim records who works in a side worktree, so that no other session takes
 it: whoever hands out the worktree (a coordinator dispatching an agent, or the
-person) claims it, and releases it when the work lands or moves on. A claim is
-a file in the worktree's git dir, so it goes when the worktree does; `status`
-shows it, and `retire` refuses a claimed worktree. A claim is not a lock: an
-agent runs a series of separate commands, so nothing could hold one, and a
-session that ends without releasing leaves its claim behind, with its age in
-`status`. Exclusive use for one command, such as a build in an app checkout,
-takes a real lock. A claim whose <who> ends in "(landing)" marks the worktree
-its coordinator lands commits from.
+person) claims it. A landing that leaves nothing to land releases it (`builds
+land`); whoever handed it out releases it when the work moves on without
+landing. A claim is a file in the worktree's git dir, so it goes when the
+worktree does; `status` shows it, and `retire` refuses a claimed worktree. A
+claim is not a lock: an agent runs a series of separate commands, so nothing
+could hold one, and a session that ends without releasing leaves its claim
+behind, with its age in `status`. Exclusive use for one command, such as a
+build in an app checkout, takes a real lock.
 
 A claim may carry a one-line note that says what its work waits on ("waiting on
 Linux CI"), which `status` and the dashboard show, and the note may carry a
@@ -165,19 +165,19 @@ state. Claiming the worktree again for the same <who> renews the claim's date
 and keeps the note.
 
 The dashboard gives each side worktree the first state that matches: Waiting on
-you, Landing (a landing claim), Held, Ready to land (commits waiting to land,
-claimed or not: an unclaimed worktree with such commits holds work an agent
-left behind), Winding down, Working (claimed) and Free. Commits waiting to land
-show as Ready to land only when `builds land` would take them as far as the
-rules review goes; until then the card is in review and says where the review
-stands: Needs review (no review read these commits, or a group still has to
-answer: the coordinator runs `builds review`), Reviewing (a review of the
-branch's newest commit runs), Findings to settle (with the count), Waiting on
-fixes (confirmed findings with no fixing commit among them) or Unreviewed
-commits (commits the review did not read that no finding names as its fix,
-which land as a change of their own). A commit waits to land
-while origin/main has no commit with the same change (`git log --cherry-pick
---right-only origin/main...HEAD`), because landing rebases or cherry-picks it.
+you, Held, Ready to land (commits waiting to land, claimed or not: an unclaimed
+worktree with such commits holds work an agent left behind), Winding down,
+Working (claimed) and Free. Commits waiting to land show as Ready to land only
+when `builds land` would take them as far as the rules review goes; until then
+the card is in review and says where the review stands: Needs review (no review
+read these commits, or a group still has to answer: the coordinator runs
+`builds review`), Reviewing (a review of the branch's newest commit runs),
+Findings to settle (with the count), Waiting on fixes (confirmed findings with
+no fixing commit among them) or Unreviewed commits (commits the review did not
+read that no finding names as its fix, which land as a change of their own). A
+commit waits to land while origin/main has no commit with the same change (`git
+log --cherry-pick --right-only origin/main...HEAD`), because landing rebases or
+cherry-picks it.
 
   builds new [<repo>] [-b <branch>] [--for <who>] [--project P]
                               hand out a free side worktree (no claim, a clean
@@ -209,8 +209,8 @@ while origin/main has no commit with the same change (`git log --cherry-pick
                               held is refused unless every item running in the
                               worktree waits on an open question, item, design
                               change or condition (`builds item wait N --on
-                              REF`); a landing claim or an app checkout, which
-                              runs no item, is never refused
+                              REF`); an app checkout, which runs no item, is
+                              never refused
   builds release <checkout>   remove its claim; refused while an item runs in
                               the worktree
   builds retire <checkout>    remove a clean, unclaimed side worktree and its

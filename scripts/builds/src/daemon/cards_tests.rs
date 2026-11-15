@@ -100,13 +100,7 @@ fn titled(state: &'static str, note: Option<&str>, titles: &[&str]) -> Words {
 
 #[test]
 fn a_running_items_title_replaces_the_claim_note() {
-    for state in [
-        "working",
-        "waiting-on-you",
-        "held",
-        "winding-down",
-        "landing",
-    ] {
+    for state in ["working", "waiting-on-you", "held", "winding-down"] {
         let card = titled(
             state,
             Some("Measuring each screen read."),

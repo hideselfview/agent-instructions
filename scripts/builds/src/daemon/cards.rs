@@ -271,10 +271,6 @@ pub fn words(checkout: &CheckoutPage, titles: &[String], wait: Option<&ItemWait>
             Some("Waiting on you"),
             note.unwrap_or_else(|| fallback("Waits on you.")),
         ),
-        Some("landing") => (
-            Some("Working"),
-            note.unwrap_or_else(|| fallback("The coordinator lands commits from here.")),
-        ),
         Some("held") => (
             Some("Working"),
             note.unwrap_or_else(|| fallback("Held on purpose with no work running.")),

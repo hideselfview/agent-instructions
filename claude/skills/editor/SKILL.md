@@ -19,7 +19,7 @@ That decides what to explain and what to cut. The person or the brief names the
 reader; never guess it. When neither names it, ask the person, or stop and
 report that the reader is missing. Coding agents know general tools (sccache,
 uniffi, SwiftPM) and need only the project's own names explained (its second
-build machine, its screenshot checks, its landing worktree). A person new to the
+build machine, its screenshot checks, its app checkouts). A person new to the
 project needs more.
 
 ## Outline and cut
