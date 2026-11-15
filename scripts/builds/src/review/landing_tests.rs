@@ -280,7 +280,7 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
 
 #[test]
 fn landed_records_the_landing_worktrees_claim_wherever_it_runs() {
-    let demo = demo("landing-who");
+    let demo = demo("review-landing-who");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
     let a = demo.commit(&side, "a.rs");
