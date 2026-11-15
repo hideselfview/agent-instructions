@@ -229,6 +229,29 @@ fn a_fast_forward_of_a_passing_tree_lands_and_a_cherry_pick_failing_a_check_is_r
 }
 
 #[test]
+fn a_refused_landing_whose_reset_fails_stays_on_the_result_and_says_so() {
+    // The check takes the worktree's index lock and fails, so the reset after
+    // the refusal fails too.
+    let f = fixture(
+        "land-reset-fails",
+        "touch \"$(git rev-parse --git-dir)/index.lock\"; exit 1\n",
+        None,
+    );
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let (code, out, _) = run_land(&f, &one, &[&a], Cues::default());
+    assert!(
+        code == 1 && out.contains("could not reset") && out.contains("branch a by hand"),
+        "{out}"
+    );
+    assert_eq!(
+        branch_of(&one),
+        None,
+        "no checkout runs after the failed reset"
+    );
+}
+
+#[test]
 fn a_cherry_picked_result_passing_the_checks_is_pushed() {
     let f = fixture("land-pass", "true\n", None);
     let (one, a, two, b) = two_branches(&f);

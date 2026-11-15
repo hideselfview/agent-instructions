@@ -611,7 +611,20 @@ impl Landing<'_> {
     /// Puts the worktree back where the landing found it, after a refusal,
     /// and says so when git could not.
     fn go_back(&self, out: &mut dyn Write) {
-        git_ok(&self.workdir, &["reset", "-q", "--hard"]);
+        let mut reset = git(&self.workdir);
+        reset.args(["reset", "-q", "--hard"]);
+        let (reset, said) = merged(reset);
+        if !reset {
+            // A checkout after a failed reset would carry the refused
+            // landing's files onto the branch as uncommitted changes.
+            let _ = writeln!(
+                out,
+                "could not reset {} to drop the refused landing's files, so it stays on the refused result; reset it and check out {} by hand:\n{said}",
+                self.workdir.display(),
+                self.start.name()
+            );
+            return;
+        }
         if !self.start.check_out(&self.workdir) {
             let _ = writeln!(
                 out,
@@ -836,14 +849,21 @@ impl Landing<'_> {
     /// came of it. A refusal, such as an item that still runs there, keeps
     /// the claim and fails nothing: the commits landed.
     fn release(&self, out: &mut dyn Write) {
-        let claimed = crate::checkout::Checkout::at(&self.workdir)
-            .ok()
-            .flatten()
-            .is_some_and(|checkout| checkout.claim_file().exists());
-        if !claimed {
+        let dir = self.workdir.display().to_string();
+        let checkout = match crate::checkout::Checkout::at(&self.workdir) {
+            Ok(Some(checkout)) => checkout,
+            Ok(None) => {
+                let _ = writeln!(out, "kept the claim of {dir}: git finds no checkout there");
+                return;
+            }
+            Err(error) => {
+                let _ = writeln!(out, "kept the claim of {dir}: {}", error.text());
+                return;
+            }
+        };
+        if !checkout.claim_file().exists() {
             return;
         }
-        let dir = self.workdir.display().to_string();
         let (ok, said) = self.builds(&["release", &dir]);
         if ok {
             let _ = writeln!(out, "released {dir}");
@@ -861,10 +881,14 @@ impl Landing<'_> {
         }
         let main = match crate::checkout::Checkout::at(dir) {
             Ok(Some(checkout)) => checkout.main,
-            _ => {
+            found => {
+                let why = match found {
+                    Err(error) => error.text(),
+                    _ => "git finds no checkout there".to_string(),
+                };
                 let _ = writeln!(
                     out,
-                    "NOT LIVE: the landing is on origin/main, but the main checkout of {} was not found",
+                    "NOT LIVE: the landing is on origin/main, but land could not find the main checkout of {}: {why}",
                     dir.display()
                 );
                 return;
