@@ -12,6 +12,17 @@ pub fn note(message: impl AsRef<str>) {
     eprintln!("builds: {}", message.as_ref());
 }
 
+/// The local time as `19:20:05`, for a log line that must say when.
+pub fn clock() -> String {
+    let now = unsafe { libc::time(std::ptr::null_mut()) };
+    let mut parts: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe { libc::localtime_r(&now, &mut parts) };
+    format!(
+        "{:02}:{:02}:{:02}",
+        parts.tm_hour, parts.tm_min, parts.tm_sec
+    )
+}
+
 const GIB_IN_KIB: u64 = 1024 * 1024;
 
 /// <kib> as `9.3G` from a GiB up, else whole MiB rounded down (`769M`).

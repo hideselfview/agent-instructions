@@ -93,6 +93,30 @@ fn bind(tool: &Tool) -> Result<(UnixListener, live::Claim)> {
     Ok((listener, claim))
 }
 
+/// Points the daemon's stderr at <log> (appending) unless stderr is a
+/// terminal: a daemon started in the background has no terminal, and its
+/// notes (FSEvents losing events, a rescan of the volume, a mark that took
+/// seconds) are what says why a command's question went unanswered.
+fn log_to_file(log: &Path) -> Result<()> {
+    use std::os::fd::AsRawFd;
+    if unsafe { libc::isatty(2) } == 1 {
+        return Ok(());
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log)
+        .context(|| format!("opening {}", log.display()))?;
+    if unsafe { libc::dup2(file.as_raw_fd(), 2) } < 0 {
+        fail!(
+            "pointing the daemon's notes at {}: {}",
+            log.display(),
+            std::io::Error::last_os_error()
+        );
+    }
+    Ok(())
+}
+
 /// Answers one question. Paths may name the root as the commands' places
 /// do (<given>, which may pass through a link) or resolved.
 fn answer(model: &Model, given: &Path, stream: UnixStream) -> std::io::Result<()> {
@@ -164,6 +188,7 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let names: std::sync::Arc<[String]> = names.into();
     let (socket, _claim) = bind(tool)?;
+    log_to_file(&tool.places.daemon_log())?;
     let tracker = Tracker::start(&root, &tool.places.daemon_dir())
         .context(|| format!("following {}", root.display()))?;
     let exe = std::env::current_exe().context(|| "finding this program".to_string())?;

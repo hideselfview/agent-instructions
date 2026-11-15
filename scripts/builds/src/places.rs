@@ -226,6 +226,12 @@ impl Places {
         self.daemon_dir().join("lock")
     }
 
+    /// Where the daemon writes what it would print to a terminal: lost
+    /// events, rescans, slow marks. Appended to across restarts.
+    pub fn daemon_log(&self) -> PathBuf {
+        self.daemon_dir().join("log")
+    }
+
     /// The socket the daemon answers on; one daemon per root.
     pub fn daemon_socket(&self) -> PathBuf {
         self.daemon_dir().join("socket")
