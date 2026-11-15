@@ -878,6 +878,34 @@ extern "C" fn pass_to_lanes(signal: libc::c_int) {
     }
 }
 
+/// How many of a lane's last lines of output the build's failure message
+/// repeats.
+const TAIL_LINES: usize = 30;
+
+/// What a lane said last: its last `builds:` line and its last lines of
+/// output, as printed, for the message of a build that fails.
+#[derive(Default)]
+struct Tail {
+    last_note: String,
+    lines: std::collections::VecDeque<String>,
+}
+
+impl Tail {
+    fn push(&mut self, printed: &str) {
+        let text = printed.trim_end();
+        if text.is_empty() {
+            return;
+        }
+        if text.contains("builds: ") && !text.contains("kept ") {
+            self.last_note = text.to_string();
+        }
+        if self.lines.len() == TAIL_LINES {
+            self.lines.pop_front();
+        }
+        self.lines.push_back(text.to_string());
+    }
+}
+
 /// Copies <from> to <to>, each line behind <prefix>; sends on <done> at the
 /// end.
 fn copy_lines(
@@ -885,7 +913,7 @@ fn copy_lines(
     mut to: impl Write,
     lane: &'static str,
     prefix: Arc<Mutex<String>>,
-    last_note: Option<Arc<Mutex<String>>>,
+    tail: Arc<Mutex<Tail>>,
     done: std::sync::mpsc::Sender<()>,
 ) {
     let mut from = BufReader::new(from);
@@ -899,11 +927,6 @@ fn copy_lines(
             line.clear();
             continue;
         }
-        if let (Some(last), Ok(text)) = (&last_note, std::str::from_utf8(&line))
-            && text.starts_with("builds: ")
-        {
-            *last.lock().expect("no panic holding it") = text.trim_end().to_string();
-        }
         let mut out = prefix
             .lock()
             .expect("no panic holding it")
@@ -914,6 +937,9 @@ fn copy_lines(
             out.push(b'\n');
         }
         let _ = to.write_all(&out);
+        tail.lock()
+            .expect("no panic holding it")
+            .push(&String::from_utf8_lossy(&out));
         line.clear();
     }
     let _ = done.send(());
@@ -961,50 +987,82 @@ pub fn run_lanes(
         let stderr = child.stderr.take().expect("piped");
         let (out_done, err_done) = (done.clone(), done);
         let (word, out_prefix) = (lane.word(), prefix.clone());
-        std::thread::spawn(move || {
-            copy_lines(stdout, std::io::stdout(), word, out_prefix, None, out_done)
-        });
-        let last_note = Arc::new(Mutex::new(String::new()));
-        let own_note = last_note.clone();
+        let tail = Arc::new(Mutex::new(Tail::default()));
+        let (out_tail, err_tail) = (tail.clone(), tail.clone());
         std::thread::spawn(move || {
             copy_lines(
-                stderr,
-                std::io::stderr(),
+                stdout,
+                std::io::stdout(),
                 word,
-                prefix,
-                Some(own_note),
-                err_done,
+                out_prefix,
+                out_tail,
+                out_done,
             )
         });
-        running.push((*lane, child, ended, last_note));
+        std::thread::spawn(move || {
+            copy_lines(stderr, std::io::stderr(), word, prefix, err_tail, err_done)
+        });
+        running.push((*lane, child, ended, tail));
     }
     let mut failed = Vec::new();
-    for (lane, mut child, ended, last_note) in running {
-        let status = child
-            .wait()
-            .context(|| format!("waiting for the {} lane's build", lane.word()))?;
-        for _ in 0..2 {
-            if ended.recv_timeout(OUTPUT_GRACE) == Err(RecvTimeoutError::Timeout) {
-                break;
+    let mut tails = Vec::new();
+    let mut waiting: Vec<_> = running.into_iter().collect();
+    // Each lane is looked at as it ends, so a lane that fails says so while
+    // the other still builds, not after it.
+    while !waiting.is_empty() {
+        let mut at = 0;
+        while at < waiting.len() {
+            let status = waiting[at]
+                .1
+                .try_wait()
+                .context(|| format!("waiting for the {} lane's build", waiting[at].0.word()))?;
+            let Some(status) = status else {
+                at += 1;
+                continue;
+            };
+            let (lane, _, ended, tail) = waiting.remove(at);
+            for _ in 0..2 {
+                if ended.recv_timeout(OUTPUT_GRACE) == Err(RecvTimeoutError::Timeout) {
+                    break;
+                }
             }
-        }
-        if !status.success() {
-            let last = last_note.lock().expect("no panic holding it").clone();
-            let why = if last.is_empty() {
+            if status.success() {
+                continue;
+            }
+            let tail = tail.lock().expect("no panic holding it");
+            let why = if tail.last_note.is_empty() {
                 "it printed no builds: line".to_string()
             } else {
-                format!("its last builds: line was {last:?}")
+                format!("its last builds: line was {:?}", tail.last_note)
             };
-            failed.push(match status.code() {
-                Some(code) => format!("the {} lane (exit {code}; {why})", lane.word()),
-                None => format!("the {} lane ({status}; {why})", lane.word()),
-            });
+            let ended = match status.code() {
+                Some(code) => format!("exit {code}"),
+                None => status.to_string(),
+            };
+            note(format!(
+                "the {} lane failed ({ended}); its last lines are repeated when the build ends",
+                lane.word()
+            ));
+            failed.push(format!("the {} lane ({ended}; {why})", lane.word()));
+            tails.push((lane, tail.lines.iter().cloned().collect::<Vec<_>>()));
+        }
+        if !waiting.is_empty() {
+            std::thread::sleep(Duration::from_millis(100));
         }
     }
     if failed.is_empty() {
         Ok(())
     } else {
-        fail!("app-build failed in {}", failed.join(" and "))
+        let mut message = format!("app-build failed in {}", failed.join(" and "));
+        for (lane, lines) in tails {
+            message.push_str(&format!(
+                "\nthe last {} lines of the {} lane:\n{}",
+                lines.len(),
+                lane.word(),
+                lines.join("\n")
+            ));
+        }
+        fail!("{message}")
     }
 }
 

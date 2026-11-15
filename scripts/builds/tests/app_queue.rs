@@ -131,7 +131,7 @@ impl Volume {
         git(&["config", "user.email", "test@example.com"]);
         git(&["config", "user.name", "test"]);
         let bad = top.join("bad.sh");
-        std::fs::write(&bad, "#!/bin/sh\necho \"start bad\" >> \"$QUEUE_TEST_DIR/log\"\necho \"end bad\" >> \"$QUEUE_TEST_DIR/log\"\nexit 3\n").unwrap();
+        std::fs::write(&bad, "#!/bin/sh\necho \"start bad\" >> \"$QUEUE_TEST_DIR/log\"\necho \"end bad\" >> \"$QUEUE_TEST_DIR/log\"\necho \"bad failed because reason-xyz\" >&2\nexit 3\n").unwrap();
         let mut mode = std::fs::metadata(&bad).unwrap().permissions();
         std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
         std::fs::set_permissions(&bad, mode).unwrap();
@@ -763,6 +763,13 @@ fn a_build_failing_in_one_lane_fails_the_build_naming_the_lane_and_the_other_lan
         "{said}"
     );
     assert!(!said.contains("android lane (exit"), "{said}");
+    // The failing lane's last lines come back at the end, after the other
+    // lane's output, where the reader looks.
+    let end = said.rfind("the last").expect("the tail of the failed lane");
+    assert!(
+        said[end..].contains("of the mac lane:") && said[end..].contains("reason-xyz"),
+        "{said}"
+    );
     assert!(
         volume.log().contains(&"end droid".to_string()),
         "the android lane ran to its end: {:?}",
