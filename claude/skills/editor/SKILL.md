@@ -101,20 +101,24 @@ paragraphs:
 Section headers give the structure. A header names what the section holds
 ("Crates and apps"), never a vague stand-in for it ("The parts", "Data").
 
-## Break long bullets into sub-bullets
+## Keep bullets short, and nest the rest
 
-This applies only to text that is already a list; don't turn prose into lists.
-Inside a list, don't shy away from sub-bullets: look for every chance to turn a
-long bullet into a short bullet with sub-bullets.
+Long bullets are hard to read. This applies only to text that is already a list;
+don't turn prose into lists. Inside a list, go through every bullet:
 
-- Keep a bullet's first line to the one statement that names its thing ("bae-ios
-  is paused until macOS and Android are done"), and put the details in
-  sub-bullets under it.
+- A bullet holds one statement, about a line long.
+  - A bullet longer than two lines becomes a short bullet with sub-bullets.
+  - Its first line names its thing ("bae-ios is paused until macOS and Android
+    are done").
+  - Each detail, condition, example or exception becomes a sub-bullet of its
+    own.
+- Nest as deep as the structure goes: a sub-bullet that is itself long gets
+  sub-bullets.
 - When a bullet names several items, each with its own detail, give each item
   its own sub-bullet.
-- Give each thing of the same kind its own bullet at the same level. Four apps
-  are four bullets, not one bullet about two apps with the other two nested
-  under it.
+- Give each thing of the same kind its own bullet at the same level.
+  - Four apps are four bullets, not one bullet about two apps with the other two
+    nested under it.
 - Nest a bullet only under the thing it belongs to. A sub-bullet says something
   about its parent: the iOS app's rules go under the iOS app.
 - Introduce a list with a sentence ("bae has four apps:"), never with a label
@@ -162,11 +166,11 @@ Every sentence is plain, literal and active
 ## Cut again, paragraph by paragraph
 
 Once the structure and the sentences are settled, go through the draft one
-paragraph at a time. For each sentence, ask: if it were gone, would the reader
-do something wrong, or be unable to do something? Cut the ones that fail, for
-the reasons listed under "Outline and cut". This pass finds what the first cut
-missed, because the restructuring has put each sentence next to the ones it
-repeats.
+paragraph at a time, and check every bullet's length again. For each sentence,
+ask: if it were gone, would the reader do something wrong, or be unable to do
+something? Cut the ones that fail, for the reasons listed under "Outline and
+cut". This pass finds what the first cut missed, because the restructuring has
+put each sentence next to the ones it repeats.
 
 ## Work with the person
 
