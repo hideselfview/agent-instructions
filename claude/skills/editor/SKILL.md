@@ -51,9 +51,22 @@ its main parts fit together. That picture is the overview. Don't add a list of
 the document's sections ("It starts with X, then Y"): that describes the
 document, not the subject, and the headers already show it.
 
-Each section opens with its general point, then the specifics. Introduce a thing
-before anything that depends on it, and define a word the project uses in its
-own sense ("lands") the first time it appears.
+Each section opens with its general point, then the specifics. Every concept,
+tool, role or file the document names must be introduced before or where it is
+first used: "the checker's `database-boundary` rule" means nothing until the
+document has said what the checker is and what runs it. Read the draft as a
+reader who knows only what it has told them so far, and stop at each name it
+hasn't explained. Define a word the project uses in its own sense ("lands") the
+first time it appears.
+
+Explain a name in one of three ways:
+
+- Introduce it in the main text when it comes up more than once, when the reader
+  has to act on it, or when later sections depend on it.
+- Explain it in a footnote when the reader meets it once and needs it only to
+  follow that sentence, and explaining it inline would break the sentence's
+  point.
+- Point to another document when that document already explains it.
 
 Section headers give the structure. A header names what the section holds
 ("Crates and apps"), never a vague stand-in for it ("The parts", "Data").
