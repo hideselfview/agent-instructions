@@ -247,43 +247,69 @@ fn dropped_events_and_a_rescan_read_the_disk_again() {
     tracker.on_events(vec![Event {
         path: root.join("demo/side-1"),
         flags: flags::MUST_SCAN_SUBDIRS,
+        id: 0,
     }]);
+    tracker.wait_rescans();
     agrees_now(
         &tracker,
         &[root.join("demo/side-1/target")],
         "after a rescan of a subtree",
     );
-    // A lost batch naming a folder walks that folder alone again.
+    // A scan hint naming a folder walks that folder alone again.
     fill(&root.join("demo/side-2/target/c"), 50);
     let walks = tracker.flags.lock().unwrap().walks;
     tracker.on_events(vec![Event {
         path: root.join("demo/side-2"),
-        flags: flags::MUST_SCAN_SUBDIRS | flags::USER_DROPPED,
+        flags: flags::MUST_SCAN_SUBDIRS,
+        id: 0,
     }]);
+    tracker.wait_rescans();
     agrees_now(
         &tracker,
         &[root.join("demo/side-2/target"), root.join("demo")],
-        "after events lost under a folder",
+        "after a scan hint for a folder",
     );
     assert_eq!(
         tracker.flags.lock().unwrap().walks,
         walks,
-        "a lost batch naming a folder walked the whole root"
+        "a scan hint for a folder walked the whole root"
     );
-    // One naming no folder walks the whole root.
+    // Events FSEvents dropped are replayed from its history, with no walk.
     fill(&root.join("demo/side-2/target/d"), 70);
     tracker.on_events(vec![Event {
         path: root.clone(),
-        flags: flags::USER_DROPPED,
+        flags: flags::USER_DROPPED | flags::MUST_SCAN_SUBDIRS,
+        id: 0,
     }]);
-    agrees_now(
+    agrees(
         &tracker,
         &[root.join("demo/side-2/target"), root.join("demo")],
         "after dropped events",
     );
     assert_eq!(
         tracker.flags.lock().unwrap().walks,
+        walks,
+        "dropped events walked the root instead of replaying"
+    );
+    // Event ids wrapping leave only a walk of the whole root; the walk
+    // delivers every mark taken before it.
+    fill(&root.join("demo/side-2/target/e"), 30);
+    tracker.marks.lock().unwrap().taken = 7;
+    tracker.on_events(vec![Event {
+        path: root.clone(),
+        flags: flags::EVENT_IDS_WRAPPED,
+        id: 0,
+    }]);
+    assert_eq!(tracker.marks.lock().unwrap().seen, 7);
+    tracker.wait_rescans();
+    agrees_now(
+        &tracker,
+        &[root.join("demo/side-2/target"), root.join("demo")],
+        "after event ids wrapped",
+    );
+    assert_eq!(
+        tracker.flags.lock().unwrap().walks,
         walks + 1,
-        "a lost batch naming no folder didn't walk the root"
+        "wrapped event ids didn't walk the root"
     );
 }

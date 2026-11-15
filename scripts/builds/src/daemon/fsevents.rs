@@ -104,6 +104,9 @@ pub mod flags {
 pub struct Event {
     pub path: PathBuf,
     pub flags: u32,
+    /// The stream's id for the event: later events have higher ids, and a
+    /// stream started from an id replays every event after it.
+    pub id: u64,
 }
 
 type Handler = Box<dyn Fn(Vec<Event>) + Send + Sync>;
@@ -126,7 +129,7 @@ extern "C" fn deliver(
     count: usize,
     paths: *mut c_void,
     flags: *const FSEventStreamEventFlags,
-    _ids: *const FSEventStreamEventId,
+    ids: *const FSEventStreamEventId,
 ) {
     let handler = unsafe { &*(info as *const Handler) };
     let paths = paths as *const *const c_char;
@@ -136,7 +139,8 @@ extern "C" fn deliver(
         let path = PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes()));
         let flags = unsafe { *flags.add(i) };
         if flags & self::flags::HISTORY_DONE == 0 {
-            events.push(Event { path, flags });
+            let id = unsafe { *ids.add(i) };
+            events.push(Event { path, flags, id });
         }
     }
     if !events.is_empty() {

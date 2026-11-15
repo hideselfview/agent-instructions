@@ -21,15 +21,21 @@
 //! - The root's macOS entries and its trash are not followed (see
 //!   `places::unfollowed`, which also names the trash's lock and the
 //!   `.trash-emptying.*` folders it is renamed to); a question about them gets no answer.
-//! - Lost events: MUST_SCAN_SUBDIRS names the folder under which FSEvents
-//!   lost them (with USER_DROPPED or KERNEL_DROPPED when it dropped a batch),
-//!   and that folder is walked again into an index of its own, grafted in
-//!   place of what the index held for it. A dropped batch with no folder
-//!   named, or event ids wrapping, walks the whole root the same way into a
-//!   new index. The current index answers meanwhile. A deciding command's
-//!   question waits for its mark, which is applied after the walk, so its
-//!   answer counts every write; `status` and the page get the old sizes
-//!   meanwhile.
+//! - Lost events: FSEvents drops events when its own daemon falls behind, even
+//!   for a client that discards every batch (measured under bulk writes), so
+//!   losing events is normal. A loss (USER_DROPPED or KERNEL_DROPPED) names
+//!   the root, and FSEvents' history still holds the events: the stream is
+//!   started again from the last event id handled before the loss and
+//!   replays the rest, folder by folder, with no walk. A loss during a replay
+//!   starts it again from where it got to; one before it got anywhere, or
+//!   event ids wrapping, walks the whole root into a new index. A scan hint
+//!   alone (MUST_SCAN_SUBDIRS) names a folder, which is walked again into an
+//!   index of its own and grafted in place of what the index held for it.
+//!   Walks run on a thread of their own, one at a time, queued without
+//!   duplicates, so applying events and answering marks never wait on one;
+//!   events applied while a walk runs are applied again to what the walk puts
+//!   in place. A mark whose event was lost is delivered again by the replay;
+//!   a walk instead counts every mark taken before it as delivered.
 //! - The root changing or its volume unmounting stops the stream; a kqueue
 //!   watch on the root's parent (vnode.rs: FSEvents delivers too late to say
 //!   when the root came back) reports it coming back, and then the stream
@@ -76,6 +82,33 @@ struct Marks {
     seen: u64,
 }
 
+/// How far the stream's events have been handled.
+#[derive(Default)]
+struct Ids {
+    /// The highest event id handled.
+    last: u64,
+    /// While the stream replays what it lost: the id the replay runs to.
+    replay_until: Option<u64>,
+    /// The id the running replay started after.
+    replay_after: u64,
+}
+
+/// The folders to walk again because FSEvents lost events, and what the
+/// walks must make up for.
+#[derive(Default)]
+struct Rescans {
+    /// Folders waiting for a walk, each with the flags that asked and the
+    /// index it was asked for.
+    pending: Vec<(PathBuf, u32, u64)>,
+    /// A walk is running: every event applied meanwhile is in `replay`.
+    running: bool,
+    /// The folders of events applied to the current index since the running
+    /// walk began. The walk's own index may have read a folder before such an
+    /// event changed it, so each is applied again to the index that replaces
+    /// the old one.
+    replay: Vec<PathBuf>,
+}
+
 /// Told the paths each handled batch named; after a whole walk, the root.
 pub type Listener = Box<dyn Fn(&[PathBuf]) + Send + Sync>;
 
@@ -106,6 +139,13 @@ pub struct Tracker {
     epoch: Mutex<u64>,
     flags: Mutex<Flags>,
     wake: Condvar,
+    /// Handled event ids; the apply thread alone writes it.
+    ids: Mutex<Ids>,
+    /// Walks FSEvents' lost events asked for; one thread takes them, so a
+    /// walk never holds up applying events or answering a mark.
+    rescans: Mutex<Rescans>,
+    rescan_wake: Condvar,
+    me: std::sync::Weak<Tracker>,
     stream: Mutex<Option<Stream>>,
     /// Events delivered and not yet applied.
     queue: Mutex<Vec<Event>>,
@@ -157,6 +197,7 @@ impl Tracker {
         }
         let tracker = Arc::new_cyclic(|me: &std::sync::Weak<Tracker>| {
             let weak = me.clone();
+            let weak_self = me.clone();
             let parent = root.parent().and_then(|parent| {
                 Watch::start(parent, move || {
                     if let Some(tracker) = weak.upgrade() {
@@ -193,6 +234,10 @@ impl Tracker {
                     ..Flags::default()
                 }),
                 wake: Condvar::new(),
+                ids: Mutex::new(Ids::default()),
+                me: weak_self,
+                rescans: Mutex::new(Rescans::default()),
+                rescan_wake: Condvar::new(),
                 stream: Mutex::new(None),
                 queue: Mutex::new(Vec::new()),
                 queued: Condvar::new(),
@@ -209,6 +254,10 @@ impl Tracker {
         std::thread::Builder::new()
             .name("builds-apply".into())
             .spawn(move || applier.apply_loop())?;
+        let rescanner = tracker.clone();
+        std::thread::Builder::new()
+            .name("builds-rescan".into())
+            .spawn(move || rescanner.rescan_loop())?;
         Ok(tracker)
     }
 
@@ -278,27 +327,13 @@ impl Tracker {
                 *self.index.lock().expect("no panic holding it") = Index::new(&self.root, &meta);
                 *epoch
             };
-            let me = Arc::downgrade(&self);
-            let trash = self.root.join(".trash");
-            let stream = Stream::start(
-                &[self.root.as_path()],
-                &[trash.as_path()],
-                0.2,
-                Box::new(move |events| {
-                    if let Some(tracker) = me.upgrade() {
-                        #[cfg(test)]
-                        tracker
-                            .heard
-                            .fetch_add(events.len() as u64, std::sync::atomic::Ordering::SeqCst);
-                        tracker
-                            .queue
-                            .lock()
-                            .expect("no panic holding it")
-                            .extend(events);
-                        tracker.queued.notify_all();
-                    }
-                }),
-            );
+            let since = Stream::current_event_id();
+            *self.ids.lock().expect("no panic holding it") = Ids {
+                last: since,
+                replay_until: None,
+                replay_after: 0,
+            };
+            let stream = self.open_stream(since);
             if stream.is_none() {
                 eprintln!("builds: FSEvents would not follow {}", self.root.display());
                 continue;
@@ -331,6 +366,32 @@ impl Tracker {
                 crate::text::human_bytes(bytes as u64)
             );
         }
+    }
+
+    /// Starts the root's stream, replaying every event after <since>.
+    fn open_stream(&self, since: u64) -> Option<Stream> {
+        let me = self.me.clone();
+        let trash = self.root.join(".trash");
+        Stream::start_since(
+            since,
+            &[self.root.as_path()],
+            &[trash.as_path()],
+            0.2,
+            Box::new(move |events| {
+                if let Some(tracker) = me.upgrade() {
+                    #[cfg(test)]
+                    tracker
+                        .heard
+                        .fetch_add(events.len() as u64, std::sync::atomic::Ordering::SeqCst);
+                    tracker
+                        .queue
+                        .lock()
+                        .expect("no panic holding it")
+                        .extend(events);
+                    tracker.queued.notify_all();
+                }
+            }),
+        )
     }
 
     /// Has <listener> told of every batch handled from now on.
@@ -407,48 +468,158 @@ impl Tracker {
                 return;
             }
         }
-        // FSEvents names the folder under which it lost events with
-        // MUST_SCAN_SUBDIRS; that folder alone is walked again. A lost batch
-        // with no folder named, or event ids wrapping, says nothing narrower
-        // than the root.
-        let whole = events.iter().find(|event| {
-            let lost = event.flags & (flags::USER_DROPPED | flags::KERNEL_DROPPED) != 0;
-            (lost && event.flags & flags::MUST_SCAN_SUBDIRS == 0)
-                || event.flags & flags::EVENT_IDS_WRAPPED != 0
-        });
-        if let Some(event) = whole {
-            // Every other event in the batch came before the walk, which
-            // reads what they changed.
-            let flags = event.flags;
-            self.rewalk(&self.root.clone(), flags, epoch);
+        // FSEvents drops events when its daemon falls behind, whatever the
+        // client does, and reports it as USER_DROPPED or KERNEL_DROPPED on an
+        // event that names the root. Its history still holds them: the
+        // stream is started again from the last id handled before the loss,
+        // and replays what came after, folder by folder. A loss during that
+        // replay starts it again from where it got to; one before it got
+        // anywhere, or event ids wrapping (the ids no longer order events),
+        // leaves only a walk of the root. A scan hint without a loss
+        // (MUST_SCAN_SUBDIRS alone) names the one folder to walk again.
+        let mut lost_after: Option<u64> = None;
+        let mut walk_root: Option<u32> = None;
+        let mut scans: Vec<(PathBuf, u32)> = Vec::new();
+        let mut others: Vec<Event> = Vec::new();
+        {
+            let mut ids = self.ids.lock().expect("no panic holding it");
+            for event in events {
+                let lost = event.flags & (flags::USER_DROPPED | flags::KERNEL_DROPPED) != 0;
+                if event.flags & flags::EVENT_IDS_WRAPPED != 0 {
+                    walk_root = Some(event.flags);
+                } else if lost {
+                    // A replay that lost events before handling any new one
+                    // makes no progress; a walk of the root ends the loop.
+                    if ids.replay_until.is_some() && ids.last <= ids.replay_after {
+                        walk_root = Some(event.flags);
+                    } else {
+                        lost_after.get_or_insert(ids.last);
+                    }
+                } else {
+                    if event.flags & flags::MUST_SCAN_SUBDIRS != 0 {
+                        if event.path.starts_with(&self.root) && !self.left_out(&event.path) {
+                            scans.push((event.path, event.flags));
+                        }
+                    } else {
+                        others.push(event.clone());
+                    }
+                    ids.last = ids.last.max(event.id);
+                    if ids.replay_until.is_some_and(|until| event.id >= until) {
+                        ids.replay_until = None;
+                    }
+                }
+            }
+        }
+        if walk_root.is_some() {
+            lost_after = None;
+            // The loss may include a mark's event, which a walk does not
+            // replay: every mark taken so far counts as delivered.
+            let mut marks = self.marks.lock().expect("no panic holding it");
+            marks.seen = marks.seen.max(marks.taken);
+            self.delivered.notify_all();
+            scans.clear();
+            scans.push((self.root.clone(), walk_root.unwrap_or(0)));
+            self.ids.lock().expect("no panic holding it").replay_until = None;
+        }
+        // The events that arrived with the lost ones are applied now, so a
+        // question's mark is answered from them.
+        self.record_for_replay(&others);
+        self.apply(others, epoch);
+        if let Some(after) = lost_after {
+            self.replay_from(after, epoch);
+        }
+        self.request_rescans(scans, epoch);
+    }
+
+    /// Starts the stream again from <after>, the last id handled before
+    /// events were lost.
+    fn replay_from(&self, after: u64, epoch: u64) {
+        let held = self.epoch.lock().expect("no panic holding it");
+        if *held != epoch {
             return;
         }
-        let (scans, others): (Vec<Event>, Vec<Event>) = events
-            .into_iter()
-            .partition(|event| event.flags & flags::MUST_SCAN_SUBDIRS != 0);
-        self.apply(others, epoch);
-        // A folder under another one walked again is walked with it.
-        let mut folders: Vec<(PathBuf, u32)> = scans
-            .into_iter()
-            .filter(|event| event.path.starts_with(&self.root) && !self.left_out(&event.path))
-            .map(|event| (event.path, event.flags))
-            .collect();
-        folders.sort();
-        let mut walked: Vec<PathBuf> = Vec::new();
+        let until = Stream::current_event_id();
+        {
+            let mut ids = self.ids.lock().expect("no panic holding it");
+            ids.replay_until = Some(until);
+            ids.replay_after = after;
+        }
+        eprintln!(
+            "{} builds: FSEvents lost events; replaying its history from event {after} to {until}",
+            crate::text::clock()
+        );
+        let Some(stream) = self.open_stream(after) else {
+            eprintln!("builds: FSEvents would not replay; walking the root");
+            self.ids.lock().expect("no panic holding it").replay_until = None;
+            drop(held);
+            self.request_rescans(vec![(self.root.clone(), 0)], epoch);
+            return;
+        };
+        // The stream the loss came on stops; whatever it still holds queued
+        // is handled, and the replay repeats it harmlessly.
+        *self.stream.lock().expect("no panic holding it") = Some(stream);
+    }
+
+    /// Notes the folders of <events>, about to be applied, for the running
+    /// walk to apply again.
+    fn record_for_replay(&self, events: &[Event]) {
+        let mut rescans = self.rescans.lock().expect("no panic holding it");
+        if rescans.running {
+            rescans
+                .replay
+                .extend(events.iter().map(|event| event.path.clone()));
+        }
+    }
+
+    /// Queues walks of <folders>; a folder under another one queued, or any
+    /// folder when the root is queued, is walked with it.
+    fn request_rescans(&self, folders: Vec<(PathBuf, u32)>, epoch: u64) {
+        if folders.is_empty() {
+            return;
+        }
+        let mut rescans = self.rescans.lock().expect("no panic holding it");
         for (folder, flags) in folders {
-            if walked.iter().any(|done| folder.starts_with(done)) {
+            if rescans
+                .pending
+                .iter()
+                .any(|(queued, _, _)| folder.starts_with(queued))
+            {
                 continue;
             }
-            self.rewalk(&folder, flags, epoch);
-            walked.push(folder);
+            rescans
+                .pending
+                .retain(|(queued, _, _)| !queued.starts_with(&folder));
+            rescans.pending.push((folder, flags, epoch));
+        }
+        self.rescan_wake.notify_all();
+    }
+
+    /// Walks the queued folders again, one at a time, for as long as the
+    /// daemon runs.
+    fn rescan_loop(&self) {
+        loop {
+            let (folder, flags, epoch, from) = {
+                let mut rescans = self.rescans.lock().expect("no panic holding it");
+                while rescans.pending.is_empty() {
+                    rescans.running = false;
+                    rescans.replay.clear();
+                    self.rescan_wake.notify_all();
+                    rescans = self.rescan_wake.wait(rescans).expect("no panic holding it");
+                }
+                let (folder, flags, epoch) = rescans.pending.remove(0);
+                rescans.running = true;
+                let from = rescans.replay.len();
+                (folder, flags, epoch, from)
+            };
+            self.rewalk(&folder, flags, epoch, from);
         }
     }
 
     /// Walks <folder> (the root, or a folder below it) again into an index
     /// of its own and puts that in place of what the index held for it: the
-    /// current index answers questions until then. Events that arrive
-    /// meanwhile wait in the queue and are applied after.
-    fn rewalk(&self, folder: &Path, flags: u32, epoch: u64) {
+    /// current index answers questions until then. Events applied meanwhile
+    /// (`replay` from <replay_from>) are applied again to what replaces it.
+    fn rewalk(&self, folder: &Path, flags: u32, epoch: u64, replay_from: usize) {
         let started = std::time::Instant::now();
         eprintln!(
             "{} builds: FSEvents lost events (flags {flags:#x}); walking {} again",
@@ -468,12 +639,14 @@ impl Tracker {
                     vec![Event {
                         path: folder.to_path_buf(),
                         flags: 0,
+                        id: 0,
                     }],
                     epoch,
                 );
                 return;
             }
         };
+        let replay: Vec<PathBuf>;
         let entries = if *folder == self.root {
             let fresh = Mutex::new(Index::new(&self.root, &meta));
             walk(&fresh, 0, &self.root, WORKERS);
@@ -488,6 +661,8 @@ impl Tracker {
             let mut state = self.flags.lock().expect("no panic holding it");
             state.walks += 1;
             self.wake.notify_all();
+            drop(state);
+            replay = self.replay_since(replay_from);
             entries
         } else {
             if self
@@ -502,6 +677,7 @@ impl Tracker {
                     vec![Event {
                         path: folder.to_path_buf(),
                         flags: 0,
+                        id: 0,
                     }],
                     epoch,
                 );
@@ -521,14 +697,32 @@ impl Tracker {
                 // are applied next.
                 _ => {}
             }
+            replay = self.replay_since(replay_from);
             fresh.len()
         };
+        self.apply(
+            replay
+                .into_iter()
+                .map(|path| Event {
+                    path,
+                    flags: 0,
+                    id: 0,
+                })
+                .collect(),
+            epoch,
+        );
         eprintln!(
             "{} builds: walked {} again: {entries} entries in {:.1}s",
             crate::text::clock(),
             folder.display(),
             started.elapsed().as_secs_f64()
         );
+    }
+
+    /// The folders of events applied since the walk that began at <from>.
+    fn replay_since(&self, from: usize) -> Vec<PathBuf> {
+        let rescans = self.rescans.lock().expect("no panic holding it");
+        rescans.replay.get(from..).unwrap_or_default().to_vec()
     }
 
     /// Is <path> in one of the root's entries the index leaves out?
@@ -866,6 +1060,15 @@ impl Tracker {
             self.queue.lock().expect("no panic holding it").len(),
             self.heard.load(std::sync::atomic::Ordering::SeqCst),
         )
+    }
+
+    /// Blocks until every walk FSEvents' lost events asked for has ended.
+    #[cfg(test)]
+    pub fn wait_rescans(&self) {
+        let mut rescans = self.rescans.lock().expect("no panic holding it");
+        while rescans.running || !rescans.pending.is_empty() {
+            rescans = self.rescan_wake.wait(rescans).expect("no panic holding it");
+        }
     }
 
     /// Blocks until the whole root is followed.
