@@ -998,7 +998,28 @@ fn a_landing_that_main_moved_under_tries_again_from_a_fresh_fetch() {
 
 #[test]
 fn landings_in_two_worktrees_run_at_the_same_time() {
-    let f = fixture("land-two-worktrees", "sleep 1\n", None);
+    // Each landing's first check writes a mark into its own pipe and reads
+    // the other landing's mark, so neither check passes until both landings
+    // are in their checks. Both ends of each pipe are opened for reading and
+    // writing, so no open waits and the read gives up after a minute. A
+    // second run of the check, after a refused push, passes at once.
+    let f = fixture(
+        "land-two-worktrees",
+        r#"me=$(basename "$PWD")
+[ -e {root}/checked-$me ] && exit 0
+touch {root}/checked-$me
+case $me in side-1) other=side-2 ;; *) other=side-1 ;; esac
+exec 3<>{root}/pipe-$me 4<>{root}/pipe-$other
+echo here >&3
+read -t 60 mark <&4 || { echo "the landing in $other did not reach its check"; exit 1; }
+"#,
+        None,
+    );
+    for side in ["side-1", "side-2"] {
+        let pipe = f.scratch.dir.join(format!("pipe-{side}"));
+        let made = Command::new("mkfifo").arg(&pipe).status().unwrap();
+        assert!(made.success(), "mkfifo {}", pipe.display());
+    }
     let (one, a, two, b) = two_branches(&f);
     let (stub, _) = stub(&f, &Cues::default());
     let landing = |dir: &Path, sha: String| {
