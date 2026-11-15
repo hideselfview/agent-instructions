@@ -23,8 +23,9 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
   - `digest`: the one line that goes into the Codex index.
   - `paths`: globs for the files the rule covers. Claude Code loads the rule's
     body when it reads a matching file.
-  - `blocking`: whether a standing finding against the rule makes
-    `builds review` exit 1.
+  - `blocking`: whether the reviewer's prompt and the report mark the rule's
+    findings blocking. Every finding, blocking or not, must be settled before
+    `builds land` takes the commits.
   - `review: false` (optional): marks a rule a reviewer can't check, which
     `builds review` leaves out.
 - `projects/<name>.md` holds a project's always-loaded instructions.
@@ -133,7 +134,8 @@ edits.
 
 ## Code review
 
-`builds land` reviews every landing against the rules, with one reviewer per
-group of rules, one folder of `rules/` each. The `code-rules-review` skill says
-how to run a review early and settle its findings, and `builds help` describes
-each review command.
+Every branch is reviewed against the rules before it lands, with one reviewer
+per group of rules, one folder of `rules/` each, and `builds land` refuses
+commits that no finished review read. The `code-rules-review` skill says how to
+run the review, settle its findings and name their fixes, and `builds help`
+describes each review command.

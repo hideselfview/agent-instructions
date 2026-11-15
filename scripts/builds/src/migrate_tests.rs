@@ -633,9 +633,64 @@ fn schema_before_design_fix() -> String {
     without_design_fix(db::schema())
 }
 
+/// <schema> as the text read before reviews ran before landing: the review's
+/// header, `review_landing` and the audit's words as they read then, and no
+/// `review_commit` or `review_fix`. A schema without the review's tables is
+/// left as it is.
+fn without_landing_review(schema: String) -> String {
+    let added = "\n-- The commits a review read, in order,";
+    let Some(start) = schema.find(added) else {
+        return schema;
+    };
+    let end = "CHECK (trim(by) <> '')\n) STRICT;\n";
+    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
+    let mut old = format!("{}{}", &schema[..start], &schema[stop..]);
+    for (now, then) in [
+        (
+            "-- Every review of a change against the rules (`builds review`): the landing it
+-- belongs to, each run and the commits it read, each reviewer call, its verdict
+-- for every rule, each finding with how the coordinator settled it, and the
+-- commit that fixed a confirmed finding. record.rs owns these tables and is the
+-- only code that writes them.
+",
+            "-- Every review of a change against the rules (`builds review`): the landing it
+-- belongs to, each run, each reviewer call, its verdict for every rule, and
+-- each finding with how the coordinator settled it. record.rs owns these
+-- tables and is the only code that writes them.
+",
+        ),
+        (
+            "-- A change under review: every review of it shares this landing, found by its
+-- key, until the change lands. landed_at is when `builds land` pushed it, and
+-- landed_run the run that covered the commits it pushed.
+",
+            "-- A landing under review: the reviews of one landing share a key until one of
+-- them passes (closed_at).
+",
+        ),
+        (
+            "    landed_at INTEGER,
+    landed_run INTEGER REFERENCES review_run (id),
+    CONSTRAINT review_landing_landed_whole CHECK ((landed_at IS NULL) = (landed_run IS NULL))
+",
+            "    closed_at INTEGER
+",
+        ),
+        (
+            "-- of a landing that landed.\n",
+            "-- of a landing that passed.\n",
+        ),
+    ] {
+        assert_eq!(old.matches(now).count(), 1, "{now}");
+        old = old.replace(now, then);
+    }
+    old
+}
+
 /// <schema> as the text read before the design fixes' table: every older
 /// schema these tests rebuild is today's text with later parts taken out.
 fn without_design_fix(schema: String) -> String {
+    let schema = without_landing_review(schema);
     let fix = "-- A change that changes no design:";
     let start = schema.find(fix).expect("the schema has it");
     let stop = start + schema[start..].find("STRICT;\n\n").expect("it ends") + "STRICT;\n\n".len();
@@ -684,5 +739,108 @@ fn the_design_fix_stamp_is_the_schema_before_design_fixes() {
     assert_eq!(
         i64::from(hash % (i32::MAX as u32 - 2)) + 2,
         BEFORE_DESIGN_FIX_STAMP
+    );
+}
+
+/// The schema text before reviews ran before landing.
+fn schema_before_landing_review() -> String {
+    without_landing_review(db::schema())
+}
+
+/// A store as the schema before reviews ran before landing made it, with one
+/// landing whose review passed and one whose review did not.
+fn store_before_landing_review(dir: &std::path::Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&schema_before_landing_review()).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_LANDING_REVIEW_STAMP)
+        .unwrap();
+    plant_run(&conn);
+    crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+    let landing = |id: i64, key: &str, opened: i64, closed: Option<i64>| {
+        crate::review::record::plant(
+            &conn,
+            "review_landing",
+            &[
+                ("id", id.into()),
+                ("key", key.to_string().into()),
+                ("repo", "bae".to_string().into()),
+                ("opened_at", opened.into()),
+                ("closed_at", closed.into()),
+            ],
+        )
+        .unwrap();
+    };
+    landing(1, "items:7", 5, Some(9));
+    landing(2, "items:8", 6, None);
+    for (id, landing, kind, at) in [
+        (10, 1, "review", 6),
+        (11, 1, "review", 8),
+        (12, 1, "audit", 10),
+        (13, 2, "review", 7),
+    ] {
+        crate::review::record::plant(
+            &conn,
+            "review_run",
+            &[
+                ("id", (id as i64).into()),
+                ("landing_id", (landing as i64).into()),
+                ("kind", kind.to_string().into()),
+                ("at", (at as i64).into()),
+                ("base", "b".to_string().into()),
+                ("head", "h".to_string().into()),
+                ("grouping", "g".to_string().into()),
+                ("rules_version", String::new().into()),
+            ],
+        )
+        .unwrap();
+    }
+    path
+}
+
+#[test]
+fn a_store_from_before_landing_reviews_keeps_its_landings_with_the_run_each_passed_with() {
+    let scratch = Scratch::new("move-landing-review");
+    let places = scratch.places();
+    let path = store_before_landing_review(&places.lists.join("bae"));
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let landings: Vec<(i64, Option<i64>, Option<i64>)> = conn
+        .prepare("SELECT id, landed_at, landed_run FROM review_landing ORDER BY id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .map(|row| row.unwrap())
+        .collect();
+    assert_eq!(landings, [(1, Some(9), Some(11)), (2, None, None)]);
+    let runs: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM review_run WHERE landing_id IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(runs, 4, "the runs keep their landings");
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the old run is kept");
+}
+
+#[test]
+fn the_landing_review_stamp_is_the_schema_before_landing_reviews() {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in schema_before_landing_review().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    assert_eq!(
+        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        BEFORE_LANDING_REVIEW_STAMP
     );
 }

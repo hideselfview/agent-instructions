@@ -1,4 +1,5 @@
-//! Sampled audits of landings that passed their review. An audit asks again,
+//! Sampled audits of landings whose change landed after its review: `builds
+//! review landed` samples them as `builds land` records each. An audit asks again,
 //! two other ways, and anything it raises that the landing's review did not
 //! becomes a candidate miss for the coordinator to settle: one reviewer per
 //! rule over every rule that covers a changed path, and one review with the
@@ -189,7 +190,17 @@ pub fn rates(db: &Connection, group_of_rule: &dyn Fn(&str) -> Option<String>) ->
         .collect())
 }
 
-/// Whether <landing>, a passed review, is audited when the dice read <roll>
+/// The run <landing> landed with; None while it has not landed.
+fn landed_run(db: &Connection, landing: i64) -> Result<Option<record::RunRow>> {
+    let Some(run) = record::landing(db, landing)?.landed_run else {
+        return Ok(None);
+    };
+    Ok(record::runs_of_landing(db, landing)?
+        .into_iter()
+        .find(|r| r.id == run))
+}
+
+/// Whether <landing>, a landed change, is audited when the dice read <roll>
 /// (from 0 up to, not including, 1).
 pub fn sampled(
     db: &Connection,
@@ -197,11 +208,10 @@ pub fn sampled(
     group_of_rule: &dyn Fn(&str) -> Option<String>,
     roll: f64,
 ) -> Result<bool> {
-    let runs = record::runs_of_landing(db, landing)?;
-    let Some(last) = runs.iter().rev().find(|r| r.kind == "review") else {
+    let Some(landed) = landed_run(db, landing)? else {
         return Ok(false);
     };
-    let under = record::landings_under(db, &last.grouping)?;
+    let under = record::landings_under(db, &landed.grouping)?;
     let ran: Vec<String> = record::calls_of_landing(db, landing)?
         .into_iter()
         .filter(|c| c.kind == "review")
@@ -225,25 +235,21 @@ pub struct Inputs<'a> {
     pub seed: u64,
 }
 
-/// Audits a landing that passed its review and records both audits. Returns
-/// what to print: the candidate misses and how to settle them.
+/// Audits a landing whose change landed and records both audits, over the
+/// commits of the run it landed with. Returns what to print: the candidate
+/// misses and how to settle them.
 pub fn audit(inputs: &Inputs) -> Result<String> {
     let conn = crate::db::open_reader(&inputs.store.database())?;
     let Some(conn) = conn else {
         crate::fail!("there is no store for project {}", inputs.project);
     };
-    let (key, _, closed) = record::landing(&conn, inputs.landing)?;
-    if !closed {
+    let key = record::landing(&conn, inputs.landing)?.key;
+    let Some(last) = landed_run(&conn, inputs.landing)? else {
         crate::fail!(
-            "landing {} ({key}) has no passed review to audit",
+            "landing {} ({key}) has not landed, so there is nothing to audit",
             inputs.landing
         );
-    }
-    let last = record::runs_of_landing(&conn, inputs.landing)?
-        .into_iter()
-        .rev()
-        .find(|r| r.kind == "review")
-        .expect("a passed landing has a review run");
+    };
     let diff = run::diff_between(inputs.repo_dir, &last.base, &last.head)?;
     let material = Material::load(inputs.root, inputs.project)?;
     let matched: Vec<&Rule> = material
@@ -301,6 +307,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
                             at: stamp.at,
                             base: &last.base,
                             head: &last.head,
+                            commits: &[],
                             grouping: &material.grouping,
                             rules_version: &run::rules_version(inputs.root),
                         },

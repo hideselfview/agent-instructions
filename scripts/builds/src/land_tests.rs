@@ -108,14 +108,11 @@ struct Cues {
     places: &'static str,
     refuse: &'static str,
     says: &'static str,
-    /// Keeps the background `review run` call in the commands returned.
-    keep_review: bool,
 }
 
 /// Lands <args> in the fixture's landing clone with a stand-in `builds`.
 /// Returns the exit status, what the landing said and the commands it ran.
 fn run_land(f: &Fixture, args: &[&str], cues: Cues) -> (i32, String, Vec<String>) {
-    let waits_for_review = cues.keep_review;
     let stub = f.scratch.dir.join("stub-builds");
     let log = f.scratch.dir.join("calls.log");
     let script = format!(
@@ -140,26 +137,9 @@ fn run_land(f: &Fixture, args: &[&str], cues: Cues) -> (i32, String, Vec<String>
         Err(Fail::Exit(code)) => code,
         Err(Fail::Message(message)) => panic!("landing failed: {message}"),
     };
-    let read = || -> Vec<String> {
-        std::fs::read_to_string(&log)
-            .map(|text| text.lines().map(str::to_string).collect())
-            .unwrap_or_default()
-    };
-    // The review of a landing runs on in the background after the landing
-    // returns; a landing that went through is read once its call is logged.
-    let mut calls = read();
-    if waits_for_review && code == 0 {
-        for _ in 0..100 {
-            if calls.iter().any(|call| call.starts_with("review run")) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            calls = read();
-        }
-    }
-    if !waits_for_review {
-        calls.retain(|call| !call.starts_with("review run"));
-    }
+    let calls: Vec<String> = std::fs::read_to_string(&log)
+        .map(|text| text.lines().map(str::to_string).collect())
+        .unwrap_or_default();
     // The next landing in this fixture starts a fresh log.
     let _ = std::fs::remove_file(&log);
     (code, String::from_utf8_lossy(&out).into_owned(), calls)
@@ -329,8 +309,11 @@ fn a_project_repo_names_its_work_item_before_anything_moves() {
     let (code, _, calls) = run_land(&f, &["--done", "7", "--part", "8", &a], project());
     assert!(code == 0 && main_of(&f) == a);
     assert_eq!(
-        calls.last().unwrap(),
-        &format!("item landed {land} --done 7 --part 8 {a}")
+        calls[calls.len() - 2..],
+        [
+            format!("item landed {land} --done 7 --part 8 {a}"),
+            format!("review landed {land} --project bae {a}")
+        ]
     );
     assert!(!calls.iter().any(|c| c.starts_with("design landed")));
 }
@@ -343,9 +326,14 @@ fn a_cherry_picked_landing_records_the_new_commit_on_main() {
     let (code, _, calls) = run_land(&f, &["--done", "7", &b], project());
     let new = main_of(&f);
     assert!(code == 0 && new != b);
+    let land = f.land.display();
     assert_eq!(
-        calls.last().unwrap(),
-        &format!("item landed {} --done 7 {new}", f.land.display())
+        calls[calls.len() - 2..],
+        [
+            format!("item landed {land} --done 7 {new}"),
+            format!("review landed {land} --project bae {b}")
+        ],
+        "the items record the commit on main; the review the commit it read"
     );
 }
 
@@ -404,10 +392,11 @@ fn design_places_need_the_design_change() {
     assert_eq!(code, 0);
     assert!(calls.contains(&format!("design check 3 {land} {a}")));
     assert_eq!(
-        calls[calls.len() - 2..],
+        calls[calls.len() - 3..],
         [
             format!("item landed {land} --done 7 {a}"),
-            format!("design landed 3 {land} {a}")
+            format!("design landed 3 {land} {a}"),
+            format!("review landed {land} --project bae {a}")
         ]
     );
 }
@@ -425,10 +414,7 @@ fn shared_only_design_files_with_the_design_change_land() {
         },
     );
     assert_eq!(code, 0);
-    assert_eq!(
-        calls.last().unwrap(),
-        &format!("design landed 3 {} {a}", f.land.display())
-    );
+    assert!(calls.contains(&format!("design landed 3 {} {a}", f.land.display())));
 }
 
 #[test]
@@ -493,9 +479,13 @@ fn a_design_change_alone_lands_commits_that_are_all_design_files() {
     assert!(code == 0 && main_of(&f) == a);
     assert!(calls.contains(&format!("design only {land} {a}")));
     assert!(calls.contains(&format!("design check 3 {land} {a}")));
+    assert!(calls.contains(&format!("review check-landing {land} --project bae {a}")));
     assert_eq!(
-        calls.last().unwrap(),
-        &format!("design landed 3 {land} {a}")
+        calls[calls.len() - 2..],
+        [
+            format!("design landed 3 {land} {a}"),
+            format!("review landed {land} --project bae {a}")
+        ]
     );
     assert!(!calls.iter().any(|c| c.starts_with("item ")));
 }
@@ -546,10 +536,7 @@ fn a_failed_record_exits_with_the_rerun_and_the_rerun_records_it() {
     )));
     let (code, _, calls) = run_land(&f, &["--done", "7", &a], project());
     assert_eq!(code, 0);
-    assert_eq!(
-        calls.last().unwrap(),
-        &format!("item landed {} --done 7 {a}", f.land.display())
-    );
+    assert!(calls.contains(&format!("item landed {} --done 7 {a}", f.land.display())));
 }
 
 #[test]
@@ -596,8 +583,11 @@ fn landing_a_commit_already_on_main_says_so_and_records_its_copy() {
         "{out}"
     );
     assert_eq!(
-        calls.last().unwrap(),
-        &format!("item landed {} --done 7 {a}", f.land.display())
+        calls[calls.len() - 2..],
+        [
+            format!("item landed {} --done 7 {a}", f.land.display()),
+            format!("review landed {} --project bae {a}", f.land.display())
+        ]
     );
 }
 
@@ -654,66 +644,89 @@ fn a_leftover_land_checks_file_refuses_the_landing() {
 }
 
 #[test]
-fn a_review_that_fails_does_not_fail_the_landing() {
-    let f = fixture("land-review-fails", "true\n", None);
+fn commits_the_review_does_not_take_are_refused_before_anything_is_fetched() {
+    let f = fixture("land-review-refuses", "true\n", None);
     let (a, _b) = two_sibling_commits(&f);
+    let land = f.land.display();
+    let before = git_out(&f.land, &["rev-parse", "HEAD"]);
     let (code, out, calls) = run_land(
         &f,
         &["--done", "7", &a],
         Cues {
-            refuse: "review run",
-            says: "1 blocking finding",
-            keep_review: true,
+            refuse: "review check-landing",
+            says: "no review run covers the commits this lands",
             ..project()
         },
-    );
-    assert!(code == 0 && main_of(&f) == a, "{out}");
-    assert!(calls.iter().any(|c| c.starts_with("item landed")));
-    assert!(calls.iter().any(|c| c.starts_with("review run")));
-}
-
-#[test]
-fn the_landed_commits_are_reviewed_in_the_background_after_the_push_and_the_record() {
-    let f = fixture("land-review-record-only", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
-    let land = f.land.display();
-    let before = main_of(&f);
-    let (code, _, calls) = run_land(
-        &f,
-        &["--done", "7", "--part", "3", &a],
-        Cues {
-            keep_review: true,
-            ..project()
-        },
-    );
-    assert!(code == 0 && main_of(&f) == a);
-    let review = calls
-        .iter()
-        .position(|c| c.starts_with("review run"))
-        .expect("the landed commits are reviewed");
-    assert_eq!(
-        calls[review],
-        format!(
-            "review run {land} {before} --head {a} --landing items:3,7 --project bae --record-only --item 7 --item 3"
-        )
     );
     assert!(
-        calls
-            .iter()
-            .position(|c| c.starts_with("item landed"))
-            .unwrap()
-            < review
+        code == 1
+            && out.contains("LANDING REFUSED, nothing fetched or pushed:")
+            && out.contains("no review run covers"),
+        "{out}"
+    );
+    assert_ne!(main_of(&f), a);
+    assert_eq!(git_out(&f.land, &["rev-parse", "HEAD"]), before);
+    assert_eq!(
+        calls.last().unwrap(),
+        &format!("review check-landing {land} --project bae {a}")
     );
 }
 
 #[test]
-fn a_failing_check_stops_the_landing_before_any_review_and_a_repo_in_no_project_has_none() {
+fn a_landing_the_review_takes_is_pushed_and_recorded_as_landed_after_the_items() {
+    let f = fixture("land-review-takes", "true\n", None);
+    let (a, _b) = two_sibling_commits(&f);
+    let land = f.land.display();
+    let (code, _, calls) = run_land(&f, &["--done", "7", "--part", "3", &a], project());
+    assert!(code == 0 && main_of(&f) == a);
+    let check = calls
+        .iter()
+        .position(|c| c == &format!("review check-landing {land} --project bae {a}"))
+        .expect("the review is asked before the landing");
+    let items = calls
+        .iter()
+        .position(|c| c.starts_with("item check-landing"))
+        .unwrap();
+    assert!(items < check);
+    assert_eq!(
+        calls.last().unwrap(),
+        &format!("review landed {land} --project bae {a}")
+    );
+}
+
+#[test]
+fn a_failed_review_record_after_the_push_exits_with_the_rerun() {
+    let f = fixture("land-review-record", "true\n", None);
+    let (a, _b) = two_sibling_commits(&f);
+    let (code, out, _) = run_land(
+        &f,
+        &["--done", "7", &a],
+        Cues {
+            refuse: "review landed",
+            ..project()
+        },
+    );
+    assert!(
+        code == 1 && main_of(&f) == a && out.contains("LANDED, NOT RECORDED:"),
+        "{out}"
+    );
+    assert!(
+        out.contains(&format!(
+            "rerun: builds review landed {} --project bae {a}",
+            f.land.display()
+        )),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_failing_check_stops_the_landing_before_its_record_and_a_repo_in_no_project_has_no_review() {
     let f = fixture("land-review-order", CHECK, None);
     let (a, b) = two_sibling_commits(&f);
     run_land(&f, &["--done", "7", &a], project());
     let (code, _, calls) = run_land(&f, &["--done", "8", &b], project());
     assert_eq!(code, 1);
-    assert!(!calls.iter().any(|c| c.starts_with("review run")));
+    assert!(!calls.iter().any(|c| c.starts_with("review landed")));
     let g = fixture("land-review-none", "true\n", None);
     let (a, _b) = two_sibling_commits(&g);
     let (code, _, calls) = run_land(&g, &[&a], Cues::default());

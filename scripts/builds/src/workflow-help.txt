@@ -66,10 +66,14 @@ PLAN, BRIEF, EXECUTE, REVIEW
     to hold goes to such an agent; its brief says what the coordinator read
     and what stays unknown, and it writes a plan for the faster model to
     execute.
-  - Review: the coordinator reads each commit's diff against its brief and
-    the rules before landing it, and sends each finding back to the agent
-    that made it. `builds land` also reviews each landing in the background,
-    and the coordinator settles its findings (`builds review settle`).
+  - Review: before landing a branch, the coordinator runs the rules review
+    on its commits (`builds review <worktree> --item N`, which gives the
+    reviewers the item's brief), judges each finding against the code and
+    settles it as confirmed or dropped with why (`builds review settle`), and
+    sends each confirmed one back to the agent that made it. The agent fixes
+    it in a new commit; the coordinator names that commit (`builds review
+    fixed`), reviews the final commits again and lands them. `builds land`
+    refuses commits that lack this step (`builds help`, LANDING AND REVIEW).
   - At every step, check the shape against the project's standing rules,
     which a plan's author never loads by touching files; the project file
     names them. A plan that proposes a shape they forbid is rewritten before
@@ -157,7 +161,8 @@ both.
 LANDING
 
 Land from the claimed landing worktree with `builds land`; its help says what
-it checks.
+it checks. Review each branch first (PLAN, BRIEF, EXECUTE, REVIEW): land
+refuses commits that no finished review read.
 
   - After landing commits whose base is behind main and that touch shared
     code (schema, test stores, bridge types), build main (`check --workspace
@@ -166,6 +171,9 @@ it checks.
   - Don't land in the landing worktree while a check runs there.
   - When `builds land` prints `LANDED, NOT RECORDED:`, run the `rerun:`
     command it prints.
+  - Land the commits the last review read. A squash, or a commit added or
+    left out after the review, is another change, which needs its own review
+    run; a rebase or cherry-pick that keeps each commit's change does not.
   - A CI run on main that fails or stalls is the coordinator's to run down.
 
 
@@ -199,6 +207,10 @@ other.
      the canvas, which only a Claude session can do. When that session has
      ended, the next design session lands the change. `builds design approve
      N --by-person` is for an approval the person gives in words.
+     When a rule group covers a path the commits change, `builds land`
+     refuses them until the rules review is finished, as for any branch
+     (PLAN, BRIEF, EXECUTE, REVIEW): run `builds review` on them first,
+     settle each finding, and fix each confirmed one in a new commit.
 
 The boards and design/mocks/canvas.json in the repo are the canvas's source.
 The published canvas and design system are copies that let anyone look at the

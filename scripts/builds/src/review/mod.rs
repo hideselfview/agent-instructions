@@ -3,36 +3,41 @@
 //! every review in the project's store.
 //!
 //! ```text
-//! builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--record-only] [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review settle FINDING confirmed|dropped --why TEXT
+//! builds review fixed FINDING SHA
 //! builds review show LANDING
+//! builds review check-landing | landed DIR --project P SHA...
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
 //! builds review replay [--case NAME]... [--source REPO] [--model M] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review audit LANDING --repo-dir DIR
-//! builds review sample --landing KEY --repo-dir DIR
 //! builds review misses | rates
 //! builds review case add ...
 //! ```
 //!
-//! `run` reviews the worktree's commits past BASE (default `origin/main`). The
-//! groups whose rules cover a changed path each get one `claude -p`. A review
-//! of a KEY that an earlier review left unsettled reruns only the groups that
-//! found something (or failed) and passes them what the coordinator settled.
-//! It exits 1 when a blocking finding stands or a reviewer failed.
+//! `run` reviews the worktree's commits past BASE (default `origin/main`)
+//! before they land. The groups whose rules cover a changed path each get one
+//! `claude -p`, told what the coordinator settled on earlier runs of the same
+//! KEY; a group that already answered over the same commits is not asked
+//! again. It records the commits it read with their patch ids, then says what
+//! `builds land` would say of those commits (`landing.rs`), and exits 1 unless
+//! land would take them.
 
 mod audit;
 mod call;
 mod cases;
 mod check;
+pub mod commits;
 #[cfg(test)]
-mod fakes;
+pub mod fakes;
 mod files;
 mod groups;
+pub mod landing;
 mod prompt;
-mod record;
+pub mod record;
 mod render;
 mod rules;
-mod run;
+pub mod run;
 
 use std::path::{Path, PathBuf};
 
@@ -48,17 +53,61 @@ use crate::tool::Tool;
 use prompt::Settled;
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--record-only] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review sample --landing KEY --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review fixed FINDING SHA\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
 fn rules_root(args: &Args) -> Result<PathBuf> {
-    if let Some(root) = args.value("rules-root")? {
-        return Ok(PathBuf::from(root));
+    match args.value("rules-root")? {
+        Some(root) => Ok(PathBuf::from(root)),
+        None => default_rules_root(),
     }
+}
+
+/// The checkout `install.sh` links at ~/.codex/agent-instructions.
+pub fn default_rules_root() -> Result<PathBuf> {
     match std::env::var_os("HOME") {
         Some(home) => Ok(PathBuf::from(home).join(".codex/agent-instructions")),
         None => fail!("HOME is not set; name the checkout with --rules-root"),
+    }
+}
+
+/// The file a review of the commits up to <head> holds locked while it runs,
+/// in the store's folder; the dashboard reads a held one as a review running.
+pub fn running_file(store_dir: &Path, head: &str) -> PathBuf {
+    store_dir.join("reviews-running").join(head)
+}
+
+/// Whether a review of the commits up to <head> runs now.
+pub fn is_running(store_dir: &Path, head: &str) -> bool {
+    crate::queue::is_held(&running_file(store_dir, head)).unwrap_or(false)
+}
+
+/// Holds <path> locked until dropped, then removes it.
+struct Running {
+    path: PathBuf,
+    fd: libc::c_int,
+}
+
+impl Running {
+    fn start(path: PathBuf) -> Result<Running> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
+        }
+        match crate::queue::open_with(&path, libc::O_CREAT | libc::O_NONBLOCK | libc::O_CLOEXEC) {
+            Ok(fd) => Ok(Running { path, fd }),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                fail!("a review of these commits runs already")
+            }
+            Err(error) => fail!("locking {}: {error}", path.display()),
+        }
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+        unsafe { libc::close(self.fd) };
     }
 }
 
@@ -69,11 +118,13 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
     match command.as_str() {
         "groups" => list_groups(rest),
         "settle" => settle(tool, rest),
+        "fixed" => fixed(tool, rest),
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
+        "check-landing" => landing::check_landing_command(tool, rest),
+        "landed" => landing::landed_command(tool, rest),
         "replay" => replay(tool, rest),
         "audit" => audit_command(tool, rest),
-        "sample" => sample(tool, rest),
         "misses" => misses(tool, rest),
         "rates" => rates(tool, rest),
         "case" => case_command(tool, rest),
@@ -105,7 +156,8 @@ pub struct Reported {
     pub landing: Option<i64>,
     /// Everything to print.
     pub text: String,
-    /// The words of a refusal when a blocking finding stands or a reviewer failed.
+    /// What `builds land` would refuse these commits for; None when it
+    /// would take them.
     pub refusal: Option<String>,
 }
 
@@ -128,14 +180,28 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             refusal: None,
         });
     }
+    let commits = commits::with_patch_ids(
+        inputs.worktree,
+        &commits::in_range(inputs.worktree, &diff.base, &diff.head)?,
+    )?;
     let material = run::Material::load(inputs.root, inputs.project)?;
-    // What an earlier review of this landing left standing.
-    let (prior, rerun, settled) = match db::open_reader(&inputs.store.database())? {
+    let picked_all = material.groups.pick(&material.rules, &diff.changed);
+    if picked_all.is_empty() {
+        return Ok(Reported {
+            landing: None,
+            text: "no group's rules cover the changed paths: nothing to review, and builds land needs no review\n".to_string(),
+            refusal: None,
+        });
+    }
+    let needed: Vec<String> = picked_all.iter().map(|(g, _)| g.name.clone()).collect();
+    // What earlier reviews of this change settled, and the groups that
+    // answered over these same commits already.
+    let (prior, answered, settled) = match db::open_reader(&inputs.store.database())? {
         None => (None, Vec::new(), Vec::new()),
         Some(conn) => match record::open_landing(&conn, inputs.key)? {
             None => (None, Vec::new(), Vec::new()),
             Some(landing) => {
-                let groups = record::groups_to_rerun(&conn, landing)?;
+                let answered = landing::groups_answered(&conn, landing, &commits, &needed)?;
                 let settled: Vec<(String, Settled)> = record::findings_of_landing(&conn, landing)?
                     .into_iter()
                     .filter_map(|f| {
@@ -148,114 +214,117 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                                     code: f.code,
                                     how,
                                     why,
+                                    fix: f.fix.map(|fix| fix.sha),
                                 },
                             )
                         })
                     })
                     .collect();
-                (Some(landing), groups, settled)
+                (Some(landing), answered, settled)
             }
         },
     };
-    let rerun_only = prior.is_some() && !rerun.is_empty();
-    let mut picked = material.groups.pick(&material.rules, &diff.changed);
-    if rerun_only {
-        picked.retain(|(group, _)| rerun.contains(&group.name));
-    }
+    let mut picked = picked_all;
+    picked.retain(|(group, _)| !answered.contains(&group.name));
+    let skipped = !answered.is_empty();
+    let mut text = String::new();
+    let mut landing_id = prior;
     if picked.is_empty() {
-        return Ok(Reported {
-            landing: prior,
-            text: "no group's rules cover the changed paths: nothing to review\n".to_string(),
-            refusal: None,
-        });
-    }
-    let settled_for = |group: &str| -> Vec<Settled> {
-        settled
-            .iter()
-            .filter(|(g, _)| g == group)
-            .map(|(_, s)| s.clone())
-            .collect()
-    };
-    let calls = run::ask_groups(
-        &material,
-        inputs.reviewer,
-        &picked,
-        &diff,
-        inputs.brief.as_ref(),
-        &settled_for,
-    )
-    .calls;
-    let stamp = inputs.stamp;
-    let (landing, run_id, stored_calls, findings) =
-        inputs
-            .store
-            .write(stamp, &format!("review {}", inputs.key), |db| {
-                let landing = match prior {
-                    Some(id) => id,
-                    None => record::add_landing(db, inputs.key, inputs.repo, stamp.at)?,
-                };
-                let (run_id, _) = record::add_run(
-                    db,
-                    &record::NewRun {
-                        landing: Some(landing),
-                        kind: Kind::Review,
-                        label: None,
-                        at: stamp.at,
-                        base: &diff.base,
-                        head: &diff.head,
-                        grouping: &material.grouping,
-                        rules_version: &run::rules_version(inputs.root),
-                    },
-                    &calls,
-                )?;
-                // A finding the coordinator dropped on an earlier run, raised
-                // again, is the same finding: it stays dropped.
-                let earlier: Vec<record::Finding> = record::findings_of_landing(db, landing)?
-                    .into_iter()
-                    .filter(|f| f.run_id != run_id)
-                    .collect();
-                for finding in record::findings_of_run(db, run_id)? {
-                    if !finding.counts() {
-                        continue;
+        text.push_str(&format!(
+            "every group that covers the changed paths answered over these commits already (landing {})\n",
+            prior.expect("groups answered in a landing")
+        ));
+    } else {
+        let settled_for = |group: &str| -> Vec<Settled> {
+            settled
+                .iter()
+                .filter(|(g, _)| g == group)
+                .map(|(_, s)| s.clone())
+                .collect()
+        };
+        let running = Running::start(running_file(&inputs.store.dir, &diff.head))?;
+        let calls = run::ask_groups(
+            &material,
+            inputs.reviewer,
+            &picked,
+            &diff,
+            inputs.brief.as_ref(),
+            &settled_for,
+        )
+        .calls;
+        let stamp = inputs.stamp;
+        let (landing, run_id, stored_calls, findings) =
+            inputs
+                .store
+                .write(stamp, &format!("review {}", inputs.key), |db| {
+                    let landing = match prior {
+                        Some(id) => id,
+                        None => record::add_landing(db, inputs.key, inputs.repo, stamp.at)?,
+                    };
+                    let (run_id, _) = record::add_run(
+                        db,
+                        &record::NewRun {
+                            landing: Some(landing),
+                            kind: Kind::Review,
+                            label: None,
+                            at: stamp.at,
+                            base: &diff.base,
+                            head: &diff.head,
+                            commits: &commits,
+                            grouping: &material.grouping,
+                            rules_version: &run::rules_version(inputs.root),
+                        },
+                        &calls,
+                    )?;
+                    // A finding the coordinator dropped on an earlier run, raised
+                    // again, is the same finding: it stays dropped.
+                    let earlier: Vec<record::Finding> = record::findings_of_landing(db, landing)?
+                        .into_iter()
+                        .filter(|f| f.run_id != run_id)
+                        .collect();
+                    for finding in record::findings_of_run(db, run_id)? {
+                        if !finding.counts() {
+                            continue;
+                        }
+                        let same = earlier.iter().find(|e| {
+                            e.settled_as("dropped")
+                                && e.rule == finding.rule
+                                && e.file == finding.file
+                                && check::squash(&e.code) == check::squash(&finding.code)
+                        });
+                        if let Some(same) = same {
+                            record::inherit_drop(db, finding.id, same, stamp.at)?;
+                        }
                     }
-                    let same = earlier.iter().find(|e| {
-                        matches!(&e.settled, Some((how, _)) if how == "dropped")
-                            && e.rule == finding.rule
-                            && e.file == finding.file
-                            && check::squash(&e.code) == check::squash(&finding.code)
-                    });
-                    if let Some(same) = same {
-                        record::inherit_drop(db, finding.id, same, stamp.at)?;
-                    }
-                }
-                let stored = record::calls_of_run(db, run_id)?;
-                let findings = record::findings_of_run(db, run_id)?;
-                let stands = findings.iter().any(|f| f.refuses())
-                    || stored.iter().any(|c| c.failure.is_some());
-                if !stands {
-                    record::close_landing(db, landing, stamp.at)?;
-                }
-                Ok((landing, run_id, stored, findings))
-            })?;
-    let mut text = format!(
-        "review of {} (landing {landing}, run {run_id}) over {}...{}\n",
-        inputs.key,
-        short(&diff.base),
-        short(&diff.head)
-    );
-    if rerun_only {
-        text.push_str("rerun: only the groups that found something or failed before\n");
+                    let stored = record::calls_of_run(db, run_id)?;
+                    let findings = record::findings_of_run(db, run_id)?;
+                    Ok((landing, run_id, stored, findings))
+                })?;
+        drop(running);
+        landing_id = Some(landing);
+        text.push_str(&format!(
+            "review of {} (landing {landing}, run {run_id}) over {}...{}\n",
+            inputs.key,
+            short(&diff.base),
+            short(&diff.head)
+        ));
+        if skipped {
+            text.push_str(&format!(
+                "asked only the groups with no answer over these commits yet; {} answered before\n",
+                answered.join(", ")
+            ));
+        }
+        text.push_str(&render::run_report(&stored_calls, &findings));
     }
-    text.push_str(&render::run_report(&stored_calls, &findings));
-    let standing: Vec<&record::Finding> = findings.iter().filter(|f| f.refuses()).collect();
-    let failed: Vec<&record::Call> = stored_calls
-        .iter()
-        .filter(|c| c.failure.is_some())
-        .collect();
-    let refusal =
-        (!standing.is_empty() || !failed.is_empty()).then(|| render::refusal(&standing, &failed));
+    // What builds land would say of these commits now.
+    let conn = db::open_reader(&inputs.store.database())?;
+    let verdict = landing::judge(conn.as_ref(), inputs.repo, &commits, &needed)?;
+    let refusal = landing::refusal(conn.as_ref(), inputs.repo, &commits, &verdict)?;
+    if refusal.is_none() {
+        text.push_str("builds land takes these commits: every finding is settled and every confirmed one is fixed among them\n");
+    }
     Ok(Reported {
-        landing: Some(landing),
+        landing: landing_id,
         text,
         refusal,
     })
@@ -269,12 +338,9 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(
         args,
         &["landing", "item", "rules-root", "reviewer", "head"],
-        &["record-only"],
+        &[],
     )?;
-    if args.switch("record-only") {
-        return record_only(tool, &args);
-    }
-    let reported = run_review(tool, &args)?.0;
+    let reported = run_review(tool, &args)?;
     print!("{}", reported.text);
     match reported.refusal {
         Some(refusal) => {
@@ -288,44 +354,8 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
     }
 }
 
-/// `builds review run ... --record-only`: the review of a landing that is on
-/// main already. It reads the commits as they were when the landing pushed
-/// (`--head`), keeps everything it asks and answers in the store, writes what
-/// it found to a log in the store's folder and never fails.
-fn record_only(tool: &Tool, args: &Args) -> Result<()> {
-    let project = args.require("project")?;
-    let log_dir = Store::named(&tool.places, project)?.dir.join("review-logs");
-    let text = match run_review(tool, args) {
-        Ok((reported, head)) => {
-            let mut text = format!("record-only review of {}\n{}", short(&head), reported.text);
-            if let Some(refusal) = reported.refusal {
-                text.push_str(&refusal);
-            }
-            text
-        }
-        Err(why) => format!(
-            "the review failed; the landing was not refused: {}\n",
-            why.text()
-        ),
-    };
-    let key = args.value("landing")?.unwrap_or("review");
-    let head = args.value("head")?.unwrap_or("head");
-    let name = format!(
-        "{}-{}.log",
-        key.replace(|c: char| !c.is_ascii_alphanumeric() && c != ',', "-"),
-        short(head)
-    );
-    let write =
-        std::fs::create_dir_all(&log_dir).and_then(|()| std::fs::write(log_dir.join(&name), &text));
-    if let Err(error) = write {
-        eprintln!("builds: writing the review log {name}: {error}\n{text}");
-    }
-    Ok(())
-}
-
-/// Runs the review `builds review run` names; returns what it found and the
-/// commit it reviewed.
-fn run_review(tool: &Tool, args: &Args) -> Result<(Reported, String)> {
+/// Runs the review `builds review run` names and returns what it found.
+fn run_review(tool: &Tool, args: &Args) -> Result<Reported> {
     let (worktree, base) = match args.positional() {
         [worktree] => (worktree.as_str(), "origin/main"),
         [worktree, base] => (worktree.as_str(), base.as_str()),
@@ -356,7 +386,7 @@ fn run_review(tool: &Tool, args: &Args) -> Result<(Reported, String)> {
     let root = rules_root(args)?;
     let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
     let head = args.value("head")?;
-    let reported = review(&Inputs {
+    review(&Inputs {
         store: &store,
         project: &project,
         repo: &checkout.repo(),
@@ -368,8 +398,7 @@ fn run_review(tool: &Tool, args: &Args) -> Result<(Reported, String)> {
         reviewer: &reviewer,
         stamp: &stamp,
         brief,
-    })?;
-    Ok((reported, head.unwrap_or("HEAD").to_string()))
+    })
 }
 
 /// The branch the worktree is on, else its HEAD.
@@ -432,6 +461,33 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// `builds review fixed FINDING SHA`: names commit SHA, of the repo the
+/// command runs in, as the fix of confirmed finding FINDING.
+fn fixed(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &[], &[])?;
+    let [finding, sha] = args.exactly(2, USAGE)? else {
+        unreachable!("exactly two")
+    };
+    let id: i64 = finding
+        .parse()
+        .map_err(|_| Fail::Message(format!("'{finding}' is not a finding number")))?;
+    let cwd = current_dir()?;
+    let Some(checkout) = Checkout::at(&cwd)? else {
+        fail!("run builds review fixed in a checkout of the repo that holds {sha}");
+    };
+    let fix = landing::fix_commit(&checkout.top, sha)?;
+    let store = Store::resolve(&tool.places, &args, &cwd)?;
+    let stamp = Stamp::resolve(tool.now, &args, &cwd)?;
+    store.write(&stamp, &format!("review fixed {id}"), |db| {
+        record::record_fix(db, id, &fix, stamp.at, &stamp.by)
+    })?;
+    println!(
+        "finding {id} is fixed by {}; review the commits that hold it before builds land",
+        short(&fix.sha)
+    );
+    Ok(())
+}
+
 /// `builds review show LANDING`.
 fn show(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
@@ -446,10 +502,15 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
     let Some(conn) = db::open_reader(&store.database())? else {
         fail!("there is no store for project {}", store.project);
     };
-    let (key, repo, closed) = record::landing(&conn, id)?;
+    let landing = record::landing(&conn, id)?;
     println!(
-        "landing {id}: {key} ({repo}), review {}",
-        if closed { "passed" } else { "not passed" }
+        "landing {id}: {} ({}), {}",
+        landing.key,
+        landing.repo,
+        match landing.landed_run {
+            Some(run) => format!("landed with run {run}"),
+            None => "not landed".to_string(),
+        }
     );
     for record::RunRow {
         id: run,
@@ -460,6 +521,11 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
     } in record::runs_of_landing(&conn, id)?
     {
         println!("{kind} {run} over {}...{}", short(&base), short(&head));
+        let read = record::commits_of_run(&conn, run)?;
+        if !read.is_empty() {
+            let shas: Vec<&str> = read.iter().map(|c| short(&c.sha)).collect();
+            println!("  commits: {}", shas.join(" "));
+        }
         print!(
             "{}",
             render::run_report(
@@ -531,7 +597,7 @@ fn store_of(tool: &Tool, args: &Args) -> Result<Store> {
 }
 
 /// `rule` mapped to the name of its group in the checkout's group folders.
-fn group_names(root: &Path) -> Result<impl Fn(&str) -> Option<String>> {
+pub(super) fn group_names(root: &Path) -> Result<impl Fn(&str) -> Option<String>> {
     let groups = groups::Groups::load(root)?;
     Ok(move |rule: &str| {
         groups
@@ -542,7 +608,7 @@ fn group_names(root: &Path) -> Result<impl Fn(&str) -> Option<String>> {
     })
 }
 
-/// `builds review audit LANDING --repo-dir DIR`: audits a landing that passed.
+/// `builds review audit LANDING --repo-dir DIR`: audits a landing that landed.
 fn audit_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["repo-dir", "rules-root", "reviewer", "seed"], &[])?;
     let [landing] = args.exactly(1, USAGE)? else {
@@ -580,60 +646,12 @@ fn audit_command(tool: &Tool, args: &[String]) -> Result<()> {
 }
 
 /// Bits that differ from one run to the next.
-fn clock_bits() -> u64 {
+pub(super) fn clock_bits() -> u64 {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(1);
     (now as u64) ^ (u64::from(std::process::id()) << 32)
-}
-
-/// `builds review sample --landing KEY --repo-dir DIR`: decides whether the
-/// landing's review is audited and, when it is, starts the audit in the
-/// background. It answers at once and never fails a landing.
-fn sample(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &["landing", "repo-dir", "rules-root", "reviewer", "roll"],
-        &[],
-    )?;
-    args.exactly(0, USAGE)?;
-    let key = args.require("landing")?;
-    let store = store_of(tool, &args)?;
-    let root = rules_root(&args)?;
-    let Some(conn) = db::open_reader(&store.database())? else {
-        return Ok(());
-    };
-    let Some((landing, true)) = record::latest_landing(&conn, key)? else {
-        println!("no passed review of {key}: no audit");
-        return Ok(());
-    };
-    let roll = match args.value("roll")? {
-        Some(roll) => roll
-            .parse::<f64>()
-            .map_err(|_| Fail::Message(format!("'{roll}' is not a number")))?,
-        None => (clock_bits() % 1_000_000) as f64 / 1_000_000.0,
-    };
-    if !audit::sampled(&conn, landing, &group_names(&root)?, roll)? {
-        println!("landing {landing} ({key}) is not audited");
-        return Ok(());
-    }
-    let program = std::env::current_exe().context(|| "finding this program".to_string())?;
-    let mut command = std::process::Command::new(program);
-    command
-        .args(["review", "audit", &landing.to_string()])
-        .args(["--project", &store.project])
-        .args(["--repo-dir", args.require("repo-dir")?])
-        .args(["--rules-root", &root.display().to_string()])
-        .args(["--reviewer", args.value("reviewer")?.unwrap_or("claude")])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    command
-        .spawn()
-        .context(|| "starting the audit".to_string())?;
-    println!("landing {landing} ({key}) is audited in the background");
-    Ok(())
 }
 
 /// `builds review misses`: the candidate misses nobody has settled.

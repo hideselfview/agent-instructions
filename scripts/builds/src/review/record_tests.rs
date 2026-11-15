@@ -52,6 +52,7 @@ fn run<'a>(landing: Option<i64>, at: i64, base: &'a str, head: &'a str) -> NewRu
         at,
         base,
         head,
+        commits: &[],
         grouping: "g",
         rules_version: "",
     }
@@ -63,64 +64,74 @@ fn first_repo(db: &Connection) -> String {
 }
 
 #[test]
-fn a_landing_stays_open_until_closed_and_its_reruns_are_the_groups_that_found_something() {
+fn a_landing_stays_open_until_it_lands_and_keeps_the_commits_each_run_read() {
     let db = db();
     let repo = first_repo(&db);
     assert_eq!(open_landing(&db, "k").unwrap(), None);
     let landing = add_landing(&db, "k", &repo, 5).unwrap();
     assert_eq!(open_landing(&db, "k").unwrap(), Some(landing));
-    let mut failed = call("g3", None);
-    failed.failure = Some("boom".to_string());
-    add_run(
-        &db,
-        &run(Some(landing), 6, "base", "head"),
-        &[
-            call("g1", Some(("r", true, None))),
-            call(
-                "g2",
-                Some(("r", true, Some("its code is not in the diff of f"))),
-            ),
-            failed,
-            call("g4", None),
-        ],
-    )
-    .unwrap();
-    assert_eq!(groups_to_rerun(&db, landing).unwrap(), ["g3", "g1"]);
-    close_landing(&db, landing, 9).unwrap();
+    let read = [
+        Commit {
+            sha: "a1".to_string(),
+            patch_id: "p1".to_string(),
+        },
+        Commit {
+            sha: "b2".to_string(),
+            patch_id: "p2".to_string(),
+        },
+    ];
+    let mut with_commits = run(Some(landing), 6, "base", "head");
+    with_commits.commits = &read;
+    let (run_id, _) = add_run(&db, &with_commits, &[call("g1", None)]).unwrap();
+    assert_eq!(commits_of_run(&db, run_id).unwrap(), read);
+    assert_eq!(landings_of_repo(&db, &repo, false).unwrap()[0].id, landing);
+    record_landed(&db, landing, run_id, 9).unwrap();
     assert_eq!(open_landing(&db, "k").unwrap(), None);
-    assert!(landing_state(&db, landing));
-}
-
-fn landing_state(db: &Connection, landing: i64) -> bool {
-    super::landing(db, landing).unwrap().2
+    assert_eq!(
+        super::landing(&db, landing).unwrap().landed_run,
+        Some(run_id)
+    );
+    assert_eq!(landings_of_repo(&db, &repo, true).unwrap()[0].id, landing);
+    assert!(
+        record_landed(&db, landing, run_id, 10)
+            .unwrap_err()
+            .text()
+            .contains("not open")
+    );
 }
 
 #[test]
-fn only_a_blocking_accepted_finding_not_dropped_refuses() {
+fn only_a_confirmed_finding_of_an_open_landing_takes_a_fix_and_a_later_fix_replaces_it() {
     let db = db();
     let repo = first_repo(&db);
     let landing = add_landing(&db, "k", &repo, 5).unwrap();
-    let (run, ids) = add_run(
+    let (run_id, ids) = add_run(
         &db,
         &run(Some(landing), 6, "b", "h"),
-        &[
-            call("g1", Some(("r", true, None))),
-            call("g2", Some(("r", false, None))),
-            call("g3", Some(("r", true, Some("no")))),
-        ],
+        &[call("g1", Some(("r", true, None)))],
     )
     .unwrap();
-    let found = findings_of_run(&db, run).unwrap();
-    let refusing: Vec<i64> = found.iter().filter(|f| f.refuses()).map(|f| f.id).collect();
-    assert_eq!(refusing, [ids[0][0]]);
-    settle(&db, ids[0][0], "dropped", "fine", 7, "me").unwrap();
+    let finding = ids[0][0];
+    let fix = |sha: &str| Commit {
+        sha: sha.to_string(),
+        patch_id: format!("patch-{sha}"),
+    };
     assert!(
-        !findings_of_run(&db, run)
-            .unwrap()
-            .iter()
-            .find(|f| f.id == ids[0][0])
-            .unwrap()
-            .refuses()
+        record_fix(&db, finding, &fix("c3"), 7, "me")
+            .unwrap_err()
+            .text()
+            .contains("not settled as confirmed")
+    );
+    settle(&db, finding, "confirmed", "real", 7, "me").unwrap();
+    record_fix(&db, finding, &fix("c3"), 8, "me").unwrap();
+    record_fix(&db, finding, &fix("d4"), 9, "me").unwrap();
+    assert_eq!(finding_of(&db, finding).unwrap().fix, Some(fix("d4")));
+    record_landed(&db, landing, run_id, 10).unwrap();
+    assert!(
+        record_fix(&db, finding, &fix("e5"), 11, "me")
+            .unwrap_err()
+            .text()
+            .contains("landed already")
     );
 }
 

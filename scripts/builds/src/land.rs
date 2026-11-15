@@ -39,12 +39,16 @@
 //! other. It fails the same way. A fast-forward runs both too: a branch rebased
 //! after its hook ran is a tree no hook has seen.
 //!
-//! After the push and its record, a repo of a project has its landed commits
-//! reviewed against the rules in the background (`builds review run
-//! --record-only`, under the landing's key: the items it names, else its
-//! design change). The landing does not wait for it and no review result
-//! refuses or fails a landing: the review records what each reviewer was sent
-//! and answered, and writes its findings to a log in the store's folder.
+//! In a repo of a project, the commits must have been reviewed against the
+//! rules before they land: `builds review check-landing`, run after the lists'
+//! checks and before anything is fetched, refuses unless a review run read
+//! exactly these changes (the same patch ids, so a rebase or cherry-pick that
+//! keeps them counts) and that review is finished: every group that covers a
+//! changed path answered, every finding is settled, and every confirmed one is
+//! fixed by one of the commits. Commits whose paths no group covers need no
+//! review. After the push, `builds review landed` records the review's
+//! landing as landed beside the items and the design change, and starts the
+//! audit of a sampled one, which never fails the landing.
 //!
 //! The store's checks and records run as `builds` commands of this same
 //! program, so their output is held back and shown only when one fails.
@@ -374,16 +378,36 @@ impl Landing<'_> {
                 return Err(refuse(out, said));
             }
         }
+        let (ok, said) = self.run_line(&self.review_line("check-landing", project));
+        if !ok {
+            let _ = writeln!(out, "LANDING REFUSED, nothing fetched or pushed:");
+            return Err(refuse(out, said));
+        }
         Ok(())
     }
 
+    /// `builds review <verb>` for the landing's worktree and commits, as given:
+    /// the review read those commits, and their patch ids are what it matches.
+    fn review_line(&self, verb: &str, project: &str) -> Vec<String> {
+        let mut line = vec![
+            "review".to_string(),
+            verb.to_string(),
+            self.workdir.display().to_string(),
+            "--project".to_string(),
+            project.to_string(),
+        ];
+        line.extend(self.request.shas.iter().cloned());
+        line
+    }
+
     /// Records what landed, as `builds item landed` and `builds design landed`
-    /// with the commits now on origin/main. Both are idempotent, so a failure
-    /// prints the rerun. Says whether every record was written.
+    /// with the commits now on origin/main, and `builds review landed` with
+    /// the commits as given. Each is idempotent, so a failure prints the
+    /// rerun. Says whether every record was written.
     fn record(&self, on_main: &[String], out: &mut dyn Write) -> bool {
-        if self.project.is_none() {
+        let Some(project) = &self.project else {
             return true;
-        }
+        };
         let mut all_written = true;
         let mut lines: Vec<Vec<String>> = Vec::new();
         if !self.request.items.is_empty() {
@@ -395,6 +419,7 @@ impl Landing<'_> {
             line.extend(on_main.iter().cloned());
             lines.push(line);
         }
+        lines.push(self.review_line("landed", project));
         for line in lines {
             let (ok, said) = self.run_line(&line);
             if !ok {
@@ -499,56 +524,6 @@ impl Landing<'_> {
             }
         }
         Ok(())
-    }
-
-    /// Starts `builds review run --record-only` on the commits just pushed
-    /// and returns at once: the review runs on in the background, records
-    /// what its reviewers were sent and answered, writes its findings to a log
-    /// in the store's folder, and never refuses or fails the landing.
-    fn start_review(&self, base: &str, head: &str) {
-        use std::os::unix::process::CommandExt;
-        let Some(project) = &self.project else {
-            return;
-        };
-        let mut command = Command::new(self.program);
-        command
-            .args(["review", "run"])
-            .arg(&self.workdir)
-            .args([base, "--head", head, "--landing", &self.review_key()])
-            .args(["--project", project, "--record-only"]);
-        for item in self.request.items.chunks(2) {
-            command.args(["--item", &item[1]]);
-        }
-        command
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .process_group(0);
-        if let Err(error) = command.spawn() {
-            let _ = std::io::stderr()
-                .write_all(format!("builds: the review was not started: {error}\n").as_bytes());
-        }
-    }
-
-    /// What names this landing across its reviews: the items it names, else
-    /// its design change. The commits change when an agent fixes a finding;
-    /// these do not.
-    fn review_key(&self) -> String {
-        let mut items: Vec<&str> = self
-            .request
-            .items
-            .chunks(2)
-            .map(|pair| pair[1].as_str())
-            .collect();
-        items.sort();
-        items.dedup();
-        if !items.is_empty() {
-            return format!("items:{}", items.join(","));
-        }
-        match &self.request.design {
-            Some(design) => format!("design:{design}"),
-            None => format!("commits:{}", self.request.shas.join(",")),
-        }
     }
 
     fn put_on_main(&self, out: &mut dyn Write) -> Result<()> {
@@ -659,8 +634,6 @@ impl Landing<'_> {
                         .map(str::to_string)
                         .collect();
                 return if self.record(&on_main, out) {
-                    let landed = git_text(dir, &["rev-parse", "HEAD"]).unwrap_or_default();
-                    self.start_review(&before, &landed);
                     Ok(())
                 } else {
                     Err(Fail::Exit(1))

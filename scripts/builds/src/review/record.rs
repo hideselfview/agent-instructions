@@ -1,14 +1,16 @@
 //! What reviews wrote down, in the tables of `record.sql`: this file is the
-//! only code that writes them. A landing under review keeps one key across
-//! its reruns; a run holds one call per group, a call holds a verdict for every
-//! rule and the findings; the coordinator settles a finding as confirmed or
-//! dropped.
+//! only code that writes them. A change under review keeps one landing, found
+//! by its key, across its runs until it lands; a run holds the commits it read
+//! and one call per group, a call holds a verdict for every rule and the
+//! findings; the coordinator settles a finding as confirmed or dropped, and
+//! names the commit that fixed a confirmed one.
 
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
+use crate::review::commits::Commit;
 
 /// A finding a reviewer raised, as it goes into the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,6 +100,8 @@ pub struct Finding {
     pub check_failed: Option<String>,
     /// (`confirmed` or `dropped`, why).
     pub settled: Option<(String, String)>,
+    /// The commit that fixed it, for a confirmed finding.
+    pub fix: Option<Commit>,
 }
 
 impl Finding {
@@ -106,11 +110,9 @@ impl Finding {
         self.check_failed.is_none()
     }
 
-    /// Whether it refuses a landing: blocking, accepted and not dropped.
-    pub fn refuses(&self) -> bool {
-        self.counts()
-            && self.blocking
-            && !matches!(&self.settled, Some((how, _)) if how == "dropped")
+    /// Whether the coordinator settled it as <how>.
+    pub fn settled_as(&self, how: &str) -> bool {
+        matches!(&self.settled, Some((settled, _)) if settled == how)
     }
 }
 
@@ -129,10 +131,10 @@ pub struct Call {
     pub failure: Option<String>,
 }
 
-/// The landing of <key> that no review has passed yet, if any.
+/// The landing of <key> whose change has not landed, if any.
 pub fn open_landing(db: &Connection, key: &str) -> Result<Option<i64>> {
     db.query_row(
-        "SELECT id FROM review_landing WHERE key = ?1 AND closed_at IS NULL ORDER BY id DESC LIMIT 1",
+        "SELECT id FROM review_landing WHERE key = ?1 AND landed_at IS NULL ORDER BY id DESC LIMIT 1",
         params![key],
         |row| row.get(0),
     )
@@ -149,13 +151,18 @@ pub fn add_landing(db: &Connection, key: &str, repo: &str, now: i64) -> Result<i
     Ok(db.last_insert_rowid())
 }
 
-/// Marks the landing's review passed.
-pub fn close_landing(db: &Connection, landing: i64, now: i64) -> Result<()> {
-    db.execute(
-        "UPDATE review_landing SET closed_at = ?2 WHERE id = ?1 AND closed_at IS NULL",
-        params![landing, now],
-    )
-    .sql()?;
+/// Records that <landing>'s change landed, with <run> the run that covered
+/// the commits pushed. A landing recorded as landed already is refused.
+pub fn record_landed(db: &Connection, landing: i64, run: i64, now: i64) -> Result<()> {
+    let changed = db
+        .execute(
+            "UPDATE review_landing SET landed_at = ?2, landed_run = ?3 WHERE id = ?1 AND landed_at IS NULL",
+            params![landing, now, run],
+        )
+        .sql()?;
+    if changed == 0 {
+        fail!("review landing {landing} is not open: it landed already or does not exist");
+    }
     Ok(())
 }
 
@@ -168,6 +175,9 @@ pub struct NewRun<'a> {
     pub at: i64,
     pub base: &'a str,
     pub head: &'a str,
+    /// The commits a review read, with their patch ids; none for a replay or
+    /// an audit.
+    pub commits: &'a [Commit],
     /// A hash of the groups' settings and rules the run used.
     pub grouping: &'a str,
     /// The commit of the rules checkout the run read.
@@ -203,13 +213,20 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
         params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.grouping, run.rules_version],
     )
     .sql()?;
-    let run = db.last_insert_rowid();
+    let run_id = db.last_insert_rowid();
+    for (position, commit) in run.commits.iter().enumerate() {
+        db.execute(
+            "INSERT INTO review_commit (run_id, position, sha, patch_id) VALUES (?1, ?2, ?3, ?4)",
+            params![run_id, position as i64, commit.sha, commit.patch_id],
+        )
+        .sql()?;
+    }
     let mut ids = Vec::new();
     for call in calls {
         let rules = serde_json::to_string(&call.rules).expect("strings serialize");
         db.execute(
             "INSERT INTO review_call (run_id, group_name, model, rules, tokens_in, tokens_out, tokens_cached, tokens_written, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![run, call.group, call.model, rules, call.tokens_in, call.tokens_out, call.tokens_cached, call.tokens_written, call.sites, call.failure],
+            params![run_id, call.group, call.model, rules, call.tokens_in, call.tokens_out, call.tokens_cached, call.tokens_written, call.sites, call.failure],
         )
         .sql()?;
         let call_id = db.last_insert_rowid();
@@ -240,7 +257,7 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
         }
         ids.push(finding_ids);
     }
-    Ok((run, ids))
+    Ok((run_id, ids))
 }
 
 /// Settles finding <id> as `confirmed` or `dropped`. A finding builds dropped
@@ -279,11 +296,47 @@ pub fn settle(db: &Connection, id: i64, how: &str, why: &str, now: i64, by: &str
     Ok(())
 }
 
-const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why";
+/// Names commit <sha> as the fix of confirmed finding <id>, replacing the
+/// one named before. Only a confirmed finding of a review whose change has not
+/// landed takes a fix.
+pub fn record_fix(db: &Connection, id: i64, fix: &Commit, now: i64, by: &str) -> Result<()> {
+    let finding = finding_of(db, id)?;
+    if finding.kind != "review" {
+        fail!(
+            "finding {id} is from a {}, not a review; only a review's finding takes a fix",
+            finding.kind
+        );
+    }
+    if !finding.settled_as("confirmed") {
+        fail!(
+            "finding {id} is not settled as confirmed; settle it first: builds review settle {id} confirmed --why TEXT"
+        );
+    }
+    let landed: bool = db
+        .query_row(
+            "SELECT landed_at IS NOT NULL FROM review_landing WHERE id = ?1",
+            params![finding.landing_id],
+            |row| row.get(0),
+        )
+        .sql()?;
+    if landed {
+        fail!("finding {id} belongs to a change that landed already");
+    }
+    db.execute(
+        "INSERT OR REPLACE INTO review_fix (finding_id, sha, patch_id, at, by) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, fix.sha, fix.patch_id, now, by],
+    )
+    .sql()?;
+    Ok(())
+}
+
+const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, x.sha, x.patch_id";
 
 fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
     let settled: Option<String> = row.get(13)?;
     let why: Option<String> = row.get(14)?;
+    let fix_sha: Option<String> = row.get(15)?;
+    let fix_patch: Option<String> = row.get(16)?;
     Ok(Finding {
         id: row.get(0)?,
         run_id: row.get(1)?,
@@ -299,10 +352,13 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
         blocking: row.get(11)?,
         check_failed: row.get(12)?,
         settled: settled.zip(why),
+        fix: fix_sha
+            .zip(fix_patch)
+            .map(|(sha, patch_id)| Commit { sha, patch_id }),
     })
 }
 
-const FINDING_FROM: &str = "FROM review_finding f JOIN review_call c ON c.id = f.call_id JOIN review_run r ON r.id = c.run_id";
+const FINDING_FROM: &str = "FROM review_finding f JOIN review_call c ON c.id = f.call_id JOIN review_run r ON r.id = c.run_id LEFT JOIN review_fix x ON x.finding_id = f.id";
 
 /// Every finding of <run>, in the order raised.
 pub fn findings_of_run(db: &Connection, run: i64) -> Result<Vec<Finding>> {
@@ -364,12 +420,29 @@ fn calls_where(db: &Connection, condition: &str, value: i64) -> Result<Vec<Call>
     rows.map(|row| row.sql()).collect()
 }
 
-/// (id, key, repo, closed) of <landing>.
-pub fn landing(db: &Connection, landing: i64) -> Result<(String, String, bool)> {
+/// A landing as the store holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LandingRow {
+    pub id: i64,
+    pub key: String,
+    pub repo: String,
+    /// The run that covered the commits pushed, once the change landed.
+    pub landed_run: Option<i64>,
+}
+
+/// <landing> as the store holds it.
+pub fn landing(db: &Connection, landing: i64) -> Result<LandingRow> {
     db.query_row(
-        "SELECT key, repo, closed_at IS NOT NULL FROM review_landing WHERE id = ?1",
+        "SELECT id, key, repo, landed_run FROM review_landing WHERE id = ?1",
         params![landing],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        |row| {
+            Ok(LandingRow {
+                id: row.get(0)?,
+                key: row.get(1)?,
+                repo: row.get(2)?,
+                landed_run: row.get(3)?,
+            })
+        },
     )
     .optional()
     .sql()?
@@ -406,15 +479,41 @@ pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
     rows.map(|row| row.sql()).collect()
 }
 
-/// The newest landing of <key> and whether a review of it passed.
-pub fn latest_landing(db: &Connection, key: &str) -> Result<Option<(i64, bool)>> {
-    db.query_row(
-        "SELECT id, closed_at IS NOT NULL FROM review_landing WHERE key = ?1 ORDER BY id DESC LIMIT 1",
-        params![key],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )
-    .optional()
-    .sql()
+/// The landings of <repo>, newest first: open ones when <landed> is false,
+/// landed ones when it is true.
+pub fn landings_of_repo(db: &Connection, repo: &str, landed: bool) -> Result<Vec<LandingRow>> {
+    let mut statement = db
+        .prepare(
+            "SELECT id, key, repo, landed_run FROM review_landing WHERE repo = ?1 AND (landed_at IS NOT NULL) = ?2 ORDER BY id DESC",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map(params![repo, landed], |row| {
+            Ok(LandingRow {
+                id: row.get(0)?,
+                key: row.get(1)?,
+                repo: row.get(2)?,
+                landed_run: row.get(3)?,
+            })
+        })
+        .sql()?;
+    rows.map(|row| row.sql()).collect()
+}
+
+/// The commits <run> read, in order.
+pub fn commits_of_run(db: &Connection, run: i64) -> Result<Vec<Commit>> {
+    let mut statement = db
+        .prepare("SELECT sha, patch_id FROM review_commit WHERE run_id = ?1 ORDER BY position")
+        .sql()?;
+    let rows = statement
+        .query_map(params![run], |row| {
+            Ok(Commit {
+                sha: row.get(0)?,
+                patch_id: row.get(1)?,
+            })
+        })
+        .sql()?;
+    rows.map(|row| row.sql()).collect()
 }
 
 /// How many landings had a review under the grouping <hash>.
@@ -438,23 +537,6 @@ pub fn audited_landings(db: &Connection) -> Result<Vec<i64>> {
     rows.map(|row| row.sql()).collect()
 }
 
-/// The groups of <landing> that need another look: a call that failed or one
-/// that raised a finding builds accepted.
-pub fn groups_to_rerun(db: &Connection, landing: i64) -> Result<Vec<String>> {
-    let mut groups: Vec<String> = Vec::new();
-    for call in calls_of_landing(db, landing)? {
-        if call.failure.is_some() && !groups.contains(&call.group) {
-            groups.push(call.group);
-        }
-    }
-    for finding in findings_of_landing(db, landing)? {
-        if finding.counts() && !groups.contains(&finding.group) {
-            groups.push(finding.group);
-        }
-    }
-    Ok(groups)
-}
-
 /// Marks finding <id> settled as `dropped` because it repeats <earlier>.
 pub fn inherit_drop(db: &Connection, id: i64, earlier: &Finding, now: i64) -> Result<()> {
     let why = format!(
@@ -467,6 +549,68 @@ pub fn inherit_drop(db: &Connection, id: i64, earlier: &Finding, now: i64) -> Re
             .unwrap_or("")
     );
     settle(db, id, "dropped", &why, now, "builds")
+}
+
+/// Moves a store's review tables from before reviews ran before landing to
+/// today's, with the statements taken from record.sql so the result equals a
+/// fresh database's: `review_landing` is made again with `landed_at` and
+/// `landed_run` in place of `closed_at` (a landing whose review passed landed
+/// with its newest review run, since that review ran after the push), and
+/// `review_commit` and `review_fix` are added empty. migrate.rs runs it with
+/// the foreign keys off, and the rename runs under `legacy_alter_table`, so
+/// `review_run`'s reference keeps naming `review_landing`.
+pub fn move_to_landing_review(db: &Connection) -> Result<()> {
+    let schema = crate::db::REVIEW_PART;
+    let slice = |from: &str, end: &str| {
+        let start = schema.find(from).expect("record.sql has it");
+        let stop = start + schema[start..].find(end).expect("it ends") + end.len();
+        &schema[start..stop]
+    };
+    let landing = slice("CREATE TABLE review_landing", "STRICT;");
+    let index = slice("CREATE INDEX review_landing_key", ";");
+    let commit = slice("CREATE TABLE review_commit", "WITHOUT ROWID;");
+    let fix = slice("CREATE TABLE review_fix", "STRICT;");
+    db.execute_batch(&format!(
+        "PRAGMA legacy_alter_table = ON;
+ALTER TABLE review_landing RENAME TO review_landing_old;
+{landing}
+INSERT INTO review_landing (id, key, repo, opened_at, landed_at, landed_run)
+    SELECT o.id, o.key, o.repo, o.opened_at, o.closed_at,
+        CASE WHEN o.closed_at IS NULL THEN NULL
+            ELSE (SELECT MAX(r.id) FROM review_run r WHERE r.landing_id = o.id AND r.kind = 'review') END
+    FROM review_landing_old o;
+DROP TABLE review_landing_old;
+{index}
+{commit}
+{fix}
+PRAGMA legacy_alter_table = OFF;"
+    ))
+    .sql()
+}
+
+/// The tables record.rs owns.
+#[cfg(test)]
+const TABLES: [&str; 9] = [
+    "review_landing",
+    "review_run",
+    "review_call",
+    "review_text",
+    "review_exchange",
+    "review_verdict",
+    "review_finding",
+    "review_commit",
+    "review_fix",
+];
+
+/// Writes a row of one of record.rs's tables as given, the constraints still
+/// holding: for tests that need a row of a store they build by hand.
+#[cfg(test)]
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
+    crate::db::plant_row(db, &TABLES, table, columns)
 }
 
 #[cfg(test)]

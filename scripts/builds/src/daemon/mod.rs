@@ -19,6 +19,7 @@ pub mod index;
 pub mod lists;
 pub mod live;
 pub mod model;
+pub mod review_cards;
 pub mod runs;
 pub mod tracker;
 pub mod vnode;

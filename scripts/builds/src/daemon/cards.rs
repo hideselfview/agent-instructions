@@ -25,6 +25,59 @@ pub enum ItemWait {
     Item { id: u32, title: String },
     /// Commits of a design branch that no recorded design change covers.
     Unrecorded,
+    /// Commits waiting to land whose rules review `builds land` would not
+    /// take yet (review_cards.rs).
+    RulesReview(ReviewWait),
+}
+
+/// Where the rules review of a branch stands while `builds land` would refuse
+/// its commits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReviewWait {
+    /// No review read these commits, or a group still has to answer over
+    /// them: the coordinator runs the review.
+    NotRun,
+    /// A review of the branch's newest commit runs now.
+    Running,
+    /// This many findings wait for the coordinator to settle them.
+    ToSettle(usize),
+    /// This many confirmed findings wait on a commit that fixes them.
+    Unfixed(usize),
+}
+
+impl ReviewWait {
+    /// The card's chip.
+    fn chip(self) -> &'static str {
+        match self {
+            ReviewWait::NotRun => "Needs review",
+            ReviewWait::Running => "Reviewing",
+            ReviewWait::ToSettle(_) => "Findings to settle",
+            ReviewWait::Unfixed(_) => "Waiting on fixes",
+        }
+    }
+
+    fn line(self) -> String {
+        let findings = |n: usize, what: &str| match n {
+            1 => format!("1 {what} finding waits"),
+            n => format!("{n} {what} findings wait"),
+        };
+        match self {
+            ReviewWait::NotRun => {
+                "Waits on the coordinator to review its commits against the rules.".to_string()
+            }
+            ReviewWait::Running => "The rules review of its commits runs.".to_string(),
+            ReviewWait::ToSettle(n) => format!(
+                "{} on the coordinator to settle {}.",
+                findings(n, "review"),
+                if n == 1 { "it" } else { "them" }
+            ),
+            ReviewWait::Unfixed(n) => format!(
+                "{} on a commit that fixes {}.",
+                findings(n, "confirmed review"),
+                if n == 1 { "it" } else { "them" }
+            ),
+        }
+    }
 }
 
 /// A build that waits in a lane's queue.
@@ -49,6 +102,7 @@ impl ItemWait {
             ItemWait::AppBuild { .. } => 2,
             ItemWait::Item { .. } => 3,
             ItemWait::Unrecorded => 4,
+            ItemWait::RulesReview(_) => 5,
         }
     }
 
@@ -82,6 +136,7 @@ impl ItemWait {
             ItemWait::Unrecorded => {
                 "Waits on the design session to record its design change.".to_string()
             }
+            ItemWait::RulesReview(review) => review.line(),
         }
     }
 }
@@ -97,6 +152,12 @@ pub fn keeps_working(state: Option<&str>, shell: bool, wait: Option<&ItemWait>) 
                 wait,
                 Some(ItemWait::AppBuild { .. } | ItemWait::Item { .. })
             ))
+}
+
+/// Is a worktree in <state> in review instead of Ready to land? Its commits
+/// wait to land and the rules review <wait> stands in the way.
+pub fn in_review(state: Option<&str>, wait: Option<&ItemWait>) -> bool {
+    state == Some("ready-to-land") && matches!(wait, Some(ItemWait::RulesReview(_)))
 }
 
 /// Does a worktree in <state> wait for an app build that has not started? Its
@@ -181,6 +242,10 @@ pub fn words(checkout: &CheckoutPage, titles: &[String], wait: Option<&ItemWait>
             Some("Working"),
             wait.map(|w| w.line(titled)).unwrap_or_default(),
         ),
+        Some("in-review") => match wait {
+            Some(ItemWait::RulesReview(review)) => (Some(review.chip()), review.line()),
+            _ => (Some("Needs review"), String::new()),
+        },
         Some("free") => (None, "Free: no claim, every commit landed.".to_string()),
         Some("ready-to-land") if checkout.claim.is_none() => (
             Some("Ready to land"),

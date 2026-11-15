@@ -17,7 +17,7 @@
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::db::{self, DATABASE, Sql};
 use crate::fail;
@@ -159,6 +159,11 @@ const BEFORE_CARGO_RUNS_STAMP: i64 = 95_960_216;
 /// The stamp of the schema before the design fixes' table was added.
 const BEFORE_DESIGN_FIX_STAMP: i64 = 187_372_354;
 
+/// The stamp of the schema before reviews ran before landing: a review
+/// landing closed when a review passed, and no run kept its commits or a
+/// finding its fix.
+const BEFORE_LANDING_REVIEW_STAMP: i64 = 548_041_900;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -178,7 +183,11 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// `shot_findings` table (no run's findings are kept yet), every store gets
 /// the review's empty tables, and every store older than today's gets the
 /// empty `cargo_runs` table (no cargo run is recorded yet), and every store
-/// gets the empty `design_fix` table (no change is a fix yet). The moves run in
+/// gets the empty `design_fix` table (no change is a fix yet), and every store
+/// whose review tables are older than today's gets `review_landing` with
+/// `landed_at` and `landed_run` in place of `closed_at` (a landing whose review
+/// passed landed with its newest review run, since that review ran after the
+/// push) and the empty `review_commit` and `review_fix` tables. The moves run in
 /// one transaction, the store is stamped as today's schema, and it must then
 /// equal a fresh database's schema or the transaction rolls back. A store
 /// already at today's stamp, or with no database, is left alone; any other
@@ -275,58 +284,86 @@ fn move_store(path: &Path) -> Result<()> {
         BEFORE_REVIEW_STAMP,
         BEFORE_CARGO_RUNS_STAMP,
         BEFORE_DESIGN_FIX_STAMP,
+        BEFORE_LANDING_REVIEW_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP} and {BEFORE_DESIGN_FIX_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP} and {BEFORE_LANDING_REVIEW_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
     }
+    // Off for the moves, so a table made again keeps the references to it as
+    // they are written; every reference is checked before the commit.
+    conn.pragma_update(None, "foreign_keys", false).sql()?;
     let tx = conn
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .sql()?;
-    if found == BEFORE_DESIGN_DELETED_STAMP {
-        tx.execute_batch(DESIGN_DELETED).sql()?;
+    // A store from before reviews ran before landing has every other part.
+    if found != BEFORE_LANDING_REVIEW_STAMP {
+        if found == BEFORE_DESIGN_DELETED_STAMP {
+            tx.execute_batch(DESIGN_DELETED).sql()?;
+        }
+        let has_tip_and_times = [
+            BEFORE_APP_TIMING_STAMP,
+            BEFORE_DESIGN_SESSION_STAMP,
+            BEFORE_SHOT_FINDINGS_STAMP,
+            BEFORE_REVIEW_STAMP,
+            BEFORE_CARGO_RUNS_STAMP,
+            BEFORE_DESIGN_FIX_STAMP,
+        ]
+        .contains(&found);
+        if found != BEFORE_DESIGN_TIP_STAMP && !has_tip_and_times {
+            tx.execute_batch(&check_times()).sql()?;
+        }
+        if !has_tip_and_times {
+            tx.execute_batch(&design_tip()).sql()?;
+        }
+        if ![
+            BEFORE_DESIGN_SESSION_STAMP,
+            BEFORE_SHOT_FINDINGS_STAMP,
+            BEFORE_REVIEW_STAMP,
+            BEFORE_CARGO_RUNS_STAMP,
+            BEFORE_DESIGN_FIX_STAMP,
+        ]
+        .contains(&found)
+        {
+            tx.execute_batch(db::APP_TIMING_PART).sql()?;
+        }
+        // Every part is `IF NOT EXISTS`, so a store that has one keeps it.
+        tx.execute_batch(db::DESIGN_SESSION_PART).sql()?;
+        tx.execute_batch(db::SHOT_FINDINGS_PART).sql()?;
+        // The review's tables are plain `CREATE TABLE`s: a store from just before
+        // the cargo runs' table, or after it, already has them.
+        if found != BEFORE_CARGO_RUNS_STAMP && found != BEFORE_DESIGN_FIX_STAMP {
+            tx.execute_batch(db::REVIEW_PART).sql()?;
+        }
+        tx.execute_batch(db::CARGO_RUNS_PART).sql()?;
+        tx.execute_batch(&design_fix()).sql()?;
     }
-    let has_tip_and_times = [
-        BEFORE_APP_TIMING_STAMP,
-        BEFORE_DESIGN_SESSION_STAMP,
-        BEFORE_SHOT_FINDINGS_STAMP,
-        BEFORE_REVIEW_STAMP,
+    // A store that has the review's tables has them as they were before
+    // reviews ran before landing; one that got them above has today's.
+    if [
         BEFORE_CARGO_RUNS_STAMP,
         BEFORE_DESIGN_FIX_STAMP,
-    ]
-    .contains(&found);
-    if found != BEFORE_DESIGN_TIP_STAMP && !has_tip_and_times {
-        tx.execute_batch(&check_times()).sql()?;
-    }
-    if !has_tip_and_times {
-        tx.execute_batch(&design_tip()).sql()?;
-    }
-    if ![
-        BEFORE_DESIGN_SESSION_STAMP,
-        BEFORE_SHOT_FINDINGS_STAMP,
-        BEFORE_REVIEW_STAMP,
-        BEFORE_CARGO_RUNS_STAMP,
-        BEFORE_DESIGN_FIX_STAMP,
+        BEFORE_LANDING_REVIEW_STAMP,
     ]
     .contains(&found)
     {
-        tx.execute_batch(db::APP_TIMING_PART).sql()?;
+        crate::review::record::move_to_landing_review(&tx)?;
     }
-    // Every part is `IF NOT EXISTS`, so a store that has one keeps it.
-    tx.execute_batch(db::DESIGN_SESSION_PART).sql()?;
-    tx.execute_batch(db::SHOT_FINDINGS_PART).sql()?;
-    // The review's tables are plain `CREATE TABLE`s: a store from just before
-    // the cargo runs' table, or after it, already has them.
-    if found != BEFORE_CARGO_RUNS_STAMP && found != BEFORE_DESIGN_FIX_STAMP {
-        tx.execute_batch(db::REVIEW_PART).sql()?;
-    }
-    tx.execute_batch(db::CARGO_RUNS_PART).sql()?;
-    tx.execute_batch(&design_fix()).sql()?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
+    let broken: Option<String> = tx
+        .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))
+        .optional()
+        .sql()?;
+    if let Some(table) = broken {
+        fail!(
+            "{} holds a row of {table} that points at no row after the move; it is left as it was",
+            path.display()
+        );
+    }
     if db::schema_rows(&tx)? != db::schema_rows(&db::memory())? {
         fail!(
             "{} holds a schema that is not the one this builds makes; it is left as it was",

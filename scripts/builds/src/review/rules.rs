@@ -19,7 +19,7 @@ pub struct Rule {
     pub group_dir: Option<String>,
     /// The globs the rule covers; None covers every path.
     pub paths: Option<Vec<String>>,
-    /// Whether a finding of this rule refuses a landing.
+    /// Whether the reviewer's prompt and the report mark its findings blocking.
     pub blocking: bool,
     /// False for a rule marked `review: false`, which the reviewer can't check.
     pub reviewable: bool,

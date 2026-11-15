@@ -1,21 +1,25 @@
 -- Every review of a change against the rules (`builds review`): the landing it
--- belongs to, each run, each reviewer call, its verdict for every rule, and
--- each finding with how the coordinator settled it. record.rs owns these
--- tables and is the only code that writes them.
+-- belongs to, each run and the commits it read, each reviewer call, its verdict
+-- for every rule, each finding with how the coordinator settled it, and the
+-- commit that fixed a confirmed finding. record.rs owns these tables and is the
+-- only code that writes them.
 
--- A landing under review: the reviews of one landing share a key until one of
--- them passes (closed_at).
+-- A change under review: every review of it shares this landing, found by its
+-- key, until the change lands. landed_at is when `builds land` pushed it, and
+-- landed_run the run that covered the commits it pushed.
 CREATE TABLE review_landing (
     id INTEGER PRIMARY KEY,
     key TEXT NOT NULL CONSTRAINT review_landing_key_says_something CHECK (trim(key) <> ''),
     repo TEXT NOT NULL REFERENCES repo (name),
     opened_at INTEGER NOT NULL,
-    closed_at INTEGER
+    landed_at INTEGER,
+    landed_run INTEGER REFERENCES review_run (id),
+    CONSTRAINT review_landing_landed_whole CHECK ((landed_at IS NULL) = (landed_run IS NULL))
 ) STRICT;
 CREATE INDEX review_landing_key ON review_landing (key);
 
 -- One run over a diff: a landing's review, a replay of a test case, or an audit
--- of a landing that passed.
+-- of a landing that landed.
 CREATE TABLE review_run (
     id INTEGER PRIMARY KEY,
     landing_id INTEGER REFERENCES review_landing (id),
@@ -111,3 +115,25 @@ CREATE TABLE review_finding (
     CONSTRAINT review_finding_a_dropped_one_is_not_settled CHECK (check_failed IS NULL OR settled IS NULL)
 ) STRICT;
 CREATE INDEX review_finding_call ON review_finding (call_id);
+
+-- The commits a review read, in order, each with its patch id (`git patch-id
+-- --stable`); a commit that changes nothing has none and is left out. `builds
+-- land` matches the commits it lands to a run by these patch ids, so a rebase
+-- or a cherry-pick that keeps each commit's change keeps its review.
+CREATE TABLE review_commit (
+    run_id INTEGER NOT NULL REFERENCES review_run (id),
+    position INTEGER NOT NULL CONSTRAINT review_commit_position_not_negative CHECK (position >= 0),
+    sha TEXT NOT NULL,
+    patch_id TEXT NOT NULL,
+    PRIMARY KEY (run_id, position)
+) STRICT, WITHOUT ROWID;
+
+-- The commit that fixes a confirmed finding, and its patch id, which must be
+-- among the patch ids of the commits the landing pushes.
+CREATE TABLE review_fix (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
+    sha TEXT NOT NULL,
+    patch_id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT review_fix_by_says_something CHECK (trim(by) <> '')
+) STRICT;

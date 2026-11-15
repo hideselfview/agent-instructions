@@ -30,6 +30,7 @@ fn finding(kind: &str, rule: &str, file: &str, check_failed: Option<&str>) -> Fi
         blocking: true,
         check_failed: check_failed.map(str::to_string),
         settled: None,
+        fix: None,
     }
 }
 
@@ -124,6 +125,7 @@ fn an_audit_records_two_runs_names_the_misses_and_feeds_the_miss_rate() {
     .unwrap();
     assert!(reviewed.refusal.is_none());
     let landing = reviewed.landing.unwrap();
+    land(&demo, landing, &stamp);
     fake.prompts();
     // The audits raise a finding the review did not.
     fake.answer("audit rule-a", &[("rule-a", Some(BAD))]);
@@ -172,8 +174,19 @@ fn an_audit_records_two_runs_names_the_misses_and_feeds_the_miss_rate() {
     assert!(sampled(&conn, landing, &group_of_rule, 0.99).unwrap());
 }
 
+/// Records <landing> as landed with its newest run, as `builds review landed`
+/// does after the push.
+fn land(demo: &crate::lists::item_fixtures::Demo, landing: i64, stamp: &crate::lists::Stamp) {
+    demo.store
+        .write(stamp, "landed", |db| {
+            let run = record::runs_of_landing(db, landing)?.last().unwrap().id;
+            record::record_landed(db, landing, run, stamp.at)
+        })
+        .unwrap();
+}
+
 #[test]
-fn a_landing_whose_review_did_not_pass_is_not_audited() {
+fn a_landing_whose_change_has_not_landed_is_not_audited() {
     let demo = demo("review-audit-open");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
@@ -210,5 +223,5 @@ fn a_landing_whose_review_did_not_pass_is_not_audited() {
     })
     .unwrap_err()
     .text();
-    assert!(refused.contains("no passed review"), "{refused}");
+    assert!(refused.contains("has not landed"), "{refused}");
 }

@@ -305,3 +305,47 @@ fn a_queued_card_names_the_lane_and_carries_its_place_and_what_it_asked() {
     assert_eq!((queued.place, queued.of), (1, 4));
     assert_eq!(queued.steps.as_deref(), Some("macos macos-tests"));
 }
+
+#[test]
+fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_where_it_stands() {
+    let review = |wait| ItemWait::RulesReview(wait);
+    assert!(in_review(
+        Some("ready-to-land"),
+        Some(&review(ReviewWait::NotRun))
+    ));
+    assert!(!in_review(Some("ready-to-land"), None));
+    assert!(!in_review(
+        Some("working"),
+        Some(&review(ReviewWait::NotRun))
+    ));
+    let said = |wait| {
+        let card = words(
+            &card(Some("in-review"), claim(None), Some(0)),
+            &[],
+            Some(&review(wait)),
+        );
+        (card.chip.unwrap(), card.line)
+    };
+    assert_eq!(
+        said(ReviewWait::NotRun),
+        (
+            "Needs review",
+            "Waits on the coordinator to review its commits against the rules.".to_string()
+        )
+    );
+    assert_eq!(said(ReviewWait::Running).0, "Reviewing");
+    assert_eq!(
+        said(ReviewWait::ToSettle(3)),
+        (
+            "Findings to settle",
+            "3 review findings wait on the coordinator to settle them.".to_string()
+        )
+    );
+    assert_eq!(
+        said(ReviewWait::Unfixed(1)),
+        (
+            "Waiting on fixes",
+            "1 confirmed review finding waits on a commit that fixes it.".to_string()
+        )
+    );
+}

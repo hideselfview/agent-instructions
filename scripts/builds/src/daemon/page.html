@@ -175,6 +175,9 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 /* A worktree whose branch waits in an app build lane's queue. */
 .bar.queued { background: var(--winding-bg); color: var(--winding); }
 .bar.queued .disk { color: var(--winding); }
+/* A worktree whose commits wait on their rules review before they can land. */
+.bar.review { background: var(--winding-bg); color: var(--winding); }
+.bar.review .disk { color: var(--winding); }
 .wt-card .steps { font: 12px var(--mono); }
 .bar .qplace { font: 500 12px var(--mono); margin-left: 4px; }
 .bar .grp { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; }
@@ -350,7 +353,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 "use strict";
 // The states the daemon derives for each side worktree (worktree_state in
 // model.rs), in the order the cards sort.
-const ORDER = ["waiting-on-you", "ready-to-land", "queued", "winding-down", "working", "held", "landing", "free"];
+const ORDER = ["waiting-on-you", "ready-to-land", "in-review", "queued", "winding-down", "working", "held", "landing", "free"];
 const LISTS_HIDDEN_KEY = "builds-dashboard-lists-hidden";
 let state = null, streamError = "", connectionDown = false;
 let hooks = null, hooksError = "";
@@ -643,7 +646,8 @@ function commitCells(commits) {
   return commits.flatMap(x => [h("span", {class: "mono"}, x.sha), h("span", {}, x.subject)]);
 }
 // A worktree's card, the way the board draws one: a bar with its state and
-// its disk (green for Working, blue for Ready to land), what builds in it on
+// its disk (green for Working, blue for Ready to land, grey for a branch whose
+// rules review is not finished), what builds in it on
 // that bar's second line, its title, one plain line, the commit waiting to
 // land, and a footer of times and tree state. The daemon words the state, the
 // line and the tree (cards.rs).
@@ -658,7 +662,7 @@ function worktreeCard(c) {
   const g = c.git, a = c.activity, building = a.processes.length > 0;
   const chip = c.words.chip;
   const queued = c.words.queued;
-  const tone = queued ? " queued" : chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
+  const tone = queued ? " queued" : c.state === "in-review" ? " review" : chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
   const ahead = g && !g.error ? g.ahead : [];
   const land = ahead.length ? h("div", {class: "land"},
     h("div", {class: "c"}, commitCells(ahead.slice(0, 1))),
@@ -1328,20 +1332,25 @@ function workHead() {
     flowColumn("Last " + RECENT_DAYS + " days", lists.flow));
 }
 function rows(its, one) { return h("div", {class: "l-works"}, its.map(one || itemRow)); }
-// A running work whose worktree has commits waiting to land is Ready to land;
-// the rest are Working.
-function readyToLand(w) {
+// A running work whose worktree has commits waiting to land is Ready to land
+// once builds land would take them, and In review while their rules review is
+// not finished; the rest are Working.
+function checkoutState(w) {
   const repo = state && state.repos.find(r => r.name === w.repo);
   const c = repo && repo.checkouts.find(x => x.name === w.checkout);
-  return !!c && c.state === "ready-to-land";
+  return c ? c.state : null;
 }
 function runningItems() {
   const works = lists.board.works.filter(w => w.tab === "running");
-  const ready = works.filter(readyToLand), working = works.filter(w => !ready.includes(w));
+  const ready = works.filter(w => checkoutState(w) === "ready-to-land");
+  const reviewing = works.filter(w => checkoutState(w) === "in-review");
+  const working = works.filter(w => !ready.includes(w) && !reviewing.includes(w));
   const drawn = lists.designs.filter(g => !g.closed && g.approved);
   const out = [];
   if (working.length) out.push({key: "working", data: working, make: () => section("Working", working.length,
     h("div", {class: "l-works"}, working.map(workRow)))});
+  if (reviewing.length) out.push({key: "review", data: reviewing, make: () => section("In review", reviewing.length,
+    h("div", {class: "l-works"}, reviewing.map(workRow)))});
   if (ready.length) out.push({key: "ready", data: ready, make: () => section("Ready to land", ready.length,
     h("div", {class: "l-works"}, ready.map(workRow)))});
   if (drawn.length) out.push({key: "drawn", data: drawn, make: () => section("Design changes being drawn", drawn.length,

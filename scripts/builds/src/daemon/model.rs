@@ -121,6 +121,8 @@ pub struct Model {
     lists: Arc<Feed>,
     /// What git said the commits of design branches change.
     design_reads: super::design_cards::Reads,
+    /// What git said of each branch's commits for its rules review.
+    review_reads: super::review_cards::Reads,
     /// The build-app runs the page starts.
     pub runs: Arc<Runs>,
     /// The lists JSON last built and what it was built from.
@@ -164,6 +166,7 @@ impl Model {
             git_stream: Mutex::new(None),
             lists: Feed::start(places),
             design_reads: Default::default(),
+            review_reads: Default::default(),
             runs,
             served: Mutex::new(None),
         });
@@ -960,6 +963,26 @@ impl Model {
                             .standing(lists, &repo.name, Path::new(&checkout.path), &git.ahead),
                         _ => None,
                     };
+                    // The rules review stands only between commits waiting
+                    // to land and Ready to land.
+                    let review = match (project, &checkout.git) {
+                        (Some(lists), Some(git))
+                            if checkout.state == Some("ready-to-land") && git.error.is_none() =>
+                        {
+                            crate::lists::store::Store::named(&self.places, &lists.project)
+                                .ok()
+                                .and_then(|store| {
+                                    self.review_reads.standing(
+                                        &store.dir,
+                                        &lists.project,
+                                        &repo.name,
+                                        Path::new(&checkout.path),
+                                        &git.ahead,
+                                    )
+                                })
+                        }
+                        _ => None,
+                    };
                     let build = builds.get(&checkout.name).cloned();
                     let shell = state.health.as_ref().is_some_and(|h| {
                         h.shells
@@ -971,9 +994,13 @@ impl Model {
                         .into_iter()
                         .chain(design)
                         .chain(build)
+                        .chain(review)
                         .min_by_key(super::cards::ItemWait::rank);
                     if super::cards::keeps_working(checkout.state, shell, wait.as_ref()) {
                         checkout.state = Some("working");
+                    }
+                    if super::cards::in_review(checkout.state, wait.as_ref()) {
+                        checkout.state = Some("in-review");
                     }
                     if super::cards::waits_in_queue(checkout.state, wait.as_ref()) {
                         checkout.state = Some("queued");
@@ -1129,7 +1156,9 @@ fn unclaimed_of(
 ///     held            its note says so: kept on purpose with no work
 ///                     running, commits waiting to land or not
 ///     ready-to-land   commits waiting to land, claimed or not: unclaimed
-///                     ones are work an agent left behind
+///                     ones are work an agent left behind. The page turns
+///                     it into in-review while the rules review would keep
+///                     `builds land` from taking them (cards::in_review)
 ///     winding-down    its note says so: the agent's last item, then its
 ///                     handoff
 ///     working         claimed, none of the above

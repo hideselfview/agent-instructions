@@ -65,13 +65,16 @@ pub fn finding_text(finding: &Finding) -> String {
     if let Some((how, why)) = &finding.settled {
         out.push_str(&format!("    settled {how}: {}\n", one_line(why)));
     }
+    if let Some(fix) = &finding.fix {
+        out.push_str(&format!("    fixed by {}\n", fix.sha));
+    }
     out
 }
 
 /// `3 groups, 2 findings (1 blocking), 1 dropped by builds, 1200 tokens in, 80 out`.
 pub fn totals(calls: &[Call], findings: &[Finding]) -> String {
     let accepted = findings.iter().filter(|f| f.counts()).count();
-    let blocking = findings.iter().filter(|f| f.refuses()).count();
+    let blocking = findings.iter().filter(|f| f.counts() && f.blocking).count();
     let dropped = findings.len() - accepted;
     let tokens_in: i64 = calls.iter().map(|c| c.tokens_in).sum();
     let tokens_out: i64 = calls.iter().map(|c| c.tokens_out).sum();
@@ -91,29 +94,4 @@ pub fn plural(count: usize, word: &str) -> String {
 
 fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// The words of a refusal: what blocks, and the command that settles it.
-pub fn refusal(findings: &[&Finding], failed: &[&Call]) -> String {
-    let mut out = String::new();
-    for call in failed {
-        out.push_str(&format!(
-            "the review of group {} failed: {}\n",
-            call.group,
-            call.failure.as_deref().unwrap_or("")
-        ));
-    }
-    if !findings.is_empty() {
-        out.push_str(&format!(
-            "{} the review does not accept:\n",
-            plural(findings.len(), "blocking finding")
-        ));
-        for finding in findings {
-            out.push_str(&finding_text(finding));
-        }
-        out.push_str(
-            "Fix the code, or settle each finding: builds review settle <finding> confirmed|dropped --why TEXT\n",
-        );
-    }
-    out
 }

@@ -1,32 +1,39 @@
 ---
 name: code-rules-review
-description: Review a change against the rules with `builds review`. Use to run the review early, or to settle the findings `builds land` recorded for a landing.
+description: Review a branch against the rules with `builds review` before it lands, settle each finding, and name the commit that fixes each confirmed one. Use before every `builds land` in a repo of a project with lists, or when `builds land` refuses commits for their review.
 ---
 
-# Review a change against the rules
+# Review a branch against the rules before it lands
 
-After `builds land` pushes, it starts a review of the landed commits against the
-rules in the background, and the review never refuses or fails a landing. Use
-this skill to run the same review before landing, and to settle its findings.
+`builds land` refuses commits in a repo of a project with lists unless a
+finished review read exactly those commits. Commits whose changed paths no rule
+group covers need no review. Review each branch this way, in one step:
 
-- Run `builds review <worktree> [<base>]` to review the worktree's commits past
-  `<base>` (default `origin/main`).
+- Run `builds review <worktree> [<base>] --item N` to review the worktree's
+  commits past `<base>` (default `origin/main`).
   - It runs one reviewer per group of rules (a folder of `rules/` each, in
     agent-instructions) and prints the findings by group, then a total line.
-  - It exits 1 when a blocking finding stands or a reviewer failed.
   - `--item N` gives the reviewers that work item's brief; `builds help` lists
     the other flags.
-- Read each finding against the code and the rule clause it quotes, and fix each
-  real one.
-- Settle every finding with
-  `builds review settle <finding> confirmed|dropped --why <text>`.
-  - A dropped finding stays dropped when a rerun raises it again.
-- Run `builds review` again after a fix.
-  - The rerun asks only the groups that found something or failed, and tells
-    them what was settled.
-- Run `builds review show <landing>` to list every review run of a landing, its
-  findings and how each was settled.
-  - A landing's key names its items or design change, such as `items:12,13` or
-    `design:4`.
+  - It ends with what `builds land` would say of these commits, and exits 1
+    unless land would take them.
+- Read each finding against the code and the rule clause it quotes, and settle
+  it with `builds review settle <finding> confirmed|dropped --why <text>`.
+  - A dropped finding stays dropped when a later run raises it again.
+  - The settled findings are the record of what reviews catch and miss: say in
+    `--why` what makes the finding real or wrong.
+- Have each confirmed finding fixed in a new commit, then name that commit with
+  `builds review fixed <finding> <sha>`, run in a checkout of the repo.
+- Run `builds review` again on the final commits.
+  - Each group is told what was settled, and a group that already answered over
+    the same commits is not asked again.
+  - Settle each new finding the same way.
+- Land exactly the commits the last review read.
+  - Land matches them by patch id, so a rebase or cherry-pick that keeps each
+    commit's change still counts; a squash or a commit added or left out does
+    not.
+- Run `builds review show <landing>` to list every review run of a change, the
+  commits each read, its findings, and how each was settled and fixed.
+  - A review's key defaults to the worktree's branch, such as `branch:work`.
 
 Don't run one reviewer per rule yourself: `builds review` groups the rules.

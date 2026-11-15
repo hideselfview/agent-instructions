@@ -22,6 +22,8 @@ pub struct Settled {
     /// `confirmed` or `dropped`.
     pub how: String,
     pub why: String,
+    /// The commit that fixed a confirmed one, when it names one.
+    pub fix: Option<String>,
 }
 
 pub struct Input<'a> {
@@ -192,12 +194,16 @@ pub fn group_part(input: &Input) -> String {
         out.push_str("\n# Findings already settled\n\n");
         for s in input.settled {
             out.push_str(&format!(
-                "- {} in {}, code `{}`: settled {}: {}\n",
+                "- {} in {}, code `{}`: settled {}: {}{}\n",
                 s.rule,
                 s.file,
                 s.code.replace('\n', " "),
                 s.how,
-                s.why
+                s.why,
+                s.fix
+                    .as_ref()
+                    .map(|sha| format!(" (fixed in commit {sha})"))
+                    .unwrap_or_default()
             ));
         }
     }

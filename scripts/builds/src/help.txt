@@ -1,7 +1,7 @@
 builds: runs this Mac's build volume (/Volumes/Builds), the repos' side
 worktrees and their builds, the app build lanes, the pre-commit hook's checks,
-landing and the review of landed commits. Agents run every cargo command, app
-build and landing through it.
+the review of each branch against the rules, and landing. Agents run every
+cargo command, app build and landing through it.
 
 More help:
 
@@ -160,7 +160,13 @@ and keeps the note.
 The dashboard gives each side worktree the first state that matches: Waiting on
 you, Landing (a landing claim), Held, Ready to land (commits waiting to land,
 claimed or not: an unclaimed worktree with such commits holds work an agent
-left behind), Winding down, Working (claimed) and Free. A commit waits to land
+left behind), Winding down, Working (claimed) and Free. Commits waiting to land
+show as Ready to land only when `builds land` would take them as far as the
+rules review goes; until then the card is in review and says where the review
+stands: Needs review (no review read these commits, or a group still has to
+answer: the coordinator runs `builds review`), Reviewing (a review of the
+branch's newest commit runs), Findings to settle (with the count) or Waiting on
+fixes (confirmed findings with no fixing commit among them). A commit waits to land
 while origin/main has no commit with the same change (`git log --cherry-pick
 --right-only origin/main...HEAD`), because landing rebases or cherry-picks it.
 
@@ -887,24 +893,61 @@ matching file is staged.
 LANDING AND REVIEW
 
 A coordinator lands commits, putting them on origin/main, from its claimed
-landing worktree with `builds land`. In a repo of a project with lists, land
-then starts a review of the landed commits against agent-instructions' rules in
-the background, which never refuses or fails the landing. The rules are grouped
-in folders, and each group that covers a changed path gets one
-reviewer, a `claude -p` run in a checkout of the reviewed commit with only
-Read, Grep and Glob. Its system prompt holds the full text of the group's
-rules, the project's projects/<project>.md, the
-brief of the first --item that has one and the findings already settled; its
-message holds the diff. It answers with a verdict for every rule and, per
-finding, the rule's clause, the code with its file and line, and what goes
-wrong. builds drops a finding whose clause is not in the rule or whose code is
-not in the diff, and records it as dropped. Every review goes in the project's
-store: the landing key, group, rules, model, tokens, verdicts and findings. The
-coordinator settles each finding as confirmed or dropped.
+landing worktree with `builds land`. In a repo of a project with lists, every
+branch is reviewed against agent-instructions' rules before it lands, in one
+step:
 
-A sample of passed landings is audited for findings their review missed. A
-confirmed miss becomes a case in review/cases, a recorded change with the
-findings it must produce, which `review replay` runs a grouping over.
+  1. The coordinator runs `builds review` on the branch's commits.
+  2. It judges each finding against the code and the rule, and settles it as
+     confirmed or dropped, with why (`builds review settle`). The settled
+     findings stay in the project's store as the record of what reviews catch
+     and miss.
+  3. It has each confirmed finding fixed in a new commit, and names that
+     commit (`builds review fixed`).
+  4. When fixes added commits, it runs `builds review` again over the final
+     commits. That run is told what was settled, and only new findings need
+     settling.
+  5. It lands the commits that last review read.
+
+`builds land` refuses commits that lack this step. It refuses unless a review
+run read exactly the changes it lands, every group that covers a changed path
+answered over them, every finding of every review run of the change is
+settled, and every confirmed finding names a fix that is among the commits
+landed. A landing whose changed paths no group covers needs no review run, and
+neither does a landing in a repo of no project with lists: there is nothing to
+record. A design-only landing (`--design N` alone) follows the same rule.
+
+A run matches a landing by its changes, not by its SHAs. A review records each
+commit it read with its patch id (`git patch-id --stable`, over a diff whose
+options builds fixes), in order; a commit that changes nothing has none. Land
+reads the patch ids of the commits it was given and looks for the newest
+review run with the same patch ids in the same order. A rebase or cherry-pick
+that keeps each commit's change keeps its patch id, so the review still
+covers it; a squash, a commit added or left out, or a rebase that changes a
+commit's context lines makes another change, which needs its own run. A fix
+is matched the same way: `builds review fixed` records the patch id of the
+fixing commit, and land looks for it among the patch ids it lands.
+
+The rules are grouped in folders, and each group that covers a changed path
+gets one reviewer, a `claude -p` run in a checkout of the reviewed commit with
+only Read, Grep and Glob. Its system prompt holds the full text of the group's
+rules, the project's projects/<project>.md, the brief of the first --item that
+has one and the findings already settled; its message holds the diff. It
+answers with a verdict for every rule and, per finding, the rule's clause, the
+code with its file and line, and what goes wrong. builds drops a finding whose
+clause is not in the rule or whose code is not in the diff, and records it as
+dropped. Every review goes in the project's store: the change's landing under
+review (found by its key until the change lands), the commits each run read,
+the group, rules, model, tokens, verdicts, findings, how each was settled and
+the commit that fixed each confirmed one. A rule's `blocking` marks its
+findings blocking in the reviewer's prompt and the report; every finding,
+blocking or not, must be settled before the commits land.
+
+After the push, land records the change's landing as landed, with the run
+that covered it. A sample of landed reviews is audited for findings they
+missed. The person curates a confirmed miss into a case: a recorded change in
+the review/cases folder of an agent-instructions worktree, with the findings
+it must produce, which `review replay` runs a grouping over.
 
 Every rule is in exactly one group. A group is a folder rules/<group-dir>/ of
 agent-instructions that holds its group.toml; its rules are the .md files in
@@ -934,12 +977,12 @@ checks this, and so does builds' test. The group.toml fields are top-level keys:
                 every commit keeps (the spec moves with the commit, bae writes
                 as local), as one more verdict named project-facts
 
-A group runs when at least one of its rules matches a changed path. Its
-reviewer reads the full body of every rule in the group, the project's
-always-loaded instructions (projects/<project>.md), the diff and the landing's
-brief, and answers for every rule. To test another grouping, change the
-folders in a worktree of agent-instructions and run `review replay
---rules-root` on it.
+A group runs when at least one of its rules matches a path that a commit of
+the change adds, changes or deletes. Its reviewer reads the full body of every
+rule in the group, the project's always-loaded instructions
+(projects/<project>.md), the diff and the landing's brief, and answers for
+every rule. To test another grouping, change the folders in a worktree of
+agent-instructions and run `review replay --rules-root` on it.
 
   builds land <worktree> [--done N]... [--part N]... [--design N] <sha>...
                               put the commits on origin/main from the claimed,
@@ -959,10 +1002,13 @@ folders in a worktree of agent-instructions and run `review replay
                               after the push). Commits that change design
                               places need --design N, an approved design
                               change, and commits that are all design files
-                              take it alone (`builds help lists`). The review
-                              it starts runs under the key items:N,M or
-                              design:N
-  builds review [run] <worktree> [<base>] [--landing <key>] [--item N]... [--head SHA] [--record-only] [--rules-root DIR] [--reviewer PROGRAM]
+                              take it alone (`builds help lists`). In a repo
+                              of a project, `review check-landing` runs before
+                              anything is fetched and its refusal ends the
+                              landing; `review landed` runs after the push,
+                              beside the items' and the design change's
+                              records
+  builds review [run] <worktree> [<base>] [--landing <key>] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
                               review the worktree's commits past <base>
                               (default origin/main) against the rules in
                               --rules-root (default the agent-instructions
@@ -970,28 +1016,59 @@ folders in a worktree of agent-instructions and run `review replay
                               one reviewer per group, or per changed file for a
                               group that lists sites. PROGRAM (default claude)
                               runs each reviewer. <key> defaults to the
-                              worktree's branch. A review of a key an earlier
-                              review left standing reruns only the groups that
-                              found something or failed, and tells them what
-                              was settled; a dropped finding raised again with
-                              the same rule, file and code stays dropped.
+                              worktree's branch (branch:<name>); every review
+                              of one key shares a landing under review until
+                              its change lands. Each group is told what was
+                              settled on earlier runs of the key, and a group
+                              that answered over the same commits already is
+                              not asked again; a dropped finding raised again
+                              with the same rule, file and code stays dropped.
                               --head SHA reviews the commits up to SHA from a
-                              copy of their files, not the worktree. Prints the
-                              findings by group and a total line, and exits 1
-                              when a blocking finding stands (from a rule with
-                              `blocking: true`, not settled as dropped) or a
-                              reviewer failed, saying how to settle.
-                              --record-only is the review `builds land` starts:
-                              it also keeps each reviewer's system prompt,
-                              message and output in the store, writes its
-                              findings to a log in the store folder's
-                              review-logs, and always exits 0
+                              copy of their files, not the worktree. Prints
+                              the findings by group and a total line, then
+                              what `builds land` would say of these commits,
+                              and exits 1 unless land would take them. While
+                              it runs it holds a lock file named for the
+                              reviewed commit in the store folder's
+                              reviews-running, which the dashboard reads
   builds review settle <finding> confirmed|dropped --why <text>
                               the coordinator's verdict on a finding, kept with
                               who and when
+  builds review fixed <finding> <sha>
+                              name commit <sha>, of the repo the command runs
+                              in, as the fix of confirmed finding <finding>,
+                              with who and when; a later call names another
+                              commit in its place. Refused for a finding that
+                              is not confirmed, that an audit raised, or whose
+                              change landed already
   builds review show <landing>
-                              every review run of a landing: groups, findings,
-                              and how each was settled
+                              every run of a landing under review: the commits
+                              each review read, groups, findings, how each was
+                              settled and fixed, and the run it landed with
+  builds review check-landing <worktree> --project P <sha>... [--rules-root DIR]
+                              what `builds land` asks before it fetches: says
+                              that the commits need no review, or which run
+                              covers them, or why the review does not take
+                              them yet (exit 1): no run read these changes
+                              (naming the newest run that read some of them and
+                              how its commits differ), a group with no answer
+                              over them, an unsettled finding, a confirmed
+                              finding with no fix or with a fix outside the
+                              commits
+  builds review landed <worktree> --project P <sha>... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]
+                              what `builds land` records after the push: the
+                              landing under review that covers the commits
+                              landed, with the run that covered them. A change
+                              recorded already is left as it is, so the rerun
+                              land prints is safe. It then decides whether the
+                              landing is audited and, when it is, starts
+                              `builds review audit` in the background, which
+                              never fails a landing. About 5% of landings are
+                              audited; 25% when a group the landing ran has
+                              missed more in its latest 10 audits than before;
+                              and every landing until 20 have been reviewed
+                              under the current groups. --roll N (0 to 1)
+                              replaces the random draw
   builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
                               list the groups of rules, and fail naming every
                               rule outside a group folder (one with no
@@ -1001,11 +1078,11 @@ folders in a worktree of agent-instructions and run `review replay
                               project P's rules (none: every project's)
   builds review replay [--case NAME]... [--source REPO] [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
                               run the grouping of the checkout (--rules-root)
-                              over every case of
-                              review/cases (a change as `git format-patch`
-                              output, and expected.toml: the findings it must
-                              produce by rule and file, and the rules that must
-                              raise no blocking finding on it). Prints each
+                              over every case in its review/cases folder (a
+                              change as `git format-patch` output, and
+                              expected.toml: the findings it must produce by
+                              rule and file, and the rules that must raise no
+                              blocking finding on it). Prints each
                               case's findings found and missed, then recall,
                               false blocking findings on clean cases and
                               tokens, and for the sites an expected.toml
@@ -1015,35 +1092,26 @@ folders in a worktree of agent-instructions and run `review replay
                               --source REPO gives each reviewer the commit a
                               case came from, and --model runs every group on
                               one of opus, sonnet and haiku
-  builds review sample --landing <key> --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]
-                              what `builds land` runs after a push: decide
-                              whether the landing's passed review is audited
-                              and, when it is, start `builds review audit` in
-                              the background; it answers at once and never
-                              fails a landing. About 5% of landings are
-                              audited; 25% when a group the landing ran has
-                              missed more in its latest 10 audits than before;
-                              and every landing until 20 have been reviewed
-                              under the current groups. --roll N (0 to 1)
-                              replaces the random draw
   builds review audit <landing> --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]
-                              audit a landing that passed its review, over the
-                              commits of DIR's repo: one reviewer per rule
-                              that covers a changed path, and one review with
-                              those rules shuffled into other groups. A finding
-                              in a rule and file that the landing's review did
-                              not raise is a candidate miss, printed with the
-                              command that settles it. A confirmed miss becomes
-                              a case (`review case add`) and a fix item
+                              audit a landing whose change landed, over the
+                              commits of the run it landed with, read in DIR's
+                              repo: one reviewer per rule that covers a changed
+                              path, and one review with those rules shuffled
+                              into other groups. A finding in a rule and file
+                              that the landing's reviews did not raise is a
+                              candidate miss, printed with the command that
+                              settles it. A confirmed miss becomes a case
+                              (`review case add`) and a fix item
   builds review misses        the candidate misses nobody has settled
   builds review rates [--rules-root DIR]
                               each group's audited miss rate: audits, confirmed
                               misses, and the latest 10 audits
   builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR [--name NAME]
                               add the change of a confirmed finding as a case
-                              expecting it, written in the agent-instructions
-                              worktree --rules-root names (never a default: the
-                              main checkout is the person's)
+                              expecting it, written in the review/cases folder
+                              of the agent-instructions worktree --rules-root
+                              names (never a default: the main checkout is the
+                              person's)
   builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR
                               add a confirmed miss the same way; --clean-for
                               SLUG in place of --rule and --file adds a change

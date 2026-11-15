@@ -35,11 +35,6 @@ const BAD: Raised = (
     "The file does the bad thing.",
 );
 
-fn landing_closed(demo: &Demo, landing: i64) -> bool {
-    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
-    record::landing(&conn, landing).unwrap().2
-}
-
 fn settle_as(demo: &Demo, finding: i64, how: &str, why: &str) {
     let stamp = stamp();
     demo.store
@@ -75,7 +70,11 @@ fn only_the_groups_whose_rules_cover_a_changed_path_run() {
     assert!(prompts[0].1.contains("Never do the bad thing here."));
     assert!(prompts[0].1.contains("Demo project facts."));
     assert!(prompts[0].1.contains("+a.rs"));
-    assert!(landing_closed(&demo, reported.landing.unwrap()));
+    assert!(
+        reported.text.contains("builds land takes these commits"),
+        "{}",
+        reported.text
+    );
 }
 
 #[test]
@@ -136,7 +135,7 @@ fn a_finding_whose_quote_is_not_in_the_diff_is_dropped_and_recorded_as_dropped()
 }
 
 #[test]
-fn a_blocking_finding_refuses_and_a_rerun_runs_the_groups_that_found_something_with_what_was_settled()
+fn a_finding_waits_to_be_settled_and_a_review_of_new_commits_asks_every_group_with_what_was_settled()
  {
     let demo = demo("review-rerun");
     let fake = fake(&demo.scratch.dir);
@@ -146,13 +145,14 @@ fn a_blocking_finding_refuses_and_a_rerun_runs_the_groups_that_found_something_w
     fake.answer("alpha", &[("rule-a", Some(BAD))]);
     let first = run_review(&demo, &fake, &side, "k");
     assert_eq!(fake.prompts().len(), 2);
-    let refusal = first.refusal.expect("a blocking finding refuses");
+    let refusal = first
+        .refusal
+        .expect("an unsettled finding keeps the commits from landing");
+    assert!(refusal.contains("1 finding is not settled"), "{refusal}");
     assert!(
         refusal.contains("builds review settle <finding> confirmed|dropped --why TEXT"),
         "{refusal}"
     );
-    assert!(refusal.contains("rule-a"));
-    assert!(!landing_closed(&demo, first.landing.unwrap()));
     let finding = findings_of(&demo, first.landing.unwrap())[0].id;
     settle_as(
         &demo,
@@ -160,7 +160,14 @@ fn a_blocking_finding_refuses_and_a_rerun_runs_the_groups_that_found_something_w
         "dropped",
         "the fixture does this on purpose",
     );
-    // The same finding again, worded differently, on the rerun.
+    // The same commits again: every group answered over them already.
+    let again = run_review(&demo, &fake, &side, "k");
+    assert!(fake.prompts().is_empty());
+    assert!(again.text.contains("answered over these commits already"));
+    assert!(again.refusal.is_none(), "{:?}", again.refusal);
+    // A new commit: every group is asked, told what was settled, and the same
+    // finding raised again, worded differently, stays dropped.
+    demo.commit(&side, "c.rs");
     fake.answer(
         "alpha",
         &[(
@@ -176,19 +183,14 @@ fn a_blocking_finding_refuses_and_a_rerun_runs_the_groups_that_found_something_w
     );
     let second = run_review(&demo, &fake, &side, "k");
     let prompts = fake.prompts();
-    assert_eq!(prompts.len(), 1, "only the group that found something runs");
-    assert_eq!(prompts[0].0, "alpha");
+    assert_eq!(prompts.len(), 2, "both groups read the new commits");
+    let alpha = &prompts.iter().find(|(g, _)| g == "alpha").unwrap().1;
     assert!(
-        prompts[0]
-            .1
-            .contains("settled dropped: the fixture does this on purpose"),
-        "{}",
-        prompts[0].1
+        alpha.contains("settled dropped: the fixture does this on purpose"),
+        "{alpha}"
     );
-    assert!(second.text.contains("rerun"));
     assert!(second.refusal.is_none(), "{:?}", second.refusal);
     assert_eq!(second.landing, first.landing);
-    assert!(landing_closed(&demo, second.landing.unwrap()));
     let again = findings_of(&demo, second.landing.unwrap());
     let inherited = again.last().unwrap();
     assert_eq!(inherited.settled.as_ref().unwrap().0, "dropped");
@@ -203,7 +205,7 @@ fn a_blocking_finding_refuses_and_a_rerun_runs_the_groups_that_found_something_w
 }
 
 #[test]
-fn a_confirmed_finding_still_refuses_until_a_rerun_comes_back_clean() {
+fn a_confirmed_finding_waits_on_its_fix_and_a_review_of_the_fix_lets_the_commits_land() {
     let demo = demo("review-confirmed");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
@@ -213,28 +215,50 @@ fn a_confirmed_finding_still_refuses_until_a_rerun_comes_back_clean() {
     let finding = findings_of(&demo, first.landing.unwrap())[0].id;
     settle_as(&demo, finding, "confirmed", "it is a real break");
     let still = run_review(&demo, &fake, &side, "k");
-    assert!(still.refusal.is_some());
+    let refusal = still.refusal.expect("a confirmed finding needs its fix");
+    assert!(refusal.contains("names no fix"), "{refusal}");
+    let fix = demo.commit(&side, "fix.rs");
+    let commit = landing::fix_commit(&side, &fix).unwrap();
+    let stamp = stamp();
+    demo.store
+        .write(&stamp, "fixed", |db| {
+            record::record_fix(db, finding, &commit, stamp.at, "tester")
+        })
+        .unwrap();
+    fake.prompts();
     fake.answer("alpha", &[("rule-a", None)]);
     let clean = run_review(&demo, &fake, &side, "k");
-    assert!(clean.refusal.is_none());
-    assert!(landing_closed(&demo, clean.landing.unwrap()));
+    let alpha = fake.prompts();
+    assert!(
+        alpha[0].1.contains(&format!("(fixed in commit {fix})")),
+        "{}",
+        alpha[0].1
+    );
+    assert!(clean.refusal.is_none(), "{:?}", clean.refusal);
 }
 
 #[test]
-fn a_reviewer_that_fails_refuses_the_landing_and_says_why() {
+fn a_reviewer_that_fails_keeps_the_commits_from_landing_and_only_it_is_asked_again() {
     let demo = demo("review-failed");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.swift");
     fake.fail("alpha");
     let reported = run_review(&demo, &fake, &side, "k");
-    let refusal = reported.refusal.expect("a failed review refuses");
+    assert!(reported.text.contains("boom"), "{}", reported.text);
+    let refusal = reported.refusal.expect("a failed review keeps the commits");
     assert!(
-        refusal.contains("review of group alpha failed"),
+        refusal.contains("group alpha covers a changed path and has no answer"),
         "{refusal}"
     );
-    assert!(refusal.contains("boom"), "{refusal}");
-    assert!(!landing_closed(&demo, reported.landing.unwrap()));
+    fake.prompts();
+    std::fs::remove_file(fake.dir.join("fail-alpha")).unwrap();
+    let again = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1);
+    assert_eq!(prompts[0].0, "alpha");
+    assert!(again.refusal.is_none(), "{:?}", again.refusal);
 }
 
 #[test]
@@ -245,7 +269,12 @@ fn a_reviewer_that_skips_a_rule_is_a_failed_review() {
     demo.commit(&side, "a.rs");
     fake.answer("alpha", &[]);
     let reported = run_review(&demo, &fake, &side, "k");
-    assert!(reported.refusal.unwrap().contains("no verdict for rule-a"));
+    assert!(
+        reported.text.contains("no verdict for rule-a"),
+        "{}",
+        reported.text
+    );
+    assert!(reported.refusal.is_some());
 }
 
 #[test]
