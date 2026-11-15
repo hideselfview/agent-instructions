@@ -5,19 +5,16 @@ use crate::lists::item_fixtures::{Demo, demo, refusal, words};
 use crate::testing::git as run_git;
 
 /// A repo with agent A running items 1 and 2 on branch `work` in side-1, one
-/// commit on it, and side-2 as the landing worktree.
+/// commit on it. The landing runs in side-1.
 struct Landing {
     demo: Demo,
     agent: std::path::PathBuf,
-    lander: std::path::PathBuf,
     commit: String,
 }
 
 fn setup(name: &str) -> Landing {
     let demo = demo(name);
     let agent = demo.add_side(1, "agent A", "work");
-    let lander = demo.add_side(2, "coordinator (landing)", "landing");
-    run_git(&lander, &["checkout", "-q", "--detach", "main"]);
     let details = demo.brief("details.txt");
     let brief = demo.brief("b.md");
     for title in ["Do the first thing now", "Do the second thing now"] {
@@ -54,33 +51,30 @@ fn setup(name: &str) -> Landing {
     Landing {
         demo,
         agent,
-        lander,
         commit,
     }
 }
 
 fn check(l: &Landing, extra: &[&str]) -> Result<()> {
-    let mut args = vec!["check-landing", l.lander.to_str().unwrap()];
+    let mut args = vec!["check-landing", l.agent.to_str().unwrap()];
     args.extend_from_slice(extra);
     cmd_item(&l.demo.tool, &words(&args))
 }
 
 fn landed(l: &Landing, extra: &[&str]) -> Result<()> {
-    let mut args = vec![l.lander.to_str().unwrap()];
+    let mut args = vec![l.agent.to_str().unwrap()];
     args.extend_from_slice(extra);
     let owned: Vec<String> = args.iter().map(|a| a.to_string()).collect();
     super::landed(&l.demo.tool, &owned)
 }
 
-/// Puts the commit on origin/main and fetches it into the landing worktree,
-/// as the push does.
+/// Puts the commit on origin/main, as the landing's push does.
 fn push(l: &Landing) {
     run_git(&l.agent, &["push", "-q", "origin", "HEAD:main"]);
-    run_git(&l.lander, &["fetch", "-q", "origin"]);
 }
 
 fn bare(l: &Landing, args: &[&str]) -> Result<()> {
-    let mut all = vec!["check-landing", l.lander.to_str().unwrap()];
+    let mut all = vec!["check-landing", l.agent.to_str().unwrap()];
     all.extend_from_slice(args);
     let owned: Vec<String> = all.iter().map(|a| a.to_string()).collect();
     check_landing(&l.demo.tool, &owned[1..])
@@ -104,7 +98,7 @@ fn check_landing_refuses_each_thing_it_requires() {
     assert!(refusal(check(&l, &["--done", "9", &l.commit])).contains("not a record"));
     assert!(refusal(check(&l, &["--done", "1", "deadbeef"])).contains("not a commit"));
     // A commit on main only is on no item's branch.
-    let on_main = l.demo.commit(&l.lander, "m.txt");
+    let on_main = l.demo.commit(&l.demo.main, "m.txt");
     assert!(refusal(check(&l, &["--done", "1", &on_main])).contains("on the branch of none"));
     cmd_item(&l.demo.tool, &words(&["stop", "2", "--why", "x"])).unwrap();
     assert!(refusal(check(&l, &["--done", "2", &l.commit])).contains("is not running"));
@@ -112,6 +106,25 @@ fn check_landing_refuses_each_thing_it_requires() {
     let before = l.demo.state();
     check(&l, &["--done", "1", &l.commit]).unwrap();
     assert_eq!(l.demo.state(), before, "check-landing changed the store");
+}
+
+#[test]
+fn check_landing_refuses_an_item_that_runs_in_another_worktree() {
+    let l = setup("landing-check-elsewhere");
+    let other = l.demo.add_side(2, "agent B", "other-work");
+    let before = l.demo.state();
+    let mut args = vec![other.display().to_string()];
+    args.extend(["--done", "1", &l.commit].iter().map(|a| a.to_string()));
+    let refused = refusal(check_landing(&l.demo.tool, &args));
+    assert!(
+        refused.contains(&format!(
+            "1 runs in {}, not in {}: land it from the worktree it runs in",
+            l.agent.display(),
+            other.display()
+        )),
+        "{refused}"
+    );
+    assert_eq!(l.demo.state(), before);
 }
 
 #[test]
@@ -149,14 +162,14 @@ fn landed_records_a_part_then_closes_and_is_idempotent() {
 }
 
 #[test]
-fn landed_records_the_landing_worktrees_claim_wherever_it_runs() {
+fn landed_records_the_worktrees_claim_wherever_it_runs() {
     let l = setup("landing-who");
     push(&l);
     // The test process runs in no claimed worktree, as builds land does when
     // the coordinator runs it from the person's checkout.
     landed(&l, &["--part", "1", "--done", "2", &l.commit]).unwrap();
     let lists = l.demo.store.load().unwrap();
-    assert_eq!(lists.closed[0].closed.by, "coordinator (landing)");
+    assert_eq!(lists.closed[0].closed.by, "agent A");
 }
 
 /// What `item show` prints for item <id>.
@@ -250,11 +263,9 @@ fn landed_in_another_repo_than_the_item_runs_in_is_refused() {
 
 /// An item whose work spans two repos: running in side-1 of `demo` on `work`
 /// and side-1 of `other` on `work-other`, each repo with one commit on its
-/// branch and a detached landing worktree (side-2).
+/// branch.
 struct TwoRepos {
     demo: Demo,
-    demo_lander: std::path::PathBuf,
-    other_lander: std::path::PathBuf,
     demo_agent: std::path::PathBuf,
     other_agent: std::path::PathBuf,
     demo_commit: String,
@@ -265,10 +276,6 @@ fn two_repos(name: &str) -> TwoRepos {
     let demo = crate::lists::item_fixtures::demo_over(name, &["demo", "other"]);
     let demo_agent = demo.add_side_of("demo", 1, "agent A", "work");
     let other_agent = demo.add_side_of("other", 1, "agent A", "work-other");
-    let demo_lander = demo.add_side_of("demo", 2, "coordinator", "landing");
-    let other_lander = demo.add_side_of("other", 2, "coordinator", "landing-other");
-    run_git(&demo_lander, &["checkout", "-q", "--detach", "main"]);
-    run_git(&other_lander, &["checkout", "-q", "--detach", "main"]);
     let details = demo.brief("details.txt");
     let brief = demo.brief("b.md");
     cmd_item(
@@ -306,8 +313,6 @@ fn two_repos(name: &str) -> TwoRepos {
     let other_commit = demo.commit(&other_agent, "b.txt");
     TwoRepos {
         demo,
-        demo_lander,
-        other_lander,
         demo_agent,
         other_agent,
         demo_commit,
@@ -315,8 +320,8 @@ fn two_repos(name: &str) -> TwoRepos {
     }
 }
 
-fn land_args(lander: &std::path::Path, extra: &[&str]) -> Vec<String> {
-    let mut args = vec![lander.display().to_string()];
+fn land_args(dir: &std::path::Path, extra: &[&str]) -> Vec<String> {
+    let mut args = vec![dir.display().to_string()];
     args.extend(extra.iter().map(|a| a.to_string()));
     args
 }
@@ -435,14 +440,12 @@ fn take_refuses_two_worktrees_of_one_repo_and_unpaired_branches() {
 fn a_part_from_one_repo_leaves_the_item_running_and_done_from_the_other_closes_it() {
     let t = two_repos("landing-two-land");
     run_git(&t.demo_agent, &["push", "-q", "origin", "HEAD:main"]);
-    run_git(&t.demo_lander, &["fetch", "-q", "origin"]);
     run_git(&t.other_agent, &["push", "-q", "origin", "HEAD:main"]);
-    run_git(&t.other_lander, &["fetch", "-q", "origin"]);
 
     // Each repo's landing is accepted by the check.
-    let demo_check = land_args(&t.demo_lander, &["--part", "1", &t.demo_commit]);
+    let demo_check = land_args(&t.demo_agent, &["--part", "1", &t.demo_commit]);
     check_landing(&t.demo.tool, &demo_check).unwrap();
-    let other_check = land_args(&t.other_lander, &["--done", "1", &t.other_commit]);
+    let other_check = land_args(&t.other_agent, &["--done", "1", &t.other_commit]);
     check_landing(&t.demo.tool, &other_check).unwrap();
 
     super::landed(&t.demo.tool, &demo_check).unwrap();
@@ -474,9 +477,9 @@ fn a_part_from_one_repo_leaves_the_item_running_and_done_from_the_other_closes_i
 #[test]
 fn a_landing_from_the_second_repo_is_accepted_and_the_first_repos_commit_is_not_in_it() {
     let t = two_repos("landing-two-second-repo");
-    let from_other = land_args(&t.other_lander, &["--part", "1", &t.other_commit]);
+    let from_other = land_args(&t.other_agent, &["--part", "1", &t.other_commit]);
     check_landing(&t.demo.tool, &from_other).unwrap();
-    let wrong_commit = land_args(&t.other_lander, &["--part", "1", &t.demo_commit]);
+    let wrong_commit = land_args(&t.other_agent, &["--part", "1", &t.demo_commit]);
     let refused = refusal(check_landing(&t.demo.tool, &wrong_commit));
     assert!(refused.contains("not a commit"), "{refused}");
 }

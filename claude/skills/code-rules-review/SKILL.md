@@ -40,7 +40,8 @@ branch this way:
     send it back when it does not fix the finding or breaks a rule.
   - Name it with `builds review fixed <finding> <sha>`, run in a checkout of the
     repo.
-- Land the reviewed commits with their named fixes.
+- Land the reviewed commits with their named fixes, with `builds land` in the
+  branch's own worktree once its agent is done there.
   - Land matches commits by patch id, so a rebase or cherry-pick that keeps each
     commit's change still counts.
   - A commit added after the review, a squash, or a commit whose patch id a

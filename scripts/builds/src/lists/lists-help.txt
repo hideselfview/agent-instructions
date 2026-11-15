@@ -25,10 +25,11 @@ from one counter per project, printed #N. Commands take ids as bare numbers
 Every write records who wrote it: `--by WHO` when given, else the claim of the
 worktree the command runs in; with neither, the command is refused ("say who
 you are with --by"). The records builds land writes after its push (`item
-landed`, `design landed`, `review landed`) take the claim of the landing
-worktree they name instead, wherever they run. The project comes from `--project P`, else from the repo
-of the folder the command runs in (a repo in no project, or in two, is
-refused). Long text comes from a file (--details-file F; `-` is standard
+landed`, `design landed`, `review landed`) take the claim of the worktree
+they name instead, wherever they run; builds land reads that claim before it
+starts and passes it to each as --by. The project comes from `--project P`,
+else from the repo of the folder the command runs in (a repo in no project, or
+in two, is refused). Long text comes from a file (--details-file F; `-` is standard
 input), and a compound write takes one JSON request (--request F), refused
 naming the field that is wrong when it does not parse or holds a field the
 command does not take. Each write prints what it did and what follows, such as
@@ -195,15 +196,16 @@ no commit); an absolute path is itself.
   builds item check-landing DIR [--done N]... [--part N]... SHA...
   builds item landed DIR [--done N]... [--part N]... SHA...
       What builds land runs. check-landing, before anything is fetched: each
-      N is open and running in a worktree of DIR's repo (an item that runs in
-      worktrees of two repos accepts a landing from either), and each SHA is
-      on the branch of one of them. landed, after the push: each SHA is on
+      N is open and running in DIR itself, the worktree the landing moves (an
+      item that runs in worktrees of two repos accepts a landing from either),
+      and each SHA is on the branch of one of them. landed, after the push: each SHA is on
       origin/main; --part records a landed part and leaves the item running,
       and --done closes the item as landed and ends its running everywhere, so
       an item that spans two repos lands --part from one and --done from the
       other. The same call twice records once; a different set of commits for
       an item already closed as landed is refused. landed records who landed
-      as --by, else DIR's claim.
+      as --by, else DIR's claim. When --done ends the last item running in a
+      worktree with nothing left to land, landed releases that worktree.
 
   builds item show N | builds item list [--running] [--ready] [--area A] [--for F]
                                       [--tag T]

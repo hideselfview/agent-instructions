@@ -6,8 +6,8 @@
 //! builds review landed DIR --project P SHA... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]
 //! ```
 //!
-//! DIR is the landing worktree and the SHAs are the commits `builds land` was
-//! given. No diff is reviewed more than once. Each change gets one review; the
+//! DIR is the worktree the commits land from and the SHAs are the commits
+//! `builds land` was given. No diff is reviewed more than once. Each change gets one review; the
 //! coordinator reads the fixes for its confirmed findings. So a landing's
 //! commits are taken when one change's review covers them: each commit whose
 //! paths a group's rules cover is either one the review read, matched by patch
@@ -419,7 +419,8 @@ fn record_landed(asked: &Asked, stamp: &Stamp) -> Result<Option<i64>> {
 }
 
 /// Records the landing that `builds review landed` names, written by `--by`,
-/// else by the claim of DIR, the landing worktree, wherever the command runs.
+/// else by the claim of DIR, the worktree the commits land from, wherever the
+/// command runs.
 /// Returns what it asked and the landing when this recorded it.
 fn record_landing(tool: &Tool, args: &Args) -> Result<Option<(Asked, i64)>> {
     let asked = ask(tool, args)?;

@@ -96,7 +96,7 @@ fn commits(top: &Path, rev: &[&str]) -> Result<Vec<Commit>, String> {
     Ok(found)
 }
 
-/// The commits on HEAD that origin/main has no copy of, newest first.
+/// The commits on <rev> that origin/main has no copy of, newest first.
 ///
 /// A coordinator lands a branch by cherry-picking or rebasing it, so the
 /// branch's own commits stay off origin/main by hash after they land. A copy
@@ -105,17 +105,17 @@ fn commits(top: &Path, rev: &[&str]) -> Result<Vec<Commit>, String> {
 /// line so the patch differs, a commit on origin/main since the branch left
 /// it with the same author time and subject, which a cherry-pick and a rebase
 /// both keep.
-fn waiting_to_land(top: &Path) -> Result<Vec<Commit>, String> {
-    let marks = run(top, &["cherry", "origin/main", "HEAD"])?;
+pub fn waiting_to_land(top: &Path, rev: &str) -> Result<Vec<Commit>, String> {
+    let marks = run(top, &["cherry", "origin/main", rev])?;
     let unmatched: HashSet<&str> = marks
         .lines()
         .filter_map(|line| line.strip_prefix("+ "))
         .collect();
-    let landed: HashSet<(i64, String)> = commits(top, &["HEAD..origin/main"])?
+    let landed: HashSet<(i64, String)> = commits(top, &[&format!("{rev}..origin/main")])?
         .into_iter()
         .map(|c| (c.authored, c.subject))
         .collect();
-    Ok(commits(top, &["origin/main..HEAD"])?
+    Ok(commits(top, &[&format!("origin/main..{rev}")])?
         .into_iter()
         .filter(|c| {
             unmatched.contains(c.full.as_str())
@@ -184,7 +184,7 @@ pub fn read(top: &Path) -> SideGit {
         let (count, newest) = uncommitted(top)?;
         Ok(SideGit {
             head,
-            ahead: waiting_to_land(top)?,
+            ahead: waiting_to_land(top, "HEAD")?,
             uncommitted: Some(count),
             last_write: newest,
             error: None,

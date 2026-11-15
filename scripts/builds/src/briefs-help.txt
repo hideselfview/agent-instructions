@@ -23,8 +23,9 @@ READ FIRST
 
 READ CODE THROUGH GIT
 
-Read code only through git, on current main, in the repo's landing worktree,
-which the project file names:
+Read code only through git, on current main, in any side worktree of the
+repo (`builds status` lists them). These commands read the repo and leave the
+worktree's files and HEAD as they are:
 
   git -C <worktree> fetch -q
   git -C <worktree> grep <pattern> origin/main -- <paths>

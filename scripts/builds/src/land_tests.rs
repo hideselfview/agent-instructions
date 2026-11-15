@@ -1,14 +1,14 @@
 use super::*;
 use crate::testing::Scratch;
 
-/// A fixture: a bare origin, an agent clone and a detached landing clone. The
-/// repo's `whole` check, a fake program, refuses a tree holding both a.txt and
-/// b.txt, which two commits that each pass alone reach only together.
+/// A fixture: a bare origin and the repo's main checkout, cloned from it,
+/// whose side worktrees the tests add. The repo's `whole` check, a fake
+/// program, refuses a tree holding both a.txt and b.txt, which two branches
+/// that each pass alone reach only together.
 struct Fixture {
     scratch: Scratch,
     origin: PathBuf,
-    agent: PathBuf,
-    land: PathBuf,
+    main: PathBuf,
 }
 
 fn git_out(dir: &Path, args: &[&str]) -> String {
@@ -39,6 +39,8 @@ fn commit_file(dir: &Path, name: &str, text: &str, message: &str) -> String {
     git_out(dir, &["rev-parse", "HEAD"])
 }
 
+/// The fixture, with <checks> as the fake check's script, `{root}` in it
+/// standing for the scratch folder.
 fn fixture(name: &str, checks: &str, compile: Option<&str>) -> Fixture {
     let scratch = Scratch::new(name);
     let root = scratch.dir.clone();
@@ -54,57 +56,66 @@ fn fixture(name: &str, checks: &str, compile: Option<&str>) -> Fixture {
             origin.to_str().unwrap(),
         ],
     );
-    let agent = root.join("agent");
+    let main = root.join("repo");
     git_out(
         &root,
         &[
             "clone",
             "-q",
             origin.to_str().unwrap(),
-            agent.to_str().unwrap(),
+            main.to_str().unwrap(),
         ],
     );
-    identify(&agent);
-    std::fs::write(agent.join("fake-check.sh"), checks).unwrap();
+    identify(&main);
+    let checks = checks.replace("{root}", &root.display().to_string());
+    std::fs::write(main.join("fake-check.sh"), checks).unwrap();
     std::fs::write(
-        agent.join(".checks"),
+        main.join(".checks"),
         "whole fake * sh fake-check.sh\ncheck skipped-by-land * sh not-run.sh\n",
     )
     .unwrap();
-    commit_file(&agent, "base.txt", "base\n", "base");
-    git_out(&agent, &["add", "fake-check.sh", ".checks"]);
+    commit_file(&main, "base.txt", "base\n", "base");
+    git_out(&main, &["add", "fake-check.sh", ".checks"]);
     if let Some(compile) = compile {
-        std::fs::write(agent.join(".land-compile"), compile).unwrap();
-        git_out(&agent, &["add", ".land-compile"]);
+        std::fs::write(main.join(".land-compile"), compile).unwrap();
+        git_out(&main, &["add", ".land-compile"]);
     }
-    git_out(&agent, &["commit", "-q", "--amend", "--no-edit"]);
-    git_out(&agent, &["push", "-q", "origin", "HEAD:main"]);
-    let land = root.join("land");
-    git_out(
-        &root,
-        &[
-            "clone",
-            "-q",
-            origin.to_str().unwrap(),
-            land.to_str().unwrap(),
-        ],
-    );
-    identify(&land);
-    git_out(&land, &["checkout", "-q", "--detach", "origin/main"]);
-    claim(&land);
+    git_out(&main, &["commit", "-q", "--amend", "--no-edit"]);
+    git_out(&main, &["push", "-q", "origin", "HEAD:main"]);
     Fixture {
         scratch,
         origin,
-        agent,
-        land,
+        main,
     }
 }
 
-/// Claims <dir> for the coordinator that lands, as `builds claim` does.
+impl Fixture {
+    /// Side worktree <n> of the main checkout, on a new branch <branch> from
+    /// origin/main, claimed for its agent.
+    fn side(&self, n: usize, branch: &str) -> PathBuf {
+        let dir = self.scratch.dir.join(format!("repo-worktrees/side-{n}"));
+        git_out(
+            &self.main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                branch,
+                dir.to_str().unwrap(),
+                "origin/main",
+            ],
+        );
+        claim(&dir);
+        dir
+    }
+}
+
+/// Claims <dir> for its agent, as `builds claim` does.
 fn claim(dir: &Path) {
     let checkout = crate::checkout::Checkout::at(dir).unwrap().unwrap();
     crate::claim::Claim {
-        who: "coordinator (landing)".into(),
+        who: "agent A".into(),
         since: "2026-11-15 10:00".into(),
         note: None,
         note_state: None,
@@ -124,9 +135,9 @@ struct Cues {
     says: &'static str,
 }
 
-/// Lands <args> in the fixture's landing clone with a stand-in `builds`.
-/// Returns the exit status, what the landing said and the commands it ran.
-fn run_land(f: &Fixture, args: &[&str], cues: Cues) -> (i32, String, Vec<String>) {
+/// Writes the stand-in `builds` for <cues> and returns it with the file it
+/// logs each command to.
+fn stub(f: &Fixture, cues: &Cues) -> (PathBuf, PathBuf) {
     let stub = f.scratch.dir.join("stub-builds");
     let log = f.scratch.dir.join("calls.log");
     let script = format!(
@@ -143,7 +154,14 @@ fn run_land(f: &Fixture, args: &[&str], cues: Cues) -> (i32, String, Vec<String>
     );
     std::fs::write(&stub, script).unwrap();
     std::fs::set_permissions(&stub, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-    let mut all = vec![f.land.display().to_string()];
+    (stub, log)
+}
+
+/// Lands <args> in the worktree <dir> with a stand-in `builds`. Returns the
+/// exit status, what the landing said and the commands it ran.
+fn run_land(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, String, Vec<String>) {
+    let (stub, log) = stub(f, &cues);
+    let mut all = vec![dir.display().to_string()];
     all.extend(args.iter().map(|a| a.to_string()));
     let mut out = Vec::new();
     let code = match land(&stub, &all, &mut out) {
@@ -159,27 +177,27 @@ fn run_land(f: &Fixture, args: &[&str], cues: Cues) -> (i32, String, Vec<String>
     (code, String::from_utf8_lossy(&out).into_owned(), calls)
 }
 
-/// Makes a commit fetchable from the landing clone, as a shared object store does for worktrees.
-fn publish(f: &Fixture, name: &str, sha: &str) {
-    git_out(
-        &f.agent,
-        &["push", "-q", "origin", &format!("{sha}:refs/heads/{name}")],
-    );
-}
-
-/// Commits a.txt and b.txt on the base, published for landing.
-fn two_sibling_commits(f: &Fixture) -> (String, String) {
-    let base = git_out(&f.agent, &["rev-parse", "HEAD"]);
-    let a = commit_file(&f.agent, "a.txt", "a\n", "add a");
-    git_out(&f.agent, &["checkout", "-q", "--detach", &base]);
-    let b = commit_file(&f.agent, "b.txt", "b\n", "add b");
-    publish(f, "a", &a);
-    publish(f, "b", &b);
-    (a, b)
+/// Side-1 on branch `a` with a.txt committed, and side-2 on branch `b` with
+/// b.txt, both from the base.
+fn two_branches(f: &Fixture) -> (PathBuf, String, PathBuf, String) {
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let two = f.side(2, "b");
+    let b = commit_file(&two, "b.txt", "b\n", "add b");
+    (one, a, two, b)
 }
 
 fn main_of(f: &Fixture) -> String {
     git_out(&f.origin, &["rev-parse", "main"])
+}
+
+/// The branch <dir> is on, or None when its HEAD is detached.
+fn branch_of(dir: &Path) -> Option<String> {
+    git_text(dir, &["symbolic-ref", "-q", "--short", "HEAD"])
+}
+
+fn head_of(dir: &Path) -> String {
+    git_out(dir, &["rev-parse", "HEAD"])
 }
 
 const CHECK: &str =
@@ -196,25 +214,26 @@ fn project() -> Cues {
 #[test]
 fn a_fast_forward_of_a_passing_tree_lands_and_a_cherry_pick_failing_a_check_is_refused() {
     let f = fixture("land-checks", &format!("# comment\n\n{CHECK}"), None);
-    let (a, b) = two_sibling_commits(&f);
-    let (code, _, _) = run_land(&f, &[&a], Cues::default());
+    let (one, a, two, b) = two_branches(&f);
+    let (code, _, _) = run_land(&f, &one, &[&a], Cues::default());
     assert!(code == 0 && main_of(&f) == a);
-    let (code, out, _) = run_land(&f, &[&b], Cues::default());
+    let (code, out, _) = run_land(&f, &two, &[&b], Cues::default());
     assert!(
         code == 1 && out.contains("CHECK FAILED") && out.contains("a.txt and b.txt together"),
         "{out}"
     );
     assert_eq!(main_of(&f), a);
-    assert_eq!(git_out(&f.land, &["rev-parse", "HEAD"]), a);
-    assert_eq!(git_out(&f.land, &["status", "--porcelain"]), "");
+    assert_eq!(branch_of(&two).as_deref(), Some("b"), "back on its branch");
+    assert_eq!(head_of(&two), b);
+    assert_eq!(git_out(&two, &["status", "--porcelain"]), "");
 }
 
 #[test]
 fn a_cherry_picked_result_passing_the_checks_is_pushed() {
     let f = fixture("land-pass", "true\n", None);
-    let (a, b) = two_sibling_commits(&f);
-    run_land(&f, &[&a], Cues::default());
-    let (code, _, _) = run_land(&f, &[&b], Cues::default());
+    let (one, a, two, b) = two_branches(&f);
+    run_land(&f, &one, &[&a], Cues::default());
+    let (code, _, _) = run_land(&f, &two, &[&b], Cues::default());
     assert_eq!(code, 0);
     assert_eq!(git_out(&f.origin, &["show", "main:b.txt"]), "b");
     assert_eq!(git_out(&f.origin, &["show", "main:a.txt"]), "a");
@@ -223,11 +242,10 @@ fn a_cherry_picked_result_passing_the_checks_is_pushed() {
 #[test]
 fn a_fast_forward_of_a_failing_tree_is_refused_by_the_checks() {
     let f = fixture("land-ff-check", CHECK, None);
-    let (a, _b) = two_sibling_commits(&f);
-    git_out(&f.agent, &["checkout", "-q", "--detach", &a]);
-    let c = commit_file(&f.agent, "b.txt", "b\n", "add b on a");
-    publish(&f, "c", &c);
-    let (code, out, _) = run_land(&f, &[&a, &c], Cues::default());
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let c = commit_file(&one, "b.txt", "b\n", "add b on a");
+    let (code, out, _) = run_land(&f, &one, &[&a, &c], Cues::default());
     assert!(
         code == 1 && out.contains("CHECK FAILED") && main_of(&f) != c,
         "{out}"
@@ -237,9 +255,9 @@ fn a_fast_forward_of_a_failing_tree_is_refused_by_the_checks() {
 #[test]
 fn a_cherry_picked_result_failing_the_compile_check_is_refused() {
     let f = fixture("land-compile", "true\n", Some(COMPILE));
-    let (a, b) = two_sibling_commits(&f);
-    run_land(&f, &[&a], Cues::default());
-    let (code, out, _) = run_land(&f, &[&b], Cues::default());
+    let (one, a, two, b) = two_branches(&f);
+    run_land(&f, &one, &[&a], Cues::default());
+    let (code, out, _) = run_land(&f, &two, &[&b], Cues::default());
     assert!(
         code == 1
             && out.contains("COMPILE CHECK FAILED")
@@ -247,16 +265,17 @@ fn a_cherry_picked_result_failing_the_compile_check_is_refused() {
         "{out}"
     );
     assert_eq!(main_of(&f), a);
-    assert_eq!(git_out(&f.land, &["rev-parse", "HEAD"]), a);
-    assert_eq!(git_out(&f.land, &["status", "--porcelain"]), "");
+    assert_eq!(branch_of(&two).as_deref(), Some("b"));
+    assert_eq!(head_of(&two), b);
+    assert_eq!(git_out(&two, &["status", "--porcelain"]), "");
 }
 
 #[test]
 fn a_cherry_picked_result_passing_the_compile_check_is_pushed() {
     let f = fixture("land-compile-pass", "true\n", Some("#!/bin/bash\ntrue\n"));
-    let (a, b) = two_sibling_commits(&f);
-    run_land(&f, &[&a], Cues::default());
-    let (code, _, _) = run_land(&f, &[&b], Cues::default());
+    let (one, a, two, b) = two_branches(&f);
+    run_land(&f, &one, &[&a], Cues::default());
+    let (code, _, _) = run_land(&f, &two, &[&b], Cues::default());
     assert_eq!(code, 0);
     assert_eq!(git_out(&f.origin, &["show", "main:b.txt"]), "b");
 }
@@ -264,11 +283,10 @@ fn a_cherry_picked_result_passing_the_compile_check_is_pushed() {
 #[test]
 fn a_fast_forward_runs_the_compile_check() {
     let f = fixture("land-ff-compile", "true\n", Some(COMPILE));
-    let (a, _b) = two_sibling_commits(&f);
-    git_out(&f.agent, &["checkout", "-q", "--detach", &a]);
-    let c = commit_file(&f.agent, "b.txt", "b\n", "add b on a");
-    publish(&f, "c", &c);
-    let (code, out, _) = run_land(&f, &[&a, &c], Cues::default());
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let c = commit_file(&one, "b.txt", "b\n", "add b on a");
+    let (code, out, _) = run_land(&f, &one, &[&a, &c], Cues::default());
     assert!(
         code == 1 && out.contains("COMPILE CHECK FAILED") && main_of(&f) != c,
         "{out}"
@@ -276,13 +294,19 @@ fn a_fast_forward_runs_the_compile_check() {
 }
 
 #[test]
-fn a_repo_in_no_project_lands_with_only_the_project_lookup_and_refuses_flags() {
+fn a_repo_in_no_project_lands_with_only_the_project_lookup_and_the_release_and_refuses_flags() {
     let f = fixture("land-no-project", "true\n", None);
-    let (a, b) = two_sibling_commits(&f);
-    let (code, _, calls) = run_land(&f, &[&a], Cues::default());
+    let (one, a, two, b) = two_branches(&f);
+    let (code, _, calls) = run_land(&f, &one, &[&a], Cues::default());
     assert!(code == 0 && main_of(&f) == a);
-    assert_eq!(calls, [format!("lists project-of {}", f.land.display())]);
-    let (code, out, _) = run_land(&f, &["--done", "5", &b], Cues::default());
+    assert_eq!(
+        calls,
+        [
+            format!("lists project-of {}", one.display()),
+            format!("release {}", one.display())
+        ]
+    );
+    let (code, out, _) = run_land(&f, &two, &["--done", "5", &b], Cues::default());
     assert!(
         code == 1 && out.contains("no project") && main_of(&f) == a,
         "{out}"
@@ -292,9 +316,9 @@ fn a_repo_in_no_project_lands_with_only_the_project_lookup_and_refuses_flags() {
 #[test]
 fn a_project_repo_names_its_work_item_before_anything_moves() {
     let f = fixture("land-project", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
-    let land = f.land.display();
-    let (code, out, calls) = run_land(&f, &[&a], project());
+    let (one, a, _two, _b) = two_branches(&f);
+    let dir = one.display();
+    let (code, out, calls) = run_land(&f, &one, &[&a], project());
     assert!(
         code == 1 && out.contains("--done") && main_of(&f) != a,
         "{out}"
@@ -302,13 +326,13 @@ fn a_project_repo_names_its_work_item_before_anything_moves() {
     assert_eq!(
         calls,
         [
-            format!("lists project-of {land}"),
-            format!("design places {land} {a}")
+            format!("lists project-of {dir}"),
+            format!("design places {dir} {a}")
         ]
     );
-    let before = git_out(&f.land, &["rev-parse", "HEAD"]);
     let (code, out, _) = run_land(
         &f,
+        &one,
         &["--done", "7", &a],
         Cues {
             refuse: "item check-landing",
@@ -319,68 +343,142 @@ fn a_project_repo_names_its_work_item_before_anything_moves() {
         code == 1 && out.contains("stub refuses") && main_of(&f) != a,
         "{out}"
     );
-    assert_eq!(git_out(&f.land, &["rev-parse", "HEAD"]), before);
-    let (code, _, calls) = run_land(&f, &["--done", "7", "--part", "8", &a], project());
+    assert_eq!(branch_of(&one).as_deref(), Some("a"));
+    let (code, _, calls) = run_land(&f, &one, &["--done", "7", "--part", "8", &a], project());
     assert!(code == 0 && main_of(&f) == a);
     assert_eq!(
         calls[calls.len() - 2..],
         [
-            format!("item landed {land} --done 7 --part 8 {a}"),
-            format!("review landed {land} --project bae {a}")
-        ]
+            format!("item landed {dir} --done 7 --part 8 {a} --by agent A"),
+            format!("review landed {dir} --project bae {a} --by agent A")
+        ],
+        "every record names the worktree's claim; a part keeps the claim"
     );
     assert!(!calls.iter().any(|c| c.starts_with("design landed")));
 }
 
 #[test]
-fn an_unclaimed_landing_worktree_of_a_project_is_refused_before_anything_moves() {
+fn an_unclaimed_worktree_of_a_project_is_refused_before_anything_moves() {
     let f = fixture("land-unclaimed", "true\n", None);
-    let (a, b) = two_sibling_commits(&f);
-    let checkout = crate::checkout::Checkout::at(&f.land).unwrap().unwrap();
+    let (one, a, two, b) = two_branches(&f);
+    let checkout = crate::checkout::Checkout::at(&one).unwrap().unwrap();
     std::fs::remove_file(checkout.claim_file()).unwrap();
-    let before = git_out(&f.land, &["rev-parse", "HEAD"]);
-    let (code, out, calls) = run_land(&f, &["--done", "7", &a], project());
+    let (code, out, calls) = run_land(&f, &one, &["--done", "7", &a], project());
     assert!(
         code == 1 && out.contains("is not claimed") && main_of(&f) != a,
         "{out}"
     );
-    assert_eq!(git_out(&f.land, &["rev-parse", "HEAD"]), before);
-    assert_eq!(calls, [format!("lists project-of {}", f.land.display())]);
-    // A repo in no project records nothing, so it lands unclaimed.
-    let (code, out, _) = run_land(&f, &[&b], Cues::default());
-    assert!(code == 0 && main_of(&f) == b, "{out}");
+    assert_eq!(head_of(&one), a);
+    assert_eq!(calls, [format!("lists project-of {}", one.display())]);
+    // A repo in no project records nothing, so it lands unclaimed, and
+    // there is no claim to release.
+    let (code, out, calls) = run_land(&f, &one, &[&a], Cues::default());
+    assert!(code == 0 && main_of(&f) == a, "{out}");
+    assert!(!calls.iter().any(|c| c.starts_with("release")), "{calls:?}");
+    let _ = (two, b);
 }
 
 #[test]
-fn a_cherry_picked_landing_records_the_new_commit_on_main() {
+fn a_cherry_picked_landing_records_the_new_commit_on_main_and_releases_the_worktree() {
     let f = fixture("land-record-new", "true\n", None);
-    let (a, b) = two_sibling_commits(&f);
-    run_land(&f, &[&a], Cues::default());
-    let (code, _, calls) = run_land(&f, &["--done", "7", &b], project());
+    let (one, a, two, b) = two_branches(&f);
+    run_land(&f, &one, &[&a], Cues::default());
+    let (code, out, calls) = run_land(&f, &two, &["--done", "7", &b], project());
     let new = main_of(&f);
     assert!(code == 0 && new != b);
-    let land = f.land.display();
+    let dir = two.display();
     assert_eq!(
-        calls[calls.len() - 2..],
+        calls[calls.len() - 3..],
         [
-            format!("item landed {land} --done 7 {new}"),
-            format!("review landed {land} --project bae {b}")
+            format!("item landed {dir} --done 7 {new} --by agent A"),
+            format!("review landed {dir} --project bae {b} --by agent A"),
+            format!("release {dir}")
         ],
         "the items record the commit on main; the review the commit it read"
+    );
+    assert_eq!(branch_of(&two), None, "{out}");
+    assert_eq!(head_of(&two), new, "left detached at the landed commit");
+    assert!(out.contains(&format!("released {dir}")), "{out}");
+}
+
+#[test]
+fn a_landing_that_leaves_commits_on_the_branch_goes_back_on_it_and_keeps_the_claim() {
+    let f = fixture("land-leaves-work", "true\n", None);
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let later = commit_file(&one, "d.txt", "d\n", "add d");
+    let (code, out, calls) = run_land(&f, &one, &["--done", "7", &a], project());
+    assert!(code == 0 && main_of(&f) == a, "{out}");
+    assert_eq!(branch_of(&one).as_deref(), Some("a"));
+    assert_eq!(head_of(&one), later);
+    assert!(out.contains("1 commit(s) there wait to land"), "{out}");
+    assert!(!calls.iter().any(|c| c.starts_with("release")), "{calls:?}");
+}
+
+#[test]
+fn a_part_landing_keeps_the_claim() {
+    let f = fixture("land-part", "true\n", None);
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let (code, out, calls) = run_land(&f, &one, &["--part", "7", &a], project());
+    assert!(code == 0 && main_of(&f) == a, "{out}");
+    assert_eq!(branch_of(&one), None);
+    assert!(!calls.iter().any(|c| c.starts_with("release")), "{calls:?}");
+}
+
+#[test]
+fn a_refused_release_keeps_the_claim_and_fails_nothing() {
+    let f = fixture("land-release-refused", "true\n", None);
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    // The stand-in refuses "<group> <command>"; `release DIR` has no command
+    // word, so a wrapper refuses it.
+    let (stub, _) = stub(&f, &project());
+    let refusing = f.scratch.dir.join("stub-refuses-release");
+    std::fs::write(
+        &refusing,
+        format!(
+            "#!/bin/bash\n[ \"$1\" = release ] && {{ echo 'still runs item 9'; exit 1; }}\nexec '{}' \"$@\"\n",
+            stub.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        &refusing,
+        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+    )
+    .unwrap();
+    let mut out = Vec::new();
+    let args = vec![
+        one.display().to_string(),
+        "--done".into(),
+        "7".into(),
+        a.clone(),
+    ];
+    let result = land(&refusing, &args, &mut out);
+    let out = String::from_utf8_lossy(&out);
+    assert!(result.is_ok() && main_of(&f) == a, "{out}");
+    assert!(
+        out.contains(&format!(
+            "kept the claim of {}: still runs item 9",
+            one.display()
+        )),
+        "{out}"
     );
 }
 
 #[test]
 fn design_places_need_the_design_change() {
     let f = fixture("land-design", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
-    let land = f.land.display();
+    let (one, a, _two, _b) = two_branches(&f);
+    let dir = one.display();
     let place = Cues {
         places: "place design/mocks/button",
         ..project()
     };
     let (code, out, _) = run_land(
         &f,
+        &one,
         &["--done", "7", &a],
         Cues {
             places: "place design/mocks/button",
@@ -393,6 +491,7 @@ fn design_places_need_the_design_change() {
     );
     let (code, out, _) = run_land(
         &f,
+        &one,
         &["--done", "7", &a],
         Cues {
             places: "shared design/system/tokens",
@@ -403,10 +502,11 @@ fn design_places_need_the_design_change() {
         code == 1 && out.contains("--design") && main_of(&f) != a,
         "{out}"
     );
-    let (code, out, _) = run_land(&f, &["--done", "7", "--design", "3", &a], project());
+    let (code, out, _) = run_land(&f, &one, &["--done", "7", "--design", "3", &a], project());
     assert!(code == 1 && out.contains("no design place"), "{out}");
     let (code, _, _) = run_land(
         &f,
+        &one,
         &["--done", "7", "--design", "3", &a],
         Cues {
             refuse: "design check",
@@ -416,6 +516,7 @@ fn design_places_need_the_design_change() {
     assert!(code == 1 && main_of(&f) != a);
     let (code, _, calls) = run_land(
         &f,
+        &one,
         &["--done", "7", "--design", "3", &a],
         Cues {
             places: "place design/mocks/button",
@@ -423,13 +524,14 @@ fn design_places_need_the_design_change() {
         },
     );
     assert_eq!(code, 0);
-    assert!(calls.contains(&format!("design check 3 {land} {a}")));
+    assert!(calls.contains(&format!("design check 3 {dir} {a}")));
     assert_eq!(
-        calls[calls.len() - 3..],
+        calls[calls.len() - 4..],
         [
-            format!("item landed {land} --done 7 {a}"),
-            format!("design landed 3 {land} {a}"),
-            format!("review landed {land} --project bae {a}")
+            format!("item landed {dir} --done 7 {a} --by agent A"),
+            format!("design landed 3 {dir} {a} --by agent A"),
+            format!("review landed {dir} --project bae {a} --by agent A"),
+            format!("release {dir}")
         ]
     );
 }
@@ -437,9 +539,10 @@ fn design_places_need_the_design_change() {
 #[test]
 fn shared_only_design_files_with_the_design_change_land() {
     let f = fixture("land-shared", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
+    let (one, a, _two, _b) = two_branches(&f);
     let (code, _, calls) = run_land(
         &f,
+        &one,
         &["--done", "7", "--design", "3", &a],
         Cues {
             places: "shared design/system/tokens",
@@ -447,21 +550,25 @@ fn shared_only_design_files_with_the_design_change_land() {
         },
     );
     assert_eq!(code, 0);
-    assert!(calls.contains(&format!("design landed 3 {} {a}", f.land.display())));
+    assert!(calls.contains(&format!(
+        "design landed 3 {} {a} --by agent A",
+        one.display()
+    )));
 }
 
 #[test]
 fn a_design_change_alone_lands_commits_that_are_all_design_files() {
     let f = fixture("land-design-alone", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
-    let land = f.land.display();
-    let (code, out, _) = run_land(&f, &["--design", "3", &a], project());
+    let (one, a, _two, _b) = two_branches(&f);
+    let dir = one.display();
+    let (code, out, _) = run_land(&f, &one, &["--design", "3", &a], project());
     assert!(
         code == 1 && out.contains("no design place") && main_of(&f) != a,
         "{out}"
     );
     let (code, out, _) = run_land(
         &f,
+        &one,
         &[&a],
         Cues {
             places: "place design/mocks/button",
@@ -474,6 +581,7 @@ fn a_design_change_alone_lands_commits_that_are_all_design_files() {
     );
     let (code, out, calls) = run_land(
         &f,
+        &one,
         &["--design", "3", &a],
         Cues {
             places: "place design/mocks/button",
@@ -489,6 +597,7 @@ fn a_design_change_alone_lands_commits_that_are_all_design_files() {
     assert!(!calls.iter().any(|c| c.starts_with("design check")));
     let (code, out, _) = run_land(
         &f,
+        &one,
         &["--design", "3", &a],
         Cues {
             places: "place design/mocks/button",
@@ -503,6 +612,7 @@ fn a_design_change_alone_lands_commits_that_are_all_design_files() {
     );
     let (code, _, calls) = run_land(
         &f,
+        &one,
         &["--design", "3", &a],
         Cues {
             places: "place design/mocks/button\nspec spec/bae.md#Sync",
@@ -510,15 +620,17 @@ fn a_design_change_alone_lands_commits_that_are_all_design_files() {
         },
     );
     assert!(code == 0 && main_of(&f) == a);
-    assert!(calls.contains(&format!("design only {land} {a}")));
-    assert!(calls.contains(&format!("design check 3 {land} {a}")));
-    assert!(calls.contains(&format!("review check-landing {land} --project bae {a}")));
+    assert!(calls.contains(&format!("design only {dir} {a}")));
+    assert!(calls.contains(&format!("design check 3 {dir} {a}")));
+    assert!(calls.contains(&format!("review check-landing {dir} --project bae {a}")));
     assert_eq!(
-        calls[calls.len() - 2..],
+        calls[calls.len() - 3..],
         [
-            format!("design landed 3 {land} {a}"),
-            format!("review landed {land} --project bae {a}")
-        ]
+            format!("design landed 3 {dir} {a} --by agent A"),
+            format!("review landed {dir} --project bae {a} --by agent A"),
+            format!("release {dir}")
+        ],
+        "a design landing releases the worktree too"
     );
     assert!(!calls.iter().any(|c| c.starts_with("item ")));
 }
@@ -526,9 +638,10 @@ fn a_design_change_alone_lands_commits_that_are_all_design_files() {
 #[test]
 fn a_failed_design_record_after_a_design_only_push_exits_with_the_rerun() {
     let f = fixture("land-design-record", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
-    let (code, out, _) = run_land(
+    let (one, a, _two, _b) = two_branches(&f);
+    let (code, out, calls) = run_land(
         &f,
+        &one,
         &["--design", "3", &a],
         Cues {
             places: "place design/mocks/button",
@@ -541,18 +654,23 @@ fn a_failed_design_record_after_a_design_only_push_exits_with_the_rerun() {
         "{out}"
     );
     assert!(out.contains(&format!(
-        "rerun: builds design landed 3 {} {a}",
-        f.land.display()
+        "rerun: builds design landed 3 {} {a} --by 'agent A'",
+        one.display()
     )));
     assert!(!out.contains("item landed"));
+    assert!(
+        !calls.iter().any(|c| c.starts_with("release")),
+        "an unrecorded landing keeps the claim: {calls:?}"
+    );
 }
 
 #[test]
 fn a_failed_record_exits_with_the_rerun_and_the_rerun_records_it() {
     let f = fixture("land-record", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
+    let (one, a, _two, _b) = two_branches(&f);
     let (code, out, _) = run_land(
         &f,
+        &one,
         &["--done", "7", &a],
         Cues {
             refuse: "item landed",
@@ -564,62 +682,106 @@ fn a_failed_record_exits_with_the_rerun_and_the_rerun_records_it() {
         "{out}"
     );
     assert!(out.contains(&format!(
-        "rerun: builds item landed {} --done 7 {a}",
-        f.land.display()
+        "rerun: builds item landed {} --done 7 {a} --by 'agent A'",
+        one.display()
     )));
-    let (code, _, calls) = run_land(&f, &["--done", "7", &a], project());
+    let (code, _, calls) = run_land(&f, &one, &["--done", "7", &a], project());
     assert_eq!(code, 0);
-    assert!(calls.contains(&format!("item landed {} --done 7 {a}", f.land.display())));
+    assert!(calls.contains(&format!(
+        "item landed {} --done 7 {a} --by agent A",
+        one.display()
+    )));
 }
 
 #[test]
-fn a_worktree_on_a_branch_is_refused() {
-    let f = fixture("land-branch", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
-    git_out(&f.land, &["checkout", "-q", "-b", "work"]);
-    let (code, out, _) = run_land(&f, &[&a], Cues::default());
+fn a_commit_not_on_the_worktrees_head_is_refused() {
+    let f = fixture("land-other-branch", "true\n", None);
+    let (one, _a, _two, b) = two_branches(&f);
+    let (code, out, calls) = run_land(&f, &one, &[&b], Cues::default());
     assert!(
-        code == 1 && out.contains("is on branch work; land from the detached landing worktree"),
+        code == 1
+            && out.contains(&format!("{b} is not on branch a in {}", one.display()))
+            && out.contains("land a branch from the worktree it is checked out in"),
         "{out}"
     );
-    assert_ne!(main_of(&f), a);
+    assert!(calls.is_empty(), "{calls:?}");
+    assert_ne!(main_of(&f), b);
+}
+
+#[test]
+fn a_worktree_with_uncommitted_changes_is_refused_before_anything_moves() {
+    let f = fixture("land-uncommitted", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let before = main_of(&f);
+    std::fs::write(one.join("half-done.txt"), "x\n").unwrap();
+    let (code, out, calls) = run_land(&f, &one, &[&a], Cues::default());
+    assert!(
+        code == 1 && out.contains("has uncommitted changes") && out.contains("half-done.txt"),
+        "{out}"
+    );
+    assert!(calls.is_empty(), "{calls:?}");
+    assert_eq!(main_of(&f), before);
+    assert_eq!(branch_of(&one).as_deref(), Some("a"));
+    std::fs::remove_file(one.join("half-done.txt")).unwrap();
+    std::fs::write(one.join("a.txt"), "changed\n").unwrap();
+    let (code, out, _) = run_land(&f, &one, &[&a], Cues::default());
+    assert!(
+        code == 1 && out.contains("has uncommitted changes"),
+        "{out}"
+    );
+    assert_eq!(git_out(&one, &["show", "HEAD:a.txt"]), "a");
+    assert_eq!(
+        std::fs::read_to_string(one.join("a.txt")).unwrap(),
+        "changed\n"
+    );
 }
 
 #[test]
 fn unknown_options_and_missing_numbers_are_refused() {
     let f = fixture("land-options", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
-    let (code, out, _) = run_land(&f, &["--bogus", &a], Cues::default());
+    let (one, a, _two, _b) = two_branches(&f);
+    let (code, out, _) = run_land(&f, &one, &["--bogus", &a], Cues::default());
     assert!(
         code == 1 && out.contains("refusing: unknown option --bogus"),
         "{out}"
     );
-    let (code, out, _) = run_land(&f, &["--done"], Cues::default());
+    let (code, out, _) = run_land(&f, &one, &["--done"], Cues::default());
     assert!(
         code == 1 && out.contains("--done needs an item number"),
         "{out}"
     );
-    let (code, out, _) = run_land(&f, &["--design", "1", "--design", "2", &a], Cues::default());
+    let (code, out, _) = run_land(
+        &f,
+        &one,
+        &["--design", "1", "--design", "2", &a],
+        Cues::default(),
+    );
     assert!(code == 1 && out.contains("--design given twice"), "{out}");
-    let (code, out, _) = run_land(&f, &[], Cues::default());
+    let (code, out, _) = run_land(&f, &one, &[], Cues::default());
     assert!(code == 1 && out.contains("usage: builds land"), "{out}");
 }
 
 #[test]
 fn landing_a_commit_already_on_main_says_so_and_records_its_copy() {
     let f = fixture("land-already", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
-    run_land(&f, &[&a], Cues::default());
-    let (code, out, calls) = run_land(&f, &["--done", "7", &a], project());
+    let (one, a, _two, _b) = two_branches(&f);
+    run_land(&f, &one, &[&a], Cues::default());
+    let (code, out, calls) = run_land(&f, &one, &["--done", "7", &a], project());
     assert!(
         code == 0 && out.contains("already on origin/main:"),
         "{out}"
     );
+    // The stand-in's release leaves the claim, so the second landing
+    // releases it again.
     assert_eq!(
-        calls[calls.len() - 2..],
+        calls[calls.len() - 3..],
         [
-            format!("item landed {} --done 7 {a}", f.land.display()),
-            format!("review landed {} --project bae {a}", f.land.display())
+            format!("item landed {} --done 7 {a} --by agent A", one.display()),
+            format!(
+                "review landed {} --project bae {a} --by agent A",
+                one.display()
+            ),
+            format!("release {}", one.display())
         ]
     );
 }
@@ -628,9 +790,9 @@ fn landing_a_commit_already_on_main_says_so_and_records_its_copy() {
 fn a_landing_runs_only_the_whole_lines_and_says_each_ones_time() {
     // not-run.sh does not exist: a plain check line would fail if land ran it.
     let f = fixture("land-whole-only", "true\n", None);
-    let (a, b) = two_sibling_commits(&f);
-    run_land(&f, &[&a], Cues::default());
-    let (code, out, _) = run_land(&f, &[&b], Cues::default());
+    let (one, a, two, b) = two_branches(&f);
+    run_land(&f, &one, &[&a], Cues::default());
+    let (code, out, _) = run_land(&f, &two, &[&b], Cues::default());
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("whole fake: ok, "), "{out}");
     assert!(!out.contains("skipped-by-land"), "{out}");
@@ -640,15 +802,15 @@ fn a_landing_runs_only_the_whole_lines_and_says_each_ones_time() {
 fn every_failing_whole_line_is_named_with_its_output() {
     let f = fixture("land-whole-many", CHECK, None);
     std::fs::write(
-        f.agent.join(".checks"),
+        f.main.join(".checks"),
         "whole first * sh fake-check.sh\nwhole second * sh fake-check.sh\n",
     )
     .unwrap();
-    git_out(&f.agent, &["commit", "-q", "-a", "-m", "two checks"]);
-    git_out(&f.agent, &["push", "-q", "origin", "HEAD:main"]);
-    let (a, b) = two_sibling_commits(&f);
-    run_land(&f, &[&a], Cues::default());
-    let (code, out, _) = run_land(&f, &[&b], Cues::default());
+    git_out(&f.main, &["commit", "-q", "-a", "-m", "two checks"]);
+    git_out(&f.main, &["push", "-q", "origin", "HEAD:main"]);
+    let (one, a, two, b) = two_branches(&f);
+    run_land(&f, &one, &[&a], Cues::default());
+    let (code, out, _) = run_land(&f, &two, &[&b], Cues::default());
     assert!(
         code == 1
             && out.contains("nothing pushed: first, second")
@@ -662,28 +824,29 @@ fn every_failing_whole_line_is_named_with_its_output() {
 #[test]
 fn a_leftover_land_checks_file_refuses_the_landing() {
     let f = fixture("land-old-file", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
-    std::fs::write(f.agent.join(".land-checks"), "true\n").unwrap();
-    git_out(&f.agent, &["add", ".land-checks"]);
-    git_out(&f.agent, &["commit", "-q", "-m", "old file"]);
-    let old = git_out(&f.agent, &["rev-parse", "HEAD"]);
-    git_out(&f.agent, &["push", "-q", "origin", "HEAD:main"]);
-    let (code, out, _) = run_land(&f, &[&a], Cues::default());
+    let (one, a, _two, _b) = two_branches(&f);
+    std::fs::write(f.main.join(".land-checks"), "true\n").unwrap();
+    git_out(&f.main, &["add", ".land-checks"]);
+    git_out(&f.main, &["commit", "-q", "-m", "old file"]);
+    let old = git_out(&f.main, &["rev-parse", "HEAD"]);
+    git_out(&f.main, &["push", "-q", "origin", "HEAD:main"]);
+    let (code, out, _) = run_land(&f, &one, &[&a], Cues::default());
     assert!(
         code == 1 && out.contains(".land-checks") && out.contains("`whole` line"),
         "{out}"
     );
     assert_eq!(main_of(&f), old);
+    assert_eq!(branch_of(&one).as_deref(), Some("a"));
 }
 
 #[test]
 fn commits_the_review_does_not_take_are_refused_before_anything_is_fetched() {
     let f = fixture("land-review-refuses", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
-    let land = f.land.display();
-    let before = git_out(&f.land, &["rev-parse", "HEAD"]);
+    let (one, a, _two, _b) = two_branches(&f);
+    let dir = one.display();
     let (code, out, calls) = run_land(
         &f,
+        &one,
         &["--done", "7", &a],
         Cues {
             refuse: "review check-landing",
@@ -698,23 +861,23 @@ fn commits_the_review_does_not_take_are_refused_before_anything_is_fetched() {
         "{out}"
     );
     assert_ne!(main_of(&f), a);
-    assert_eq!(git_out(&f.land, &["rev-parse", "HEAD"]), before);
+    assert_eq!(branch_of(&one).as_deref(), Some("a"));
     assert_eq!(
         calls.last().unwrap(),
-        &format!("review check-landing {land} --project bae {a}")
+        &format!("review check-landing {dir} --project bae {a}")
     );
 }
 
 #[test]
 fn a_landing_the_review_takes_is_pushed_and_recorded_as_landed_after_the_items() {
     let f = fixture("land-review-takes", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
-    let land = f.land.display();
-    let (code, _, calls) = run_land(&f, &["--done", "7", "--part", "3", &a], project());
+    let (one, a, _two, _b) = two_branches(&f);
+    let dir = one.display();
+    let (code, _, calls) = run_land(&f, &one, &["--done", "7", "--part", "3", &a], project());
     assert!(code == 0 && main_of(&f) == a);
     let check = calls
         .iter()
-        .position(|c| c == &format!("review check-landing {land} --project bae {a}"))
+        .position(|c| c == &format!("review check-landing {dir} --project bae {a}"))
         .expect("the review is asked before the landing");
     let items = calls
         .iter()
@@ -723,16 +886,17 @@ fn a_landing_the_review_takes_is_pushed_and_recorded_as_landed_after_the_items()
     assert!(items < check);
     assert_eq!(
         calls.last().unwrap(),
-        &format!("review landed {land} --project bae {a}")
+        &format!("review landed {dir} --project bae {a} --by agent A")
     );
 }
 
 #[test]
 fn a_failed_review_record_after_the_push_exits_with_the_rerun() {
     let f = fixture("land-review-record", "true\n", None);
-    let (a, _b) = two_sibling_commits(&f);
+    let (one, a, _two, _b) = two_branches(&f);
     let (code, out, _) = run_land(
         &f,
+        &one,
         &["--done", "7", &a],
         Cues {
             refuse: "review landed",
@@ -745,8 +909,8 @@ fn a_failed_review_record_after_the_push_exits_with_the_rerun() {
     );
     assert!(
         out.contains(&format!(
-            "rerun: builds review landed {} --project bae {a}",
-            f.land.display()
+            "rerun: builds review landed {} --project bae {a} --by 'agent A'",
+            one.display()
         )),
         "{out}"
     );
@@ -755,27 +919,89 @@ fn a_failed_review_record_after_the_push_exits_with_the_rerun() {
 #[test]
 fn a_failing_check_stops_the_landing_before_its_record_and_a_repo_in_no_project_has_no_review() {
     let f = fixture("land-review-order", CHECK, None);
-    let (a, b) = two_sibling_commits(&f);
-    run_land(&f, &["--done", "7", &a], project());
-    let (code, _, calls) = run_land(&f, &["--done", "8", &b], project());
+    let (one, a, two, b) = two_branches(&f);
+    run_land(&f, &one, &["--done", "7", &a], project());
+    let (code, _, calls) = run_land(&f, &two, &["--done", "8", &b], project());
     assert_eq!(code, 1);
     assert!(!calls.iter().any(|c| c.starts_with("review landed")));
     let g = fixture("land-review-none", "true\n", None);
-    let (a, _b) = two_sibling_commits(&g);
-    let (code, _, calls) = run_land(&g, &[&a], Cues::default());
+    let (one, a, _two, _b) = two_branches(&g);
+    let (code, _, calls) = run_land(&g, &one, &[&a], Cues::default());
     assert_eq!(code, 0);
     assert!(!calls.iter().any(|c| c.starts_with("review")));
 }
 
 #[test]
+fn a_landing_that_main_moved_under_tries_again_from_a_fresh_fetch() {
+    // The check pushes another clone's commit to origin the first time it
+    // runs, as a landing in another worktree would, so the first push is
+    // refused.
+    let f = fixture(
+        "land-retry",
+        "[ -e {root}/moved ] || { touch {root}/moved; git -C {root}/other push -q origin HEAD:main; }\n",
+        None,
+    );
+    let other = f.scratch.dir.join("other");
+    git_out(
+        &f.scratch.dir,
+        &[
+            "clone",
+            "-q",
+            f.origin.to_str().unwrap(),
+            other.to_str().unwrap(),
+        ],
+    );
+    identify(&other);
+    commit_file(&other, "c.txt", "c\n", "add c");
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let (code, out, calls) = run_land(&f, &one, &["--done", "7", &a], project());
+    assert!(code == 0 && out.contains("push failed"), "{out}");
+    let new = main_of(&f);
+    assert_ne!(new, a, "the retry cherry-picked onto the moved main");
+    assert_eq!(git_out(&f.origin, &["show", "main:a.txt"]), "a");
+    assert_eq!(git_out(&f.origin, &["show", "main:c.txt"]), "c");
+    assert!(calls.contains(&format!(
+        "item landed {} --done 7 {new} --by agent A",
+        one.display()
+    )));
+    assert_eq!(head_of(&one), new);
+}
+
+#[test]
+fn landings_in_two_worktrees_run_at_the_same_time() {
+    let f = fixture("land-two-worktrees", "sleep 1\n", None);
+    let (one, a, two, b) = two_branches(&f);
+    let (stub, _) = stub(&f, &Cues::default());
+    let landing = |dir: &Path, sha: String| {
+        let args = vec![dir.display().to_string(), sha];
+        let stub = stub.clone();
+        std::thread::spawn(move || {
+            let mut out = Vec::new();
+            let result = land(&stub, &args, &mut out);
+            (result.is_ok(), String::from_utf8_lossy(&out).into_owned())
+        })
+    };
+    let first = landing(&one, a);
+    let second = landing(&two, b);
+    let (ok_a, out_a) = first.join().unwrap();
+    let (ok_b, out_b) = second.join().unwrap();
+    assert!(ok_a && ok_b, "{out_a}\n{out_b}");
+    let waits = |out: &str| out.contains("waiting for the landing in");
+    assert!(!waits(&out_a) && !waits(&out_b), "{out_a}\n{out_b}");
+    assert_eq!(git_out(&f.origin, &["show", "main:a.txt"]), "a");
+    assert_eq!(git_out(&f.origin, &["show", "main:b.txt"]), "b");
+}
+
+#[test]
 fn two_landings_started_together_in_one_worktree_run_one_after_the_other() {
     let f = fixture("land-lock", "sleep 1\n", None);
-    let (a, b) = two_sibling_commits(&f);
-    let stub = f.scratch.dir.join("stub-builds");
-    std::fs::write(&stub, "#!/bin/bash\nexit 0\n").unwrap();
-    std::fs::set_permissions(&stub, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let b = commit_file(&one, "b.txt", "b\n", "add b");
+    let (stub, _) = stub(&f, &Cues::default());
     let landing = |sha: String| {
-        let args = vec![f.land.display().to_string(), sha];
+        let args = vec![one.display().to_string(), sha];
         let stub = stub.clone();
         std::thread::spawn(move || {
             let mut out = Vec::new();
@@ -797,12 +1023,13 @@ fn two_landings_started_together_in_one_worktree_run_one_after_the_other() {
 #[test]
 fn a_waiting_landing_names_the_landing_it_waits_behind() {
     let f = fixture("land-lock-names", "true\n", None);
+    let one = f.side(1, "a");
     let mut first = Vec::new();
-    let held = lock_worktree(&f.land, &["--done".into(), "7".into()], &mut first).unwrap();
-    let land = f.land.clone();
+    let held = lock_worktree(&one, &["--done".into(), "7".into()], &mut first).unwrap();
+    let dir = one.clone();
     let waiter = std::thread::spawn(move || {
         let mut out = Vec::new();
-        lock_worktree(&land, &[], &mut out).unwrap();
+        lock_worktree(&dir, &[], &mut out).unwrap();
         String::from_utf8_lossy(&out).into_owned()
     });
     std::thread::sleep(std::time::Duration::from_millis(300));

@@ -399,7 +399,7 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
 
 /// `landed N DIR SHA...`: SHAs are on origin/main, as builds land calls it after
 /// the push; they are stored as full hashes. Who landed is `--by`, else the
-/// claim of DIR, the landing worktree.
+/// claim of DIR, the worktree the commits land from.
 fn landed(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let [id, dir, shas @ ..] = args.positional() else {

@@ -932,11 +932,12 @@ matching file is staged.
 
 LANDING AND REVIEW
 
-A coordinator lands commits, putting them on origin/main, from its claimed
-landing worktree with `builds land`. In a repo of a project with lists, every
-branch is reviewed against agent-instructions' rules before it lands. No diff
-is reviewed more than once. Each change gets one review; the coordinator reads
-the fixes for its confirmed findings:
+A coordinator lands commits, putting them on origin/main, with `builds land`
+in the worktree whose branch holds them, once that branch's agent is done
+there. In a repo of a project with lists, every branch is reviewed against
+agent-instructions' rules before it lands. No diff is reviewed more than once.
+Each change gets one review; the coordinator reads the fixes for its confirmed
+findings:
 
   1. The coordinator runs `builds review` on the branch's commits once.
   2. It judges each finding against the code and the rule, and settles it as
@@ -1059,18 +1060,33 @@ every rule. To test another grouping, change the folders in a worktree of
 agent-instructions and run `review replay --rules-root` on it.
 
   builds land <worktree> [--done N]... [--part N]... [--design N] <sha>...
-                              put the commits on origin/main from the claimed,
-                              detached landing worktree: a fast-forward when
-                              origin/main is their base, else a cherry-pick,
-                              trying a refused push again from a fresh fetch
-                              up to five times. One landing runs in a worktree
-                              at a time. The repo's `whole` checks and its
+                              put the commits on origin/main from the
+                              worktree whose branch holds them: a
+                              fast-forward when origin/main is their base,
+                              else a cherry-pick, trying a refused push again
+                              from a fresh fetch up to five times. Before it
+                              fetches anything, land refuses the worktree
+                              while it has uncommitted changes (its agent is
+                              not done there) and refuses a commit that is
+                              not on its HEAD. It builds the result on a
+                              detached HEAD at origin/main. One landing runs
+                              in a worktree at a time; landings in different
+                              worktrees run together, and the push retry
+                              orders them. After the push the worktree stays
+                              detached at the landed commit when its branch
+                              has nothing left to land, else it goes back on
+                              the branch; a refused landing goes back on the
+                              branch too. Once every record is written, a
+                              landing that leaves nothing to land and names
+                              no --part releases the worktree (`builds
+                              release`; a refusal keeps the claim and fails
+                              nothing). The repo's `whole` checks and its
                               .land-compile (the compile check of the touched
                               crates) run on the result before the push,
                               fast-forward included, each whole check's time
                               printed; a failure names every failing check
                               with its output, pushes nothing and puts the
-                              worktree back on origin/main. --done N finishes
+                              worktree back on its branch. --done N finishes
                               item N and --part N records a landed part of it
                               (checked before anything is fetched, recorded
                               after the push). Commits that change design
@@ -1081,10 +1097,14 @@ agent-instructions and run `review replay --rules-root` on it.
                               anything is fetched and its refusal ends the
                               landing; `review landed` runs after the push,
                               beside the items' and the design change's
-                              records. Each record names the landing worktree
-                              and takes who landed from its claim, so in a
-                              repo of a project land refuses an unclaimed
-                              landing worktree before it fetches anything
+                              records. Each record names the worktree, and
+                              land reads who landed from the worktree's
+                              claim and passes it to each record as --by, so
+                              in a repo of a project land refuses an
+                              unclaimed worktree before it fetches anything.
+                              `item check-landing` refuses an item that runs
+                              in another worktree: landing there would move
+                              that agent's HEAD
   builds review [run] <worktree> [<base>] [--landing <key>] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
                               review the worktree's commits past <base>
                               (default origin/main) against the rules in
@@ -1143,7 +1163,7 @@ agent-instructions and run `review replay --rules-root` on it.
                               what `builds land` records after the push: the
                               landing under review whose review takes the
                               commits landed, with its review run, written by
-                              --by, else the landing worktree's claim. A change
+                              --by, else the worktree's claim. A change
                               recorded already is left as it is, so the rerun
                               land prints is safe. It then decides whether the
                               landing is audited and, when it is, starts

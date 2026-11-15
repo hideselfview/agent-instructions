@@ -1,27 +1,44 @@
 //! `builds land WORKTREE [--done N]... [--part N]... [--design N] SHA...`: puts
-//! the commits on origin/main (a fast-forward when they sit on it, else a
-//! cherry-pick), retrying the whole step on a refused push.
+//! the commits on origin/main from the worktree whose branch holds them (a
+//! fast-forward when they sit on it, else a cherry-pick), retrying the whole
+//! step on a refused push.
 //!
-//! WORKTREE is a detached landing worktree, claimed by whoever lands (`builds
-//! claim`; the claim names who lands, and the store records that name). In a
-//! repo of a project, land refuses an unclaimed landing worktree before it
-//! fetches anything: each record after the push names the landing worktree and
-//! takes who wrote it from that worktree's claim, not from the directory land
-//! runs in, so land never pushes commits it cannot record. One
-//! landing at a time runs in a worktree: two landings in one worktree move
+//! WORKTREE is the side worktree the branch's agent worked in, once the agent
+//! is done there. Before it fetches anything, land refuses the worktree while
+//! it has uncommitted changes, untracked files included: they are the agent's
+//! work in progress, which the landing's checkouts would carry into the result
+//! or stop on. It refuses a commit that is not on the worktree's HEAD, since a
+//! branch lands from its own worktree. In a repo of a project it refuses an
+//! unclaimed worktree: each record after the push names who landed, which land
+//! reads from the worktree's claim before it starts and passes to every record
+//! as `--by`, so the records after the first still name it once `builds item
+//! landed` has released the claim.
+//!
+//! The landing detaches HEAD at origin/main and builds the result there. A
+//! refused landing puts the worktree back on its branch. After the push, the
+//! worktree stays detached at the landed commit when its branch has nothing
+//! left to land, which is what `builds new` and `prune` take as free once the
+//! claim goes; when commits on the branch still wait to land, it goes back on
+//! the branch. Once every record is written, a landing that leaves nothing to
+//! land and names no `--part` releases the worktree (`builds release`) if
+//! `builds item landed` has not already: a `--part` leaves its item running
+//! there.
+//!
+//! One landing at a time runs in a worktree: two landings in one worktree move
 //! each other's HEAD, and one pushed the other's commits and called them
 //! landed, so each waits for the worktree to itself (an exclusive flock on
 //! `land.lock` in the worktree's git dir, held through the push and the
-//! record), saying whom it waits behind. An agent's worktree sits on its
-//! branch; landing there would move the agent off it, so a worktree on a branch
-//! is refused.
+//! records), saying whom it waits behind. Landings in different worktrees run
+//! at the same time: the push of the one that main moved under is refused, and
+//! it tries again from a fresh fetch.
 //!
 //! A repo that belongs to a project of the lists (`builds lists project-of`)
 //! names the work items a landing finishes (`--done N`) or advances (`--part
 //! N`) and, when the commits change design places, the design change (`--design
 //! N`), which the person must have approved (`builds design check` says so).
 //! Each is checked before anything is fetched or picked, and recorded after the
-//! push. `builds design places` prints one line per changed design path
+//! push; `builds item check-landing` refuses an item that runs in another
+//! worktree of the repo, whose agent's HEAD the landing must not move. `builds design places` prints one line per changed design path
 //! (`place`, `source`, `spec` or `shared`, then the path), nothing when none;
 //! any line, shared-only included, requires `--design`. When every commit's
 //! paths are design files (`builds design only`: boards, the design system,
@@ -35,7 +52,7 @@
 //! also runs when a path matches; checks.rs says how a line is written), each
 //! with its time. Every one runs even after another fails; the failing ones
 //! are named with their output, nothing is pushed, and the worktree goes back
-//! to origin/main (exit 1, no retry). A leftover `.land-checks` file fails the
+//! on its branch (exit 1, no retry). A leftover `.land-checks` file fails the
 //! landing the same way. Then the repo's `.land-compile`, if present, runs (`bash
 //! .land-compile` from the repo root, reading what the commits changed from
 //! `git diff origin/main HEAD`): the compile check of the result, which the
@@ -70,7 +87,7 @@ use crate::checkout::git;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 
-const USAGE: &str = "usage: builds land <worktree> [--done N]... [--part N]... [--design N] <sha>... (the landing worktree must be claimed; --design is required exactly when the commits change a design place or shared design file, and alone it lands commits that are all design files)";
+const USAGE: &str = "usage: builds land <worktree> [--done N]... [--part N]... [--design N] <sha>... (the worktree is the one whose branch holds the commits, with nothing uncommitted, and in a repo of a project it must be claimed; --design is required exactly when the commits change a design place or shared design file, and alone it lands commits that are all design files)";
 
 /// How many times a refused push is tried again from a fresh fetch.
 const ATTEMPTS: usize = 5;
@@ -222,6 +239,103 @@ struct Request {
     shas: Vec<String>,
 }
 
+impl Request {
+    /// Does the landing advance an item without finishing it?
+    fn has_part(&self) -> bool {
+        self.items.iter().any(|word| word == "--part")
+    }
+}
+
+/// Where the worktree's HEAD was when the landing began: on its branch, or
+/// detached at a commit. A refused landing goes back there, and so does a
+/// landing that leaves commits there to land later.
+enum Start {
+    Branch(String),
+    Detached(String),
+}
+
+impl Start {
+    fn read(dir: &Path) -> Result<Start> {
+        if let Some(branch) = git_text(dir, &["symbolic-ref", "-q", "--short", "HEAD"]) {
+            return Ok(Start::Branch(branch));
+        }
+        match git_text(dir, &["rev-parse", "--verify", "--quiet", "HEAD"]) {
+            Some(sha) => Ok(Start::Detached(sha)),
+            None => fail!("{} has no commit checked out", dir.display()),
+        }
+    }
+
+    /// The rev git knows it by.
+    fn rev(&self) -> &str {
+        match self {
+            Start::Branch(name) | Start::Detached(name) => name,
+        }
+    }
+
+    /// What the landing calls it.
+    fn name(&self) -> String {
+        match self {
+            Start::Branch(branch) => format!("branch {branch}"),
+            Start::Detached(sha) => format!("detached HEAD {}", &sha[..sha.len().min(12)]),
+        }
+    }
+
+    /// Checks it out in <dir> again; says whether git did.
+    fn check_out(&self, dir: &Path) -> bool {
+        match self {
+            Start::Branch(branch) => git_ok(dir, &["checkout", "-q", branch, "--"]),
+            Start::Detached(sha) => git_ok(dir, &["checkout", "-q", "--detach", sha]),
+        }
+    }
+}
+
+/// Refuses a worktree with uncommitted changes, untracked files included:
+/// they are its agent's work in progress, which the landing's checkouts would
+/// carry into the result or stop on.
+fn require_clean(dir: &Path, out: &mut dyn Write) -> Result<()> {
+    let Some(status) = git_text(dir, &["status", "--porcelain"]) else {
+        return Err(refuse(
+            out,
+            format!("refusing: git status failed in {}", dir.display()),
+        ));
+    };
+    if status.is_empty() {
+        return Ok(());
+    }
+    Err(refuse(
+        out,
+        format!(
+            "refusing: {} has uncommitted changes, so its agent is not done there; nothing fetched or pushed. Commit or remove them first:\n{status}",
+            dir.display()
+        ),
+    ))
+}
+
+/// Refuses a commit that is not on the worktree's HEAD: a branch lands from
+/// the worktree it is checked out in.
+fn require_on_head(dir: &Path, start: &Start, shas: &[String], out: &mut dyn Write) -> Result<()> {
+    for sha in shas {
+        let commit = format!("{sha}^{{commit}}");
+        if git_text(dir, &["rev-parse", "--verify", "--quiet", &commit]).is_none() {
+            return Err(refuse(
+                out,
+                format!("refusing: {sha} is not a commit in {}", dir.display()),
+            ));
+        }
+        if !git_ok(dir, &["merge-base", "--is-ancestor", sha, "HEAD"]) {
+            return Err(refuse(
+                out,
+                format!(
+                    "refusing: {sha} is not on {} in {}; land a branch from the worktree it is checked out in",
+                    start.name(),
+                    dir.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
     let mut items = Vec::new();
     let mut design: Option<String> = None;
@@ -273,8 +387,13 @@ struct Landing<'a> {
     program: &'a Path,
     workdir: PathBuf,
     request: Request,
+    start: Start,
     /// The project of the repo; None when it is in no project.
     project: Option<String>,
+    /// Who the records name as having landed: the worktree's claim, read
+    /// before the landing starts. None in a repo of no project, which records
+    /// nothing.
+    by: Option<String>,
 }
 
 impl Landing<'_> {
@@ -427,7 +546,11 @@ impl Landing<'_> {
             lines.push(line);
         }
         lines.push(self.review_line("landed", project));
-        for line in lines {
+        for mut line in lines {
+            if let Some(by) = &self.by {
+                line.push("--by".to_string());
+                line.push(by.clone());
+            }
             let (ok, said) = self.run_line(&line);
             if !ok {
                 all_written = false;
@@ -476,11 +599,26 @@ impl Landing<'_> {
         on_main
     }
 
+    /// Puts the worktree back where the landing found it, after a refusal,
+    /// and says so when git could not.
+    fn go_back(&self, out: &mut dyn Write) {
+        git_ok(&self.workdir, &["reset", "-q", "--hard"]);
+        if !self.start.check_out(&self.workdir) {
+            let _ = writeln!(
+                out,
+                "could not check out {} again in {}; check it out by hand",
+                self.start.name(),
+                self.workdir.display()
+            );
+        }
+    }
+
     /// Runs the repo's whole-tree checks and compile check on the result.
-    /// On a failure the worktree goes back to origin/main and the failure is said.
+    /// On a failure the worktree goes back where the landing found it and the
+    /// failure is said.
     fn check_result(&self, out: &mut dyn Write) -> Result<()> {
         let back = |out: &mut dyn Write, headline: String, said: String| {
-            git_ok(&self.workdir, &["reset", "-q", "--hard", "origin/main"]);
+            self.go_back(out);
             let _ = writeln!(out, "{headline}");
             refuse(out, said)
         };
@@ -533,7 +671,9 @@ impl Landing<'_> {
         Ok(())
     }
 
-    fn put_on_main(&self, out: &mut dyn Write) -> Result<()> {
+    /// Puts the commits on origin/main and returns their copies there, or
+    /// refuses with the worktree back where the landing found it.
+    fn put_on_main(&self, out: &mut dyn Write) -> Result<Vec<String>> {
         let dir = &self.workdir;
         let shas = &self.request.shas;
         let last = shas.last().expect("a landing names a commit").as_str();
@@ -583,16 +723,13 @@ impl Landing<'_> {
                     // An earlier push that reported failure may have landed
                     // without its record.
                     if self.project.is_some() && on_main.iter().any(String::is_empty) {
+                        self.leave(out);
                         return Err(refuse(
                             out,
                             "LANDED, NOT RECORDED: a commit's copy on origin/main was not found by its subject; record by hand with builds item landed",
                         ));
                     }
-                    return if self.record(&on_main, out) {
-                        Ok(())
-                    } else {
-                        Err(Fail::Exit(1))
-                    };
+                    return Ok(on_main);
                 }
                 let mut pick = git(dir);
                 pick.arg("cherry-pick").args(todo);
@@ -601,6 +738,7 @@ impl Landing<'_> {
                     .stderr(Stdio::null());
                 if !pick.status().is_ok_and(|status| status.success()) {
                     git_ok(dir, &["cherry-pick", "--abort"]);
+                    self.go_back(out);
                     return Err(refuse(out, "CONFLICT"));
                 }
             }
@@ -640,11 +778,7 @@ impl Landing<'_> {
                         .lines()
                         .map(str::to_string)
                         .collect();
-                return if self.record(&on_main, out) {
-                    Ok(())
-                } else {
-                    Err(Fail::Exit(1))
-                };
+                return Ok(on_main);
             }
             let last_line = said
                 .lines()
@@ -652,28 +786,94 @@ impl Landing<'_> {
                 .unwrap_or("");
             let _ = writeln!(out, "push failed: {last_line}");
         }
-        Err(Fail::Exit(1))
+        self.go_back(out);
+        Err(refuse(
+            out,
+            format!("LANDING FAILED: no push succeeded in {ATTEMPTS} tries"),
+        ))
+    }
+
+    /// Leaves the worktree after the push: detached at the landed commit when
+    /// the branch it started on has nothing left to land, else back on that
+    /// branch. Says where, and whether commits wait to land there. A failed
+    /// read of git counts as commits waiting, which keeps the claim.
+    fn leave(&self, out: &mut dyn Write) -> bool {
+        let dir = self.workdir.display();
+        let start = self.start.name();
+        let waiting = match crate::side_git::waiting_to_land(&self.workdir, self.start.rev()) {
+            Ok(waiting) if waiting.is_empty() => {
+                let _ = writeln!(
+                    out,
+                    "{dir} is detached at the landed commit: nothing on its {start} waits to land"
+                );
+                return false;
+            }
+            Ok(waiting) => format!("{} commit(s) there wait to land", waiting.len()),
+            Err(error) => format!("reading what waits to land there failed: {error}"),
+        };
+        if self.start.check_out(&self.workdir) {
+            let _ = writeln!(out, "{dir} is back on its {start}: {waiting}");
+        } else {
+            let _ = writeln!(
+                out,
+                "{dir} stays at the landed commit, since git could not check out its {start} again: {waiting}"
+            );
+        }
+        true
+    }
+
+    /// Releases the worktree when it is still claimed (`builds item landed`
+    /// releases the worktree of an item the landing finishes), saying what
+    /// came of it. A refusal, such as an item that still runs there, keeps
+    /// the claim and fails nothing: the commits landed.
+    fn release(&self, out: &mut dyn Write) {
+        let claimed = crate::checkout::Checkout::at(&self.workdir)
+            .ok()
+            .flatten()
+            .is_some_and(|checkout| checkout.claim_file().exists());
+        if !claimed {
+            return;
+        }
+        let dir = self.workdir.display().to_string();
+        let (ok, said) = self.builds(&["release", &dir]);
+        if ok {
+            let _ = writeln!(out, "released {dir}");
+        } else {
+            let _ = writeln!(out, "kept the claim of {dir}: {said}");
+        }
+    }
+
+    /// After the push: leaves the worktree, records the landing, and releases
+    /// the worktree when its agent has nothing left there.
+    fn finish(&self, on_main: &[String], out: &mut dyn Write) -> Result<()> {
+        let waiting = self.leave(out);
+        if !self.record(on_main, out) {
+            return Err(Fail::Exit(1));
+        }
+        if !waiting && !self.request.has_part() {
+            self.release(out);
+        }
+        Ok(())
     }
 }
 
-/// Refuses a landing worktree that no one has claimed: the records after the
-/// push take who landed from its claim.
-fn require_claim(workdir: &Path, out: &mut dyn Write) -> Result<()> {
-    let claimed = match crate::checkout::Checkout::at(workdir)? {
-        Some(checkout) => crate::claim::Claim::read(&checkout.claim_file())?
-            .is_some_and(|claim| !claim.who.is_empty()),
-        None => false,
+/// Who the worktree's claim names, which the records after the push name as
+/// having landed; refuses a worktree no one has claimed.
+fn require_claim(workdir: &Path, out: &mut dyn Write) -> Result<String> {
+    let claim = match crate::checkout::Checkout::at(workdir)? {
+        Some(checkout) => crate::claim::Claim::read(&checkout.claim_file())?,
+        None => None,
     };
-    if !claimed {
-        return Err(refuse(
+    match claim {
+        Some(claim) if !claim.who.is_empty() => Ok(claim.who),
+        _ => Err(refuse(
             out,
             format!(
-                "refusing: {} is not claimed; claim it for whoever lands (builds claim), since the store records the landing under that name",
+                "refusing: {} is not claimed; claim it for its agent (builds claim), since the store records the landing under that name",
                 workdir.display()
             ),
-        ));
+        )),
     }
-    Ok(())
 }
 
 /// The landing, with the program that answers the `builds` commands it runs
@@ -684,23 +884,17 @@ pub fn land(program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> 
     };
     let workdir = std::path::absolute(worktree).context(|| format!("resolving {worktree}"))?;
     let _lock = lock_worktree(&workdir, rest, out)?;
-    // An agent's worktree sits on its branch; the landing worktree is
-    // detached. Landing there would move the agent off its branch.
-    if let Some(branch) = git_text(&workdir, &["symbolic-ref", "-q", "--short", "HEAD"]) {
-        return Err(refuse(
-            out,
-            format!(
-                "refusing: {} is on branch {branch}; land from the detached landing worktree",
-                workdir.display()
-            ),
-        ));
-    }
     let request = parse(rest, out)?;
+    let start = Start::read(&workdir)?;
+    require_clean(&workdir, out)?;
+    require_on_head(&workdir, &start, &request.shas, out)?;
     let mut landing = Landing {
         program,
         workdir,
         request,
+        start,
         project: None,
+        by: None,
     };
     let (ok, project) = landing.builds(&[
         "lists",
@@ -715,10 +909,11 @@ pub fn land(program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> 
     }
     landing.project = (!project.is_empty()).then_some(project);
     if landing.project.is_some() {
-        require_claim(&landing.workdir, out)?;
+        landing.by = Some(require_claim(&landing.workdir, out)?);
     }
     landing.check_lists(out)?;
-    landing.put_on_main(out)
+    let on_main = landing.put_on_main(out)?;
+    landing.finish(&on_main, out)
 }
 
 #[cfg(test)]

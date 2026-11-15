@@ -672,7 +672,7 @@ fn landed_closes_the_change_frees_its_items_and_is_idempotent() {
 }
 
 #[test]
-fn landed_records_the_landing_worktrees_claim_wherever_it_runs() {
+fn landed_records_the_worktrees_claim_wherever_it_runs() {
     let w = world("design-landed-who");
     w.commit(&["design/mocks/A.dc.html"]);
     w.request(base_request(
@@ -684,7 +684,7 @@ fn landed_records_the_landing_worktrees_claim_wherever_it_runs() {
     git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     let checkout = crate::checkout::Checkout::at(&w.dir).unwrap().unwrap();
     crate::claim::Claim {
-        who: "coordinator (landing)".into(),
+        who: "design session".into(),
         since: "2026-11-15 10:00".into(),
         note: None,
         note_state: None,
@@ -701,7 +701,7 @@ fn landed_records_the_landing_worktrees_claim_wherever_it_runs() {
     let state = w.state();
     assert_eq!(
         state.closed_record(Id(1)).unwrap().closed.by,
-        "coordinator (landing)"
+        "design session"
     );
 }
 
