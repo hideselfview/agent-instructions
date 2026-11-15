@@ -122,10 +122,30 @@ pub fn set_project(places: &Places, checkout: &Checkout, project: Option<&str>) 
         .map_err(|error| fail::Fail::Message(format!("writing {}: {error}", file.display())))
 }
 
+/// Refuses a claim that names no project (<named> is the project the claim
+/// gives or the worktree keeps) of a worktree of <repo> when two projects hold
+/// the repo. The lists commands, `builds release` and the dashboard find the
+/// worktree's project from its claim, so without one the worktree's items
+/// would not show and its claim could not be released.
+pub fn require_project_named(places: &Places, repo: &str, named: Option<&str>) -> Result<()> {
+    if named.is_some() {
+        return Ok(());
+    }
+    let holding = crate::lists::store::projects_holding(places, repo)?;
+    if holding.len() > 1 {
+        fail!(
+            "repo {repo} is in two projects ({}); name the project of the work with --project",
+            holding.join(", ")
+        );
+    }
+    Ok(())
+}
+
 /// `builds claim <checkout> <who> [--project P]`. Claiming it again for the
 /// one who holds it renews the claim's date and keeps its note and the note's
 /// state. --project names the project the work is in, for a repo that two
-/// projects hold; without it the worktree keeps the project it had.
+/// projects hold, and a worktree of such a repo must have one; without it the
+/// worktree keeps the project it had.
 pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
     let usage = "usage: builds claim <checkout> <who> [--project P]";
     let (positional, project) = match args {
@@ -159,8 +179,16 @@ pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
         Some(claim) => (claim.note, claim.note_state),
         None => (None, None),
     };
-    if let Some(project) = project {
-        set_project(places, &checkout, Some(project))?;
+    match project {
+        Some(project) => set_project(places, &checkout, Some(project))?,
+        None => {
+            let kept = match std::fs::read_to_string(checkout.project_file()) {
+                Ok(text) => Some(text.trim().to_string()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => fail!("reading {}: {error}", checkout.project_file().display()),
+            };
+            require_project_named(places, &checkout.repo(), kept.as_deref())?;
+        }
     }
     write_claim(&checkout, who, now, kept_note, kept_state)?;
     note(format!("claimed {} for {who}", checkout.top.display()));

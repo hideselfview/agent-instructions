@@ -194,10 +194,11 @@ while origin/main has no commit with the same change (`git log --cherry-pick
                               runs there (it waits for one when every source
                               is building), so the first build compiles
                               little. --project P records which project's work
-                              it is, for a repo that two projects hold
-                              (agent-instructions is in bae and builds): every
-                              lists command run in the worktree then uses P's
-                              lists
+                              it is, and a repo that two projects hold
+                              (agent-instructions is in bae and builds)
+                              requires it: every lists command run in the
+                              worktree, `release` and the dashboard then use
+                              P's lists
   builds claim <checkout> <who> [--project P]
                               record that <who> works in the side worktree
                               (--project as for `new`; a claim renewed without

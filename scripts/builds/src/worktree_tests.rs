@@ -286,6 +286,86 @@ fn new_and_claim_record_the_project_and_release_forgets_it() {
 }
 
 #[test]
+fn a_repo_two_projects_hold_gets_no_worktree_or_claim_without_a_project() {
+    use crate::lists::fixtures::{NOON, make_store, stamp};
+    use crate::lists::project::NewProject;
+    use crate::lists::store::Store;
+    let scratch = Scratch::new("worktree-two-projects");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    repo(&main, "target 1G\n");
+    let origin = scratch.dir.join("origin.git");
+    git(
+        &scratch.dir,
+        &["init", "-q", "--bare", &origin.display().to_string()],
+    );
+    git(
+        &main,
+        &["remote", "add", "origin", &origin.display().to_string()],
+    );
+    git(&main, &["push", "-q", "origin", "main"]);
+    make_store(&tool.places, &["demo"]);
+    Store::named(&tool.places, "second")
+        .unwrap()
+        .create(
+            &NewProject {
+                name: "second".into(),
+                repos: vec!["demo".into()],
+                places: Default::default(),
+                sources: Default::default(),
+                specs: Default::default(),
+            },
+            &stamp(NOON),
+            "lists init second",
+        )
+        .unwrap();
+    let main_arg = main.display().to_string();
+    // Without --project, new refuses before it makes or claims anything.
+    assert!(
+        refusal(cmd_new(
+            &tool,
+            &[main_arg.clone(), "--for".into(), "agent A".into()]
+        ))
+        .contains("repo demo is in two projects (demo, second); name the project")
+    );
+    assert!(!scratch.dir.join("demo-worktrees").exists());
+
+    // With it, the worktree is claimed for that project and released again.
+    cmd_new(
+        &tool,
+        &[
+            main_arg.clone(),
+            "--for".into(),
+            "agent A".into(),
+            "--project".into(),
+            "second".into(),
+        ],
+    )
+    .unwrap();
+    let arg = scratch
+        .dir
+        .join("demo-worktrees/side-1")
+        .display()
+        .to_string();
+    let checkout = Checkout::find(&arg).unwrap();
+    // Claiming it again without --project keeps the project it has.
+    crate::claim::cmd_claim(&tool.places, &[arg.clone(), "agent A".into()], tool.now).unwrap();
+    cmd_release(&tool.places, std::slice::from_ref(&arg)).unwrap();
+    assert!(!checkout.project_file().exists());
+
+    // A fresh claim of the released worktree must name the project too.
+    assert!(
+        refusal(crate::claim::cmd_claim(
+            &tool.places,
+            &[arg.clone(), "agent B".into()],
+            tool.now,
+        ))
+        .contains("repo demo is in two projects")
+    );
+    assert!(!checkout.claim_file().exists());
+}
+
+#[test]
 fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
     use crate::host::tests::fake_ssh;
     let scratch = Scratch::new("app-checkout-host");

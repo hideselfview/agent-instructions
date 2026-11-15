@@ -12,7 +12,7 @@
 use std::path::Path;
 
 use crate::checkout::{Checkout, git, git_text};
-use crate::claim::{Claim, require_one_line, set_project, write_claim};
+use crate::claim::{Claim, require_one_line, require_project_named, set_project, write_claim};
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -35,8 +35,8 @@ fn run_checked(command: &mut std::process::Command, what: &str) -> Result<()> {
 }
 
 /// `builds new [<repo>] [-b <branch>] [--for <who>] [--project P]`: claims for
-/// <who> (default "builds new"), records the project P the work is in (for a
-/// repo two projects hold) and hands out a free side
+/// <who> (default "builds new"), records the project P the work is in (which
+/// a repo two projects hold requires) and hands out a free side
 /// worktree (`find_free`) checked out afresh from origin/main, or adds the next
 /// side-N when none is free; links it, runs its post-checkout, and prints its
 /// path.
@@ -64,12 +64,13 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     // same one; released when the call ends.
     let _picking = lock_picking(&main)?;
     run_checked(git(&main).args(["fetch", "-q", "origin"]), "git fetch")?;
-    if let Some(project) = &project {
-        let repo = Checkout::find(&main.display().to_string())?.repo();
-        if !crate::lists::store::projects_holding(&tool.places, &repo)?.contains(project) {
-            fail!("new: project {project} holds no repo {repo}");
-        }
+    let repo = Checkout::find(&main.display().to_string())?.repo();
+    if let Some(project) = &project
+        && !crate::lists::store::projects_holding(&tool.places, &repo)?.contains(project)
+    {
+        fail!("new: project {project} holds no repo {repo}");
     }
+    require_project_named(&tool.places, &repo, project.as_deref())?;
     let who = who.unwrap_or_else(|| "builds new".to_string());
     let checkout = match find_free(tool, &main)? {
         Some(free) => {

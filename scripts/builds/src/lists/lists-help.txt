@@ -426,8 +426,8 @@ PROJECTS
       and resolve to the project from their folder (agent-instructions is in
       bae this way: its work is tracked on bae's lists). Refused when the
       project already has the repo. Two projects may hold one repo
-      (agent-instructions is in bae and builds); a worktree of it then names
-      its project with `builds claim --project` or `builds new --project`,
+      (agent-instructions is in bae and builds); a worktree of it then must
+      name its project with `builds claim --project` or `builds new --project`,
       and a command outside a claimed worktree takes --project.
 
   builds lists show [--json | --tag T] [--project P]
