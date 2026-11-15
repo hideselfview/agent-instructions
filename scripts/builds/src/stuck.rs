@@ -15,6 +15,7 @@ use std::process::{Command, Stdio};
 use serde::Serialize;
 
 use crate::app_config::DEFAULT_STEP_LIMIT;
+use crate::health::Advice;
 use crate::host::{Host, Ssh};
 use crate::shells::{basename, command_of, is_agent_argv, shown};
 
@@ -191,7 +192,7 @@ pub struct Busy {
     pub command: String,
     pub owner: Owner,
     /// What the person does about it, when the process looks stuck.
-    pub action: Option<String>,
+    pub action: Option<Advice>,
 }
 
 fn is_busy(row: &Row) -> bool {
@@ -359,34 +360,49 @@ fn is_fseventsd(row: &Row) -> bool {
 }
 
 /// What the person does about <busy>, when it looks stuck.
-fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Option<String> {
+fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Option<Advice> {
     let limit = DEFAULT_STEP_LIMIT.as_secs() as i64;
-    let stop = format!("stop it with `kill {}`", row.pid);
+    let kill = format!("kill {}", row.pid);
+    let stop = format!("stop it with `{kill}`");
+    let sample = sampling.command(host, row.pid);
     match owner {
-        Owner::Builds { minutes: m, .. } if m * 60 >= limit => Some(format!(
-            "its build has run {m}m, past the {}m step limit; {stop}",
-            minutes(limit)
+        Owner::Builds { minutes: m, .. } if m * 60 >= limit => Some(Advice::run(
+            format!(
+                "its build has run {m}m, past the {}m step limit; {stop}",
+                minutes(limit)
+            ),
+            kill,
         )),
-        Owner::Agent { .. } if row.age_seconds >= limit => Some(format!(
-            "it has run {}m under an agent, past the {}m step limit; {stop}",
-            minutes(row.age_seconds),
-            minutes(limit)
+        Owner::Agent { .. } if row.age_seconds >= limit => Some(Advice::run(
+            format!(
+                "it has run {}m under an agent, past the {}m step limit; {stop}",
+                minutes(row.age_seconds),
+                minutes(limit)
+            ),
+            kill,
         )),
-        Owner::Test { .. } if row.age_seconds >= TEST_SECONDS => Some(format!(
-            "this test binary has run {}m, longer than a test run takes ({}m); {stop}",
-            minutes(row.age_seconds),
-            minutes(TEST_SECONDS)
+        Owner::Test { .. } if row.age_seconds >= TEST_SECONDS => Some(Advice::run(
+            format!(
+                "this test binary has run {}m, longer than a test run takes ({}m); {stop}",
+                minutes(row.age_seconds),
+                minutes(TEST_SECONDS)
+            ),
+            kill,
         )),
-        Owner::System { name } if name == FSEVENTSD => Some(format!(
-            "fseventsd is busy ({:.0}% now, {} of CPU); sample it before anyone stops it: run `{}`, then read the sample before killing fseventsd",
-            row.cpu_percent,
-            duration(row.cpu_seconds as i64),
-            sampling.command(host, row.pid)
+        Owner::System { name } if name == FSEVENTSD => Some(Advice::run(
+            format!(
+                "fseventsd is busy ({:.0}% now, {} of CPU); sample it before anyone stops it: run `{sample}`, then read the sample before killing fseventsd",
+                row.cpu_percent,
+                duration(row.cpu_seconds as i64),
+            ),
+            sample,
         )),
-        Owner::System { .. } if row.cpu_seconds >= DAEMON_CPU_SECONDS => Some(format!(
-            "this system daemon has used {} of CPU and still runs busy; sample it before anyone stops it: run `{}`, then read the sample before killing it",
-            duration(row.cpu_seconds as i64),
-            sampling.command(host, row.pid)
+        Owner::System { .. } if row.cpu_seconds >= DAEMON_CPU_SECONDS => Some(Advice::run(
+            format!(
+                "this system daemon has used {} of CPU and still runs busy; sample it before anyone stops it: run `{sample}`, then read the sample before killing it",
+                duration(row.cpu_seconds as i64),
+            ),
+            sample,
         )),
         _ => None,
     }
@@ -456,16 +472,18 @@ impl Busy {
     }
 
     /// The line under "needs action", when the process looks stuck.
-    pub fn finding(&self) -> Option<String> {
-        self.action.as_ref().map(|action| {
-            format!(
-                "busy: {} pid {} ({}) {action}",
+    pub fn finding(&self) -> Option<Advice> {
+        self.action.as_ref().map(|action| Advice {
+            text: format!(
+                "busy: {} pid {} ({}) {}",
                 self.host,
                 self.pid,
                 shown(basename(
                     self.command.split_whitespace().next().unwrap_or("")
-                ))
-            )
+                )),
+                action.text
+            ),
+            command: action.command.clone(),
         })
     }
 }
@@ -474,7 +492,7 @@ impl Busy {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Wedged {
     pub pid: i32,
-    pub finding: String,
+    pub finding: Advice,
 }
 
 /// <event_id> is what `FSEventsGetCurrentEventId` returned on <host>: 0 means
@@ -485,14 +503,17 @@ pub fn wedged(host: &str, rows: &[Row], event_id: u64, sampling: &Sampling) -> O
         return None;
     }
     let row = rows.iter().find(|row| is_fseventsd(row))?;
+    let sample = sampling.command(host, row.pid);
     Some(Wedged {
         pid: row.pid,
-        finding: format!(
-            "fseventsd does not answer: {host} pid {} has run {} and refuses every client (its current event id is 0); sample it before anyone stops it: run `{}`, read the sample, then run `sudo kill -9 {}` (a plain kill does not end a wedged fseventsd)",
-            row.pid,
-            duration(row.age_seconds),
-            sampling.command(host, row.pid),
-            row.pid
+        finding: Advice::run(
+            format!(
+                "fseventsd does not answer: {host} pid {} has run {} and refuses every client (its current event id is 0); sample it before anyone stops it: run `{sample}`, read the sample, then run `sudo kill -9 {}` (a plain kill does not end a wedged fseventsd)",
+                row.pid,
+                duration(row.age_seconds),
+                row.pid
+            ),
+            sample,
         ),
     })
 }
@@ -627,7 +648,7 @@ pub fn lines(hosts: &[HostBusy]) -> Vec<String> {
 }
 
 /// The "needs action" lines for <hosts>.
-pub fn findings(hosts: &[HostBusy]) -> Vec<String> {
+pub fn findings(hosts: &[HostBusy]) -> Vec<Advice> {
     let mut out = Vec::new();
     for host in hosts {
         // A wedged fseventsd gets its own finding, in place of the busy one.

@@ -837,8 +837,12 @@ STATUS, HEALTH AND THE DASHBOARD
                               address but 127.0.0.1 or localhost on this Mac).
                               The page shows the load of this Mac and of
                               each other host, the free space and each repo's
-                              hook times; a Needs attention box;
-                              per repo, its app build lanes with their queues
+                              hook times; a Needs attention box with
+                              every finding `builds health` lists under
+                              "needs action", each with the command it
+                              suggests (the daemon reads the busy processes
+                              and the hosts that refuse jobs on its hosts
+                              clock); per repo, its app build lanes with their queues
                               and Build buttons and its worktree cards; and
                               the lists (also at /api/lists and in the
                               /events stream's `lists` events). Each question

@@ -165,7 +165,7 @@ fn health_names_a_hold_whose_wait_closed() {
     let found = findings(&loaded(read(&db)), std::slice::from_ref(&tree));
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
-        found[0].contains("is held") && found[0].contains("waits on nothing open"),
+        found[0].text.contains("is held") && found[0].text.contains("waits on nothing open"),
         "{found:?}"
     );
     tree.claim.note_state = None;
@@ -176,7 +176,11 @@ fn health_names_a_hold_whose_wait_closed() {
 fn health_names_a_hold_with_no_item() {
     let db = db();
     let found = findings(&loaded(read(&db)), &[bae_worktree(Some("held"))]);
-    assert!(found[0].contains("runs no item"), "{found:?}");
+    assert!(found[0].text.contains("runs no item"), "{found:?}");
+    assert_eq!(
+        found[0].command.as_deref(),
+        Some("builds note /w/bae-worktrees/side-1 TEXT")
+    );
 }
 
 /// A board change committed in a worktree, and the design change that
@@ -212,7 +216,8 @@ fn health_names_design_commits_no_design_change_covers() {
     let found = findings(&loaded(lists), &[tree]);
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
-        found[0].contains("design/mocks/a.dc.html") && found[0].contains("builds design record"),
+        found[0].text.contains("design/mocks/a.dc.html")
+            && found[0].command.as_deref() == Some("builds design record"),
         "{found:?}"
     );
 }
@@ -346,15 +351,22 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
     let found = findings(&loaded(read(&db)), std::slice::from_ref(&tree));
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
-        found[0].contains("no item runs there") && found[0].contains("builds release"),
+        found[0].text.contains("no item runs there")
+            && found[0]
+                .text
+                .contains("`builds release /w/bae-worktrees/side-1`"),
         "{found:?}"
+    );
+    assert_eq!(
+        found[0].command.as_deref(),
+        Some("builds release /w/bae-worktrees/side-1")
     );
     let mut waiting = bae_worktree(None);
     waiting.ahead = vec!["abc".into()];
     assert!(
         findings(&loaded(read(&db)), &[waiting])
             .iter()
-            .all(|line| !line.contains("no item runs there"))
+            .all(|line| !line.text.contains("no item runs there"))
     );
 }
 
@@ -379,7 +391,7 @@ fn health_reads_the_lists_of_the_project_a_claim_names_in_a_repo_two_projects_ho
     tree.project = Some("first".into());
     let found = findings(&loaded, std::slice::from_ref(&tree));
     assert!(
-        found.len() == 1 && found[0].contains("no item runs there"),
+        found.len() == 1 && found[0].text.contains("no item runs there"),
         "{found:?}"
     );
 }

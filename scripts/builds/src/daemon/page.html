@@ -94,6 +94,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .fig.line .h { white-space: nowrap; }
 .act { background: var(--you-bg); color: var(--you); border-radius: 10px; padding: 8px 14px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; overflow-wrap: anywhere; }
 .act b { font-weight: 700; }
+.act code { font: 500 12px var(--mono); background: color-mix(in srgb, var(--you) 10%, transparent); border-radius: 6px; padding: 1px 6px; margin-left: 6px; overflow-wrap: anywhere; user-select: all; }
 
 /* A repo's commit hook details, under the figures. */
 .hook-open { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
@@ -1112,15 +1113,13 @@ function waitDetails() {
       steps.map(s => stepRow(s, top)), more));
 }
 
-// What needs attention and nothing else on the page shows: a worktree with
-// commits waiting to land and no claim, sccache clients waiting, leftover
-// shells (and the lists store's own findings). Disk, hook runs and a worktree
-// with no change show on their own figure or card.
-const ATTENTION = new Set(["sccache", "shells", "unclaimed", "lists"]);
+// What `builds health` lists under "needs action", each finding's text with
+// the command it suggests.
 function findingsView(health) {
   const box = document.getElementById("findings");
-  const findings = (health ? health.findings : []).filter(f => ATTENTION.has(f.kind));
-  box.replaceChildren(...(findings.length ? [h("div", {class: "act"}, h("b", {}, "Needs attention"), findings.map(f => h("span", {}, f.text)))] : []));
+  const findings = health ? health.findings : [];
+  box.replaceChildren(...(findings.length ? [h("div", {class: "act"}, h("b", {}, "Needs attention"),
+    findings.map(f => h("span", {}, f.text, f.command ? h("code", {}, f.command) : null)))] : []));
 }
 
 function tick() {

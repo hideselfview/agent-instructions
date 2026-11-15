@@ -10,6 +10,7 @@ use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
+use crate::health::Advice;
 use crate::lists::design::DesignChange;
 use crate::lists::design_paths::{Changes, Globs, changes_of};
 use crate::lists::running::running_in;
@@ -173,7 +174,7 @@ pub fn awaiting_review(
 pub fn findings(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
-) -> Vec<String> {
+) -> Vec<Advice> {
     let mut found = Vec::new();
     for worktree in worktrees {
         let Some(lists) = worktree.lists(loaded) else {
@@ -187,9 +188,13 @@ pub fn findings(
             && worktree.claim.note_state.as_deref() == Some("held")
             && let Some(fault) = hold_fault(lists, &top)
         {
-            found.push(format!(
-                "lists: {} is held, but {fault}; start its work again (builds item take/handoff), then clear the hold with `builds note {top} TEXT`",
-                worktree.label
+            let command = format!("builds note {top} TEXT");
+            found.push(Advice::run(
+                format!(
+                    "lists: {} is held, but {fault}; start its work again (builds item take/handoff), then clear the hold with `{command}`",
+                    worktree.label
+                ),
+                command,
             ));
         }
         if !standing
@@ -197,9 +202,13 @@ pub fn findings(
             && worktree.ahead.is_empty()
             && running_in(lists, &top).is_empty()
         {
-            found.push(format!(
-                "lists: {} is claimed by {}, but no item runs there and nothing waits to land; `builds release {top}` frees it",
-                worktree.label, worktree.claim.who
+            let command = format!("builds release {top}");
+            found.push(Advice::run(
+                format!(
+                    "lists: {} is claimed by {}, but no item runs there and nothing waits to land; `{command}` frees it",
+                    worktree.label, worktree.claim.who
+                ),
+                command,
             ));
         }
         if worktree.ahead.is_empty() {
@@ -210,11 +219,11 @@ pub fn findings(
             continue;
         }
         match changes_of(&worktree.top, &globs, &worktree.ahead) {
-            Err(error) => found.push(format!(
+            Err(error) => found.push(Advice::said(format!(
                 "lists: could not read the design files {} changes: {}",
                 worktree.label,
                 error.text()
-            )),
+            ))),
             Ok(changes) if changes.is_design_change() => {
                 if covering(lists, &worktree.repo, &changes).is_none() {
                     let named: Vec<&str> = changes
@@ -225,10 +234,14 @@ pub fn findings(
                         .chain(changes.shared.iter().map(String::as_str))
                         .chain(changes.deleted.iter().map(String::as_str))
                         .collect();
-                    found.push(format!(
-                        "lists: {} has commits that change design files ({}) and no recorded design change covers them; `builds design record` records one",
-                        worktree.label,
-                        named.join(", ")
+                    let command = "builds design record".to_string();
+                    found.push(Advice::run(
+                        format!(
+                            "lists: {} has commits that change design files ({}) and no recorded design change covers them; `{command}` records one",
+                            worktree.label,
+                            named.join(", ")
+                        ),
+                        command,
                     ));
                 }
             }

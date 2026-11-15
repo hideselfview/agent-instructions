@@ -14,6 +14,7 @@ use crate::claim::Claim;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
+use crate::health::Advice;
 use crate::lists::item::{self, Item};
 use crate::lists::store::{Loaded, Store, project_of};
 use crate::lists::{Id, Lists, Stamp};
@@ -258,20 +259,23 @@ pub fn require_release_allowed(places: &Places, checkout: &Checkout) -> Result<(
 pub fn findings(
     places: &Places,
     loaded: &std::result::Result<Vec<Loaded>, String>,
-) -> Result<Vec<String>> {
+) -> Result<Vec<Advice>> {
     let loaded = match loaded {
         Ok(loaded) => loaded,
-        Err(fault) => return Ok(vec![format!("lists: {fault}")]),
+        Err(fault) => return Ok(vec![Advice::said(format!("lists: {fault}"))]),
     };
-    let mut findings = crate::lists::store::integrity(places);
+    let mut findings: Vec<Advice> = crate::lists::store::integrity(places)
+        .into_iter()
+        .map(Advice::said)
+        .collect();
     for project in loaded {
         let lists = match &project.lists {
             Ok(lists) => lists,
             Err(fault) => {
-                findings.push(format!(
+                findings.push(Advice::said(format!(
                     "lists: project {} fails its check: {fault}",
                     project.project
-                ));
+                )));
                 continue;
             }
         };
@@ -283,9 +287,13 @@ pub fn findings(
                     Agent::Unclaimed => "has no claim",
                     Agent::Claimed(_) => continue,
                 };
-                findings.push(format!(
-                    "lists: item {} \"{}\" runs in {}, which {fault}; `builds item stop {}` ends it",
-                    item.id.0, item.title, running.worktree, item.id.0
+                let command = format!("builds item stop {}", item.id.0);
+                findings.push(Advice::run(
+                    format!(
+                        "lists: item {} \"{}\" runs in {}, which {fault}; `{command}` ends it",
+                        item.id.0, item.title, running.worktree
+                    ),
+                    command,
                 ));
             }
         }

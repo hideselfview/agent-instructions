@@ -102,6 +102,10 @@ struct State {
     sccache: Option<(bool, Option<u64>, Option<crate::health::Reading>)>,
     /// The other hosts' load cards (hosts.rs), empty before the first reading.
     hosts: Vec<super::hosts::HostPage>,
+    /// What the hosts' reading found that `assess` does not (busy processes,
+    /// hosts that refuse jobs: `health::host_findings`), which the page shows
+    /// after the health's own findings.
+    host_findings: Vec<crate::health::Finding>,
     /// Each host's 1-minute load over the last ten minutes, by host name.
     host_load: HashMap<String, VecDeque<(i64, f64)>>,
 }
@@ -549,7 +553,8 @@ impl Model {
         drop(self.sampling.lock().expect("no panic holding it"));
     }
 
-    /// Asks the hosts for their load on a thread of its own: an ssh round trip to a host that does not answer takes ten
+    /// Asks the hosts for their load and busy processes on a thread of its
+    /// own: an ssh round trip to a host that does not answer takes ten
     /// seconds, which no other reading waits for.
     fn hosts_loop(self: Arc<Self>) {
         let ssh = crate::host::Ssh::from_env();
@@ -585,6 +590,20 @@ impl Model {
                 }
                 Err(error) => eprintln!("builds: reading the hosts: {}", error.text()),
             }
+            match self.read_host_findings(&ssh) {
+                Ok(found) => {
+                    let mut state = self.state.lock().expect("no panic holding it");
+                    if state.host_findings != found {
+                        state.host_findings = found;
+                        state.version += 1;
+                        self.changed.notify_all();
+                    }
+                }
+                Err(error) => eprintln!(
+                    "builds: reading the hosts' busy processes: {}",
+                    error.text()
+                ),
+            }
             let pace = if self.viewers.load(Ordering::SeqCst) > 0 {
                 HOSTS_EVERY
             } else {
@@ -593,6 +612,19 @@ impl Model {
             let guard = self.viewing_lock.lock().expect("no panic holding it");
             let _ = self.viewing.wait_timeout(guard, pace);
         }
+    }
+
+    /// What `builds health` reads from the hosts besides the processes: each
+    /// host's busy processes, this Mac's included, and the hosts that refuse
+    /// jobs.
+    fn read_host_findings(
+        &self,
+        ssh: &crate::host::Ssh,
+    ) -> crate::fail::Result<Vec<crate::health::Finding>> {
+        let hosts = crate::host::all(&self.places)?;
+        let busy = crate::checkout::parallel_map(&hosts, |host| crate::stuck::read(ssh, host));
+        let refusals = crate::host::refusals(&self.places)?;
+        Ok(crate::health::host_findings(&busy, &refusals))
     }
 
     /// The health the last reading judged, None before the first reading.
@@ -1060,7 +1092,10 @@ impl Model {
                 entries,
                 memory_bytes: memory as u64,
             },
-            health: state.health.clone(),
+            health: state.health.clone().map(|mut health| {
+                health.findings.extend(state.host_findings.iter().cloned());
+                health
+            }),
             hosts: state.hosts.clone(),
             repos,
         })
@@ -1217,6 +1252,8 @@ pub struct Page {
     pub volume: VolumePage,
     pub load: Option<LoadPage>,
     pub daemon: DaemonPage,
+    /// The last health reading, its findings followed by the hosts' (the
+    /// list `builds health` prints under "needs action").
     pub health: Option<Health>,
     /// Every recorded host besides this Mac, with its load.
     pub hosts: Vec<super::hosts::HostPage>,

@@ -63,7 +63,7 @@ fn lists_a_pegged_system_daemon_with_the_sudo_command() {
             name: "fseventsd".into()
         }
     );
-    let action = busy[0].action.as_ref().unwrap();
+    let action = &busy[0].action.as_ref().unwrap().text;
     assert!(action.contains("sudo sample 17 5 -file"), "{action}");
     assert!(!action.contains("killall"), "{action}");
     assert!(
@@ -143,9 +143,10 @@ fn a_build_past_its_step_limit_is_flagged_with_its_checkout() {
     );
     let action = busy[0].action.as_ref().unwrap();
     assert!(
-        action.contains("past the 45m step limit") && action.contains("kill 102"),
-        "{action}"
+        action.text.contains("past the 45m step limit") && action.text.contains("`kill 102`"),
+        "{action:?}"
     );
+    assert_eq!(action.command.as_deref(), Some("kill 102"));
 }
 
 #[test]
@@ -218,7 +219,7 @@ fn a_test_binary_is_flagged_after_the_time_a_test_run_takes() {
             checkout: Some("bae/side-2".into())
         }
     );
-    assert!(long.action.as_ref().unwrap().contains("40m"));
+    assert!(long.action.as_ref().unwrap().text.contains("40m"));
     assert_eq!(short.action, None);
 }
 
@@ -293,22 +294,19 @@ fn a_busy_fseventsd_is_flagged_at_once_with_the_sample_command() {
     // 98% with 28m of CPU: far under the 2h a daemon needs for the old rule.
     let rows = vec![row(17, 1, 0, 98.0, 28.0 * 60.0, 3 * 3600, FSEVENTSD_PATH)];
     let busy = judge("local", &rows, &HashMap::new(), &sampling());
+    let sample = "mkdir -p \"/Users/x/Library/Application Support/builds/samples\" && sudo sample 17 5 -file \"/Users/x/Library/Application Support/builds/samples/local-17-1763100000.txt\"";
     let action = busy[0].action.as_ref().unwrap();
+    assert!(action.text.contains(sample), "{action:?}");
     assert!(
-        action.contains(
-            "mkdir -p \"/Users/x/Library/Application Support/builds/samples\" && sudo sample 17 5 -file \"/Users/x/Library/Application Support/builds/samples/local-17-1763100000.txt\""
-        ),
-        "{action}"
-    );
-    assert!(
-        action.contains("read the sample before killing"),
-        "{action}"
+        action.text.contains("read the sample before killing"),
+        "{action:?}"
     );
     let finding = busy[0].finding().unwrap();
     assert!(
-        finding.starts_with("busy: local pid 17 (fseventsd)"),
-        "{finding}"
+        finding.text.starts_with("busy: local pid 17 (fseventsd)"),
+        "{finding:?}"
     );
+    assert_eq!(finding.command.as_deref(), Some(sample));
 }
 
 #[test]
@@ -321,7 +319,7 @@ fn a_busy_fseventsd_on_another_host_is_sampled_over_ssh_there() {
     let sampling = Sampling::new(&host, 1_763_100_000);
     let rows = vec![row(40, 1, 0, 95.0, 1_000.0, 4_000, FSEVENTSD_PATH)];
     let busy = judge("m1", &rows, &HashMap::new(), &sampling);
-    let action = busy[0].action.as_ref().unwrap();
+    let action = &busy[0].action.as_ref().unwrap().text;
     assert!(
         action.contains(
             "ssh -t me@m1.local 'mkdir -p \"$HOME/Library/Application Support/builds/samples\" && sudo sample 40 5 -file \"$HOME/Library/Application Support/builds/samples/m1-40-1763100000.txt\"'"
@@ -345,7 +343,7 @@ fn an_fseventsd_that_answers_with_zero_is_wedged_and_needs_kill_9() {
     ];
     let found = wedged("local", &rows, 0, &sampling()).unwrap();
     assert_eq!(found.pid, 17);
-    let text = &found.finding;
+    let text = &found.finding.text;
     assert!(
         text.starts_with("fseventsd does not answer: local pid 17 has run 3h05m"),
         "{text}"
@@ -353,6 +351,11 @@ fn an_fseventsd_that_answers_with_zero_is_wedged_and_needs_kill_9() {
     assert!(text.contains("sudo sample 17 5 -file"), "{text}");
     assert!(text.contains("sudo kill -9 17"), "{text}");
     assert!(text.contains("a plain kill does not end"), "{text}");
+    let sample = found.finding.command.as_deref().unwrap();
+    assert!(
+        sample.contains("sudo sample 17 5 -file") && text.contains(sample),
+        "{sample}"
+    );
     // Not running at all: nothing to flag.
     assert_eq!(wedged("local", &rows[..1], 0, &sampling()), None);
 }
@@ -368,7 +371,7 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
     let found = findings(&hosts);
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
-        found[0].starts_with("fseventsd does not answer"),
+        found[0].text.starts_with("fseventsd does not answer"),
         "{found:?}"
     );
 }

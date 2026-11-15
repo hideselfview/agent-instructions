@@ -57,16 +57,48 @@ pub enum FindingKind {
     Host,
 }
 
+/// What a finding says, and the command it suggests running, which the text
+/// names too; None when it suggests none.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Advice {
+    pub text: String,
+    pub command: Option<String>,
+}
+
+impl Advice {
+    /// A finding that suggests no command.
+    pub fn said(text: String) -> Advice {
+        Advice {
+            text,
+            command: None,
+        }
+    }
+
+    /// A finding that suggests <command>.
+    pub fn run(text: String, command: String) -> Advice {
+        Advice {
+            text,
+            command: Some(command),
+        }
+    }
+}
+
 /// One line of what needs acting on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finding {
     pub kind: FindingKind,
     pub text: String,
+    /// The command the text suggests, which the dashboard shows apart.
+    pub command: Option<String>,
 }
 
 impl Finding {
-    fn new(kind: FindingKind, text: String) -> Finding {
-        Finding { kind, text }
+    fn new(kind: FindingKind, advice: Advice) -> Finding {
+        Finding {
+            kind,
+            text: advice.text,
+            command: advice.command,
+        }
     }
 }
 
@@ -528,17 +560,17 @@ pub fn assess(
     places: &[Place],
     claimed: Vec<Claimed>,
     unclaimed: Vec<Unclaimed>,
-    lists: Vec<String>,
+    lists: Vec<Advice>,
 ) -> Health {
     let mut findings = Vec::new();
     if disk.free_kib < disk.floor_kib {
         findings.push(Finding::new(
             FindingKind::Disk,
-            format!(
+            Advice::said(format!(
                 "disk: {} free, under the {} floor",
                 human(disk.free_kib),
                 human(disk.floor_kib)
-            ),
+            )),
         ));
     }
     let s = &machine.sccache;
@@ -546,29 +578,33 @@ pub fn assess(
         match (s.listening, s.executed, &s.compared) {
             (false, _, _) => findings.push(Finding::new(
                 FindingKind::Sccache,
-                format!(
+                Advice::said(format!(
                     "sccache: no server is listening and {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m)",
                     s.waiting.len()
-                ),
+                )),
             )),
             (true, Some(now_count), Some(before)) if now_count == before.executed => findings.push(Finding::new(
                 FindingKind::Sccache,
-                format!(
+                Advice::said(format!(
                     "sccache: {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m) and the server finished no compile since {} ({}m ago)",
                     s.waiting.len(),
                     local_minute(before.at),
                     minutes_since(now, before.at)
-                ),
+                )),
             )),
             _ => {}
         }
     }
     if !machine.shells.junk.is_empty() {
+        let command = "builds health --stop-junk".to_string();
         findings.push(Finding::new(
             FindingKind::Shells,
-            format!(
-                "shells: {} junk, listed under shells; `builds health --stop-junk` stops them",
-                machine.shells.junk.len()
+            Advice::run(
+                format!(
+                    "shells: {} junk, listed under shells; `{command}` stops them",
+                    machine.shells.junk.len()
+                ),
+                command,
             ),
         ));
     }
@@ -576,11 +612,11 @@ pub fn assess(
         if !git.ahead.is_empty() {
             findings.push(Finding::new(
                 FindingKind::Unclaimed,
-                format!(
+                Advice::said(format!(
                     "worktree: {} has no claim and {} waiting to land, so it is not retired",
                     places[place].label,
                     crate::text::counted(git.ahead.len(), "commit", "commits")
-                ),
+                )),
             ));
         }
     }
@@ -618,13 +654,13 @@ pub fn assess(
         {
             findings.push(Finding::new(
                 FindingKind::Quiet,
-                format!(
+                Advice::said(format!(
                     "worktree: {label} ({}) has had no change for {} and no build runs there",
                     claim.who,
                     quiet_minutes
                         .map(|m| format!("{m}m"))
                         .unwrap_or_else(|| "as long as git can tell".to_string())
-                ),
+                )),
             ));
         }
         worktrees.push(WorktreeHealth {
@@ -641,7 +677,7 @@ pub fn assess(
     findings.extend(
         lists
             .into_iter()
-            .map(|text| Finding::new(FindingKind::Lists, text)),
+            .map(|advice| Finding::new(FindingKind::Lists, advice)),
     );
     Health {
         generated_at: now,
@@ -712,7 +748,7 @@ pub fn lists_findings(
     places: &[Place],
     claimed: &mut [Claimed],
     worktrees: &[crate::lists::held::Worktree],
-) -> Result<Vec<String>> {
+) -> Result<Vec<Advice>> {
     let reviewing = crate::lists::held::awaiting_review(loaded, worktrees);
     for one in claimed.iter_mut() {
         one.awaiting_review = reviewing.contains(&places[one.place].label);
@@ -956,6 +992,25 @@ pub fn lines(health: &Health) -> Vec<String> {
     out
 }
 
+/// The findings that come from the hosts: each process that looks stuck on
+/// one (stuck.rs), and each host that refuses jobs (host.rs). Neither is in
+/// `assess`, since the process reading runs no ssh: `builds health` and the
+/// dashboard each add these to its findings.
+pub fn host_findings(
+    busy: &[crate::stuck::HostBusy],
+    refusals: &[crate::host::Refusal],
+) -> Vec<Finding> {
+    crate::stuck::findings(busy)
+        .into_iter()
+        .map(|advice| Finding::new(FindingKind::Busy, advice))
+        .chain(
+            refusals.iter().map(|refusal| {
+                Finding::new(FindingKind::Host, crate::host::refusal_finding(refusal))
+            }),
+        )
+        .collect()
+}
+
 /// `builds health [--json]`: exits 1 when something needs acting on.
 pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let (json, stop_junk) = match args {
@@ -984,21 +1039,14 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         Some(health) => health,
         None => health(tool)?,
     };
-    // Read now, never from the daemon: the daemon does not run ssh.
+    // Read now: the daemon's health holds no busy processes, and this prints
+    // every one, not only those it finds stuck.
     let ssh = crate::host::Ssh::from_env();
     let hosts = crate::host::all(&tool.places)?;
     let busy = parallel_map(&hosts, |host| crate::stuck::read(&ssh, host));
-    health.findings.extend(
-        crate::stuck::findings(&busy)
-            .into_iter()
-            .map(|text| Finding::new(FindingKind::Busy, text)),
-    );
     // Read now: a probe in another command may have just written or removed one.
-    health.findings.extend(
-        crate::host::refusals(&tool.places)?
-            .iter()
-            .map(|refusal| Finding::new(FindingKind::Host, crate::host::refusal_finding(refusal))),
-    );
+    let refusals = crate::host::refusals(&tool.places)?;
+    health.findings.extend(host_findings(&busy, &refusals));
     if json {
         let mut value = serde_json::to_value(&health).expect("health serializes");
         value["busy"] = serde_json::json!(
@@ -1192,6 +1240,31 @@ mod tests {
                 .starts_with("worktree: demo/side-1 has no claim and 1 commit waiting to land"),
             "{:?}",
             health.findings
+        );
+    }
+
+    /// The hosts' findings name a command apart from their text, for the
+    /// dashboard to show; a host whose processes could not be read adds none.
+    #[test]
+    fn a_host_that_refuses_jobs_is_a_finding_that_names_its_command() {
+        let refusal = crate::host::Refusal {
+            host: "m1".to_string(),
+            at: 1_800_000_000,
+            said: "git failed".to_string(),
+        };
+        let busy = vec![crate::stuck::HostBusy {
+            host: "m1".to_string(),
+            busy: Err("ssh failed".to_string()),
+            wedged: None,
+        }];
+        let found = host_findings(&busy, &[refusal]);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].kind, FindingKind::Host);
+        assert_eq!(found[0].command.as_deref(), Some("builds host list"));
+        assert!(
+            found[0].text.contains("`builds host list`"),
+            "{}",
+            found[0].text
         );
     }
 }

@@ -71,15 +71,17 @@ fn a_running_item_in_an_unclaimed_or_gone_worktree_is_named() {
     let unclaimed = findings(&scratch.places(), &Ok(loaded_running_in(&top))).unwrap();
     assert_eq!(unclaimed.len(), 1);
     assert!(
-        unclaimed[0].contains("has no claim") && unclaimed[0].contains("`builds item stop 1`"),
+        unclaimed[0].text.contains("has no claim")
+            && unclaimed[0].text.contains("`builds item stop 1`"),
         "{unclaimed:?}"
     );
+    assert_eq!(unclaimed[0].command.as_deref(), Some("builds item stop 1"));
     let gone = findings(
         &scratch.places(),
         &Ok(loaded_running_in(&scratch.dir.join("bae-worktrees/side-9"))),
     )
     .unwrap();
-    assert!(gone[0].contains("is not a live worktree"), "{gone:?}");
+    assert!(gone[0].text.contains("is not a live worktree"), "{gone:?}");
 }
 
 #[test]
@@ -93,7 +95,10 @@ fn a_folder_where_a_worktree_was_is_not_live() {
         .join("bae-worktrees/side-2");
     std::fs::create_dir_all(&leftover).unwrap();
     let found = findings(&scratch.places(), &Ok(loaded_running_in(&leftover))).unwrap();
-    assert!(found[0].contains("is not a live worktree"), "{found:?}");
+    assert!(
+        found[0].text.contains("is not a live worktree"),
+        "{found:?}"
+    );
 }
 
 #[test]
@@ -105,11 +110,13 @@ fn a_store_failing_its_check_is_a_finding() {
     }];
     assert_eq!(
         findings(&scratch.places(), &Ok(bad)).unwrap(),
-        vec!["lists: project demo fails its check: ids repeat".to_string()]
+        vec![Advice::said(
+            "lists: project demo fails its check: ids repeat".to_string()
+        )]
     );
     assert_eq!(
         findings(&scratch.places(), &Err("listing failed".into())).unwrap(),
-        vec!["lists: listing failed".to_string()]
+        vec![Advice::said("lists: listing failed".to_string())]
     );
 }
 

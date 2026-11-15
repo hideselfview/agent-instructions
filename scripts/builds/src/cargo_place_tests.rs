@@ -522,12 +522,13 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     );
     let finding = host::refusal_finding(&refusals[0]);
     assert!(
-        finding.starts_with("host m1 refuses jobs (since ")
-            && finding.contains("sudo xcodebuild -license")
-            && finding.contains("Fix what m1 said on m1")
-            && finding.contains("`builds host list`"),
-        "{finding}"
+        finding.text.starts_with("host m1 refuses jobs (since ")
+            && finding.text.contains("sudo xcodebuild -license")
+            && finding.text.contains("Fix what m1 said on m1")
+            && finding.text.contains("`builds host list`"),
+        "{finding:?}"
     );
+    assert_eq!(finding.command.as_deref(), Some("builds host list"));
 
     // A pick probes the host, finds git failing there and passes it over, so
     // the command runs here even though m1 has the most room.
