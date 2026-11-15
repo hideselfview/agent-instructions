@@ -1,5 +1,5 @@
 ---
-digest: A bae screen shows the rows of its SQL query, with no cache, enrichment or other step between the query and the screen, except values that change many times a second (keyed latest-value streams) and state that exists only on screen (kept by the view). A read that follows changes is one coven live query; any other read is a plain SQL read. Each window of a long list is its own live query bounded by a key at both ends. Rust and the apps never keep memory between reads, run a side pass, force a rerun, pick a read path by size, or filter, sort, join, group or count rows SQL returned, and nothing answers from the rows a screen has loaded.
+digest: A bae screen shows the rows of its SQL query, with no cache, enrichment or other step between the query and the screen, except values that change many times a second (keyed latest-value streams), state that exists only on screen (kept by the view), and a pure Rust function of one live query result that only shapes how its rows display (coven's `process`). A read that follows changes is one coven live query; any other read is a plain SQL read. Each window of a long list is its own live query bounded by a key at both ends. SQL decides which rows a screen gets, reads every row a value needs in one statement, and counts across windows. Rust and the apps never keep memory between reads (incremental or lazy computation included), run a side pass, force a rerun, pick a read path by size, or filter, sort or join rows outside SQL, and nothing answers from the rows a screen has loaded. The apps draw the rows Rust hands them and never filter, sort, group or count them.
 paths:
   - bae-*/src/**/*.rs
   - '**/*.sql'
@@ -14,8 +14,9 @@ blocking: true
 A screen shows the rows of its SQL query, and the counts, totals, section
 headers, "N of M", sums and facets that come with them. Rust turns the rows into
 bridge types and the app draws them, with no cache, enrichment or other step
-between the query and the screen. A long list shows several windows at a time,
-and each window is its own live query.
+between the query and the screen. In Rust, a pure function of one query result
+may shape how that result's rows display. A long list shows several windows at a
+time, and each window is its own live query.
 
 Two things a screen shows don't come from SQL:
 
@@ -23,7 +24,9 @@ Two things a screen shows don't come from SQL:
   rates, levels) travels on a keyed latest-value stream
   (`native-views-draw-fast-changing-values.md`).
 - State that exists only on screen (hover, focus, an open popover or menu, a
-  drag in progress) stays in the view and never goes into SQL.
+  drag in progress, the text typed in a search or input field) stays in the view
+  that controls it and never goes into SQL. A query that depends on it, such as
+  a search, gets it in the request.
 
 ### Why nothing goes between the query and the screen
 
@@ -38,6 +41,10 @@ other code then has to notice each change and redo the work, and until it does,
 the screen shows an old copy. That code does what SQLite and coven already do,
 worse. So nothing goes between the query and the screen.
 
+A pure function of one query result doesn't stop following the database: it runs
+again each time the query reruns and keeps nothing between runs. So Rust may run
+one ("Shaping one result in Rust").
+
 ### Two kinds of read
 
 A read that must follow changes (a screen, or a subscriber in the bridge,
@@ -49,10 +56,11 @@ A count or total goes in the same query as the rows. A count changes with every
 insert, so when it makes the rows' query rerun too often, move the count into a
 live query of its own.
 
-Every answer is SQL, and so is every fix:
+SQL decides which rows a read returns and computes every value across a list,
+and every fix is in SQL:
 
-- Grouping, counting, joining, ranking: GROUP BY, COUNT, JOIN, a window
-  function.
+- Filtering, sorting, joining, grouping, counting and ranking a list's rows:
+  WHERE, ORDER BY, JOIN, GROUP BY, COUNT, a window function.
 - A slow query: a better query or an index.
 - A value too slow to compute on each read, or computed across tables that
   SQLite can't index together: a device-local table that triggers write in the
@@ -63,6 +71,46 @@ Every answer is SQL, and so is every fix:
 
 Start from the plain query over the domain's own tables, and add an index or a
 trigger table when the plain query can't serve the screen.
+
+### Shaping one result in Rust
+
+Rust may run a pure, stateless function over one live query result when the
+function only shapes how that result's rows display. These functions qualify:
+
+- One that merges label rows that share a catalog number into display lines.
+- One that summarizes a release's audio files into one format line.
+- One that numbers an album's releases by their place in the result.
+
+Rust passes such a function to the live query's `process` method
+(`LiveQuery::process`, `ReconfigurableLiveQuery::process`), and coven runs it:
+
+- coven runs the function on each result, on a worker, after it releases the
+  database connection.
+- coven compares the function's output, not the rows: when a write reruns the
+  query and the output equals the last one, the subscriber gets no new value.
+
+A `process` function never does any of these:
+
+- Decide which rows a screen gets, such as with a filter or sort over a long
+  list, or a window. SQL does.
+- Use rows outside the one result.
+  - A second statement keyed by values the first one returned is a join: one
+    statement reads both.
+- Count across windows. SQL does, in the rows' query or a live query of its own.
+- Keep state between runs, such as memory or a cache.
+  - An incremental or lazy computation framework keeps results between runs to
+    recompute only what changed. That is memory between reads, so bae never uses
+    one.
+
+### The apps draw only the rows Rust hands them
+
+The apps (Swift and Kotlin) draw each row as Rust hands it over. They never
+filter, sort, group, count or sum those rows, and never answer from them
+("Answers from the loaded rows" below).
+
+- A length or emptiness test is a count.
+- When a screen needs a value from the rows, SQL or Rust's `process` function
+  computes it and Rust hands it over in the bridge type.
 
 ### Long lists
 
@@ -95,8 +143,11 @@ subscribe(SELECT COUNT(*) FROM ...)                    -- the count
 - **Memory between reads.** No counts, windows, positions or last results kept
   (in a `Mutex`, `OnceLock`, atomic, field or cache) for a later read to use.
   Every read starts from the database.
+  - An incremental or lazy computation framework is memory between reads.
 - **A side pass.** No second walk over the rows beside the live query to count
   them or note where groups start.
+  - A walk that shapes one result for display is that query's `process`
+    function, not a side pass.
 - **A forced rerun.** No field written into a request, a table or a version only
   so a query reads again, and no write count kept in a table
   (`additions = additions + 1`) so a reader can tell a write happened. A query
@@ -105,10 +156,11 @@ subscribe(SELECT COUNT(*) FROM ...)                    -- the count
   one of two paths.
 - **A live query read once.** A read that takes the first value and stops is a
   plain SQL read.
-- **SQL's work done outside SQL.** No filtering, sorting, joining, grouping,
-  counting or summing of rows a query returned. A length or emptiness test is a
-  count. A second statement keyed by values the first one returned is a join:
-  one statement reads both.
+- **Choosing or joining rows outside SQL.** No filtering, sorting or windowing
+  that decides which rows a screen gets, no count across windows, and no second
+  statement keyed by values the first one returned.
+  - Rust may shape one result's rows for display in `process`.
+  - The apps may not shape rows at all.
 - **Answers from the loaded rows.** No test of whether an id is among the rows
   the screen holds, whether they are empty, or where a row sits among them, even
   for state the view owns (a drop target, a removal animation, a menu's
@@ -129,3 +181,13 @@ only shrink as the code is fixed. A frozen row is a violation not yet fixed,
 never permission: a change to a frozen site that keeps the shape still breaks
 this rule. Uses over values that are not a read's rows (a constant table, one
 name's characters) go in `allowed` with what the values are.
+
+The check counts a closure passed to a live query's `process`, and every
+function it calls, as read code. So it also flags row work (such as grouping,
+counting or `position`) in a function this rule allows there.
+
+- Before you list such a finding, check the function against "Shaping one result
+  in Rust": it takes only that one result, keeps nothing between runs, and only
+  shapes how the rows display.
+- List it in `allowed` with what the function shapes for display and which
+  query's result it takes.

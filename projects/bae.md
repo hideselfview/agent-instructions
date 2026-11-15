@@ -81,7 +81,8 @@ Rust turns the rows of a screen's SQL query into bridge types, and the app draws
 them, with no cache, enrichment or other step between the query and the screen.
 The exceptions are values that change many times a second, which travel on keyed
 latest-value streams, and state that exists only on screen (hover, focus, an
-open popover or menu, a drag in progress), which the view keeps.
+open popover or menu, a drag in progress, the text typed in an input field),
+which the view that controls it keeps.
 
 The full rules are
 `projects/bae-rules/screen-reads/reactive-screens-read-plain-live-queries.md`
