@@ -10,28 +10,44 @@ specific files are separate (see "Making a change").
 
 ## Crates and apps
 
+bae's Rust code is a workspace of crates:
+
 - bae-app is the top crate. It uses bae-library and one crate per domain, such
   as bae-records and bae-import.
-- bae-bridge exposes the core to the apps through uniffi. It defines its
-  `Bridge*` records and enums in Rust, in `bae-bridge/src/types/`, and
-  `bae-bridge/src/types.rs` re-exports them. The build generates the Swift and
-  Kotlin versions, which are gitignored and so absent from the repo and from
-  review. To check a bridge type's fields, or whether an app type duplicates
-  one, read `bae-bridge/src/types.rs`.
-- The macOS app (bae-macos, with the shared Swift package BaeKit) and the
-  Android app (bae-android) are the apps in development.
-  - bae-ios is paused until macOS and Android are done. It is a launch shell
-    with no screens. Don't build anything for iOS locally (the app, the bridge,
-    or BaeKit to check a change), and don't add iOS screens or iOS versions of
-    macOS views. Work that would touch iOS stops at macOS and Android. CI's iOS
-    jobs still run; when one fails, fix it then.
-  - bae-avalonia is the Windows and Linux app without any screens. It has
-    startup, single-instancing, crash capture, telemetry, the Velopack updater,
-    release packaging, and one window that calls the bridge through the
-    generated C# bindings. When a bridge shape changes, it only has to compile
-    against the regenerated bindings and pass its smoke test
-    (`bae-avalonia/smoke-test.sh` on macOS, and the Windows and Linux CI jobs).
-    Its desktop UI will be ported from the macOS app.
+- bae-bridge gives the apps the core through uniffi.
+  - Its `Bridge*` records and enums are defined in Rust, in
+    `bae-bridge/src/types/`, and re-exported by `bae-bridge/src/types.rs`.
+  - The build generates their Swift and Kotlin versions. Those are gitignored,
+    so they are not in the repo or in review. To check a bridge type's fields,
+    or whether an app type duplicates one, read `bae-bridge/src/types.rs`.
+
+bae has four apps:
+
+- bae-macos is the macOS app, with the shared Swift package BaeKit. It is in
+  development.
+
+- bae-android is the Android app. It is in development.
+
+- bae-ios is the iOS app. It is paused until macOS and Android are done: it is a
+  launch shell with no screens.
+
+  - Don't build anything for iOS locally: not the app, the bridge, or BaeKit.
+  - Don't add iOS screens or iOS versions of macOS views. Work that would touch
+    iOS stops at macOS and Android.
+  - CI's iOS jobs still run. When one fails, fix it then.
+
+- bae-avalonia is the Windows and Linux app. It is paused until macOS and
+  Android are done: it is a launch shell with no screens. The shell has startup,
+  single-instancing, crash capture, telemetry, the Velopack updater, release
+  packaging, and one window that calls the bridge through the generated C#
+  bindings.
+
+  - Don't add Windows or Linux screens. Its desktop UI will be ported from the
+    macOS app.
+  - When a bridge shape changes, bae-avalonia only has to compile against the
+    regenerated bindings and pass its smoke test (`bae-avalonia/smoke-test.sh`
+    on macOS).
+  - CI's Windows and Linux jobs still run. When one fails, fix it then.
 
 ## Writing and reading the database
 
@@ -81,18 +97,26 @@ written, parents first.
 
 ### Shapes change in one commit, with no compatibility code
 
-When a shape changes (a table, a bridge type, an event payload, an on-disk file
-layout, the sync membership chain format, an encryption scheme, a cloud storage
-path), edit the definition and update every caller in the same commit. Don't add
-dual-shape flags, `#[serde(default)]` to absorb renames, or fallback decoders
-for old data. Regenerate stale fixtures.
+When any of these shapes changes, edit the definition and update every caller in
+the same commit:
+
+- a table
+- a bridge type
+- an event payload
+- an on-disk file layout
+- the sync membership chain format
+- an encryption scheme
+- a cloud storage path
+
+Don't add dual-shape flags, `#[serde(default)]` to absorb renames, or fallback
+decoders for old data. Regenerate stale fixtures.
 
 Schema and format changes, and the resets they need, are normal in development
 for bae and coven alike. They are never a factor in a design decision: don't
 prefer an option because it avoids one, and don't call one a cost or a caveat.
 Never mention a reset to the person, even when a change that needs one lands.
 
-### What a screen shows is what its query returns
+### A screen shows its query's rows
 
 Rust turns the rows of a screen's SQL query into bridge types, and the app draws
 them, with no cache, enrichment or other step between the query and the screen.
