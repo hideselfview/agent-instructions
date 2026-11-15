@@ -28,6 +28,11 @@ const PEGGED_SECONDS: i64 = 30 * 60;
 const TEST_SECONDS: i64 = 30 * 60;
 /// A system daemon with this much CPU time, still busy, is pegged.
 const DAEMON_CPU_SECONDS: f64 = 2.0 * 60.0 * 60.0;
+/// fseventsd is flagged as soon as it is busy: every program that watches
+/// files depends on it, and a cause is only found by sampling it while it runs.
+const FSEVENTSD: &str = "fseventsd";
+/// Seconds `sample` watches the process.
+const SAMPLE_SECONDS: u32 = 5;
 /// How many ancestors of a process are read.
 const ANCESTORS: usize = 12;
 
@@ -310,8 +315,51 @@ fn minutes(seconds: i64) -> i64 {
     seconds / 60
 }
 
+/// Where a host's samples go and when the command is written, so a file name
+/// holds the host, the pid and the time.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sampling {
+    /// The home folder as the host's shell writes it: the real path here,
+    /// `$HOME` over ssh.
+    home: String,
+    /// The ssh target, when the host is not this Mac.
+    target: Option<String>,
+    /// Unix seconds.
+    at: i64,
+}
+
+impl Sampling {
+    pub fn new(host: &Host, at: i64) -> Sampling {
+        Sampling {
+            home: match host.target {
+                Some(_) => "$HOME".to_string(),
+                None => std::env::var("HOME").unwrap_or_else(|_| "$HOME".to_string()),
+            },
+            target: host.target.clone(),
+            at,
+        }
+    }
+
+    /// The command the person runs to sample <pid> into builds' store. It
+    /// makes the folder and runs `sudo sample`; health never runs sudo.
+    fn command(&self, host: &str, pid: i32) -> String {
+        let dir = format!("{}/Library/Application Support/builds/samples", self.home);
+        let file = format!("{dir}/{host}-{pid}-{}.txt", self.at);
+        let script =
+            format!("mkdir -p \"{dir}\" && sudo sample {pid} {SAMPLE_SECONDS} -file \"{file}\"");
+        match &self.target {
+            Some(target) => format!("ssh -t {target} '{script}'"),
+            None => script,
+        }
+    }
+}
+
+fn is_fseventsd(row: &Row) -> bool {
+    is_system(row) && basename(row.command.split_whitespace().next().unwrap_or("")) == FSEVENTSD
+}
+
 /// What the person does about <busy>, when it looks stuck.
-fn action_for(owner: &Owner, row: &Row) -> Option<String> {
+fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Option<String> {
     let limit = DEFAULT_STEP_LIMIT.as_secs() as i64;
     let stop = format!("stop it with `kill {}`", row.pid);
     match owner {
@@ -329,9 +377,16 @@ fn action_for(owner: &Owner, row: &Row) -> Option<String> {
             minutes(row.age_seconds),
             minutes(TEST_SECONDS)
         )),
-        Owner::System { name } if row.cpu_seconds >= DAEMON_CPU_SECONDS => Some(format!(
-            "this system daemon has used {} of CPU and still runs busy; run `sudo killall {name}`",
-            duration(row.cpu_seconds as i64)
+        Owner::System { name } if name == FSEVENTSD => Some(format!(
+            "fseventsd is busy ({:.0}% now, {} of CPU); sample it before anyone stops it: run `{}`, then read the sample before killing fseventsd",
+            row.cpu_percent,
+            duration(row.cpu_seconds as i64),
+            sampling.command(host, row.pid)
+        )),
+        Owner::System { .. } if row.cpu_seconds >= DAEMON_CPU_SECONDS => Some(format!(
+            "this system daemon has used {} of CPU and still runs busy; sample it before anyone stops it: run `{}`, then read the sample before killing it",
+            duration(row.cpu_seconds as i64),
+            sampling.command(host, row.pid)
         )),
         _ => None,
     }
@@ -351,14 +406,19 @@ fn duration(seconds: i64) -> String {
 
 /// The busy processes among <rows> on <host>, most CPU time first, each with
 /// its owner. <cwds> are the working folders of `pids_to_place(rows)`.
-pub fn judge(host: &str, rows: &[Row], cwds: &HashMap<i32, String>) -> Vec<Busy> {
+pub fn judge(
+    host: &str,
+    rows: &[Row],
+    cwds: &HashMap<i32, String>,
+    sampling: &Sampling,
+) -> Vec<Busy> {
     let by_pid: HashMap<i32, &Row> = rows.iter().map(|r| (r.pid, r)).collect();
     let mut found: Vec<Busy> = rows
         .iter()
         .filter(|row| is_busy(row))
         .map(|row| {
             let owner = owner_of(&by_pid, row, cwds);
-            let action = action_for(&owner, row);
+            let action = action_for(host, &owner, row, sampling);
             Busy {
                 host: host.to_string(),
                 pid: row.pid,
@@ -410,10 +470,39 @@ impl Busy {
     }
 }
 
+/// An fseventsd that refuses every client.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Wedged {
+    pub pid: i32,
+    pub finding: String,
+}
+
+/// <event_id> is what `FSEventsGetCurrentEventId` returned on <host>: 0 means
+/// fseventsd does not answer. A running fseventsd that does not answer is
+/// wedged, busy or not, and a plain `kill` does not end it.
+pub fn wedged(host: &str, rows: &[Row], event_id: u64, sampling: &Sampling) -> Option<Wedged> {
+    if event_id != 0 {
+        return None;
+    }
+    let row = rows.iter().find(|row| is_fseventsd(row))?;
+    Some(Wedged {
+        pid: row.pid,
+        finding: format!(
+            "fseventsd does not answer: {host} pid {} has run {} and refuses every client (its current event id is 0); sample it before anyone stops it: run `{}`, read the sample, then run `sudo kill -9 {}` (a plain kill does not end a wedged fseventsd)",
+            row.pid,
+            duration(row.age_seconds),
+            sampling.command(host, row.pid),
+            row.pid
+        ),
+    })
+}
+
 /// What reading one host gave.
 pub struct HostBusy {
     pub host: String,
     pub busy: Result<Vec<Busy>, String>,
+    /// Set on this Mac only, the one host whose fseventsd health can ask.
+    pub wedged: Option<Wedged>,
 }
 
 fn ps_command() -> Command {
@@ -456,6 +545,13 @@ fn output_of(mut command: Command, what: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+fn now_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("the clock is after 1970")
+        .as_secs() as i64
+}
+
 /// Reads <host>'s processes and judges them.
 pub fn read(ssh: &Ssh, host: &Host) -> HostBusy {
     let busy = (|| {
@@ -490,11 +586,26 @@ pub fn read(ssh: &Ssh, host: &Host) -> HostBusy {
                     .collect(),
             }
         };
-        Ok(judge(&host.name, &rows, &cwds))
+        let sampling = Sampling::new(host, now_seconds());
+        let wedged = match host.target {
+            None => wedged(
+                &host.name,
+                &rows,
+                crate::daemon::fsevents::Stream::current_event_id(),
+                &sampling,
+            ),
+            Some(_) => None,
+        };
+        Ok((judge(&host.name, &rows, &cwds, &sampling), wedged))
     })();
+    let (busy, wedged) = match busy {
+        Ok((busy, wedged)) => (Ok(busy), wedged),
+        Err(error) => (Err(error), None),
+    };
     HostBusy {
         host: host.name.clone(),
         busy,
+        wedged,
     }
 }
 
@@ -517,12 +628,20 @@ pub fn lines(hosts: &[HostBusy]) -> Vec<String> {
 
 /// The "needs action" lines for <hosts>.
 pub fn findings(hosts: &[HostBusy]) -> Vec<String> {
-    hosts
-        .iter()
-        .filter_map(|host| host.busy.as_ref().ok())
-        .flatten()
-        .filter_map(Busy::finding)
-        .collect()
+    let mut out = Vec::new();
+    for host in hosts {
+        // A wedged fseventsd gets its own finding, in place of the busy one.
+        out.extend(host.wedged.iter().map(|w| w.finding.clone()));
+        let skip = host.wedged.as_ref().map(|w| w.pid);
+        out.extend(
+            host.busy
+                .iter()
+                .flatten()
+                .filter(|busy| Some(busy.pid) != skip)
+                .filter_map(Busy::finding),
+        );
+    }
+    out
 }
 
 #[cfg(test)]

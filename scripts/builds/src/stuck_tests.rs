@@ -12,6 +12,16 @@ fn row(pid: i32, ppid: i32, uid: u32, pcpu: f64, cpu: f64, age: i64, command: &s
     }
 }
 
+fn sampling() -> Sampling {
+    Sampling {
+        home: "/Users/x".into(),
+        target: None,
+        at: 1_763_100_000,
+    }
+}
+
+const FSEVENTSD_PATH: &str = "/System/Library/Frameworks/CoreServices.framework/Frameworks/FSEvents.framework/Support/fseventsd";
+
 const AGENT: &str = "/bin/zsh -c source /Users/x/.claude/shell-snapshots/snapshot-zsh-1.sh && eval 'cargo test' < /dev/null && pwd -P >| /tmp/c";
 
 #[test]
@@ -45,7 +55,7 @@ fn lists_a_pegged_system_daemon_with_the_sudo_command() {
         ),
         row(18, 1, 501, 3.0, 5000.0, 9_000, "/usr/bin/quiet"),
     ];
-    let busy = judge("local", &rows, &HashMap::new());
+    let busy = judge("local", &rows, &HashMap::new(), &sampling());
     assert_eq!(busy.len(), 1);
     assert_eq!(
         busy[0].owner,
@@ -54,7 +64,8 @@ fn lists_a_pegged_system_daemon_with_the_sudo_command() {
         }
     );
     let action = busy[0].action.as_ref().unwrap();
-    assert!(action.contains("sudo killall fseventsd"), "{action}");
+    assert!(action.contains("sudo sample 17 5 -file"), "{action}");
+    assert!(!action.contains("killall"), "{action}");
     assert!(
         busy[0].line().contains("local pid 17: 140% now, 1d19h CPU"),
         "{}",
@@ -65,7 +76,7 @@ fn lists_a_pegged_system_daemon_with_the_sudo_command() {
 #[test]
 fn a_busy_system_daemon_with_little_cpu_time_is_listed_not_flagged() {
     let rows = vec![row(9, 1, 0, 95.0, 700.0, 2_000, "/usr/libexec/mds")];
-    let busy = judge("local", &rows, &HashMap::new());
+    let busy = judge("local", &rows, &HashMap::new(), &sampling());
     assert_eq!(busy.len(), 1);
     assert_eq!(busy[0].action, None);
 }
@@ -84,7 +95,7 @@ fn thresholds_pick_busy_processes() {
         // 40% for hours: not busy.
         row(5, 0, 501, 40.0, 9_000.0, 20_000, "/usr/bin/e"),
     ];
-    let pids: Vec<i32> = judge("local", &rows, &HashMap::new())
+    let pids: Vec<i32> = judge("local", &rows, &HashMap::new(), &sampling())
         .iter()
         .map(|b| b.pid)
         .collect();
@@ -119,7 +130,7 @@ fn a_build_past_its_step_limit_is_flagged_with_its_checkout() {
         100,
         "/Users/x/dev/bae-worktrees/side-1/bae-macos".to_string(),
     )]);
-    let busy = judge("m1", &rows, &cwds);
+    let busy = judge("m1", &rows, &cwds, &sampling());
     assert_eq!(busy.len(), 1);
     assert_eq!(
         busy[0].owner,
@@ -159,7 +170,7 @@ fn a_build_inside_its_step_limit_is_listed_not_flagged() {
             "rustc --crate-name x",
         ),
     ];
-    let busy = judge("local", &rows, &HashMap::new());
+    let busy = judge("local", &rows, &HashMap::new(), &sampling());
     assert_eq!(busy.len(), 1);
     assert_eq!(busy[0].action, None);
 }
@@ -179,7 +190,7 @@ fn an_agent_process_names_the_shells_worktree() {
         ),
     ];
     let cwds = HashMap::from([(50, "/Users/x/dev/bae-worktrees/side-7".to_string())]);
-    let busy = judge("local", &rows, &cwds);
+    let busy = judge("local", &rows, &cwds, &sampling());
     assert_eq!(
         busy[0].owner,
         Owner::Agent {
@@ -198,7 +209,7 @@ fn a_test_binary_is_flagged_after_the_time_a_test_run_takes() {
         row(70, 1, 501, 100.0, 3_000.0, 40 * 60, binary),
         row(71, 1, 501, 100.0, 700.0, 12 * 60, binary),
     ];
-    let busy = judge("local", &rows, &HashMap::new());
+    let busy = judge("local", &rows, &HashMap::new(), &sampling());
     let long = busy.iter().find(|b| b.pid == 70).unwrap();
     let short = busy.iter().find(|b| b.pid == 71).unwrap();
     assert_eq!(
@@ -251,6 +262,7 @@ fn findings_come_only_from_hosts_that_were_read() {
         HostBusy {
             host: "m1".into(),
             busy: Err("ssh failed".into()),
+            wedged: None,
         },
         HostBusy {
             host: "local".into(),
@@ -266,10 +278,97 @@ fn findings_come_only_from_hosts_that_were_read() {
                     "/usr/libexec/fseventsd",
                 )],
                 &HashMap::new(),
+                &sampling(),
             )),
+            wedged: None,
         },
     ];
     assert_eq!(findings(&hosts).len(), 1);
     let printed = lines(&hosts).join("\n");
     assert!(printed.contains("m1: not read: ssh failed"), "{printed}");
+}
+
+#[test]
+fn a_busy_fseventsd_is_flagged_at_once_with_the_sample_command() {
+    // 98% with 28m of CPU: far under the 2h a daemon needs for the old rule.
+    let rows = vec![row(17, 1, 0, 98.0, 28.0 * 60.0, 3 * 3600, FSEVENTSD_PATH)];
+    let busy = judge("local", &rows, &HashMap::new(), &sampling());
+    let action = busy[0].action.as_ref().unwrap();
+    assert!(
+        action.contains(
+            "mkdir -p \"/Users/x/Library/Application Support/builds/samples\" && sudo sample 17 5 -file \"/Users/x/Library/Application Support/builds/samples/local-17-1763100000.txt\""
+        ),
+        "{action}"
+    );
+    assert!(
+        action.contains("read the sample before killing"),
+        "{action}"
+    );
+    let finding = busy[0].finding().unwrap();
+    assert!(
+        finding.starts_with("busy: local pid 17 (fseventsd)"),
+        "{finding}"
+    );
+}
+
+#[test]
+fn a_busy_fseventsd_on_another_host_is_sampled_over_ssh_there() {
+    let host = Host {
+        name: "m1".into(),
+        target: Some("me@m1.local".into()),
+        cores: 8,
+    };
+    let sampling = Sampling::new(&host, 1_763_100_000);
+    let rows = vec![row(40, 1, 0, 95.0, 1_000.0, 4_000, FSEVENTSD_PATH)];
+    let busy = judge("m1", &rows, &HashMap::new(), &sampling);
+    let action = busy[0].action.as_ref().unwrap();
+    assert!(
+        action.contains(
+            "ssh -t me@m1.local 'mkdir -p \"$HOME/Library/Application Support/builds/samples\" && sudo sample 40 5 -file \"$HOME/Library/Application Support/builds/samples/m1-40-1763100000.txt\"'"
+        ),
+        "{action}"
+    );
+}
+
+#[test]
+fn an_idle_fseventsd_is_not_flagged() {
+    let rows = vec![row(17, 1, 0, 2.0, 5_000.0, 90_000, FSEVENTSD_PATH)];
+    assert!(judge("local", &rows, &HashMap::new(), &sampling()).is_empty());
+    assert_eq!(wedged("local", &rows, 123_456, &sampling()), None);
+}
+
+#[test]
+fn an_fseventsd_that_answers_with_zero_is_wedged_and_needs_kill_9() {
+    let rows = vec![
+        row(1, 0, 0, 0.0, 1.0, 9_000_000, "/sbin/launchd"),
+        row(17, 1, 0, 100.0, 40.0 * 60.0, 3 * 3600 + 300, FSEVENTSD_PATH),
+    ];
+    let found = wedged("local", &rows, 0, &sampling()).unwrap();
+    assert_eq!(found.pid, 17);
+    let text = &found.finding;
+    assert!(
+        text.starts_with("fseventsd does not answer: local pid 17 has run 3h05m"),
+        "{text}"
+    );
+    assert!(text.contains("sudo sample 17 5 -file"), "{text}");
+    assert!(text.contains("sudo kill -9 17"), "{text}");
+    assert!(text.contains("a plain kill does not end"), "{text}");
+    // Not running at all: nothing to flag.
+    assert_eq!(wedged("local", &rows[..1], 0, &sampling()), None);
+}
+
+#[test]
+fn a_wedged_fseventsd_replaces_its_busy_finding() {
+    let rows = vec![row(17, 1, 0, 100.0, 40.0 * 60.0, 3 * 3600, FSEVENTSD_PATH)];
+    let hosts = vec![HostBusy {
+        host: "local".into(),
+        busy: Ok(judge("local", &rows, &HashMap::new(), &sampling())),
+        wedged: wedged("local", &rows, 0, &sampling()),
+    }];
+    let found = findings(&hosts);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].starts_with("fseventsd does not answer"),
+        "{found:?}"
+    );
 }

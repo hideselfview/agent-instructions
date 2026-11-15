@@ -220,12 +220,20 @@ Commands:
                               and step, an agent shell's worktree, a test
                               binary, a system daemon); one past its step's
                               limit (the 45 min default; health does not
-                              read a `limit` line), a test binary past 30 min, or a
-                              system daemon with 2+ hours of CPU that still
-                              runs busy is a finding that says what to run
-                              (`kill <pid>`, or `sudo killall <name>` for a
-                              daemon); health never stops one. These are read
-                              now over ssh, never from the daemon;
+                              read a `limit` line), a test binary past 30 min,
+                              or a system daemon with 2+ hours of CPU that
+                              still runs busy is a finding that says what to
+                              run (`kill <pid>`, or for a daemon `sudo sample
+                              <pid> 5 -file <file>` into ~/Library/Application
+                              Support/builds/samples, to read before anyone
+                              kills it); fseventsd is a finding as soon as it
+                              is busy, and one that answers FSEvents clients
+                              with event id 0 on this Mac is a finding that
+                              adds `sudo kill -9 <pid>` (a plain kill does not
+                              end it); on another host the sample command runs
+                              over ssh there; health never runs sudo or stops
+                              a process. These are read now over ssh, never
+                              from the daemon;
                               exits 1 when something needs acting on. Asks the daemon when one runs
   builds lists ...            the decision stack, work queue, design changes
                               and decision log of a project, in a store
