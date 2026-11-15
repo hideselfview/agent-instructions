@@ -270,58 +270,50 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
     opens the app.
 
   - **The app checkouts**, for every agent whose change needs an app build
-    (Swift, Kotlin, C#, or a bridge shape the apps compile against):
-    `~/dev/bae-worktrees/side-1` is the mac lane's (recorded for the tool with
-    `builds app-checkout mac ~/dev/bae-worktrees/side-1`), and the android
-    lane's are other side worktrees recorded with
-    `builds app-checkout android <worktree>` (a lane may have several, each with
-    a lock of its own; `builds app-checkout remove` takes one out);
-    `builds status` shows which. Commit on your branch in your own worktree,
-    then run, as a background task:
+    (Swift, Kotlin, C#, or a bridge shape the apps compile against): the mac
+    lane's are `~/dev/bae-worktrees/side-1` and `side-14` and `m1:mac-1` on the
+    M1; the android lane's are `side-31` and `m1:app-1` (recorded with
+    `builds app-checkout <lane> <worktree>`, or `--host <host> <path>` for one
+    on a host; a lane may have several, each with a lock of its own;
+    `builds app-checkout remove` takes one out); `builds status` shows which.
+    Commit on your branch in your own worktree, then run, as a background task:
 
     ```sh
-    builds app-build bae <branch> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]...
+    builds app-build bae <branch> [--test <Class>]... [--shots <prefix>]...
     ```
 
-    It takes the queue for the locks of each lane the steps are in
-    (`/Volumes/Builds/bae/app.locks/<checkout>` for the mac lane,
-    `app-android.locks/<checkout>` for the android; the next in line takes
-    whichever checkout of the lane is free), checks the branch out in that app
-    checkout (which must be clean) and runs the lane's steps of the repo's
-    `.app-build`, in the order named, stopping at the first that fails; with no
-    step named it runs every one. The lanes build at the same time, each output
-    line behind `[mac side-N]` or `[android side-N]` (the checkout it builds
-    in), and the command fails if either lane does, saying which; a mac-only
-    build and an android-only build don't wait on each other.
-    `builds app-build bae --list` prints the steps with their lanes: `macos`
-    (build the signed app that `builds build-app` installs for the person),
-    `macos-tests` (compile the app unsigned with its unit tests and the shot
-    scenes), `macos-tests-run` (run them, without rebuilding; the UI tests are
-    not among them), `macos-tests-all` (build and run the unit and UI tests,
-    signing the UI test runner so Gatekeeper lets it launch) in the mac lane;
-    `android-bridge` and `android` (the bridge, then the Kotlin and both test
-    targets), `android-tests` (run the unit tests from that output) in the
-    android lane. A change to a bridge shape or to Swift code runs
-    `macos-tests`, never `macos`: the signed app builds into a folder of its own
-    with other settings, so it compiles every Swift file a second time and no
-    check reads it; one to Kotlin runs `android-bridge` and `android`; a bridge
-    shape runs both sets, in one command. Then only the test class that proves
-    the change, with `--test mac <TestClass>` or `--test android <TestClass>`
-    after the steps (`.app-build` declares once per lane how a lane runs one
-    class, the `test` lines with `{class}` in them; no step is added per class,
-    and with no step named only the classes run). A screenshot area is picked
-    the same way, with `--shots mac <prefix>` or `--shots android <prefix>` (any
-    number, the `shots` lines with `{select}`; `mac-shots` and `android-shots`
-    stay for a whole platform, and `mac-window-shots` for the shots shown in
-    their windows, which bring the app to the front). Never `macos-tests-run`,
-    `macos-tests-all` or `android-tests` as a check, since they run every test
-    and put windows on the person's screen. CI runs the suites. A step is a
-    program, not a shell string: one that needs a shell is a script in the repo
-    (`bae-android/compile-all.sh`). A step that runs past its time limit (45
-    minutes, or its `limit <step> <time>` line in `.app-build`) is killed and
-    fails the build, which gives the lock up. To build something else there
-    (`bae-ios/run.sh`, `bae-avalonia/smoke-test.sh`, a screenshot script), add a
-    `step <lane> <name> <command>` line.
+    That is the one command. Builds chooses what to build, the lane and the
+    checkout; the agent names no step, lane or host. It reads the paths the
+    branch changes from its merge-base with `origin/main` and builds the steps
+    the `on` lines of `.app-build` name for them: Swift and BaeKit run
+    `macos-tests` (never the signed `macos`, which compiles every Swift file a
+    second time and which no check reads), Kotlin runs `android-bridge` and
+    `android`, a bridge change runs both sets, and a branch that changes only
+    Rust builds nothing. A `--test <Class>` runs in the lane whose `sources`
+    folders declare the class, and a `--shots <prefix>` in the lane its prefix
+    starts with (`mac.` or `android.`); a lane with such a run and no changed
+    path of its own builds the steps of its `needs` line first. Stored shot
+    findings of the commit print instead of running (`--fresh` runs). Each lane
+    takes the queue for its locks and the free checkout on the less loaded host
+    (`here` steps stay on this Mac), checks the branch out there (the checkout
+    must be clean) and runs the steps in the order written, stopping at the
+    first that fails. The lanes build at the same time, each output line behind
+    `[mac side-N]` or `[android m1:app-1]` (the checkout it builds in), and the
+    command fails if either lane does, saying which. `macos-tests` compiles the
+    app unsigned with its unit tests and the shot scenes; `android-bridge` and
+    `android` build the bridge, then the Kotlin and both test targets. Never
+    `macos-tests-run`, `macos-tests-all` or `android-tests` as a check, since
+    they run every test and put windows on the person's screen. CI runs the
+    suites. `.app-build` declares once per lane how a lane runs one class (the
+    `test` lines with `{class}`) and a shot selection (the `shots` lines with
+    `{select}`); no step is added per class. A step that runs past its time
+    limit (45 minutes, or its `limit <step> <time>` line in `.app-build`) is
+    killed and fails the build, which gives the lock up. To build something else
+    there (`bae-ios/run.sh`, `bae-avalonia/smoke-test.sh`), add a
+    `step <lane> <name> <command>` line, and an `on` line for the paths that
+    need it. `builds app-build bae <branch> <step>...` still names steps
+    directly, for the person's `build-app` and for debugging; agents do not use
+    it.
 
     Cargo builds there, as in every side worktree, run without incremental
     compilation (`builds cargo` passes `--config build.incremental=false`

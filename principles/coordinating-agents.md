@@ -53,17 +53,18 @@ here are only those it can't check.
 4. **One manual review** of its own diff against the brief and the matching rule
    bodies.
 5. **Local checks: only what the change touches**: the hook, builds of touched
-   platforms (app builds in the app checkouts, a mac and an android one, each
-   under its lane's lock), tests covering the changed code. Never a whole app
-   test suite (it launches the app on the person's screen) or the full CI
-   script: CI runs those. A project with no pre-commit hook gets one. A shots
-   check needs the "before" side: the findings of the commit the branch started
-   from. The agent takes it from builds, never by building that commit first:
+   platforms (`builds app-build <repo> <branch>` with no step named builds the
+   app steps the diff needs, in a free app checkout it chooses on this Mac or
+   the M1, under that lane's lock; the agent names no step, lane or host), tests
+   covering the changed code. Never a whole app test suite (it launches the app
+   on the person's screen) or the full CI script: CI runs those. A project with
+   no pre-commit hook gets one. A shots check needs the "before" side: the
+   findings of the commit the branch started from. The agent takes it from
+   builds, never by building that commit first:
    `builds shots findings <repo> <commit> mac|android <prefix>` prints the
    findings an earlier `--shots` run of that commit stored (keyed by the repo,
    the full commit, the platform, the prefix and the version of the shots
-   program's source), and
-   `builds app-build <repo> <ref> --shots <lane> <prefix>` with no build step
+   program's source), and `builds app-build <repo> <ref> --shots <prefix>`
    prints them too, without taking the lane's lock. When none are stored, the
    first command fails and names the app-build command that makes them; the
    agent runs that once, and every later agent reads the result. `--fresh` runs
