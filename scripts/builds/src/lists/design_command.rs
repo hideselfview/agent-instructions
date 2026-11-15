@@ -233,14 +233,27 @@ fn require_briefs(scope: &Scope, request: &DesignRequest) -> Result<()> {
 
 /// What a record or amend printed: the change and the items waiting on it,
 /// and that the change waits on the person's review.
-fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, cleared: bool) -> String {
+fn recorded_words(
+    verb: &str,
+    recorded: &design::Recorded,
+    title: &str,
+    cleared: bool,
+    fix: bool,
+) -> String {
     let mut out = format!("{verb} design change {} \"{title}\"\n", recorded.design);
-    if cleared {
-        out.push_str(
-            "the person's approval is cleared: they approved what was drawn before this\n",
-        );
+    if fix {
+        out.push_str(&format!(
+            "it is a fix that changes no design, so it needs no review; builds land --design {} can land it\n",
+            recorded.design.0
+        ));
+    } else {
+        if cleared {
+            out.push_str(
+                "the person's approval is cleared: they approved what was drawn before this\n",
+            );
+        }
+        out.push_str("it waits on the person's review (the Waiting on you tab); builds land --design refuses it until `builds design approve --by-person`\n");
     }
-    out.push_str("it waits on the person's review (the Waiting on you tab); builds land --design refuses it until `builds design approve --by-person`\n");
     if !recorded.new_items.is_empty() {
         let ids: Vec<String> = recorded.new_items.iter().map(|id| id.to_string()).collect();
         out.push_str(&format!("new items {} wait on it\n", ids.join(", ")));
@@ -281,7 +294,13 @@ fn record(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>)
             .clone();
         Ok((recorded, title))
     })?;
-    Ok(recorded_words("recorded", &recorded, &title, false))
+    Ok(recorded_words(
+        "recorded",
+        &recorded,
+        &title,
+        false,
+        request.fix.is_some(),
+    ))
 }
 
 fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) -> Result<String> {
@@ -322,7 +341,13 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) 
                 let title = store::read(db)?.design(id).expect("open").title.clone();
                 Ok((recorded, title, was_approved))
             })?;
-    Ok(recorded_words("amended", &recorded, &title, cleared))
+    Ok(recorded_words(
+        "amended",
+        &recorded,
+        &title,
+        cleared,
+        request.fix.is_some(),
+    ))
 }
 
 /// `approve N --by-person`: the person's review of the boards, said by

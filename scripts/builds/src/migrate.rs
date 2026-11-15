@@ -156,6 +156,9 @@ const BEFORE_REVIEW_STAMP: i64 = 2_079_869_619;
 /// The stamp of the schema before the cargo runs' table was added.
 const BEFORE_CARGO_RUNS_STAMP: i64 = 95_960_216;
 
+/// The stamp of the schema before the design fixes' table was added.
+const BEFORE_DESIGN_FIX_STAMP: i64 = 187_372_354;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -174,7 +177,8 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// recorded or amended), and every store older than today's gets the empty
 /// `shot_findings` table (no run's findings are kept yet), every store gets
 /// the review's empty tables, and every store older than today's gets the
-/// empty `cargo_runs` table (no cargo run is recorded yet). The moves run in
+/// empty `cargo_runs` table (no cargo run is recorded yet), and every store
+/// gets the empty `design_fix` table (no change is a fix yet). The moves run in
 /// one transaction, the store is stamped as today's schema, and it must then
 /// equal a fresh database's schema or the transaction rolls back. A store
 /// already at today's stamp, or with no database, is left alone; any other
@@ -237,6 +241,18 @@ fn design_tip() -> String {
     schema[start..stop].to_string()
 }
 
+/// The statement that makes `design_fix` as design.sql writes it, taken from
+/// today's schema text so the result equals a fresh database's.
+fn design_fix() -> String {
+    let schema = db::schema();
+    let start = schema
+        .find("CREATE TABLE design_fix")
+        .expect("the schema has it");
+    let end = "STRICT;";
+    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
+    schema[start..stop].to_string()
+}
+
 fn move_store(path: &Path) -> Result<()> {
     if !path.is_file() {
         return Ok(());
@@ -258,11 +274,12 @@ fn move_store(path: &Path) -> Result<()> {
         BEFORE_SHOT_FINDINGS_STAMP,
         BEFORE_REVIEW_STAMP,
         BEFORE_CARGO_RUNS_STAMP,
+        BEFORE_DESIGN_FIX_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP} and {BEFORE_CARGO_RUNS_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP} and {BEFORE_DESIGN_FIX_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -279,6 +296,7 @@ fn move_store(path: &Path) -> Result<()> {
         BEFORE_SHOT_FINDINGS_STAMP,
         BEFORE_REVIEW_STAMP,
         BEFORE_CARGO_RUNS_STAMP,
+        BEFORE_DESIGN_FIX_STAMP,
     ]
     .contains(&found);
     if found != BEFORE_DESIGN_TIP_STAMP && !has_tip_and_times {
@@ -292,6 +310,7 @@ fn move_store(path: &Path) -> Result<()> {
         BEFORE_SHOT_FINDINGS_STAMP,
         BEFORE_REVIEW_STAMP,
         BEFORE_CARGO_RUNS_STAMP,
+        BEFORE_DESIGN_FIX_STAMP,
     ]
     .contains(&found)
     {
@@ -301,11 +320,12 @@ fn move_store(path: &Path) -> Result<()> {
     tx.execute_batch(db::DESIGN_SESSION_PART).sql()?;
     tx.execute_batch(db::SHOT_FINDINGS_PART).sql()?;
     // The review's tables are plain `CREATE TABLE`s: a store from just before
-    // the cargo runs' table already has them.
-    if found != BEFORE_CARGO_RUNS_STAMP {
+    // the cargo runs' table, or after it, already has them.
+    if found != BEFORE_CARGO_RUNS_STAMP && found != BEFORE_DESIGN_FIX_STAMP {
         tx.execute_batch(db::REVIEW_PART).sql()?;
     }
     tx.execute_batch(db::CARGO_RUNS_PART).sql()?;
+    tx.execute_batch(&design_fix()).sql()?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     if db::schema_rows(&tx)? != db::schema_rows(&db::memory())? {
         fail!(

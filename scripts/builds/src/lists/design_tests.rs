@@ -745,6 +745,60 @@ fn a_recorded_change_waits_on_review_and_landing_checks_refuse_until_the_person_
 }
 
 #[test]
+fn a_fix_that_changes_no_design_is_approved_when_recorded_and_needs_no_review_page() {
+    let w = world("design-fix");
+    let sha = w.commit(&["design/mocks/A.dc.html"]);
+    let mut request = base_request(&w, json!({ "design/mocks/A.dc.html": { "matches": "x" } }));
+    request.as_object_mut().unwrap().remove("review");
+    request["fix"] = json!("");
+    let before = w.bytes();
+    assert!(message(w.request(request.clone())).contains("fix is empty"));
+    assert_eq!(w.bytes(), before);
+
+    request["fix"] = json!("the row heights follow the design system's measures");
+    let out = w.request(request).unwrap();
+    assert!(out.contains("needs no review"), "{out}");
+    let design = &w.state().designs[0];
+    assert!(design.approved.is_some());
+    assert_eq!(
+        design.fix.as_deref(),
+        Some("the row heights follow the design system's measures")
+    );
+    let wt = w.worktree();
+    assert!(
+        w.run(&format!("check 1 {wt} {sha}"))
+            .unwrap()
+            .contains("and is approved")
+    );
+    assert!(
+        w.run("show 1")
+            .unwrap()
+            .contains("a fix that changes no design")
+    );
+}
+
+#[test]
+fn an_amend_without_the_fix_makes_the_change_wait_on_review_again() {
+    let w = world("design-fix-amend");
+    w.commit(&["design/mocks/A.dc.html"]);
+    let mut request = base_request(&w, json!({ "design/mocks/A.dc.html": { "matches": "x" } }));
+    request["fix"] = json!("a drawing mistake in the last change");
+    w.request(request).unwrap();
+    let amended = w
+        .amend(
+            1,
+            json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} }),
+        )
+        .unwrap();
+    assert!(
+        amended.contains("waits on the person's review"),
+        "{amended}"
+    );
+    let design = &w.state().designs[0];
+    assert!(design.approved.is_none() && design.fix.is_none());
+}
+
+#[test]
 fn an_amend_clears_the_approval_and_says_so() {
     let w = world("design-amend-clears");
     w.commit(&["design/mocks/A.dc.html"]);
@@ -1156,6 +1210,14 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
         "design_is_a_record",
         "FOREIGN KEY",
         plant(&db, "design", &row(&design, &[("id", v(900))])),
+    );
+    refused.check(
+        "design_fix_says_what_it_fixes",
+        plant(
+            &db,
+            "design_fix",
+            &[("design_id", v(good.0)), ("fixes", v(" "))],
+        ),
     );
     refused.check(
         "design_approval_by_says_something",

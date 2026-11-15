@@ -115,9 +115,13 @@ pub struct DesignChange {
     pub review: Vec<ReviewSection>,
     /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
-    /// The person's review: set by `design approve`, cleared by an amend,
-    /// since the person approved what was drawn before it.
+    /// What lets the change land: the person's review (`design approve`),
+    /// or the recording of a fix. An amend clears it, since what was approved
+    /// is no longer what is drawn.
     pub approved: Option<Stamp>,
+    /// What a change that changes no design fixes (a design-system measure,
+    /// a drawing mistake): it is approved when recorded, with no review.
+    pub fix: Option<String>,
     /// The session that recorded it, and whether the approval reached it.
     pub session: SessionState,
     pub opened: Stamp,
@@ -167,6 +171,11 @@ pub struct DesignRequest {
     pub review: Option<Vec<ReviewSection>>,
     /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
+    /// What the change fixes when it changes no design: boards made to follow
+    /// the design system's measures, or a drawing mistake corrected. A fix
+    /// needs no review page and is approved when recorded; an amend without
+    /// it makes the change wait on the person's review again.
+    pub fix: Option<String>,
 }
 
 /// What a record or amend made.
@@ -352,7 +361,7 @@ fn resolve(
         .filter(|p| PlaceKind::of(p) == PlaceKind::Board && !on_page.contains(p.as_str()))
         .map(String::as_str)
         .collect();
-    if !missing.is_empty() {
+    if !missing.is_empty() && request.fix.is_none() {
         fail!(
             "boards of the change missing from the review page: {}; the person reviews every board of a change on its page, so give each under `review`",
             missing.join(", ")
@@ -565,9 +574,9 @@ pub fn record(
         fail!("{fault}");
     }
     let details = require_text("details", request.details.as_ref())?;
-    if request.review.is_none() {
+    if request.review.is_none() && request.fix.is_none() {
         fail!(
-            "a design change needs its `review`: the headings, words and boards of the page the person reviews it on"
+            "a design change needs its `review`: the headings, words and boards of the page the person reviews it on (a `fix` that changes no design needs none)"
         );
     }
     let design = open_change(
@@ -582,7 +591,29 @@ pub fn record(
         stamp,
     )?;
     let new_items = resolve(db, design, request, drawn, changes, affected, stamp)?;
+    keep_fix(db, design, request, stamp)?;
     Ok(Recorded { design, new_items })
+}
+
+/// Writes <request>'s fix of change <id>, which approves it as recorded by
+/// <stamp>, or leaves the change with no fix.
+fn keep_fix(db: &Connection, id: Id, request: &DesignRequest, stamp: &Stamp) -> Result<()> {
+    db.execute("DELETE FROM design_fix WHERE design_id = ?1", [id])
+        .sql()?;
+    let Some(fixes) = &request.fix else {
+        return Ok(());
+    };
+    if fixes.trim().is_empty() {
+        fail!(
+            "fix is empty; say what the change fixes (the design system's measures, a drawing mistake)"
+        );
+    }
+    db.execute(
+        "INSERT INTO design_fix (design_id, fixes) VALUES (?1, ?2)",
+        params![id, fixes],
+    )
+    .sql()?;
+    approve(db, id, stamp)
 }
 
 /// The open design change <id>.
@@ -648,6 +679,7 @@ pub fn amend(
         .sql()?;
     }
     let new_items = resolve(db, id, request, drawn, changes, affected, stamp)?;
+    keep_fix(db, id, request, stamp)?;
     Ok(Recorded {
         design: id,
         new_items,
@@ -806,6 +838,9 @@ fn describe(lists: &Lists, design: &DesignChange, landed: Option<&crate::lists::
         local_minute(design.opened.at),
         design.opened.by
     );
+    if let Some(fixes) = &design.fix {
+        let _ = writeln!(out, "a fix that changes no design: {fixes}");
+    }
     match &design.approved {
         Some(stamp) => {
             let _ = writeln!(
@@ -1060,6 +1095,19 @@ pub fn read(
         let (design, stamp) = row.sql()?;
         approvals.insert(design, stamp);
     }
+    let mut fixes: BTreeMap<Id, String> = BTreeMap::new();
+    let mut statement = db
+        .prepare("SELECT design_id, fixes FROM design_fix")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?))
+        })
+        .sql()?
+    {
+        let (design, fix) = row.sql()?;
+        fixes.insert(design, fix);
+    }
     let mut sessions = design_session::states(db)?;
     let mut statement = db
         .prepare("SELECT id, title, details, repo, worktree, no_app_place FROM design ORDER BY id")
@@ -1099,6 +1147,7 @@ pub fn read(
             review: review.remove(&id).unwrap_or_default(),
             no_app_place,
             approved: approvals.remove(&id),
+            fix: fixes.remove(&id),
             session: sessions.remove(&id).unwrap_or(SessionState::Unrecorded),
             opened: opened[&id].clone(),
             landed,
@@ -1109,11 +1158,12 @@ pub fn read(
 
 /// The tables design.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 9] = [
+const TABLES: [&str; 10] = [
     "design",
     "design_session",
     "design_tip",
     "design_approval",
+    "design_fix",
     "design_place",
     "design_board",
     "design_deleted",

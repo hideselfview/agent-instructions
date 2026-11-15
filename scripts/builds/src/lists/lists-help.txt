@@ -306,7 +306,7 @@ sent again.
       "review": [{"heading": H, "words": WORDS,
                   "boards": [{"board": BOARD_PATH, "caption": C,
                               "theme": "light" | "dark"}]}],
-      "no_app_place": WHY}.
+      "no_app_place": WHY, "fix": WHAT}.
       `places` answers every design place the range changes (a board, a
       component folder, a spec section) with an open item that does the app
       work, a new item (which waits on this design change, so no one can take
@@ -319,6 +319,10 @@ sent again.
       Shared files that are no source (a README, a build script) change no
       drawing: only `no_app_place`, unless a place is resolved.
       `boards` gives every board place its canvas link.
+      `fix` says what a change that changes no design fixes: boards made to
+      follow the design system's measures, or a drawing mistake corrected.
+      Such a change needs no `review` and is approved when recorded. An amend
+      without `fix` makes the change wait on the person's review again.
       `review` is the review page, in order: each section is a heading, the
       words under it (optional; `code`, **bold**, paragraphs and `-` lists)
       and its boards (optional), each a board file of the repo's design

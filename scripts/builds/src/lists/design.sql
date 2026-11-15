@@ -18,11 +18,20 @@ CREATE TABLE design (
     CONSTRAINT design_is_a_record FOREIGN KEY (id, record_kind) REFERENCES record (id, kind)
 ) STRICT;
 
--- The person's review; an amend deletes it.
+-- What lets the change land: the person's review, or the recording of a fix
+-- (design_fix). An amend deletes it.
 CREATE TABLE design_approval (
     design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
     at INTEGER NOT NULL,
     by TEXT NOT NULL CONSTRAINT design_approval_by_says_something CHECK (trim(by) <> '')
+) STRICT;
+
+-- A change that changes no design: it makes boards follow the design system's
+-- measures or corrects a drawing mistake, says which, and needs no review. An
+-- amend that gives no fix deletes it.
+CREATE TABLE design_fix (
+    design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
+    fixes TEXT NOT NULL CONSTRAINT design_fix_says_what_it_fixes CHECK (trim(fixes) <> '')
 ) STRICT;
 
 -- Each design place the change touches, resolved by the item that does the

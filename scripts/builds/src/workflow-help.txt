@@ -169,7 +169,10 @@ DESIGN CHANGES
 
 The design session lands its boards through a design change, which the person
 reviews and approves first (`builds help lists` has the record and its
-commands):
+commands). A fix that changes no design (boards made to follow the design
+system's measures, a drawing mistake corrected) is recorded with `fix` instead:
+it needs no review page or approval, and lands with `--design N` like any
+other.
 
   1. While drawing, look at a board with `builds design render`, which draws
      it from the worktree as one page of HTML without publishing the canvas.

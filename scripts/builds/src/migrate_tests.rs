@@ -142,7 +142,7 @@ fn plant_run(conn: &Connection) {
 /// The schema's text before `design_tip`: today's without that table and the
 /// comment above it.
 fn schema_before_design_tip() -> String {
-    let schema = db::schema_before_app_timing();
+    let schema = without_design_fix(db::schema_before_app_timing());
     let from = schema
         .find("\n-- The last commit of the range")
         .expect("the table's comment");
@@ -404,7 +404,8 @@ fn store_before_app_timing(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&db::schema_before_app_timing()).unwrap();
+    conn.execute_batch(&without_design_fix(db::schema_before_app_timing()))
+        .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_APP_TIMING_STAMP)
         .unwrap();
     plant_run(&conn);
@@ -431,7 +432,7 @@ fn a_store_from_before_app_timings_gains_their_tables_keeps_its_runs_and_equals_
 #[test]
 fn the_app_timing_stamp_is_the_schema_before_app_timings() {
     let mut hash: u32 = 0x811c_9dc5;
-    for byte in db::schema_before_app_timing().bytes() {
+    for byte in without_design_fix(db::schema_before_app_timing()).bytes() {
         hash ^= u32::from(byte);
         hash = hash.wrapping_mul(0x0100_0193);
     }
@@ -447,7 +448,7 @@ fn store_before_design_session(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&db::schema_before_design_session())
+    conn.execute_batch(&without_design_fix(db::schema_before_design_session()))
         .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_DESIGN_SESSION_STAMP)
         .unwrap();
@@ -476,7 +477,7 @@ fn a_store_from_before_design_sessions_gains_their_table_keeps_its_runs_and_equa
 #[test]
 fn the_design_session_stamp_is_the_schema_before_design_sessions() {
     let mut hash: u32 = 0x811c_9dc5;
-    for byte in db::schema_before_design_session().bytes() {
+    for byte in without_design_fix(db::schema_before_design_session()).bytes() {
         hash ^= u32::from(byte);
         hash = hash.wrapping_mul(0x0100_0193);
     }
@@ -492,7 +493,7 @@ fn store_before_shot_findings(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&db::schema_before_shot_findings())
+    conn.execute_batch(&without_design_fix(db::schema_before_shot_findings()))
         .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_SHOT_FINDINGS_STAMP)
         .unwrap();
@@ -520,7 +521,7 @@ fn a_store_from_before_shot_findings_gains_their_table_keeps_its_runs_and_equals
 #[test]
 fn the_shot_findings_stamp_is_the_schema_before_shot_findings() {
     let mut hash: u32 = 0x811c_9dc5;
-    for byte in db::schema_before_shot_findings().bytes() {
+    for byte in without_design_fix(db::schema_before_shot_findings()).bytes() {
         hash ^= u32::from(byte);
         hash = hash.wrapping_mul(0x0100_0193);
     }
@@ -536,7 +537,8 @@ fn store_before_review(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&db::schema_before_review()).unwrap();
+    conn.execute_batch(&without_design_fix(db::schema_before_review()))
+        .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_REVIEW_STAMP)
         .unwrap();
     plant_run(&conn);
@@ -571,7 +573,7 @@ fn a_store_from_before_the_review_gains_its_tables_keeps_its_runs_and_equals_a_f
 #[test]
 fn the_review_stamp_is_the_schema_before_the_review() {
     let mut hash: u32 = 0x811c_9dc5;
-    for byte in db::schema_before_review().bytes() {
+    for byte in without_design_fix(db::schema_before_review()).bytes() {
         hash ^= u32::from(byte);
         hash = hash.wrapping_mul(0x0100_0193);
     }
@@ -587,7 +589,8 @@ fn store_before_cargo_runs(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&db::schema_before_cargo_runs()).unwrap();
+    conn.execute_batch(&without_design_fix(db::schema_before_cargo_runs()))
+        .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_CARGO_RUNS_STAMP)
         .unwrap();
     plant_run(&conn);
@@ -614,12 +617,72 @@ fn a_store_from_before_cargo_runs_gains_their_table_keeps_its_runs_and_equals_a_
 #[test]
 fn the_cargo_runs_stamp_is_the_schema_before_cargo_runs() {
     let mut hash: u32 = 0x811c_9dc5;
-    for byte in db::schema_before_cargo_runs().bytes() {
+    for byte in without_design_fix(db::schema_before_cargo_runs()).bytes() {
         hash ^= u32::from(byte);
         hash = hash.wrapping_mul(0x0100_0193);
     }
     assert_eq!(
         i64::from(hash % (i32::MAX as u32 - 2)) + 2,
         BEFORE_CARGO_RUNS_STAMP
+    );
+}
+
+/// The schema text before the design fixes' table: today's, without the table
+/// and with the approval's comment as it read then.
+fn schema_before_design_fix() -> String {
+    without_design_fix(db::schema())
+}
+
+/// <schema> as the text read before the design fixes' table: every older
+/// schema these tests rebuild is today's text with later parts taken out.
+fn without_design_fix(schema: String) -> String {
+    let fix = "-- A change that changes no design:";
+    let start = schema.find(fix).expect("the schema has it");
+    let stop = start + schema[start..].find("STRICT;\n\n").expect("it ends") + "STRICT;\n\n".len();
+    let without = format!("{}{}", &schema[..start], &schema[stop..]);
+    without.replace(
+        "-- What lets the change land: the person's review, or the recording of a fix\n-- (design_fix). An amend deletes it.\n",
+        "-- The person's review; an amend deletes it.\n",
+    )
+}
+
+fn store_before_design_fix(dir: &std::path::Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&schema_before_design_fix()).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_DESIGN_FIX_STAMP)
+        .unwrap();
+    plant_run(&conn);
+    path
+}
+
+#[test]
+fn a_store_from_before_design_fixes_gains_their_table_keeps_its_runs_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-design-fix");
+    let places = scratch.places();
+    let path = store_before_design_fix(&places.lists.join("bae"));
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the old run is kept");
+}
+
+#[test]
+fn the_design_fix_stamp_is_the_schema_before_design_fixes() {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in schema_before_design_fix().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    assert_eq!(
+        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        BEFORE_DESIGN_FIX_STAMP
     );
 }
