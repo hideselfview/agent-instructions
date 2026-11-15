@@ -37,6 +37,9 @@ const SAMPLE_EVERY: Duration = Duration::from_secs(2);
 /// How often the processes are read while no page watches, for the commands
 /// that ask for health.
 const IDLE_SAMPLE_EVERY: Duration = Duration::from_secs(10);
+/// How often the hosts are asked while a page watches, and while none does.
+const HOSTS_EVERY: Duration = Duration::from_secs(5);
+const IDLE_HOSTS_EVERY: Duration = Duration::from_secs(60);
 /// How often sccache is asked for its count.
 const SCCACHE_EVERY: Duration = Duration::from_secs(30);
 /// Load samples kept for the page's line: ten minutes at SAMPLE_EVERY.
@@ -95,6 +98,8 @@ struct State {
     health: Option<Health>,
     sccache_at: Option<Instant>,
     sccache: Option<(bool, Option<u64>, Option<crate::health::Reading>)>,
+    /// The hosts' rows (hosts.rs), empty before the first reading.
+    hosts: Vec<super::hosts::HostPage>,
 }
 
 pub struct Model {
@@ -189,6 +194,11 @@ impl Model {
         std::thread::Builder::new()
             .name("builds-sample".into())
             .spawn(move || sampler.sample_loop())
+            .expect("a thread starts");
+        let hosts = model.clone();
+        std::thread::Builder::new()
+            .name("builds-hosts".into())
+            .spawn(move || hosts.hosts_loop())
             .expect("a thread starts");
         model
     }
@@ -500,6 +510,36 @@ impl Model {
         self.viewing.notify_all();
         drop(_guard);
         drop(self.sampling.lock().expect("no panic holding it"));
+    }
+
+    /// Asks the hosts and reads their cargo runs from the start, on a thread
+    /// of its own: an ssh round trip to a host that does not answer takes ten
+    /// seconds, which no other reading waits for.
+    fn hosts_loop(self: Arc<Self>) {
+        let ssh = crate::host::Ssh::from_env();
+        loop {
+            if self.stopped.load(Ordering::SeqCst) {
+                return;
+            }
+            match super::hosts::read(&self.places, &ssh, now_seconds()) {
+                Ok(hosts) => {
+                    let mut state = self.state.lock().expect("no panic holding it");
+                    if state.hosts != hosts {
+                        state.hosts = hosts;
+                        state.version += 1;
+                        self.changed.notify_all();
+                    }
+                }
+                Err(error) => eprintln!("builds: reading the hosts: {}", error.text()),
+            }
+            let pace = if self.viewers.load(Ordering::SeqCst) > 0 {
+                HOSTS_EVERY
+            } else {
+                IDLE_HOSTS_EVERY
+            };
+            let guard = self.viewing_lock.lock().expect("no panic holding it");
+            let _ = self.viewing.wait_timeout(guard, pace);
+        }
     }
 
     /// The health the last reading judged, None before the first reading.
@@ -937,6 +977,7 @@ impl Model {
                 memory_bytes: memory as u64,
             },
             health: state.health.clone(),
+            hosts: state.hosts.clone(),
             repos,
         })
     }
@@ -1095,6 +1136,8 @@ pub struct Page {
     pub load: Option<LoadPage>,
     pub daemon: DaemonPage,
     pub health: Option<Health>,
+    /// This Mac and every recorded host, each with what it is running.
+    pub hosts: Vec<super::hosts::HostPage>,
     pub repos: Vec<RepoPage>,
 }
 

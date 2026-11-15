@@ -850,6 +850,24 @@ function diskFigure(v) {
     h("span", {class: "v"}, wholeSize(v.free_kib), h("small", {}, "free")));
 }
 
+// A host's row (hosts.rs): its name, the cores nothing uses, and what it runs
+// now, one line a cargo run (the repo, the checkout, the command, how long it
+// has run). A host that did not answer says why in place of its room. Shown
+// only when a host besides this Mac is recorded.
+function hostFigure(host) {
+  const where = host.target ? host.target : "this Mac";
+  const room = host.room === null
+    ? h("span", {class: "v", title: host.unreachable}, "not answering")
+    : h("span", {class: "v", title: host.cores + " cores minus the 1-minute load, " + wholeSize(host.free_kib) + " free"},
+        Math.max(0, host.room).toFixed(1), h("small", {}, "of " + host.cores + " cores free"));
+  const running = host.running.length === 0
+    ? [h("span", {class: "h"}, "nothing running" + (host.last_hour ? " · " + host.last_hour + " cargo runs in the last hour" : ""))]
+    : host.running.map(r => h("span", {class: "h"}, r.repo + " " + r.checkout + " · cargo " + r.command + " · ", agoSpan(r.started_at, "", "")));
+  return figure((host.room === null ? "bad " : "") + "host", "Host " + host.name + ", " + where,
+    h("div", {class: "row"}, h("span", {class: "v"}, host.name), room),
+    ...running);
+}
+
 // ---- The commit hook figures
 const BAR_HEIGHT = 36, BAR_SECONDS = 90;   // a bar is full height at 90 s
 function hookOf(name) {
@@ -1074,6 +1092,7 @@ function render() {
   document.getElementById("errors").append(...timingErrors.map(e => h("div", {class: "error"}, "The app build times: " + e)));
   for (const repo of state.repos) for (const {lane} of repo.lanes) buildPanelOf(repo, lane);
   document.getElementById("top").replaceChildren(loadFigure(state.load), diskFigure(state.volume),
+    ...(state.hosts.length > 1 ? state.hosts.map(hostFigure) : []),
     ...state.repos.map(r => hookFigure(r.name)), ...waitLanes().map((w, _, all) => waitFigure(w, all)));
   hookDetails();
   waitDetails();

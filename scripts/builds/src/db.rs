@@ -51,13 +51,22 @@ const BUSY: Duration = Duration::from_millis(i32::MAX as u64);
 /// the schema.
 pub const SHOT_FINDINGS_PART: &str = include_str!("shot_findings.sql");
 
-/// The review's tables (review/record.sql), the last part of the schema.
+/// The review's tables (review/record.sql), part of the schema.
 pub const REVIEW_PART: &str = include_str!("review/record.sql");
+
+/// The `builds cargo` run record (cargo_runs.sql), the last part of the
+/// schema.
+pub const CARGO_RUNS_PART: &str = include_str!("cargo_runs.sql");
 
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
-/// stored shot findings, then the review's.
+/// stored shot findings, then the review's, then the cargo runs.
 pub fn schema() -> String {
+    format!("{}\n{CARGO_RUNS_PART}", schema_before_cargo_runs())
+}
+
+/// The schema as it was before the cargo runs' table joined it.
+pub fn schema_before_cargo_runs() -> String {
     format!("{}\n{REVIEW_PART}", schema_before_review())
 }
 

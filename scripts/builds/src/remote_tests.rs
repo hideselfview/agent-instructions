@@ -100,6 +100,8 @@ fn parses_a_request() {
     );
     let staged = parse(&args(&["run", "bae", "--staged", "--", "true"])).unwrap();
     assert_eq!(staged.what, What::Staged);
+    let working = parse(&args(&["run", "bae", "--working", "--", "true"])).unwrap();
+    assert_eq!(working.what, What::Working);
     assert!(
         parse(&args(&["run", "bae", "--", "true"])).is_err(),
         "no ref"
@@ -419,4 +421,92 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
         )),
         "{path}"
     );
+}
+
+#[test]
+fn sends_the_whole_working_tree_without_moving_a_ref_or_the_index() {
+    let s = setup("remote-working");
+    let places = s.scratch.places();
+    // A tracked file the person edits, one they delete, a staged new file, an
+    // untracked file, and an ignored one.
+    std::fs::write(s.source.join(".gitignore"), "ignored.txt\n").unwrap();
+    git(&s.source, &["add", ".gitignore"]);
+    git(&s.source, &["commit", "-q", "-m", "ignore"]);
+    std::fs::write(s.source.join("tracked.txt"), "one\n").unwrap();
+    git(&s.source, &["add", "tracked.txt"]);
+    git(&s.source, &["commit", "-q", "-m", "track"]);
+    std::fs::write(s.source.join("tracked.txt"), "edited\n").unwrap();
+    std::fs::write(s.source.join("staged.txt"), "staged\n").unwrap();
+    git(&s.source, &["add", "staged.txt"]);
+    std::fs::write(s.source.join("untracked.txt"), "untracked\n").unwrap();
+    std::fs::write(s.source.join("ignored.txt"), "ignored\n").unwrap();
+    let status_before = git_text(
+        crate::checkout::git(&s.source).args(["status", "--porcelain"]),
+        "status",
+    )
+    .unwrap();
+    let head_before = commit_of(&s.source, &What::Ref("HEAD".to_string())).unwrap();
+    let job = request(
+        What::Working,
+        &[
+            "sh",
+            "-c",
+            "cat tracked.txt staged.txt untracked.txt > ../out.txt; ls ignored.txt 2>/dev/null > ../ignored.txt || true",
+        ],
+    );
+    assert_eq!(
+        run_job(&places, &s.ssh, &s.host, &s.source, &job).unwrap(),
+        0
+    );
+    let wts = s.home.join("dev/demo-worktrees");
+    assert_eq!(
+        std::fs::read_to_string(wts.join("out.txt")).unwrap(),
+        "edited\nstaged\nuntracked\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(wts.join("ignored.txt")).unwrap(),
+        "",
+        "an ignored file stays"
+    );
+    // A deleted tracked file is gone in the sent tree.
+    std::fs::remove_file(s.source.join("tracked.txt")).unwrap();
+    let job = request(
+        What::Working,
+        &[
+            "sh",
+            "-c",
+            "ls tracked.txt 2>/dev/null > ../deleted.txt || true",
+        ],
+    );
+    run_job(&places, &s.ssh, &s.host, &s.source, &job).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(wts.join("deleted.txt")).unwrap(),
+        ""
+    );
+    std::fs::write(s.source.join("tracked.txt"), "edited\n").unwrap();
+    assert_eq!(
+        git_text(
+            crate::checkout::git(&s.source).args(["status", "--porcelain"]),
+            "status",
+        )
+        .unwrap(),
+        status_before,
+        "the index and the files are as they were"
+    );
+    assert_eq!(
+        commit_of(&s.source, &What::Ref("HEAD".to_string())).unwrap(),
+        head_before
+    );
+    assert_eq!(refs(&s.source), "");
+    assert_eq!(refs(&s.home.join("dev/demo")), "");
+    let leftovers: Vec<_> = std::fs::read_dir(s.source.join(".git"))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("builds-job-index")
+        })
+        .collect();
+    assert!(leftovers.is_empty(), "the scratch index is deleted");
 }

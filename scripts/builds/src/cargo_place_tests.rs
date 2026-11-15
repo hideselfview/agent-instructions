@@ -1,0 +1,427 @@
+use super::*;
+use crate::host::Probe;
+use crate::host::tests::fake_ssh;
+use crate::testing::{Scratch, git, repo};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
+fn args(words: &[&str]) -> Vec<String> {
+    words.iter().map(|w| w.to_string()).collect()
+}
+
+/// A repo `demo` with its main checkout and one side worktree.
+fn checkouts(scratch: &Scratch) -> (Checkout, Checkout) {
+    let main = scratch.dir.join("demo");
+    repo(&main, "target 1G\n");
+    let side = scratch.dir.join("demo-worktrees/side-1");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &side.display().to_string(),
+        ],
+    );
+    (
+        Checkout::at(&main).unwrap().unwrap(),
+        Checkout::at(&side).unwrap().unwrap(),
+    )
+}
+
+fn no_env(_: &str) -> Option<OsString> {
+    None
+}
+
+#[test]
+fn only_commands_that_compile_and_report_leave_this_mac() {
+    let scratch = Scratch::new("place-rules");
+    let (main, side) = checkouts(&scratch);
+    let stays =
+        |words: &[&str], checkout: &Checkout| stays_here(&args(words), Some(checkout), &no_env);
+    for words in [
+        &["test", "-p", "demo", "--features", "test-utils"][..],
+        &["clippy", "--workspace", "--", "-D", "warnings"],
+        &["check", "-p", "demo"],
+        &["doc", "--workspace", "--no-deps"],
+        &["nextest", "run", "-p", "demo", "-E", "test(x)"],
+        &["nextest", "list", "--workspace"],
+        &[
+            "test",
+            "-p",
+            "demo",
+            "--",
+            "--nocapture",
+            "/looks/like/a/path",
+        ],
+    ] {
+        assert_eq!(stays(words, &side), None, "{words:?}");
+    }
+    for (words, why) in [
+        (&["build", "-p", "demo"][..], "leaves products"),
+        (&["rustc", "-p", "demo", "--lib"], "leaves products"),
+        (&["run", "-p", "bae-shots"], "acts on it"),
+        (&["bench"], "measures it"),
+        (&["install", "x"], "leaves products"),
+        (&["nextest", "archive"], "leaves products"),
+        (&["test", "--message-format=json"], "reads cargo's output"),
+        (&["check", "--target", "aarch64-apple-ios"], "cross build"),
+        (&["check", "--target=aarch64-apple-ios"], "cross build"),
+        (&["test", "--release"], "cost tests"),
+        (
+            &["test", "--manifest-path", "x/Cargo.toml"],
+            "place on this Mac",
+        ),
+        (&["test", "--target-dir=/tmp/t"], "place on this Mac"),
+        (&["test", "/Users/x/Cargo.toml"], "path on this Mac"),
+    ] {
+        let said = stays(words, &side).unwrap_or_else(|| panic!("{words:?} went"));
+        assert!(said.contains(why), "{words:?}: {said}");
+    }
+    assert!(
+        stays(&["test"], &main).unwrap().contains("the person's"),
+        "main stays"
+    );
+    assert!(
+        stays_here(&args(&["test"]), None, &no_env)
+            .unwrap()
+            .contains("no git checkout")
+    );
+    let with =
+        |name: &'static str| move |asked: &str| (asked == name).then(|| OsString::from("/x"));
+    let bare = |asked: &str| (asked == "RUSTC_WRAPPER").then(|| OsString::from("sccache"));
+    assert_eq!(stays_here(&args(&["clippy"]), Some(&side), &bare), None);
+    let outside = |asked: &str| (asked == "RUSTC_WRAPPER").then(|| OsString::from("/opt/wrap.sh"));
+    let said = stays_here(&args(&["clippy"]), Some(&side), &outside).unwrap();
+    assert!(
+        said.starts_with("RUSTC_WRAPPER names a program outside"),
+        "{said}"
+    );
+    let inside_path = side.top.join("scripts/wrap.sh");
+    let inside = |asked: &str| {
+        (asked == "RUSTC_WORKSPACE_WRAPPER").then(|| inside_path.clone().into_os_string())
+    };
+    assert_eq!(stays_here(&args(&["clippy"]), Some(&side), &inside), None);
+    for name in ["CARGO_TARGET_DIR", "FFMPEG_DIR"] {
+        let said = stays_here(&args(&["clippy"]), Some(&side), &with(name)).unwrap();
+        assert!(said.starts_with(name), "{said}");
+    }
+}
+
+#[test]
+fn a_host_gets_the_forwarded_environment_and_runs_builds_as_local() {
+    let env = |name: &str| match name {
+        "RUSTDOCFLAGS" => Some(OsString::from("-D warnings")),
+        "RUST_BACKTRACE" => Some(OsString::from("1")),
+        "HOME" => Some(OsString::from("/Users/me")),
+        _ => None,
+    };
+    let scratch = Scratch::new("place-command");
+    let (_main, side) = checkouts(&scratch);
+    assert_eq!(
+        host_command(&args(&["doc", "--workspace"]), &side, &env),
+        args(&[
+            "env",
+            "BUILDS_CARGO_HOST=local",
+            "RUSTDOCFLAGS=-D warnings",
+            "RUST_BACKTRACE=1",
+            "builds",
+            "cargo",
+            "doc",
+            "--workspace"
+        ])
+    );
+}
+
+fn host(name: &str, target: Option<&str>) -> Host {
+    Host {
+        name: name.to_string(),
+        target: target.map(str::to_string),
+        cores: 10,
+    }
+}
+
+fn probe(load: f64) -> std::result::Result<Probe, String> {
+    Ok(Probe {
+        cores: 10,
+        load,
+        free_kib: 1 << 30,
+    })
+}
+
+struct Remote {
+    scratch: Scratch,
+    home: PathBuf,
+    ssh: Ssh,
+}
+
+/// A fake host whose home holds a clone of `demo` (when <clone>) and a
+/// `builds` that writes down how it was run.
+fn remote(name: &str, clone: bool, builds_script: &str) -> (Remote, Checkout, Checkout) {
+    let scratch = Scratch::new(name);
+    let (main, side) = checkouts(&scratch);
+    let home = scratch.dir.join("remote-home");
+    std::fs::create_dir_all(home.join("dev")).unwrap();
+    if clone {
+        git(
+            &scratch.dir,
+            &[
+                "clone",
+                "-q",
+                &main.top.display().to_string(),
+                &home.join("dev/demo").display().to_string(),
+            ],
+        );
+    }
+    let bin = home.join(".local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("builds"), builds_script).unwrap();
+    std::fs::set_permissions(bin.join("builds"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    (Remote { scratch, home, ssh }, main, side)
+}
+
+const RECORDING_BUILDS: &str = r#"#!/bin/sh
+echo "host=$BUILDS_CARGO_HOST args=$* flags=$RUSTFLAGS" > ../ran.txt
+pwd >> ../ran.txt
+cat marker.txt >> ../ran.txt 2>/dev/null
+exit ${EXIT:-0}
+"#;
+
+#[test]
+fn the_first_host_by_room_that_has_the_clone_runs_it_and_this_mac_is_the_fallback() {
+    let (r, _main, _side) = remote("place-pick", true, RECORDING_BUILDS);
+    let places = r.scratch.places();
+    let m1 = host("m1", Some("user@m1"));
+    let no_clone = host("m2", Some("user@m2"));
+    let local = host("local", None);
+
+    // m1 ranks first and has the clone.
+    let probes = vec![(local.clone(), probe(9.0)), (m1.clone(), probe(1.0))];
+    let Choice::On(picked, why) = pick_ranked(&places, &r.ssh, "demo", &probes, 0).unwrap() else {
+        panic!("expected a host");
+    };
+    assert_eq!(picked, m1);
+    assert!(
+        why.starts_with("m1 has 9.0 cores of room; local has 1.0"),
+        "{why}"
+    );
+
+    // This Mac ranks first: it runs here.
+    let probes = vec![(local.clone(), probe(1.0)), (m1.clone(), probe(5.0))];
+    assert!(matches!(
+        pick_ranked(&places, &r.ssh, "demo", &probes, 0).unwrap(),
+        Choice::Here(_)
+    ));
+
+    // A host without the clone is passed over for the next.
+    std::fs::remove_dir_all(r.home.join("dev/demo")).unwrap();
+    let probes = vec![(local.clone(), probe(6.0)), (no_clone.clone(), probe(0.0))];
+    let Choice::Here(why) = pick_ranked(&places, &r.ssh, "demo", &probes, 0).unwrap() else {
+        panic!("expected this Mac");
+    };
+    assert!(why.contains("m2 cannot build demo"), "{why}");
+
+    // An unreachable host is skipped and named.
+    let gone = host("gone", Some("unreachable"));
+    let probes = host::probe_all(&places, &r.ssh, vec![local, gone]);
+    let Choice::Here(why) = pick_ranked(&places, &r.ssh, "demo", &probes, 0).unwrap() else {
+        panic!("expected this Mac");
+    };
+    assert!(why.contains("gone is unreachable"), "{why}");
+}
+
+#[test]
+fn a_named_host_must_answer_and_this_mac_can_be_named() {
+    let (r, _main, _side) = remote("place-named", true, RECORDING_BUILDS);
+    let places = r.scratch.places();
+    // No other host is recorded.
+    assert!(matches!(
+        choose(&places, &r.ssh, 0, "demo", None).unwrap(),
+        Choice::Here(_)
+    ));
+    let file = host::hosts_file(&places);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "gone unreachable 4\nm1 user@m1 10\n").unwrap();
+    let Err(crate::fail::Fail::Message(message)) = choose(&places, &r.ssh, 0, "demo", Some("gone"))
+    else {
+        panic!("expected a failure");
+    };
+    assert!(message.contains("host gone is not reachable"), "{message}");
+    assert!(matches!(
+        choose(&places, &r.ssh, 0, "demo", Some("local")).unwrap(),
+        Choice::Here(_)
+    ));
+    assert!(matches!(
+        choose(&places, &r.ssh, 0, "demo", Some("m1")).unwrap(),
+        Choice::On(..)
+    ));
+    assert!(choose(&places, &r.ssh, 0, "demo", Some("nobody")).is_err());
+}
+
+fn read(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap()
+}
+
+#[test]
+fn a_host_builds_the_working_tree_and_its_exit_status_comes_back() {
+    let (r, _main, side) = remote("place-run", true, RECORDING_BUILDS);
+    let places = r.scratch.places();
+    let m1 = host("m1", Some("user@m1"));
+    std::fs::write(side.top.join("marker.txt"), "an untracked edit\n").unwrap();
+    let env = |name: &str| (name == "RUSTFLAGS").then(|| OsString::from("-Dx"));
+    let code = run_on(
+        &places,
+        &r.ssh,
+        &m1,
+        &side,
+        &args(&["test", "-p", "demo"]),
+        &env,
+    )
+    .unwrap();
+    assert_eq!(code, 0);
+    let ran = read(&r.home.join("dev/demo-worktrees/ran.txt"));
+    assert!(
+        ran.starts_with("host=local args=cargo test -p demo flags=-Dx\n"),
+        "{ran}"
+    );
+    assert!(ran.contains("demo-worktrees/remote-1"), "{ran}");
+    assert!(ran.ends_with("an untracked edit\n"), "{ran}");
+
+    // A failing command fails the same way.
+    std::fs::write(r.home.join(".local/bin/builds"), "#!/bin/sh\nexit 101\n").unwrap();
+    assert_eq!(
+        run_on(&places, &r.ssh, &m1, &side, &args(&["test"]), &no_env).unwrap(),
+        101
+    );
+}
+
+#[test]
+fn a_host_that_drops_fails_loudly_naming_it() {
+    let (r, _main, side) = remote("place-drop", true, "#!/bin/sh\nexit 255\n");
+    let places = r.scratch.places();
+    let m1 = host("m1", Some("user@m1"));
+    let Err(crate::fail::Fail::Message(message)) =
+        run_on(&places, &r.ssh, &m1, &side, &args(&["test"]), &no_env)
+    else {
+        panic!("expected a failure");
+    };
+    assert!(message.contains("host m1 stopped answering"), "{message}");
+    assert!(
+        message.contains("nothing ran the command again"),
+        "{message}"
+    );
+
+    // A host that is gone before the send fails the same loud way.
+    let gone = host("gone", Some("unreachable"));
+    let Err(crate::fail::Fail::Message(message)) =
+        run_on(&places, &r.ssh, &gone, &side, &args(&["test"]), &no_env)
+    else {
+        panic!("expected a failure");
+    };
+    assert!(message.contains("host gone"), "{message}");
+}
+
+#[test]
+fn a_wrapper_and_a_before_program_inside_the_checkout_run_from_the_hosts_worktree() {
+    let (r, _main, side) = remote("place-wrapper", true, RECORDING_BUILDS);
+    let places = r.scratch.places();
+    let m1 = host("m1", Some("user@m1"));
+    let wrapper = side.top.join("scripts/wrap.sh");
+    let env = |name: &str| match name {
+        "RUSTC_WRAPPER" => Some(wrapper.clone().into_os_string()),
+        "BUILDS_CARGO_BEFORE" => Some(OsString::from("scripts/before.sh one two")),
+        _ => None,
+    };
+    let words = host_command(&args(&["clippy", "-p", "demo"]), &side, &env);
+    assert_eq!(&words[..2], ["sh", "-c"]);
+    assert!(
+        words[2].starts_with("\"$PWD\"/'scripts/before.sh' 'one' 'two' || exit $?\n"),
+        "{}",
+        words[2]
+    );
+    assert!(
+        words[2].contains("RUSTC_WRAPPER=\"$PWD\"/'scripts/wrap.sh'"),
+        "{}",
+        words[2]
+    );
+    // The fake `builds` writes down the wrapper it got; the before program
+    // (a file of the checkout, so also in the host's clone) writes its own
+    // arguments and the folder it ran in, before cargo.
+    std::fs::write(
+        r.home.join(".local/bin/builds"),
+        "#!/bin/sh\necho \"$RUSTC_WRAPPER\" > ../wrapper.txt\ncat ../before.txt > ../seen-before.txt\n",
+    )
+    .unwrap();
+    let script = side.top.join("scripts/before.sh");
+    std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+    std::fs::write(
+        &script,
+        "#!/bin/sh\necho \"$* $(basename \"$PWD\")\" > ../before.txt\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let code = run_on(
+        &places,
+        &r.ssh,
+        &m1,
+        &side,
+        &args(&["clippy", "-p", "demo"]),
+        &env,
+    )
+    .unwrap();
+    assert_eq!(code, 0);
+    let wts = r.home.join("dev/demo-worktrees");
+    assert_eq!(
+        read(&wts.join("wrapper.txt")).trim(),
+        format!("{}/remote-1/scripts/wrap.sh", wts.display())
+    );
+    assert_eq!(
+        read(&wts.join("seen-before.txt")).trim(),
+        "one two remote-1"
+    );
+
+    // A program that fails stops the command before cargo, with its status.
+    std::fs::write(&script, "#!/bin/sh\nexit 7\n").unwrap();
+    std::fs::remove_file(wts.join("wrapper.txt")).unwrap();
+    assert_eq!(
+        run_on(&places, &r.ssh, &m1, &side, &args(&["clippy"]), &env).unwrap(),
+        7
+    );
+    assert!(!wts.join("wrapper.txt").exists(), "cargo did not run");
+}
+
+#[test]
+fn a_before_program_outside_the_checkout_keeps_the_command_here_and_runs_here() {
+    let scratch = Scratch::new("place-before");
+    let (_main, side) = checkouts(&scratch);
+    let outside = |name: &str| (name == "BUILDS_CARGO_BEFORE").then(|| OsString::from("/opt/x.sh"));
+    let said = stays_here(&args(&["clippy"]), Some(&side), &outside).unwrap();
+    assert!(
+        said.starts_with("BUILDS_CARGO_BEFORE names a program outside"),
+        "{said}"
+    );
+    let escapes = |name: &str| (name == "BUILDS_CARGO_BEFORE").then(|| OsString::from("../x.sh"));
+    assert!(stays_here(&args(&["clippy"]), Some(&side), &escapes).is_some());
+    let inside =
+        |name: &str| (name == "BUILDS_CARGO_BEFORE").then(|| OsString::from("scripts/x.sh a"));
+    assert_eq!(stays_here(&args(&["clippy"]), Some(&side), &inside), None);
+
+    // Here, the program runs in the checkout's top.
+    let script = side.top.join("scripts/before.sh");
+    std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+    std::fs::write(&script, "#!/bin/sh\necho \"$1\" > ran-here.txt\n").unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Before::from_env(&|_| Some(OsString::from("scripts/before.sh hello")))
+        .unwrap()
+        .run_here(&side)
+        .unwrap();
+    assert_eq!(read(&side.top.join("ran-here.txt")).trim(), "hello");
+    assert!(
+        Before::from_env(&|_| Some(OsString::from("scripts/missing.sh")))
+            .unwrap()
+            .run_here(&side)
+            .is_err()
+    );
+}

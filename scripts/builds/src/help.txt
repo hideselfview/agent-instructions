@@ -376,7 +376,31 @@ Commands:
                               exits starts `units after-build`, which deletes
                               the build copies the build replaced. Outside
                               main it builds without incremental compilation
-                              (--config build.incremental=false)
+                              (--config build.incremental=false). In a side
+                              worktree, test, clippy, check, doc and nextest
+                              run|list run on the host with the most free
+                              cores (cores minus the one-minute load; this
+                              Mac wins a tie; a host that does not answer, is
+                              under the free-disk floor or has no clone of the
+                              repo is passed over) on the checkout's HEAD plus
+                              its working tree, in a warm remote worktree,
+                              with the same output and exit status; stopping
+                              builds stops cargo there, and a host that drops
+                              mid-run fails the command, naming it. Everything
+                              else stays on this Mac: build, rustc, run, bench,
+                              install, --message-format, --target, --release,
+                              path arguments, a RUSTC_WRAPPER (or
+                              RUSTC_WORKSPACE_WRAPPER) path or a
+                              BUILDS_CARGO_BEFORE program outside the
+                              checkout, CARGO_TARGET_DIR, FFMPEG_DIR, and
+                              every command in main. BUILDS_CARGO_BEFORE=<path>
+                              [<args>] runs a program of the checkout in its
+                              top before cargo, on whichever host runs cargo.
+                              BUILDS_CARGO_HOST=<name> picks the host for one
+                              command (local is this Mac; a command that
+                              must stay here runs here, with a note). Each run's host and
+                              time are recorded in the project store and shown
+                              on the dashboard's host rows.
   builds lock <repo> [--lane mac|android] <command> [<args>...]
                               run the command holding one of the repo's app
                               locks for the lane (the mac lane's unless
@@ -528,6 +552,7 @@ Commands:
                               answers
   builds remote run <repo> <ref> [--host <name>] -- <command> [<args>...]
   builds remote run <repo> --staged [--host <name>] -- <command> [<args>...]
+  builds remote run <repo> --working [--host <name>] -- <command> [<args>...]
                               run the command on a host, in a worktree of the
                               host's clone of the repo (~/dev/<repo> there)
                               with the commit <ref> names checked out, and
@@ -535,7 +560,10 @@ Commands:
                               the command's status. --staged sends a commit
                               made from the staged files of the checkout you
                               are in (no ref moves, nothing in the checkout
-                              changes). The commit goes to the host's clone
+                              changes). --working sends HEAD plus the whole
+                              working tree: staged and unstaged edits,
+                              deletions and files git neither tracks nor
+                              ignores. The commit goes to the host's clone
                               only, as refs/builds/jobs/<id> (never to
                               GitHub); the worktree is the first free
                               ~/dev/<repo>-worktrees/remote-N, kept between
@@ -555,16 +583,6 @@ Commands:
                               A host named with --host that does not answer
                               fails the job, naming the host and the ssh error.
                               BUILDS_SSH names a program to use in place of ssh.
-                              Agents run cargo tests and clippy on the M1 with
-                              `builds remote run <repo> --staged -- scripts/cargo.sh
-                              test -p <crate> --features test-utils <filter>`
-                              from their side worktree. builds does not send
-                              scripts/cargo.sh runs there by itself: the
-                              commit hook and the build scripts run it on this
-                              Mac's tree as it is (unstaged edits, the
-                              checkout's environment), and a run sent without
-                              being asked would check other files than the
-                              caller's
   builds remote step <host> <worktree> -- <command> [<args>...]
                               run the command in <worktree>, a folder on the
                               host that already holds the files, and pass its

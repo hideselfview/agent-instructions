@@ -109,6 +109,12 @@ impl Probe {
     pub fn load_per_core(&self) -> f64 {
         self.load / f64::from(self.cores.max(1))
     }
+
+    /// The cores nothing is using: the cores minus the one-minute load
+    /// average, below zero for a host with more work than cores.
+    pub fn room(&self) -> f64 {
+        f64::from(self.cores) - self.load
+    }
 }
 
 /// Runs on the host to print what `parse_probe` reads.
@@ -367,6 +373,44 @@ pub fn choose(
         why.push_str(&format!("; {skipped}"));
     }
     Ok((host.clone(), why))
+}
+
+/// The hosts a cargo build may run on, the one with the most room first: the
+/// reachable hosts above the free-disk floor, ordered by `Probe::room`. Hosts
+/// whose room is equal to the hundredth of a core keep the order they came in,
+/// and `all` puts this Mac first, so this Mac wins a tie. The line says why,
+/// with every host's room and each host that was left out. A host left out
+/// is not a failure: the caller runs on the next, and on this Mac when none
+/// is left.
+pub fn rank_by_room(
+    hosts: &[(Host, std::result::Result<Probe, String>)],
+    floor_kib: u64,
+) -> (Vec<Host>, String) {
+    let mut fits: Vec<(&Host, &Probe)> = Vec::new();
+    let mut skipped = Vec::new();
+    for (host, probe) in hosts {
+        match probe {
+            Err(error) => skipped.push(format!("{} is unreachable ({error})", host.name)),
+            Ok(probe) if probe.free_kib < floor_kib => skipped.push(format!(
+                "{} has {} free, under the floor of {}",
+                host.name,
+                human(probe.free_kib),
+                human(floor_kib)
+            )),
+            Ok(probe) => fits.push((host, probe)),
+        }
+    }
+    let hundredths = |probe: &Probe| (probe.room() * 100.0).round() as i64;
+    fits.sort_by_key(|(_, probe)| std::cmp::Reverse(hundredths(probe)));
+    let mut why: Vec<String> = fits
+        .iter()
+        .map(|(host, probe)| format!("{} has {:.1} cores of room", host.name, probe.room()))
+        .collect();
+    why.extend(skipped);
+    (
+        fits.into_iter().map(|(host, _)| host.clone()).collect(),
+        why.join("; "),
+    )
 }
 
 /// Asks every host at the same time.

@@ -380,6 +380,18 @@ recovery are in `principles/worktree-build-priming.md`. The bae specifics:
   runs sccache: it lints only the crates named with `-p` and compiles the
   workspace crates below them through sccache, which cannot cache a clippy run.
 
+- **Tests, clippy and checks of a side worktree run on the host with the most
+  room.** `scripts/cargo.sh test`, `clippy`, `check`, `doc` and
+  `nextest run|list` go to this Mac or to the M1, whichever has more free cores,
+  on the checkout's HEAD plus its working tree, with the same output and exit
+  status (`principles/worktree-build-priming.md` has the rules). The bridge
+  build scripts (`build`, `rustc`), `bae-shots` (`run`), the iOS and Android
+  lines (`--target`), the cost tests (`--release`) and everything in main stay
+  on this Mac. A test that needs this Mac's keychain, a local server or a file
+  outside the checkout fails on the M1: run it with `BUILDS_CARGO_HOST=local`.
+  The M1 needs `~/dev/bae` (a clone with `bae-ffmpeg/dist`) and
+  `builds host setup m1` after a change to `builds`.
+
 - **Build copies no build used for three days are deleted, and a copy a newer
   copy built from other sources replaced at once**, at the start of the next
   hook or build script in that checkout and as each build through

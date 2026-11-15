@@ -179,3 +179,49 @@ fn setup_copies_builds_to_the_host_and_makes_its_root() {
     };
     assert!(message.contains("host gone"), "{message}");
 }
+
+fn probe_with(cores: u32, load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
+    Ok(Probe {
+        cores,
+        load,
+        free_kib,
+    })
+}
+
+#[test]
+fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
+    let hosts = vec![
+        (host("local"), probe_with(8, 6.0, 100)),
+        (host("m1"), probe_with(10, 2.0, 100)),
+        (host("big"), probe_with(20, 18.0, 100)),
+        (host("full"), probe_with(10, 0.0, 5)),
+        (host("gone"), Err("refused".to_string())),
+    ];
+    let (ranked, why) = rank_by_room(&hosts, 50);
+    let names: Vec<&str> = ranked.iter().map(|h| h.name.as_str()).collect();
+    assert_eq!(names, ["m1", "local", "big"]);
+    assert!(
+        why.starts_with("m1 has 8.0 cores of room; local has 2.0"),
+        "{why}"
+    );
+    assert!(why.contains("full has"), "{why}");
+    assert!(why.contains("gone is unreachable (refused)"), "{why}");
+
+    let tie = vec![
+        (host("local"), probe_with(8, 2.0, 100)),
+        (host("m1"), probe_with(8, 2.0, 100)),
+    ];
+    assert_eq!(rank_by_room(&tie, 0).0[0].name, "local");
+
+    let loaded = vec![(host("m1"), probe_with(10, 14.0, 100))];
+    assert_eq!(
+        rank_by_room(&loaded, 0).0.len(),
+        1,
+        "a host with no room still ranks"
+    );
+    assert!(
+        rank_by_room(&[(host("m1"), Err("x".into()))], 0)
+            .0
+            .is_empty()
+    );
+}

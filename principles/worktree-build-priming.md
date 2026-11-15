@@ -528,14 +528,54 @@ passed or failed, the folders the repo's `results <lane> <path>...` lines in
 this Mac, where agents read them. `build-app`, the person's own build, never
 takes a checkout on a host.
 
-Cargo runs of a side worktree are not sent to the M1 by `scripts/cargo.sh`: the
-commit hook and the build scripts run it on the worktree as it is (unstaged
-edits, its environment), and a run sent without being asked would check other
-files than the caller's, with a second path to keep right. An agent that wants
-the M1's cores runs
-`builds remote run <repo> --staged -- scripts/cargo.sh test -p <crate> --features test-utils <filter>`
-from its worktree: one path, started on purpose, with the staged files as the
-job.
+`builds cargo` runs a side worktree's tests, lints and checks on whichever host
+has the most room, this Mac or the M1, and nothing changes for the caller: the
+same command prints the same output as it arrives and exits with cargo's status,
+and a stop signal stops cargo on the host. Before each command builds asks every
+host for its free room (cores minus the one-minute load average) and its free
+disk, and picks the one with the most room, this Mac on a tie; a host that does
+not answer, is under the free-disk floor or has no clone of the repo is passed
+over, and the command runs on this Mac when no host ranks first. It sends the
+checkout's HEAD plus its working tree (staged and unstaged edits, deletions and
+files git does not track or ignore) as a commit that no ref names, to the host's
+clone only, and runs it in the first free `~/dev/<repo>-worktrees/remote-N`
+there, kept between runs so its `target` and sccache stay warm; the host's
+`builds cargo` (installed by `builds host setup`) runs cargo there with
+`BUILDS_CARGO_HOST=local`, so its build folders follow the same layout and caps
+under the host's `/Volumes/Builds`. builds writes one line to stderr naming the
+host and each host's room. A host that stops answering while cargo runs fails
+the command, naming the host; builds never runs the command again on this Mac.
+`BUILDS_CARGO_HOST=<name>` (`local` is this Mac) picks the host for one command,
+for debugging.
+
+Some commands always run on this Mac, because they need something only it has:
+every subcommand but `test`, `clippy`, `check`, `doc` and `nextest run|list`
+(`build` and `rustc` leave products in this Mac's `target` that callers then
+link, install or run, `run` acts on this Mac, `bench` measures it, `install`
+writes `~/.cargo`); a command that asks for `--message-format` JSON (the caller
+reads this Mac's paths), `--target` (cross builds need the Android NDK or iOS
+SDK), `--release` (the cost tests time themselves on this Mac) or a path
+(`--manifest-path`, `--target-dir`, an absolute path); one run with
+`RUSTC_WRAPPER` or `RUSTC_WORKSPACE_WRAPPER` set to a path outside the checkout,
+`CARGO_TARGET_DIR` or `FFMPEG_DIR` set, or `BUILDS_CARGO_BEFORE` naming a
+program outside the checkout; and every command in a main checkout, which is the
+person's. A wrapper given as a bare name (`sccache`) is the host's own, and one
+given as a path inside the checkout is the same file in the host's worktree,
+named there by its path from the worktree. `BUILDS_CARGO_BEFORE=<path> [<args>]`
+names a program in the checkout that runs in the checkout's top before cargo,
+here or on the host, whichever runs cargo (a failure stops the command with its
+status): for a step on the build folders that must happen where cargo builds.
+`BUILDS_CARGO_HOST` naming a host for a command that must stay here runs it here
+and says so on stderr. Callers in bae and coven that stay on this Mac for these
+reasons: the bridge build scripts (`build` and `rustc`), `bae-shots` (`run`),
+the iOS and Android clippy lines (`--target`), the cost tests (`--release`). The
+agent-instructions checkout has no clone on the M1, so its own cargo runs stay
+here too. Each run's host and time go to the project store's `cargo_runs` table,
+and the dashboard shows a row per host (cores free, what it runs now) once a
+host besides this Mac is recorded.
+
+`builds remote run <repo> --working -- <command>` sends the same commit for any
+command, and `--staged` sends HEAD plus the staged files only.
 
 A step has a time limit: 45 minutes, or what its `limit <step> <time>` line in
 `.app-build` says (`90s`, `30m`, `2h`). Past it the step's whole process group

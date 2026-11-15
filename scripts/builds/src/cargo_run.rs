@@ -7,10 +7,13 @@ use std::io::BufReader;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use crate::cargo_place::{self, Choice};
+use crate::cargo_runs;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::places::Places;
+use crate::host::{LOCAL, Ssh};
+use crate::places::{Places, Rules};
 use crate::units::GUARD;
 use crate::units::record::record;
 
@@ -94,6 +97,65 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
     }
 }
 
+/// One run's row in the project store (cargo_runs.rs). A run with no
+/// checkout, or whose repo is in no project, has nowhere to record. A write
+/// that fails is a warning and changes nothing about the build's result.
+struct Record {
+    run: Option<(std::path::PathBuf, i64)>,
+}
+
+impl Record {
+    fn begin(
+        places: &Places,
+        checkout: Option<&Checkout>,
+        choice: &Choice,
+        args: &[String],
+    ) -> Record {
+        let Some(checkout) = checkout else {
+            return Record { run: None };
+        };
+        let start = cargo_runs::Start {
+            started_at: cargo_runs::now(),
+            repo: checkout.repo(),
+            checkout: checkout.name(),
+            host: match choice {
+                Choice::Here(_) => LOCAL.to_string(),
+                Choice::On(host, _) => host.name.clone(),
+            },
+            pid: std::process::id(),
+            command: args.join(" "),
+        };
+        let written =
+            crate::app_timing::database_of(places, &start.repo).and_then(
+                |database| match database {
+                    Some(path) => cargo_runs::begin(&path, &start).map(|id| Some((path, id))),
+                    None => Ok(None),
+                },
+            );
+        match written {
+            Ok(run) => Record { run },
+            Err(error) => {
+                crate::text::note(format!("recording the cargo run: {}", error.text()));
+                Record { run: None }
+            }
+        }
+    }
+
+    fn end(&self, result: &Result<()>) {
+        let Some((path, id)) = &self.run else {
+            return;
+        };
+        let code = match result {
+            Ok(()) => 0,
+            Err(Fail::Exit(code)) => *code,
+            Err(Fail::Message(_)) => 1,
+        };
+        if let Err(error) = cargo_runs::end(path, *id, cargo_runs::now(), code) {
+            crate::text::note(format!("recording the cargo run's end: {}", error.text()));
+        }
+    }
+}
+
 /// Runs cargo with these arguments plus the flag that has it report every
 /// unit it uses on stdout, which the recorder reads, and the settings of the
 /// checkout's role (`role_config`). Exits with cargo's status, or the
@@ -119,11 +181,84 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let places = Places::from_env()?;
     let checkout = Checkout::at_keeping_env(&dir)?;
-    let config = role_config(checkout.as_ref());
+    let env = |name: &str| std::env::var_os(name);
+    let named = std::env::var(cargo_place::HOST_VARIABLE)
+        .ok()
+        .filter(|name| !name.is_empty());
+    let ssh = Ssh::from_env();
+    let choice = match cargo_place::stays_here(args, checkout.as_ref(), &env) {
+        Some(why) => {
+            // A named host that cannot take this command runs it here, and
+            // says so: the name is for debugging a command that could go.
+            if let Some(name) = named.as_deref().filter(|name| *name != LOCAL) {
+                crate::text::note(format!(
+                    "{} names host {name}; this command runs on this Mac: {why}",
+                    cargo_place::HOST_VARIABLE
+                ));
+            }
+            Choice::Here(why)
+        }
+        None => cargo_place::choose(
+            &places,
+            &ssh,
+            Rules::from_env()?.floor_kib,
+            &checkout.as_ref().expect("a checkout was found").repo(),
+            named.as_deref(),
+        )?,
+    };
+    let record = Record::begin(&places, checkout.as_ref(), &choice, args);
+    let result = match &choice {
+        Choice::Here(_) => run_before_here(checkout.as_ref(), &env)
+            .and_then(|()| run_here(&places, checkout.as_ref(), subcommand, format, args)),
+        Choice::On(host, why) => {
+            crate::text::note(format!("builds cargo runs on host {}: {why}", host.name));
+            cargo_place::run_on(
+                &places,
+                &ssh,
+                host,
+                checkout.as_ref().expect("a checkout was found"),
+                args,
+                &env,
+            )
+            .and_then(|code| match code {
+                0 => Ok(()),
+                code => Err(Fail::Exit(code)),
+            })
+        }
+    };
+    record.end(&result);
+    result
+}
+
+/// Runs the program `BUILDS_CARGO_BEFORE` names, if any, in the checkout.
+fn run_before_here(
+    checkout: Option<&Checkout>,
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<()> {
+    let Some(before) = cargo_place::Before::from_env(env) else {
+        return Ok(());
+    };
+    match checkout {
+        Some(checkout) => before.run_here(checkout),
+        None => fail!(
+            "{} names a program to run in the checkout, and the working directory is in none",
+            cargo_place::BEFORE_VARIABLE
+        ),
+    }
+}
+
+/// Runs cargo here, with the recorder reading its output.
+fn run_here(
+    places: &Places,
+    checkout: Option<&Checkout>,
+    subcommand: &[String],
+    format: &str,
+    args: &[String],
+) -> Result<()> {
+    let config = role_config(checkout);
     // Held until cargo has exited and the recorder has read its last line.
     let root = checkout
-        .as_ref()
-        .map(|checkout| checkout.build_root(&places))
+        .map(|checkout| checkout.build_root(places))
         .filter(|root| root.is_dir());
     let guard = match &root {
         Some(root) => Some(crate::evict::lock_shared_creating(&root.join(GUARD))?),
@@ -141,7 +276,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let recorded = record(BufReader::new(stdout), &mut std::io::stdout().lock());
     let status = child.wait().context(|| "waiting for cargo".to_string())?;
     drop(guard);
-    if let (Some(checkout), Some(root)) = (&checkout, &root) {
+    if let (Some(checkout), Some(root)) = (checkout, &root) {
         start_after_build(checkout, root);
     }
     // cargo and the recorder print their own failures.

@@ -25,7 +25,7 @@ use crate::places::Places;
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds remote run <repo> <ref> [--host <name>] -- <command> [<args>...]\n       builds remote run <repo> --staged [--host <name>] -- <command> [<args>...]";
+const USAGE: &str = "usage: builds remote run <repo> <ref> [--host <name>] -- <command> [<args>...]\n       builds remote run <repo> --staged [--host <name>] -- <command> [<args>...]\n       builds remote run <repo> --working [--host <name>] -- <command> [<args>...]";
 
 /// The refs a job's commit is sent as, in the host's clone.
 pub const JOBS_REF: &str = "refs/builds/jobs";
@@ -43,7 +43,7 @@ extern "C" fn note_stop(_: libc::c_int) {
 }
 
 /// Makes SIGTERM, SIGINT and SIGHUP set `STOPPED`.
-fn stop_on_signals() -> &'static AtomicBool {
+pub fn stop_on_signals() -> &'static AtomicBool {
     unsafe {
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             libc::signal(signal, note_stop as *const () as libc::sighandler_t);
@@ -56,7 +56,12 @@ fn stop_on_signals() -> &'static AtomicBool {
 #[derive(Debug, PartialEq, Eq)]
 pub enum What {
     Ref(String),
+    /// HEAD plus the staged files.
     Staged,
+    /// HEAD plus every change in the working tree: staged and unstaged edits,
+    /// deletions, and the files git does not track and does not ignore. This
+    /// is what a build in the checkout compiles, so `builds cargo` sends it.
+    Working,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -97,6 +102,10 @@ pub fn parse(args: &[String]) -> Result<Request> {
                 what = Some(What::Staged);
                 at += 1;
             }
+            "--working" if what.is_none() => {
+                what = Some(What::Working);
+                at += 1;
+            }
             flag if flag.starts_with('-') => fail!("{USAGE}"),
             reference if what.is_none() => {
                 what = Some(What::Ref(reference.to_string()));
@@ -116,6 +125,20 @@ pub fn parse(args: &[String]) -> Result<Request> {
     })
 }
 
+/// `git -C <dir>` without the variables a git hook exports for its own
+/// repository (`GIT_DIR`, `GIT_INDEX_FILE`, ...): `builds cargo` runs inside
+/// the pre-commit hook, and those variables would point git at the hook's
+/// index instead of the checkout's files.
+fn source_git(dir: &Path) -> Command {
+    static LOCAL: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    let names = LOCAL.get_or_init(|| crate::checkout::git_local_env_vars().unwrap_or_default());
+    let mut command = git(dir);
+    for name in names {
+        command.env_remove(name);
+    }
+    command
+}
+
 /// The checkout the job's commit comes from: the one the command runs in when
 /// it is a checkout of <repo>, else `~/dev/<repo>`.
 fn source_of(places: &Places, repo: &str, what: &What) -> Result<PathBuf> {
@@ -125,9 +148,9 @@ fn source_of(places: &Places, repo: &str, what: &What) -> Result<PathBuf> {
     {
         return Ok(checkout.top);
     }
-    if *what == What::Staged {
+    if *what == What::Staged || *what == What::Working {
         fail!(
-            "--staged sends the staged files of the checkout the command runs in, and this is not a checkout of {repo}"
+            "--staged and --working send the files of the checkout the command runs in, and this is not a checkout of {repo}"
         );
     }
     let main = places.home.join(clone_path(repo));
@@ -138,36 +161,74 @@ fn source_of(places: &Places, repo: &str, what: &What) -> Result<PathBuf> {
 }
 
 /// The commit the job runs: <rev>'s, or a new commit holding the staged
-/// files. The temporary commit moves no ref; nothing in the checkout changes.
+/// files or the whole working tree. The temporary commit moves no ref and
+/// nothing in the checkout changes: the working tree's files go into an index
+/// file of their own, which is deleted afterwards.
 fn commit_of(source: &Path, what: &What) -> Result<String> {
     let text = match what {
+        What::Working => {
+            let git_dir = git_text(
+                source_git(source).args(["rev-parse", "--absolute-git-dir"]),
+                "find the checkout's git folder",
+            )?;
+            let index =
+                PathBuf::from(git_dir.trim()).join(format!("builds-job-index-{}", job_id()));
+            let tree = working_tree(source, &index);
+            let _ = std::fs::remove_file(&index);
+            commit_tree(source, &tree?, "builds job: the working tree")?
+        }
         What::Ref(rev) => git_text(
-            git(source).args(["rev-parse", "--verify", &format!("{rev}^{{commit}}")]),
+            source_git(source).args(["rev-parse", "--verify", &format!("{rev}^{{commit}}")]),
             &format!("resolve {rev}"),
         )?,
         What::Staged => {
             let tree = git_text(
-                git(source).arg("write-tree"),
+                source_git(source).arg("write-tree"),
                 "write the staged files' tree",
             )?;
-            git_text(
-                git(source).args([
-                    "-c",
-                    "user.name=builds",
-                    "-c",
-                    "user.email=builds@localhost",
-                    "commit-tree",
-                    tree.trim(),
-                    "-p",
-                    "HEAD",
-                    "-m",
-                    "builds job: the staged files",
-                ]),
-                "commit the staged files",
-            )?
+            commit_tree(source, tree.trim(), "builds job: the staged files")?
         }
     };
     Ok(text.trim().to_string())
+}
+
+/// A commit of <tree> on top of HEAD that no ref names.
+fn commit_tree(source: &Path, tree: &str, message: &str) -> Result<String> {
+    git_text(
+        source_git(source).args([
+            "-c",
+            "user.name=builds",
+            "-c",
+            "user.email=builds@localhost",
+            "commit-tree",
+            tree,
+            "-p",
+            "HEAD",
+            "-m",
+            message,
+        ]),
+        "commit the files to send",
+    )
+}
+
+/// The id of a tree holding what is in the working tree of <source>: HEAD's
+/// files, with every tracked file as it is on disk (a deleted one gone) and
+/// every untracked file git does not ignore. It is built in <index>, a
+/// scratch index file in the checkout's git folder (never in the working
+/// tree, where it would count as an untracked file), so the real index, which
+/// holds what the person staged, is not touched.
+fn working_tree(source: &Path, index: &Path) -> Result<String> {
+    let in_index = |args: &[&str], what: &str| {
+        git_text(
+            source_git(source).env("GIT_INDEX_FILE", index).args(args),
+            what,
+        )
+    };
+    in_index(&["read-tree", "HEAD"], "read HEAD into a scratch index")?;
+    in_index(&["add", "--all", "--", "."], "add the working tree's files")?;
+    Ok(in_index(&["write-tree"], "write the working tree's tree")?
+        .trim()
+        .to_string())
 }
 
 /// Where a job's commands run: this Mac, or a host over ssh.
@@ -216,7 +277,7 @@ impl Transport<'_> {
         let Some(target) = &self.host.target else {
             return Ok(());
         };
-        let output = git(source)
+        let output = source_git(source)
             .args(["push", "-q", &format!("{target}:{}", clone_path(repo))])
             .arg(format!("{sha}:{JOBS_REF}/{id}"))
             .env("GIT_SSH_COMMAND", self.ssh.git_command())

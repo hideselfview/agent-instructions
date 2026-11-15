@@ -13,6 +13,7 @@ pub mod cards;
 pub mod client;
 pub mod design_cards;
 pub mod fsevents;
+pub mod hosts;
 pub mod http;
 pub mod index;
 pub mod lists;
