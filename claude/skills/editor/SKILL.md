@@ -1,29 +1,40 @@
 ---
 name: editor
-description: Edit a document the way an editor does. Cut what doesn't belong, agree the outline with the person, order the document from general to specific under section headers, then make every sentence plain, literal and active. Use when asked to edit, rewrite, tighten, restructure or clean up a document, a rule, a note, instructions or a README.
+description: Edit a document the way an editor does. Agree the outline and what to cut with the person, order the document from general to specific under section headers, then make every sentence plain, literal and active. Use when asked to edit, rewrite, tighten, restructure or clean up a document, a rule, a note, instructions or a README.
 ---
 
 # Editor
 
-An editor first names the reader, then cuts what doesn't belong, agrees the
-outline with the person, orders the document from general to specific, and fixes
-each sentence. Then, with the structure settled, the editor goes through the
-draft paragraph by paragraph and cuts every sentence the reader doesn't need.
-After each pass, read the whole draft again: every pass turns up something the
-last one missed.
+An editor first learns who the reader is, then drafts the outline and decides
+what to cut, agrees both with the person, orders the document from general to
+specific, and fixes each sentence. Then, with the structure settled, the editor
+goes through the draft paragraph by paragraph and cuts every sentence the reader
+doesn't need. After each pass, read the whole draft again: every pass turns up
+something the last one missed.
 
-## Name the reader
+## Know the reader
 
-Before anything else, say who reads the document and what they already know.
-That decides what to explain and what to cut. Coding agents know general tools
-(sccache, uniffi, SwiftPM) and need only the project's own names explained (its
-second build machine, its screenshot checks, its landing worktree). A person new
-to the project needs more.
+Before anything else, know who reads the document and what they already know.
+That decides what to explain and what to cut. The person or the brief names the
+reader; never guess it. When neither names it, ask the person, or stop and
+report that the reader is missing. Coding agents know general tools (sccache,
+uniffi, SwiftPM) and need only the project's own names explained (its second
+build machine, its screenshot checks, its landing worktree). A person new to the
+project needs more.
 
-## Cut
+## Outline and cut
 
-Cutting is the editor's first job. Cut a section, a paragraph or a sentence
-when:
+Cutting is the editor's first job, and the outline decides what to cut: it says
+what the document covers, so whatever no section holds goes. Draft the outline,
+the sections in order with one line each on what goes in, and decide for each
+part of the source which section holds it or why it goes.
+
+Gather what is scattered. When one subject comes up in several places, bring it
+together in one section of the outline. Repetition that helps the reader stays:
+a sentence that ties a section back to an earlier point, or a summary of what
+the section says.
+
+Cut a section, a paragraph or a sentence when:
 
 - Another document already holds the fact (a tool's help, a principle file, a
   rule). Replace it with one pointer to that document. Before you cut, read the
@@ -47,13 +58,9 @@ document. A rule that loads only when an agent edits matching files never
 reaches an agent writing a plan, so the plan-writer's instructions keep the
 rule's principle and a pointer to it.
 
-Moving a fact is not cutting it. Tell the person which facts you cut and where
-the reader finds them now.
-
-## Agree the outline
-
-Before rewriting any prose, show the person the outline: the sections in order,
-with one line each on what goes in. Rewrite only after they agree.
+Show the person the outline together with the cuts: which facts go, and where
+the reader finds them now (moving a fact is not cutting it). Rewrite only after
+they agree.
 
 ## Order from general to specific
 
@@ -129,6 +136,11 @@ Every sentence is plain, literal and active
   Name what the section holds, or start the list item with its sentence. A bold
   label that only repeats the first words of its sentence ("**Sparkle.** Sparkle
   is...") goes too.
+- Don't put "the" before a general noun to make it sound like a specific, known
+  thing: "How to design and judge the work" becomes "How to design and judge
+  work", and "the real shape" becomes "the structure the domain has". Keep "the"
+  when it names one thing the reader can identify ("the diff", "the pre-commit
+  hook").
 - Give each sentence one idea, but don't split by rule: one sentence with a list
   of parallel items reads better than four sentences in a row that start
   "Don't".
@@ -152,8 +164,9 @@ Every sentence is plain, literal and active
 Once the structure and the sentences are settled, go through the draft one
 paragraph at a time. For each sentence, ask: if it were gone, would the reader
 do something wrong, or be unable to do something? Cut the ones that fail, for
-the reasons listed under "Cut". This pass finds what the first cut missed,
-because the restructuring has put each sentence next to the ones it repeats.
+the reasons listed under "Outline and cut". This pass finds what the first cut
+missed, because the restructuring has put each sentence next to the ones it
+repeats.
 
 ## Work with the person
 
