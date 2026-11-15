@@ -265,17 +265,29 @@ pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
     };
     let checkout = Checkout::find(checkout)?;
     crate::lists::running::require_release_allowed(places, &checkout)?;
+    match release(&checkout)? {
+        Some(claim) => note(format!(
+            "released {} (was {})",
+            checkout.top.display(),
+            claim.text()
+        )),
+        None => note(format!("{} has no claim", checkout.top.display())),
+    }
+    Ok(())
+}
+
+/// Removes <checkout>'s claim and the project it names, and returns the
+/// claim, or None when there was none. The project goes with the claim: a
+/// later claim that names no project would otherwise take this one's.
+pub fn release(checkout: &Checkout) -> Result<Option<Claim>> {
     let file = checkout.claim_file();
-    let Some(claim) = Claim::read(&file)? else {
-        note(format!("{} has no claim", checkout.top.display()));
-        return Ok(());
-    };
-    note(format!(
-        "released {} (was {})",
-        checkout.top.display(),
-        claim.text()
-    ));
-    set_project(places, &checkout, None)?;
-    std::fs::remove_file(&file)
-        .map_err(|error| fail::Fail::Message(format!("removing {}: {error}", file.display())))
+    let claim = Claim::read(&file)?;
+    for path in [checkout.project_file(), file] {
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => fail!("removing {}: {error}", path.display()),
+        }
+    }
+    Ok(claim)
 }

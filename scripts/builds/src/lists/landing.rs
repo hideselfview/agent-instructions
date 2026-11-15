@@ -420,14 +420,9 @@ fn release_finished(store: &Store, ran_in: &[String]) -> Result<()> {
         if !git.ahead.is_empty() {
             continue;
         }
-        let file = checkout.claim_file();
-        let Some(claim) = crate::claim::Claim::read(&file)? else {
-            continue;
-        };
-        std::fs::remove_file(&file).map_err(|error| {
-            fail::Fail::Message(format!("removing {}: {error}", file.display()))
-        })?;
-        note(format!("released {worktree} (was {})", claim.text()));
+        if let Some(claim) = crate::claim::release(&checkout)? {
+            note(format!("released {worktree} (was {})", claim.text()));
+        }
     }
     Ok(())
 }

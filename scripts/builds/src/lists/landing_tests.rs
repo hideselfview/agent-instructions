@@ -547,6 +547,8 @@ fn claimed(l: &Landing) -> bool {
 fn landing_the_last_item_releases_the_worktree_it_ran_in() {
     let l = setup("landing-releases");
     push(&l);
+    let checkout = crate::checkout::Checkout::find(l.agent.to_str().unwrap()).unwrap();
+    crate::claim::set_project(&l.demo.tool.places, &checkout, Some("demo")).unwrap();
     assert!(claimed(&l));
     landed(&l, &["--done", "1", &l.commit]).unwrap();
     assert!(claimed(&l), "item 2 still runs there");
@@ -554,6 +556,10 @@ fn landing_the_last_item_releases_the_worktree_it_ran_in() {
     assert!(
         !claimed(&l),
         "no item runs there and nothing is past origin/main"
+    );
+    assert!(
+        !checkout.project_file().exists(),
+        "the claim's project goes with it"
     );
 }
 
