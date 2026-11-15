@@ -282,11 +282,20 @@ impl Transport<'_> {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    /// Sends <sha> to the host's clone as the ref of job <id>.
+    /// Sends <sha> to the host's clone as the ref of job <id>. One send to a
+    /// host's clone of <repo> runs at a time: two lanes of one build send the
+    /// same commit together, and git on the host fails one of two pushes that
+    /// receive the same pack at once ("unable to migrate objects to permanent
+    /// storage").
     pub fn send(&self, source: &Path, repo: &str, sha: &str, id: &str) -> Result<()> {
         let Some(target) = &self.host.target else {
             return Ok(());
         };
+        let folder = self.places.root.join(repo);
+        std::fs::create_dir_all(&folder).context(|| format!("creating {}", folder.display()))?;
+        let _one_at_a_time = crate::evict::lock_exclusive_creating(
+            &folder.join(format!(".send-{}.lock", self.host.name)),
+        )?;
         let output = source_git(source)
             .args(["push", "-q", &format!("{target}:{}", clone_path(repo))])
             .arg(format!("{sha}:{JOBS_REF}/{id}"))

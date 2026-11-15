@@ -759,7 +759,7 @@ fn a_build_failing_in_one_lane_fails_the_build_naming_the_lane_and_the_other_lan
     let (status, said) = finish(build);
     assert_eq!(status.code(), Some(1), "{said}");
     assert!(
-        said.contains("app-build failed in the mac lane (exit 3)"),
+        said.contains("app-build failed in the mac lane (exit 3;"),
         "{said}"
     );
     assert!(!said.contains("android lane (exit"), "{said}");
@@ -1050,4 +1050,63 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
         "{}",
         said(&missing)
     );
+}
+
+/// With no step named, a branch that changes both lanes' folders builds both
+/// lanes' steps, and each test class and shots prefix goes to its lane.
+#[test]
+fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_in_its_lane() {
+    let volume = Volume::new("derive-both");
+    volume.app_repo_with(
+        "step mac one ./one.sh\nstep android droid ./droid.sh\n\
+         on mac/ one\non droid/ droid\n\
+         sources mac mac\nsources android droid\n\
+         test mac ./one.sh {class}\ntest android ./droid.sh {class}\n\
+         shots mac ./one.sh --select {select}\nshots android ./droid.sh --select {select}\n",
+    );
+    let top = volume.dir.join("checkout");
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&top)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["checkout", "-q", "-b", "work"]);
+    std::fs::create_dir_all(top.join("mac")).unwrap();
+    std::fs::create_dir_all(top.join("droid")).unwrap();
+    std::fs::write(top.join("mac/MacFoo.txt"), "MacFoo\n").unwrap();
+    std::fs::write(top.join("droid/DroidFoo.txt"), "DroidFoo\n").unwrap();
+    git(&["add", "mac", "droid"]);
+    git(&["commit", "-q", "-m", "Change both lanes"]);
+    git(&["push", "-q", "origin", "work"]);
+    git(&["checkout", "-q", "main"]);
+    volume.open_gate("one");
+    volume.open_gate("droid");
+    let built = volume.run(&[
+        "app-build",
+        "demo",
+        "work",
+        "--test",
+        "MacFoo",
+        "--test",
+        "DroidFoo",
+        "--shots",
+        "android.a.",
+        "--shots",
+        "mac.a.",
+    ]);
+    let said = String::from_utf8_lossy(&built.stderr).into_owned();
+    assert!(built.status.success(), "{said}");
+    let log = volume.log();
+    let count = |line: &str| log.iter().filter(|l| *l == line).count();
+    // The step, the class and the shots run of each lane.
+    assert_eq!(count("end one"), 3, "{log:?}\n{said}");
+    assert_eq!(count("end droid"), 3, "{log:?}\n{said}");
 }

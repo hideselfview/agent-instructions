@@ -835,6 +835,7 @@ fn copy_lines(
     mut to: impl Write,
     lane: &'static str,
     prefix: Arc<Mutex<String>>,
+    last_note: Option<Arc<Mutex<String>>>,
     done: std::sync::mpsc::Sender<()>,
 ) {
     let mut from = BufReader::new(from);
@@ -847,6 +848,11 @@ fn copy_lines(
             *prefix.lock().expect("no panic holding it") = named;
             line.clear();
             continue;
+        }
+        if let (Some(last), Ok(text)) = (&last_note, std::str::from_utf8(&line))
+            && text.starts_with("builds: ")
+        {
+            *last.lock().expect("no panic holding it") = text.trim_end().to_string();
         }
         let mut out = prefix
             .lock()
@@ -906,13 +912,24 @@ pub fn run_lanes(
         let (out_done, err_done) = (done.clone(), done);
         let (word, out_prefix) = (lane.word(), prefix.clone());
         std::thread::spawn(move || {
-            copy_lines(stdout, std::io::stdout(), word, out_prefix, out_done)
+            copy_lines(stdout, std::io::stdout(), word, out_prefix, None, out_done)
         });
-        std::thread::spawn(move || copy_lines(stderr, std::io::stderr(), word, prefix, err_done));
-        running.push((*lane, child, ended));
+        let last_note = Arc::new(Mutex::new(String::new()));
+        let own_note = last_note.clone();
+        std::thread::spawn(move || {
+            copy_lines(
+                stderr,
+                std::io::stderr(),
+                word,
+                prefix,
+                Some(own_note),
+                err_done,
+            )
+        });
+        running.push((*lane, child, ended, last_note));
     }
     let mut failed = Vec::new();
-    for (lane, mut child, ended) in running {
+    for (lane, mut child, ended, last_note) in running {
         let status = child
             .wait()
             .context(|| format!("waiting for the {} lane's build", lane.word()))?;
@@ -922,9 +939,15 @@ pub fn run_lanes(
             }
         }
         if !status.success() {
+            let last = last_note.lock().expect("no panic holding it").clone();
+            let why = if last.is_empty() {
+                "it printed no builds: line".to_string()
+            } else {
+                format!("its last builds: line was {last:?}")
+            };
             failed.push(match status.code() {
-                Some(code) => format!("the {} lane (exit {code})", lane.word()),
-                None => format!("the {} lane ({status})", lane.word()),
+                Some(code) => format!("the {} lane (exit {code}; {why})", lane.word()),
+                None => format!("the {} lane ({status}; {why})", lane.word()),
             });
         }
     }
@@ -971,14 +994,19 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
         && !commit.starts_with('-')
     {
         let (names, picks) = split_picks(names)?;
-        return run_lane(
-            places,
-            repo,
-            Lane::parse_or_fail(word)?,
-            commit,
-            &names,
-            &picks,
-        );
+        let lane = Lane::parse_or_fail(word)?;
+        // A lane's process always says why it ended badly: a bare exit status
+        // from a path that noted nothing would reach the parent as no output.
+        return match run_lane(places, repo, lane, commit, &names, &picks) {
+            Err(Fail::Exit(code)) => {
+                note(format!(
+                    "the {} lane's build failed (exit {code})",
+                    lane.word()
+                ));
+                Err(Fail::Exit(code))
+            }
+            other => other,
+        };
     }
     let [commit, tail @ ..] = rest else {
         fail!("{USAGE}");
