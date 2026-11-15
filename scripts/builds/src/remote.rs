@@ -130,13 +130,19 @@ pub fn parse(args: &[String]) -> Result<Request> {
 /// the pre-commit hook, and those variables would point git at the hook's
 /// index instead of the checkout's files.
 fn source_git(dir: &Path) -> Command {
+    let mut command = git(dir);
+    without_git_variables(&mut command);
+    command
+}
+
+/// Removes from <command>'s environment the variables a git hook exports for
+/// its own repository (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, ...).
+fn without_git_variables(command: &mut Command) {
     static LOCAL: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
     let names = LOCAL.get_or_init(|| crate::checkout::git_local_env_vars().unwrap_or_default());
-    let mut command = git(dir);
     for name in names {
         command.env_remove(name);
     }
-    command
 }
 
 /// The checkout the job's commit comes from: the one the command runs in when
@@ -248,6 +254,10 @@ impl Transport<'_> {
             None => {
                 let mut command = Command::new("sh");
                 command.arg("-c").arg(script).env("HOME", &self.places.home);
+                // The claim script's git commands name their own worktrees;
+                // a GIT_DIR from the hook this runs in would send them to
+                // the hook's repository instead.
+                without_git_variables(&mut command);
                 command
             }
         }

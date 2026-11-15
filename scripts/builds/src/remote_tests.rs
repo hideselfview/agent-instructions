@@ -510,3 +510,28 @@ fn sends_the_whole_working_tree_without_moving_a_ref_or_the_index() {
         .collect();
     assert!(leftovers.is_empty(), "the scratch index is deleted");
 }
+
+#[test]
+fn a_command_on_this_mac_runs_without_the_git_variables_of_a_hook() {
+    let s = setup("remote-git-env");
+    let places = s.scratch.places();
+    let ssh = &s.ssh;
+    let host = Host::local();
+    let transport = Transport {
+        places: &places,
+        ssh,
+        host: &host,
+    };
+    let command = transport.command("true");
+    let removed: Vec<String> = command
+        .get_envs()
+        .filter(|(_, value)| value.is_none())
+        .map(|(name, _)| name.to_string_lossy().into_owned())
+        .collect();
+    for name in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"] {
+        assert!(
+            removed.iter().any(|r| r == name),
+            "{name} not removed: {removed:?}"
+        );
+    }
+}
