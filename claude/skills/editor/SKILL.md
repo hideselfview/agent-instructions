@@ -5,11 +5,20 @@ description: Edit a document the way an editor does. Cut what doesn't belong, ag
 
 # Editor
 
-An editor cuts what doesn't belong, agrees the outline with the person, orders
-the document from general to specific, and fixes each sentence. Then, with the
-structure settled, the editor goes through the draft paragraph by paragraph and
-cuts every sentence the reader doesn't need. After each pass, read the whole
-draft again: every pass turns up something the last one missed.
+An editor first names the reader, then cuts what doesn't belong, agrees the
+outline with the person, orders the document from general to specific, and fixes
+each sentence. Then, with the structure settled, the editor goes through the
+draft paragraph by paragraph and cuts every sentence the reader doesn't need.
+After each pass, read the whole draft again: every pass turns up something the
+last one missed.
+
+## Name the reader
+
+Before anything else, say who reads the document and what they already know.
+That decides what to explain and what to cut. Coding agents know general tools
+(sccache, uniffi, SwiftPM) and need only the project's own names explained (its
+second build machine, its screenshot checks, its landing worktree). A person new
+to the project needs more.
 
 ## Cut
 
@@ -54,12 +63,12 @@ the document's sections ("It starts with X, then Y"): that describes the
 document, not the subject, and the headers already show it.
 
 Each section opens with its general point, then the specifics. Every concept,
-tool, role or file the document names must be introduced before or where it is
-first used: "the checker's `database-boundary` rule" means nothing until the
-document has said what the checker is and what runs it. Read the draft as a
-reader who knows only what it has told them so far, and stop at each name it
-hasn't explained. Define a word the project uses in its own sense ("lands") the
-first time it appears.
+tool, role or file the document names that the reader doesn't already know must
+be introduced before or where it is first used: "the checker's
+`database-boundary` rule" means nothing until the document has said what the
+checker is and what runs it. Read the draft as a reader who knows only what it
+has told them so far, and stop at each name it hasn't explained. Define a word
+the project uses in its own sense ("lands") the first time it appears.
 
 Explain a name in one of three ways:
 
