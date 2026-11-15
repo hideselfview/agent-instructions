@@ -5,21 +5,17 @@ library and does all the work. Native apps on each platform show the library
 through a generated bridge. coven syncs the library between devices through S3,
 Dropbox, OneDrive or iCloud.
 
-This file holds the facts that every agent who works on bae needs. Rules for
-specific files are separate (see "Making a change").
-
 ## Crates and apps
 
 bae's Rust code is a workspace of crates:
 
 - bae-app is the top crate. It uses bae-library and one crate per domain, such
   as bae-records and bae-import.
-- bae-bridge gives the apps the core through uniffi.
-  - Its `Bridge*` records and enums are defined in Rust, in
-    `bae-bridge/src/types/`, and re-exported by `bae-bridge/src/types.rs`.
-  - The build generates their Swift and Kotlin versions. Those are gitignored,
-    so they are not in the repo or in review. To check a bridge type's fields,
-    or whether an app type duplicates one, read `bae-bridge/src/types.rs`.
+- bae-bridge gives the apps the core through uniffi. Its `Bridge*` records and
+  enums are defined in Rust in `bae-bridge/src/types/`. The build generates
+  their Swift and Kotlin versions, which are gitignored, so to check a bridge
+  type's fields, or whether an app type duplicates one, read
+  `bae-bridge/src/types.rs`.
 
 bae has four apps:
 
@@ -37,13 +33,9 @@ bae has four apps:
   - CI's iOS jobs still run. When one fails, fix it then.
 
 - bae-avalonia is the Windows and Linux app. It is paused until macOS and
-  Android are done: it is a launch shell with no screens. The shell has startup,
-  single-instancing, crash capture, telemetry, the Velopack updater, release
-  packaging, and one window that calls the bridge through the generated C#
-  bindings.
+  Android are done: it is a launch shell with no screens.
 
-  - Don't add Windows or Linux screens. Its desktop UI will be ported from the
-    macOS app.
+  - Don't add Windows or Linux screens.
   - When a bridge shape changes, bae-avalonia only has to compile against the
     regenerated bindings and pass its smoke test (`bae-avalonia/smoke-test.sh`
     on macOS).
@@ -82,20 +74,19 @@ crate's parts in crate order. A schema change edits its domain's SQL file and
 never adds a second migration. No library has to advance from an older schema:
 `scripts/reset-bae.py` resets development data.
 
-Only a domain's own code writes its tables. The pre-commit hook runs coven's
-structural checker (`scripts/owner-construction-check.sh`), and its
-`database-boundary` rule refuses a crate that writes a table its `[database]`
-rows in `owner-construction-check.toml` don't give it. Tests build library state
-through the owning domain's writes, never by writing tables on a bare
-connection. A named function in the owning domain plants the damage a test needs
-(a value a CHECK refuses, a failing write), and a bare file open goes only
-through `bae_store::test_fixtures::planted_damage::plant_in_library_file`.
-bae-store gives no `Connection` to other crates: a domain's tests open their own
-in-memory library with `Schema::open_bare_library(&conn)`.
+Only a domain's own code writes its tables. The pre-commit hook checks this: it
+runs coven's structural checker (`scripts/owner-construction-check.sh`), whose
+`database-boundary` rule refuses any crate that writes a table
+`owner-construction-check.toml` doesn't assign to it.
 
-A trigger never waits for a parent row. Foreign keys are satisfied for every
-local write, and coven applies another device's rows in the order they were
-written, parents first.
+Tests follow the same rule. A test builds the library state it needs through the
+owning domain's own writes, never by writing tables directly. When a test needs
+damaged data, such as a value a CHECK refuses or a write that fails, a named
+function in the owning domain plants it, and a test that must open a library
+file directly does so only through `plant_in_library_file` in
+`bae_store::test_fixtures::planted_damage`. bae-store gives no `Connection` to
+other crates, so a domain's tests open their own in-memory library with
+`Schema::open_bare_library(&conn)`.
 
 ### Shapes change in one commit, with no compatibility code
 
@@ -200,9 +191,8 @@ commit without its spec edit is unfinished.
 ### Project rules
 
 bae's rules for specific files are in `projects/bae-rules/`, each scoped to the
-paths it covers. Claude Code receives them through `.claude/rules/` symlinks.
-Codex receives the rule index in `AGENTS.md`: before editing files, list the
-matching rules with
+paths it covers. Codex receives the rule index in `AGENTS.md`: before editing
+files, list the matching rules with
 `~/.codex/agent-instructions/scripts/rules_review/matching_rules.py --project bae <path>...`
 and read every listed file.
 
@@ -263,9 +253,8 @@ or the M1, whichever has more free cores. A test that needs this Mac's keychain,
 a local server or a file outside the checkout fails on the M1: run it with
 `BUILDS_CARGO_HOST=local`.
 
-`builds` deletes build folders that no build used for days and keeps the rest
-under their size caps. Leave the build folders of `~/dev/bae` and the app
-checkouts alone.
+Don't delete build folders yourself: `builds` deletes the ones no build has used
+for days and keeps the rest under their size caps.
 
 ### App builds
 
@@ -276,8 +265,8 @@ an app build. Commit on your branch, then run this as a background task:
 builds app-build bae <branch> [--test <Class>]... [--shots <prefix>]...
 ```
 
-builds picks the steps from the paths the branch changes, then the lane (mac or
-android) and a free app checkout, and builds there. A branch that changes only
+builds decides what to build, and in which app checkout (a side worktree kept
+for app builds), from the paths the branch changes. A branch that changes only
 Rust builds nothing. `--test <Class>` runs one test class, and
 `--shots <prefix>` (`mac.` or `android.`) runs a shot selection.
 
