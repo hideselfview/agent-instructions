@@ -86,7 +86,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .fig .spark { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 .fig .cores { stroke: var(--muted-2); stroke-width: 1; stroke-dasharray: 2 2; }
 .fig.hook svg:not(.glyph) { width: 72px; height: 24px; }
-.fig.hook .h svg.glyph { width: 12px; height: 12px; vertical-align: -1px; margin-left: 4px; }
+.fig.hook .h svg.glyph { width: 12px; height: 12px; vertical-align: -1px; }
 .fig .row svg[aria-label] { width: 64px; }
 .fig.line { flex-direction: row; align-items: center; padding: 6px 12px; }
 .fig.line .row { align-items: center; gap: 8px; }
@@ -148,6 +148,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 #view { display: flex; flex-direction: column; gap: 20px; }
 .group { display: flex; flex-direction: column; gap: 8px; }
 .group h2 { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+.group-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .lanes, .wts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 10px; }
 .lanes { margin-bottom: 14px; }
 .lanes[hidden] { display: none; }
@@ -805,10 +806,12 @@ function freeTile(repo, n, open) {
     onclick: () => { if (!showFree.delete(repo.name)) showFree.add(repo.name); render(); }},
     open ? "Hide " + n + " free " + word : "+" + n + " free " + word);
 }
-// Each repo's group: its app build lanes, then its worktree cards, then one
-// tile that opens its free worktrees. A repo with no app lane and no claimed,
-// unlanded or changed worktree has no group. The builds repo (agent-instructions)
-// is the last group.
+// Each repo's group: a heading row (the repo's name, and its commit hook
+// figure at the right), its app build lanes, its worktree cards, then one tile
+// that opens its free worktrees. A repo with no app lane and no claimed,
+// unlanded or changed worktree has no cards; it still has its heading row
+// while it has hook runs in the last 12 hours. A repo with neither has no
+// group. The builds repo (agent-instructions) is the last group.
 function reposView(root) {
   const last = r => r.name === "agent-instructions" ? 1 : 0;
   const waits = waitLanes();
@@ -816,11 +819,14 @@ function reposView(root) {
     const {sides} = split(repo);
     const quiet = c => c.state === "free" && !(c.git && c.git.uncommitted);
     return {repo, busy: sides.filter(c => !quiet(c)), free: sides.filter(quiet)};
-  }).filter(g => g.busy.length > 0 || g.repo.app_builds.length > 0);
+  }).filter(g => g.busy.length > 0 || g.repo.app_builds.length > 0 || hasHookRuns(g.repo.name));
   const groups = shown.map(({repo, busy, free}) => {
     const group = slot(root, "repo:" + repo.name, () => h("section", {class: "group"},
-      h("h2", {}, repoDisplayName(repo.name)), h("div", {class: "lanes"}), h("div", {class: "wts"})));
-    const open = showFree.has(repo.name) && free.length > 0;
+      h("div", {class: "group-head"}, h("h2", {})), h("div", {class: "lanes"}), h("div", {class: "wts"})));
+    const head = group.querySelector(".group-head");
+    head.replaceChildren(h("h2", {}, repoDisplayName(repo.name)), hookFigure(repo.name));
+    const hasCards = busy.length > 0 || repo.app_builds.length > 0;
+    const open = hasCards && showFree.has(repo.name) && free.length > 0;
     const lanes = group.querySelector(".lanes");
     lanes.hidden = repo.app_builds.length === 0;
     patch(lanes, repo.app_builds.map(al => ({key: "lane " + al.lane,
@@ -828,7 +834,7 @@ function reposView(root) {
         openQueue.has(repo.name + " " + al.lane) ? repo.locks.filter(l => l.lane === al.lane) : null],
       make: () => laneCard(repo, al, waits)})));
     const cards = [...busy, ...(open ? free : [])].map(c => ({key: c.name, data: c, make: () => worktreeCard(c)}));
-    if (free.length) cards.push({key: "free-tile", data: [free.length, open], make: () => freeTile(repo, free.length, open)});
+    if (hasCards && free.length) cards.push({key: "free-tile", data: [free.length, open], make: () => freeTile(repo, free.length, open)});
     patch(group.querySelector(".wts"), cards);
     return group;
   });
@@ -894,7 +900,7 @@ function diskFigure(v) {
     h("span", {class: "v"}, wholeSize(v.free_kib), h("small", {}, "free")));
 }
 
-// ---- The commit hook figures
+// ---- The commit hook figures, one at the right of each repo's heading
 const BAR_HEIGHT = 36, BAR_SECONDS = 90;   // a bar is full height at 90 s
 function hookOf(name) {
   if (!hooks || hooks.error) return null;
@@ -904,11 +910,13 @@ function hookOf(name) {
 // A repo's name as the page shows it anywhere: agent-instructions is where
 // builds lives, so the page says builds.
 function repoDisplayName(name) { return name === "agent-instructions" ? "builds" : name; }
-// The figure's label: the repo's name and a commit glyph (a line through a ring).
+// The figure's label: a commit glyph (a line through a ring). The section
+// heading beside the figure names the repo.
+function hasHookRuns(name) { const r = hookOf(name); return !!(r && r.runs && !r.error); }
 function hookLabel(name) {
   const glyph = svg("svg", {class: "glyph", viewBox: "0 0 16 16", width: "12", height: "12", fill: "none", stroke: "currentColor", "stroke-width": "1.5", "aria-hidden": "true"});
   glyph.append(svg("circle", {cx: "8", cy: "8", r: "3"}), svg("path", {d: "M1 8h4M11 8h4"}));
-  return h("span", {class: "h", title: "Commit hook runs in " + name}, repoDisplayName(name), glyph);
+  return h("span", {class: "h", title: "Commit hook runs in " + name}, glyph);
 }
 function hookFigure(name) {
   const r = hookOf(name);
@@ -1128,8 +1136,7 @@ function render() {
   const timingErrors = [...new Set(waitLanes().map(w => w.error).filter(Boolean))];
   document.getElementById("errors").append(...timingErrors.map(e => h("div", {class: "error"}, "The app build times: " + e)));
   for (const repo of state.repos) for (const {lane} of repo.lanes) buildPanelOf(repo, lane);
-  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), diskFigure(state.volume),
-    ...state.repos.map(r => hookFigure(r.name)));
+  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), diskFigure(state.volume));
   hookDetails();
   waitDetails();
   findingsView(state.health);
