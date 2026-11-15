@@ -590,8 +590,8 @@ impl Model {
                 }
                 Err(error) => crate::text::note(format!("reading the hosts: {}", error.text())),
             }
-            // A reading that fails replaces the last one's findings with a
-            // finding that says so, so the page never shows stale findings as
+            // When a reading fails, a finding that says so replaces the last
+            // reading's findings, so the page never shows old findings as
             // current.
             let found = match self.read_host_findings(&ssh) {
                 Ok(found) => found,
@@ -1068,8 +1068,8 @@ impl Model {
                                     checkout.errors.push(format!(
                                         "The daemon can't read the rules review of this worktree's commits: {error}"
                                     ));
-                                    // Unread, the review may not take the commits: the card
-                                    // says Needs review, never Ready to land.
+                                    // The review the daemon could not read may not take the
+                                    // commits, so the card says Needs review, never Ready to land.
                                     checkout.state = Some("in-review");
                                     None
                                 }
@@ -1292,8 +1292,8 @@ pub struct Page {
     pub volume: VolumePage,
     pub load: Option<LoadPage>,
     pub daemon: DaemonPage,
-    /// The last health reading, its findings followed by the hosts' (the
-    /// list `builds health` prints under "needs action").
+    /// The last health reading, with the hosts' findings after its own: the
+    /// list `builds health` prints under "needs action".
     pub health: Option<Health>,
     /// Every recorded host besides this Mac, with its load.
     pub hosts: Vec<super::hosts::HostPage>,

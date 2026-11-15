@@ -640,8 +640,8 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
     if all.is_empty() {
         fail!("{} holds no cases", root.join(cases::DIR).display());
     }
-    // Each case's replay is recorded in its project's store: check every one
-    // exists before any reviewer runs.
+    // replay records each case's run in its project's store, so the command
+    // checks that every store exists before any reviewer runs.
     let stores = all
         .iter()
         .map(|case| {
@@ -912,7 +912,8 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
             )
         }
         [] => {
-            // The case replays into the project's store, so the project must have one.
+            // builds review replay records this case's run in the project's
+            // store, so the project must have a store.
             let store = Store::named(&tool.places, args.require("project")?)?;
             store.open_existing()?;
             let commits = args.require("commits")?;

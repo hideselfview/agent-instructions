@@ -105,7 +105,7 @@ impl Reads {
     /// whose project's store is <store> and whose commits not on origin/main
     /// are <ahead> (newest first); None when land would take them as far as
     /// the review goes, or when they need no review. Fails, saying why, when
-    /// the store can't be opened or read.
+    /// it can't open or read the store.
     pub fn standing(
         &self,
         store: &Store,

@@ -313,7 +313,7 @@ pub fn refusal_finding(refusal: &Refusal) -> crate::health::Advice {
     let name = &refusal.host;
     crate::health::Advice::run(
         format!(
-            "host {name} refuses jobs (since {}), so builds runs its jobs on this Mac. {name} said: {}. Fix what {name} said on {name}. builds uses {name} again once a probe finds it answering with git running; each builds cargo that may leave this Mac probes it, and so does a probe of every host, which you start with",
+            "host {name} refuses jobs (since {}), so builds runs its jobs on this Mac. {name} said: {}. Fix what {name} said on {name}. builds uses {name} again once a probe finds it answering with git running. Each builds cargo that may leave this Mac probes it; to probe every host now, run",
             local_minute(refusal.at),
             refusal.said.trim_end_matches('.')
         ),

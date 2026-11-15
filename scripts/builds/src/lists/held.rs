@@ -96,8 +96,8 @@ pub struct Worktree {
     pub top: PathBuf,
     pub repo: String,
     pub claim: Claim,
-    /// The project the claim names (`builds claim --project`), None when it
-    /// names none.
+    /// The project the claim names (`builds claim --project`), or None when
+    /// the claim names none.
     pub project: Option<String>,
     /// Is it one of the repo's recorded app checkouts?
     pub app_checkout: bool,
@@ -150,7 +150,7 @@ pub fn awaiting_review(
     worktrees
         .iter()
         .filter(|worktree| {
-            // `findings` names a worktree whose lists can't be chosen.
+            // `findings` names a worktree whose lists health can't choose.
             let Ok(Some(lists)) = worktree.lists(loaded) else {
                 return false;
             };
@@ -176,8 +176,9 @@ pub fn awaiting_review(
 /// no open design change covers. It also names a worktree whose lists it
 /// can't choose: its claim names a project that does not hold its repo,
 /// names none of the two that do, or names a project whose store fails its
-/// check. `running::findings` names stores that can't be listed or that fail
-/// their check, so this says nothing more when the stores can't be listed.
+/// check. `running::findings` names the stores when builds can't list them
+/// and each store that fails its check, so `findings` says nothing more when
+/// builds can't list the stores.
 pub fn findings(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
@@ -221,7 +222,7 @@ pub fn findings(
         {
             found.push(Advice::run(
                 format!(
-                    "lists: {} claims {}, but no item runs there and it has no commits that origin/main lacks; release it with",
+                    "lists: {} claims {}, but no item runs there and the worktree has no commits that origin/main lacks; release it with",
                     worktree.claim.who, worktree.label
                 ),
                 format!("builds release {top}"),

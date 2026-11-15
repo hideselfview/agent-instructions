@@ -513,8 +513,8 @@ pub fn project_of(places: &Places, checkout: &Checkout) -> Result<Option<String>
 /// Finds the project of the worktree at <top> of <repo> among <loaded> the
 /// way `project_of` does, from the project its claim names (<named>), and
 /// returns that project's lists. Returns None when no project holds the repo.
-/// Fails, saying why, when the stores could not be listed, when the project's
-/// store fails its check, or when `choose_project` refuses the claim.
+/// Fails, saying why, when builds could not list the stores, when the
+/// project's store fails its check, or when `choose_project` refuses the claim.
 pub fn lists_of<'a>(
     loaded: &'a std::result::Result<Vec<Loaded>, String>,
     top: &Path,
@@ -553,10 +553,10 @@ pub fn lists_of<'a>(
     }
 }
 
-/// The project of a worktree at <top> of <repo> among <holding>, the projects
-/// that hold the repo: the one its claim names (<named>), else the only one.
-/// Refused when the named project does not hold the repo, or when two hold it
-/// and the claim names none.
+/// Chooses the project of the worktree at <top> of <repo> among <holding>, the
+/// projects that hold the repo: the project its claim names (<named>), else
+/// the only one. Fails when the named project does not hold the repo, or when
+/// two projects hold it and the claim names neither.
 fn choose_project(
     top: &Path,
     repo: &str,
@@ -566,8 +566,8 @@ fn choose_project(
     if let Some(named) = named {
         if !holding.iter().any(|held| held == named) {
             fail!(
-                "{} is claimed for project {named}, which does not hold repo {repo}; \
-                 builds claim it again with --project",
+                "the claim on {} names project {named}, which does not hold repo {repo}; \
+                 claim the worktree again with `builds claim --project`",
                 top.display()
             );
         }

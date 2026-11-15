@@ -1000,9 +1000,10 @@ pub fn lines(health: &Health) -> Vec<String> {
 }
 
 /// The findings that come from the hosts: each process that looks stuck on
-/// one (stuck.rs), and each host that refuses jobs (host.rs). Neither is in
-/// `assess`, since the process reading runs no ssh: `builds health` and the
-/// dashboard each add these to its findings.
+/// one (stuck.rs), and each host that refuses jobs (host.rs). `assess` judges
+/// only what this Mac's process reading finds, which runs no ssh, so `builds
+/// health` and the dashboard each add these findings to the ones `assess`
+/// returns.
 pub fn host_findings(
     busy: &[crate::stuck::HostBusy],
     refusals: &[crate::host::Refusal],
@@ -1046,8 +1047,9 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         Some(health) => health,
         None => health(tool)?,
     };
-    // Read now: the daemon's health holds no busy processes, and this prints
-    // every one, not only those it finds stuck.
+    // builds health reads the busy processes itself: the daemon's health
+    // holds none, and builds health prints every busy process, not only the
+    // ones stuck.rs judges stuck.
     let ssh = crate::host::Ssh::from_env();
     let hosts = crate::host::all(&tool.places)?;
     let busy = parallel_map(&hosts, |host| crate::stuck::read(&ssh, host));
@@ -1252,8 +1254,9 @@ mod tests {
         );
     }
 
-    /// The hosts' findings name a command apart from their text, for the
-    /// dashboard to show; a host whose processes could not be read adds none.
+    /// A host finding keeps its command apart from its text, for the
+    /// dashboard to show; a host whose processes builds could not read over
+    /// ssh adds no finding.
     #[test]
     fn a_host_that_refuses_jobs_is_a_finding_that_names_its_command() {
         let refusal = crate::host::Refusal {
@@ -1274,7 +1277,7 @@ mod tests {
             found[0]
                 .advice
                 .line()
-                .ends_with("which you start with `builds host list`"),
+                .ends_with("to probe every host now, run `builds host list`"),
             "{}",
             found[0].advice.line()
         );

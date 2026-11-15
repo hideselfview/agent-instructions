@@ -170,8 +170,8 @@ const BEFORE_SCORED_CALLS_STAMP: i64 = 434_532_060;
 /// The stamp of the schema before questions and items took tags.
 const BEFORE_TAGS_STAMP: i64 = 395_623_277;
 
-/// The stamp of the schema before the cargo runs' table, which nothing read,
-/// was removed.
+/// The stamp of the schema before builds dropped the cargo runs' table, which
+/// nothing read.
 const BEFORE_CARGO_RUNS_REMOVED_STAMP: i64 = 989_967_553;
 
 /// The table as design.sql writes it.
@@ -192,16 +192,16 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// recorded or amended), and every store older than today's gets the empty
 /// `shot_findings` table (no run's findings are kept yet), every store gets
 /// the review's empty tables, and every store gets the empty `design_fix`
-/// table (no change is a fix yet), and every store whose review tables are older than today's gets `review_landing` with
-/// `landed_at` and `landed_run` in place of `closed_at` (a landing whose review
+/// table (no change is a fix yet), and every store whose review tables are
+/// older than today's gets `review_landing` with `landed_at` and `landed_run` in place of `closed_at` (a landing whose review
 /// passed landed with its newest review run, since that review ran after the
 /// push) and the empty `review_commit` and `review_fix` tables, and every store
 /// whose review tables are older than today's gets `review_call` with each
 /// call's prompt, read from the system prompt it was sent, and no cost, and
 /// every store gets the empty `record_tag` table (no question or item carries
-/// a tag yet), and every store loses the `cargo_runs` table, which nothing
-/// read, with its rows. The moves run in one transaction, the store is stamped as today's schema, and it
-/// must then equal a fresh database's schema or the transaction rolls back. A
+/// a tag yet), and the move drops the `cargo_runs` table, which nothing read,
+/// and its rows from every store. The moves run in one transaction, the store
+/// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
 /// other stamp is refused. Delete this once it has run.
 pub fn migrate_stores(places: &Places) -> Result<()> {
@@ -387,12 +387,13 @@ fn move_store(path: &Path) -> Result<()> {
     {
         crate::review::record::move_to_scored_calls(&tx)?;
     }
-    // Only the store from just before the cargo runs' table was removed has
-    // the tags' table.
+    // Of the stores this moves, only one stamped just before builds dropped the
+    // cargo runs' table already has the tags' table.
     if found != BEFORE_CARGO_RUNS_REMOVED_STAMP {
         tx.execute_batch(db::TAG_PART).sql()?;
     }
-    // The stores from the cargo runs' table on have it; its index goes with it.
+    // Stores stamped after builds added the cargo runs' table still have it;
+    // dropping the table also drops its index.
     tx.execute_batch("DROP TABLE IF EXISTS cargo_runs;").sql()?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

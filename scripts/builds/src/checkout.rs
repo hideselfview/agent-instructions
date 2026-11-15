@@ -178,7 +178,8 @@ impl Checkout {
         self.git_dir.join("builds-project")
     }
 
-    /// The project the worktree's project file names, None when it has none.
+    /// The project the worktree's project file names, or None when the
+    /// worktree has no project file.
     pub fn claimed_project(&self) -> Result<Option<String>> {
         match std::fs::read_to_string(self.project_file()) {
             Ok(text) => Ok(Some(text.trim().to_string())),

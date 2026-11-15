@@ -1169,8 +1169,8 @@ fn a_store_from_before_tags_gains_their_table_keeps_its_records_and_equals_a_fre
     assert_eq!(stats.runs, 1, "the old run is kept");
 }
 
-/// cargo_runs.sql as it read when the table was removed: the schema's last
-/// part from the cargo runs' table until then.
+/// cargo_runs.sql as it was when builds dropped the table. From the day builds
+/// added the table until it dropped it, this text was the schema's last part.
 const CARGO_RUNS_PART: &str = r#"-- The record of `builds cargo` runs, in `builds.sqlite` in a project's store
 -- folder. cargo_runs.rs owns this table and is the only code that writes it.
 -- A row is a fact a run observed: which host ran the build, when it started,
@@ -1202,7 +1202,7 @@ CREATE TABLE IF NOT EXISTS cargo_runs (
 CREATE INDEX IF NOT EXISTS idx_cargo_runs_started ON cargo_runs (started_at);
 "#;
 
-/// The schema text before the cargo runs' table was removed: today's, with
+/// The schema text before builds dropped the cargo runs' table: today's, with
 /// that table's part last.
 fn schema_with_cargo_runs() -> String {
     format!("{}\n{CARGO_RUNS_PART}", db::schema())
@@ -1249,5 +1249,5 @@ fn a_store_with_cargo_runs_loses_the_table_and_its_rows_keeps_the_rest_and_equal
         db::schema_rows(&db::memory()).unwrap()
     );
     let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
-    assert_eq!(stats.runs, 1, "the old run is kept");
+    assert_eq!(stats.runs, 1, "the move keeps the old run");
 }
