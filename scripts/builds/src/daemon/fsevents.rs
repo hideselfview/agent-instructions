@@ -1,11 +1,22 @@
 //! macOS FSEvents: a stream of the folders something changed in, under some
 //! folders, delivered on a dispatch queue of its own. The system frameworks
 //! are declared here by hand; nothing else in the tool needs them.
+//!
+//! A `Stream` keeps itself following: when fseventsd refuses a stream (it
+//! does while it starts, and after it was killed: it answers every client
+//! with an error, and `FSEventsGetCurrentEventId` returns 0), the stream is
+//! opened again with a growing wait, and when fseventsd is found restarted
+//! (its event id is 0 or went backwards) or the owner says the stream went
+//! quiet (`restart`), the stream is made again. Event ids from before a
+//! restart mean nothing, so every opening after the first one hands the
+//! handler an EVENT_IDS_WRAPPED event for each followed folder, which owners
+//! take as "read this folder again". Each step is written to stderr.
 
 use std::ffi::{CStr, CString, c_void};
 use std::os::raw::c_char;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Condvar, Mutex};
 
 type CFIndex = isize;
 type CFAllocatorRef = *const c_void;
@@ -111,8 +122,8 @@ pub struct Event {
 
 type Handler = Box<dyn Fn(Vec<Event>) + Send + Sync>;
 
-/// A running stream; dropping it stops it.
-pub struct Stream {
+/// One FSEvents stream as the system made it; dropping it stops it.
+struct Raw {
     stream: FSEventStreamRef,
     queue: DispatchQueue,
     handler: *mut Handler,
@@ -120,8 +131,8 @@ pub struct Stream {
 
 // The stream and queue are used only through FSEvents' own calls, which are
 // safe from any thread.
-unsafe impl Send for Stream {}
-unsafe impl Sync for Stream {}
+unsafe impl Send for Raw {}
+unsafe impl Sync for Raw {}
 
 extern "C" fn deliver(
     _stream: ConstFSEventStreamRef,
@@ -176,44 +187,26 @@ fn paths_array(paths: &[&Path]) -> CFArrayRef {
     array
 }
 
-impl Stream {
-    /// The id of the latest event the system has recorded. A stream started
-    /// from it reports every change made after it was taken.
-    pub fn current_event_id() -> u64 {
-        unsafe { FSEventsGetCurrentEventId() }
-    }
-
-    /// Starts following <folders> as `start_since` does, from the event id
-    /// current now.
-    pub fn start(
-        folders: &[&Path],
-        excluded: &[&Path],
-        latency: f64,
-        handler: Handler,
-    ) -> Option<Stream> {
-        Self::start_since(
-            Self::current_event_id(),
-            folders,
-            excluded,
-            latency,
-            handler,
-        )
-    }
-
+impl Raw {
     /// Starts following <folders>, leaving out what happens under <excluded>
-    /// (at most 8), calling <handler> with each batch of events on a queue of
-    /// the stream's own, in order, one batch at a time. The stream replays
-    /// every event after <since> (an id from `current_event_id`), so a change
-    /// made after it was taken and before the stream went live is reported,
-    /// not lost; the replay's end marker is not handed on. With `WatchRoot`,
-    /// a change to a followed folder's own path arrives as ROOT_CHANGED.
-    pub fn start_since(
+    /// (at most 8), replaying every event after <since>, and says why when the
+    /// system refuses.
+    fn open(
         since: u64,
         folders: &[&Path],
         excluded: &[&Path],
         latency: f64,
         handler: Handler,
-    ) -> Option<Stream> {
+    ) -> Result<Raw, String> {
+        let refused = |step: &str| {
+            let id = unsafe { FSEventsGetCurrentEventId() };
+            let hint = if id == 0 {
+                "; fseventsd does not answer (its current event id is 0)"
+            } else {
+                ""
+            };
+            format!("FSEvents refused {step} (since {since}, fseventsd's event id {id}){hint}")
+        };
         let array = paths_array(folders);
         let handler = Box::into_raw(Box::new(handler));
         let context = FSEventStreamContext {
@@ -240,7 +233,7 @@ impl Stream {
         unsafe { CFRelease(array) };
         if stream.is_null() {
             drop(unsafe { Box::from_raw(handler) });
-            return None;
+            return Err(refused("to create the stream"));
         }
         if !excluded.is_empty() {
             let excluded_array = paths_array(excluded);
@@ -252,7 +245,7 @@ impl Stream {
                     FSEventStreamRelease(stream);
                     drop(Box::from_raw(handler));
                 }
-                return None;
+                return Err(refused("the excluded folders"));
             }
         }
         let queue = unsafe { dispatch_queue_create(c"builds.fsevents".as_ptr(), std::ptr::null()) };
@@ -263,24 +256,22 @@ impl Stream {
                 FSEventStreamRelease(stream);
                 dispatch_release(queue);
                 drop(Box::from_raw(handler));
-                return None;
+                return Err(refused("to start the stream"));
             }
         }
-        Some(Stream {
+        Ok(Raw {
             stream,
             queue,
             handler,
         })
     }
 
-    /// Hands the handler, now, the events the stream holds back for its
-    /// latency. Events still on their way from the kernel come after.
-    pub fn flush(&self) {
+    fn flush(&self) {
         unsafe { FSEventStreamFlushSync(self.stream) };
     }
 }
 
-impl Drop for Stream {
+impl Drop for Raw {
     fn drop(&mut self) {
         unsafe {
             FSEventStreamStop(self.stream);
@@ -295,6 +286,236 @@ impl Drop for Stream {
             dispatch_async_f(self.queue, self.handler.cast(), free_handler);
             dispatch_release(self.queue);
         }
+    }
+}
+
+/// How long the supervisor waits between looks at fseventsd.
+const WATCH: std::time::Duration = std::time::Duration::from_secs(10);
+/// The longest wait between attempts to open a refused stream.
+const BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(30);
+
+#[derive(Default)]
+struct Wanted {
+    stop: bool,
+    restart: Option<String>,
+}
+
+struct Shared {
+    current: Mutex<Option<Raw>>,
+    wanted: Mutex<Wanted>,
+    wake: Condvar,
+}
+
+/// A stream that keeps itself following (see the module note); dropping it
+/// stops it.
+pub struct Stream {
+    shared: Arc<Shared>,
+}
+
+impl Stream {
+    /// The id of the latest event the system has recorded; 0 when fseventsd
+    /// does not answer. A stream started from it reports every change made
+    /// after it was taken.
+    pub fn current_event_id() -> u64 {
+        unsafe { FSEventsGetCurrentEventId() }
+    }
+
+    /// Starts following <folders> as `start_since` does, from the event id
+    /// current now.
+    pub fn start(folders: &[&Path], excluded: &[&Path], latency: f64, handler: Handler) -> Stream {
+        Self::start_since(
+            Self::current_event_id(),
+            folders,
+            excluded,
+            latency,
+            handler,
+        )
+    }
+
+    /// Starts following <folders>, leaving out what happens under <excluded>
+    /// (at most 8), calling <handler> with each batch of events on a queue of
+    /// the stream's own, in order, one batch at a time. The stream replays
+    /// every event after <since> (an id from `current_event_id`), so a change
+    /// made after it was taken and before the stream went live is reported,
+    /// not lost; the replay's end marker is not handed on. With `WatchRoot`,
+    /// a change to a followed folder's own path arrives as ROOT_CHANGED.
+    /// When the system refuses the stream, it is opened again as the module
+    /// note says; until it opens, nothing is reported.
+    pub fn start_since(
+        since: u64,
+        folders: &[&Path],
+        excluded: &[&Path],
+        latency: f64,
+        handler: Handler,
+    ) -> Stream {
+        let folders: Vec<PathBuf> = folders.iter().map(|p| p.to_path_buf()).collect();
+        let excluded: Vec<PathBuf> = excluded.iter().map(|p| p.to_path_buf()).collect();
+        let handler: Arc<dyn Fn(Vec<Event>) + Send + Sync> = Arc::from(handler);
+        let shared = Arc::new(Shared {
+            current: Mutex::new(None),
+            wanted: Mutex::new(Wanted::default()),
+            wake: Condvar::new(),
+        });
+        let open = {
+            let (folders, excluded, handler) = (folders.clone(), excluded.clone(), handler.clone());
+            move |since: u64| {
+                let folder_refs: Vec<&Path> = folders.iter().map(PathBuf::as_path).collect();
+                let excluded_refs: Vec<&Path> = excluded.iter().map(PathBuf::as_path).collect();
+                let handler = handler.clone();
+                Raw::open(
+                    since,
+                    &folder_refs,
+                    &excluded_refs,
+                    latency,
+                    Box::new(move |events| handler(events)),
+                )
+            }
+        };
+        // The first try is made here, so a stream that opens is following
+        // before this returns.
+        let first = open(since);
+        let mut opened = false;
+        match first {
+            Ok(raw) => {
+                *shared.current.lock().expect("no panic holding it") = Some(raw);
+                opened = true;
+            }
+            Err(reason) => eprintln!("{} builds: {reason}; trying again", crate::text::clock()),
+        }
+        let supervisor = shared.clone();
+        let wrapped = move || {
+            for folder in &folders {
+                handler(vec![Event {
+                    path: folder.clone(),
+                    flags: flags::EVENT_IDS_WRAPPED,
+                    id: 0,
+                }]);
+            }
+        };
+        std::thread::Builder::new()
+            .name("builds-fsevents".into())
+            .spawn(move || supervise(&supervisor, opened, open, wrapped))
+            .expect("a thread");
+        Stream { shared }
+    }
+
+    /// Hands the handler, now, the events the stream holds back for its
+    /// latency. Events still on their way from the kernel come after.
+    pub fn flush(&self) {
+        if let Some(raw) = self
+            .shared
+            .current
+            .lock()
+            .expect("no panic holding it")
+            .as_ref()
+        {
+            raw.flush();
+        }
+    }
+
+    /// Makes the stream again, because the owner found it delivering nothing
+    /// it should have (<why> goes to the log).
+    pub fn restart(&self, why: &str) {
+        let mut wanted = self.shared.wanted.lock().expect("no panic holding it");
+        wanted.restart = Some(why.to_string());
+        self.shared.wake.notify_all();
+    }
+}
+
+/// Keeps <shared>'s stream open until it is dropped: opens it when there is
+/// none (waiting longer after each refusal), and makes it again when
+/// fseventsd is found restarted or the owner asks. <opened>: the first stream
+/// is already open. <open> opens a stream from an event id; <wrapped> tells
+/// the handler every followed folder needs reading again.
+fn supervise(
+    shared: &Shared,
+    opened: bool,
+    open: impl Fn(u64) -> Result<Raw, String>,
+    wrapped: impl Fn(),
+) {
+    let mut backoff = std::time::Duration::from_secs(1);
+    let mut seen_id = unsafe { FSEventsGetCurrentEventId() };
+    let mut following = opened;
+    loop {
+        if !following {
+            let now = unsafe { FSEventsGetCurrentEventId() };
+            match open(now) {
+                Ok(raw) => {
+                    eprintln!(
+                        "{} builds: FSEvents stream open again (event id {now})",
+                        crate::text::clock()
+                    );
+                    *shared.current.lock().expect("no panic holding it") = Some(raw);
+                    following = true;
+                    backoff = std::time::Duration::from_secs(1);
+                    seen_id = now;
+                    wrapped();
+                }
+                Err(reason) => {
+                    eprintln!(
+                        "{} builds: {reason}; trying again in {}s",
+                        crate::text::clock(),
+                        backoff.as_secs()
+                    );
+                    let wanted = shared.wanted.lock().expect("no panic holding it");
+                    let (wanted, _) = shared
+                        .wake
+                        .wait_timeout_while(wanted, backoff, |w| !w.stop)
+                        .expect("no panic holding it");
+                    if wanted.stop {
+                        return;
+                    }
+                    backoff = (backoff * 2).min(BACKOFF_MAX);
+                    continue;
+                }
+            }
+        }
+        let why = {
+            let wanted = shared.wanted.lock().expect("no panic holding it");
+            let (mut wanted, _) = shared
+                .wake
+                .wait_timeout_while(wanted, WATCH, |w| !w.stop && w.restart.is_none())
+                .expect("no panic holding it");
+            if wanted.stop {
+                *shared.current.lock().expect("no panic holding it") = None;
+                return;
+            }
+            wanted.restart.take()
+        };
+        let current = unsafe { FSEventsGetCurrentEventId() };
+        let why = why.or_else(|| {
+            if current == 0 {
+                Some("fseventsd does not answer".to_string())
+            } else if current < seen_id {
+                Some(format!(
+                    "fseventsd's event id went back from {seen_id} to {current}: it restarted"
+                ))
+            } else {
+                None
+            }
+        });
+        match why {
+            Some(why) => {
+                eprintln!(
+                    "{} builds: FSEvents stream made again: {why}",
+                    crate::text::clock()
+                );
+                *shared.current.lock().expect("no panic holding it") = None;
+                following = false;
+            }
+            None => seen_id = seen_id.max(current),
+        }
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        // The supervisor drops the system's stream, which stops it. Nothing
+        // here waits: the last reference to the handler may be dropped from
+        // the stream's own queue.
+        let mut wanted = self.shared.wanted.lock().expect("no panic holding it");
+        wanted.stop = true;
+        self.shared.wake.notify_all();
     }
 }
 
@@ -334,8 +555,7 @@ mod tests {
             Box::new(move |events| {
                 let _ = told.send(events);
             }),
-        )
-        .expect("a stream");
+        );
         loop {
             let events = heard
                 .recv_timeout(HANG_GUARD)
@@ -372,8 +592,7 @@ mod tests {
                 seen.store(sentinel.0.load(Ordering::SeqCst), Ordering::SeqCst);
                 let _ = finished_tx.send(());
             }),
-        )
-        .expect("a stream");
+        );
         std::fs::write(root.join("a"), b"x").expect("a write");
         entered_rx.recv_timeout(HANG_GUARD).expect("a batch");
         drop(stream);
@@ -388,5 +607,57 @@ mod tests {
         freed_rx
             .recv_timeout(HANG_GUARD)
             .expect("the handler was never freed");
+    }
+
+    #[test]
+    fn a_stream_made_again_reports_every_followed_folder_as_needing_a_read() {
+        let scratch = crate::testing::Scratch::new("fsevents-restart");
+        let root = scratch.dir.clone();
+        let (told, heard) = mpsc::channel();
+        let stream = Stream::start(
+            &[root.as_path()],
+            &[],
+            0.0,
+            Box::new(move |events| {
+                let _ = told.send(events);
+            }),
+        );
+        stream.restart("a test asked");
+        loop {
+            let events = heard
+                .recv_timeout(HANG_GUARD)
+                .expect("no report after the stream was made again");
+            if events
+                .iter()
+                .any(|e| e.path == root && e.flags & flags::EVENT_IDS_WRAPPED != 0)
+            {
+                break;
+            }
+        }
+        // The new stream follows: a write after it is reported.
+        std::fs::write(root.join("after"), b"x").expect("a write");
+        loop {
+            let events = heard
+                .recv_timeout(HANG_GUARD)
+                .expect("the stream made again reports nothing");
+            if events
+                .iter()
+                .any(|e| e.flags & flags::EVENT_IDS_WRAPPED == 0)
+            {
+                return;
+            }
+        }
+    }
+
+    #[test]
+    fn a_stream_the_system_refuses_is_kept_and_stops_when_dropped() {
+        let scratch = crate::testing::Scratch::new("fsevents-refused");
+        let root = scratch.dir.clone();
+        // More than 8 excluded folders: FSEvents refuses the stream, every time.
+        let excluded: Vec<PathBuf> = (0..9).map(|n| root.join(format!("x{n}"))).collect();
+        let refs: Vec<&Path> = excluded.iter().map(PathBuf::as_path).collect();
+        let stream = Stream::start(&[root.as_path()], &refs, 0.0, Box::new(|_| {}));
+        stream.restart("a test asked");
+        drop(stream);
     }
 }

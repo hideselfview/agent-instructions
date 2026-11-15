@@ -87,10 +87,7 @@ impl Feed {
                 }
             }),
         );
-        match started {
-            Some(started) => *feed.stream.lock().expect("no panic holding it") = Some(started),
-            None => eprintln!("builds: FSEvents would not follow {}", dir.display()),
-        }
+        *feed.stream.lock().expect("no panic holding it") = Some(started);
         let reader = feed.clone();
         std::thread::Builder::new()
             .name("builds-lists".into())

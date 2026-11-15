@@ -351,10 +351,7 @@ impl Model {
                 }
             }),
         );
-        match started {
-            Some(started) => *stream = Some((folders, started)),
-            None => eprintln!("builds: FSEvents would not follow the checkouts"),
-        }
+        *stream = Some((folders, started));
     }
 
     fn refresh_loop(self: Arc<Self>) {

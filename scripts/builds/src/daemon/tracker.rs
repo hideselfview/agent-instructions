@@ -141,6 +141,9 @@ pub struct Tracker {
     wake: Condvar,
     /// Handled event ids; the apply thread alone writes it.
     ids: Mutex<Ids>,
+    /// How many batches of events have been handled; a question that gets no
+    /// mark back and saw none move says the stream is dead.
+    batches: std::sync::atomic::AtomicU64,
     /// Walks FSEvents' lost events asked for; one thread takes them, so a
     /// walk never holds up applying events or answering a mark.
     rescans: Mutex<Rescans>,
@@ -235,6 +238,7 @@ impl Tracker {
                 }),
                 wake: Condvar::new(),
                 ids: Mutex::new(Ids::default()),
+                batches: std::sync::atomic::AtomicU64::new(0),
                 me: weak_self,
                 rescans: Mutex::new(Rescans::default()),
                 rescan_wake: Condvar::new(),
@@ -334,11 +338,7 @@ impl Tracker {
                 replay_after: 0,
             };
             let stream = self.open_stream(since);
-            if stream.is_none() {
-                eprintln!("builds: FSEvents would not follow {}", self.root.display());
-                continue;
-            }
-            *self.stream.lock().expect("no panic holding it") = stream;
+            *self.stream.lock().expect("no panic holding it") = Some(stream);
             let started = std::time::Instant::now();
             walk(&self.index, 0, &self.root, WORKERS);
             loop {
@@ -369,7 +369,7 @@ impl Tracker {
     }
 
     /// Starts the root's stream, replaying every event after <since>.
-    fn open_stream(&self, since: u64) -> Option<Stream> {
+    fn open_stream(&self, since: u64) -> Stream {
         let me = self.me.clone();
         let trash = self.root.join(".trash");
         Stream::start_since(
@@ -437,6 +437,8 @@ impl Tracker {
             })
             .max()
             .unwrap_or(0);
+        self.batches
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let paths: Vec<PathBuf> = events.iter().map(|event| event.path.clone()).collect();
         let epoch = *self.epoch.lock().expect("no panic holding it");
         self.handle(events, epoch);
@@ -486,6 +488,10 @@ impl Tracker {
             for event in events {
                 let lost = event.flags & (flags::USER_DROPPED | flags::KERNEL_DROPPED) != 0;
                 if event.flags & flags::EVENT_IDS_WRAPPED != 0 {
+                    // Ids from before the wrap mean nothing: later ones are
+                    // counted from what fseventsd says now.
+                    ids.last = Stream::current_event_id();
+                    ids.replay_until = None;
                     walk_root = Some(event.flags);
                 } else if lost {
                     // A replay that lost events before handling any new one
@@ -548,13 +554,9 @@ impl Tracker {
             "{} builds: FSEvents lost events; replaying its history from event {after} to {until}",
             crate::text::clock()
         );
-        let Some(stream) = self.open_stream(after) else {
-            eprintln!("builds: FSEvents would not replay; walking the root");
-            self.ids.lock().expect("no panic holding it").replay_until = None;
-            drop(held);
-            self.request_rescans(vec![(self.root.clone(), 0)], epoch);
-            return;
-        };
+        // A stream the system refuses is opened again from now, and then
+        // reports every folder as needing a read, which walks the root.
+        let stream = self.open_stream(after);
         // The stream the loss came on stops; whatever it still holds queued
         // is handled, and the replay repeats it harmlessly.
         *self.stream.lock().expect("no panic holding it") = Some(stream);
@@ -966,6 +968,7 @@ impl Tracker {
         }
         let asked = std::time::Instant::now();
         let deadline = asked + self.mark_wait;
+        let batches_before = self.batches.load(std::sync::atomic::Ordering::SeqCst);
         let mut marks = self.marks.lock().expect("no panic holding it");
         let caught_up = loop {
             if marks.seen >= n {
@@ -988,6 +991,14 @@ impl Tracker {
                     mark.display(),
                     self.mark_wait.as_secs()
                 );
+                // Writing the mark made events, so a stream that delivered
+                // no batch at all in the wait is dead (fseventsd restarted):
+                // make it again.
+                if self.batches.load(std::sync::atomic::Ordering::SeqCst) == batches_before
+                    && let Some(stream) = self.stream.lock().expect("no panic holding it").as_ref()
+                {
+                    stream.restart("a mark was written and no event of any kind arrived");
+                }
                 break false;
             }
             marks = self

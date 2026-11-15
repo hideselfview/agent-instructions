@@ -221,10 +221,7 @@ impl Runs {
                 }
             }),
         );
-        match started {
-            Some(started) => *runs.stream.lock().expect("no panic holding it") = Some(started),
-            None => eprintln!("builds: FSEvents would not follow {}", dir.display()),
-        }
+        *runs.stream.lock().expect("no panic holding it") = Some(started);
         Ok(runs)
     }
 
