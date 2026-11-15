@@ -99,11 +99,11 @@ Every name follows from a component, a preview state or a board. The view that
 reads app state for a component is `<Component>Container`
 (`MacNowPlayingBarContainer`), nested just above the component, because a view
 that reads a piece of state redraws when it changes
-(`rules/a-component-reads-its-state-at-the-leaf.md`). A screen's view reads only
-what no container below it reads. Pass a value down only when it rarely changes;
-in Compose, pass a lambda (`{ position }`) so the read happens where the value
-is used. The component under the container takes plain values, so its shot can
-draw it from a preview state with no app running.
+(`rules/ui-state/a-component-reads-its-state-at-the-leaf.md`). A screen's view
+reads only what no container below it reads. Pass a value down only when it
+rarely changes; in Compose, pass a lambda (`{ position }`) so the read happens
+where the value is used. The component under the container takes plain values,
+so its shot can draw it from a preview state with no app running.
 
 ### Checking shots against boards
 

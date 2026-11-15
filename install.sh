@@ -102,12 +102,14 @@ for link in "$HOME/.claude/rules"/*.md; do
     echo "Removed ~/.claude/rules/$(basename "$link") (its file is gone)"
   fi
 done
-for f in "$repo/rules"/*.md; do
-  [[ -f "$f" ]] || continue
+# Each rule sits in its group's folder, and is linked directly into
+# ~/.claude/rules/ without it: Claude Code has open bugs loading path-scoped
+# rules from subfolders.
+while IFS= read -r f; do
   name="$(basename "$f")"
   ln -sf "$f" "$HOME/.claude/rules/$name"
   echo "Linked ~/.claude/rules/$name -> $f"
-done
+done < <(find "$repo/rules" -name '*.md' -type f | sort)
 
 # Per-project instruction symlinks. Convention: each projects/<name>.md
 # targets ~/dev/<name>/CLAUDE.md and ~/dev/<name>/AGENTS.md. Skip projects whose
@@ -126,10 +128,10 @@ for f in "$repo/projects"/*.md; do
   fi
 done
 
-# Per-project rule files. Convention: projects/<name>-rules/*.md are path-scoped
-# rules for that project, symlinked into .claude/rules/ of ~/dev/<name> and of
-# each of its worktrees, so Claude Code loads them project-scoped wherever an
-# agent edits; a link to a rule since removed is dropped. A repo's
+# Per-project rule files. Convention: projects/<name>-rules/<group>/*.md are
+# path-scoped rules for that project, linked without their group folder into
+# .claude/rules/ of ~/dev/<name> and of each of its worktrees, so Claude Code
+# loads them wherever an agent edits; a link to a rule since removed is dropped. A repo's
 # post-checkout links them into a worktree it creates. Gitignore .claude/rules/
 # in the target repo.
 for rules_dir in "$repo/projects"/*-rules; do
@@ -147,10 +149,9 @@ for rules_dir in "$repo/projects"/*-rules; do
           rm "$link"
         fi
       done
-      for f in "$rules_dir"/*.md; do
-        [[ -f "$f" ]] || continue
+      while IFS= read -r f; do
         ln -sf "$f" "$target_dir/$(basename "$f")"
-      done
+      done < <(find "$rules_dir" -name '*.md' -type f | sort)
       echo "Linked $name's rules into $target_dir"
     done <<< "$checkouts"
   else

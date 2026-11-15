@@ -1,7 +1,8 @@
-//! `rules/groups.toml` of agent-instructions: the groups of rules that each
-//! get one reviewer. Every rule is in exactly one group.
+//! The groups of rules of agent-instructions that each get one reviewer. A
+//! group is a folder `rules/<dir>/` holding its `group.toml`; its rules are the
+//! `.md` files in that folder and in `projects/<project>-rules/<dir>/`. Every
+//! rule is in exactly one group.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Deserialize;
@@ -10,8 +11,15 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::review::rules::Rule;
 
-/// Where the file sits in a checkout.
-pub const FILE: &str = "rules/groups.toml";
+/// The file of a group's settings in its folder.
+pub const FILE: &str = "group.toml";
+
+/// The model a reviewer runs unless its group says otherwise.
+const DEFAULT_MODEL: &str = "opus";
+
+fn opus() -> String {
+    DEFAULT_MODEL.to_string()
+}
 
 fn one() -> usize {
     1
@@ -22,9 +30,14 @@ fn one() -> usize {
 pub struct Group {
     pub name: String,
     pub question: String,
-    /// `opus`, `sonnet` or `haiku`.
+    /// `opus`, `sonnet` or `haiku`; opus unless the group overrides it.
+    #[serde(default = "opus")]
     pub model: String,
-    /// Rule slugs.
+    /// The group's folder under `rules/`, set by the loader.
+    #[serde(skip)]
+    pub dir: String,
+    /// Rule slugs, set by the loader from the folders.
+    #[serde(skip)]
     pub rules: Vec<String>,
     /// Extra words for the reviewer.
     #[serde(default)]
@@ -50,39 +63,64 @@ pub struct Group {
     pub passes: usize,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-struct File {
-    group: Vec<Group>,
+impl Group {
+    /// The group of folder <dir> from the text of its `group.toml`.
+    pub fn parse(dir: &str, text: &str, rules: Vec<String>) -> Result<Group> {
+        let mut group: Group = toml::from_str(text)
+            .map_err(|error| crate::fail::Fail::Message(format!("rules/{dir}/{FILE}: {error}")))?;
+        group.dir = dir.to_string();
+        group.rules = rules;
+        Ok(group)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Groups {
     pub groups: Vec<Group>,
+    /// A hash of every group's settings and rules, recorded with every run.
+    pub digest: String,
 }
 
 impl Groups {
-    pub fn parse(text: &str) -> Result<Groups> {
-        let file: File = toml::from_str(text)
-            .map_err(|error| crate::fail::Fail::Message(format!("{FILE}: {error}")))?;
-        Ok(Groups { groups: file.group })
-    }
-
-    /// The groups of the checkout at <root>.
+    /// The groups of the checkout at <root>: each folder of `rules/` that holds
+    /// a `group.toml`, in folder-name order, with the rules found in it and in
+    /// the same-named folder of each `projects/*-rules/`.
     pub fn load(root: &Path) -> Result<Groups> {
-        let path = root.join(FILE);
-        let text =
-            std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
-        Groups::parse(&text)
+        let rules = crate::review::rules::load(root, None)?;
+        let tree = root.join("rules");
+        let entries = std::fs::read_dir(&tree).context(|| format!("listing {}", tree.display()))?;
+        let mut dirs: Vec<String> = entries
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().join(FILE).is_file())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        dirs.sort();
+        let mut groups = Vec::new();
+        let mut fingerprint = String::new();
+        for dir in dirs {
+            let path = tree.join(&dir).join(FILE);
+            let text =
+                std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
+            let slugs: Vec<String> = rules
+                .iter()
+                .filter(|rule| rule.group_dir.as_deref() == Some(dir.as_str()))
+                .map(|rule| rule.slug.clone())
+                .collect();
+            fingerprint.push_str(&format!("{dir}\n{text}\n{}\n", slugs.join(",")));
+            groups.push(Group::parse(&dir, &text, slugs)?);
+        }
+        Ok(Groups {
+            groups,
+            digest: crate::review::run::hash(&fingerprint),
+        })
     }
 
     /// What is wrong with the grouping against <rules>, which must be every
-    /// rule there is: a rule in no group or in two, a slug naming no rule, a
-    /// group with no rule, two groups of one name, a model that is not opus or
-    /// sonnet.
+    /// rule there is: a rule outside a group folder (a folder with no
+    /// `group.toml`, or none), a group with no rule, two groups of one name, a
+    /// model that is not opus, sonnet or haiku.
     pub fn faults(&self, rules: &[Rule]) -> Vec<String> {
         let mut faults = Vec::new();
-        let mut seen: BTreeMap<&str, &str> = BTreeMap::new();
         let mut names: Vec<&str> = Vec::new();
         for group in &self.groups {
             if names.contains(&group.name.as_str()) {
@@ -122,24 +160,17 @@ impl Groups {
                     group.name, group.model
                 ));
             }
-            for slug in &group.rules {
-                if !rules.iter().any(|r| &r.slug == slug) {
-                    faults.push(format!(
-                        "group {} names {slug}, which is no rule",
-                        group.name
-                    ));
-                }
-                if let Some(first) = seen.insert(slug, &group.name) {
-                    faults.push(format!(
-                        "{slug} is in group {first} and group {}; a rule is in one group",
-                        group.name
-                    ));
-                }
-            }
         }
         for rule in rules {
-            if !seen.contains_key(rule.slug.as_str()) {
-                faults.push(format!("{} is in no group", rule.slug));
+            let in_group = rule
+                .group_dir
+                .as_ref()
+                .is_some_and(|dir| self.groups.iter().any(|g| &g.dir == dir));
+            if !in_group {
+                faults.push(format!(
+                    "{} ({}) is in no group: put it in a folder of rules/ that has a {FILE}",
+                    rule.slug, rule.path
+                ));
             }
         }
         faults
@@ -175,7 +206,7 @@ pub fn require_whole(groups: &Groups, rules: &[Rule]) -> Result<()> {
     if faults.is_empty() {
         return Ok(());
     }
-    fail!("{FILE} is not whole:\n  {}", faults.join("\n  "))
+    fail!("the rule groups are not whole:\n  {}", faults.join("\n  "))
 }
 
 #[cfg(test)]

@@ -21,13 +21,12 @@ use crate::review::rules::{self, Rule};
 /// What a review reads besides the diff.
 pub struct Material {
     pub groups: Groups,
-    /// A hash of the groups file's text, recorded with every run.
+    /// A hash of the groups' settings and rules, recorded with every run.
     pub grouping: String,
     /// The rules of the project: `rules/` and its own.
     pub rules: Vec<Rule>,
     /// The project's always-loaded instructions, empty when it has none.
     pub project_text: String,
-    root: std::path::PathBuf,
 }
 
 impl Material {
@@ -35,31 +34,17 @@ impl Material {
     /// checking that every rule of the checkout is in one group.
     pub fn load(root: &Path, project: &str) -> Result<Material> {
         let groups = Groups::load(root)?;
-        let grouping = hash(
-            &std::fs::read_to_string(root.join(crate::review::groups::FILE)).unwrap_or_default(),
-        );
         let every = rules::load(root, None)?;
         crate::review::groups::require_whole(&groups, &every)?;
         let rules = rules::load(root, Some(project))?;
         let project_file = root.join("projects").join(format!("{project}.md"));
         let project_text = std::fs::read_to_string(&project_file).unwrap_or_default();
         Ok(Material {
+            grouping: groups.digest.clone(),
             groups,
-            grouping,
             rules,
             project_text,
-            root: root.to_path_buf(),
         })
-    }
-
-    /// The same material with <groups> in place of the checkout's own, after
-    /// checking that every rule of the checkout is in one of them.
-    pub fn with_groups(mut self, groups: Groups) -> Result<Material> {
-        let every = rules::load(&self.root, None)?;
-        crate::review::groups::require_whole(&groups, &every)?;
-        self.grouping = "alternative".to_string();
-        self.groups = groups;
-        Ok(self)
     }
 
     /// The same material with every group asked in <model>.

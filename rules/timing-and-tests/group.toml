@@ -1,0 +1,2 @@
+name = "Timing and tests"
+question = "Does code wait on events instead of timers, and does each test run the real code, with animations off and no text recognition?"

@@ -1,0 +1,3 @@
+name = "Commits and repo contents"
+question = "Does the commit hold only the product and keep the spec current, describe the current state, log through the project's logger, keep the hook to formatting and static checks, add each new dependency at its latest version, and name each file after a type in it?"
+project_facts = true

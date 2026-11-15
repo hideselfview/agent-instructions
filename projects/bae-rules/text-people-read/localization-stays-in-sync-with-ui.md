@@ -40,7 +40,8 @@ Each kind of change has its own catalog work:
     into another locale, write placeholder text, or leave a string marked new,
     untranslated or fuzzy for later.
 - **Removed text** removes its key from the catalog and every locale.
-  - A key no code uses is dead (`rules/write-only-what-is-needed-today.md`).
+  - A key no code uses is dead
+    (`rules/necessary-code/write-only-what-is-needed-today.md`).
   - `no_orphan_core_keys` catches an orphaned `core.*` key, and the hook's
     `loc-orphans` check (`scripts/loc-chrome-orphans.py`) catches an orphaned
     key in a macOS or Android catalog.

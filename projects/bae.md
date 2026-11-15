@@ -92,8 +92,8 @@ other crates, so a domain's tests open their own in-memory library with
 ### Shapes change in one commit, with no compatibility code
 
 bae and coven follow
-`rules/change-a-shape-in-one-commit-with-no-compatibility-code.md` for each of
-these shapes:
+`rules/necessary-code/change-a-shape-in-one-commit-with-no-compatibility-code.md`
+for each of these shapes:
 
 - a table
 - a bridge type
@@ -114,11 +114,11 @@ latest-value streams, and state that exists only on screen (hover, focus, an
 open popover or menu, a drag in progress), which the view keeps.
 
 The full rules are
-`projects/bae-rules/reactive-screens-read-plain-live-queries.md` and
-`projects/bae-rules/native-views-draw-fast-changing-values.md`. They load only
-when an agent edits matching files, so every plan, brief and review checks a
-change's reads and fast values against them. A plan that proposes a shape they
-forbid is wrong: raise it instead of building it.
+`projects/bae-rules/screen-reads/reactive-screens-read-plain-live-queries.md`
+and `projects/bae-rules/ui-views/native-views-draw-fast-changing-values.md`.
+They load only when an agent edits matching files, so every plan, brief and
+review checks a change's reads and fast values against them. A plan that
+proposes a shape they forbid is wrong: raise it instead of building it.
 
 ## How work is tracked
 
@@ -173,7 +173,7 @@ coordinator never picks up or dispatches a design-session item, and app work
 that waits on a board waits until the board lands. How the design session draws,
 records, reviews and lands a change is in `builds help workflow`, and how
 boards, shots and the apps' views fit together is in
-`projects/bae-rules/build-each-screen-to-match-its-board.md`.
+`projects/bae-rules/screen-content/build-each-screen-to-match-its-board.md`.
 
 ## Making a change
 

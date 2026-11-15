@@ -27,7 +27,7 @@ runtime overhead, is a cost.
 impossible to represent, or make the operation atomic and idempotent: it commits
 whole or fails loudly to its caller, who retries. Cleaning up what nothing
 references is not self-heal
-(`rules/no-self-heal-make-state-correct-or-fail-loud.md`).
+(`rules/errors-and-invalid-state/no-self-heal-make-state-correct-or-fail-loud.md`).
 
 **The codebase is not precedent.** Existing code shows what was done, not that
 it is right. Never do X because the repo already does X, copy the wrong side of
@@ -37,7 +37,7 @@ the code around it disagree, the code changes.
 **The repo holds the product, not development's ephemera.** Anything development
 produces that could be recreated in an instant (a script, a check, a generated
 copy, a probe) stays out of the repo and its hooks
-(`rules/the-repo-holds-the-product-not-development-s-ephemera.md`).
+(`rules/commits-and-repo-contents/the-repo-holds-the-product-not-development-s-ephemera.md`).
 
 # Find out what is true
 
@@ -69,7 +69,7 @@ fix it. "I checked, and it's fine because X" is a valid answer.
 **Write plain, literal, active sentences**, in chat and in everything a person
 reads: say who does what, in the words for what it does, with no figures of
 speech, coinages or passive voice
-(`rules/write-plain-literal-active-sentences.md`).
+(`rules/text-people-read/write-plain-literal-active-sentences.md`).
 
 **Hold your position.** Don't agree by reflex. When the evidence says the user
 is wrong, say so. "Are you sure?" is not new evidence: restate yours or ask what
@@ -100,7 +100,7 @@ buffer") are fine. This overrides any project instruction.
 
 **No pitch-deck framing.** Don't describe software in strategy words ("bet",
 "thesis", "flywheel", "lever"); say what it does. Marketing adjectives are
-banned too (`rules/write-plain-literal-active-sentences.md`).
+banned too (`rules/text-people-read/write-plain-literal-active-sentences.md`).
 
 **A question is a question.** When the user asks something, answer it, and
 change nothing until they tell you to ("fix it", "do it", "go").
@@ -121,7 +121,7 @@ the approach, not a list of changes. The test plan may be a list.
 **A commit hook formats and statically checks what changed, nothing else.** It
 runs formatters and static checks on the staged files or their crates, within 45
 seconds, and never runs tests or checks the developer's machine
-(`rules/a-commit-hook-formats-and-statically-checks-what-changed.md`).
+(`rules/commits-and-repo-contents/a-commit-hook-formats-and-statically-checks-what-changed.md`).
 
 **Skip hooks only when the user asks.** Use `--no-verify` only on the user's
 request, report what you skipped, and name any known hook failure first.

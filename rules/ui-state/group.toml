@@ -1,0 +1,2 @@
+name = "UI state"
+question = "Does each view read its state where it uses it, change observable state through that state's own methods, and keep state that describes what is, not what should happen?"

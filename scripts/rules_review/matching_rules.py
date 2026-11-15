@@ -15,9 +15,9 @@ from discover_rules import applies, is_reviewable, parse_paths
 
 
 def collect_rules(rules_root: Path, project: str | None) -> list[Path]:
-    rule_files = sorted((rules_root / "rules").glob("*.md"))
+    rule_files = sorted((rules_root / "rules").rglob("*.md"))
     if project:
-        rule_files += sorted((rules_root / "projects" / f"{project}-rules").glob("*.md"))
+        rule_files += sorted((rules_root / "projects" / f"{project}-rules").rglob("*.md"))
     return rule_files
 
 

@@ -25,7 +25,7 @@ CREATE TABLE review_run (
     at INTEGER NOT NULL,
     base TEXT NOT NULL,
     head TEXT NOT NULL,
-    -- A hash of the groups file the run used, so a change of grouping shows in the record.
+    -- A hash of the groups' settings and rules the run used, so a change of grouping shows in the record.
     grouping TEXT NOT NULL,
     -- The commit of the rules checkout the run read, empty when it is no repo.
     rules_version TEXT NOT NULL,

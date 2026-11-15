@@ -34,10 +34,10 @@ and the `_updated_at` stamper every write uses), the on-disk layout
 ## Shapes change in one commit, with no compatibility code
 
 visible follows
-`rules/change-a-shape-in-one-commit-with-no-compatibility-code.md`. To reset a
-device's data, delete the app's data folder: Application Support on iOS and
-macOS (inside the app's sandbox container on macOS), and the app's files folder
-on Android.
+`rules/necessary-code/change-a-shape-in-one-commit-with-no-compatibility-code.md`.
+To reset a device's data, delete the app's data folder: Application Support on
+iOS and macOS (inside the app's sandbox container on macOS), and the app's files
+folder on Android.
 
 ## iOS and Android are at parity
 

@@ -59,6 +59,7 @@ fn group_of<'a>(groups: &'a Groups, slug: &str) -> Option<&'a Group> {
 fn synthetic(name: String, model: &str, question: &str, rules: &[&Rule]) -> Group {
     Group {
         name,
+        dir: String::new(),
         question: question.to_string(),
         model: model.to_string(),
         rules: rules.iter().map(|r| r.slug.clone()).collect(),

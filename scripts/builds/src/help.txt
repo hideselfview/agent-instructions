@@ -890,7 +890,7 @@ A coordinator lands commits, putting them on origin/main, from its claimed
 landing worktree with `builds land`. In a repo of a project with lists, land
 then starts a review of the landed commits against agent-instructions' rules in
 the background, which never refuses or fails the landing. The rules are grouped
-in rules/groups.toml, and each group that covers a changed path gets one
+in folders, and each group that covers a changed path gets one
 reviewer, a `claude -p` run in a checkout of the reviewed commit with only
 Read, Grep and Glob. Its system prompt holds the full text of the group's
 rules, the project's projects/<project>.md, the
@@ -905,6 +905,41 @@ coordinator settles each finding as confirmed or dropped.
 A sample of passed landings is audited for findings their review missed. A
 confirmed miss becomes a case in review/cases, a recorded change with the
 findings it must produce, which `review replay` runs a grouping over.
+
+Every rule is in exactly one group. A group is a folder rules/<group-dir>/ of
+agent-instructions that holds its group.toml; its rules are the .md files in
+that folder and in projects/<project>-rules/<group-dir>/ (a project-rules
+folder must name a group folder of rules/, and a group whose rules are all
+project rules still has its group.toml under rules/). A rule's slug is its
+file name without .md and is unique across all folders. `builds review groups`
+checks this, and so does builds' test. The group.toml fields are top-level keys:
+
+  name          the group's name, as `builds review` prints it
+  question      the one design question the group's rules answer
+  model         optional; opus, sonnet or haiku. The reviewer runs opus unless
+                this overrides it
+  instructions  optional; extra words for the reviewer
+  enumerate     true when the reviewer lists every site of the diff that
+                `sites` describes, one changed file per call, and judges each
+                site against every rule of the group (the file's new text
+                around each hunk is in the message)
+  sites         what a site is, for an enumerate group: the end of "every site
+                in the diff that ..."
+  commit_text   true when the commit messages of the change are read as one
+                more file named COMMIT_MESSAGE (an enumerate group)
+  passes        how many times each call is made, default 1; the findings of
+                all are kept, and the later calls read the first one's prompt
+                from the cache
+  project_facts true when the group also answers for the project facts that
+                every commit keeps (the spec moves with the commit, bae writes
+                as local), as one more verdict named project-facts
+
+A group runs when at least one of its rules matches a changed path. Its
+reviewer reads the full body of every rule in the group, the project's
+always-loaded instructions (projects/<project>.md), the diff and the landing's
+brief, and answers for every rule. To test another grouping, change the
+folders in a worktree of agent-instructions and run `review replay
+--rules-root` on it.
 
   builds land <worktree> [--done N]... [--part N]... [--design N] <sha>...
                               put the commits on origin/main from the claimed,
@@ -959,13 +994,14 @@ findings it must produce, which `review replay` runs a grouping over.
                               and how each was settled
   builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
                               list the groups of rules, and fail naming every
-                              rule in no group or in two and every slug that
-                              names no rule; with --changed, list instead the
+                              rule outside a group folder (one with no
+                              group.toml) and every project-rules folder that
+                              names no group folder; with --changed, list instead the
                               groups a change to those paths runs, over
                               project P's rules (none: every project's)
-  builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
-                              run a grouping (FILE, default the checkout's
-                              rules/groups.toml) over every case of
+  builds review replay [--case NAME]... [--source REPO] [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
+                              run the grouping of the checkout (--rules-root)
+                              over every case of
                               review/cases (a change as `git format-patch`
                               output, and expected.toml: the findings it must
                               produce by rule and file, and the rules that must
@@ -978,7 +1014,7 @@ findings it must produce, which `review replay` runs a grouping over.
                               replayed case goes in its project's store.
                               --source REPO gives each reviewer the commit a
                               case came from, and --model runs every group on
-                              one of the models groups.toml accepts
+                              one of opus, sonnet and haiku
   builds review sample --landing <key> --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]
                               what `builds land` runs after a push: decide
                               whether the landing's passed review is audited
@@ -988,7 +1024,7 @@ findings it must produce, which `review replay` runs a grouping over.
                               audited; 25% when a group the landing ran has
                               missed more in its latest 10 audits than before;
                               and every landing until 20 have been reviewed
-                              under the current groups file. --roll N (0 to 1)
+                              under the current groups. --roll N (0 to 1)
                               replaces the random draw
   builds review audit <landing> --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]
                               audit a landing that passed its review, over the

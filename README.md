@@ -18,8 +18,8 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
     `digest`.
   - `CLAUDE.md` and `AGENTS.md` at the repo root link to them, so Claude Code or
     Codex opened in this repo loads them.
-- `rules/*.md` holds one code rule per file. Each file's frontmatter has these
-  fields:
+- `rules/<group>/*.md` holds one code rule per file, in the folder of its review
+  group (see below). Each file's frontmatter has these fields:
   - `digest`: the one line that goes into the Codex index.
   - `paths`: globs for the files the rule covers. Claude Code loads the rule's
     body when it reads a matching file.
@@ -28,10 +28,13 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
   - `review: false` (optional): marks a rule a reviewer can't check, which
     `builds review` leaves out.
 - `projects/<name>.md` holds a project's always-loaded instructions.
-- `projects/<name>-rules/*.md` holds a project's rules, with the same
+- `projects/<name>-rules/<group>/*.md` holds a project's rules, with the same
   frontmatter as `rules/`.
-- `rules/groups.toml` puts each rule, general or project, in one review group
-  for `builds review`; its header comment explains the fields.
+- `rules/<group>/group.toml` holds the settings of one review group for
+  `builds review`. Every rule, general or project, is in one group: its group is
+  the folder it sits in, and a project-rules folder must have the name of a
+  group folder under `rules/`. `builds help` (LANDING AND REVIEW) explains the
+  fields.
 - `claude/settings.json` holds the Claude Code settings: environment variables,
   permissions, hooks and plugins.
   - Machine-specific settings go in `~/.claude/settings.local.json`, outside
@@ -59,9 +62,9 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
 
 ## Where a rule goes
 
-Claude Code loads `rules/*.md` itself. A file with `paths` frontmatter loads
-only when Claude Code reads a matching file; a file with no `paths` loads at
-launch, on every turn, like `CLAUDE.md`. So:
+Claude Code loads the rules itself. A file with `paths` frontmatter loads only
+when Claude Code reads a matching file; a file with no `paths` loads at launch,
+on every turn, like `CLAUDE.md`. So:
 
 - Every `rules/` file has `paths`.
   - A language rule gets narrow globs (`**/*.rs`).
@@ -90,8 +93,9 @@ git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instruc
   - It first moves an existing `~/.codex/config.toml` that is not a link aside.
 - links each skill folder of `claude/skills/` into `~/.claude/skills/` and of
   `codex/skills/` into `~/.codex/skills/`
-- links every file of `rules/` into `~/.claude/rules/`, and this repo into
-  `~/.codex/agent-instructions`
+- links every rule file under `rules/` into `~/.claude/rules/`, directly and
+  without its group folder (Claude Code has open bugs loading path-scoped rules
+  from subfolders), and this repo into `~/.codex/agent-instructions`
 - links each project's files, as the next section describes
 - builds `builds` from the committed HEAD and runs `builds install`
 
@@ -103,8 +107,8 @@ It always links the main checkout, whichever worktree runs it.
 exists on this machine, and skips the rest:
 
 - `projects/<name>.md` → `~/dev/<name>/CLAUDE.md` and `~/dev/<name>/AGENTS.md`
-- `projects/<name>-rules/*.md` → `.claude/rules/` in `~/dev/<name>` and in each
-  of its worktrees
+- `projects/<name>-rules/<group>/*.md` → `.claude/rules/` in `~/dev/<name>` and
+  in each of its worktrees, without the group folder
   - A project's own post-checkout hook links them into a worktree it creates.
   - Claude Code loads these rules the same way as the ones in `rules/`, and
     `builds review` reviews against them too.
@@ -124,11 +128,12 @@ python3 ~/.codex/agent-instructions/scripts/rules_review/matching_rules.py \
 ```
 
 The script prints the rule files whose `paths` match, including the project's
-rules in `projects/<project>-rules/`. Codex reads each of them before it edits.
+rules under `projects/<project>-rules/`. Codex reads each of them before it
+edits.
 
 ## Code review
 
 `builds land` reviews every landing against the rules, with one reviewer per
-group of rules in `rules/groups.toml`. The `code-rules-review` skill says how to
-run a review early and settle its findings, and `builds help` describes each
-review command.
+group of rules, one folder of `rules/` each. The `code-rules-review` skill says
+how to run a review early and settle its findings, and `builds help` describes
+each review command.

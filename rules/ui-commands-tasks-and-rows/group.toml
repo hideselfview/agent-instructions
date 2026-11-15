@@ -1,0 +1,2 @@
+name = "UI commands, tasks and rows"
+question = "Do commands set a value instead of toggling it, do reducers write without reading state, does each task's cancellation follow what starts it, do rows hide views with opacity, and does nothing swizzle or monkeypatch?"

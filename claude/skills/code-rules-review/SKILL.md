@@ -11,7 +11,7 @@ this skill to run the same review before landing, and to settle its findings.
 
 - Run `builds review <worktree> [<base>]` to review the worktree's commits past
   `<base>` (default `origin/main`).
-  - It runs one reviewer per group of rules (`rules/groups.toml` in
+  - It runs one reviewer per group of rules (a folder of `rules/` each, in
     agent-instructions) and prints the findings by group, then a total line.
   - It exits 1 when a blocking finding stands or a reviewer failed.
   - `--item N` gives the reviewers that work item's brief; `builds help` lists

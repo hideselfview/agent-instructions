@@ -1,0 +1,2 @@
+name = "Reuse and types"
+question = "Does the change reuse existing logic and types, and give fields that are set together a type of their own?"

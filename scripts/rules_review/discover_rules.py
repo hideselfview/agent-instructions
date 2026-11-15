@@ -107,9 +107,9 @@ def main():
     args = ap.parse_args()
 
     root = Path(args.rules_root)
-    rule_files = sorted((root / "rules").glob("*.md"))
+    rule_files = sorted((root / "rules").rglob("*.md"))
     proj_dir = root / "projects" / f"{args.project}-rules"
-    rule_files += sorted(proj_dir.glob("*.md"))
+    rule_files += sorted(proj_dir.rglob("*.md"))
 
     rules = []
     for f in rule_files:

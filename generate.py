@@ -3,7 +3,7 @@
 
 Claude Code gets only instructions-agent.md because it loads path-scoped rules
 natively from rules/ symlinked into ~/.claude/rules/. Codex gets
-instructions-agent.md plus a digest index built from rules/*.md frontmatter
+instructions-agent.md plus a digest index built from the frontmatter of the rules under rules/
 because it does not have native path-scoped rule loading. Run by install.sh.
 """
 
@@ -34,14 +34,14 @@ def parse(path):
 
 def main():
     entries = []
-    for path in sorted(RULES.glob("*.md")):
+    for path in sorted(RULES.rglob("*.md")):
         name, digest = parse(path)
-        entries.append((name, path.name, digest))
+        entries.append((name, path.relative_to(ROOT), digest))
 
     lines = [
         "# Rules index",
         "",
-        "Each rule below lives in full at `rules/<file>`.",
+        "Each rule below lives in full at the path given.",
         "",
         "Claude Code loads matching rule bodies automatically from",
         "`~/.claude/rules/`.",
@@ -59,7 +59,7 @@ def main():
         "",
     ]
     for name, fname, digest in entries:
-        lines.append(f"- **{name}** (`rules/{fname}`) - {digest}")
+        lines.append(f"- **{name}** (`{fname}`) - {digest}")
 
     agent = (
         (ROOT / "instructions-agent.md")

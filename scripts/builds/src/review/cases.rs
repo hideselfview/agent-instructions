@@ -11,7 +11,6 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::review::check::{parse_diff, squash};
 use crate::review::files::Source;
-use crate::review::groups::Groups;
 use crate::review::record::{Kind, NewCall, NewRun};
 use crate::review::run::{Diff, Material, Tokens, ask_groups};
 
@@ -410,15 +409,13 @@ fn same_file(a: &str, b: &str) -> bool {
 }
 
 /// Every case of <cases> replayed, in order. <alternative> stands in for the
-/// checkout's own groups when given, and every group is asked in <model> when
-/// given. A reviewer of one file at a time reads
+/// every group is asked in <model> when given. A reviewer of one file at a time reads
 /// that file's new text from <source_repo> at the commit the case's patch was
 /// made from.
 pub fn replay_all(
     root: &Path,
     cases: &[Case],
     reviewer: &Path,
-    alternative: Option<&Groups>,
     source_repo: Option<&Path>,
     model: Option<&str>,
 ) -> Result<Vec<CaseResult>> {
@@ -430,9 +427,6 @@ pub fn replay_all(
             .any(|(project, _)| *project == case.project)
         {
             let mut material = Material::load(root, &case.project)?;
-            if let Some(groups) = alternative {
-                material = material.with_groups(groups.clone())?;
-            }
             if let Some(model) = model {
                 material = material.with_model(model);
             }

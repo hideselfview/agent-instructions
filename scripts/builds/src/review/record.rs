@@ -168,7 +168,7 @@ pub struct NewRun<'a> {
     pub at: i64,
     pub base: &'a str,
     pub head: &'a str,
-    /// A hash of the groups file the run used.
+    /// A hash of the groups' settings and rules the run used.
     pub grouping: &'a str,
     /// The commit of the rules checkout the run read.
     pub rules_version: &'a str,

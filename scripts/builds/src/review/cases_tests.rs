@@ -210,11 +210,13 @@ fn a_failed_call_in_a_replay_is_counted_and_named() {
 fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
     let scratch = Scratch::new("case-per-file");
     let fake = fake(&scratch.dir);
-    std::fs::write(
-        fake.root.join("rules/groups.toml"),
-        "[[group]]\nname = \"alpha\"\nquestion = \"q\"\nmodel = \"sonnet\"\nrules = [\"rule-a\"]\nenumerate = true\npasses = 2\nsites = \"handles rows\"\n\n[[group]]\nname = \"beta\"\nquestion = \"q\"\nmodel = \"opus\"\nrules = [\"rule-b\"]\n",
-    )
-    .unwrap();
+    crate::review::fakes::group_file(
+        &fake.root,
+        "alpha",
+        "alpha",
+        "sonnet",
+        "enumerate = true\npasses = 2\nsites = \"handles rows\"\n",
+    );
     fake.answer_task(
         "alpha",
         serde_json::json!({

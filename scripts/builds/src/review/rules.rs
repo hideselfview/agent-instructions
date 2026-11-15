@@ -1,5 +1,6 @@
-//! The rules a review reads: every `rules/*.md` and the project's
-//! `projects/<project>-rules/*.md` of an agent-instructions checkout, with the
+//! The rules a review reads: every `.md` under `rules/` and under the
+//! project's `projects/<project>-rules/` of an agent-instructions checkout
+//! (each in its group's folder), with the
 //! front matter `scripts/rules_review/matching_rules.py` reads (`paths`,
 //! `blocking`, `review`) and the full body.
 
@@ -12,6 +13,10 @@ use crate::fail::{Context, Result};
 pub struct Rule {
     /// The file name without `.md`.
     pub slug: String,
+    /// The file's path in the checkout.
+    pub path: String,
+    /// The group folder the file is in, None when it sits outside one.
+    pub group_dir: Option<String>,
     /// The globs the rule covers; None covers every path.
     pub paths: Option<Vec<String>>,
     /// Whether a finding of this rule refuses a landing.
@@ -34,6 +39,8 @@ impl Rule {
         };
         Rule {
             slug: slug.to_string(),
+            path: String::new(),
+            group_dir: None,
             paths: parse_paths(front),
             blocking: value("blocking").is_some_and(|v| v.eq_ignore_ascii_case("true")),
             reviewable: !value("review")
@@ -122,15 +129,13 @@ pub fn glob_matches(glob: &str, path: &str) -> bool {
     go(glob.as_bytes(), path.as_bytes())
 }
 
-/// Every rule of a checkout: `rules/*.md`, then each `projects/*-rules/*.md`
-/// when <project> is None, or only `projects/<project>-rules/*.md`.
-/// Each in file-name order.
+/// Every rule of a checkout: the `.md` files under `rules/`, then those under
+/// each `projects/*-rules/` when <project> is None, or only under
+/// `projects/<project>-rules/`. Each tree in path order.
 pub fn load(root: &Path, project: Option<&str>) -> Result<Vec<Rule>> {
-    let mut files: Vec<PathBuf> = markdown_in(&root.join("rules"))?;
+    let mut trees: Vec<PathBuf> = vec![root.join("rules")];
     match project {
-        Some(project) => files.extend(markdown_in(
-            &root.join("projects").join(format!("{project}-rules")),
-        )?),
+        Some(project) => trees.push(root.join("projects").join(format!("{project}-rules"))),
         None => {
             let projects = root.join("projects");
             let mut dirs: Vec<PathBuf> = std::fs::read_dir(&projects)
@@ -144,39 +149,65 @@ pub fn load(root: &Path, project: Option<&str>) -> Result<Vec<Rule>> {
                 })
                 .collect();
             dirs.sort();
-            for dir in dirs {
-                files.extend(markdown_in(&dir)?);
-            }
+            trees.extend(dirs);
         }
     }
-    let mut rules = Vec::new();
-    for file in files {
-        let text =
-            std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
-        let slug = file
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if rules.iter().any(|r: &Rule| r.slug == slug) {
-            fail!("two rules are named {slug}; a slug names one rule");
+    let mut rules: Vec<Rule> = Vec::new();
+    for tree in trees {
+        let mut files = Vec::new();
+        markdown_under(&tree, &mut files)?;
+        files.sort();
+        for file in files {
+            let text =
+                std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
+            let slug = file
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if let Some(first) = rules.iter().find(|r| r.slug == slug) {
+                fail!(
+                    "two rules are named {slug} ({} and {}); a slug names one rule",
+                    first.path,
+                    file.display()
+                );
+            }
+            let relative = file.strip_prefix(&tree).unwrap_or(&file);
+            let mut parts = relative.components();
+            let group_dir = match (parts.next(), parts.next()) {
+                (Some(dir), Some(_)) => Some(dir.as_os_str().to_string_lossy().into_owned()),
+                _ => None,
+            };
+            let mut rule = Rule::parse(&slug, &text);
+            rule.path = file
+                .strip_prefix(root)
+                .unwrap_or(&file)
+                .display()
+                .to_string();
+            rule.group_dir = group_dir;
+            rules.push(rule);
         }
-        rules.push(Rule::parse(&slug, &text));
     }
     Ok(rules)
 }
 
-fn markdown_in(dir: &Path) -> Result<Vec<PathBuf>> {
+/// Every `.md` file under <dir>, at any depth; none when <dir> is missing.
+fn markdown_under(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => fail!("listing {}: {error}", dir.display()),
     };
-    let mut files: Vec<PathBuf> = entries
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
-        .collect();
-    files.sort();
-    Ok(files)
+    for entry in entries {
+        let path = entry
+            .context(|| format!("listing {}", dir.display()))?
+            .path();
+        if path.is_dir() {
+            markdown_under(&path, files)?;
+        } else if path.extension().is_some_and(|ext| ext == "md") {
+            files.push(path);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

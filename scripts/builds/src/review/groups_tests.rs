@@ -9,12 +9,31 @@ fn checkout() -> std::path::PathBuf {
         .expect("the checkout resolves")
 }
 
-fn rule(slug: &str, paths: &str) -> Rule {
-    Rule::parse(slug, &format!("---\npaths:\n  - '{paths}'\n---\nbody\n"))
+fn rule(slug: &str, paths: &str, dir: &str) -> Rule {
+    let mut rule = Rule::parse(slug, &format!("---\npaths:\n  - '{paths}'\n---\nbody\n"));
+    rule.path = format!("rules/{dir}/{slug}.md");
+    rule.group_dir = Some(dir.to_string());
+    rule
+}
+
+fn group(dir: &str, extra: &str, rules: &[&str]) -> Group {
+    Group::parse(
+        dir,
+        &format!("name = \"{dir}\"\nquestion = \"q\"\n{extra}"),
+        rules.iter().map(|s| s.to_string()).collect(),
+    )
+    .unwrap()
+}
+
+fn groups(groups: Vec<Group>) -> Groups {
+    Groups {
+        groups,
+        digest: String::new(),
+    }
 }
 
 #[test]
-fn every_rule_of_the_checkout_is_in_exactly_one_group_and_every_slug_names_a_rule() {
+fn every_rule_of_the_checkout_is_in_a_group_folder() {
     let root = checkout();
     let groups = Groups::load(&root).unwrap();
     let rules = rules::load(&root, None).unwrap();
@@ -23,93 +42,98 @@ fn every_rule_of_the_checkout_is_in_exactly_one_group_and_every_slug_names_a_rul
 }
 
 #[test]
-fn faults_name_a_rule_in_no_group_in_two_groups_or_missing() {
-    let groups = Groups::parse(
-        r#"
-[[group]]
-name = "a"
-question = "q"
-model = "sonnet"
-rules = ["one", "two", "ghost"]
+fn a_group_runs_opus_unless_it_names_a_model() {
+    assert_eq!(group("a", "", &["x"]).model, "opus");
+    assert_eq!(group("a", "model = \"sonnet\"\n", &["x"]).model, "sonnet");
+}
 
-[[group]]
-name = "b"
-question = "q"
-model = "gpt"
-rules = ["two"]
-"#,
-    )
-    .unwrap();
-    let rules = vec![rule("one", "**"), rule("two", "**"), rule("three", "**")];
-    let faults = groups.faults(&rules);
-    assert!(
-        faults.iter().any(|f| f.contains("ghost, which is no rule")),
-        "{faults:?}"
-    );
+#[test]
+fn faults_name_a_rule_outside_a_group_folder_an_empty_group_and_a_bad_model() {
+    let g = groups(vec![
+        group("a", "", &["one"]),
+        group("b", "model = \"gpt\"\n", &[]),
+    ]);
+    let mut loose = rule("loose", "**", "a");
+    loose.group_dir = None;
+    let rules = vec![
+        rule("one", "**", "a"),
+        rule("three", "**", "nogroup"),
+        loose,
+    ];
+    let faults = g.faults(&rules);
     assert!(
         faults
             .iter()
-            .any(|f| f.contains("two is in group a and group b"))
+            .any(|f| f.contains("three (rules/nogroup/three.md) is in no group")),
+        "{faults:?}"
     );
-    assert!(faults.iter().any(|f| f.contains("three is in no group")));
+    assert!(faults.iter().any(|f| f.contains("loose")));
+    assert!(faults.iter().any(|f| f.contains("group b has no rule")));
     assert!(faults.iter().any(|f| f.contains("names model gpt")));
 }
 
 #[test]
 fn a_group_runs_when_one_of_its_rules_covers_a_changed_path() {
-    let groups = Groups::parse(
-        r#"
-[[group]]
-name = "swift"
-question = "q"
-model = "sonnet"
-rules = ["s1", "s2", "not-in-this-project"]
-
-[[group]]
-name = "rust"
-question = "q"
-model = "opus"
-rules = ["r1"]
-"#,
-    )
-    .unwrap();
+    let g = groups(vec![
+        group("swift", "", &["s1", "s2", "not-in-this-project"]),
+        group("rust", "", &["r1"]),
+    ]);
     let rules = vec![
-        rule("s1", "**/*.swift"),
-        rule("s2", "**/*.kt"),
-        rule("r1", "**/*.rs"),
+        rule("s1", "**/*.swift", "swift"),
+        rule("s2", "**/*.kt", "swift"),
+        rule("r1", "**/*.rs", "rust"),
     ];
-    let picked = groups.pick(&rules, &["bae-macos/A.swift".to_string()]);
+    let picked = g.pick(&rules, &["bae-macos/A.swift".to_string()]);
     assert_eq!(picked.len(), 1);
     assert_eq!(picked[0].0.name, "swift");
     let slugs: Vec<&str> = picked[0].1.iter().map(|r| r.slug.as_str()).collect();
     assert_eq!(slugs, ["s1", "s2"]);
-    assert!(groups.pick(&rules, &["README.md".to_string()]).is_empty());
+    assert!(g.pick(&rules, &["README.md".to_string()]).is_empty());
 }
 
 #[test]
 fn a_rule_marked_review_false_never_runs_its_group() {
-    let groups = Groups::parse(
-        "[[group]]\nname = \"g\"\nquestion = \"q\"\nmodel = \"sonnet\"\nrules = [\"x\"]\n",
-    )
-    .unwrap();
+    let g = groups(vec![group("g", "", &["x"])]);
     let rules = vec![Rule::parse(
         "x",
         "---\npaths: ['**']\nreview: false\n---\nb\n",
     )];
-    assert!(groups.pick(&rules, &["a".to_string()]).is_empty());
+    assert!(g.pick(&rules, &["a".to_string()]).is_empty());
 }
 
 #[test]
 fn a_group_that_lists_sites_says_what_a_site_is() {
-    let groups = Groups::parse(
-        "[[group]]\nname = \"g\"\nquestion = \"q\"\nmodel = \"opus\"\nenumerate = true\nrules = [\"a\", \"b\"]\n",
-    )
-    .unwrap();
-    let rules = vec![rule("a", "**"), rule("b", "**")];
+    let g = groups(vec![group("g", "enumerate = true\n", &["a", "b"])]);
+    let rules = vec![rule("a", "**", "g"), rule("b", "**", "g")];
     assert!(
-        groups
-            .faults(&rules)
+        g.faults(&rules)
             .iter()
             .any(|f| f.contains("lists sites, so it says what a site is"))
     );
+}
+
+#[test]
+fn groups_load_from_their_folders_with_the_rules_of_both_trees() {
+    let scratch = crate::testing::Scratch::new("groups-load");
+    let root = scratch.dir.join("ai");
+    for dir in ["rules/g", "projects/p-rules/g", "projects/p-rules/other"] {
+        std::fs::create_dir_all(root.join(dir)).unwrap();
+    }
+    std::fs::write(
+        root.join("rules/g/group.toml"),
+        "name = \"G\"\nquestion = \"q\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("rules/g/a.md"), "a\n").unwrap();
+    std::fs::write(root.join("projects/p-rules/g/b.md"), "b\n").unwrap();
+    std::fs::write(root.join("projects/p-rules/other/c.md"), "c\n").unwrap();
+    let loaded = Groups::load(&root).unwrap();
+    assert_eq!(loaded.groups.len(), 1);
+    assert_eq!(loaded.groups[0].rules, ["a", "b"]);
+    let every = rules::load(&root, None).unwrap();
+    let faults = loaded.faults(&every);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(faults[0].contains("c (projects/p-rules/other/c.md) is in no group"));
+    std::fs::write(root.join("projects/p-rules/g/a.md"), "dup\n").unwrap();
+    assert!(rules::load(&root, None).is_err());
 }

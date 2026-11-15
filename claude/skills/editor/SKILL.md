@@ -130,7 +130,8 @@ don't turn prose into lists. Inside a list, go through every bullet:
 ## Fix each sentence
 
 Every sentence is plain, literal and active
-(`rules/write-plain-literal-active-sentences.md`). Check each one for these:
+(`rules/text-people-read/write-plain-literal-active-sentences.md`). Check each
+one for these:
 
 - Read every verb and ask whether it says literally what happens. Verbs of place
   and body (sits, lives, holds, lands, draws, frees) are the usual figures of

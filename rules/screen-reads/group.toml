@@ -1,0 +1,5 @@
+name = "Screen reads"
+question = "Does each screen show the rows of one plain live SQL query, with nothing in Rust or the app computing what it shows?"
+enumerate = true
+passes = 2
+sites = "handles rows a query returned, in Rust, Swift or Kotlin: a filter, a pick (first, find, first(where:)), a membership test (contains, isSubset, a Set of ids), a length or emptiness test, a count, a sort, a group, a join, a map that drops rows, or a subscription taken once"

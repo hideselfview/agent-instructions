@@ -6,6 +6,7 @@ fn group(name: &str, enumerate: bool) -> Group {
         name: name.to_string(),
         question: format!("question of {name}"),
         model: "sonnet".to_string(),
+        dir: String::new(),
         rules: vec!["r".to_string()],
         instructions: None,
         project_facts: false,

@@ -11,47 +11,45 @@ pub struct Fake {
     pub program: PathBuf,
 }
 
-pub const GROUPS: &str = r#"
-[[group]]
-name = "alpha"
-question = "q"
-model = "sonnet"
-rules = ["rule-a"]
-
-[[group]]
-name = "beta"
-question = "q"
-model = "opus"
-rules = ["rule-b"]
-"#;
+/// Writes the `group.toml` of folder <dir>, with <extra> lines after the model.
+pub fn group_file(root: &Path, dir: &str, name: &str, model: &str, extra: &str) {
+    std::fs::write(
+        root.join("rules").join(dir).join("group.toml"),
+        format!("name = \"{name}\"\nquestion = \"q\"\nmodel = \"{model}\"\n{extra}"),
+    )
+    .unwrap();
+}
 
 pub fn fake(scratch: &Path) -> Fake {
     let root = scratch.join("instructions");
     let dir = scratch.join("reviewer");
-    for sub in ["rules", "projects"] {
+    for sub in ["rules/alpha", "rules/beta", "projects"] {
         std::fs::create_dir_all(root.join(sub)).unwrap();
     }
     std::fs::create_dir_all(dir.join("calls")).unwrap();
-    let rule = |slug: &str, glob: &str, blocking: bool, body: &str| {
+    let rule = |group: &str, slug: &str, glob: &str, blocking: bool, body: &str| {
         std::fs::write(
-            root.join("rules").join(format!("{slug}.md")),
+            root.join("rules").join(group).join(format!("{slug}.md")),
             format!("---\ndigest: d\npaths:\n  - '{glob}'\nblocking: {blocking}\n---\n\n{body}\n"),
         )
         .unwrap();
     };
     rule(
+        "alpha",
         "rule-a",
         "**/*.rs",
         true,
         "**Rule A.** Never do the bad thing here.",
     );
     rule(
+        "beta",
         "rule-b",
         "**/*.swift",
         false,
         "**Rule B.** Never do the other thing.",
     );
-    std::fs::write(root.join("rules/groups.toml"), GROUPS).unwrap();
+    group_file(&root, "alpha", "alpha", "sonnet", "");
+    group_file(&root, "beta", "beta", "opus", "");
     std::fs::write(root.join("projects/demo.md"), "Demo project facts.\n").unwrap();
     let program = dir.join("claude");
     let script = format!(

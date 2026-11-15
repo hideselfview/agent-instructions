@@ -9,7 +9,7 @@ Studio, an app for writing recipes interactively.
 ## Shapes change in one commit, with no compatibility code
 
 forage follows
-`rules/change-a-shape-in-one-commit-with-no-compatibility-code.md`. In forage,
-its shapes include the schema, the AST, the IR, the binary format, the capture
-and replay fixtures, the hub-api KV entries and the language server's wire
-messages.
+`rules/necessary-code/change-a-shape-in-one-commit-with-no-compatibility-code.md`.
+In forage, its shapes include the schema, the AST, the IR, the binary format,
+the capture and replay fixtures, the hub-api KV entries and the language
+server's wire messages.
