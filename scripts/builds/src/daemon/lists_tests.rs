@@ -354,6 +354,8 @@ fn the_titles_of_a_worktrees_running_items_come_in_list_order() {
         assert!(titles.contains(title));
     }
     assert!(running_titles(&lists, "/d/bae-worktrees/side-9").is_empty());
+    assert_eq!(running_numbers(&lists, here), [first.0, second.0]);
+    assert!(running_numbers(&lists, "/d/bae-worktrees/side-9").is_empty());
 }
 
 #[test]

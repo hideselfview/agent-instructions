@@ -185,6 +185,10 @@ pub struct Words {
     /// item. They replace the claim note. A design branch with no running
     /// item shows its design change's title.
     pub titles: Vec<String>,
+    /// The numbers of the items running here, in list order. The page shows
+    /// them first in the top bar. Set where the card's items are read
+    /// (model.rs), not by `words`.
+    pub numbers: Vec<u32>,
     /// The plain line of what the worktree waits on or does. With a title
     /// above it, the claim note is left out.
     pub line: String,
@@ -212,6 +216,7 @@ pub fn words(checkout: &CheckoutPage, titles: &[String], wait: Option<&ItemWait>
         return Words {
             chip: None,
             titles: Vec::new(),
+            numbers: Vec::new(),
             line: "Your checkout. No agent works or builds here.".into(),
             tree,
             queued: None,
@@ -285,6 +290,7 @@ pub fn words(checkout: &CheckoutPage, titles: &[String], wait: Option<&ItemWait>
     };
     Words {
         chip,
+        numbers: Vec::new(),
         titles: match wait {
             Some(ItemWait::Review { title, .. }) if !titled => vec![title.clone()],
             _ => titles.to_vec(),

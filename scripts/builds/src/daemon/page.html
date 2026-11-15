@@ -183,6 +183,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .wt-card .steps { font: 12px var(--mono); }
 .bar .qplace { font: 500 12px var(--mono); margin-left: 4px; }
 .bar .grp { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; }
+.bar .l-id { margin-right: -6px; color: inherit; opacity: 0.75; }
 .bar .state { font-weight: 600; }
 .bar .disk { margin-left: auto; font: 500 13px var(--mono); }
 .bar.ready .disk { color: var(--ready); }
@@ -693,7 +694,7 @@ function worktreeCard(c) {
       h("div", {class: "c"}, commitCells(ahead.slice(1)))) : null) : null;
   return h("article", {class: "wt-card"},
     h("div", {class: "bar" + tone},
-      h("span", {class: "grp"}, chip ? h("span", {class: "state"}, chip,
+      h("span", {class: "grp"}, c.words.numbers.length ? idChip(...c.words.numbers) : null, chip ? h("span", {class: "state"}, chip,
         queued ? [" ", h("span", {class: "qplace"}, queued.place + "/" + queued.of)] : null) : null,
         building ? h("span", {}, Math.round(a.cpu) + "% CPU · " + bytes(a.memory)) : null),
       diskSpan(c),

@@ -1033,6 +1033,11 @@ impl Model {
                         checkout.state = Some("waiting-on-you");
                     }
                     checkout.words = super::cards::words(checkout, &titles, wait.as_ref());
+                    if !checkout.main {
+                        checkout.words.numbers = project
+                            .map(|lists| super::lists::running_numbers(lists, &checkout.path))
+                            .unwrap_or_default();
+                    }
                 }
             }
         }

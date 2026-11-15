@@ -204,6 +204,17 @@ pub fn running_titles(lists: &crate::lists::Lists, worktree: &str) -> Vec<String
         .collect()
 }
 
+/// The numbers of the items running in <worktree>, in the order the items
+/// are listed.
+pub fn running_numbers(lists: &crate::lists::Lists, worktree: &str) -> Vec<u32> {
+    lists
+        .items
+        .iter()
+        .filter(|item| item.running.iter().any(|r| r.worktree == worktree))
+        .map(|item| item.id.0)
+        .collect()
+}
+
 /// What the running items of <worktree> wait on that is not met, the first
 /// that needs the person (a question, a design change), else an item.
 pub fn running_wait(lists: &crate::lists::Lists, worktree: &str) -> Option<super::cards::ItemWait> {
