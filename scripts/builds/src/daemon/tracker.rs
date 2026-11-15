@@ -125,7 +125,7 @@ pub type Answer = Option<Measure>;
 impl Tracker {
     /// Starts following <root> (an absolute, resolved path).
     pub fn start(root: &Path, marks_dir: &Path) -> std::io::Result<Arc<Tracker>> {
-        Self::start_waiting(root, marks_dir, std::time::Duration::from_secs(10))
+        Self::start_waiting(root, marks_dir, std::time::Duration::from_secs(4))
     }
 
     /// Starts following <root>; a question waits up to <mark_wait> for the
@@ -450,6 +450,11 @@ impl Tracker {
     /// meanwhile wait in the queue and are applied after.
     fn rewalk(&self, folder: &Path, flags: u32, epoch: u64) {
         let started = std::time::Instant::now();
+        eprintln!(
+            "{} builds: FSEvents lost events (flags {flags:#x}); walking {} again",
+            crate::text::clock(),
+            folder.display()
+        );
         let meta = match std::fs::symlink_metadata(folder) {
             Ok(meta) if meta.is_dir() => meta,
             _ if *folder == self.root => {
@@ -519,7 +524,8 @@ impl Tracker {
             fresh.len()
         };
         eprintln!(
-            "builds: FSEvents lost events (flags {flags:#x}); walked {} again: {entries} entries in {:.1}s",
+            "{} builds: walked {} again: {entries} entries in {:.1}s",
+            crate::text::clock(),
             folder.display(),
             started.elapsed().as_secs_f64()
         );
@@ -772,7 +778,8 @@ impl Tracker {
                 let took = asked.elapsed();
                 if took > std::time::Duration::from_secs(1) {
                     eprintln!(
-                        "builds: FSEvents took {:.1}s to deliver {}",
+                        "{} builds: FSEvents took {:.1}s to deliver {}",
+                        crate::text::clock(),
                         took.as_secs_f64(),
                         mark.display()
                     );
@@ -782,7 +789,8 @@ impl Tracker {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             if left.is_zero() {
                 eprintln!(
-                    "builds: FSEvents did not deliver {} in {}s; answering nothing",
+                    "{} builds: FSEvents did not deliver {} in {}s; answering nothing",
+                    crate::text::clock(),
                     mark.display(),
                     self.mark_wait.as_secs()
                 );

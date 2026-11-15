@@ -3,11 +3,14 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use crate::checkout::{Root, all_roots};
 use crate::daemon::client;
 use crate::fail::Result;
 use crate::places::{DiskSpace, Places, Rules};
+use crate::text::note;
 use crate::usage::{Measure, measure_many};
 
 pub struct Tool {
@@ -17,7 +20,15 @@ pub struct Tool {
     pub now: i64,
     /// Sizes measured ahead, for `status`, which reads every folder once.
     measured: HashMap<PathBuf, Measure>,
+    /// A question to the daemon took longer than `DAEMON_SLOW` (or got no
+    /// answer): the rest of the command measures here instead of waiting that
+    /// long again for each question.
+    daemon_slow: AtomicBool,
 }
+
+/// The longest one question to the daemon may take before the command stops
+/// asking it. Measuring a few folders here takes about as long.
+const DAEMON_SLOW: Duration = Duration::from_secs(3);
 
 impl Tool {
     pub fn new(places: Places, rules: Rules) -> Tool {
@@ -30,6 +41,7 @@ impl Tool {
             rules,
             now,
             measured: HashMap::new(),
+            daemon_slow: AtomicBool::new(false),
         }
     }
 
@@ -65,8 +77,25 @@ impl Tool {
         if paths.is_empty() {
             return Ok(Vec::new());
         }
-        let answers = client::measure(&self.places, paths, fresh)
-            .unwrap_or_else(|| paths.iter().map(|_| None).collect());
+        let started = Instant::now();
+        let asked = if self.daemon_slow.load(Ordering::Relaxed) {
+            None
+        } else {
+            client::measure(&self.places, paths, fresh)
+        };
+        if !self.daemon_slow.load(Ordering::Relaxed) {
+            if started.elapsed() >= DAEMON_SLOW {
+                note(format!(
+                    "the daemon took {:.1}s over a question about {} paths; measuring the rest here",
+                    started.elapsed().as_secs_f64(),
+                    paths.len()
+                ));
+            }
+            if asked.is_none() || started.elapsed() >= DAEMON_SLOW {
+                self.daemon_slow.store(true, Ordering::Relaxed);
+            }
+        }
+        let answers = asked.unwrap_or_else(|| paths.iter().map(|_| None).collect());
         let unanswered: Vec<PathBuf> = paths
             .iter()
             .zip(&answers)
