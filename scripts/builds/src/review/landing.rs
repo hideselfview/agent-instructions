@@ -31,7 +31,6 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 
 use crate::checkout::Checkout;
-use crate::db;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
@@ -220,20 +219,16 @@ fn assess(
     Ok(Some((covered, unfinished)))
 }
 
-/// Whether the review lets the commits of <needs> land in <repo>. <db> is
-/// None when the store has no database yet.
+/// Whether the review lets the commits of <needs> land in <repo>.
 ///
 /// The newest open change whose review takes them covers them; failing that,
 /// the newest open change whose review read one of them says what it lacks.
 /// A change that landed already covers them only when its review takes them
 /// all, so `landed` can run again after the push.
-pub fn judge(db: Option<&Connection>, repo: &str, needs: &[Need]) -> Result<Verdict> {
+pub fn judge(db: &Connection, repo: &str, needs: &[Need]) -> Result<Verdict> {
     if needs.iter().all(|n| n.groups.is_empty()) {
         return Ok(Verdict::NotNeeded);
     }
-    let Some(db) = db else {
-        return Ok(Verdict::NoRun);
-    };
     let mut lacking: Option<(Covered, Unfinished)> = None;
     for landing in record::landings_of_repo(db, repo, false)? {
         if let Some((covered, unfinished)) = assess(db, &landing, needs)? {
@@ -350,9 +345,10 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
     if shas.is_empty() {
         fail!("name the commits: {USAGE}");
     }
-    let checkout = Checkout::find(dir)?;
     let project = args.require("project")?;
     let store = Store::named(&tool.places, project)?;
+    store.open_existing()?;
+    let checkout = Checkout::find(dir)?;
     let root = super::rules_root(args)?;
     let commits = commits::with_patch_ids(&checkout.top, shas)?;
     let material = Material::load(&root, project)?;
@@ -371,8 +367,7 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
 pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root"], &[])?;
     let asked = ask(tool, &args)?;
-    let conn = db::open_reader(&asked.store.database())?;
-    let verdict = judge(conn.as_ref(), &asked.repo, &asked.needs)?;
+    let verdict = judge(&asked.store.open_existing()?, &asked.repo, &asked.needs)?;
     match refusal(&asked.commits(), &verdict) {
         Some(why) => {
             print!("{why}");
@@ -399,8 +394,8 @@ pub fn taken(verdict: &Verdict) -> String {
 /// Records the change of <asked> as landed; returns the landing when this
 /// recorded it, None when it needed no review or was recorded already.
 fn record_landed(asked: &Asked, stamp: &Stamp) -> Result<Option<i64>> {
-    let conn = db::open_reader(&asked.store.database())?;
-    let verdict = judge(conn.as_ref(), &asked.repo, &asked.needs)?;
+    let conn = asked.store.open_existing()?;
+    let verdict = judge(&conn, &asked.repo, &asked.needs)?;
     if let Some(why) = refusal(&asked.commits(), &verdict) {
         fail!("the review does not take these commits:\n{why}")
     }
@@ -459,9 +454,7 @@ pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
 /// Starts `builds review audit` on <landing> in the background when the
 /// sample picks it.
 fn start_audit(asked: &Asked, landing: i64, roll: f64, reviewer: &str) -> Result<()> {
-    let Some(conn) = db::open_reader(&asked.store.database())? else {
-        return Ok(());
-    };
+    let conn = asked.store.open_existing()?;
     if !super::audit::sampled(&conn, landing, &super::group_names(&asked.root)?, roll)? {
         return Ok(());
     }

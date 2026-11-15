@@ -239,10 +239,7 @@ pub struct Inputs<'a> {
 /// commits of the run it landed with. Returns what to print: the candidate
 /// misses and how to settle them.
 pub fn audit(inputs: &Inputs) -> Result<String> {
-    let conn = crate::db::open_reader(&inputs.store.database())?;
-    let Some(conn) = conn else {
-        crate::fail!("there is no store for project {}", inputs.project);
-    };
+    let conn = inputs.store.open_existing()?;
     let key = record::landing(&conn, inputs.landing)?.key;
     let Some(last) = landed_run(&conn, inputs.landing)? else {
         crate::fail!(

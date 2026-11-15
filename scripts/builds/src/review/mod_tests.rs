@@ -48,7 +48,7 @@ fn settle_as(demo: &Demo, finding: i64, how: &str, why: &str) {
 }
 
 fn findings_of(demo: &Demo, landing: i64) -> Vec<record::Finding> {
-    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let conn = demo.store.open_existing().unwrap();
     record::findings_of_landing(&conn, landing).unwrap()
 }
 
@@ -185,7 +185,7 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
         })
         .unwrap();
     // The record holds the one review run.
-    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let conn = demo.store.open_existing().unwrap();
     assert_eq!(
         landing::review_runs(&conn, first.landing.unwrap())
             .unwrap()
@@ -272,6 +272,53 @@ fn settling_records_who_and_why_and_refuses_a_second_settling() {
 }
 
 #[test]
+fn every_review_command_fails_for_a_project_with_no_store() {
+    let demo = demo("review-no-store");
+    let main = demo.main.display().to_string();
+    let rules = demo.scratch.dir.display().to_string();
+    let commands: Vec<Vec<&str>> = vec![
+        vec![&main, "--by", "tester"],
+        vec!["check-landing", &main, "HEAD"],
+        vec!["landed", &main, "HEAD"],
+        vec!["settle", "1", "confirmed", "--why", "real"],
+        vec!["fixed", "1", "HEAD"],
+        vec!["show", "1"],
+        vec!["misses"],
+        vec!["rates"],
+        vec!["scores"],
+        vec!["audit", "1", "--repo-dir", &main],
+        vec!["replay", "--landing", "1", "--repo-dir", &main],
+        vec![
+            "case",
+            "add",
+            "--rule",
+            "rule-a",
+            "--file",
+            "a.rs",
+            "--commits",
+            "main..main",
+            "--name",
+            "n",
+            "--repo-dir",
+            &main,
+            "--rules-root",
+            &rules,
+        ],
+    ];
+    for command in commands {
+        let mut args: Vec<String> = command.iter().map(|word| word.to_string()).collect();
+        args.extend(["--project".to_string(), "ghost".to_string()]);
+        let failed = cmd_review(&demo.tool, &args).unwrap_err().text();
+        assert_eq!(
+            failed,
+            "there is no store for project ghost",
+            "builds review {}",
+            command.join(" ")
+        );
+    }
+}
+
+#[test]
 fn a_change_with_nothing_past_the_base_reviews_nothing() {
     let demo = demo("review-empty");
     let fake = fake(&demo.scratch.dir);
@@ -346,7 +393,7 @@ fn a_review_of_a_given_head_reads_a_copy_and_keeps_what_each_reviewer_was_sent_a
     })
     .unwrap();
     assert!(reported.refusal.is_none());
-    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let conn = demo.store.open_existing().unwrap();
     let (system, message, output, tokens): (String, String, String, i64) = conn
         .query_row(
             "SELECT s.text, m.text, e.output, e.tokens_in FROM review_exchange e JOIN review_text s ON s.hash = e.system_hash JOIN review_text m ON m.hash = e.message_hash",

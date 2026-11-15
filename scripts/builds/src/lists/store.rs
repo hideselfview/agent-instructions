@@ -91,6 +91,16 @@ impl Store {
         Ok((rows > 0).then_some(conn))
     }
 
+    /// The database for reading, for a command that needs the store to
+    /// exist, such as a review command: fails when the project has no store.
+    pub fn open_existing(&self) -> Result<Connection> {
+        let Some(conn) = self.reader()? else {
+            fail!("there is no store for project {}", self.project);
+        };
+        self.verify(&conn)?;
+        Ok(conn)
+    }
+
     /// Refuses a database whose project is another's.
     fn verify(&self, db: &Connection) -> Result<()> {
         let held = project::name(db)?;

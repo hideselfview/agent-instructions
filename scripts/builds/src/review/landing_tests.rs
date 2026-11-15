@@ -44,8 +44,8 @@ fn review_past(demo: &Demo, fake: &Fake, side: &Path, base: &str) -> super::supe
 /// words.
 fn verdict_of(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> (Verdict, Option<String>) {
     let asked = asked(demo, fake, side, shas);
-    let conn = db::open_reader(&asked.store.database()).unwrap();
-    let verdict = judge(conn.as_ref(), "demo", &asked.needs).unwrap();
+    let conn = asked.store.open_existing().unwrap();
+    let verdict = judge(&conn, "demo", &asked.needs).unwrap();
     let words = refusal(&asked.commits(), &verdict);
     (verdict, words)
 }
@@ -68,7 +68,7 @@ fn ask_of(tool: &Tool, args: &Args) -> Asked {
 }
 
 fn findings(demo: &Demo) -> Vec<record::Finding> {
-    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let conn = demo.store.open_existing().unwrap();
     let landing = record::open_landing(&conn, "branch:work").unwrap().unwrap();
     record::findings_of_landing(&conn, landing).unwrap()
 }
@@ -258,9 +258,9 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
     .to_string();
     assert_ne!(picked, a);
     let asked_picked = asked(&demo, &fake, &other, std::slice::from_ref(&picked));
-    let conn = db::open_reader(&demo.store.database()).unwrap();
+    let conn = demo.store.open_existing().unwrap();
     assert!(matches!(
-        judge(conn.as_ref(), "demo", &asked_picked.needs).unwrap(),
+        judge(&conn, "demo", &asked_picked.needs).unwrap(),
         Verdict::Takes(_)
     ));
     drop(conn);
@@ -268,7 +268,7 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
     assert!(landing.is_some());
     // Recording again finds the landed run and records nothing more.
     assert_eq!(record_landed(&asked_picked, &stamp()).unwrap(), None);
-    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let conn = demo.store.open_existing().unwrap();
     assert!(
         record::landing(&conn, landing.unwrap())
             .unwrap()
@@ -298,7 +298,7 @@ fn landed_records_the_worktrees_claim_wherever_it_runs() {
     // The test process runs in no claimed worktree, as builds land does when
     // the coordinator runs it from the person's checkout.
     assert!(record_landing(&demo.tool, &args).unwrap().is_some());
-    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let conn = demo.store.open_existing().unwrap();
     let log = crate::lists::store::read_log(&conn).unwrap();
     let (_, _, by, words) = log.last().unwrap();
     assert!(words.starts_with("review landed"), "{words}");

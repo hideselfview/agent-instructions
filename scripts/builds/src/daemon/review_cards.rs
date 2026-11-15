@@ -122,8 +122,8 @@ impl Reads {
             return Some(ItemWait::RulesReview(ReviewWait::Running));
         }
         let database = store_dir.join(crate::db::DATABASE);
-        let conn = crate::db::open_reader(&database).ok()?;
-        let wait = match landing::judge(conn.as_ref(), repo, &needs).ok()? {
+        let conn = crate::db::open_reader(&database).ok()??;
+        let wait = match landing::judge(&conn, repo, &needs).ok()? {
             Verdict::NotNeeded | Verdict::Takes(_) => return None,
             Verdict::NoRun => ReviewWait::NotRun,
             Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {

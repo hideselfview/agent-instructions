@@ -12,7 +12,6 @@
 
 use std::path::Path;
 
-use crate::db;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::Stamp;
@@ -54,9 +53,7 @@ pub struct Replayed {
 /// replay, and returns what to print: each diff's new findings, then the
 /// replay's counts next to the recorded reviews'.
 pub fn replay(inputs: &Inputs) -> Result<Replayed> {
-    let Some(conn) = db::open_reader(&inputs.store.database())? else {
-        fail!("there is no store for project {}", inputs.project);
-    };
+    let conn = inputs.store.open_existing()?;
     let mut material = Material::load(inputs.root, inputs.project)?;
     if let Some(model) = inputs.model {
         material = material.with_model(model);

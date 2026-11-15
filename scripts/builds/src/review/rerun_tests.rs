@@ -47,7 +47,7 @@ fn reviewed(demo: &Demo, fake: &Fake, side: &Path) -> i64 {
     .unwrap()
     .landing
     .unwrap();
-    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let conn = demo.store.open_existing().unwrap();
     let findings = record::findings_of_landing(&conn, landing).unwrap();
     drop(conn);
     let id_of = |rule: &str| findings.iter().find(|f| f.rule == rule).unwrap().id;
@@ -100,7 +100,7 @@ fn a_replay_of_a_landing_scores_its_findings_against_the_settled_ones_beside_the
         text.contains("    rule-b\n      in use  TP 0, FP 1, FN 0, TN 0, unsettled 0; precision 0%, recall n/a\n      replay  TP 0, FP 1, FN 0, TN 0, new 0; precision 0%, recall n/a\n"),
         "{text}"
     );
-    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let conn = demo.store.open_existing().unwrap();
     let replays = record::calls_of_kind(&conn, Kind::Replay).unwrap();
     assert_eq!(replays.len(), 2, "the replay is recorded");
     assert!(replays.iter().all(|c| c.model == "haiku"));

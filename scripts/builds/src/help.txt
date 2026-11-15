@@ -1005,6 +1005,12 @@ records the same, with the commit of the rules checkout it read. A rule's `block
 findings blocking in the reviewer's prompt and the report; every finding,
 blocking or not, must be settled before the commits land.
 
+Every review command but `review groups` reads or writes a project's store:
+the one --project names, else the project of the worktree or current
+directory; `review replay` of cases writes each case's project's store. When
+that project has no store, the command fails with "there is no store for
+project P" and asks no reviewer.
+
 After the push, land records the change's landing as landed, with its review
 run. A sample of landed reviews is audited for findings they
 missed. The person curates a confirmed miss into a case: a recorded change in
