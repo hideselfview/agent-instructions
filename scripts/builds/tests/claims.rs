@@ -542,13 +542,14 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     let measured = demo.status_json(true);
 
     let port = free_port();
-    let log = demo.dir.join("daemon.log");
+    // The daemon writes its notes to a file in its folder, not to stderr.
+    let log = demo.volume().join(".builds-daemon/log");
     let server = demo
         .builds()
         .args(["dashboard", "--port", &port.to_string()])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(std::fs::File::create(&log).unwrap())
+        .stderr(Stdio::null())
         .spawn()
         .unwrap();
     let server_pid = server.id() as i32;
@@ -753,6 +754,9 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     demo.run(&["claim", &side2, "coordinator (landing)"]);
     states("waiting-on-you", "landing");
     // A held claim shows as held, commits waiting to land or not.
+    // An app checkout is a standing role that a hold never has to justify
+    // with a running item.
+    demo.run(&["app-checkout", "mac", &side]);
     demo.run(&["note", &side, "--state", "held", "kept until step 8 lands"]);
     let block = status_block(&demo.ok(&["status"]), "demo/side-1");
     assert_eq!(block[1], "    note (held): kept until step 8 lands");
