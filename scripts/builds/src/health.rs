@@ -50,6 +50,8 @@ pub enum FindingKind {
     /// A claimed worktree with no change and no build for a while.
     Quiet,
     Lists,
+    /// A process with a lot of CPU time that looks stuck.
+    Busy,
 }
 
 /// One line of what needs acting on.
@@ -974,17 +976,40 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             Err(Fail::Exit(1))
         };
     }
-    let health = match crate::daemon::client::health(&tool.places) {
+    let mut health = match crate::daemon::client::health(&tool.places) {
         Some(health) => health,
         None => health(tool)?,
     };
+    // Read now, never from the daemon: the daemon does not run ssh.
+    let ssh = crate::host::Ssh::from_env();
+    let hosts = crate::host::all(&tool.places)?;
+    let busy = parallel_map(&hosts, |host| crate::stuck::read(&ssh, host));
+    health.findings.extend(
+        crate::stuck::findings(&busy)
+            .into_iter()
+            .map(|text| Finding::new(FindingKind::Busy, text)),
+    );
     if json {
-        println!(
-            "{}",
-            serde_json::to_string(&health).expect("health serializes")
+        let mut value = serde_json::to_value(&health).expect("health serializes");
+        value["busy"] = serde_json::json!(
+            busy.iter()
+                .map(|host| serde_json::json!({
+                    "host": host.host,
+                    "busy": host.busy.as_ref().ok(),
+                    "error": host.busy.as_ref().err(),
+                }))
+                .collect::<Vec<_>>()
         );
+        println!("{value}");
     } else {
-        for line in lines(&health) {
+        // The busy processes come before "needs action", which is last.
+        let mut out = lines(&health);
+        let at = out
+            .iter()
+            .position(|line| line.starts_with("needs action"))
+            .unwrap_or(out.len());
+        out.splice(at..at, crate::stuck::lines(&busy));
+        for line in out {
             println!("{line}");
         }
     }

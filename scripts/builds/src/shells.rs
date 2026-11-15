@@ -96,12 +96,12 @@ fn is_agent_shell(entry: &Entry) -> bool {
     is_agent_argv(&entry.argv)
 }
 
-fn is_agent_argv(argv: &[String]) -> bool {
+pub fn is_agent_argv(argv: &[String]) -> bool {
     let name = argv.first().map(|a| basename(a)).unwrap_or_default();
     matches!(name, "zsh" | "bash" | "sh") && argv.iter().any(|arg| arg.contains("shell-snapshots"))
 }
 
-fn basename(path: &str) -> &str {
+pub fn basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
@@ -156,7 +156,7 @@ pub fn gather(processes: &Processes, uid: u32) -> Vec<Entry> {
 
 /// The command an agent shell runs: what its `eval '...'` holds, with the
 /// quotes the tool added undone. The whole argument line when there is none.
-fn command_of(argv: &[String]) -> String {
+pub fn command_of(argv: &[String]) -> String {
     let line = argv.join(" ");
     match line.find("eval '") {
         Some(at) => {
@@ -176,7 +176,7 @@ fn flat(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn shown(text: &str) -> String {
+pub fn shown(text: &str) -> String {
     if text.chars().count() > SHOWN {
         format!("{}…", text.chars().take(SHOWN).collect::<String>())
     } else {

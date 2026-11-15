@@ -46,6 +46,7 @@ mod shells;
 mod shot_findings;
 mod side_git;
 mod status;
+mod stuck;
 mod temp_builds;
 #[cfg(test)]
 mod testing;

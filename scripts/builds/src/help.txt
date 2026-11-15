@@ -212,6 +212,20 @@ Commands:
                               open design change covers; a worktree whose
                               commits an open design change covers, still
                               waiting on the person's review, is not quiet;
+                              the busy processes on this Mac and on every
+                              reachable host (over 50% CPU now and 10+ min of
+                              CPU time, or 90%+ for 30+ min): pid, host, CPU
+                              now, CPU time, age, command, and what each
+                              belongs to (a builds build with its worktree
+                              and step, an agent shell's worktree, a test
+                              binary, a system daemon); one past its step's
+                              limit (the 45 min default; health does not
+                              read a `limit` line), a test binary past 30 min, or a
+                              system daemon with 2+ hours of CPU that still
+                              runs busy is a finding that says what to run
+                              (`kill <pid>`, or `sudo killall <name>` for a
+                              daemon); health never stops one. These are read
+                              now over ssh, never from the daemon;
                               exits 1 when something needs acting on. Asks the daemon when one runs
   builds lists ...            the decision stack, work queue, design changes
                               and decision log of a project, in a store
