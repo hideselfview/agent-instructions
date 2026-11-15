@@ -164,34 +164,23 @@ duplicate types to make a split compile.
 
 ## Reads and fast values
 
-Everything a screen shows comes from SQL, except values that change many times a
-second, which travel on keyed latest-value streams, and state that lives only on
-screen (hover, focus, an open popover or menu, a drag in progress), which the
-view holds and SQL never sees.
+What a screen shows is what its SQL query returns: Rust turns the rows into
+bridge types and the app draws them, with no cache, enrichment or other step
+between the query and the screen. The exceptions are values that change many
+times a second, which travel on keyed latest-value streams, and state that lives
+only on screen (hover, focus, an open popover or menu, a drag in progress),
+which the view holds.
 
-A read that must follow changes (a reactive screen, or a subscriber in the
-bridge, automation or MCP) is a plain coven live query; any other read is a
-plain SQL read. SQLite does the filtering, sorting, joining, grouping, counting
-and windowing, and everything a screen shows beside its rows (counts, totals,
-groups and section headers, "N of M", sums, facets) comes from SQL, in the same
-query or its own live query; a long list's count, its headers and each of its
-windows are separate live queries, never one query holding the count beside the
-rows, which rereads every window on every insert. SQLite is local, so the query
-is the plain one (GROUP BY, COUNT, JOIN straight from the domain's tables); a
-table of pre-added counts kept by triggers comes only after the plain query
-measures too slow. Nothing is kept in memory between reads, no side pass, no
-forced rerun, no size cutoff between read paths. A long list pages by cursor
-(its request carries the sort values of the row at the screen's edge, sought
-through the order's index) and jumps by offset, with an index for the jump only
-when it measures slow enough to warrant one. The full rule is
-`projects/bae-rules/reactive-screens-read-plain-live-queries.md`. bae's
-pre-commit hook refuses the shapes a static check can see in Rust (the ownership
-check's `read-shapes` rule), with a `frozen` list that only shrinks and an
-`allowed` list for uses over values that are not a read's rows. No check reads
-the apps' Swift and Kotlin, because a static check cannot tell a screen's rows
-from the app's own state or from handler code; the landing review covers
-app-side row work, along with what the Rust check cannot catch, which the rule
-file lists.
+A read that must follow changes (a screen, or a subscriber in the bridge,
+automation or MCP) is a coven live query; any other read is a plain SQL read.
+Each window of a long list is its own live query, bounded by a sort key at both
+ends. A count goes in the same query as the rows until it makes them rerun too
+often, and then gets a live query of its own. Grouping, counting, joining and
+sorting are SQL; a slow query gets a better query, an index, or a table that
+triggers keep, as the situation needs. The full rule is
+`projects/bae-rules/reactive-screens-read-plain-live-queries.md`, and bae's
+pre-commit hook refuses the shapes it can see in Rust; the landing review covers
+the apps and the rest.
 
 A value that changes many times a second (playback position, transfer bytes,
 rates, levels) travels on a keyed latest-value stream and is drawn by a native
