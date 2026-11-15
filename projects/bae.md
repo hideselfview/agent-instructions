@@ -174,10 +174,11 @@ landing worktree (side-7), and coven from side-1.
 ### Design-session items
 
 The design session owns the boards (`design/mocks`), the design system
-(`design/system`) and the canvas. The coordinator never picks up or dispatches a
-design-session item, and app work that waits on a board waits until the board
-lands. How the design session draws, records, reviews and lands a change is in
-`principles/drawing-screens.md` and `principles/design-to-implementation.md`.
+(`design/system`) and the canvas, the published page of all the boards. The
+coordinator never picks up or dispatches a design-session item, and app work
+that waits on a board waits until the board lands. How the design session draws,
+records, reviews and lands a change is in `principles/drawing-screens.md` and
+`principles/design-to-implementation.md`.
 
 ## Making a change
 
@@ -249,9 +250,9 @@ command: each build path is part of sccache's key, so an override gets no cache
 hits.
 
 `scripts/cargo.sh test`, `clippy`, `check`, `doc` and `nextest` run on this Mac
-or the M1, whichever has more free cores. A test that needs this Mac's keychain,
-a local server or a file outside the checkout fails on the M1: run it with
-`BUILDS_CARGO_HOST=local`.
+or the M1 (a second Mac that builds also uses), whichever has more free cores. A
+test that needs this Mac's keychain, a local server or a file outside the
+checkout fails on the M1: run it with `BUILDS_CARGO_HOST=local`.
 
 Don't delete build folders yourself: `builds` deletes the ones no build has used
 for days and keeps the rest under their size caps.
@@ -268,7 +269,8 @@ builds app-build bae <branch> [--test <Class>]... [--shots <prefix>]...
 builds decides what to build, and in which app checkout (a side worktree kept
 for app builds), from the paths the branch changes. A branch that changes only
 Rust builds nothing. `--test <Class>` runs one test class, and
-`--shots <prefix>` (`mac.` or `android.`) runs a shot selection.
+`--shots <prefix>` runs the shots (pictures of app views, each checked against
+its board) whose names start with the prefix (`mac.` or `android.`).
 
 Never run `macos-tests-run`, `macos-tests-all` or `android-tests` as a check:
 they run every test and put windows on the person's screen, and CI runs the
