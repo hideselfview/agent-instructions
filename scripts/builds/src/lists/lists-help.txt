@@ -34,6 +34,16 @@ naming the field that is wrong when it does not parse or holds a field the
 command does not take. Each write prints what it did and what follows, such as
 the stack's new top and what it blocks, or the items an answer made ready.
 
+A question or an item may carry tags (`--tag T`, repeatable), each naming the
+audit or group it came from, such as "screen-reads audit". A tag is one line
+with no spaces at its ends. `question list`, `item list` and `lists show` print
+each record's tags and take `--tag T` to show only the records that carry T,
+each question keeping its place in the stack; the dashboard shows the tags on
+each row and a bar of every tag that shows one tag's entries together. A record
+keeps its tags when it closes, and `edit --tag T` and `edit --untag T` change
+the tags of an open or a closed record; an edit of any other field needs an
+open one.
+
 Every write is one SQLite transaction, taken as the write lock: the command's
 own changes, the line of the write log, and the check below, then commit. A
 write lands whole or not at all, and a refused command leaves every table and
@@ -69,6 +79,7 @@ placed last.
   builds question ask --title T --kind question|your-step|held
                       --details-file F (--blocks N[,N] | --blocks-nothing WHY)
                       [--from-item N] [--first WHY] [--plan PATH --plan-number Qn]
+                      [--tag T]...
       Puts an entry on the stack: a question, work only the person can do
       (your-step), or work held until they start it (held). It needs what the
       entry blocks, open items that gain a wait on it (a running item may be
@@ -76,9 +87,9 @@ placed last.
       nothing waits; a --blocks item that is unknown or closed is refused.
       --first puts it on top, with why. --from-item N closes item N as moved
       to the stack (it was the person's work), and every item that waited on N
-      waits on the new entry instead; refused for a running item. --plan and
-      --plan-number tie it to a plan's open question, and its answer carries
-      the link.
+      waits on the new entry instead, and the entry gets N's tags; refused for
+      a running item. --plan and --plan-number tie it to a plan's open
+      question, and its answer carries the link.
 
   builds question answer N --request F
       The request: {"decision": {"title", "body", "by", "replaces"?},
@@ -111,12 +122,14 @@ placed last.
 
   builds question edit N [--title T] [--details-file F]
                          [--blocks-nothing WHY | --blocks-something]
+                         [--tag T]... [--untag T]...
       --blocks-something is refused when no open item waits on the entry: an
-      entry that blocks nothing needs a why.
+      entry that blocks nothing needs a why. --untag refuses a tag the entry
+      does not carry.
 
-  builds question show N | builds question list
-      One entry with its details (a closed one shows how it left), or the
-      stack in the order it is asked.
+  builds question show N | builds question list [--tag T]
+      One entry with its details and tags (a closed one shows how it left), or
+      the stack in the order it is asked.
 
 
 WORK QUEUE
@@ -132,12 +145,14 @@ no commit); an absolute path is itself.
 
   builds item add --title T --area A --details-file F [--for design-session]
                   [--wait REF]... [--brief P] [--priority first|last --why WHY]
+                  [--tag T]...
       Needs a title of five to seven words, a known area (otherwise refused,
       naming the areas and `area add`), details, waits on open records, and a
       brief that exists.
 
   builds item edit N [--title T] [--area A] [--details-file F] [--brief P]
-                     [--for F]
+                     [--for F] [--tag T]... [--untag T]...
+      An item draft in a request (an answer's `work`) may carry "tags" too.
 
   builds item note N TEXT
       A lasting progress line on the item (`builds note` is the claim's).
@@ -191,6 +206,7 @@ no commit); an absolute path is itself.
       as --by, else DIR's claim.
 
   builds item show N | builds item list [--running] [--ready] [--area A] [--for F]
+                                      [--tag T]
       list --running prints each running item's marker line, one per
       worktree it runs in (agent, repo, worktree, branch, brief); show prints
       them all.
@@ -414,9 +430,10 @@ PROJECTS
       its project with `builds claim --project` or `builds new --project`,
       and a command outside a claimed worktree takes --project.
 
-  builds lists show [--json] [--project P]
-      The stack in the order it is asked, then the queue, as text; with
-      --json the whole state with its derived fields (each item's state, what
+  builds lists show [--json | --tag T] [--project P]
+      The stack in the order it is asked, then the queue, as text, each record
+      with its tags; with --tag T only the records that carry T; with --json
+      the whole state with its derived fields (each item's state, what
       each question blocks, the flow of the last 14 days), the JSON the
       dashboard reads. The dashboard adds, to each worktree a running item
       runs in, the agent, note, note state and commits waiting to land of its

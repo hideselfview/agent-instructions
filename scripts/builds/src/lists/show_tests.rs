@@ -34,7 +34,7 @@ fn the_text_lists_the_stack_then_the_queue() {
     .unwrap();
     let gone = item(&db, vec![]);
     close(&db, gone, How::Dropped("x".into()), &stamp(NOON)).unwrap();
-    let text = render(&read(&db));
+    let text = render(&read(&db), None);
     assert!(text.starts_with("demo lists, version 1\n"), "{text}");
     for expected in [
         "Waiting on you (1)",

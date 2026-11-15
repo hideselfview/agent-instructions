@@ -830,7 +830,12 @@ STATUS, HEALTH AND THE DASHBOARD
                               per repo, its app build lanes with their queues
                               and Build buttons and its worktree cards; and
                               the lists (also at /api/lists and in the
-                              /events stream's `lists` events)
+                              /events stream's `lists` events). Each question
+                              and item row shows its tags (`builds help
+                              lists`); a tag on a row, or in the bar of every
+                              tag above the lists, shows that tag's entries
+                              alone on each tab, and All shows every entry
+                              again
 
 
 COMMIT CHECKS

@@ -850,6 +850,7 @@ fn the_landing_review_stamp_is_the_schema_before_landing_reviews() {
 /// cost: `review_call` without both columns and `review_text`'s comment as it
 /// read then. A schema without the review's tables is left as it is.
 fn without_scored_calls(schema: String) -> String {
+    let schema = without_tags(schema);
     if !schema.contains("CREATE TABLE review_call") {
         return schema;
     }
@@ -1091,4 +1092,79 @@ fn the_scored_calls_stamp_is_the_schema_before_scored_calls() {
         i64::from(hash % (i32::MAX as u32 - 2)) + 2,
         BEFORE_SCORED_CALLS_STAMP
     );
+}
+
+/// <schema> as the text read before questions and items took tags: without
+/// the tags' part.
+fn without_tags(schema: String) -> String {
+    let part = format!("{}\n", db::TAG_PART);
+    assert_eq!(
+        schema.matches(&part).count(),
+        1,
+        "the schema has the tags' part once"
+    );
+    schema.replacen(&part, "", 1)
+}
+
+/// The schema text before questions and items took tags.
+fn schema_before_tags() -> String {
+    without_tags(db::schema())
+}
+
+#[test]
+fn the_tags_stamp_is_the_schema_before_tags() {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in schema_before_tags().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    assert_eq!(
+        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        BEFORE_TAGS_STAMP
+    );
+}
+
+#[test]
+fn a_store_from_before_tags_gains_their_table_keeps_its_records_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-tags");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_tags()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_TAGS_STAMP)
+            .unwrap();
+        plant_run(&conn);
+        crate::lists::record::plant(
+            &conn,
+            "record",
+            &[
+                ("id", 2_i64.into()),
+                ("kind", "question".to_string().into()),
+                ("opened_at", 5_i64.into()),
+                ("opened_by", "coordinator".to_string().into()),
+            ],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let records: i64 = conn
+        .query_row("SELECT COUNT(*) FROM record", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(records, 1, "the record is kept");
+    let tags: i64 = conn
+        .query_row("SELECT COUNT(*) FROM record_tag", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(tags, 0);
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the old run is kept");
 }

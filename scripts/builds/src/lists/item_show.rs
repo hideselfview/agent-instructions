@@ -11,9 +11,9 @@ use crate::lists::args::Args;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::item::open_item;
 use crate::lists::running::marker;
-use crate::lists::show::{item_line, wait_words};
+use crate::lists::show::{item_line, tags_line, wait_words};
 use crate::lists::store::Store;
-use crate::lists::{Audience, How, Id, Item, Kind, Level, Lists, Located, Standing, Wait};
+use crate::lists::{Audience, How, Id, Item, Kind, Level, Lists, Located, Standing, Wait, tag};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
@@ -123,6 +123,9 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
     if let Some(from) = item.from {
         let _ = writeln!(out, "made by {from}");
     }
+    if !item.tags.is_empty() {
+        let _ = writeln!(out, "{}", tags_line(&item.tags));
+    }
     let _ = writeln!(
         out,
         "opened {} by {}",
@@ -152,35 +155,40 @@ pub fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The items `list` prints: those running when <running>, those ready when
-/// <ready> (in the queue's order, which the dashboard's Queue tab shows; the
-/// rest of the list stays in id order), in <area> and for <audience> when given.
-fn chosen<'a>(
-    lists: &'a Lists,
+/// What `list` chooses the items it prints by.
+struct Choice<'a> {
     running: bool,
     ready: bool,
-    area: Option<&str>,
+    area: Option<&'a str>,
     audience: Option<Audience>,
-) -> Vec<&'a Item> {
+    tag: Option<&'a str>,
+}
+
+/// The items `list` prints: those running when asked, those ready when asked
+/// (in the queue's order, which the dashboard's Queue tab shows; the rest of
+/// the list stays in id order), in the area, for the audience and with the
+/// tag when given.
+fn chosen<'a>(lists: &'a Lists, choice: &Choice) -> Vec<&'a Item> {
     let mut chosen: Vec<&Item> = lists
         .items
         .iter()
-        .filter(|item| !running || !item.running.is_empty())
-        .filter(|item| !ready || derive::item_state(lists, item) == ItemState::Ready)
-        .filter(|item| area.is_none_or(|a| item.area == a))
-        .filter(|item| audience.is_none_or(|f| item.r#for == f))
+        .filter(|item| !choice.running || !item.running.is_empty())
+        .filter(|item| !choice.ready || derive::item_state(lists, item) == ItemState::Ready)
+        .filter(|item| choice.area.is_none_or(|a| item.area == a))
+        .filter(|item| choice.audience.is_none_or(|f| item.r#for == f))
+        .filter(|item| tag::wanted(&item.tags, choice.tag))
         .collect();
-    if ready {
+    if choice.ready {
         derive::queue_order(lists, &mut chosen);
     }
     chosen
 }
 
 pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["area", "for"], &["running", "ready"])?;
+    let args = Args::parse(args, &["area", "for", "tag"], &["running", "ready"])?;
     args.exactly(
         0,
-        "builds item list [--running] [--ready] [--area A] [--for F]",
+        "builds item list [--running] [--ready] [--area A] [--for F] [--tag T]",
     )?;
     let audience: Option<Audience> = args.choice("for")?;
     let area = args.value("area")?;
@@ -196,10 +204,13 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     }
     let chosen = chosen(
         &lists,
-        args.switch("running"),
-        args.switch("ready"),
-        area,
-        audience,
+        &Choice {
+            running: args.switch("running"),
+            ready: args.switch("ready"),
+            area,
+            audience,
+            tag: args.value("tag")?,
+        },
     );
     for item in chosen {
         if args.switch("running") && !item.running.is_empty() {

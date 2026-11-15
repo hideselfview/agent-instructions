@@ -14,7 +14,7 @@ use crate::lists::{Stamp, show};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists add-repo PROJECT REPO [--by WHO]\n       builds lists show [--json] [--project P]\n       builds lists project-of DIR";
+const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists add-repo PROJECT REPO [--by WHO]\n       builds lists show [--json | --tag T] [--project P]\n       builds lists project-of DIR";
 
 pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
@@ -88,17 +88,23 @@ fn add_repo(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &[], &["json"])?;
+    let args = Args::parse(args, &["tag"], &["json"])?;
     args.exactly(0, USAGE)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let lists = store.load()?;
+    let wanted = args.value("tag")?;
     if args.switch("json") {
+        if wanted.is_some() {
+            fail!(
+                "--tag chooses what the text shows; --json prints the whole state, with each record's tags"
+            );
+        }
         let view = View::build(&lists, tool.now);
         let text =
             serde_json::to_string_pretty(&view).context(|| "writing the lists JSON".to_string())?;
         println!("{text}");
     } else {
-        print!("{}", show::render(&lists));
+        print!("{}", show::render(&lists, wanted));
     }
     Ok(())
 }

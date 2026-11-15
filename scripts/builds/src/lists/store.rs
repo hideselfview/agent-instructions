@@ -22,7 +22,7 @@ use crate::lists::args::Args;
 use crate::lists::check::{faults, project_name_fault};
 use crate::lists::project::NewProject;
 use crate::lists::record::{self, Closed, Record};
-use crate::lists::{Lists, Stamp, area, decision, design, item, project, question};
+use crate::lists::{Lists, Stamp, area, decision, design, item, project, question, tag};
 use crate::places::Places;
 
 /// One project's folder.
@@ -269,8 +269,9 @@ pub fn read(db: &Connection) -> Result<Lists> {
     let project = project::read(db)?;
     let opened = record::read_opened(db)?;
     let closings = record::read_closings(db)?;
-    let items = item::read(db, &opened)?;
-    let questions = question::read(db, &opened)?;
+    let tags = tag::read(db)?;
+    let items = item::read(db, &opened, &tags)?;
+    let questions = question::read(db, &opened, &tags)?;
     let designs = design::read(db, &opened, &closings)?;
     let decisions = decision::read(db, &opened, &closings, &items, &questions)?;
     let areas = area::areas(db)?;

@@ -257,6 +257,17 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-tabs button[aria-selected="true"] { background: var(--on); color: var(--on-text); }
 .l-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .l-tabs .l-count { font: 500 12px var(--mono); white-space: nowrap; opacity: 0.85; }
+/* The tags of the open questions and items: All, then each tag with its count; one chosen shows only its entries. */
+.l-tagbar { display: flex; flex-wrap: wrap; gap: 4px; }
+.l-tagbar[hidden] { display: none; }
+.l-tagbar button { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; font: 500 12px var(--sans); color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; cursor: pointer; overflow-wrap: anywhere; text-align: left; }
+.l-tagbar button .l-count { font: 500 11px var(--mono); white-space: nowrap; opacity: 0.85; }
+.l-tagbar button[aria-pressed="true"] { background: var(--on); border-color: var(--on); color: var(--on-text); }
+.l-tagbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.l-tagrow { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.l-tag { font: 500 11px var(--sans); color: var(--muted); background: var(--line-soft); border: 0; border-radius: 4px; padding: 1px 6px; cursor: pointer; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.l-tag:hover { color: var(--text-2); }
+.l-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .l-body { display: flex; flex-direction: column; gap: 16px; }
 .l-section { display: flex; flex-direction: column; gap: 8px; }
 .l-section > h3 { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); display: flex; gap: 8px; align-items: baseline; }
@@ -341,6 +352,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
       <button type="button" role="tab" data-tab="running"><span class="l-name">Running</span><span class="l-count"></span></button>
       <button type="button" role="tab" data-tab="queue"><span class="l-name">Queue</span><span class="l-count"></span></button>
     </div>
+    <div class="l-tagbar" id="l-tags" role="group" aria-label="Show the entries of one tag" hidden></div>
   </div>
   <div class="l-body" id="l-body"><div class="l-empty">Reading the lists</div></div>
 </aside>
@@ -1141,6 +1153,7 @@ events.addEventListener("failure", e => { streamError = "state: " + JSON.parse(e
 const TAB_KEY = "builds-dashboard-lists-tab";
 const PROJECT_KEY = "builds-dashboard-lists-project";
 const OPEN_KEY = "builds-dashboard-lists-open";
+const TAG_KEY = "builds-dashboard-lists-tag";
 const TABS = ["stack", "running", "queue"];
 const RECENT_DAYS = 14;
 let allLists = [];             // the last lists JSON of each project
@@ -1148,6 +1161,7 @@ let lists = null;              // the chosen project's lists JSON
 let project = "";              // the chosen project's name
 let listsNote = "Reading the lists";   // what the sidebar says while there are none
 let tab = "stack";
+let tagFilter = "";            // the tag whose entries alone are shown; "" for all
 let index = new Map();         // record id -> {tab, key, title}
 const openRecs = new Set();    // keys of the open folds; they outlive a redraw
 try { project = localStorage.getItem(PROJECT_KEY) || ""; } catch (e) { /* the first project */ }
@@ -1158,6 +1172,7 @@ try {
 try {
   for (const k of JSON.parse(sessionStorage.getItem(OPEN_KEY) || "[]")) openRecs.add(k);
 } catch (e) { /* no storage: nothing open */ }
+try { tagFilter = localStorage.getItem(TAG_KEY) || ""; } catch (e) { /* no storage: every entry */ }
 function saveOpen() { try { sessionStorage.setItem(OPEN_KEY, JSON.stringify([...openRecs])); } catch (e) { /* kept for this page only */ } }
 
 // A link to a record in the sidebar; text only when the record is not there (closed).
@@ -1222,6 +1237,42 @@ function section(title, n, ...kids) {
 }
 function empty(text) { return {key: "none", data: text, make: () => h("div", {class: "l-empty"}, text)}; }
 
+// ---- Tags
+// Each tag names the audit or group a question or an item came from. A tag on
+// a row shows that tag's entries alone; so does the tag bar, whose All shows
+// every entry again.
+function tagChips(tags) {
+  if (!tags || !tags.length) return null;
+  return h("span", {class: "l-tagrow"}, tags.map(t => h("button", {type: "button", class: "l-tag", "data-tag": t, title: "Show only the entries tagged " + t}, t)));
+}
+function tagged(tags) { return !tagFilter || (tags || []).includes(tagFilter); }
+function itemTags(id) { const it = lists.items.find(i => i.id === id); return it ? it.tags : []; }
+// The tags of a running work: those of each of its items.
+function workTags(w) { return [...new Set(w.items.flatMap(i => itemTags(i.id)))].sort(); }
+// Every tag of the open questions and items, with how many carry it.
+function tagCounts() {
+  const counts = new Map();
+  for (const rec of [...lists.stack, ...lists.items]) for (const t of rec.tags || []) counts.set(t, (counts.get(t) || 0) + 1);
+  return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+function setTag(next) {
+  tagFilter = next;
+  try { localStorage.setItem(TAG_KEY, tagFilter); } catch (e) { /* kept for this page only */ }
+  renderLists();
+}
+function renderTags() {
+  const bar = document.getElementById("l-tags");
+  const counts = tagCounts();
+  // A tag no open entry carries shows every entry.
+  if (tagFilter && !counts.some(([t]) => t === tagFilter)) tagFilter = "";
+  bar.hidden = counts.length === 0;
+  if (bar.hidden) return;
+  bar.replaceChildren(
+    h("button", {type: "button", "data-tag": "", "aria-pressed": String(!tagFilter)}, "All"),
+    ...counts.map(([t, n]) => h("button", {type: "button", "data-tag": t, "aria-pressed": String(t === tagFilter), title: "Show only the entries tagged " + t},
+      t, h("span", {class: "l-count"}, String(n)))));
+}
+
 // ---- Waiting on you
 const KINDS = {
   "question": "Question",
@@ -1231,7 +1282,7 @@ const KINDS = {
 function questionRow(q, top) {
   const direct = q.blocks.length;
   return fold("q:" + q.id, q.id,
-    [h("span", {class: "l-title"}, q.title), h("span", {class: "l-wt"}, top ? "Asking now" : KINDS[q.kind] || q.kind)],
+    [h("span", {class: "l-title"}, q.title, tagChips(q.tags)), h("span", {class: "l-wt"}, top ? "Asking now" : KINDS[q.kind] || q.kind)],
     () => h("div", {class: "l-plain"},
       direct ? h("div", {class: "l-facts"},
         fact("Blocks", plural(Math.max(q.blocked_count, direct), "item", "items") +
@@ -1247,16 +1298,25 @@ function questionRow(q, top) {
 // Design changes that wait on your review: recorded, not approved, not landed.
 function reviews() { return lists.designs.filter(g => !g.closed && !g.approved); }
 function heldWorks() { return lists.board.works.filter(w => w.tab === "waiting"); }
+// With a tag chosen, only the questions and held work that carry it; design
+// changes carry no tags.
+function stackShown() {
+  return {
+    own: lists.stack.filter(q => tagged(q.tags)),
+    review: tagFilter ? [] : reviews(),
+    held: heldWorks().filter(w => tagged(workTags(w))),
+  };
+}
 function stackItems() {
-  const own = lists.stack, review = reviews(), held = heldWorks();
-  if (!own.length && !review.length && !held.length) return [empty("Nothing waits on you.")];
+  const {own, review, held} = stackShown();
+  if (!own.length && !review.length && !held.length) return [empty(tagFilter ? "Nothing tagged " + tagFilter + " waits on you." : "Nothing waits on you.")];
   const out = [];
   if (review.length) out.push({key: "reviews", data: review, make: () => section("Design changes to review", review.length,
     h("div", {class: "l-works"}, review.map(designRow)))});
   if (held.length) out.push({key: "held", data: held, make: () => section("Running work held on you", held.length,
     h("div", {class: "l-works"}, held.map(workRow)))});
   if (own.length) out.push({key: "questions", data: own, make: () => section("Questions", own.length,
-    h("div", {class: "l-works"}, own.map((q, i) => questionRow(q, i === 0))))});
+    h("div", {class: "l-works"}, own.map(q => questionRow(q, q.id === lists.stack[0].id))))});
   return out;
 }
 
@@ -1288,7 +1348,7 @@ function itemBody(it) {
 function itemRow(it) {
   const sub = itemSub(it);
   return fold("i:" + it.id, it.id,
-    [h("span", {class: "l-title"}, it.title), h("span", {class: "l-wt"}, "#" + it.id)],
+    [h("span", {class: "l-title"}, it.title, tagChips(it.tags)), h("span", {class: "l-wt"}, "#" + it.id)],
     () => h("div", {class: "l-plain"}, sub ? h("span", {class: "l-sub"}, sub) : null, itemBody(it)),
     "l-work");
 }
@@ -1298,7 +1358,7 @@ function itemRow(it) {
 function workRow(w) {
   const first = w.items[0].id;
   return fold("i:" + first, first,
-    [h("span", {class: "l-title"}, w.title), h("span", {class: "l-wt"}, w.repo + " " + w.checkout)],
+    [h("span", {class: "l-title"}, w.title, tagChips(workTags(w))), h("span", {class: "l-wt"}, w.repo + " " + w.checkout)],
     () => h("div", {class: "l-plain"},
       w.now ? h("div", {class: "l-fact"}, inline(w.now)) : null,
       h("div", {class: "l-facts"},
@@ -1343,12 +1403,18 @@ function checkoutState(w) {
   const c = repo && repo.checkouts.find(x => x.name === w.checkout);
   return c ? c.state : null;
 }
+// With a tag chosen, only the running work whose items carry it.
+function runningShown() {
+  return {
+    works: lists.board.works.filter(w => w.tab === "running" && tagged(workTags(w))),
+    drawn: tagFilter ? [] : lists.designs.filter(g => !g.closed && g.approved),
+  };
+}
 function runningItems() {
-  const works = lists.board.works.filter(w => w.tab === "running");
+  const {works, drawn} = runningShown();
   const ready = works.filter(w => checkoutState(w) === "ready-to-land");
   const reviewing = works.filter(w => checkoutState(w) === "in-review");
   const working = works.filter(w => !ready.includes(w) && !reviewing.includes(w));
-  const drawn = lists.designs.filter(g => !g.closed && g.approved);
   const out = [];
   if (working.length) out.push({key: "working", data: working, make: () => section("Working", working.length,
     h("div", {class: "l-works"}, working.map(workRow)))});
@@ -1358,10 +1424,12 @@ function runningItems() {
     h("div", {class: "l-works"}, ready.map(workRow)))});
   if (drawn.length) out.push({key: "drawn", data: drawn, make: () => section("Design changes being drawn", drawn.length,
     h("div", {class: "l-works"}, drawn.map(designRow)))});
-  return out.length ? out : [empty("Nothing is running.")];
+  return out.length ? out : [empty(tagFilter ? "Nothing tagged " + tagFilter + " is running." : "Nothing is running.")];
 }
+// With a tag chosen, only the items that carry it.
+function queueShown() { return lists.items.filter(it => !isRunning(it) && tagged(it.tags)); }
 function queueItems() {
-  const all = lists.items;
+  const all = queueShown();
   const out = [{key: "head", data: [lists.flow], make: workHead}];
   const design = all.filter(it => !isRunning(it) && it.for === "design-session");
   const mine = all.filter(it => !isRunning(it) && it.for !== "design-session");
@@ -1373,7 +1441,7 @@ function queueItems() {
   part("first", "First", first);
   for (const area of lists.areas) part("area:" + area, area, rest.filter(it => it.area === area));
   part("design-session", "Design session’s", design);
-  if (out.length === 1) out.push(empty("The work queue is empty."));
+  if (out.length === 1) out.push(empty(tagFilter ? "No item in the queue is tagged " + tagFilter + "." : "The work queue is empty."));
   return out;
 }
 
@@ -1437,21 +1505,26 @@ function renderProjects() {
     h("span", {class: "l-name"}, p.project || "none"),
     h("span", {class: "l-count"}, p.error ? "!" : String(p.board.waiting)))));
 }
+// The tabs' counts: the board's, or with a tag chosen what each tab shows.
 function tabCounts() {
   const b = lists.board;
-  return {stack: String(b.waiting), running: String(b.running), queue: String(b.queue)};
+  if (!tagFilter) return {stack: String(b.waiting), running: String(b.running), queue: String(b.queue)};
+  const stack = stackShown(), running = runningShown();
+  return {stack: String(stack.own.length + stack.held.length), running: String(running.works.length), queue: String(queueShown().length)};
 }
 function renderLists() {
   const tabs = document.getElementById("l-tabs"), body = document.getElementById("l-body");
   renderProjects();
   if (!lists || lists.error) {
     tabs.hidden = true;
+    document.getElementById("l-tags").hidden = true;
     body.dataset.tab = "";
     body.replaceChildren(lists ? h("div", {class: "error"}, "The lists store of " + (lists.project || "the projects") + " failed its check: " + lists.error)
       : h("div", {class: "l-empty"}, listsNote));
     return;
   }
   tabs.hidden = false;
+  renderTags();
   const counts = tabCounts();
   for (const b of tabs.querySelectorAll("button")) {
     b.setAttribute("aria-selected", String(b.dataset.tab === tab));
@@ -1465,6 +1538,12 @@ function renderLists() {
 function showRecord(id) {
   const rec = index.get(id);
   if (!rec) return;
+  // A record the chosen tag hides shows with every entry.
+  const own = lists.stack.find(q => q.id === id) || lists.items.find(i => i.id === id);
+  if (tagFilter && !(own && tagged(own.tags))) {
+    tagFilter = "";
+    try { localStorage.setItem(TAG_KEY, tagFilter); } catch (e) { /* kept for this page only */ }
+  }
   tab = rec.tab;
   try { localStorage.setItem(TAB_KEY, tab); } catch (e) { /* kept for this page only */ }
   openRecs.add(rec.key); saveOpen();
@@ -1493,7 +1572,16 @@ document.getElementById("l-tabs").addEventListener("click", e => {
   try { localStorage.setItem(TAB_KEY, tab); } catch (err) { /* kept for this page only */ }
   renderLists();
 });
+document.getElementById("l-tags").addEventListener("click", e => {
+  const b = e.target.closest("button[data-tag]");
+  if (!b) return;
+  // The chosen tag again shows every entry.
+  setTag(b.dataset.tag === tagFilter ? "" : b.dataset.tag);
+});
 document.getElementById("l-body").addEventListener("click", e => {
+  // A tag on a row sits in the row's summary: choosing it must not open the row.
+  const t = e.target.closest("button[data-tag]");
+  if (t) { e.preventDefault(); setTag(t.dataset.tag); return; }
   const a = e.target.closest("a[data-ref]");
   if (!a) return;
   e.preventDefault();

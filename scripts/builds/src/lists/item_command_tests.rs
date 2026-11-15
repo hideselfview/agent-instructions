@@ -475,3 +475,54 @@ fn place_refuses_a_closed_item_a_missing_why_and_an_unknown_place() {
             .contains("is closed (dropped)")
     );
 }
+
+#[test]
+fn tags_go_on_with_add_and_edit_open_or_closed_and_list_chooses_by_them() {
+    let demo = demo("item-tags");
+    add(
+        &demo,
+        FIVE,
+        &["--tag", "screen-reads audit", "--tag", "mac"],
+    )
+    .unwrap();
+    add(&demo, "Do the second thing now", &[]).unwrap();
+    let lists = open(&demo);
+    assert_eq!(lists.items[0].tags, ["mac", "screen-reads audit"]);
+    assert!(lists.items[1].tags.is_empty());
+    assert!(
+        refusal(add(&demo, "Do the third thing now", &["--tag", " x"]))
+            .contains("spaces at its ends")
+    );
+
+    item(&demo, &["edit", "2", "--tag", "screen-reads audit"]).unwrap();
+    item(&demo, &["edit", "1", "--untag", "mac"]).unwrap();
+    let lists = open(&demo);
+    assert_eq!(lists.items[0].tags, ["screen-reads audit"]);
+    assert_eq!(lists.items[1].tags, ["screen-reads audit"]);
+    assert!(refusal(item(&demo, &["edit", "1", "--untag", "mac"])).contains("has no tag 'mac'"));
+
+    // A closed item keeps its tags and still takes and loses them.
+    item(&demo, &["drop", "2", "--why", "not needed"]).unwrap();
+    item(&demo, &["edit", "2", "--tag", "coven-trust audit"]).unwrap();
+    let shown = crate::lists::item_show::render_item(&open(&demo), Id(2)).unwrap();
+    assert!(
+        shown.contains("tags: coven-trust audit; screen-reads audit"),
+        "{shown}"
+    );
+    assert!(
+        refusal(item(
+            &demo,
+            &["edit", "2", "--title", "Do another thing right now"]
+        ))
+        .contains("closed")
+    );
+
+    let line = crate::lists::show::item_line(&open(&demo), &open(&demo).items[0]);
+    assert!(line.contains("\n      tags: screen-reads audit"), "{line}");
+    let text = crate::lists::show::render(&open(&demo), Some("coven-trust audit"));
+    assert!(
+        text.contains("tagged coven-trust audit") && !text.contains(FIVE),
+        "{text}"
+    );
+    assert!(crate::lists::show::render(&open(&demo), Some("screen-reads audit")).contains(FIVE));
+}

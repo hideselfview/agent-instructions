@@ -3,7 +3,7 @@
 use std::fmt::Write;
 
 use crate::lists::derive::{self, ItemState, StackEntry};
-use crate::lists::{Audience, Item, Level, Lists, Position, QuestionKind, Wait};
+use crate::lists::{Audience, Item, Level, Lists, Position, QuestionKind, Wait, tag};
 use crate::text::local_minute;
 
 pub fn kind_words(kind: QuestionKind) -> &'static str {
@@ -27,11 +27,19 @@ pub fn wait_words(lists: &Lists, wait: &Wait) -> String {
     }
 }
 
+/// A record's tags as one line: `tags: screen-reads audit; other`.
+pub fn tags_line(tags: &[String]) -> String {
+    format!("tags: {}", tags.join("; "))
+}
+
 pub fn item_line(lists: &Lists, item: &Item) -> String {
     let state = derive::item_state(lists, item);
     let mut line = format!("  {} [{}] {}", item.id, state.label(), item.title);
     if item.r#for == Audience::DesignSession && state != ItemState::Running {
         line.push_str(" (design session's)");
+    }
+    if !item.tags.is_empty() {
+        let _ = write!(line, "\n      {}", tags_line(&item.tags));
     }
     let unmet: Vec<String> = derive::unmet_waits(lists, item)
         .iter()
@@ -95,21 +103,37 @@ pub fn stack_entry(number: usize, entry: &StackEntry<'_>) -> String {
         let by = if placed.by_person { " by you" } else { "" };
         let _ = writeln!(out, "       placed {at}{by}: {}", placed.why);
     }
+    if !q.tags.is_empty() {
+        let _ = writeln!(out, "       {}", tags_line(&q.tags));
+    }
     let _ = writeln!(out, "       {}", blocks_text(entry));
     out
 }
 
-pub fn render(lists: &Lists) -> String {
+/// The stack and the queue as text; with <wanted>, only the questions and
+/// items that carry that tag, each question keeping its place in the stack.
+pub fn render(lists: &Lists, wanted: Option<&str>) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "{} lists, version {}", lists.project, lists.version);
-    let stack = derive::stack_order(lists);
-    let _ = writeln!(out, "\nWaiting on you ({})", stack.len());
-    for (number, entry) in stack.iter().enumerate() {
-        out.push_str(&stack_entry(number + 1, entry));
+    if let Some(wanted) = wanted {
+        let _ = writeln!(out, "tagged {wanted}");
     }
+    let stack: Vec<(usize, StackEntry<'_>)> = derive::stack_order(lists)
+        .into_iter()
+        .enumerate()
+        .filter(|(_, entry)| tag::wanted(&entry.question.tags, wanted))
+        .collect();
+    let _ = writeln!(out, "\nWaiting on you ({})", stack.len());
+    for (at, entry) in &stack {
+        out.push_str(&stack_entry(at + 1, entry));
+    }
+    let items: Vec<&Item> = lists
+        .items
+        .iter()
+        .filter(|i| tag::wanted(&i.tags, wanted))
+        .collect();
     let state = |wanted: ItemState| {
-        lists
-            .items
+        items
             .iter()
             .filter(|i| derive::item_state(lists, i) == wanted)
             .count()
@@ -120,9 +144,9 @@ pub fn render(lists: &Lists) -> String {
         state(ItemState::Ready),
         state(ItemState::Running)
     );
-    let running: Vec<&Item> = lists
-        .items
+    let running: Vec<&Item> = items
         .iter()
+        .copied()
         .filter(|i| !i.running.is_empty())
         .collect();
     if !running.is_empty() {
@@ -131,9 +155,9 @@ pub fn render(lists: &Lists) -> String {
             let _ = writeln!(out, "{}", item_line(lists, item));
         }
     }
-    let first: Vec<&Item> = lists
-        .items
+    let first: Vec<&Item> = items
         .iter()
+        .copied()
         .filter(|i| {
             i.running.is_empty() && i.priority.as_ref().is_some_and(|p| p.level == Level::First)
         })
@@ -145,20 +169,20 @@ pub fn render(lists: &Lists) -> String {
         }
     }
     for area in &lists.areas {
-        let items: Vec<&Item> = lists
-            .items
+        let in_area: Vec<&Item> = items
             .iter()
+            .copied()
             .filter(|i| {
                 i.area == *area
                     && i.running.is_empty()
                     && !i.priority.as_ref().is_some_and(|p| p.level == Level::First)
             })
             .collect();
-        if items.is_empty() {
+        if in_area.is_empty() {
             continue;
         }
         let _ = writeln!(out, "{area}");
-        for item in items {
+        for item in in_area {
             let _ = writeln!(out, "{}", item_line(lists, item));
         }
     }

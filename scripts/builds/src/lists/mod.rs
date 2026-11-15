@@ -6,7 +6,8 @@
 //! re-exported. Each owner holds its types, its tables (the `.sql` file beside
 //! it) and every write to them: `record` (ids, stamps, closing), `project`,
 //! `area`, `item` with `running` and `landing`, `question`, `decision`,
-//! `design`, `store` (the write log). Their commands are `command`,
+//! `design`, `tag` (the tags of questions and items), `store` (the write
+//! log). Their commands are `command`,
 //! `item_command`, `question_command`, `decision_command` and
 //! `design_command`. `store` also holds the database's opening, the write
 //! transaction and the snapshot read, `check` the checks the tables cannot
@@ -44,6 +45,7 @@ pub mod record;
 pub mod running;
 pub mod show;
 pub mod store;
+pub mod tag;
 mod take;
 pub mod view;
 

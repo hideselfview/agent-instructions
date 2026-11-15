@@ -77,6 +77,7 @@ pub fn item_opened(db: &Connection, waits: Vec<Wait>, opened: Stamp) -> Id {
         waits: Vec::new(),
         brief: None,
         priority: None,
+        tags: Vec::new(),
     };
     add_item(db, &draft, None, &opened).unwrap();
     for wait in waits {
@@ -272,6 +273,7 @@ pub fn draft(title: &str) -> ItemDraft {
         waits: Vec::new(),
         brief: None,
         priority: None,
+        tags: Vec::new(),
     }
 }
 

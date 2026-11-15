@@ -71,6 +71,8 @@ pub struct Question {
     pub placed: Option<Placement>,
     pub plan: Option<PlanRef>,
     pub opened: Stamp,
+    /// The audits or groups it came from (tag.rs), in the order of their text.
+    pub tags: Vec<String>,
 }
 /// What an answer does to one item that waited on the question.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -202,7 +204,11 @@ pub fn edit(
 
 /// Every question, open and closed, as the rows hold it. <opened> is every
 /// record's stamp.
-pub fn read(db: &Connection, opened: &BTreeMap<Id, Stamp>) -> Result<Vec<Question>> {
+pub fn read(
+    db: &Connection,
+    opened: &BTreeMap<Id, Stamp>,
+    tags: &BTreeMap<Id, Vec<String>>,
+) -> Result<Vec<Question>> {
     let mut placements: BTreeMap<Id, Placement> = BTreeMap::new();
     let mut statement = db
         .prepare("SELECT question_id, at, why, by_person FROM question_placement")
@@ -279,6 +285,7 @@ pub fn read(db: &Connection, opened: &BTreeMap<Id, Stamp>) -> Result<Vec<Questio
             placed: placements.remove(&id),
             plan: plans.remove(&id),
             opened: opened[&id].clone(),
+            tags: tags.get(&id).cloned().unwrap_or_default(),
         });
     }
     Ok(questions)

@@ -18,24 +18,24 @@ use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
 use crate::lists::item::{ItemDraft, add_item, add_wait, move_waits_to_question};
 use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, apply_blocked};
 use crate::lists::record::close;
-use crate::lists::show::{blocks_text, kind_words, stack_entry};
+use crate::lists::show::{blocks_text, kind_words, stack_entry, tags_line};
 use crate::lists::store::{self, Store};
 use crate::lists::{
     How, Id, Kind, Lists, Located, Placement, PlanRef, Position, Question, QuestionKind, Stamp,
-    Standing, Wait,
+    Standing, Wait, tag,
 };
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds question ask --title T --kind question|your-step|held --details-file F (--blocks N[,N] | --blocks-nothing WHY) [--from-item N] [--first WHY] [--plan PATH --plan-number Qn]
+const USAGE: &str = "usage: builds question ask --title T --kind question|your-step|held --details-file F (--blocks N[,N] | --blocks-nothing WHY) [--from-item N] [--first WHY] [--plan PATH --plan-number Qn] [--tag T]...
        builds question answer N --request F
        builds question settle N --request F
        builds question done N --request F
        builds question drop N --why WHY
        builds question defer N --issue URL
        builds question place N first|last|auto --why WHY [--by-person]
-       builds question edit N [--title T] [--details-file F] [--blocks-nothing WHY | --blocks-something]
+       builds question edit N [--title T] [--details-file F] [--blocks-nothing WHY | --blocks-something] [--tag T]... [--untag T]...
        builds question show N
-       builds question list
+       builds question list [--tag T]
   every command also takes --project P and --by WHO";
 
 pub fn cmd_question(tool: &Tool, args: &[String]) -> Result<()> {
@@ -116,10 +116,12 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
             "plan",
             "plan-number",
             "from-item",
+            "tag",
         ],
         &[],
     )?;
     args.exactly(0, USAGE)?;
+    let tags = tag::parse_tags(args.values("tag"))?;
     let title = args.require("title")?.to_string();
     if let Some(fault) = title_fault(&title) {
         fail!("{fault}");
@@ -178,6 +180,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
             plan: plan.clone(),
         };
         let id = question::ask(db, new, &stamp)?;
+        tag::add_tags(db, id, &tags)?;
         let lists = &store::read(db)?;
         for blocked in &blocks {
             if Some(*blocked) == from_item {
@@ -199,6 +202,8 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
             if !item.running.is_empty() {
                 fail!("item {from} is running; `builds item stop {} --why …` first, then move it to the stack", from.0);
             }
+            // The question takes the item's place, and keeps the groups it came from.
+            tag::add_tags(db, id, &item.tags)?;
             // What waited on the item waits on the question that takes its place.
             for moved in move_waits_to_question(db, from, id)? {
                 if !waiting.contains(&moved) {
@@ -507,13 +512,18 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
     ))
 }
 
+/// `question edit N`: changes an open question's fields, and gives any
+/// question, open or closed, the tags `--tag` names and takes off those
+/// `--untag` names.
 fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
     let args = Args::parse(
         args,
-        &["title", "details-file", "blocks-nothing"],
+        &["title", "details-file", "blocks-nothing", "tag", "untag"],
         &["blocks-something"],
     )?;
     let id = question_id(&args)?;
+    let tags = tag::parse_tags(args.values("tag"))?;
+    let untags = tag::parse_tags(args.values("untag"))?;
     let title = args.value("title")?.map(str::to_string);
     if let Some(fault) = title.as_deref().and_then(title_fault) {
         fail!("{fault}");
@@ -533,15 +543,26 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
     if blocks_nothing.is_some() && blocks_something {
         fail!("--blocks-nothing and --blocks-something contradict each other");
     }
-    if title.is_none() && details.is_none() && blocks_nothing.is_none() && !blocks_something {
+    let fields =
+        title.is_some() || details.is_some() || blocks_nothing.is_some() || blocks_something;
+    if !fields && tags.is_empty() && untags.is_empty() {
         fail!(
-            "the edit changes nothing: name --title, --details-file, --blocks-nothing or --blocks-something"
+            "the edit changes nothing: name --title, --details-file, --blocks-nothing, --blocks-something, --tag or --untag"
         );
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
+        if !fields {
+            // A question's tags change open or closed; anything else is
+            // refused as a question would be.
+            if !matches!(lists.locate(id), Some(Located { kind: Kind::Question, .. })) {
+                open_question(lists, id)?;
+            }
+            tag::remove_tags(db, id, &untags)?;
+            return tag::add_tags(db, id, &tags);
+        }
         open_question(lists, id)?;
         let waited_on = lists.items.iter().any(|item| item.waits.contains(&Wait::Question(id)));
         if blocks_something && !waited_on {
@@ -555,7 +576,9 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
             (None, true) => Some(None),
             (None, false) => None,
         };
-        question::edit(db, id, title, details, blocks_nothing)
+        question::edit(db, id, title, details, blocks_nothing)?;
+        tag::remove_tags(db, id, &untags)?;
+        tag::add_tags(db, id, &tags)
     })?;
     let lists = store.load()?;
     Ok(format!("edited question {id}\n{}\n", stack_top(&lists)))
@@ -580,30 +603,52 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
             kind: Kind::Question,
             standing: Standing::Closed(closed),
             title,
-        }) => Ok(format!(
-            "{id} {title}\nclosed {} ({}) by {}\n",
-            closed.how.label(),
-            crate::text::local_minute(closed.closed.at),
-            closed.closed.by
-        )),
+        }) => {
+            let crate::lists::Record::Question(question) = &closed.record else {
+                unreachable!("a question's closed record")
+            };
+            let tags = if question.tags.is_empty() {
+                String::new()
+            } else {
+                format!("{}\n", tags_line(&question.tags))
+            };
+            Ok(format!(
+                "{id} {title}\nclosed {} ({}) by {}\n{tags}",
+                closed.how.label(),
+                crate::text::local_minute(closed.closed.at),
+                closed.closed.by
+            ))
+        }
         Some(Located { kind, .. }) => fail!("{id} is a {}, not a question", kind.name()),
         None => fail!("{id} is not a record"),
     }
 }
 
+/// The stack in the order it is asked; with `--tag T`, only the questions
+/// that carry T, each keeping its place in the stack.
 fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
+    let args = Args::parse(args, &["tag"], &[])?;
     args.exactly(0, USAGE)?;
+    let wanted = args.value("tag")?;
     let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
     let stack = derive::stack_order(&lists);
     if stack.is_empty() {
         return Ok("the stack is empty\n".to_string());
     }
-    Ok(stack
+    let shown: String = stack
         .iter()
         .enumerate()
+        .filter(|(_, entry)| tag::wanted(&entry.question.tags, wanted))
         .map(|(n, entry)| stack_entry(n + 1, entry))
-        .collect())
+        .collect();
+    if shown.is_empty()
+        && let Some(wanted) = wanted
+    {
+        return Ok(format!(
+            "no question on the stack carries the tag {wanted}\n"
+        ));
+    }
+    Ok(shown)
 }
 
 #[cfg(test)]

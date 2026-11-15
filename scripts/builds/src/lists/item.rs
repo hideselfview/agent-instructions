@@ -13,6 +13,7 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::check::item_title_fault;
+use crate::lists::tag;
 use crate::lists::{
     Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, area, landing, record, running,
 };
@@ -83,6 +84,8 @@ pub struct Item {
     /// The decision or design change that made it.
     pub from: Option<Id>,
     pub opened: Stamp,
+    /// The audits or groups it came from (tag.rs), in the order of their text.
+    pub tags: Vec<String>,
 }
 /// An item as a request writes it. Every field but `brief` and `priority`
 /// is required: a draft says what the item waits on, even when nothing.
@@ -98,6 +101,9 @@ pub struct ItemDraft {
     pub waits: Vec<Wait>,
     pub brief: Option<String>,
     pub priority: Option<Priority>,
+    /// The audits or groups it comes from (tag.rs); none when left out.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// The fields of an item an edit may change; at least one is set.
@@ -228,6 +234,9 @@ impl ItemDraft {
         {
             fail!("a priority needs its why");
         }
+        if let Some(fault) = self.tags.iter().find_map(|tag| tag::tag_fault(tag)) {
+            fail!("{fault}");
+        }
         Ok(())
     }
 }
@@ -249,6 +258,7 @@ pub fn add_item(
     if let Some(priority) = &draft.priority {
         insert_priority(db, id, priority)?;
     }
+    tag::add_tags(db, id, &draft.tags)?;
     Ok(id)
 }
 
@@ -455,7 +465,11 @@ pub fn items_in_area(db: &Connection, area: &str) -> Result<Vec<Id>> {
 
 /// Every item, open and closed, as the rows hold it. <opened> is every
 /// record's stamp.
-pub fn read(db: &Connection, opened: &BTreeMap<Id, Stamp>) -> Result<Vec<Item>> {
+pub fn read(
+    db: &Connection,
+    opened: &BTreeMap<Id, Stamp>,
+    tags: &BTreeMap<Id, Vec<String>>,
+) -> Result<Vec<Item>> {
     let mut waits: BTreeMap<Id, Vec<Wait>> = BTreeMap::new();
     for (table, column, make) in [
         ("item_wait_item", "on_item", Wait::Item as fn(Id) -> Wait),
@@ -575,6 +589,7 @@ pub fn read(db: &Connection, opened: &BTreeMap<Id, Stamp>) -> Result<Vec<Item>> 
             notes: notes.remove(&id).unwrap_or_default(),
             from,
             opened: opened[&id].clone(),
+            tags: tags.get(&id).cloned().unwrap_or_default(),
         });
     }
     Ok(items)

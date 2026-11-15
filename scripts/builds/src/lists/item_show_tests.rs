@@ -95,10 +95,19 @@ fn list_ready_comes_in_the_queue_order_not_in_id_order() {
     add(&demo, "Do the later alpha thing", "Alpha", &[]);
     let lists = demo.store.load().unwrap();
     let ids = |ready: bool, area: Option<&str>| -> Vec<u32> {
-        chosen(&lists, false, ready, area, None)
-            .iter()
-            .map(|i| i.id.0)
-            .collect()
+        chosen(
+            &lists,
+            &Choice {
+                running: false,
+                ready,
+                area,
+                audience: None,
+                tag: None,
+            },
+        )
+        .iter()
+        .map(|i| i.id.0)
+        .collect()
     };
     assert_eq!(ids(true, None), [3, 2, 4, 1]);
     assert_eq!(ids(true, Some("Beta")), [3, 1]);

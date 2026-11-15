@@ -43,6 +43,8 @@ pub struct StackView {
     pub placed: Option<Placement>,
     pub plan: Option<PlanRef>,
     pub opened: Stamp,
+    /// The audits or groups it came from, in the order of their text.
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -97,6 +99,8 @@ pub struct ItemView {
     pub notes: Vec<Note>,
     pub from: Option<Id>,
     pub opened: Stamp,
+    /// The audits or groups it came from, in the order of their text.
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -199,6 +203,7 @@ impl View {
                     placed: entry.question.placed.clone(),
                     plan: entry.question.plan.clone(),
                     opened: entry.question.opened.clone(),
+                    tags: entry.question.tags.clone(),
                 })
                 .collect(),
             areas: lists.areas.clone(),
@@ -275,6 +280,7 @@ fn item_view(lists: &Lists, item: &Item) -> ItemView {
         notes: item.notes.clone(),
         from: item.from,
         opened: item.opened.clone(),
+        tags: item.tags.clone(),
     }
 }
 

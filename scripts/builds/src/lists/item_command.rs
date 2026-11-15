@@ -23,11 +23,13 @@ use crate::lists::project;
 use crate::lists::record::close;
 use crate::lists::show::wait_words;
 use crate::lists::store::{self, Store};
-use crate::lists::{How, Id, Lists, Stamp, issue, item_show, landing, running, take};
+use crate::lists::{
+    How, Id, Kind, Lists, Located, Stamp, issue, item_show, landing, running, tag, take,
+};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY]\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F]\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF)\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F]\n(REF is item:N, question:N, design:N or condition:TEXT)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF)\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n(REF is item:N, question:N, design:N or condition:TEXT)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -91,6 +93,7 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             "brief",
             "priority",
             "why",
+            "tag",
         ],
         &[],
     )?;
@@ -119,6 +122,7 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             .collect::<Result<_>>()?,
         brief: args.value("brief")?.map(str::to_string),
         priority,
+        tags: tag::parse_tags(args.values("tag"))?,
     };
     require_draft_briefs(cwd, std::slice::from_ref(&draft))?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
@@ -136,16 +140,24 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
+/// `item edit N`: changes an open item's fields, and gives any item, open or
+/// closed, the tags `--tag` names and takes off those `--untag` names.
 fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+    const EDIT_USAGE: &str = "builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--tag T]... [--untag T]...";
     let args = Args::parse(
         args,
-        &["title", "area", "details-file", "brief", "for"],
+        &[
+            "title",
+            "area",
+            "details-file",
+            "brief",
+            "for",
+            "tag",
+            "untag",
+        ],
         &[],
     )?;
-    let id = one_id(
-        &args,
-        "builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F]",
-    )?;
+    let id = one_id(&args, EDIT_USAGE)?;
     let edit = ItemEdit {
         title: args.value("title")?.map(str::to_string),
         area: args.value("area")?.map(str::to_string),
@@ -153,14 +165,35 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         brief: args.value("brief")?.map(str::to_string),
         r#for: args.choice("for")?,
     };
+    let tags = tag::parse_tags(args.values("tag"))?;
+    let untags = tag::parse_tags(args.values("untag"))?;
+    let fields = !edit.is_empty();
+    if !fields && tags.is_empty() && untags.is_empty() {
+        fail!("the edit of {id} changes nothing: it names no field and no tag\n{EDIT_USAGE}");
+    }
     if let Some(brief) = &edit.brief {
         require_brief_from(cwd, brief)?;
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, &format!("item edit {id}"), |db| {
-        open_item(&store::read(db)?, id)?;
-        edit.apply(db, id)
+        let lists = store::read(db)?;
+        if fields {
+            open_item(&lists, id)?;
+            edit.apply(db, id)?;
+        } else if !matches!(
+            lists.locate(id),
+            Some(Located {
+                kind: Kind::Item,
+                ..
+            })
+        ) {
+            // An item's tags change open or closed; anything else is refused
+            // as an item would be.
+            open_item(&lists, id)?;
+        }
+        tag::remove_tags(db, id, &untags)?;
+        tag::add_tags(db, id, &tags)
     })?;
     note(format!("edited {id}"));
     Ok(())

@@ -167,6 +167,9 @@ const BEFORE_LANDING_REVIEW_STAMP: i64 = 548_041_900;
 /// The stamp of the schema before each review call kept its prompt and cost.
 const BEFORE_SCORED_CALLS_STAMP: i64 = 434_532_060;
 
+/// The stamp of the schema before questions and items took tags.
+const BEFORE_TAGS_STAMP: i64 = 395_623_277;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -192,8 +195,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// passed landed with its newest review run, since that review ran after the
 /// push) and the empty `review_commit` and `review_fix` tables, and every store
 /// whose review tables are older than today's gets `review_call` with each
-/// call's prompt, read from the system prompt it was sent, and no cost. The
-/// moves run in one transaction, the store is stamped as today's schema, and it
+/// call's prompt, read from the system prompt it was sent, and no cost, and
+/// every store gets the empty `record_tag` table (no question or item carries
+/// a tag yet). The moves run in one transaction, the store is stamped as today's schema, and it
 /// must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
 /// other stamp is refused. Delete this once it has run.
@@ -291,11 +295,12 @@ fn move_store(path: &Path) -> Result<()> {
         BEFORE_DESIGN_FIX_STAMP,
         BEFORE_LANDING_REVIEW_STAMP,
         BEFORE_SCORED_CALLS_STAMP,
+        BEFORE_TAGS_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP} and {BEFORE_SCORED_CALLS_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP} and {BEFORE_TAGS_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -308,7 +313,13 @@ fn move_store(path: &Path) -> Result<()> {
         .sql()?;
     // A store from before reviews ran before landing, or after, has every
     // other part.
-    if found != BEFORE_LANDING_REVIEW_STAMP && found != BEFORE_SCORED_CALLS_STAMP {
+    if ![
+        BEFORE_LANDING_REVIEW_STAMP,
+        BEFORE_SCORED_CALLS_STAMP,
+        BEFORE_TAGS_STAMP,
+    ]
+    .contains(&found)
+    {
         if found == BEFORE_DESIGN_DELETED_STAMP {
             tx.execute_batch(DESIGN_DELETED).sql()?;
         }
@@ -372,6 +383,8 @@ fn move_store(path: &Path) -> Result<()> {
     {
         crate::review::record::move_to_scored_calls(&tx)?;
     }
+    // No store before today's has the tags' table.
+    tx.execute_batch(db::TAG_PART).sql()?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))

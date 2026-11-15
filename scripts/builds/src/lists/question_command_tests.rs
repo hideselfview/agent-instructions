@@ -1110,3 +1110,113 @@ fn blocking_with_plan(db: &Connection, plan: PlanRef) -> Id {
     )
     .unwrap()
 }
+
+#[test]
+fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
+    let (scratch, tool, store, one) = setup("question-tags", |db| item(db, Vec::new()));
+    let details = details(&scratch);
+    let words = |line: &[&str]| -> Vec<String> {
+        line.iter()
+            .map(|word| word.to_string())
+            .chain(AS.split_whitespace().map(str::to_string))
+            .collect()
+    };
+    let ask = |title: &str, blocks: &[&str], tag: &str| {
+        let mut line = vec![
+            "ask",
+            "--title",
+            title,
+            "--kind",
+            "question",
+            "--details-file",
+            &details,
+            "--tag",
+            tag,
+        ];
+        line.extend_from_slice(blocks);
+        run(&tool, &words(&line), &scratch.dir, &no_gh)
+    };
+    let one = one.0.to_string();
+    ask(
+        "Which way does the first go?",
+        &["--blocks", &one],
+        "screen-reads audit",
+    )
+    .unwrap();
+    ask(
+        "Which way does the second go?",
+        &["--blocks-nothing", "asked to know"],
+        "coven-trust audit",
+    )
+    .unwrap();
+    let lists = store.load().unwrap();
+    let first = lists.questions[0].id;
+    let second = lists.questions[1].id;
+    assert_eq!(lists.questions[0].tags, ["screen-reads audit"]);
+
+    let listed = run(
+        &tool,
+        &words(&["list", "--tag", "coven-trust audit"]),
+        &scratch.dir,
+        &no_gh,
+    )
+    .unwrap();
+    assert!(
+        listed.contains("Which way does the second go?")
+            && !listed.contains("Which way does the first go?")
+            && listed.contains("tags: coven-trust audit"),
+        "{listed}"
+    );
+    assert!(
+        run(
+            &tool,
+            &words(&["list", "--tag", "nothing"]),
+            &scratch.dir,
+            &no_gh
+        )
+        .unwrap()
+        .contains("no question on the stack carries the tag nothing")
+    );
+
+    run(
+        &tool,
+        &words(&[
+            "edit",
+            &first.0.to_string(),
+            "--tag",
+            "mac",
+            "--untag",
+            "screen-reads audit",
+        ]),
+        &scratch.dir,
+        &no_gh,
+    )
+    .unwrap();
+    assert_eq!(store.load().unwrap().questions[0].tags, ["mac"]);
+
+    // A closed question still takes tags, and shows them.
+    go(&scratch, &tool, &format!("drop {second} --why not-asked")).unwrap();
+    run(
+        &tool,
+        &words(&["edit", &second.0.to_string(), "--tag", "later"]),
+        &scratch.dir,
+        &no_gh,
+    )
+    .unwrap();
+    let shown = go(&scratch, &tool, &format!("show {second}")).unwrap();
+    assert!(shown.contains("tags: coven-trust audit; later"), "{shown}");
+    refuses(
+        &scratch,
+        &tool,
+        &store,
+        &format!("edit {second} --title Another"),
+        "closed",
+    );
+    refuses(
+        &scratch,
+        &tool,
+        &store,
+        &format!("edit {first}"),
+        "changes nothing",
+    );
+}
