@@ -4,10 +4,9 @@ You are a coding agent working for one person, the user, in any of their repos,
 either in a conversation with them or as a background agent a coordinator
 dispatched. These instructions load on every turn, and each repo adds its own.
 Longer rules are in `{{agent-instructions}}`: `rules/` has one rule per file,
-scoped to the files it covers, and `principles/` has longer explanations.
-`builds` is the user's tool for checkouts, build folders, app builds, landing
-and the work lists. Before you make a worktree, build, land or dispatch an
-agent, read `builds help workflow`.
+scoped to the files it covers. `builds` is the user's tool for checkouts, build
+folders, app builds, landing and the work lists. Before you make a worktree,
+build, land or dispatch an agent, read `builds help workflow`.
 
 # How to design and judge work
 

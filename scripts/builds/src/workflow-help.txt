@@ -1,0 +1,225 @@
+builds workflow: how work moves through worktrees, builds and landing, and how
+a coordinator runs agents. Read it before you make a worktree, build, land or
+dispatch an agent. A command refuses a step that lacks what it needs, so this
+page states only what no command checks. The project file
+(projects/<project>.md in agent-instructions) names the project's lists,
+worktrees, landing worktree and standing rules.
+
+
+ROLES
+
+A coordinator session plans work, dispatches background agents with a brief
+each, reviews their work and lands it. The agents implement. A design session
+draws the boards (pictures of screens, kept in the repo) that the apps are
+built to match. "Design" alone is ambiguous: write "board" or "product design"
+for screens and how they look, and "software plan" for the shape of code and
+data.
+
+
+WORKTREES
+
+Each repo keeps a main checkout and one long-lived side worktree, side-1. The
+branch, not the worktree, is the unit of work.
+
+  - The main checkout stays on main, for iterative work, edits made with the
+    person, and landing.
+  - side-1 is for background work: each feature or fix is a new branch from
+    origin/main there. It stays built, so never delete or recreate it.
+  - Extra side worktrees (side-2 and on) are for agents that work at the same
+    time. `builds new` hands one out and claims it; `builds prune` retires
+    idle ones whose work has all landed. An agent works in the worktree its
+    brief names, or one it gets from `builds new --for`, never a side-N it
+    picked by hand.
+  - App checkouts keep the app builds built, and agents take turns in them
+    through `builds app-build`; every other side worktree builds host Rust
+    output only (`builds help`, APP BUILDS).
+
+Each checkout builds into its own folders on /Volumes/Builds. Never set
+CARGO_TARGET_DIR or another CARGO_* variable on a command: the path is part of
+sccache's key (`builds help`, BUILD FOLDERS).
+
+
+LISTS
+
+A project's decision stack, work queue, decision log and design changes are in
+the builds store (`builds help lists`). The stack holds what waits on the
+person, asked one at a time from the top; a plan's open questions go there. The
+queue holds only what agents can do, and `builds next` lists what is ready. The
+log holds each answer, and each standing choice about how work runs, with why.
+
+
+PLAN, BRIEF, EXECUTE, REVIEW
+
+  - Plan: the coordinator runs the strongest model. For work whose shape is
+    still open, it writes a software plan in plans/<name>.md, and the plan's
+    open questions go on the decision stack.
+  - Brief: each queued item gets a brief that states the goal, the shape, the
+    facts gathered so far (measurements, logs, leads), what must hold, and the
+    checks. A brief leaves the executor no design decision, but doesn't name
+    each file and line: the executor reads the code. `builds help briefs` is
+    the instructions for a planner agent that writes briefs.
+  - Execute: every dispatched agent runs a faster, cheaper model. An agent
+    runs the strongest model only for a software plan too large for the
+    coordinator to hold; its brief says what the coordinator read and what
+    stays unknown, and it writes a plan for the faster model to execute.
+  - Review: the coordinator reads each commit's diff against its brief and
+    the rules before landing it, and sends each finding back to the agent
+    that made it. `builds land` also reviews each landing in the background,
+    and the coordinator settles its findings (`builds review settle`).
+  - At every step, check the shape against the project's standing rules,
+    which a plan's author never loads by touching files; the project file
+    names them. A plan that proposes a shape they forbid is rewritten before
+    dispatch, and a review refuses a commit that brings one in.
+  - For work that builds an app screen to match its board, follow the rule
+    the project file names for it.
+
+
+WHAT AN IMPLEMENTING AGENT DOES
+
+  1. Read the code paths its brief names. A choice the brief didn't settle
+     goes back to the coordinator, never into a guess.
+  2. Branch from origin/main in its claimed worktree.
+  3. Implement to the brief. A bug fix starts with its failing test.
+  4. Review its own diff once, against the brief and the matching rules.
+  5. Check only what the change touches: the hook, `builds app-build <repo>
+     <branch>` for app changes (builds picks the steps, lane and host), and
+     the tests of the changed code. Never a whole app test suite (it opens the
+     app on the person's screen) or the full CI script. A shots check compares
+     against the findings of the commit the branch started from: read them
+     with `builds shots findings`, never by building that commit, and open the
+     report path it prints, never a checkout's shots/ folder.
+  6. Commit, and report the SHA, the base and the checks. The coordinator
+     lands it.
+
+Agents share their coordinator's scratchpad folder, so each keeps its scratch
+files (commit messages, probes) in a folder of its own, named for its branch.
+
+
+DISPATCH
+
+  - Give each agent one task, or several to do one after another, one commit
+    each. When its context reaches about 550k tokens, it writes a handoff
+    file at its next clean point (what's committed, what isn't, what's left,
+    decisions, traps), and a fresh agent continues from it (`builds item
+    handoff`).
+  - Give work to the agent that already knows the area: a finding goes back
+    to the agent that reported it, and an item goes to the agent that last
+    finished work there, resumed with SendMessage. Start a new agent only
+    when no finished agent under the handoff size knows the area, or the item
+    needs the other model.
+  - Each brief names its worktree, its items, the rules to read, the
+    project's hard limits (the person's checkouts, the keychain, devices,
+    cargo through the wrapper, no `git add -A` or stash, no --no-verify), the
+    mode, the model's commit trailer, and "report each commit; don't push
+    main". A quick-mode brief names the one test that proves the change and
+    the clippy command with the hook's feature sets, never "the tests of what
+    you touched".
+  - Take items from `builds next`. Claim the worktree (`builds claim`), mark
+    the items running (`builds item take`), keep the worktree's note current
+    (`builds note`) on every dispatch, handoff and landing, and release the
+    worktree when the work lands. `builds item list --running` shows what
+    runs after a compact.
+  - Read-only agents (planners, audits) read origin/main through `git show`
+    and `git grep`, never a checkout.
+  - Disk is a queue limit, never a question for the person: under the floor,
+    start nothing new, and start the next work as agents finish and their
+    build folders are pruned.
+  - Another worktree may keep an app build while a wave of work needs it;
+    clear it once that work moves on (`builds help`, APP BUILDS).
+  - When an agent finishes, land its commits and start the next work in the
+    same turn, before writing up anything else.
+
+
+MODES
+
+The person picks the mode and tells the coordinator; each brief names it, and a
+switch means telling every running agent. The pre-commit hook is the same in
+both.
+
+  - Strict: agents commit through the hook and run the tests of what they
+    touched. While `builds health` shows load well over the core count, start
+    nothing new.
+  - Quick: keep 8 agents running, starting new ones at every health check
+    and landing. Before each commit an agent runs clippy with the project's test
+    features (and the apps' test-target compiles for Swift or Kotlin), and
+    runs only the one test that proves a fix. The landing's compile check
+    still checks every landing. At the full-suite run the person sets, a fixer
+    agent runs every suite and CI and fixes each failure with the commit that
+    caused it. A test that fails meanwhile is checked on origin/main first;
+    when it fails there too and isn't the agent's, the agent notes it and
+    moves on.
+
+
+LANDING
+
+Land from the claimed landing worktree with `builds land`; its help says what
+it checks.
+
+  - After landing commits whose base is behind main and that touch shared
+    code (schema, test stores, bridge types), build main (`check --workspace
+    --all-targets --all-features`) before landing more, and send agents whose
+    base changed under them back to rebase.
+  - Don't land in the landing worktree while a check runs there.
+  - When `builds land` prints `LANDED, NOT RECORDED:`, run the `rerun:`
+    command it prints.
+  - A CI run on main that fails or stalls is the coordinator's to run down.
+
+
+DESIGN CHANGES
+
+The design session lands its boards through a design change, which the person
+reviews and approves first (`builds help lists` has the record and its
+commands):
+
+  1. While drawing, look at a board with `builds design render`, which draws
+     it from the worktree as one page of HTML without publishing the canvas.
+  2. When the boards are drawn, record the change (`builds design record`):
+     what changed, each board's canvas link, and the review page's headings,
+     words and boards. The change shows in the dashboard's Waiting on you tab
+     as a card, and its Details opens the review page, which shows each board
+     now and proposed side by side and draws it again on each load. To change
+     the boards again, commit and run `builds design amend`, which clears an
+     approval.
+  3. Everything the person reviews goes on that page: new boards, proposals,
+     before and after examples. Never make a page of your own (a review.html,
+     a page in the scratchpad) or open a browser tab; the person reloads the
+     review page.
+  4. The person approves with the page's Approve button, which sends "Design
+     change #N of project P approved: land it." to the session that recorded
+     the change. That message is the cue to land: run `builds land <worktree>
+     --design N <sha>...` from the project's landing worktree (the approval is
+     already recorded; never run `builds design approve` for it), then publish
+     the canvas, which only a Claude session can do. When that session has
+     ended, the next design session lands the change. `builds design approve
+     N --by-person` is for an approval the person gives in words.
+
+The boards and design/mocks/canvas.json in the repo are the canvas's source.
+The published canvas and design system are copies that let anyone look at the
+landed boards. An edit made on the canvas page on claude.ai is an accident:
+publish the repo's version over it and merge nothing from it.
+
+
+HEALTH CHECK
+
+While the coordinator's agents run or commits wait to land, a schedule in its
+session (CronCreate) runs `builds health` every 5 minutes, and the coordinator
+acts on every line of its "needs action" list first. Delete the schedule
+(CronDelete) when nothing is left to check. A quiet check needs no message to
+the person.
+
+  - sccache finished no compiles while clients wait: restart it (`launchctl
+    kickstart -k gui/$(id -u)/local.sccache-server`).
+  - Junk shells: run `builds health --stop-junk`. When one agent keeps
+    leaving polling shells, tell it to wait for notifications instead.
+  - A claimed worktree with no change and no build for an hour: ask its agent
+    what it waits on, or land and release it. A claim kept on purpose gets
+    `builds note <worktree> --state held "<why, and until when>"`.
+  - A held worktree whose wait closed: restart its work and clear the hold.
+  - Commits that change design files with no design change: the design
+    session records one (`builds design record`).
+  - A running item whose worktree is gone or unclaimed: land it, stop it
+    (`builds item stop`) or hand it on.
+  - Disk under the floor: hold the queue.
+  - An app lock held long, or with agents waiting: check that the holder is
+    building, not stuck. A step past its time limit is killed and passes the
+    lock on.

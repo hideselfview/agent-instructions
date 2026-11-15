@@ -1,256 +1,223 @@
-builds lists: the lists of a project, kept in a store of their own.
+builds lists: a project's lists, kept in a store outside every repo.
 
-A project is a set of repos that share lists (`bae` holds bae and coven). Its
-store is ~/Library/Application Support/builds/lists/<project>/, or
+A project is a set of repos that share lists (bae holds bae and coven). Its
+lists are:
+
+  decision stack  what waits on the person: questions, work only they can
+                  do, and work held until they start it (builds question)
+  work queue      what the coordinator and its agents can do (builds item,
+                  builds next, builds area)
+  decision log    every decision, with who made it and why (builds decision)
+  design changes  product design changes (a board or a design-system
+                  component, not a software plan) that wait on the person's
+                  review or to land (builds design)
+
+The store is ~/Library/Application Support/builds/lists/<project>/, or
 $BUILDS_LISTS/<project>/: builds.sqlite, one SQLite database, which also holds
-the hook-run stats. It is outside every repo, so no commit can carry it.
-Nothing edits it by hand: every change is a command, and every command
-refuses a step that lacks what it needs.
+the hook's run records, the review records and the app build records. It is
+outside every repo, so no commit can carry it. Nothing edits it by hand: every
+change is a command, and every command refuses a step that lacks what it needs.
 
-Every record has an id from one counter per project, printed #N. Commands
-take ids as bare numbers (`builds item take 12`): an unquoted #12 is a
-comment in the shell.
+Every record (a question, an item, a decision or a design change) has an id
+from one counter per project, printed #N. Commands take ids as bare numbers
+(`builds item take 12`), because an unquoted #12 is a comment in the shell.
 
 Every write records who wrote it: `--by WHO` when given, else the claim of the
-worktree the command runs in, else the command is refused ("say who you are
-with --by"). The project comes from `--project P`, else from the repo of the
-directory the command runs in (a repo in no project, or in two, is refused).
+worktree the command runs in; with neither, the command is refused ("say who
+you are with --by"). The project comes from `--project P`, else from the repo
+of the folder the command runs in (a repo in no project, or in two, is
+refused). Long text comes from a file (--details-file F; `-` is standard
+input), and a compound write takes one JSON request (--request F), refused
+naming the field that is wrong when it does not parse or holds a field the
+command does not take. Each write prints what it did and what follows, such as
+the stack's new top and what it blocks, or the items an answer made ready.
 
 Every write is one SQLite transaction, taken as the write lock: the command's
-own changes, the line of the write log, and the code check, then commit. A
+own changes, the line of the write log, and the check below, then commit. A
 write lands whole or not at all, and a refused command leaves every table and
 the version as they were. Two commands at once both land, one after the other,
 and a reader sees the last committed state while a write runs.
 
 The tables hold most of what must always be true: ids are unique across the
-four kinds of record, and a reference (waits, an item's origin, a closing's
-decision or question, a decision's replaced decision, a design change's
-places) names a record of the right kind that exists, open or closed; titles
-are one line; every item's area exists, open or closed; a running item's
-worktrees are side worktrees (<parent>/<repo>-worktrees/side-N) of project
-repos, one per repo; a record left only the ways its kind can; decisions have a
-YYYY-MM-DD date, a decider and a body, and replace only an older decision.
-What the tables cannot say is a short check run on every read and before every
-commit: the project has a repo; every open question has an open item waiting
-on it or says why it is asked anyway; no open item waits on a record that
-closed in a way that never meets a wait (dropped, deferred, moved to the
-stack); no open items wait on each other in a circle; a closed item runs
-nowhere; a worktree holds one branch of work; a landed closing or part has a
-commit; the project row names the folder's project. A store that fails it
-makes every command fail naming each fault. Nothing repairs it. Item titles
-being five to seven words, and git, files and GitHub, are checked by the
-command that writes them.
+four kinds of record; a reference (a wait, an item's origin, a closing's
+decision or question, a decision's replaced decision, a design change's places)
+names an existing record of the right kind, open or closed; titles are one
+line; every item's area exists; a running item's worktrees are side worktrees
+(<parent>/<repo>-worktrees/side-N) of project repos, one per repo; a record
+leaves only the ways its kind can; and a decision has a YYYY-MM-DD date, a
+decider and a body, and replaces only an older decision. A check run on every
+read and before every commit holds the rest: the project has a repo; every open
+question has an open item waiting on it or says why it is asked anyway; no open
+item waits on a record that closed in a way that never meets a wait (dropped,
+deferred, moved to the stack); no open items wait on each other in a circle; a
+closed item runs nowhere; a worktree holds one branch of work; a landed closing
+or part has a commit; and the project row names the folder's project. A store
+that fails the check makes every command fail, naming each fault, and nothing
+repairs it. The command that writes them checks the rest: item titles of five
+to seven words, and git, files and GitHub.
 
-Commands in this part:
 
-  builds lists init PROJECT --repos R,R [--design-places R:GLOB,...]
-                    [--design-sources R:GLOB,...] [--spec-files R:GLOB,...]
-                    [--by WHO]
-      Makes the project's store. --repos names the repo directories the
-      project covers (as `Checkout` names them: the main checkout's folder).
-      --design-places gives each repo's design globs, one REPO:GLOB each; a
-      path a commit changes that matches one is a design place;
-      --design-sources and --spec-files give the shared design-system sources
-      and the spec files (see Design changes below). Refused when the store
-      exists.
+DECISION STACK
 
-  builds lists add-repo PROJECT REPO [--by WHO]
-      The project carries the work of one more repo, so its worktrees run
-      items, land commits and resolve to the project from their directory
-      (agent-instructions is added to bae this way: its work is tracked on
-      bae's lists). Refused when the project already has the repo. Two
-      projects may hold one repo (agent-instructions is in bae and builds);
-      a worktree of it then names its project with `builds claim --project`
-      or `builds new --project`, and a command outside a claimed worktree
-      takes --project.
+The stack is asked from the top, one entry at a time: first the entries placed
+first (newest first), then the rest by how many open items each unblocks,
+directly or through chains of open items (ties oldest first), then the entries
+placed last.
 
-  builds lists show [--json] [--project P]
-      The stack in the order it is asked, then the queue, as text; with
-      --json the whole state with its derived fields (state of each item,
-      what each question blocks, the flow of the last 14 days), the JSON the
-      dashboard reads. The dashboard adds, to each worktree a running item runs
-      in, the agent, note, note state and commits waiting to land of its
-      claim.
+  builds question ask --title T --kind question|your-step|held
+                      --details-file F (--blocks N[,N] | --blocks-nothing WHY)
+                      [--from-item N] [--first WHY] [--plan PATH --plan-number Qn]
+      Puts an entry on the stack: a question, work only the person can do
+      (your-step), or work held until they start it (held). It needs what the
+      entry blocks, open items that gain a wait on it (a running item may be
+      blocked: its agent is held on the answer), or why it is asked though
+      nothing waits; a --blocks item that is unknown or closed is refused.
+      --first puts it on top, with why. --from-item N closes item N as moved
+      to the stack (it was the person's work), and every item that waited on N
+      waits on the new entry instead; refused for a running item. --plan and
+      --plan-number tie it to a plan's open question, and its answer carries
+      the link.
 
-  builds lists project-of DIR
-      Prints the project DIR's repo belongs to, or nothing. Refused when the
-      repo is in two projects and the worktree names neither (builds claim
-      --project).
+  builds question answer N --request F
+      The request: {"decision": {"title", "body", "by", "replaces"?},
+      "blocked": {"ITEM": "proceeds" | {"edit": {fields}} | {"drop": WHY}},
+      "work": [item drafts] | "no_work": WHY}. In one write: the decision
+      (linked to the question and its work), every new item (made by the
+      decision), each blocked item's edit or drop, and the question's close.
+      `blocked` names every item waiting on N and no other; `work` or
+      `no_work`, never both or neither; the decision's body is not empty. Only
+      for a question-kind entry. Prints the items now ready and the stack's
+      new top.
 
-Design changes (a product design change: a board or a design-system
-component, not a software plan). A design change is recorded when its boards
-are drawn and waits on the person's review: it shows in the sidebar's Waiting
-on you tab as a light card (its title, the items it blocks, who recorded it)
-with a Details toggle that opens its review page in a modal over the dashboard,
-until the person approves it. The review page is the change's words under
-their headings, with every board of the change drawn twice, side by side, in
-frames the person can zoom (never an image): now, the board as it stands on
-origin/main, and proposed, the board at the last commit of the change's range,
-each drawn with its own commit's design system. A board the change adds says it
-has no now; a board it deletes shows only its now. The dashboard serves the
-page at /design/N and draws each board again on every request, reading the
-files with git at those commits, so a worktree with another branch checked out
-does not change what the page shows, and a redraw shows on reload. builds land --design N refuses it before approval; landing closes it, so
-it leaves the tab. The design session lands through builds land like everyone else,
-from bae's landing worktree (side-7).
+  builds question settle N --request F
+      The request: {"by_rule": the rule or code that settles it, "blocked",
+      "work" | "no_work"}. Records no decision: a question that rules settle
+      is not the person's.
 
-The review page has an Approve button, which records the approval as
-`builds design approve N --by-person` does, and the card then says "approved,
-waiting to land" until the change lands. The button works only from the page
-served at 127.0.0.1 or localhost, on this Mac (the dashboard may also listen on
-the Wi-Fi's address, where anyone could reach it): the daemon refuses an
-approval from a connection that is not from this Mac or whose page or origin
-is another address, and a page served at another address says approval is only
-on this Mac. The approval then sends "Design change #N of project P approved: land it." to
-the session that recorded the change, which lands it (builds land, then
-publishes the canvas, which only a Claude session can do). `design record` and
-`design amend` keep the inbox of the session that runs them, from its
-environment: CLAUDE_CODE_MESSAGING_SOCKET and CLAUDE_CODE_MESSAGING_TOKEN (a
-session that bypasses permission prompts holds a message unless its token
-comes with it). The token is a per-session secret that stays in the lists
-store: nothing prints it, logs it, puts it on a page or returns it in JSON. The
-message goes to the socket once, as the protocol of
-https://code.claude.com/docs/en/cross-session-messaging.md ("The session's
-inbox socket") says: a line `{"type":"auth","token":"..."}`, then a line
-`{"type":"user","message":{"role":"user","content":"..."}}`. When no session
-listens on the socket any more, the card says the session that recorded the
-change has ended and the next design session lands it; nothing sends again. An
-amend clears what the session was told, along with the approval.
+  builds question done N --request F
+      For your-step and held entries: {"blocked", "work" | "no_work"}.
 
-A repo's design files are the globs given to `lists init`. --design-places:
-a board file (`design/mocks/*.dc.html`) is a place, and so is a component
-folder (`design/system/components/*/`), counted once however many files in it
-change. --design-sources: the shared design-system sources (the component
-sources, tokens.json, tokens.css); they win over a place glob, and a change to
-one can change any component's drawing, so the design change lists the
-components whose drawing changes. --spec-files: the spec files; in a design
-change, each section (by heading) its commits touch is a place, written
-`spec/bae.md#Heading`; a spec file alone is no design change. Other changed
-files under `design/` are shared design files. Commands that read git take a
-worktree DIR and find the project from its repo (or --project); commits may be
-rebased, since places are compared by path.
+  builds question drop N --why WHY
+  builds question defer N --issue URL
+      Takes the entry off; refused while an item waits on it (the message
+      names each and the `item wait ITEM --off question:N` that frees it).
+      defer needs an open GitHub issue (`gh issue view URL --json state`,
+      asked before the write lock).
 
-  builds design places DIR SHA...
-      Prints every design path the commits change, one per line: `place PATH`
-      (a component folder once, with a trailing /), `source PATH`,
-      `deleted PATH` (a board file the commits delete), `spec PATH#HEADING` or
-      `shared PATH`; nothing when none. builds land
-      requires --design N whenever this prints anything.
+  builds question place N first|last|auto --why WHY [--by-person]
+      Places it first, last, or by what it unblocks (auto).
 
-  builds design only DIR SHA...
-      Prints nothing and succeeds when the commits are a design change and
-      every path they change is a design file (boards, the design system,
-      spec lines); otherwise names the paths that are not. builds land takes
-      --design N alone, with no --done or --part, only then: the design
-      change holds the app work.
+  builds question edit N [--title T] [--details-file F]
+                         [--blocks-nothing WHY | --blocks-something]
+      --blocks-something is refused when no open item waits on the entry: an
+      entry that blocks nothing needs a why.
 
-  builds design record --request FILE       (`-` for standard input)
-      FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
-      "places": {PLACE: {"item": N} | {"new": ITEM_DRAFT} | {"matches": HOW}},
-      "boards": {BOARD: {"link": CANVAS_URL}},
-      "review": [{"heading": H, "words": WORDS,
-                  "boards": [{"board": BOARD_PATH, "caption": C,
-                              "theme": "light" | "dark"}]}],
-      "no_app_place": WHY}. `places` answers every design place the range
-      changes (a board, a component folder, a spec section): an open item
-      that does the app work, a new item (which waits on this design change,
-      so it can't be taken before the board lands), or how it was checked
-      that the app already matches. When the range changes shared design-system
-      sources, `places` also lists each component folder whose drawing
-      changes, changed by the range or not (it must exist), answered the same
-      way; `no_app_place` says instead that no drawing changes (a comment in
-      the source), and is refused beside a listed component or a changed board
-      or component. Shared files that are no source (a README, a build
-      script) change no drawing: only `no_app_place`, unless a place is
-      resolved. `boards` gives every board place its canvas link. `review` is
-      how the review page reads, in order: each section is a heading, the
-      words under it (optional; `code`, **bold**, paragraphs and `-` lists)
-      and its boards (optional), each a board file of the repo's design places
-      that exists at the range's last commit, with its caption and the theme it is drawn in
-      (a board may be on the page twice, once per theme, and a board the
-      change did not touch may be there to compare). Every board place of the
-      change must be on the page. A board file the range deletes needs no
-      answer, link or place on the page: it is listed as deleted, and the
-      review page shows it with its now only. `worktree` and the range's last
-      commit are stored with the change: the dashboard reads each board of the
-      page from that repo at that commit (proposed) and at origin/main (now),
-      so the commit must stay in the repo while the change is open; an amend stores the new last commit. A change
-      recorded before the last commit was kept draws nothing until it is
-      amended. That commit needs the design system's generated files
-      (design/system/tokens.css and design/system/components/bundle.css and
-      bundle.js) and each board's size in design/mocks/canvas.json. Refused, naming each,
-      when a changed place is left unresolved, an answer names a place the
-      range does not change, `matches` has no how, an item is closed or
-      missing, a board has no link, `review` is missing, empty or has a
-      heading with no text, a board of it is no file or no board place or
-      has no caption, a board of the change is not on it, or the range
-      changes no design files.
+  builds question show N | builds question list
+      One entry with its details (a closed one shows how it left), or the
+      stack in the order it is asked.
 
-  builds design amend N --request FILE
-      The same over a new range, which N then holds to: a stored place the
-      range no longer changes (a board renamed before landing) drops out with
-      its board link and its place on the review page, and a place the range
-      does change needs an answer; `title` and `details` are optional; `worktree` replaces the
-      one stored, and `review`, when given, replaces the whole page (left out,
-      the page stays, and must still hold every board of the change). The
-      person's approval is cleared: they approved what was drawn before.
 
-  builds design approve N --by-person
-      Records the person's approval, which only they give (say "--by-person"
-      once they have said to land it, never on your own judgment). The same
-      approval again writes nothing. The person usually approves with the
-      Approve button on the review page instead (see below); this command
-      sends nothing to any session.
+WORK QUEUE
 
-  builds design check N DIR SHA...
-      Every place the commits change is resolved in open change N, shared
-      files and sources are answered for, and the person has approved it;
-      names what is not.
+An item waits on records (REF: item:N, question:N, design:N or condition:TEXT).
+A wait is met when its question was answered, settled or done, or its item or
+design change landed; a condition is met only when removed. An open item is
+then, in order: running; the design session's (shown apart, never dispatched);
+waiting (on a wait not met, or placed last while any other open coordinator
+item that is not placed last exists); or ready. A brief path that is relative
+is looked up in the main checkout of the repo the command runs in (plans are in
+no commit); an absolute path is itself.
 
-  builds design landed N DIR SHA...
-      As builds land calls it after the push, with SHAs on origin/main: records
-      them and closes N, which frees the items waiting on it. The same
-      commits again record once; other commits for a landed change are
-      refused.
+  builds item add --title T --area A --details-file F [--for design-session]
+                  [--wait REF]... [--brief P] [--priority first|last --why WHY]
+      Needs a title of five to seven words, a known area (otherwise refused,
+      naming the areas and `area add`), details, waits on open records, and a
+      brief that exists.
 
-  builds design show N | builds design list
-      One design change, open or landed; the open ones, one line each.
+  builds item edit N [--title T] [--area A] [--details-file F] [--brief P]
+                     [--for F]
 
-  builds design render DIR BOARD [--theme light|dark] [--now | --at REV]
-      Prints board BOARD of worktree DIR as one page of HTML (dark unless
-      asked; DIR's files as they are, with --now the board as it stands on
-      origin/main, with --at REV the board at that commit or branch, read
-      with git, each with the design system at that commit), the way the design canvas draws it: BOARD is the name
-      (`mac.welcome.open-failed`) or the path
-      (`design/mocks/mac.welcome.open-failed.dc.html`). It follows the boards
-      the board mounts (`dc-import`), applies each board's own values
-      (`renderVals`), `sc-if` and `sc-for`, and uses DIR's design system
-      (design/system/components/bundle.js and bundle.css,
-      design/system/tokens.css), which must be built there. Redirect it to a
-      file and open that; it loads React and Roboto from the net. This is
-      the page the review page's frames load. Reads no store.
+  builds item note N TEXT
+      A lasting progress line on the item (`builds note` is the claim's).
 
-What is derived, never stored: a wait is met when its question was answered,
-settled or done, or its item or design change landed (a condition only when
-removed); an item is running, the design session's (shown apart, never
-dispatchable), waiting (a wait not met, or priority last while any other
-open coordinator item that is not itself last exists) or ready; the stack
-asks `placed first` questions (newest first), then those that unblock the most
-open items directly or through chains of open items (ties oldest first), then
-`placed last`.
+  builds item wait N --on REF | --off REF
+      Refused when it would make items wait on each other in a circle, or on
+      a closed record.
 
-Decisions (the log, never closed):
+  builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2]
+                    --brief P [--as design-session] [--held WHY]
+      Marks the items running. W is a claimed side worktree of a project repo
+      (the claim names the agent; the item stores none) and B a branch of it.
+      Work that spans repos names one worktree and branch per repo, the nth
+      --branch for the nth --worktree, and the item runs in all of them.
+      Refused for an item that waits, one already running (stop it first), a
+      design-session item without --as design-session, a worktree already
+      running another branch, and two worktrees of one repo. --held WHY takes
+      an item that waits on an open question, item, design change or
+      condition (and only such an item), and notes each worktree held with WHY
+      in the same write: work kept for an answer, with no agent running.
+
+  builds item handoff N --brief P
+      Sets a running item's brief for its next agent, in every worktree it
+      runs in.
+
+  builds item stop N --why WHY
+      Puts the item back in the queue, out of every worktree; the why is a
+      note.
+
+  builds item drop N --why WHY | builds item defer N --issue URL
+      Refused while the item runs, while an open item waits on it (the message
+      names them and the `item wait --off` that frees each), or when it is the
+      last item an open question blocks. defer needs an open GitHub issue.
+
+  builds item place N first|last|none --why WHY
+      Sets an open item's priority as `item add --priority` does: first goes
+      ahead of the queue, last waits until nothing else is open, and none
+      gives it back to the order of area and age. The why is kept.
+
+  builds item check-landing DIR [--done N]... [--part N]... SHA...
+  builds item landed DIR [--done N]... [--part N]... SHA...
+      What builds land runs. check-landing, before anything is fetched: each
+      N is open and running in a worktree of DIR's repo (an item that runs in
+      worktrees of two repos accepts a landing from either), and each SHA is
+      on the branch of one of them. landed, after the push: each SHA is on
+      origin/main; --part records a landed part and leaves the item running,
+      and --done closes the item as landed and ends its running everywhere, so
+      an item that spans two repos lands --part from one and --done from the
+      other. The same call twice records once; a different set of commits for
+      an item already closed as landed is refused.
+
+  builds item show N | builds item list [--running] [--ready] [--area A] [--for F]
+      list --running prints each running item's marker line, one per
+      worktree it runs in (agent, repo, worktree, branch, brief); show prints
+      them all.
+
+  builds next
+      The ready coordinator items in dispatch order: items placed first
+      (oldest first), then by area order and age, and items placed last once
+      nothing else is open. The design session's items never appear.
+
+  builds area add NAME [--after AREA] | rename OLD NEW | move NAME --after AREA
+              | remove NAME
+      remove is refused while an item, open or closed, is in the area; rename
+      follows the items, open and closed.
+
+
+DECISION LOG
+
+The log is never closed: a decision is revised only by a later decision that
+replaces it.
 
   builds decision add --request FILE [--by WHO]
-      Records a decision. The request is JSON: title, by (who decided:
-      person, coordinator, design-session, ...), body, and either `work` (item
-      drafts the decision makes, each waiting as its draft says) or `no_work`
-      with the reason there is none; optionally `replaces` (the id of an
-      earlier decision it revises) and `plan` ({path, number}). Its date is
-      today. Refused: both or neither of work and no_work; an empty body; a
-      replaces that is not a decision; a draft the item rules refuse; a brief
-      that is no file under the repo's main checkout. A question's answer is
-      recorded by `question answer`, not here.
+      Records a decision, dated today. The request is JSON: title, by (who
+      decided: person, coordinator, design-session, ...), body, and either
+      `work` (item drafts the decision makes, each waiting as its draft says)
+      or `no_work` with the reason there is none; optionally `replaces` (the
+      id of an earlier decision it revises) and `plan` ({path, number}).
+      Refused: both or neither of work and no_work; an empty body; a replaces
+      that is not a decision; a draft the item rules refuse; a brief that is no
+      file under the repo's main checkout. A question's answer is recorded by
+      `question answer`, not here.
 
   builds decision edit N [--title T] [--body-file FILE|-] [--by WHO]
       Changes a decision's title or body. Refused when it changes nothing.
@@ -262,133 +229,192 @@ Decisions (the log, never closed):
   builds decision show N
       One decision in full: who decided and recorded it, the question it
       answered, the items it made and where they are, what it replaces and
-      what replaces it (derived from the decisions that name it), its body.
+      what replaces it, and its body.
 
   builds decision list [--plan PATH] [--since YYYY-MM-DD]
-      The log newest first, one line each; --plan keeps the decisions
+      The log, newest first, one line each; --plan keeps the decisions
       recorded against that plan, with their plan numbers.
-The decision stack: builds question ...
 
-Long text comes from a file (--details-file F; `-` is standard input). Compound
-writes take one JSON request (--request F), refused with the field that is
-wrong when it does not parse or holds a field the command does not take. A
-write lands whole or not at all; each prints what it did and what follows (the
-stack's new top and what it blocks, the items an answer made ready).
 
-  builds question ask --title T --kind question|your-step|held
-                      --details-file F (--blocks N[,N] | --blocks-nothing WHY)
-                      [--from-item N] [--first WHY] [--plan PATH --plan-number Qn]
-      Puts an entry on the stack: a question, work only the person can do
-      (your-step), or work held until they start it (held). Requires what it
-      blocks: open items, which gain a wait on it (a running item may be
-      blocked: its agent is held on the answer), or why it is asked though
-      nothing waits. Refuses a --blocks item that is unknown or closed.
-      --first puts it on top, with why. --from-item N closes item N as moved to
-      the stack (it was the person's work); every item that waited on N waits
-      on the new question instead, so the question blocks them. Refused for a
-      running item. --plan and --plan-number tie it to a plan's open question;
-      its answer carries the link.
+DESIGN CHANGES
 
-  builds question answer N --request F
-      The request: {"decision": {"title", "body", "by", "replaces"?},
-      "blocked": {"ITEM": "proceeds" | {"edit": {fields}} | {"drop": WHY}},
-      "work": [item drafts] | "no_work": WHY}. In one write: the decision (with
-      the question and its work linked), every new item (made by the decision),
-      each blocked item's edit or drop, and the question's close. `blocked` has
-      every item waiting on N and no other; `work` or `no_work`, never both or
-      neither; the decision's body is not empty. Only for a question-kind
-      entry. Prints the items now ready and the stack's new top.
+The design session records a design change when its boards are drawn, and the
+change waits on the person's review until they approve it; `builds help
+workflow` says how the session and the person work through one. builds land
+--design N refuses the change before approval, and landing closes it.
 
-  builds question settle N --request F
-      The request: {"by_rule": the rule or code that settles it, "blocked",
-      "work" | "no_work"}. Records no decision: a question settled from rules is
-      not the person's.
+A repo's design files are the globs given to `lists init`:
 
-  builds question done N --request F
-      For your-step and held entries: {"blocked", "work" | "no_work"}. A
-      question-kind entry is closed with `answer`.
+  --design-places   a board file (design/mocks/*.dc.html) is a place, and so
+                    is a component folder (design/system/components/*/),
+                    counted once however many of its files change
+  --design-sources  the shared design-system sources (the component sources,
+                    tokens.json, tokens.css); they win over a place glob, and
+                    a change to one can change any component's drawing, so
+                    the design change lists the components whose drawing
+                    changes
+  --spec-files      the spec files: each section (by heading) a design
+                    change's commits touch is a place, written
+                    spec/bae.md#Heading; a spec file alone is no design change
 
-  builds question drop N --why WHY
-  builds question defer N --issue URL
-      Takes the entry off with no item waiting on it (the message names each
-      and the `item wait ITEM --off question:N` that frees it). defer needs an
-      open GitHub issue (`gh issue view URL --json state`, asked before the
-      lock).
+Other changed files under design/ are shared design files. Commands that read
+git take a worktree DIR and find the project from its repo (or --project).
+Commits may be rebased, since places are compared by path.
 
-  builds question place N first|last|auto --why WHY [--by-person]
-      Where it sits: first, last, or auto (the order of what it unblocks).
+The review page shows the change's words under their headings, with every board
+of the change drawn twice, side by side, in frames the person can zoom (never
+an image): now, the board as it stands on origin/main, and proposed, the board
+at the last commit of the change's range, each drawn with its own commit's
+design system. A board the change adds says it has no now; a board it deletes
+shows only its now. The dashboard serves the page at /design/N, the change's
+card in the Waiting on you tab opens it, and the page draws each board again on
+every request from the files at those commits, read with git, so a worktree
+with another branch checked out does not change what it shows.
 
-  builds question edit N [--title T] [--details-file F]
-                         [--blocks-nothing WHY | --blocks-something]
-      --blocks-something is refused when no open item waits on it: a question
-      blocking nothing needs a why.
+The page's Approve button records the approval as `builds design approve N
+--by-person` does, and the card then says "approved, waiting to land". The
+button works only from the page served at 127.0.0.1 or localhost on this Mac:
+the daemon refuses an approval from another address. The approval then sends
+"Design change #N of project P approved: land it." once to the inbox of the
+session that recorded the change, which `design record` and `design amend` keep
+from the session's environment (CLAUDE_CODE_MESSAGING_SOCKET and
+CLAUDE_CODE_MESSAGING_TOKEN; a session that bypasses permission prompts holds a
+message unless its token comes with it). The token is that session's secret: it
+stays in the store, and nothing prints it, logs it, puts it on a page or a
+board, or returns it in JSON. When no session listens on the socket any more,
+the card says the session that recorded the change has ended, and nothing is
+sent again.
 
-  builds question show N | builds question list
-      One entry with its details, or the stack in the order it is asked (a
-      closed question shows how it left).
-The work queue (builds item ..., builds next, builds area ...). REF is item:N,
-question:N, design:N or condition:TEXT. A relative brief path is looked for in
-the main checkout of the repo the command runs in (plans are not in any
-commit); an absolute path is itself.
+  builds design places DIR SHA...
+      Prints every design path the commits change, one per line: `place
+      PATH` (a component folder once, with a trailing /), `source PATH`,
+      `deleted PATH` (a board file the commits delete), `spec PATH#HEADING` or
+      `shared PATH`; nothing when there is none. builds land requires
+      --design N whenever this prints anything.
 
-  builds item add --title T --area A --details-file F [--for design-session]
-                  [--wait REF]... [--brief P] [--priority first|last --why WHY]
-      Needs a title of five to seven words, a known area (refused otherwise,
-      naming the areas and `area add`), details, waits on open records, and a
-      brief that exists.
-  builds item edit N [--title T] [--area A] [--details-file F] [--brief P]
-                     [--for F]
-  builds item note N TEXT
-      A lasting progress line on the item (`builds note` is the claim's).
-  builds item wait N --on REF | --off REF
-      Refused when it would make items wait on each other in a circle, or on a
-      closed record. A condition is met only by --off.
-  builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2]
-                    --brief P [--as design-session] [--held WHY]
-      W is a claimed side worktree of a project repo (the claim names the
-      agent; the item stores none) and B a branch of it. Work that spans
-      repos names one worktree and branch per repo, the nth --branch for the
-      nth --worktree; the item runs in all of them. Refused for an item that
-      waits, one already running (stop it first), a design-session item
-      without --as design-session, a worktree already running another
-      branch, and two worktrees of one repo. --held WHY takes an item that
-      waits on an open question, item, design change or condition (and only
-      one that does), and notes each worktree held with WHY in the same
-      write: work kept for an answer, with no agent running.
-  builds item handoff N --brief P      A running item's next agent's brief
-                                       (in every worktree it runs in).
-  builds item stop N --why WHY         Back to the queue, out of every
-                                       worktree; the why is a note.
-  builds item drop N --why WHY | defer N --issue URL
-      Refused while the item runs, an open item waits on it (the message names
-      them and the `item wait --off` that frees each), or it is the last item
-      an open question blocks. defer needs an open GitHub issue.
-  builds item place N first|last|none --why WHY
-      Sets an open item's priority as `item add --priority` does: first goes
-      ahead of the queue, last waits until nothing else is open, none gives it
-      back to the order of area and age. The why is kept; refused for a closed
-      item.
-  builds item check-landing DIR [--done N]... [--part N]... SHA...
-  builds item landed DIR [--done N]... [--part N]... SHA...
-      What builds land calls. check-landing (before anything is fetched): each N
-      is open and running in a worktree of DIR's repo (an item that runs in a
-      worktree of each of two repos accepts a landing from either), and each
-      SHA is on the branch of one of them. landed (after the push): each SHA is on
-      origin/main; --part records a landed part and leaves the item running
-      in all its worktrees, --done closes the item as landed and ends its running everywhere (a
-      closed item runs nowhere), so an item
-      spanning two repos lands --part from one and --done from the other. The same call twice records once; a different set of commits
-      for an item already closed as landed is refused.
-  builds item show N | list [--running] [--ready] [--area A] [--for F]
-      list --running prints each item's marker line, one per worktree it runs
-      in: Running: agent, repo worktree branch, brief. show prints them all.
-  builds next
-      The ready coordinator items in dispatch order: priority first (oldest
-      first), then by area order and age, last items once nothing else is
-      open. The design session's items never appear.
-  builds area add NAME [--after AREA] | rename OLD NEW | move NAME --after AREA
-              | remove NAME
-      remove is refused while an item, open or closed, is in the area; rename
-      follows the items, open and closed.
+  builds design only DIR SHA...
+      Prints nothing and succeeds when the commits are a design change and
+      every path they change is a design file (boards, the design system,
+      spec sections); otherwise names the paths that are not. Only then does
+      builds land take --design N alone, with no --done or --part: the design
+      change holds the app work.
 
-builds release W is refused while an item runs in W, naming it.
+  builds design record --request FILE       (`-` for standard input)
+      FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
+      "places": {PLACE: {"item": N} | {"new": ITEM_DRAFT} | {"matches": HOW}},
+      "boards": {BOARD: {"link": CANVAS_URL}},
+      "review": [{"heading": H, "words": WORDS,
+                  "boards": [{"board": BOARD_PATH, "caption": C,
+                              "theme": "light" | "dark"}]}],
+      "no_app_place": WHY}.
+      `places` answers every design place the range changes (a board, a
+      component folder, a spec section) with an open item that does the app
+      work, a new item (which waits on this design change, so no one can take
+      it before the board lands), or how it was checked that the app already
+      matches. When the range changes shared design-system sources, `places`
+      also lists each component folder whose drawing changes, changed by the
+      range or not (it must exist), answered the same way; `no_app_place`
+      says instead that no drawing changes (a comment in the source), and is
+      refused beside a listed component or a changed board or component.
+      Shared files that are no source (a README, a build script) change no
+      drawing: only `no_app_place`, unless a place is resolved.
+      `boards` gives every board place its canvas link.
+      `review` is the review page, in order: each section is a heading, the
+      words under it (optional; `code`, **bold**, paragraphs and `-` lists)
+      and its boards (optional), each a board file of the repo's design
+      places that exists at the range's last commit, with its caption and the
+      theme it is drawn in (a board may be on the page twice, once per theme,
+      and a board the change did not touch may be there to compare). Every
+      board place of the change must be on the page. A board file the range
+      deletes needs no answer, link or place on the page: it is listed as
+      deleted, and the page shows only its now.
+      `worktree` and the range's last commit are stored with the change, and
+      the page reads each board from that repo at that commit, so the commit
+      must stay in the repo while the change is open. A change recorded
+      before the last commit was kept draws nothing until it is amended. That
+      commit needs the design system's generated files
+      (design/system/tokens.css and design/system/components/bundle.css and
+      bundle.js) and each board's size in design/mocks/canvas.json.
+      Refused, naming each, when a changed place is left unresolved, an
+      answer names a place the range does not change, `matches` has no how,
+      an item is closed or missing, a board has no link, `review` is missing,
+      empty or has a heading with no text, a board of it is no file, no board
+      place or has no caption, a board of the change is not on it, or the
+      range changes no design files.
+
+  builds design amend N --request FILE
+      The same over a new range, which N then holds to: a stored place the
+      range no longer changes (a board renamed before landing) drops out with
+      its board link and its place on the review page, and a place the range
+      does change needs an answer. `title` and `details` are optional;
+      `worktree` replaces the one stored; `review`, when given, replaces the
+      whole page (left out, the page stays, and must still hold every board
+      of the change). It stores the new last commit and clears the person's
+      approval, since they approved what was drawn before, and what the
+      recording session was told.
+
+  builds design approve N --by-person
+      Records the person's approval, which only they give: pass --by-person
+      once they have said to land the change, never on your own judgment. The
+      same approval again writes nothing, and the command sends nothing to
+      any session.
+
+  builds design check N DIR SHA...
+      Every place the commits change is resolved in open change N, shared
+      files and sources are answered for, and the person has approved it;
+      names what is not.
+
+  builds design landed N DIR SHA...
+      What builds land runs after the push, with SHAs on origin/main: records
+      them and closes N, which frees the items waiting on it. The same commits
+      again record once; other commits for a landed change are refused.
+
+  builds design show N | builds design list
+      One design change, open or landed; the open ones, one line each.
+
+  builds design render DIR BOARD [--theme light|dark] [--now | --at REV]
+      Prints board BOARD of worktree DIR as one page of HTML, the way the
+      design canvas draws it, dark unless asked: from DIR's files as they
+      are, with --now as the board stands on origin/main, or with --at REV at
+      that commit or branch, read with git, each with the design system at
+      that commit. BOARD is the name (mac.welcome.open-failed) or the path
+      (design/mocks/mac.welcome.open-failed.dc.html). It follows the boards
+      the board mounts (dc-import), applies each board's own values
+      (renderVals), sc-if and sc-for, and uses DIR's built design system
+      (design/system/components/bundle.js and bundle.css,
+      design/system/tokens.css). Redirect it to a file and open that; it loads
+      React and Roboto from the net. The review page's frames load this page.
+      Reads no store.
+
+
+PROJECTS
+
+  builds lists init PROJECT --repos R,R [--design-places R:GLOB,...]
+                    [--design-sources R:GLOB,...] [--spec-files R:GLOB,...]
+                    [--by WHO]
+      Makes the project's store. --repos names the repo folders the project
+      covers, as their main checkouts' folders. --design-places,
+      --design-sources and --spec-files give each repo's design files, one
+      REPO:GLOB each (DESIGN CHANGES, above). Refused when the store exists.
+
+  builds lists add-repo PROJECT REPO [--by WHO]
+      Adds a repo to the project, so its worktrees run items, land commits
+      and resolve to the project from their folder (agent-instructions is in
+      bae this way: its work is tracked on bae's lists). Refused when the
+      project already has the repo. Two projects may hold one repo
+      (agent-instructions is in bae and builds); a worktree of it then names
+      its project with `builds claim --project` or `builds new --project`,
+      and a command outside a claimed worktree takes --project.
+
+  builds lists show [--json] [--project P]
+      The stack in the order it is asked, then the queue, as text; with
+      --json the whole state with its derived fields (each item's state, what
+      each question blocks, the flow of the last 14 days), the JSON the
+      dashboard reads. The dashboard adds, to each worktree a running item
+      runs in, the agent, note, note state and commits waiting to land of its
+      claim.
+
+  builds lists project-of DIR
+      Prints the project DIR's repo belongs to, or nothing. Refused when the
+      repo is in two projects and the worktree names neither (`builds claim
+      --project`).

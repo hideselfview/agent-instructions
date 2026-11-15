@@ -67,6 +67,8 @@ use tool::Tool;
 
 const HELP: &str = include_str!("help.txt");
 const LISTS_HELP: &str = include_str!("lists/lists-help.txt");
+const WORKFLOW_HELP: &str = include_str!("workflow-help.txt");
+const BRIEFS_HELP: &str = include_str!("briefs-help.txt");
 
 fn main() -> ExitCode {
     let args: Vec<String> = match std::env::args_os()
@@ -113,6 +115,8 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "-h" | "--help" | "help" => {
             match args {
                 [topic] if topic == "lists" => print!("{LISTS_HELP}"),
+                [topic] if topic == "workflow" => print!("{WORKFLOW_HELP}"),
+                [topic] if topic == "briefs" => print!("{BRIEFS_HELP}"),
                 _ => print!("{HELP}"),
             }
             return Ok(());

@@ -2,12 +2,12 @@
 //! checkout.
 //!
 //! By default a side worktree builds host Rust only, and a repo with app
-//! builds keeps them warm in main and in one side worktree per lane (mac,
-//! android), its app checkout, which agents take turns in by holding the
-//! lane's lock, <root>/<repo>/app.lock for the mac lane; see
-//! principles/worktree-build-priming.md. Nothing here enforces who builds
-//! what: the caps bound whatever a checkout builds, and the floor bounds every
-//! checkout but main and the folders an app checkout's lane builds into.
+//! builds keeps them built in main and in its app checkouts, one or more side
+//! worktrees per lane (mac, android), which agents take turns in by holding a
+//! checkout's lock, <root>/<repo>/app.locks/<checkout> for the mac lane; see
+//! APP BUILDS in help.txt. Nothing here enforces who builds what: the caps
+//! bound whatever a checkout builds, and the floor bounds every checkout but
+//! main and the folders an app checkout's lane builds into.
 
 use std::path::Path;
 

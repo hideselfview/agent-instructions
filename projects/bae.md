@@ -228,7 +228,7 @@ screen). Read the person's keychain only when they ask, for that task.
 ## Building and testing
 
 The `builds` tool manages checkouts, build folders and app builds. `builds help`
-and `principles/worktree-build-priming.md` explain how it works.
+explains how it works.
 
 ### Checkouts
 

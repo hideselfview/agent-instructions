@@ -1,862 +1,1030 @@
-builds: owns this machine's build volume, /Volumes/Builds, and everything
+builds: runs this Mac's build volume (/Volumes/Builds), the repos' side
+worktrees and their builds, the app build lanes, the pre-commit hook's checks,
+landing and the review of landed commits. Agents run every cargo command, app
+build and landing through it.
+
+More help:
+
+  builds help workflow  how work moves through worktrees, builds and landing,
+                        and how a coordinator runs agents
+  builds help lists     a project's decision stack, work queue, decision log
+                        and design changes, and their commands (builds
+                        lists, question, item, next, area, decision, design)
+  builds help briefs    the instructions a coordinator gives an agent that
+                        writes implementation briefs
+
+builds is a Rust program in agent-instructions (scripts/builds).
+agent-instructions' install.sh builds it from the committed HEAD, never from
+the working tree, so another session's edit in progress is never installed, and
+runs `builds install`, which puts it on PATH as ~/.local/bin/builds. A commit
+or merge in agent-instructions' main checkout that changes scripts/builds/ runs
+install.sh again. To try an edit to builds before it lands, run the binary your
+worktree built (./target/debug/builds).
+
+
+BUILD VOLUME
+
+Every build on this Mac writes to the build volume, and builds owns everything
 on it:
 
-  <repo>/<checkout>/    one build root per checkout; checkout = main | side-N
-  <repo>/app-checkouts  the names of the repo's mac lane app checkouts
-                        (side-N), one per line
-  <repo>/app.locks/     one lock per app checkout (app.locks/side-N), the
-                        lock agents hold to build in it
-  <repo>/app.queue/     who waits for the lane's locks: `order` (one ticket
-                        per line, next first, the holders' at the head: one
-                        per app checkout) and a ticket file per waiting
-                        process
+  <repo>/<checkout>/    one build root per checkout (main or side-N)
+  <repo>/app-checkouts  the mac lane's app checkouts, one name per line
+  <repo>/app.locks/     one lock per app checkout (app.locks/side-N), held by
+                        the build that runs there
+  <repo>/app.queue/     the builds waiting for the lane's locks: `order` holds
+                        one ticket per line, next first, with the holders'
+                        tickets at the head (one per app checkout), and each
+                        waiting process holds a ticket file
   <repo>/app-android-checkouts, app-android.locks/, app-android.queue/
-                        the same for the android lane. The lanes build
-                        output that is not shared (Xcode and the macOS
-                        bridge; Gradle and the Android bridge), so each has
-                        its own app checkouts, locks and queue and the two
-                        never wait on each other. A lane with several app
-                        checkouts builds in as many at once; the queue gives
-                        a free lock to the next in line
+                        the same for the android lane
   DerivedData/          Xcode's default DerivedData location
-  caches/<name>/        download caches every checkout shares, each linked
-                        from where its tool looks (~/.gradle -> caches/gradle)
+  caches/<name>/        the download caches every checkout shares
   .trash/               folders being deleted in the background
-  .trash.lock           held shared by a deletion into .trash, and exclusive
-                        by the floor and prune only to rename .trash to
-                        .trash-emptying.<random>/, which they then empty
+  .trash.lock           taken shared by each deletion into .trash, and
+                        exclusive only by the floor and prune, to rename
+                        .trash to .trash-emptying.<random>/ and empty it
 
 `builds status` lists each of these and flags anything else on the volume as
-UNKNOWN; it leaves out macOS's own volume metadata (.Spotlight-V100,
-.fseventsd, .Trashes, ...).
+UNKNOWN (it leaves out macOS's own volume metadata, such as .Spotlight-V100 and
+.fseventsd). Something UNKNOWN is either a new kind of build output that builds
+should own or a leftover to delete: find out which.
 
-Build roots. The repo lists its build-output paths and their size caps in
-`.build-dirs` at its root, one `<path> <cap>` per line; `<path> <cap> app
-<cap>` gives the folder a cap of its own in the repo's app checkouts, and a
-`lane mac|android` field says that only that lane's app checkout builds into
-it, keeps it warm and takes its app cap (a folder with no lane is every app
-checkout's); in the other lane's checkout it is an ordinary side worktree's
-folder. Each listed path is a symlink in the checkout to the same path under the
-checkout's build root (target -> /Volumes/Builds/bae/main/target).
 
-The path a tool sees never changes: cargo, xcodebuild, Gradle, dotnet and
-lake always write through `<checkout>/<path>`, so sccache keys and cargo
-fingerprints stay valid however often the folder behind the link is deleted
-and recreated. Two checkouts never share a folder, so their builds never
-wait on each other's locks.
+BUILD FOLDERS
 
-DerivedData. bae's build scripts pass -derivedDataPath into a `.build` folder
-in the checkout, so no checkout's build lives here: only what one-off
-xcodebuild runs (-showBuildSettings, package resolves) and the Xcode app
-write, one <project>-<hash> entry per project path, mostly SwiftPM checkouts
-of about 3 GB. It is one disposable cache with a cap: entries are deleted,
-least recently written first, while the folder is over its cap, when nothing
-wrote to them for a day (`prune`), and first of anything under the floor.
+Each checkout has one build root, /Volumes/Builds/<repo>/<checkout>/. The repo
+lists its build output folders in `.build-dirs` at its root (cargo's target,
+Xcode and SwiftPM .build folders, Gradle's build and .gradle, dotnet's obj and
+bin, Lean's .lake), and each listed path is a symlink in the checkout to the
+same path under the checkout's build root (target ->
+/Volumes/Builds/bae/main/target). `.build-dirs` has one line per folder, and a
+`keep` line for each build that must stay:
 
-Shared caches. Gradle, npm, NuGet, SwiftPM and sccache keep their downloads
-and compiler outputs here for every checkout. Each has a cap; a cache over
-its cap is deleted whole by `setup` and `prune` once nothing has written to
-it for 30 minutes, and nothing else deletes one: deleting it makes every
-checkout, warm ones included, download it all again, and a SwiftPM fetch cut
-off halfway corrupts its cache. sccache keeps its own cache under the cap
-`install` writes into its config; this tool only shows it.
+  <path> <cap>              the folder and its size cap
+  <path> <cap> app <cap>    a second cap, for the folder in the repo's app
+                            checkouts
+  ... lane mac|android      after the caps: only that lane's app checkout
+                            builds into the folder, keeps it built and takes
+                            its app cap; in the other lane's app checkout it
+                            is an ordinary side worktree's folder. A folder
+                            with no lane (host target) is every app
+                            checkout's
+  keep <path>               a build inside a folder that never ages out in
+                            main and the app checkouts, where the person runs
+                            the app built there (bae:
+                            bae-macos/bae/.build/runApp)
 
-Build output in the temporary folders. A build pointed at /private/tmp or
-the user's temporary folder (CARGO_TARGET_DIR, -derivedDataPath, a probe
-crate built where it was made) writes 5-14 GB there that nothing else
-deletes. `setup` and `prune` delete each cargo target, DerivedData or
-SwiftPM folder there that nothing wrote to for 30 minutes
-and no process holds a file in; status lists them. They skip
-/private/tmp's claude-* (Claude Code sessions' scratch, whose entries go
-after three days), com.apple.* and tmux-* (live sockets). Nothing on this
-machine points a build there: build into the checkout, whose paths lead to
-the volume.
+Tools always write through <checkout>/<path>, so the path a build sees never
+changes, however often builds deletes and recreates the folder behind the link.
+sccache's keys and cargo's fingerprints stay valid, and two checkouts never
+share a folder, so their builds never wait on each other's locks. Every build
+follows these rules:
 
-Commands:
-  builds setup [<checkout>]   link the checkout's build paths, recreate any
-                              missing folder, delete its unused build copies
-                              and builds inside a folder (below), apply the caps to it, to DerivedData
-                              and to the shared caches, delete idle build
-                              output in the temporary folders, then make
-                              sure the volume has the free-space floor.
-                              The repo's hooks and build scripts run this.
+  - Never set CARGO_TARGET_DIR, in the shell profile or on a command: the
+    checkout's target link is the target folder. Two checkouts that build
+    into one folder wait on cargo's lock and then rebuild what the other
+    changed.
+  - Never set another CARGO_* variable on a command or in a script (such as
+    CARGO_INCREMENTAL or CARGO_PROFILE_*). sccache keys every CARGO_*
+    variable, the working directory and the paths cargo passes, so a build
+    with another path or another variable gets no cache hits. A setting goes
+    in a --config argument or in Cargo.toml.
+  - Never set RUSTC_WRAPPER="": it turns sccache off, and nothing on macOS
+    needs that.
+  - Never point a build at /private/tmp or the user's temporary folder (a
+    -derivedDataPath there, a probe crate built where it was made): build in
+    a checkout, whose paths lead to the volume.
+  - A build script in a linked worktree finds shared refs through `git
+    rev-parse --git-common-dir`: the worktree's own git dir has no refs/tags,
+    and a build script that watches a missing path reruns on every build.
+
+A link whose folder is gone breaks every tool (cargo fails with os error 20,
+xcodebuild with code 74, Gradle with "Could not open file hash cache"), so the
+repo's scripts/build-layout.sh runs `builds setup`, which recreates the folder,
+and the hooks and every build script run that script first. Without builds (in
+CI) the script does nothing and the tools write into real folders.
+
+The Claude Code session's rust-analyzer, which agent-instructions'
+rust-analyzer plugin (claude/plugins/rust-analyzer) starts, builds into
+target-ra, a .build-dirs entry with its own cap in bae and coven, and checks
+nothing on save: its `cargo check --workspace` of everything held main's target
+over its cap. A Rust repo with no target-ra entry gets a real target-ra folder
+in its checkout. The plugin passes these options at initialization, because
+rust-analyzer reads a repo's rust-analyzer.toml only after its first build has
+started into target.
+
+  builds setup [<checkout>]   link the checkout's build folders, recreate any
+                              that is missing, delete folders an older layout
+                              left behind, apply the disk rules (DISK, below)
+                              to the checkout, DerivedData and the shared
+                              caches, delete idle build output in the
+                              temporary folders, and keep the free-space
+                              floor
+
+
+WORKTREES AND CLAIMS
+
+Each repo has a main checkout, the person's, and side worktrees for agents at
+<parent>/<repo>-worktrees/side-N. side-1 is long-lived; `builds new` hands out
+the others and `builds prune` retires them once they are idle.
+
+A claim records who works in a side worktree, so that no other session takes
+it: whoever hands out the worktree (a coordinator dispatching an agent, or the
+person) claims it, and releases it when the work lands or moves on. A claim is
+a file in the worktree's git dir, so it goes when the worktree does; `status`
+shows it, and `retire` refuses a claimed worktree. A claim is not a lock: an
+agent runs a series of separate commands, so nothing could hold one, and a
+session that ends without releasing leaves its claim behind, with its age in
+`status`. Exclusive use for one command, such as a build in an app checkout,
+takes a real lock. A claim whose <who> ends in "(landing)" marks the worktree
+its coordinator lands commits from.
+
+A claim may carry a one-line note that says what its work waits on ("waiting on
+Linux CI"), which `status` and the dashboard show, and the note may carry a
+state that git can't show:
+
+  waiting-on-you  the work waits on a question or a step only the person can
+                  take
+  winding-down    the agent is on its last item, then its handoff
+  held            the worktree is kept on purpose with no work running, such
+                  as uncommitted work waiting for another change to land; the
+                  note says why and until when. A held worktree needs a
+                  running item that waits on an open record, and `health`
+                  doesn't call it idle while that record stays open; once the
+                  record closes, `health` lists the worktree
+
+A note set without --state has no state, so writing the next note clears the
+state. Claiming the worktree again for the same <who> renews the claim's date
+and keeps the note.
+
+The dashboard gives each side worktree the first state that matches: Waiting on
+you, Landing (a landing claim), Held, Ready to land (commits waiting to land,
+claimed or not: an unclaimed worktree with such commits holds work an agent
+left behind), Winding down, Working (claimed) and Free. A commit waits to land
+while origin/main has no commit with the same change (`git log --cherry-pick
+--right-only origin/main...HEAD`), because landing rebases or cherry-picks it.
+
   builds new [<repo>] [-b <branch>] [--for <who>] [--project P]
-                              hand out a free side worktree (no claim, clean
-                              tree, every commit on origin/main by patch)
-                              checked out afresh from origin/main, else add
-                              the next side-N from it; link it, run its
-                              post-checkout. When the worktree's host target
-                              is empty it clones another checkout's warm
-                              target into it (copy-on-write, taken while no
-                              build runs there; the one with origin/main's
-                              Cargo.lock, then the most units built, then
-                              the newest build), and gives the new files the
-                              source's mtimes where their bytes match, so
-                              cargo finds the cloned builds fresh. It claims
-                              what it hands out,
-                              for <who> (--for) or "builds new", under a lock
-                              on the repo (claims: below). --project P
-                              records which project's work it is, for a
-                              repo that two projects hold (agent-instructions
-                              holds bae's and builds'): every lists command
-                              run in the worktree then uses P's lists.
+                              hand out a free side worktree (no claim, a clean
+                              tree, every commit on origin/main by patch, not
+                              an app checkout) with a fresh branch from
+                              origin/main, or add the next side-N when none is
+                              free; link it and run its post-checkout, which
+                              builds nothing. It claims the worktree for <who>
+                              (default "builds new") under a lock on the repo,
+                              so two calls never get the same worktree. When
+                              the worktree's host target is empty, new fills
+                              it with a copy-on-write clone of another
+                              checkout's built target, taken while no build
+                              runs there (it waits for one when every source
+                              is building), so the first build compiles
+                              little. --project P records which project's work
+                              it is, for a repo that two projects hold
+                              (agent-instructions is in bae and builds): every
+                              lists command run in the worktree then uses P's
+                              lists
   builds claim <checkout> <who> [--project P]
                               record that <who> works in the side worktree
-                              (--project as for `builds new`; a claim
-                              renewed without it keeps the project)
+                              (--project as for `new`; a claim renewed without
+                              it keeps its project)
   builds note <checkout> [--state waiting-on-you|winding-down|held] [<text>]
-                              set the claim's one-line note, what its work
-                              waits on; with no text, clear it. --state marks
-                              what git can't show: the work waits on the
-                              person, is finishing its last item, or is
-                              held on purpose with no work running; a note
-                              without it has no state. --state held is
-                              refused unless every item running in the
-                              worktree waits on an open question, item,
-                              design change or condition (`builds item wait
-                              N --on REF`;
-                              landing claims and app checkouts, which
-                              hold no item, are never refused or listed)
-  builds release <checkout>   remove its claim
-  builds land <worktree> [--done N]... [--part N]... [--design N] <sha>...
-                              put the commits on origin/main from the claimed,
-                              detached landing worktree: a fast-forward when
-                              they sit on it, else a cherry-pick, trying a
-                              refused push again from a fresh fetch (five
-                              times). One landing runs in a worktree at a time.
-                              The repo's `whole` lines of .checks (static checks
-                              of the whole tree, below) and its .land-compile
-                              (the compile check of the touched crates) run on
-                              the result before the push, fast-forward
-                              included; each whole check's time is printed. A
-                              failure names every failing check with its
-                              output, pushes nothing and puts the worktree
-                              back on origin/main. In a repo of a
-                              project of the lists, the landed
-                              commits are then reviewed against the rules in
-                              the background (`builds review run
-                              --record-only`, under the key items:N,M, or
-                              design:N), which never refuses or fails the
-                              landing; --done N finishes an item
-                              and --part N advances one (checked before
-                              anything is fetched, recorded after the push);
-                              commits that change design places need
-                              --design N, an approved design change, and
-                              commits that are all design files take it alone
-  builds retire <checkout>    remove a side worktree and its build root
-  builds app-checkout mac|android <checkout>
-                              add the side worktree to its repo's app
-                              checkouts for the lane, in
-                              /Volumes/Builds/<repo>/app-checkouts (mac) or
-                              app-android-checkouts; a lane may have several
-  builds app-checkout android|mac --host <host> <path>
-                              record an app checkout on a host (`builds host
-                              list`) as the entry <host>:<name> of the lane.
-                              <path> ends in dev/<repo>-worktrees/<name>: the
-                              checkout is ~/dev/<repo>-worktrees/<name> on the
-                              host, whose clone ~/dev/<repo> must exist. Its
-                              first build makes it there, set up as a side
-                              worktree is (the repo's post-checkout, the build
-                              folders under ~/builds-root, and for the android
-                              lane a local.properties naming the host's
-                              Android SDK in each Gradle project). Its lock,
-                              queue and last-build record stay on this Mac,
-                              under <host>:<name>
-  builds app-checkout remove mac|android <checkout>
-  builds app-checkout remove mac|android --host <host> <path>
-                              take it out again (it refuses while a build
-                              holds the checkout's lock)
-  builds app-checkout reset <repo> <checkout> [--matching <rev>]
-                              put an app checkout on origin/main, under its
-                              own lock (waits for the build holding it), for
-                              one a checkout left halfway (new files, old
-                              HEAD). It refuses unless every dirty path is
-                              exactly what origin/main, HEAD or <rev> (the
-                              commit the switch was heading to) holds there,
-                              and names the paths that are not; it never
-                              throws away work
-  builds status               every entry on the volume: size per folder vs
-                              cap, last write, links; and build output in
-                              the temporary folders
-  builds status --json [--no-folders]
-                              the repos' checkouts and the volume's free
-                              space, as JSON; --no-folders leaves out each
-                              checkout's build folders, whose sizes and last
-                              writes take nearly all of its time (half a
-                              minute or more while agents build)
-  builds health [--json | --stop-junk]
-                              what is stuck or needs acting on: load, free
-                              space against the floor, whether sccache
-                              finished compiles since the last readings
-                              while clients wait 10+ min, the agent shells
-                              running and which are junk (pid, age,
-                              worktree, reason, command: waits, whole-disk
-                              searches, duplicates of an older shell's
-                              command in a worktree, idle for 20+ min; the
-                              line names the worktree and the pid of the
-                              process that started the shell; --stop-junk
-                              stops each junk shell and everything under it
-                              by pid, and prints each pid it stopped and
-                              why), each claimed worktree (claim, branch,
-                              uncommitted files, commits waiting to land,
-                              minutes since a change, build processes there
-                              or under an app lock for it), each lane's app
-                              lock's holder (the build's top process when its
-                              `builds lock` is gone); an unclaimed worktree
-                              with commits waiting to land is a finding, as
-                              are a lists store that fails its check and a
-                              running item whose worktree is gone or has no
-                              claim, a held worktree whose item waits on
-                              nothing open (the record it waited on closed),
-                              and commits that change design files that no
-                              open design change covers; a worktree whose
-                              commits an open design change covers, still
-                              waiting on the person's review, is not quiet;
-                              the busy processes on this Mac and on every
-                              reachable host (over 50% CPU now and 10+ min of
-                              CPU time, or 90%+ for 30+ min): pid, host, CPU
-                              now, CPU time, age, command, and what each
-                              belongs to (a builds build with its worktree
-                              and step, an agent shell's worktree, a test
-                              binary, a system daemon); one past its step's
-                              limit (the 45 min default; health does not
-                              read a `limit` line), a test binary past 30 min,
-                              or a system daemon with 2+ hours of CPU that
-                              still runs busy is a finding that says what to
-                              run (`kill <pid>`, or for a daemon `sudo sample
-                              <pid> 5 -file <file>` into ~/Library/Application
-                              Support/builds/samples, to read before anyone
-                              kills it); fseventsd is a finding as soon as it
-                              is busy, and one that answers FSEvents clients
-                              with event id 0 on this Mac is a finding that
-                              adds `sudo kill -9 <pid>` (a plain kill does not
-                              end it); on another host the sample command runs
-                              over ssh there; health never runs sudo or stops
-                              a process. These are read now over ssh, never
-                              from the daemon;
-                              exits 1 when something needs acting on. Asks the daemon when one runs
-  builds lists ...            the decision stack, work queue, design changes
-                              and decision log of a project, in a store
-                              outside every repo: `builds help lists`
-  builds review [run] <worktree> [<base>] [--landing <key>] [--item N]... [--head SHA] [--record-only] [--rules-root DIR] [--reviewer PROGRAM]
-                              review the worktree's commits past <base>
-                              (default origin/main) against the rules of
-                              agent-instructions (--rules-root, default the
-                              checkout linked at ~/.codex/agent-instructions).
-                              The groups of review/groups.toml whose rules
-                              cover a changed path each get a `claude -p`
-                              (PROGRAM, default claude), one per changed file
-                              for a group that lists sites, run in a checkout
-                              of the reviewed commit with only Read, Grep and
-                              Glob: its system prompt holds the full text of
-                              the group's rules, the project's
-                              projects/<project>.md, the principles the group
-                              names, the brief of the first --item that has
-                              one and the findings already settled, and its
-                              message holds the diff. It answers with a
-                              verdict for every rule and, per finding, the
-                              rule's clause, the code with file and line, and
-                              what goes wrong. builds drops a finding whose
-                              clause is not in the rule or whose code is not in
-                              the diff, and records it as dropped. Every
-                              review goes in the project's store: landing
-                              (<key>, default the worktree's branch), group,
-                              rules, model, tokens, verdicts, findings. A
-                              review whose <key> an earlier review left
-                              standing reruns only the groups that found
-                              something or failed, and tells them what was
-                              settled; a finding the coordinator dropped,
-                              raised again with the same rule, file and code,
-                              stays dropped. --head SHA reviews the commits
-                              up to SHA from a copy of their files, not the
-                              worktree. --record-only is the review `builds
-                              land` starts after a push: it keeps each
-                              process's system prompt, message, output, model
-                              and tokens in the store, writes what it found to
-                              a log under the project's store folder
-                              (review-logs), and always exits 0. Prints the findings by group and a
-                              total line; exits 1 when a blocking finding
-                              stands (a rule with `blocking: true`, not
-                              settled as dropped) or a reviewer failed, saying
-                              how to settle
-  builds review settle <finding> confirmed|dropped --why <text>
-                              the coordinator's verdict on a finding, kept
-                              with who and when
-  builds review show <landing>
-                              every run of a landing under review: groups,
-                              findings, how each was settled
-  builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]
-                              run a grouping (FILE, default the checkout's
-                              review/groups.toml) over every case of
-                              review/cases (a change as `git format-patch`
-                              output, and expected.toml: the findings it
-                              must produce by rule and file, and the rules
-                              that must raise no blocking finding on it) and
-                              print each case's findings found and missed,
-                              then recall, false blocking findings on clean
-                              cases and tokens, and, for the sites an
-                              expected.toml labels, the labelled finding sites
-                              found and the findings on `none` sites, per
-                              group and rule; each replayed case is recorded
-                              in its project's store. --source REPO reads the
-                              commit a case came from for each reviewer, and
-                              --model asks every group in one model
-  builds review sample --landing <key> --repo-dir DIR [--project P] [--roll N] [--rules-root DIR] [--reviewer PROGRAM]
-                              what `builds land` runs after a push and its
-                              record: decide whether the landing's passed
-                              review is audited and, when it is, start
-                              `builds review audit` in the background; it
-                              answers at once and never fails a landing.
-                              About 5% of landings are audited; 25% when a
-                              group the landing ran has missed more in its
-                              latest 10 audits than before; every landing
-                              until 20 have been reviewed under the current
-                              groups file
-  builds review audit <landing> --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]
-                              audit a landing that passed its review, over
-                              the commits of DIR's repo: one reviewer per
-                              rule over every rule that covers a changed
-                              path, and one review with those rules shuffled
-                              into other groups. A finding either raises in
-                              a rule and file the landing's review did not
-                              raise is a candidate miss, printed with the
-                              command that settles it; `builds review misses`
-                              lists the unsettled ones. A confirmed miss
-                              becomes a case (`builds review case add`) and a
-                              fix item
-  builds review misses        the candidate misses nobody has settled
-  builds review rates [--rules-root DIR]
-                              each group's audited miss rate: audits,
-                              confirmed misses, and the latest 10 audits
-  builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR [--name NAME]
-                              add the change of a confirmed finding as a case
-                              expecting it, written in the agent-instructions
-                              worktree --rules-root names (never a default:
-                              the main checkout is the person's)
-  builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR
-                              add a confirmed miss the same way;
-                              --clean-for SLUG in place of --rule and --file
-                              adds a change that rule must stay quiet on
-  builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
-                              list the groups of rules a review hands to one
-                              reviewer each and fail naming every rule that is
-                              in no group or in two, and every slug that names
-                              no rule; with --changed, list instead the groups
-                              a change to those paths runs, over the rules of
-                              project P (none: every project's)
-  builds design render DIR BOARD [--theme light|dark] [--now | --at REV]
-                              a board of worktree DIR (--now: as it stands
-                              on origin/main; --at REV: as it is at a commit
-                              or branch of its repo) as one page of HTML,
-                              drawn with its design system, to open and
-                              look at while drawing; the dashboard serves a
-                              design change's boards, now and proposed, the
-                              same way:
-                              `builds help lists`
-  builds dashboard [--port <port>] [--listen <address>]
-                              run the daemon until killed: it follows the
-                              volume and the checkouts through FSEvents,
-                              keeps every folder's size and last write and
-                              every checkout's git state and claim current,
-                              serves the page at http://127.0.0.1:7787/ (and
-                              at <address> too with --listen, such as this
-                              Mac's Wi-Fi address for a phone; anyone on
-                              that network can then use the page, except
-                              what changes state: the queue buttons, Build
-                              and a design change's Approve work only at
-                              127.0.0.1 or localhost on this Mac, and the
-                              daemon refuses them from any other address:
-                              `builds help lists`) and
-                              the lists, which it follows too, at /api/lists
-                              and in its `lists` events, and
-                              answers the commands' questions about sizes
-                              and health on <root>/.builds-daemon/socket; a
-                              command with no daemon measures itself
-  builds prune [--dry-run] [--idle <minutes> [--include-warm]]
-                              delete every checkout's unused build copies
-                              (below) and apply every cap; delete roots whose
-                              checkout is gone, DerivedData entries nothing
-                              wrote to for a day, build output in the
-                              temporary folders nothing wrote to for 30
-                              minutes, and cargo's git checkouts no
-                              checkout's Cargo.lock pins; retire each free
-                              side worktree (no claim, clean tree, every
-                              commit on origin/main by patch) that nothing
-                              has written to or built in for a day, never
-                              main, side-1, the app checkout, a claimed
-                              worktree or one with commits waiting to land. --idle also
-                              deletes every folder and DerivedData entry
-                              nothing wrote to for that long, outside
-                              main and the app checkout unless --include-warm
+                              set the claim's note, or clear note and state
+                              with no text; --state needs the text. --state
+                              held is refused unless every item running in the
+                              worktree waits on an open question, item, design
+                              change or condition (`builds item wait N --on
+                              REF`); a landing claim or an app checkout, which
+                              runs no item, is never refused
+  builds release <checkout>   remove its claim; refused while an item runs in
+                              the worktree
+  builds retire <checkout>    remove a clean, unclaimed side worktree and its
+                              build root; refuses an app checkout
+
+
+CARGO
+
+Run every cargo command through `builds cargo`; in bae and coven,
+scripts/cargo.sh runs it, and the hooks and build scripts use that script.
+builds reads cargo's report of each build to record the build copies it used
+(DISK, below). cargo typed by hand records nothing, so builds deletes what only
+it uses three days after cargo last built it.
+
+Every checkout but main builds without incremental compilation (`builds cargo`
+passes --config build.incremental=false), the app checkouts included. sccache
+refuses every incremental compile, so with incremental off sccache keeps each
+workspace crate any worktree built: a build of the same sources in another
+worktree, or in an app checkout that agents move between branches, comes from
+the cache, and no incremental folders pile up. A full build without incremental
+output is smaller, so the app checkouts' folders take lower caps. Main, the
+person's checkout, stays on one branch and keeps incremental. To turn
+incremental on in a profile, set profile.dev.incremental in Cargo.toml, never
+CARGO_INCREMENTAL=1, with which sccache refuses every compile.
+
+In a side worktree, `builds cargo` runs test, clippy, check, doc and nextest
+run|list on the host with the most free cores (cores minus the one-minute load;
+this Mac wins a tie), passing over a host that does not answer, is under the
+free-disk floor or has no clone of the repo. It sends the checkout's HEAD plus
+its working tree (staged and unstaged edits, deletions, and files git neither
+tracks nor ignores) as a commit to the host's clone only, runs cargo in a
+remote worktree there that keeps its build between runs, prints the same output
+and exits with the same status; one line on stderr names the host. A stop
+signal stops cargo on the host, and a host that drops mid-run fails the
+command, naming the host; builds never runs the command again here. These stay
+on this Mac:
+
+  - every other subcommand (build, rustc, run, bench, install)
+  - a command with --message-format, --target, --release or a path argument
+    (--manifest-path, --target-dir, an absolute path)
+  - a command run with CARGO_TARGET_DIR or FFMPEG_DIR set, or with
+    RUSTC_WRAPPER, RUSTC_WORKSPACE_WRAPPER or BUILDS_CARGO_BEFORE set to a
+    path outside the checkout (a wrapper given as a bare name, such as
+    sccache, is the host's own)
+  - every command in a main checkout
+
+One sccache server serves every checkout. launchd runs it
+(local.sccache-server) on sccache's default port, 4226, with the system's
+TMPDIR and no idle timeout; its cache is caches/sccache, capped in
+~/Library/Application Support/Mozilla.sccache/config. `builds install` writes
+both, and `builds status` flags a config that no longer holds builds' cap.
+Never start a server any other way: a server inherits the TMPDIR of the client
+that starts it and fails every compile once that folder is deleted, and the
+Unix-socket mode (SCCACHE_SERVER_UDS) races when clients start at once and
+leaves orphaned servers. sccache never caches build scripts, proc-macros, an
+incremental compile or a crate clippy lints, and a crate that reads OUT_DIR or
+depends on a proc-macro crate misses in each new checkout. `builds help
+workflow` says when to restart the server.
+
   builds cargo <subcommand> [<args>...]
                               run cargo (build, check, clippy, doc, rustc,
                               rustdoc, test, bench, run, install, nextest
-                              run|list|archive) and record the build copies
-                              it used; the rest of its output, a program's or
-                              the tests', passes through. It holds the
+                              run|list|archive), record the build copies it
+                              used, and pass the rest of its output, a
+                              program's or the tests', through. It holds the
                               checkout's guard while cargo runs, and as it
-                              exits starts `units after-build`, which deletes
-                              the build copies the build replaced. Outside
-                              main it builds without incremental compilation
-                              (--config build.incremental=false). In a side
-                              worktree, test, clippy, check, doc and nextest
-                              run|list run on the host with the most free
-                              cores (cores minus the one-minute load; this
-                              Mac wins a tie; a host that does not answer, is
-                              under the free-disk floor or has no clone of the
-                              repo is passed over) on the checkout's HEAD plus
-                              its working tree, in a warm remote worktree,
-                              with the same output and exit status; stopping
-                              builds stops cargo there, and a host that drops
-                              mid-run fails the command, naming it. Everything
-                              else stays on this Mac: build, rustc, run, bench,
-                              install, --message-format, --target, --release,
-                              path arguments, a RUSTC_WRAPPER (or
-                              RUSTC_WORKSPACE_WRAPPER) path or a
-                              BUILDS_CARGO_BEFORE program outside the
-                              checkout, CARGO_TARGET_DIR, FFMPEG_DIR, and
-                              every command in main. BUILDS_CARGO_BEFORE=<path>
-                              [<args>] runs a program of the checkout in its
-                              top before cargo, on whichever host runs cargo.
+                              exits starts `builds units after-build`, which
+                              deletes the copies the build replaced.
+                              BUILDS_CARGO_BEFORE=<path> [<args>] runs a
+                              program of the checkout in its top folder before
+                              cargo, on whichever host runs cargo, and a
+                              failure stops the command with its status.
                               BUILDS_CARGO_HOST=<name> picks the host for one
-                              command (local is this Mac; a command that
-                              must stay here runs here, with a note). Each run's host and
-                              time are recorded in the project store and shown
-                              on the dashboard's host rows.
+                              command (local is this Mac); a command that must
+                              stay here runs here, with a note on stderr. Each
+                              run's host and time go to the project's store,
+                              and the dashboard shows them on its host rows
+
+
+APP BUILDS
+
+App builds (an Xcode app, a Gradle app, a bridge cross-compiled for a platform)
+take 10-20 GB per platform per checkout, so a repo keeps them built only in
+main, for the person's installs and releases, and in its app checkouts:
+long-lived side worktrees, one or more per lane, that the project file names
+and `builds app-checkout` records. Every other side worktree builds host output
+only (for Rust, target, which tests, clippy and the hook use).
+
+A lane is the part of a repo's app builds that shares no build output with the
+other: in bae the mac lane is Xcode and target-macos, and the android lane is
+Gradle and target-android. Each lane has its own app checkouts, locks and
+queue, so a Mac build and an Android build never wait on each other, and each
+app checkout keeps only its own lane's folders built. A checkout is one lane's,
+never both. A lane with several app checkouts builds in as many at once, and
+its queue gives a free lock to the next build in line: waiters go in the order
+they came, and one that dies in line never lets anyone past the holders.
+
+An app checkout's working tree belongs to whoever holds its lock, and only for
+the command they run holding it: nobody edits there or leaves changes behind.
+Commit on your branch in your own worktree, then run `builds app-build`, which
+takes the lock, checks out your commit (detached, because your branch stays
+checked out in your worktree) and builds. Put everything that needs the build
+(its tests, launching the app) in that one command; the next holder moves the
+checkout. To change something, commit or amend in your worktree and run the
+command again. A dirty app checkout fails the command rather than carry
+someone's changes into your build: find out whose they are before deleting
+them.
+
+Another checkout may keep an app build while a wave of work needs it (the
+person asks for an app build in a worktree, or parallel agents each need one).
+Clear it once that work has moved on: retire the worktree, or delete the
+folders behind its app links while nothing builds there.
+
+A repo's `.app-build` at its root says what its app builds run, one line each:
+
+  step <lane> <name> <program> [<args>...]
+                    a step of the lane. A step is a program, not a shell
+                    string: a step that needs a shell is a script in the repo
+  on <pattern> <step>...
+                    the steps a changed path matching the pattern builds (a
+                    pattern ending in / or naming a path matches the paths
+                    under or at it; one starting with * matches the paths
+                    ending in the rest)
+  needs <lane> <step>...
+                    the steps a --test or --shots run builds first when no
+                    changed path picked one of the lane's steps
+  sources <lane>[:<name>] <folder>...
+                    the folders that declare the lane's test classes; with
+                    :<name>, the `test <lane>:<name>` line runs the classes
+                    declared there
+  test <lane>[:<name>] <program> [<args>...]
+                    how the lane runs one test class, named in its {class};
+                    a lane may have a named test line per kind of test (bae:
+                    mac:shots for the shot test bundle)
+  shots <lane> <program> [<args>...]
+                    how the lane runs the shots (pictures of app views, each
+                    checked against its board) whose names start with the
+                    prefix in its {select}
+  shots-source <folder>
+                    the shots program's sources; their git tree at a commit
+                    is the shots version stored findings are keyed by
+  results <lane> <path>...
+                    the folders a --test or --shots run on another host
+                    copies back to this Mac
+  here <step>...    steps that never run on another host (bae's signed macos
+                    step)
+  limit <step> <time>
+                    the step's time limit (90s, 30m, 2h), in place of 45
+                    minutes
+
+A step that runs past its limit gets SIGTERM to its whole process group and
+SIGKILL ten seconds later, and fails the build, which gives up the lock. Each
+--test run is limited to 10 minutes and each --shots run to 20. `builds
+build-app` and `builds lock` set no limit.
+
+An app checkout may be on another host (`builds host`). Its lock, queue and
+record of its last build stay on this Mac, under the entry <host>:<name>. A
+build there sends the commit to the host's clone as a job ref (never to
+GitHub), switches the checkout to it (the checkout must have no changes), and
+runs each step through `builds remote step`, with the same time limits and
+takeover; its output comes back behind [<lane> <host>:<name>]. After each
+--test or --shots run there, passed or failed, the folders of the lane's
+`results` lines are copied to /Volumes/Builds/<repo>/<host>:<name>/<path> here,
+where agents read them. A mac lane checkout on a host needs Xcode there.
+build-app, `builds lock` and a build that runs a `here` step never take a
+checkout on a host.
+
+Each --shots run's findings (what the shots program printed) are stored in the
+project's store under the repo, the full commit, the lane, the prefix and the
+shots version, and its report (index.html and pictures) is copied to the
+store's folder, in shots/<commit>-<lane>-<prefix>-<version>/, the newest 30
+runs, so the next run in the checkout cannot overwrite it. A run that died
+before it made findings stores nothing, and a repo with no `shots-source` line
+stores none. The "before" side of a shots check is read from the store, never
+built again.
+
+  builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--fresh]
+                              build <ref> where it is needed; builds picks the
+                              steps, lanes and hosts, and no caller names them.
+                              The paths <ref> changes since its merge-base
+                              with origin/main pick the steps through `on`
+                              lines (a branch that changes only Rust builds
+                              nothing); a --test class goes to the lane whose
+                              `sources` folders hold it and a --shots prefix to
+                              the lane it starts with (mac. or android.); a
+                              lane with runs and no step builds its `needs`
+                              steps; each lane takes the free app checkout on
+                              the less loaded host. A --shots pick whose
+                              findings are already stored prints them and
+                              takes no lock; --fresh runs it anyway
+  builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--fresh]
+                              check out <ref> in a free app checkout of each
+                              lane the steps are in, holding that checkout's
+                              lock, and run the steps in the order given,
+                              stopping at the first failure; then run the lane's
+                              `test` line once per --test class and its `shots`
+                              line once per --shots prefix (in any order, after
+                              the steps; the lane must have the line). A class
+                              or prefix is one argument, never read by a
+                              shell. The lanes build at the same time, each
+                              line of output behind [<lane> <checkout>]
+                              ([<lane>] until it holds a lock), and the build
+                              fails if either lane fails, saying which. A lane takes the free lock of the checkout
+                              on the less loaded host first (load average per
+                              core, this Mac counted; a host that does not
+                              answer is skipped). Each lane's run goes to the
+                              project's store when it ends: the ref, the claim
+                              of the worktree it ran from, the checkout, its
+                              wait in the queue, and each step's start, wall
+                              time, CPU time and result; the dashboard shows
+                              the last 12 hours
+  builds app-build <repo> --lane mac|android <ref> [<step>...] [--test <lane> <Class>]... [--shots <lane> <prefix>]...
+                              one lane's part of the above, in this process.
+                              With no step named, only the --test and --shots
+                              runs happen, and only when the app checkout's
+                              last build finished and is of <ref>; otherwise it
+                              refuses, naming what was built
+  builds app-build <repo> --list
+                              print the steps (lane, name, command) and each
+                              lane's test and shots lines
+  builds shots findings <repo> <ref> mac|android <prefix>
+                              print the findings stored for <ref>'s commit,
+                              the lane and the prefix, with a line on stderr
+                              that says how old they are, which shots version
+                              made them and where the run's report is. With
+                              none stored, it fails and names the app-build
+                              command that makes them
+  builds build-app <repo> mac|android [<ref>]
+                              holding one of the lane's locks, check out <ref>
+                              (default origin/main, after a fetch) in that app
+                              checkout, which must be clean, and run the
+                              lane's build that .app-build names; for mac,
+                              replace the app in ~/Applications/<repo>-test,
+                              quitting the copy running. Opens nothing. This is
+                              the person's own build; the dashboard runs it
+                              from each lane's Build button, one run per lane
+                              at a time
   builds lock <repo> [--lane mac|android] <command> [<args>...]
-                              run the command holding one of the repo's app
-                              locks for the lane (the mac lane's unless
-                              named: /Volumes/Builds/<repo>/app.locks/<checkout>,
-                              one per app checkout; the command finds its
-                              checkout in BUILDS_APP_CHECKOUT), waiting for
-                              one to be free; the lock lives until the last process of the
-                              command exits, and SIGTERM, SIGINT and SIGHUP go
-                              to the command's whole process group; waiters go
-                              in the order they came, a dead one never lets
-                              anyone past the holders
+                              wait for one of the lane's locks (the mac lane's
+                              unless named), then run the command holding it,
+                              with the checkout in BUILDS_APP_CHECKOUT; run it
+                              as a background task. The lock lasts until the
+                              command's last process exits, and SIGTERM,
+                              SIGINT and SIGHUP go to the command's whole
+                              process group. It is for a command that is no
+                              repo's build
   builds queue <repo> [--lane mac|android]
-                              show each lane's holders and who waits, next first
+                              show each lane's holders and who waits, next
+                              first
   builds queue <repo> top <pid>
                               move that waiter to right behind the builds that
                               hold a lock, in the lane it waits in
   builds takeover <repo> [--lane mac|android] [<pid>]
-                              with every lock of the lane held, stop the
-                              build that joined last of the holders (SIGTERM
-                              to its whole process group), run the waiter
-                              <pid> (default the first) next, and run the
-                              stopped command again straight after it, by
-                              itself; with a lock free, the same as `top`; a
-                              pid names its lane, and with none and builds
-                              waiting in both lanes, --lane does.
-                              The dashboard's queue has both as buttons
-  builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--fresh]
-                              with no step named, build <ref> where and as
-                              needed, chosen by builds: the paths <ref>
-                              changes from its merge-base with origin/main
-                              pick the steps through .app-build's `on
-                              <pattern> <step>...` lines (a Rust-only branch
-                              builds nothing), a --test class goes to the lane
-                              whose `sources <lane> <folder>...` folders
-                              declare it, a --shots prefix to the lane it
-                              starts with (mac. or android.), a lane with runs
-                              and no step to build builds its `needs <lane>
-                              <step>...` steps, and each lane takes the free
-                              checkout on the less loaded host. Stored shot
-                              findings print instead of running (--fresh
-                              runs). No caller names a step, lane or host
-  builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--fresh]
-                              check out <ref> in a free app checkout of each
-                              lane the steps are in, on that checkout's app
-                              lock, and run the lane's steps its .app-build
-                              names (`step <lane> <name> <command>` lines),
-                              in the order given, stopping at the first
-                              failure. The lanes
-                              build at the same time, each line of output
-                              behind [<lane> <checkout>] ([<lane>] until a
-                              lock is held), and the build fails if either
-                              lane does, saying which; a takeover reruns that
-                              lane from its checkout. A lane's build takes the
-                              free lock of the checkout on the less loaded
-                              host first (load average per core, this Mac
-                              counted; a host that does not answer is skipped).
-                              A checkout on a host gets the commit as a job ref
-                              in the host's clone (never GitHub), switches to it
-                              (it must have no changes), and runs each step
-                              there through `builds remote step`, with the same
-                              time limit and takeover; its output comes back
-                              behind [<lane> <host>:<name>]. After each --test or
-                              --shots run there, passed or failed, the folders
-                              the `results <lane> <path>...` lines of .app-build
-                              name (paths in the checkout) are copied to
-                              /Volumes/Builds/<repo>/<host>:<name>/<path> here.
-                              build-app and `builds lock` never take a checkout
-                              on a host, and neither does a lane's build that
-                              runs a step the repo keeps here with a
-                              `here <step>...` line in .app-build (bae's signed
-                              `macos` step). Both lanes can have checkouts on
-                              hosts; a mac one needs Xcode on the host. A step that runs past its
-                              limit (45 minutes, or its `limit <step> <time>`
-                              line in .app-build) has its process group killed
-                              and fails the build, which gives the lock up.
-                              --test <lane> <Class> (any number, after the
-                              steps) runs the lane's `test <lane> <command>`
-                              line of .app-build with the class in its
-                              {class}, after the lane's steps, one run per
-                              class, each limited to 10 minutes.
-                              --shots <lane> <prefix> (any number, mixed with
-                              --test in any order) does the same through the
-                              lane's `shots <lane> <command>` line with the
-                              prefix of the shots' names in its {select},
-                              each run limited to 20 minutes. In the
-                              `--lane` form with no step named, only the
-                              --test and --shots runs happen, and only when
-                              the app checkout's last build finished and is
-                              of <ref> (else it refuses, naming what was
-                              built). The line is required,
-                              and a class or prefix is one argument, never
-                              read by a shell. Each lane's run is recorded in
-                              its repo's project store when it ends: the
-                              ref, the claim of the worktree it ran in, the
-                              checkout, how long it waited in the lane's
-                              queue, and for each step (a --test class and
-                              a --shots selection included) its start, wall
-                              time, CPU time and result. The dashboard shows
-                              the last 12 hours. Each --shots run's findings
-                              (what the shots program printed) are kept in
-                              the same store, by repo, full commit, lane,
-                              prefix and the version of the shots program
-                              (the git tree of the folder .app-build's
-                              `shots-source <folder>` line names, at that
-                              commit); a repo with no such line keeps none.
-                              A run that died on an error before it made
-                              findings keeps nothing. With no step named,
-                              a --shots pick whose key is already stored
-                              prints those findings and takes no lock;
-                              --fresh runs it anyway (a --test pick, or a
-                              --shots pick with no stored run, still runs)
-  builds shots findings <repo> <ref> mac|android <prefix>
-                              print the findings stored for <ref>'s commit,
-                              the lane and the shot-name prefix, with a line
-                              (on stderr) that says how old they are and which
-                              shots version made them, and the path of the
-                              run's report (its index.html and pictures, kept
-                              under the project's store folder in
-                              shots/<commit>-<lane>-<prefix>-<version>/, the
-                              newest 30 runs). A --shots run copies the
-                              report there when it ends, from a host's
-                              checkout too, and prints that path, so the next
-                              run in the checkout cannot take it. With none
-                              stored, it
-                              fails and names the app-build command that
-                              makes them. The "before" side of a shots check
-                              is read from here, never built again
-  builds app-build <repo> --list
-                              print the steps (lane, name, command) and each
-                              lane's test and shots lines
-  builds app-build <repo> --lane mac|android <ref> [<step>...] [--test <lane> <Class>]... [--shots <lane> <prefix>]...
-                              one lane's part of the above, in this process
-  builds build-app <repo> mac|android [<ref>]
-                              on one of that lane's app locks, check out <ref>
-                              (default origin/main, after a fetch) in that app checkout,
-                              which must be clean, and run that platform's build its
-                              .app-build names; for mac, copy the app to
-                              ~/Applications/<repo>-test in place of the copy
-                              there, quitting the one running. Opens nothing
-                              The dashboard has a build-app panel per repo lane
-                              (ref box, Build button, the run's output and how
-                              it ended) that runs this as a child of the
-                              daemon; a lane takes one at a time
+                              with every lock of the lane held, stop the build
+                              that joined last of the holders (SIGTERM to its
+                              process group), run the waiter <pid> (default
+                              the first) next, and run the stopped command
+                              again by itself straight after it (an app-build
+                              lane reruns from its checkout); with a lock free,
+                              the same as `top`. A pid names its lane; with no
+                              pid and builds waiting in both lanes, --lane
+                              does. The dashboard's queue has both as buttons
+  builds app-checkout mac|android <checkout>
+                              add the side worktree to the lane's app
+                              checkouts (app-checkouts or
+                              app-android-checkouts)
+  builds app-checkout mac|android --host <host> <path>
+                              record an app checkout on a host as the lane's
+                              entry <host>:<name>. <path> ends in
+                              dev/<repo>-worktrees/<name>, and the host's clone
+                              ~/dev/<repo> must exist. Its first build makes
+                              the checkout there as a side worktree is made
+                              (the repo's post-checkout, build folders under
+                              ~/builds-root and, for the android lane, a
+                              local.properties naming the host's Android SDK
+                              in each Gradle project)
+  builds app-checkout remove mac|android <checkout>
+  builds app-checkout remove mac|android --host <host> <path>
+                              take it out again; refused while a build holds
+                              its lock
+  builds app-checkout reset <repo> <checkout> [--matching <rev>]
+                              put an app checkout on origin/main, holding its
+                              lock (it waits for the build holding it). Only
+                              SIGKILL during a build's switch leaves new files
+                              under the old HEAD, and reset is the way out. It
+                              refuses unless every dirty path is exactly what
+                              origin/main, HEAD or <rev> (the commit the switch
+                              was heading to) holds there, names the paths
+                              that are not, and never throws away work
+
+
+HOSTS
+
+builds can run jobs on other Macs, its hosts; this Mac is always one, named
+local. A host keeps its clone of each repo at ~/dev/<repo>, its worktrees at
+~/dev/<repo>-worktrees/, and its build roots in ~/builds-root in place of
+/Volumes/Builds.
+
   builds host add <name> <ssh target>
   builds host setup <name>
   builds host list
-  builds host remove <name>   the Macs builds can run a job on. This Mac is
-                              always one, named local. `add` asks the host
-                              (over ssh, by key: no password) for its cores
-                              and records it in the file `hosts` beside the
-                              lists folder. `setup` copies this Mac's builds
-                              program to ~/.local/bin/builds on the host (both
-                              are arm64 macOS) and makes its builds root,
-                              ~/builds-root, which the host has in place of
-                              /Volumes/Builds. `list` asks every host for its
-                              load average per core, free disk and whether it
-                              answers
+  builds host remove <name>   manage the hosts. `add` asks the host (over ssh,
+                              by key, with no password) for its cores and
+                              records it in the file `hosts` beside the lists
+                              folder. `setup` copies this Mac's builds program
+                              to ~/.local/bin/builds on the host (both are
+                              arm64 macOS) and makes its ~/builds-root. `list`
+                              asks every host for its load average per core,
+                              its free disk and whether it answers
   builds remote run <repo> <ref> [--host <name>] -- <command> [<args>...]
   builds remote run <repo> --staged [--host <name>] -- <command> [<args>...]
   builds remote run <repo> --working [--host <name>] -- <command> [<args>...]
                               run the command on a host, in a worktree of the
-                              host's clone of the repo (~/dev/<repo> there)
-                              with the commit <ref> names checked out, and
-                              pass its output back as it arrives; exit with
-                              the command's status. --staged sends a commit
-                              made from the staged files of the checkout you
-                              are in (no ref moves, nothing in the checkout
-                              changes). --working sends HEAD plus the whole
-                              working tree: staged and unstaged edits,
-                              deletions and files git neither tracks nor
-                              ignores. The commit goes to the host's clone
-                              only, as refs/builds/jobs/<id> (never to
-                              GitHub); the worktree is the first free
+                              host's clone with the commit <ref> names checked
+                              out, pass its output back as it arrives, and exit
+                              with its status. --staged sends a commit made
+                              from the staged files of the checkout you are in
+                              (no ref moves, nothing in the checkout changes);
+                              --working sends HEAD plus the whole working tree.
+                              The commit goes to the host's clone only, as
+                              refs/builds/jobs/<id>, never to GitHub. The
+                              worktree is the first free
                               ~/dev/<repo>-worktrees/remote-N, kept between
-                              jobs so its build output stays warm. The repo's
-                              scripts/hooks/post-checkout runs in it, as for
-                              a new side worktree here, with BUILDS_ROOT set
-                              to ~/builds-root on a host (the job's command
-                              gets the same), so the build folders link there.
-                              When the
-                              job ends, builds deletes the ref and the claim.
-                              Stopping builds (SIGTERM, SIGINT, SIGHUP) stops
-                              the command on the host. Without --host, the
-                              host with the lowest load average per core among
-                              those that answer and have free disk above the
-                              floor (BUILDS_FREE_FLOOR_GIB), this Mac
-                              included; builds says which it picked and why.
-                              A host named with --host that does not answer
-                              fails the job, naming the host and the ssh error.
-                              BUILDS_SSH names a program to use in place of ssh.
+                              jobs so its build output stays; the repo's
+                              scripts/hooks/post-checkout runs in it with
+                              BUILDS_ROOT set to ~/builds-root (the command
+                              gets the same). When the job ends, builds deletes
+                              the ref and the worktree's claim. A stop signal
+                              stops the command on the host. Without --host,
+                              builds picks the host with the lowest load
+                              average per core among those that answer and
+                              have free disk above the floor, this Mac
+                              included, and says which and why; a host named
+                              with --host that does not answer fails the job,
+                              naming the host and the ssh error. BUILDS_SSH
+                              names a program to use in place of ssh
   builds remote step <host> <worktree> -- <command> [<args>...]
                               run the command in <worktree>, a folder on the
                               host that already holds the files, and pass its
-                              output back; exit with its status. A stop signal
-                              stops the command on the host. `app-build` runs
-                              each step of a checkout on a host this way; no
-                              one else needs it.
+                              output and status back; a stop signal stops it
+                              there. `app-build` runs each step of a checkout
+                              on a host this way; no one else needs it
+
+
+DISK
+
+builds keeps disk use bounded: it deletes the build copies and builds that no
+build uses, deletes a folder that is still over its cap, and keeps a free-space
+floor on the volume. `setup`, which runs before every hook and build, and
+`prune` do all of this, and `builds cargo` deletes the copies a build replaced
+as it exits. Nothing deletes a folder that a process holds a file open in or
+whose checkout's guard a build holds, and a deletion never fails a build: a
+removal that fails warns and leaves the folder in the trash for the next
+emptier.
+
+Unused build copies. Cargo names each unit it builds (one crate target, for one
+profile, target and feature set) by a hash of everything that build depends on,
+so every dependency bump builds a new copy of each unit above it, and the old
+copy stays. In each cargo folder (target, target-macos, ...) builds deletes
+every file of a unit that no build used for BUILDS_UNUSED_DAYS days (default
+3), and of a unit a newer copy replaced: a copy of the same package and target,
+mode, features and profile, built from other sources (another version or git
+revision of a dependency, or another compiler), that a build used after the
+unit's last use. A unit is also replaced when a newer build of its package
+(such as the library beside a test binary) was built against another copy of
+something the unit was built against. Copies built from the same sources for
+another package selection (`-p x` against the workspace) stay side by side, and
+so does whatever a unit that stays was built against. A unit's last use is the
+last build that reported it, rebuilt or up to date; a unit that no recorded
+build used counts as used when cargo last built it.
+
+Incremental folders. builds deletes the incremental folders that only deleted
+units used. In main, whose builds compile incrementally, it also deletes every
+incremental folder that nothing wrote anywhere inside for
+BUILDS_INCREMENTAL_HOURS hours (default 6); in the other checkouts, whose
+builds don't, it deletes every incremental folder, since no build reads them.
+
+Object files. In every checkout, builds deletes the object files that no build
+or debugger reads: an rlib's loose objects, and the objects a binary's debug
+map doesn't name, which each incremental rebuild leaves behind under new names.
+This needs split-debuginfo "unpacked", macOS's default; keep it, since packed
+builds slower and larger, and off drops file and line from the top crate's
+frames.
+
+Separate builds inside one folder. A folder is aged by its newest write, so a
+stale build beside a live one (last week's Xcode tree beside today's) would
+never age out. builds finds the builds inside each folder and deletes each one
+no build used for BUILDS_UNUSED_DAYS days, in main and the app checkouts too,
+but keeps a build a process holds a file in and, in main and the app checkouts,
+one a `keep` line names. It recognizes an Xcode tree (info.plist beside Logs,
+and Build or ModuleCache.noindex, up to two levels below the folder) and a
+SwiftPM <triple>/debug or <triple>/release folder in a .build that holds
+workspace-state.json. A build's last use is the newest write inside it, since
+xcodebuild and `swift build` write even when everything is up to date. dotnet's
+and Gradle's folders are not split: an up-to-date `dotnet build` writes
+nothing, and Gradle keeps no build per variant. `status` lists each build under
+its folder with its last use (`status --json`: the folder's `trees`).
+
+Builds and deletions never overlap. builds deletes a unit's files only while it
+holds the checkout's guard (<build root>/.builds-cargo.lock) and cargo's lock
+on that profile folder, both taken without waiting, and keeps any unit a
+process holds a file of. `builds cargo` holds the guard, shared, from before
+cargo starts until cargo has exited and its report is read, because cargo
+decides which units are up to date before it runs anything and lets go of its
+own lock before `cargo test` runs the tests. A build waits on the guard only
+while a deletion holds it, a few seconds, and a build that starts after a
+deletion rebuilds the unit, mostly from sccache.
+
+Caps. A folder still over its cap is deleted whole (renamed into .trash,
+removed in the background) and recreated empty, and the next build refills it,
+mostly from sccache. A cap is about twice a fresh build of its folder. A
+claimed worktree's folder is never deleted whole, since its agent is at work in
+it: status shows it over its cap as "claimed, kept". Sizes, against caps and in
+status, count each block once (`builds du`): cargo copies its libraries out of
+deps/ as APFS clones, which du counts once per file, and rustc hard-links deps/
+files into incremental/.
+
+Free-space floor. Caps bound each folder, not the volume: a checkout with every
+platform built takes 45-52 GB, and the build volume shares its APFS pool with
+the main disk. So `setup` keeps a free-space floor of 30 GiB
+(BUILDS_FREE_FLOOR_GIB). Under it, setup finishes emptying the trash, then
+deletes the build roots of checkouts that are gone, DerivedData's idle entries,
+then the incremental folders nothing wrote inside for 60 minutes in every
+checkout (claimed ones, main and the app checkouts included), and then the
+whole folders of unclaimed side worktrees that nothing wrote to for 30 minutes,
+never main's or an app checkout's own lane's folders; each kind goes least
+recently written first, until the floor is reached. If setup can't reach the
+floor, it warns, naming the free space and the biggest folders, and the build
+goes on: whoever runs the agents stops starting more. Only under the hard floor
+of 10 GiB (BUILDS_HARD_FLOOR_GIB) does it fail, before the build starts, rather
+than let the build run out of space halfway. It never deletes a shared cache.
+
+DerivedData. bae passes -derivedDataPath into a .build folder in the checkout
+(scripts/xcode-trees.sh is its one definition, and a pre-commit check refuses
+the flag anywhere else), so DerivedData holds only what one-off xcodebuild runs
+(-showBuildSettings, package resolves) and the Xcode app write: one
+<project>-<hash> entry per project path, mostly SwiftPM checkouts of about 3
+GB. It is one disposable cache with a 15 GiB cap. `setup` and `prune` delete its
+entries, least recently written first, while it is over the cap; `prune` also
+deletes entries nothing wrote to for a day, and the floor deletes its idle
+entries first. Every deletion skips an entry written in the last 30 minutes or
+one a process holds a file in.
+
+Shared caches. Each tool keeps its downloads (sccache, its compiler outputs) in
+caches/<name>, linked from where the tool looks, with a cap each:
+
+  gradle   8 GiB  ~/.gradle
+  npm      1 GiB  ~/.npm
+  nuget    6 GiB  ~/.nuget
+  swiftpm  3 GiB  ~/Library/Caches/org.swift.swiftpm
+  sccache 30 GiB  ~/Library/Caches/Mozilla.sccache
+
+`setup` and `prune` delete a cache that is over its cap, whole, once nothing
+has written to it for 30 minutes and no process holds a file in it, and put
+back the settings files it held (gradle.properties, Gradle's init scripts,
+NuGet.Config). Nothing else deletes one: every checkout would download it all
+again, and a SwiftPM fetch cut off halfway corrupts its cache. sccache keeps
+its own cache under its cap; builds only shows it.
+
+When xcodebuild fails with "Couldn't check out revision" or "file not found" on
+a SwiftPM dependency (often Sparkle), its cache is corrupt: disconnect any VPN
+(a VPN can cut fetches short), delete the app's Xcode build trees and its
+SourcePackages folder and ~/Library/Caches/org.swift.swiftpm/repositories/
+<dependency>*, and run the repo's build script again. Every script that
+resolves packages and every script that builds after it must pass the same
+xcodebuild flags, -derivedDataPath above all, or the packages land where the
+later build can't find them.
+
+Cargo's git checkouts. `setup` and `prune` delete each checkout in
+~/.cargo/git/checkouts that no live checkout's Cargo.lock pins, holding cargo's
+package cache locks. The git databases in ~/.cargo/git/db stay.
+
+Build output in the temporary folders. A build pointed at /private/tmp or the
+user's temporary folder writes 5-14 GB there that nothing else deletes. `setup`
+and `prune` delete each cargo target, DerivedData or SwiftPM folder there, up
+to four levels deep, that nothing wrote to for 30 minutes and no process holds
+a file in; `status` lists them. They skip /private/tmp's claude-* (Claude Code
+sessions' scratch, whose entries go three days after the session's last
+change), com.apple.* and tmux-* (live sockets), and anything the user doesn't
+own.
+
+Never run `cargo sweep --time` or `--maxsize`: APFS doesn't refresh access
+times, so sweep deletes the builds needed next. `cargo sweep --installed` after
+a toolchain upgrade is fine.
+
+  builds prune [--dry-run] [--idle <minutes> [--include-warm]]
+                              delete every checkout's unused build copies,
+                              apply every cap, and delete build roots whose
+                              checkout is gone, DerivedData entries nothing
+                              wrote to for a day, build output in the
+                              temporary folders nothing wrote to for 30
+                              minutes, and cargo's git checkouts no Cargo.lock
+                              pins. First it retires each free side worktree
+                              (no claim, a clean tree, every commit on
+                              origin/main by patch) that nothing has written
+                              to or built in for a day; never main, side-1, an
+                              app checkout, a claimed worktree or one with
+                              commits waiting to land, which `health` lists.
+                              --idle also deletes every folder and DerivedData
+                              entry nothing wrote to for that long, outside
+                              main's and the app checkouts' own folders unless
+                              --include-warm. --dry-run prints what it would
+                              delete and deletes nothing
   builds units prune <days> <incremental hours> <dry 0|1> <folder>...
   builds units git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...
                               the steps setup and prune run on cargo's
                               folders, on the folders named; 0 incremental
                               hours deletes every incremental folder
   builds units after-build <checkout>
-                              the prune `builds cargo` starts as it exits:
-                              the build copies of the checkout's folders
-  builds du <path>...         the KiB each path takes, counting blocks APFS
-                              clones and hard links share once
-  builds install              (from a fresh build, not the installed binary; or
-                              run agent-instructions' install.sh) copy `builds`
-                              onto PATH, create the shared caches and their
-                              links, write the sccache config, run
-                              the sccache server under launchd, point Xcode's
-                              default DerivedData at the volume
+                              the deletion `builds cargo` starts as it exits:
+                              the replaced copies in the checkout's folders,
+                              logged to <build root>/.after-build.log
+  builds du <path>...         the KiB each path takes, counting blocks that
+                              APFS clones and hard links share once
 
-Commit checks. A repo's `.checks` (at its root) declares the checks its
-pre-commit hook runs, one per line, `<kind> <name> <paths> <program>
-[<args>...]`: kind is `check` (a static check), `fix` (a formatter; the files
-it changed are staged again) or `test` (a checker's own test; CI runs it,
-never the hook) or `whole` (a `check` that reads the whole tree: the hook
-runs it when a path matches, and `builds land` also runs it on every landing,
-since two commits that each pass the hook can break it together; it names
-neither `{files}` nor `{crates}`). paths is a comma-separated list of globs over repo-relative
-paths: `*` stays inside one path segment, `**` is any number of segments, and
-a glob with no `/` matches the file name anywhere. The program is not run by a
-shell. As whole arguments, `{files}` is the matching staged files that still
-exist and `{crates}` is `-p <crate>` for each workspace crate holding one (a
-root Cargo.toml or Cargo.lock counts as every crate); with neither the check
-runs whole whenever a matching file is staged.
+
+STATUS, HEALTH AND THE DASHBOARD
+
+  builds status               every entry on the volume: size per folder
+                              against its cap, last write, links, and the
+                              builds inside each folder; and the build output
+                              in the temporary folders
+  builds status --json [--no-folders]
+                              the repos' checkouts (path, branch, app
+                              checkout, claim, note and its `note_state`, each
+                              build folder) and the volume's free space
+                              against both floors, as JSON; --no-folders
+                              leaves out the build folders, whose sizes take
+                              nearly all its time (half a minute or more while
+                              agents build)
+  builds health [--json | --stop-junk]
+                              what is stuck or needs acting on, from the
+                              daemon when one runs, except the busy processes,
+                              which it reads now (over ssh on other hosts). It
+                              exits 1 when something needs acting on, never
+                              runs sudo, and stops a process only with
+                              --stop-junk. It shows:
+                              - the load, and free space against the floors
+                              - whether sccache finished compiles since the
+                                last readings while clients wait 10+ minutes
+                              - the agent shells running, and which are junk
+                                (pid, age, worktree, the pid of the process
+                                that started the shell, reason, command): a
+                                wait loop, a search of the whole disk, a copy
+                                of an older shell's command in the same
+                                worktree, or a shell idle for 20+ minutes (a
+                                build waiting in an app queue is not idle).
+                                --stop-junk stops each junk shell and
+                                everything under it, printing each pid it
+                                stopped and why
+                              - each claimed worktree: claim, branch,
+                                uncommitted files, commits waiting to land,
+                                minutes since a change, and builds there or
+                                under an app lock for it
+                              - each lane's lock holder (the build's top
+                                process when its `builds lock` is gone)
+                              - the busy processes on this Mac and every host
+                                that answers (over 50% CPU now with 10+
+                                minutes of CPU time, or 90%+ for 30+ minutes):
+                                pid, host, CPU now, CPU time, age, command,
+                                and what each belongs to (a build with its
+                                worktree and step, an agent shell, a test
+                                binary, a system daemon)
+                              These are findings, each with what to run: an
+                              unclaimed worktree with commits waiting to land;
+                              a claimed worktree with no change and no build
+                              for an hour; a lists store that fails its check;
+                              a running item whose worktree is gone or has no
+                              claim; a held worktree whose wait closed;
+                              commits that change design files that no open
+                              design change covers (a worktree whose open
+                              design change waits on the person's review is
+                              not idle); a build past its step's 45-minute
+                              default limit, or a test binary past 30 minutes
+                              (`kill <pid>`); a system daemon with 2+ hours of
+                              CPU still busy (`sudo sample <pid> 5 -file
+                              <file>` into ~/Library/Application
+                              Support/builds/samples, over ssh on a host, to
+                              read before anyone kills it); fseventsd as soon
+                              as it is busy, with `sudo kill -9 <pid>` added
+                              when it answers clients with event id 0 on this
+                              Mac (a plain kill does not end it)
+  builds dashboard [--port <port>] [--listen <address>]
+                              run the daemon until it is killed. It follows
+                              the volume, the checkouts and the lists through
+                              FSEvents, keeps every folder's size and last
+                              write and every checkout's git state and claim
+                              current, and answers the commands' questions on
+                              /Volumes/Builds/.builds-daemon/socket (a command
+                              with no daemon measures for itself). It serves
+                              the page at http://127.0.0.1:7787/, and at
+                              <address> too with --listen (such as this Mac's
+                              Wi-Fi address, for a phone: anyone on that
+                              network can then use the page, but the daemon
+                              refuses what changes state, the queue buttons,
+                              Build and a design change's Approve, from any
+                              address but 127.0.0.1 or localhost on this Mac).
+                              The page shows the load, the free space and
+                              each repo's hook times; a Needs attention box;
+                              per repo, its app build lanes with their queues
+                              and Build buttons and its worktree cards; and
+                              the lists (also at /api/lists and in the
+                              /events stream's `lists` events)
+
+
+COMMIT CHECKS
+
+A repo's `.checks` at its root declares the checks its pre-commit hook runs,
+one per line: `<kind> <name> <paths> <program> [<args>...]`. The kinds:
+
+  check   a static check
+  fix     a formatter; the files it changed are staged again
+  whole   a check that reads the whole tree: the hook runs it when a path
+          matches, and `builds land` runs it on every landing, since two
+          commits that each pass the hook can break it together. It names
+          neither {files} nor {crates}
+  test    a checker's own test; CI runs it, never the hook
+
+paths is a comma-separated list of globs over repo-relative paths: `*` stays
+inside one path segment, `**` is any number of segments, and a glob with no `/`
+matches the file name anywhere. The program is not run by a shell. As a whole
+argument, {files} is the matching staged files that still exist, and {crates}
+is `-p <crate>` for each workspace crate holding one (a root Cargo.toml or
+Cargo.lock counts as every crate); a check with neither runs whole whenever a
+matching file is staged.
+
   builds checks run [<worktree>]
-                              what the pre-commit hook calls: runs the
-                              check and fix lines the staged files match, in
-                              file order, from the repo root, printing each
-                              one's name, time and result (a failing one's
-                              output too) and the run's total time. Every
-                              line runs even after one fails; the exit
-                              status is non-zero if any did. A fix
-                              stages again the files it changed. Before any
-                              line runs the run refuses, naming each file,
-                              when a staged file also has unstaged changes
-                              (the checks read the working tree, so they
-                              would not check what is committed); unstaged
-                              changes to files that are not staged are fine.
-                              A refused run is recorded as a failed run with
-                              no checks.
-                              The run is recorded in builds.sqlite in the
-                              project's store folder (the database that also holds the lists): when,
+                              what the pre-commit hook runs: the check and fix
+                              lines the staged files match, in file order, from
+                              the repo root, printing each one's name, time and
+                              result (with a failing one's output) and the
+                              total time. Every line runs even after one fails,
+                              and the exit status is non-zero if any did. It
+                              refuses before any line runs, naming each file,
+                              when a staged file also has unstaged changes,
+                              since the checks read the working tree;
+                              unstaged changes to unstaged files are fine. It
+                              records each run, a refused one as a failed run
+                              with no checks, in the project's store: when,
                               repo, worktree, branch, the commit HEAD pointed
-                              at when it started (its base), each staged file (change
-                              and lines added and removed), each check or fix
-                              (ran with its time and result, or skipped with
-                              the files not picking it), the planning time and
-                              the total. A run that can't be recorded says so
-                              on stderr and ends as the checks decided; a repo
-                              in no project records nothing
+                              at when it started (its base), each staged file
+                              (its change and lines added and removed), each
+                              line (run with its time and result, or skipped),
+                              the planning time and the total. A run it can't
+                              record says so on stderr and ends as the checks
+                              decided; a repo in no project records nothing
   builds checks whole [<worktree>]
-                              run every `whole` line on the tree as it is,
-                              the checks `builds land` runs on a landing's
-                              result, printing each one's time and result
-                              (a failing one's output too); the exit status
-                              is non-zero if any failed
+                              run every `whole` line on the tree as it is (the
+                              checks `builds land` runs on a landing), printing
+                              each one's time and result, with a failing one's
+                              output; the exit status is non-zero if any failed
   builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]
-                              read the recorded runs back (the project of the
-                              current repo unless --project names one; a
-                              project holds the runs of several repos, and
-                              each repo's are figured and printed apart, or
-                              only --repo's): the
-                              passing runs (every check passed) and their
-                              median and slowest total time; per check how
-                              often it passed and was skipped, with its median
-                              and slowest time over its passes, in any run;
-                              and the slowest passing runs with their diffs.
-                              Nothing counts failures. --since counts the
-                              runs from that local day on. Per check it also
-                              shows the median of its latest 10 passes against
-                              the 10 before, and any set of checks whose
-                              newest passing run took over 45 seconds (the
-                              hook's limit; a newer run of that set under it
-                              ends the flag). --change <rev> instead splits the
-                              runs of the repo that has <rev> (asked in a
-                              worktree of each repo with runs; refused when
-                              no repo has it, or when more than one does,
-                              which --repo settles) by whether their base contains <rev>
-                              (git merge-base --is-ancestor, so a worktree on
-                              an old base after the change landed counts as
-                              without) and prints per check, on each side, the
-                              runs that ran it, the median crates it was
-                              handed, its median and slowest time. A run
-                              recorded before the base was kept counts as
-                              without when it started before <rev> was
-                              committed and is left out when after; both are
-                              said in the output. The dashboard shows each
-                              repo's figures and latest runs in a panel of its
-                              own; the panel splits
-                              runs by a commit you type, and a flagged set of
-                              checks appears among the things needing acting
-                              on, naming the run's worktree, total, slowest
-                              checks and what it was handed
+                              read the recorded runs back, for the project of
+                              the current repo unless --project names one,
+                              each repo apart (or only --repo's): the passing
+                              runs (every check passed) with their median and
+                              slowest total; per check how often it passed and
+                              was skipped, its median and slowest time over its
+                              passes, and the median of its latest 10 passes
+                              against the 10 before; the slowest passing runs
+                              with their diffs; and each set of checks whose
+                              newest passing run took over 45 seconds, the
+                              hook's limit (until a newer run of that set
+                              takes less). Nothing counts failures. --since
+                              counts runs from that local day on. --change
+                              <rev> instead splits the runs of the repo that
+                              has <rev> (refused when no repo has it or more
+                              than one does, which --repo settles) by whether
+                              their base contains <rev> (git merge-base
+                              --is-ancestor, so a worktree on an old base after
+                              the change landed counts as without), and prints
+                              per check, on each side, the runs that ran it,
+                              the median count of crates it was handed and its
+                              median and slowest time. The dashboard shows the
+                              same per repo and lists a set of checks over the
+                              limit among the findings
   builds checks list [<worktree>]
                               print what `run` would run, without running it
   builds checks tests --since <rev> [--run]
                               the test lines whose paths match the files
-                              changed in <rev>..HEAD; --run runs them and
-                              fails if any fails. A <rev> that is not in the
-                              history selects every test, and says so
-  builds install-hook <repo>  write the repo's pre-commit hook, a script
-                              that runs `builds checks run`: in
-                              core.hooksPath when it is set, else in the git
-                              common dir's hooks, which worktrees share;
-                              running it again overwrites the file
+                              changed in <rev>..HEAD; --run runs them and fails
+                              if any fails. A <rev> not in the history selects
+                              every test, and says so
+  builds install-hook <repo>  write the repo's pre-commit hook, a script that
+                              runs `builds checks run`, in core.hooksPath when
+                              it is set, else in the git common dir's hooks,
+                              which worktrees share; it overwrites the file
 
-Claims. A claim records who works in a side worktree, so another session
-doesn't take it: whoever hands out the worktree (a coordinator dispatching an
-agent, a person) claims it and releases it when the work lands or moves on.
-It is a file in the worktree's own git dir, so it goes when the worktree
-does; `status` shows it, and `retire` refuses a claimed worktree. A claim is
-not a lock: agents are a series of separate commands, so nothing could hold
-one, and a session that ends without releasing leaves its claim behind
-(status shows its age). Short exclusive use, one build at a time, stays a
-real lock, like the app lanes' locks (app.locks). A claim may carry a one-line
-note of where its work stands ("waiting on Linux CI"), which `note` sets and
-status and the dashboard show, and the note may carry a state the dashboard
-can't read from git: waiting-on-you (a question or step only the person can
-take), winding-down (the agent's last item, then its handoff) or held
-(kept on purpose with no work running, the note saying why; it needs a
-running item that waits on an open record, and health doesn't flag it as idle
-while that wait stays open; once the wait closes, health lists it). A claim
-whose <who> ends in "(landing)" is the worktree its coordinator lands
-commits from.
 
-By default a side worktree builds host Rust only, and a repo with app builds
-keeps them warm in main and in one or more side worktrees per app lane, its
-app checkouts, which agents take turns in by holding a checkout's lock
-(/Volumes/Builds/<repo>/app.locks/<checkout> for the mac lane); see
-principles/worktree-build-priming.md. Nothing here enforces who builds what:
-the caps bound whatever a checkout builds, and the floor below bounds every
-checkout's idle incremental folders and the whole folders of every checkout
-but main and the folders an app checkout's lane builds into (a `lane
-<lane>` field in .build-dirs says which lane builds into a folder).
+LANDING AND REVIEW
 
-Side worktrees' cargo builds, the app checkout's included, run without
-incremental compilation: `builds cargo` passes `--config
-build.incremental=false` in every checkout but main. sccache refuses every
-incremental compile; without it sccache keeps each workspace crate any
-worktree built, so a build of the same sources in another worktree, or in
-the app checkout, which agents move between their branches, comes from the
-cache, and no incremental folders pile up. A full build takes less space
-without it, so the app checkout's folders can take lower caps (`app <cap>`
-in .build-dirs). Main, the person's checkout, keeps incremental.
+A coordinator lands commits, putting them on origin/main, from its claimed
+landing worktree with `builds land`. In a repo of a project with lists, land
+then starts a review of the landed commits against agent-instructions' rules in
+the background, which never refuses or fails the landing. The rules are grouped
+in review/groups.toml, and each group that covers a changed path gets one
+reviewer, a `claude -p` run in a checkout of the reviewed commit with only
+Read, Grep and Glob. Its system prompt holds the full text of the group's
+rules, the project's projects/<project>.md, the principles the group names, the
+brief of the first --item that has one and the findings already settled; its
+message holds the diff. It answers with a verdict for every rule and, per
+finding, the rule's clause, the code with its file and line, and what goes
+wrong. builds drops a finding whose clause is not in the rule or whose code is
+not in the diff, and records it as dropped. Every review goes in the project's
+store: the landing key, group, rules, model, tokens, verdicts and findings. The
+coordinator settles each finding as confirmed or dropped.
 
-Unused build copies. Cargo names each unit it builds (one crate target, for
-one profile, target and feature set) by a hash of everything that build
-depends on, dependency versions included: every dependency bump builds a new
-copy of each unit above it, and the old copies stay. `cargo` records each
-unit a build reports, whether it rebuilt it or found it up to date, by
-setting its fingerprint folder's modification time to the moment that
-build's cargo began reporting; a unit no recorded build has used counts as
-used when cargo last built it. `setup` and `prune` delete, in each cargo
-folder (target, target-macos, ...), every file of each unit nothing used for
-BUILDS_UNUSED_DAYS days (default 3), and of each unit a newer copy replaced:
-a copy of the same thing (package and target, mode, features, profile)
-built from other sources (a dependency's version or git revision, or the
-compiler) was used by a build that began after the unit's last use, or the
-unit was built against something a unit of its package that such a build
-used was built against another copy of. Copies built from the same sources
-for another package selection (`-p x` against the workspace) stay side by
-side, and so does whatever a unit that stays was built against. They also
-delete the incremental folders only those units used, and every incremental
-folder nothing wrote anywhere inside for BUILDS_INCREMENTAL_HOURS hours
-(default 6) in main, whose builds compile incrementally, and every one in
-the other checkouts, whose builds don't, so no build there reads them.
+A sample of passed landings is audited for findings their review missed. A
+confirmed miss becomes a case in review/cases, a recorded change with the
+findings it must produce, which `review replay` runs a grouping over.
 
-They delete a unit's files only while holding the checkout's guard
-(<build root>/.builds-cargo.lock) and cargo's lock on that profile folder,
-both taken without waiting, and keep any unit a process holds a file of.
-`builds cargo` holds the guard, shared, from before it starts cargo until
-cargo has exited and its report is read: cargo holds its own lock only
-while it compiles, and `cargo test` runs the tests after letting go of it.
-Cargo decides which units are up to date for its whole build before it
-runs any of it, and nothing outside cargo can see which those are, so no
-unit is deleted while a build runs; a build that starts after a deletion
-finds the unit's fingerprint gone and builds it again. As it exits, `builds
-cargo` starts `builds units after-build`, which deletes the checkout's
-replaced copies the same way, so they go moments after the build that
-replaced them. The repo's hooks and build scripts run cargo through `builds
-cargo`.
+  builds land <worktree> [--done N]... [--part N]... [--design N] <sha>...
+                              put the commits on origin/main from the claimed,
+                              detached landing worktree: a fast-forward when
+                              origin/main is their base, else a cherry-pick,
+                              trying a refused push again from a fresh fetch
+                              up to five times. One landing runs in a worktree
+                              at a time. The repo's `whole` checks and its
+                              .land-compile (the compile check of the touched
+                              crates) run on the result before the push,
+                              fast-forward included, each whole check's time
+                              printed; a failure names every failing check
+                              with its output, pushes nothing and puts the
+                              worktree back on origin/main. --done N finishes
+                              item N and --part N records a landed part of it
+                              (checked before anything is fetched, recorded
+                              after the push). Commits that change design
+                              places need --design N, an approved design
+                              change, and commits that are all design files
+                              take it alone (`builds help lists`). The review
+                              it starts runs under the key items:N,M or
+                              design:N
+  builds review [run] <worktree> [<base>] [--landing <key>] [--item N]... [--head SHA] [--record-only] [--rules-root DIR] [--reviewer PROGRAM]
+                              review the worktree's commits past <base>
+                              (default origin/main) against the rules in
+                              --rules-root (default the agent-instructions
+                              checkout linked at ~/.codex/agent-instructions),
+                              one reviewer per group, or per changed file for a
+                              group that lists sites. PROGRAM (default claude)
+                              runs each reviewer. <key> defaults to the
+                              worktree's branch. A review of a key an earlier
+                              review left standing reruns only the groups that
+                              found something or failed, and tells them what
+                              was settled; a dropped finding raised again with
+                              the same rule, file and code stays dropped.
+                              --head SHA reviews the commits up to SHA from a
+                              copy of their files, not the worktree. Prints the
+                              findings by group and a total line, and exits 1
+                              when a blocking finding stands (from a rule with
+                              `blocking: true`, not settled as dropped) or a
+                              reviewer failed, saying how to settle.
+                              --record-only is the review `builds land` starts:
+                              it also keeps each reviewer's system prompt,
+                              message and output in the store, writes its
+                              findings to a log in the store folder's
+                              review-logs, and always exits 0
+  builds review settle <finding> confirmed|dropped --why <text>
+                              the coordinator's verdict on a finding, kept with
+                              who and when
+  builds review show <landing>
+                              every review run of a landing: groups, findings,
+                              and how each was settled
+  builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
+                              list the groups of rules, and fail naming every
+                              rule in no group or in two and every slug that
+                              names no rule; with --changed, list instead the
+                              groups a change to those paths runs, over
+                              project P's rules (none: every project's)
+  builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
+                              run a grouping (FILE, default the checkout's
+                              review/groups.toml) over every case of
+                              review/cases (a change as `git format-patch`
+                              output, and expected.toml: the findings it must
+                              produce by rule and file, and the rules that must
+                              raise no blocking finding on it). Prints each
+                              case's findings found and missed, then recall,
+                              false blocking findings on clean cases and
+                              tokens, and for the sites an expected.toml
+                              labels, the labelled sites found and the findings
+                              on `none` sites, per group and rule; each
+                              replayed case goes in its project's store.
+                              --source REPO gives each reviewer the commit a
+                              case came from, and --model runs every group on
+                              one of the models groups.toml accepts
+  builds review sample --landing <key> --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]
+                              what `builds land` runs after a push: decide
+                              whether the landing's passed review is audited
+                              and, when it is, start `builds review audit` in
+                              the background; it answers at once and never
+                              fails a landing. About 5% of landings are
+                              audited; 25% when a group the landing ran has
+                              missed more in its latest 10 audits than before;
+                              and every landing until 20 have been reviewed
+                              under the current groups file. --roll N (0 to 1)
+                              replaces the random draw
+  builds review audit <landing> --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]
+                              audit a landing that passed its review, over the
+                              commits of DIR's repo: one reviewer per rule
+                              that covers a changed path, and one review with
+                              those rules shuffled into other groups. A finding
+                              in a rule and file that the landing's review did
+                              not raise is a candidate miss, printed with the
+                              command that settles it. A confirmed miss becomes
+                              a case (`review case add`) and a fix item
+  builds review misses        the candidate misses nobody has settled
+  builds review rates [--rules-root DIR]
+                              each group's audited miss rate: audits, confirmed
+                              misses, and the latest 10 audits
+  builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR [--name NAME]
+                              add the change of a confirmed finding as a case
+                              expecting it, written in the agent-instructions
+                              worktree --rules-root names (never a default: the
+                              main checkout is the person's)
+  builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR
+                              add a confirmed miss the same way; --clean-for
+                              SLUG in place of --rule and --file adds a change
+                              that rule must stay quiet on
 
-Under the same locks they delete, in units still in use and in every
-checkout, the object files no build or debugger reads. rustc leaves each
-unit's object files beside its outputs (split-debuginfo "unpacked", macOS's
-default) and a binary's debug map names the ones it was linked from: an
-rlib's members, never its loose objects, and only the newest of the sets
-each incremental rebuild or each build of a library with no hash in its name
-leaves under new names. One busy coven checkout piled up 22 GB of them in
-three hours.
 
-A folder still over its cap is deleted whole and recreated empty; the next
-build repopulates it, mostly from sccache. A folder that any process holds a
-file open in, or whose checkout's guard a build holds, is never deleted.
+INSTALLING
 
-A claimed worktree's folder is not deleted whole, since its agent is at work
-in it: it is kept over its cap ("claimed, kept"). Its builds run without
-incremental compilation, so its incremental folders, which grew one coven
-checkout to 50 GB against a 45 GB cap, go with its unused build copies.
-
-Separate builds inside one folder. A folder is aged by its newest write, so a
-stale build beside a live one (an Xcode tree from last week beside today's)
-would never age out. So `setup` and `prune` find the builds inside each
-folder and delete each one no build used for three days, as they do cargo's
-copies; main's and the app checkout's too, and a build a process holds a
-file in is kept, and so is one the manifest names in a `keep <path>` line, in
-main and the app checkout only (the person runs the app built there). Two kinds are recognized: an Xcode tree (info.plist beside
-Logs and Build, up to two levels below the folder) and a SwiftPM
-<triple>/debug or <triple>/release folder in a `.build` that holds
-workspace-state.json. Last use is the newest write inside the build: xcodebuild
-and `swift build` write on a build that finds everything up to date, which
-`dotnet build` does not, and Gradle keeps no build per variant, so those
-folders are not split. status lists each build under its folder with its last
-use, and `status --json` as the folder's `trees`.
-
-Sizes, against caps and in status, count each block once:
-du counts the blocks of an APFS clone once per file, and cargo uplifts its
-libraries out of deps/ as clones.
-
-Caps bound each folder, not the volume: a checkout with every platform built
-is 45-52 GB, and the build volume shares its APFS pool with the main disk.
-So `setup` also keeps a free-space floor: under it, it deletes DerivedData's
-idle entries, then the incremental folders nothing wrote anywhere inside for
-60 minutes in every checkout (claimed ones, main's and the app checkout's
-too; far shorter than the 6 hours above, since one costs only an
-incremental rebuild of its crate and the alternative is a whole folder's
-cold rebuild), under cargo's locks and keeping any a process holds a file
-in, then whole idle folders across every checkout but main and the app
-checkout, whose builds stay warm on purpose, and but claimed worktrees, each
-least recently written first. If it still can't reach the floor it warns, naming the biggest
-folders, and the build goes on: whoever runs the agents frees space or runs
-fewer of them. Only under the hard floor does it fail, rather than let the
-build run out of space halfway. It never deletes a shared cache.
+  builds install              copy builds onto PATH in one rename (a failed
+                              build leaves the installed one), create the
+                              shared caches and their links (moving a real
+                              folder already there onto the volume), write the
+                              sccache config, run the sccache server under
+                              launchd (restarting it only when its settings
+                              changed, since a restart fails every compile in
+                              flight), point Xcode's default DerivedData at the
+                              volume, and restart a running dashboard so it
+                              runs the new code. Run it from a fresh build
+                              (install.sh does), never from the installed
+                              binary, which can't copy itself onto itself
