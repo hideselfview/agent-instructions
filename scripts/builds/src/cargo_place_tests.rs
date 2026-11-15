@@ -168,8 +168,8 @@ fn run_on(
         args,
         env,
     )? {
-        (Choice::On(..), Some(job)) => finish(job),
-        (choice, _) => panic!("the host refused the job: {choice:?}"),
+        Some(job) => finish(job),
+        None => panic!("host {} refused the job", host.name),
     }
 }
 
@@ -499,7 +499,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     std::fs::write(r.home.join("refuses"), "").unwrap();
 
     // The push of the commit fails on the host: the command runs here.
-    let (choice, job) = start(
+    let job = start(
         &places,
         &ssh,
         Choice::On(m1.clone(), "most room".to_string()),
@@ -509,7 +509,6 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     )
     .unwrap();
     assert!(job.is_none());
-    assert_eq!(choice, Choice::Here("host m1 refused the job".to_string()));
     assert!(!r.home.join("dev/demo-worktrees/ran.txt").exists());
     let refusals = host::refusals(&places).unwrap();
     assert_eq!(refusals.len(), 1);
@@ -562,7 +561,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
 
     // A host gone before the send refuses the same way.
     let gone = host("gone", Some("unreachable"));
-    let (choice, job) = start(
+    let job = start(
         &places,
         &ssh,
         Choice::On(gone, "most room".to_string()),
@@ -571,5 +570,5 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
         &no_env,
     )
     .unwrap();
-    assert!(job.is_none() && matches!(choice, Choice::Here(_)));
+    assert!(job.is_none());
 }

@@ -370,7 +370,8 @@ fn join(why: String, more: Vec<String>) -> String {
 /// <checkout>'s working tree there and claims a worktree for <args>, and the
 /// job comes back to be run (`finish`). A host that refuses the job (the send
 /// or the claim fails there) is recorded as refusing jobs (`remote::start_job`),
-/// and the command runs on this Mac instead, saying so on stderr.
+/// and the command runs on this Mac instead, saying so on stderr. None when
+/// the command runs on this Mac.
 pub fn start<'a>(
     places: &'a Places,
     ssh: &'a Ssh,
@@ -378,9 +379,9 @@ pub fn start<'a>(
     checkout: &Checkout,
     args: &[String],
     env: &dyn Fn(&str) -> Option<OsString>,
-) -> Result<(Choice, Option<Job<'a>>)> {
+) -> Result<Option<Job<'a>>> {
     let Choice::On(host, why) = choice else {
-        return Ok((choice, None));
+        return Ok(None);
     };
     note(format!("builds cargo runs on host {}: {why}", host.name));
     // A stop signal during the send or the claim stops the job once its
@@ -393,16 +394,13 @@ pub fn start<'a>(
         command: host_command(args, checkout, env),
     };
     match remote::start_job(places, ssh, &host, &checkout.top, &request)? {
-        Start::Started(job) => Ok((Choice::On(host, why), Some(job))),
+        Start::Started(job) => Ok(Some(job)),
         Start::Refused(said) => {
             note(format!(
                 "host {name} refused the job: {said}\nbuilds cargo runs it on this Mac, and passes over host {name} until a probe finds it answering with git running (`builds health` says what to do)",
                 name = host.name
             ));
-            Ok((
-                Choice::Here(format!("host {} refused the job", host.name)),
-                None,
-            ))
+            Ok(None)
         }
     }
 }

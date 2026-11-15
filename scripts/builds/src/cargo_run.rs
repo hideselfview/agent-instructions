@@ -8,7 +8,6 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::cargo_place::{self, Choice};
-use crate::cargo_runs;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -97,65 +96,6 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
     }
 }
 
-/// One run's row in the project store (cargo_runs.rs). A run with no
-/// checkout, or whose repo is in no project, has nowhere to record. A write
-/// that fails is a warning and changes nothing about the build's result.
-struct Record {
-    run: Option<(std::path::PathBuf, i64)>,
-}
-
-impl Record {
-    fn begin(
-        places: &Places,
-        checkout: Option<&Checkout>,
-        choice: &Choice,
-        args: &[String],
-    ) -> Record {
-        let Some(checkout) = checkout else {
-            return Record { run: None };
-        };
-        let start = cargo_runs::Start {
-            started_at: cargo_runs::now(),
-            repo: checkout.repo(),
-            checkout: checkout.name(),
-            host: match choice {
-                Choice::Here(_) => LOCAL.to_string(),
-                Choice::On(host, _) => host.name.clone(),
-            },
-            pid: std::process::id(),
-            command: args.join(" "),
-        };
-        let written =
-            crate::app_timing::database_of(places, &start.repo).and_then(
-                |database| match database {
-                    Some(path) => cargo_runs::begin(&path, &start).map(|id| Some((path, id))),
-                    None => Ok(None),
-                },
-            );
-        match written {
-            Ok(run) => Record { run },
-            Err(error) => {
-                crate::text::note(format!("recording the cargo run: {}", error.text()));
-                Record { run: None }
-            }
-        }
-    }
-
-    fn end(&self, result: &Result<()>) {
-        let Some((path, id)) = &self.run else {
-            return;
-        };
-        let code = match result {
-            Ok(()) => 0,
-            Err(Fail::Exit(code)) => *code,
-            Err(Fail::Message(_)) => 1,
-        };
-        if let Err(error) = cargo_runs::end(path, *id, cargo_runs::now(), code) {
-            crate::text::note(format!("recording the cargo run's end: {}", error.text()));
-        }
-    }
-}
-
 /// Runs cargo with these arguments plus the flag that has it report every
 /// unit it uses on stdout, which the recorder reads, and the settings of the
 /// checkout's role (`role_config`). Exits with cargo's status, or the
@@ -206,21 +146,18 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
             named.as_deref(),
         )?,
     };
-    let (choice, job) = match checkout.as_ref() {
+    let job = match checkout.as_ref() {
         Some(checkout) => cargo_place::start(&places, &ssh, choice, checkout, args, &env)?,
-        None => (choice, None),
+        None => None,
     };
-    let record = Record::begin(&places, checkout.as_ref(), &choice, args);
-    let result = match job {
+    match job {
         None => run_before_here(checkout.as_ref(), &env)
             .and_then(|()| run_here(&places, checkout.as_ref(), subcommand, format, args)),
         Some(job) => cargo_place::finish(job).and_then(|code| match code {
             0 => Ok(()),
             code => Err(Fail::Exit(code)),
         }),
-    };
-    record.end(&result);
-    result
+    }
 }
 
 /// Runs the program `BUILDS_CARGO_BEFORE` names, if any, in the checkout.

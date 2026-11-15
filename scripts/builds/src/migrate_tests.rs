@@ -589,7 +589,7 @@ fn store_before_cargo_runs(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&without_design_fix(db::schema_before_cargo_runs()))
+    conn.execute_batch(&without_design_fix(db::schema()))
         .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_CARGO_RUNS_STAMP)
         .unwrap();
@@ -598,7 +598,7 @@ fn store_before_cargo_runs(dir: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[test]
-fn a_store_from_before_cargo_runs_gains_their_table_keeps_its_runs_and_equals_a_fresh_schema() {
+fn a_store_from_before_cargo_runs_keeps_its_runs_and_equals_a_fresh_schema() {
     let scratch = Scratch::new("move-cargo-runs");
     let places = scratch.places();
     let path = store_before_cargo_runs(&places.lists.join("bae"));
@@ -617,7 +617,7 @@ fn a_store_from_before_cargo_runs_gains_their_table_keeps_its_runs_and_equals_a_
 #[test]
 fn the_cargo_runs_stamp_is_the_schema_before_cargo_runs() {
     let mut hash: u32 = 0x811c_9dc5;
-    for byte in without_design_fix(db::schema_before_cargo_runs()).bytes() {
+    for byte in without_design_fix(db::schema()).bytes() {
         hash ^= u32::from(byte);
         hash = hash.wrapping_mul(0x0100_0193);
     }
@@ -630,7 +630,7 @@ fn the_cargo_runs_stamp_is_the_schema_before_cargo_runs() {
 /// The schema text before the design fixes' table: today's, without the table
 /// and with the approval's comment as it read then.
 fn schema_before_design_fix() -> String {
-    without_design_fix(db::schema())
+    without_design_fix(schema_with_cargo_runs())
 }
 
 /// <schema> as the text read before reviews ran before landing: the review's
@@ -745,7 +745,7 @@ fn the_design_fix_stamp_is_the_schema_before_design_fixes() {
 
 /// The schema text before reviews ran before landing.
 fn schema_before_landing_review() -> String {
-    without_landing_review(db::schema())
+    without_landing_review(schema_with_cargo_runs())
 }
 
 /// A store as the schema before reviews ran before landing made it, with one
@@ -892,7 +892,7 @@ fn without_scored_calls(schema: String) -> String {
 
 /// The schema text before each review call kept its prompt and cost.
 fn schema_before_scored_calls() -> String {
-    without_scored_calls(db::schema())
+    without_scored_calls(schema_with_cargo_runs())
 }
 
 /// The system prompt a call of group <group> was sent, with the project's
@@ -1108,7 +1108,7 @@ fn without_tags(schema: String) -> String {
 
 /// The schema text before questions and items took tags.
 fn schema_before_tags() -> String {
-    without_tags(db::schema())
+    without_tags(schema_with_cargo_runs())
 }
 
 #[test]
@@ -1165,6 +1165,89 @@ fn a_store_from_before_tags_gains_their_table_keeps_its_records_and_equals_a_fre
         .query_row("SELECT COUNT(*) FROM record_tag", [], |row| row.get(0))
         .unwrap();
     assert_eq!(tags, 0);
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the old run is kept");
+}
+
+/// cargo_runs.sql as it read when the table was removed: the schema's last
+/// part from the cargo runs' table until then.
+const CARGO_RUNS_PART: &str = r#"-- The record of `builds cargo` runs, in `builds.sqlite` in a project's store
+-- folder. cargo_runs.rs owns this table and is the only code that writes it.
+-- A row is a fact a run observed: which host ran the build, when it started,
+-- and how it ended. The dashboard's host rows read it back.
+
+-- One row per `builds cargo` run, written when the run starts and finished
+-- when it ends. A run that dies without ending (a killed `builds`) keeps no
+-- end; the dashboard counts a run as running only while its `pid` is alive.
+CREATE TABLE IF NOT EXISTS cargo_runs (
+    id INTEGER PRIMARY KEY,
+    -- When the run started, seconds since 1970.
+    started_at INTEGER NOT NULL CHECK (started_at > 0),
+    -- When it ended; NULL while it runs.
+    ended_at INTEGER CHECK (ended_at >= started_at),
+    repo TEXT NOT NULL CHECK (repo <> ''),
+    -- The checkout (main, side-N) whose files the run built.
+    checkout TEXT NOT NULL CHECK (checkout <> ''),
+    -- The host that ran cargo: `local` for this Mac, else a host's name.
+    host TEXT NOT NULL CHECK (host <> ''),
+    -- The `builds cargo` process on this Mac that started the run.
+    pid INTEGER NOT NULL CHECK (pid > 0),
+    -- cargo's subcommand and the arguments the caller gave.
+    command TEXT NOT NULL CHECK (command <> ''),
+    -- cargo's exit status; NULL while it runs.
+    exit_code INTEGER,
+    CHECK ((ended_at IS NULL) = (exit_code IS NULL))
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_cargo_runs_started ON cargo_runs (started_at);
+"#;
+
+/// The schema text before the cargo runs' table was removed: today's, with
+/// that table's part last.
+fn schema_with_cargo_runs() -> String {
+    format!("{}\n{CARGO_RUNS_PART}", db::schema())
+}
+
+#[test]
+fn the_cargo_runs_removed_stamp_is_the_schema_with_cargo_runs() {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in schema_with_cargo_runs().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    assert_eq!(
+        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        BEFORE_CARGO_RUNS_REMOVED_STAMP
+    );
+}
+
+#[test]
+fn a_store_with_cargo_runs_loses_the_table_and_its_rows_keeps_the_rest_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-cargo-runs-removed");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_with_cargo_runs()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_CARGO_RUNS_REMOVED_STAMP)
+            .unwrap();
+        plant_run(&conn);
+        conn.execute(
+            "INSERT INTO cargo_runs (started_at, repo, checkout, host, pid, command) VALUES (5, 'bae', 'side-1', 'local', 7, 'test')",
+            [],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
     let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
     assert_eq!(stats.runs, 1, "the old run is kept");
 }
