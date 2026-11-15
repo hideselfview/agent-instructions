@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use super::fsevents::Stream;
+use super::fsevents::{Stream, flags};
 use super::lists::{Feed, compose, running_worktrees};
 use super::runs::{RunPage, Runs};
 use super::tracker::Tracker;
@@ -244,6 +244,26 @@ impl Model {
         });
     }
 
+    /// The stream following the checkouts lost events: every checkout's git
+    /// state, claim and manifest, and every build root's size, may have
+    /// changed.
+    fn checkouts_lost(&self) {
+        let roots = self
+            .state
+            .lock()
+            .expect("no panic holding it")
+            .roots
+            .clone();
+        self.mark(|dirty| {
+            for root in &roots {
+                if let Some(checkout) = &root.live {
+                    dirty.git.insert(checkout.top.clone());
+                }
+                dirty.sizes.insert(root.path.clone());
+            }
+        });
+    }
+
     /// The checkouts' own folders changed under <paths>.
     fn checkouts_changed(&self, paths: &[PathBuf]) {
         let roots = self
@@ -313,6 +333,19 @@ impl Model {
             0.2,
             Box::new(move |events| {
                 if let Some(model) = weak.upgrade() {
+                    // FSEvents drops events when its daemon falls behind;
+                    // what changed is then unknown, so every checkout is read
+                    // again.
+                    if events.iter().any(|e| {
+                        e.flags
+                            & (flags::USER_DROPPED
+                                | flags::KERNEL_DROPPED
+                                | flags::MUST_SCAN_SUBDIRS
+                                | flags::EVENT_IDS_WRAPPED)
+                            != 0
+                    }) {
+                        model.checkouts_lost();
+                    }
                     let paths: Vec<PathBuf> = events.into_iter().map(|e| e.path).collect();
                     model.checkouts_changed(&paths);
                 }
