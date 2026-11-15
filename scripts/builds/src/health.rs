@@ -93,7 +93,7 @@ pub struct Finding {
 }
 
 impl Finding {
-    fn new(kind: FindingKind, advice: Advice) -> Finding {
+    pub fn new(kind: FindingKind, advice: Advice) -> Finding {
         Finding {
             kind,
             text: advice.text,

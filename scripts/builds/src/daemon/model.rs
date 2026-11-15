@@ -588,22 +588,32 @@ impl Model {
                         self.changed.notify_all();
                     }
                 }
-                Err(error) => eprintln!("builds: reading the hosts: {}", error.text()),
+                Err(error) => crate::text::note(format!("reading the hosts: {}", error.text())),
             }
-            match self.read_host_findings(&ssh) {
-                Ok(found) => {
-                    let mut state = self.state.lock().expect("no panic holding it");
-                    if state.host_findings != found {
-                        state.host_findings = found;
-                        state.version += 1;
-                        self.changed.notify_all();
-                    }
+            // A reading that fails replaces the last one's findings with a
+            // finding that says so, so the page never shows stale findings as
+            // current.
+            let found = match self.read_host_findings(&ssh) {
+                Ok(found) => found,
+                Err(error) => {
+                    let text = format!(
+                        "hosts: the daemon could not read the hosts' busy processes or which hosts refuse jobs: {}",
+                        error.text()
+                    );
+                    crate::text::note(&text);
+                    vec![crate::health::Finding::new(
+                        crate::health::FindingKind::Host,
+                        crate::health::Advice::said(text),
+                    )]
                 }
-                Err(error) => eprintln!(
-                    "builds: reading the hosts' busy processes: {}",
-                    error.text()
-                ),
+            };
+            let mut state = self.state.lock().expect("no panic holding it");
+            if state.host_findings != found {
+                state.host_findings = found;
+                state.version += 1;
+                self.changed.notify_all();
             }
+            drop(state);
             let pace = if self.viewers.load(Ordering::SeqCst) > 0 {
                 HOSTS_EVERY
             } else {
