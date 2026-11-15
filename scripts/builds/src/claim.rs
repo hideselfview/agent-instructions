@@ -101,11 +101,7 @@ pub fn write_claim(
 pub fn set_project(places: &Places, checkout: &Checkout, project: Option<&str>) -> Result<()> {
     let file = checkout.project_file();
     let Some(project) = project else {
-        return match std::fs::remove_file(&file) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => fail!("removing {}: {error}", file.display()),
-        };
+        return remove_if_present(&file);
     };
     if let Some(fault) = crate::lists::check::project_name_fault(project) {
         fail!("{fault}");
@@ -281,12 +277,16 @@ pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
 pub fn release(checkout: &Checkout) -> Result<Option<Claim>> {
     let file = checkout.claim_file();
     let claim = Claim::read(&file)?;
-    for path in [checkout.project_file(), file] {
-        match std::fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => fail!("removing {}: {error}", path.display()),
-        }
-    }
+    remove_if_present(&checkout.project_file())?;
+    remove_if_present(&file)?;
     Ok(claim)
+}
+
+/// Removes the file at <path>; a file that is already gone is no error.
+fn remove_if_present(path: &Path) -> Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => fail!("removing {}: {error}", path.display()),
+    }
 }
