@@ -7,7 +7,8 @@
 //! landing at a time runs in a worktree: two landings in one worktree move
 //! each other's HEAD, and one pushed the other's commits and called them
 //! landed, so each waits for the worktree to itself (an exclusive flock on
-//! `land.lock` in the worktree's git dir). An agent's worktree sits on its
+//! `land.lock` in the worktree's git dir, held through the push and the
+//! record), saying whom it waits behind. An agent's worktree sits on its
 //! branch; landing there would move the agent off it, so a worktree on a branch
 //! is refused.
 //!
@@ -49,7 +50,7 @@
 //! program, so their output is held back and shown only when one fails.
 
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -145,23 +146,60 @@ fn shell_word(arg: &str) -> String {
 }
 
 /// Waits for, then holds, the exclusive lock of one landing in a worktree.
-fn lock_worktree(worktree: &Path) -> Result<std::fs::File> {
+/// While another landing holds it, says on <out> that this one waits and which
+/// landing it waits behind (the holder writes its process and arguments into
+/// the lock file once it has the lock).
+fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Result<std::fs::File> {
     let git_dir = git_text(worktree, &["rev-parse", "--absolute-git-dir"])
         .ok_or_else(|| Fail::Message(format!("{} is not a git worktree", worktree.display())))?;
     let path = PathBuf::from(git_dir).join("land.lock");
-    let file = OpenOptions::new()
+    let mut file = OpenOptions::new()
         .create(true)
         .truncate(false)
+        .read(true)
         .write(true)
         .open(&path)
         .context(|| format!("opening {}", path.display()))?;
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        fail!(
-            "locking {}: {}",
-            path.display(),
-            std::io::Error::last_os_error()
+    let fd = file.as_raw_fd();
+    if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::WouldBlock {
+            fail!("locking {}: {error}", path.display());
+        }
+        let mut holder = String::new();
+        let _ = file.read_to_string(&mut holder);
+        let holder = holder.trim();
+        let _ = writeln!(
+            out,
+            "waiting for the landing in {} to finish first: {}",
+            worktree.display(),
+            if holder.is_empty() {
+                "another landing holds it"
+            } else {
+                holder
+            }
         );
+        let _ = out.flush();
+        if unsafe { libc::flock(fd, libc::LOCK_EX) } != 0 {
+            fail!(
+                "locking {}: {}",
+                path.display(),
+                std::io::Error::last_os_error()
+            );
+        }
+        let _ = writeln!(out, "the landing in {} has its turn", worktree.display());
     }
+    let text = format!(
+        "process {} landing {}",
+        std::process::id(),
+        args.iter()
+            .map(|arg| shell_word(arg))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    let _ = file.set_len(0);
+    let _ = file.seek(SeekFrom::Start(0));
+    let _ = file.write_all(text.as_bytes());
     Ok(file)
 }
 
@@ -645,7 +683,7 @@ pub fn land(program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> 
         return Err(refuse(out, USAGE));
     };
     let workdir = std::path::absolute(worktree).context(|| format!("resolving {worktree}"))?;
-    let _lock = lock_worktree(&workdir)?;
+    let _lock = lock_worktree(&workdir, rest, out)?;
     // An agent's worktree sits on its branch; the landing worktree is
     // detached. Landing there would move the agent off its branch.
     if let Some(branch) = git_text(&workdir, &["symbolic-ref", "-q", "--short", "HEAD"]) {

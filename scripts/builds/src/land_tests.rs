@@ -720,3 +720,48 @@ fn a_failing_check_stops_the_landing_before_any_review_and_a_repo_in_no_project_
     assert_eq!(code, 0);
     assert!(!calls.iter().any(|c| c.starts_with("review")));
 }
+
+#[test]
+fn two_landings_started_together_in_one_worktree_run_one_after_the_other() {
+    let f = fixture("land-lock", "sleep 1\n", None);
+    let (a, b) = two_sibling_commits(&f);
+    let stub = f.scratch.dir.join("stub-builds");
+    std::fs::write(&stub, "#!/bin/bash\nexit 0\n").unwrap();
+    std::fs::set_permissions(&stub, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let landing = |sha: String| {
+        let args = vec![f.land.display().to_string(), sha];
+        let stub = stub.clone();
+        std::thread::spawn(move || {
+            let mut out = Vec::new();
+            let result = land(&stub, &args, &mut out);
+            (result.is_ok(), String::from_utf8_lossy(&out).into_owned())
+        })
+    };
+    let first = landing(a.clone());
+    let second = landing(b.clone());
+    let (ok_a, out_a) = first.join().unwrap();
+    let (ok_b, out_b) = second.join().unwrap();
+    assert!(ok_a && ok_b, "{out_a}\n{out_b}");
+    let waits = |out: &str| out.contains("waiting for the landing in");
+    assert!(waits(&out_a) != waits(&out_b), "{out_a}\n{out_b}");
+    assert_eq!(git_out(&f.origin, &["show", "main:a.txt"]), "a");
+    assert_eq!(git_out(&f.origin, &["show", "main:b.txt"]), "b");
+}
+
+#[test]
+fn a_waiting_landing_names_the_landing_it_waits_behind() {
+    let f = fixture("land-lock-names", "true\n", None);
+    let mut first = Vec::new();
+    let held = lock_worktree(&f.land, &["--done".into(), "7".into()], &mut first).unwrap();
+    let land = f.land.clone();
+    let waiter = std::thread::spawn(move || {
+        let mut out = Vec::new();
+        lock_worktree(&land, &[], &mut out).unwrap();
+        String::from_utf8_lossy(&out).into_owned()
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    drop(held);
+    let said = waiter.join().unwrap();
+    assert!(said.contains("landing --done 7"), "{said}");
+    assert!(first.is_empty());
+}
