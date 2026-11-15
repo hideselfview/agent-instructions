@@ -74,6 +74,15 @@
 //! landing as landed beside the items and the design change, and starts the
 //! audit of a sampled one, which never fails the landing.
 //!
+//! A repo whose landed tree holds a `.land-live` file has a main checkout that
+//! is the live copy (agent-instructions, whose main checkout install.sh links
+//! and builds builds from). After the records, land fast-forwards that main
+//! checkout to origin/main (`git merge --ff-only`), and the checkout's
+//! post-merge hook makes the landing live. The main checkout is the person's:
+//! when it is not on main, or its own commits or uncommitted edits stop the
+//! fast-forward, land leaves it as it is, says so loudly with the command to
+//! run once it is settled, and the landing still counts as landed.
+//!
 //! The store's checks and records run as `builds` commands of this same
 //! program, so their output is held back and shown only when one fails.
 
@@ -843,17 +852,74 @@ impl Landing<'_> {
         }
     }
 
-    /// After the push: leaves the worktree, records the landing, and releases
-    /// the worktree when its agent has nothing left there.
+    /// Fast-forwards the repo's main checkout to origin/main when the landed
+    /// tree holds `.land-live`, saying loudly when the main checkout stops it.
+    fn make_live(&self, out: &mut dyn Write) {
+        let dir = &self.workdir;
+        if !git_ok(dir, &["cat-file", "-e", "origin/main:.land-live"]) {
+            return;
+        }
+        let main = match crate::checkout::Checkout::at(dir) {
+            Ok(Some(checkout)) => checkout.main,
+            _ => {
+                let _ = writeln!(
+                    out,
+                    "NOT LIVE: the landing is on origin/main, but the main checkout of {} was not found",
+                    dir.display()
+                );
+                return;
+            }
+        };
+        let command = format!(
+            "git -C {} merge --ff-only origin/main",
+            shell_word(&main.display().to_string())
+        );
+        let on = git_text(&main, &["symbolic-ref", "-q", "--short", "HEAD"]);
+        if on.as_deref() != Some("main") {
+            let _ = writeln!(
+                out,
+                "NOT LIVE: the landing is on origin/main, but the main checkout {} is on {}, not main; once it is back on main, run: {command}",
+                main.display(),
+                on.map_or("a detached HEAD".to_string(), |branch| format!(
+                    "branch {branch}"
+                ))
+            );
+            return;
+        }
+        let mut merge = git(&main);
+        merge.args(["merge", "--ff-only", "origin/main"]);
+        let (ok, said) = merged(merge);
+        if ok {
+            let _ = writeln!(
+                out,
+                "made live: the main checkout {} is at origin/main",
+                main.display()
+            );
+            if !said.is_empty() {
+                let _ = writeln!(out, "{said}");
+            }
+        } else {
+            let _ = writeln!(
+                out,
+                "NOT LIVE: the landing is on origin/main, but the main checkout {} did not fast-forward to it:\n{said}\nThe person's commits or uncommitted edits there stop it; once they are settled, run: {command}",
+                main.display()
+            );
+        }
+    }
+
+    /// After the push: leaves the worktree, records the landing, releases the
+    /// worktree when its agent has nothing left there, and makes the landing
+    /// live where the repo asks for it. The main checkout moves last: its
+    /// post-merge hook may install a new builds, and the records run as this
+    /// program.
     fn finish(&self, on_main: &[String], out: &mut dyn Write) -> Result<()> {
         let waiting = self.leave(out);
-        if !self.record(on_main, out) {
-            return Err(Fail::Exit(1));
-        }
-        if !waiting && !self.request.has_part() {
+        let recorded = self.record(on_main, out);
+        if recorded && !waiting && !self.request.has_part() {
             self.release(out);
         }
-        Ok(())
+        self.make_live(out);
+        if recorded { Ok(()) } else { Err(Fail::Exit(1)) }
     }
 }
 

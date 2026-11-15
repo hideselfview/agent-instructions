@@ -214,11 +214,12 @@ one of its confirmed findings.
     person how to land them.
   - A CI run on main that fails or stalls is the coordinator's to run down.
   - Commits landed in agent-instructions go live when the main checkout's
-    main moves to them: `git -C ~/dev/agent-instructions merge --ff-only
-    origin/main` after the landing, whose post-merge hook runs install.sh,
-    which installs the landed builds and links the landed rules and skills.
-    When the merge refuses (the person has uncommitted edits to a file the
-    landing changed), tell the person; never stash or reset their edits.
+    main moves to them: `builds land` fast-forwards it after the landing,
+    and its post-merge hook runs install.sh, which installs the landed builds
+    and links the landed rules and skills. When land prints NOT LIVE (the
+    person's commits or uncommitted edits there stop the fast-forward), tell
+    the person and give them the command it prints; never stash or reset
+    their edits.
 
 
 DESIGN CHANGES

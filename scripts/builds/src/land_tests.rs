@@ -237,6 +237,11 @@ fn a_cherry_picked_result_passing_the_checks_is_pushed() {
     assert_eq!(code, 0);
     assert_eq!(git_out(&f.origin, &["show", "main:b.txt"]), "b");
     assert_eq!(git_out(&f.origin, &["show", "main:a.txt"]), "a");
+    assert_ne!(
+        head_of(&f.main),
+        main_of(&f),
+        "a repo with no .land-live leaves its main checkout as it is"
+    );
 }
 
 #[test]
@@ -1037,4 +1042,77 @@ fn a_waiting_landing_names_the_landing_it_waits_behind() {
     let said = waiter.join().unwrap();
     assert!(said.contains("landing --done 7"), "{said}");
     assert!(first.is_empty());
+}
+
+/// Commits `.land-live` on origin/main from the main checkout, as
+/// agent-instructions holds it.
+fn make_live(f: &Fixture) {
+    commit_file(
+        &f.main,
+        ".land-live",
+        "live\n",
+        "make the main checkout live",
+    );
+    git_out(&f.main, &["push", "-q", "origin", "HEAD:main"]);
+}
+
+#[test]
+fn a_live_repos_landing_fast_forwards_its_main_checkout() {
+    let f = fixture("land-live", "true\n", None);
+    make_live(&f);
+    let (one, a, two, b) = two_branches(&f);
+    let (code, out, _) = run_land(&f, &one, &["--done", "7", &a], project());
+    assert!(code == 0 && out.contains("made live"), "{out}");
+    assert_eq!(main_of(&f), a);
+    assert_eq!(head_of(&f.main), a);
+    let (code, out, _) = run_land(&f, &two, &["--done", "8", &b], project());
+    assert!(code == 0 && out.contains("made live"), "{out}");
+    assert_eq!(head_of(&f.main), main_of(&f));
+}
+
+#[test]
+fn a_main_checkout_that_cannot_fast_forward_leaves_the_landing_landed_and_says_how() {
+    let f = fixture("land-live-blocked", "true\n", None);
+    make_live(&f);
+    let command = format!("git -C {} merge --ff-only origin/main", f.main.display());
+    // The person's own commit in the main checkout.
+    let local = commit_file(&f.main, "local.txt", "local\n", "the person's commit");
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let (code, out, calls) = run_land(&f, &one, &["--done", "7", &a], project());
+    assert!(
+        code == 0 && out.contains("NOT LIVE") && out.contains(&command),
+        "{out}"
+    );
+    assert_eq!(main_of(&f), a, "the landing counts as landed");
+    assert!(calls.iter().any(|c| c.starts_with("item landed")));
+    assert_eq!(head_of(&f.main), local, "the person's commit stays");
+
+    // The person's uncommitted file that the landing would overwrite.
+    git_out(&f.main, &["reset", "-q", "--hard", "origin/main"]);
+    std::fs::write(f.main.join("b.txt"), "the person's\n").unwrap();
+    let two = f.side(2, "b");
+    let b = commit_file(&two, "b.txt", "b\n", "add b");
+    let (code, out, _) = run_land(&f, &two, &["--done", "8", &b], project());
+    assert!(
+        code == 0 && out.contains("NOT LIVE") && out.contains(&command),
+        "{out}"
+    );
+    assert_eq!(head_of(&f.main), a);
+    assert_eq!(
+        std::fs::read_to_string(f.main.join("b.txt")).unwrap(),
+        "the person's\n"
+    );
+
+    // A main checkout on another branch.
+    std::fs::remove_file(f.main.join("b.txt")).unwrap();
+    git_out(&f.main, &["checkout", "-q", "-b", "other"]);
+    let three = f.side(3, "c");
+    let c = commit_file(&three, "c.txt", "c\n", "add c");
+    let (code, out, _) = run_land(&f, &three, &["--done", "9", &c], project());
+    assert!(
+        code == 0 && out.contains("is on branch other, not main") && out.contains(&command),
+        "{out}"
+    );
+    assert_eq!(head_of(&f.main), a);
 }

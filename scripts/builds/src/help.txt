@@ -25,8 +25,9 @@ its files into ~/.claude and ~/.codex. Its post-commit and post-merge hooks run
 install.sh again when a commit or merge on its main branch changes what
 install.sh consumes, scripts/builds/ included. A commit on a side worktree's
 branch installs nothing; it goes live once it is on main and the main
-checkout's main moves to it. To try an edit to builds before it lands, run the
-binary your worktree built (scripts/builds/target/debug/builds).
+checkout's main moves to it, which `builds land` does after each landing (the
+repo's .land-live file asks for it). To try an edit to builds before it lands,
+run the binary your worktree built (scripts/builds/target/debug/builds).
 
 
 BUILD VOLUME
@@ -1104,7 +1105,15 @@ agent-instructions and run `review replay --rules-root` on it.
                               unclaimed worktree before it fetches anything.
                               `item check-landing` refuses an item that runs
                               in another worktree: landing there would move
-                              that agent's HEAD
+                              that agent's HEAD. When the landed tree holds
+                              .land-live (agent-instructions), land then
+                              fast-forwards the repo's main checkout to
+                              origin/main, whose post-merge hook makes the
+                              landing live; when the main checkout is not on
+                              main, or the person's commits or edits there
+                              stop the fast-forward, land leaves it as it
+                              is, prints NOT LIVE with the command to run,
+                              and the landing still counts as landed
   builds review [run] <worktree> [<base>] [--landing <key>] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
                               review the worktree's commits past <base>
                               (default origin/main) against the rules in
