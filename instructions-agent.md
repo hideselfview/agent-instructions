@@ -253,10 +253,9 @@ actionable items.
 
 # Agent workflow
 
-**PRs are single-concern.** Each PR is one focused change that's trivial to
-understand at a glance. Never bundle unrelated fixes into a grab-bag PR — if an
-audit surfaces N findings, that's N PRs (or commits queued for separate PRs),
-not one.
+**Each commit or PR has one concern.** A commit or PR holds one change a reader
+can understand at a glance. Never bundle unrelated fixes into one: if an audit
+finds N problems, that's N commits or PRs, not one.
 
 **Background agents: research → plan → implement → review → fix → land.** Gather
 context with explore subagents; write the plan (the contract); branch in the
@@ -309,10 +308,10 @@ judgment. The agent holding the implementation context still reviews its own
 diff once before it reports, and `builds review <worktree>` runs the same review
 early. Reading the bodies of the applicable rules remains required.
 
-**One small PR per task when dispatching agents.** Tell agents with multiple
-tasks to execute serially, one small PR per task — preferably each into main,
-chaining only when one task genuinely depends on another. (This serves "PRs are
-single-concern", above.)
+**One commit or PR per task when dispatching agents.** Tell agents with several
+tasks to do them one after another, one commit or PR per task, each onto main,
+chaining only when one task depends on another. (This serves "Each commit or PR
+has one concern", above.)
 
 **Translations are agent work — never humans'.** When a change adds or edits
 user-visible strings, translate them into every locale catalog yourself,
