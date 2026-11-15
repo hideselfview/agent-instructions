@@ -44,8 +44,7 @@ fn review_past(demo: &Demo, fake: &Fake, side: &Path, base: &str) -> super::supe
 /// words.
 fn verdict_of(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> (Verdict, Option<String>) {
     let asked = asked(demo, fake, side, shas);
-    let conn = asked.store.open_existing().unwrap();
-    let verdict = judge(&conn, "demo", &asked.needs).unwrap();
+    let verdict = judge(&asked.conn, "demo", &asked.needs).unwrap();
     let words = refusal(&asked.commits(), &verdict);
     (verdict, words)
 }

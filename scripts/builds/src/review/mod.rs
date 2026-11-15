@@ -52,6 +52,8 @@ mod score;
 
 use std::path::{Path, PathBuf};
 
+use rusqlite::Connection;
+
 use crate::checkout::{Checkout, git};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -211,7 +213,6 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         None => None,
         Some(landing) => Some(unanswered(&conn, inputs, &material, &commits, landing)?),
     };
-    drop(conn);
     // The diff the reviewers read, the commits it holds, and the groups asked:
     // each group that covers a path one of those commits changes, so that
     // builds land finds an answer for every commit it lands.
@@ -298,7 +299,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     let needs = landing::needs(inputs.worktree, commits.clone(), |paths| {
         material.group_names(paths)
     })?;
-    let verdict = landing::judge(&inputs.store.open_existing()?, inputs.repo, &needs)?;
+    let verdict = landing::judge(&conn, inputs.repo, &needs)?;
     let refusal = landing::refusal(&commits, &verdict);
     if refusal.is_none() {
         text.push_str(&format!("builds land: {}\n", landing::taken(&verdict)));
@@ -511,7 +512,7 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
         .parse()
         .map_err(|_| Fail::Message(format!("'{finding}' is not a finding number")))?;
     let why = args.why()?;
-    let store = store_of(tool, &args)?;
+    let (store, _) = store_of(tool, &args)?;
     let stamp = Stamp::resolve(tool.now, &args, &current_dir()?)?;
     store.write(&stamp, &format!("review settle {id}"), |db| {
         record::settle(db, id, how, why, stamp.at, &stamp.by)
@@ -530,7 +531,7 @@ fn fixed(tool: &Tool, args: &[String]) -> Result<()> {
     let id: i64 = finding
         .parse()
         .map_err(|_| Fail::Message(format!("'{finding}' is not a finding number")))?;
-    let store = store_of(tool, &args)?;
+    let (store, _) = store_of(tool, &args)?;
     let cwd = current_dir()?;
     let Some(checkout) = Checkout::at(&cwd)? else {
         fail!("run builds review fixed in a checkout of the repo that holds {sha}");
@@ -556,7 +557,7 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
     let id: i64 = landing
         .parse()
         .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
-    let conn = store_of(tool, &args)?.open_existing()?;
+    let (_, conn) = store_of(tool, &args)?;
     let landing = record::landing(&conn, id)?;
     println!(
         "landing {id}: {} ({}), {}",
@@ -693,7 +694,8 @@ fn replay_landings(tool: &Tool, args: &Args) -> Result<()> {
                 .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))
         })
         .collect::<Result<_>>()?;
-    let store = store_of(tool, args)?;
+    // rerun::replay opens the store, and fails when the project has none.
+    let store = Store::resolve(&tool.places, args, &current_dir()?)?;
     let root = rules_root(args)?;
     let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
     let repo_dir = PathBuf::from(args.require("repo-dir")?);
@@ -716,13 +718,14 @@ fn replay_landings(tool: &Tool, args: &Args) -> Result<()> {
     Ok(())
 }
 
-/// The store of a command that names no worktree: `--project`, else the
-/// project of the current directory's repo. Fails when that project has no
-/// store, so that no review command answers from an empty one.
-fn store_of(tool: &Tool, args: &Args) -> Result<Store> {
+/// The store of a command that names no worktree, with its database open
+/// for reading: `--project`, else the project of the current directory's
+/// repo. Fails when that project has no store, so that no review command
+/// answers from an empty one.
+fn store_of(tool: &Tool, args: &Args) -> Result<(Store, Connection)> {
     let store = Store::resolve(&tool.places, args, &current_dir()?)?;
-    store.open_existing()?;
-    Ok(store)
+    let conn = store.open_existing()?;
+    Ok((store, conn))
 }
 
 /// `rule` mapped to the name of its group in the checkout's group folders.
@@ -746,7 +749,8 @@ fn audit_command(tool: &Tool, args: &[String]) -> Result<()> {
     let landing: i64 = landing
         .parse()
         .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
-    let store = store_of(tool, &args)?;
+    // audit::audit opens the store, and fails when the project has none.
+    let store = Store::resolve(&tool.places, &args, &current_dir()?)?;
     let root = rules_root(&args)?;
     let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
     let repo_dir = PathBuf::from(args.require("repo-dir")?);
@@ -787,8 +791,7 @@ pub(super) fn clock_bits() -> u64 {
 fn misses(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
     args.exactly(0, USAGE)?;
-    let store = store_of(tool, &args)?;
-    let conn = store.open_existing()?;
+    let (_, conn) = store_of(tool, &args)?;
     let mut count = 0;
     for landing in record::audited_landings(&conn)? {
         let findings = record::findings_of_landing(&conn, landing)?;
@@ -809,9 +812,8 @@ fn misses(tool: &Tool, args: &[String]) -> Result<()> {
 fn rates(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root"], &[])?;
     args.exactly(0, USAGE)?;
-    let store = store_of(tool, &args)?;
+    let (_, conn) = store_of(tool, &args)?;
     let root = rules_root(&args)?;
-    let conn = store.open_existing()?;
     for rate in audit::rates(&conn, &group_names(&root)?)? {
         println!(
             "{}: {} audits, {} confirmed misses; the latest {}: {}{}",
@@ -831,8 +833,7 @@ fn rates(tool: &Tool, args: &[String]) -> Result<()> {
 fn scores(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
     args.exactly(0, USAGE)?;
-    let store = store_of(tool, &args)?;
-    let conn = store.open_existing()?;
+    let (store, conn) = store_of(tool, &args)?;
     print!(
         "{}",
         score::store_report(&store.project, &score::of_store(&conn)?)
@@ -883,8 +884,7 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let (project, patch, addition, default_name) = match args.positional() {
         [landing, finding] => {
-            let store = store_of(tool, &args)?;
-            let conn = store.open_existing()?;
+            let (store, conn) = store_of(tool, &args)?;
             let landing: i64 = landing
                 .parse()
                 .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;

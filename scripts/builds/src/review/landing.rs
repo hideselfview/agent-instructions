@@ -322,10 +322,11 @@ pub fn refusal(commits: &[Commit], verdict: &Verdict) -> Option<String> {
     Some(text)
 }
 
-/// What both commands read: the repo, the store, and the commits with the
-/// groups each needs.
+/// What both commands read: the repo, the store with its database open for
+/// reading, and the commits with the groups each needs.
 struct Asked {
     store: Store,
+    conn: Connection,
     repo: String,
     dir: PathBuf,
     needs: Vec<Need>,
@@ -347,7 +348,7 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
     }
     let project = args.require("project")?;
     let store = Store::named(&tool.places, project)?;
-    store.open_existing()?;
+    let conn = store.open_existing()?;
     let checkout = Checkout::find(dir)?;
     let root = super::rules_root(args)?;
     let commits = commits::with_patch_ids(&checkout.top, shas)?;
@@ -355,6 +356,7 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
     let needs = needs(&checkout.top, commits, |paths| material.group_names(paths))?;
     Ok(Asked {
         store,
+        conn,
         repo: checkout.repo(),
         dir: checkout.top.clone(),
         needs,
@@ -367,7 +369,7 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
 pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root"], &[])?;
     let asked = ask(tool, &args)?;
-    let verdict = judge(&asked.store.open_existing()?, &asked.repo, &asked.needs)?;
+    let verdict = judge(&asked.conn, &asked.repo, &asked.needs)?;
     match refusal(&asked.commits(), &verdict) {
         Some(why) => {
             print!("{why}");
@@ -394,15 +396,13 @@ pub fn taken(verdict: &Verdict) -> String {
 /// Records the change of <asked> as landed; returns the landing when this
 /// recorded it, None when it needed no review or was recorded already.
 fn record_landed(asked: &Asked, stamp: &Stamp) -> Result<Option<i64>> {
-    let conn = asked.store.open_existing()?;
-    let verdict = judge(&conn, &asked.repo, &asked.needs)?;
+    let verdict = judge(&asked.conn, &asked.repo, &asked.needs)?;
     if let Some(why) = refusal(&asked.commits(), &verdict) {
         fail!("the review does not take these commits:\n{why}")
     }
     let Verdict::Takes(covered) = verdict else {
         return Ok(None);
     };
-    drop(conn);
     if covered.landing.landed_run.is_some() {
         return Ok(None);
     }
@@ -454,8 +454,12 @@ pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
 /// Starts `builds review audit` on <landing> in the background when the
 /// sample picks it.
 fn start_audit(asked: &Asked, landing: i64, roll: f64, reviewer: &str) -> Result<()> {
-    let conn = asked.store.open_existing()?;
-    if !super::audit::sampled(&conn, landing, &super::group_names(&asked.root)?, roll)? {
+    if !super::audit::sampled(
+        &asked.conn,
+        landing,
+        &super::group_names(&asked.root)?,
+        roll,
+    )? {
         return Ok(());
     }
     let program = std::env::current_exe().context(|| "finding this program".to_string())?;
