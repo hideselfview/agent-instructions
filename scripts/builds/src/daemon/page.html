@@ -176,8 +176,8 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .bar.queued { background: var(--winding-bg); color: var(--winding); }
 .bar.queued .disk { color: var(--winding); }
 /* A worktree whose commits wait on their rules review before they can land. */
-.bar.review { background: var(--winding-bg); color: var(--winding); }
-.bar.review .disk { color: var(--winding); }
+.bar.inreview { background: var(--winding-bg); color: var(--winding); }
+.bar.inreview .disk { color: var(--winding); }
 .wt-card .steps { font: 12px var(--mono); }
 .bar .qplace { font: 500 12px var(--mono); margin-left: 4px; }
 .bar .grp { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; }
@@ -662,7 +662,7 @@ function worktreeCard(c) {
   const g = c.git, a = c.activity, building = a.processes.length > 0;
   const chip = c.words.chip;
   const queued = c.words.queued;
-  const tone = queued ? " queued" : c.state === "in-review" ? " review" : chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
+  const tone = queued ? " queued" : c.state === "in-review" ? " inreview" : chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
   const ahead = g && !g.error ? g.ahead : [];
   const land = ahead.length ? h("div", {class: "land"},
     h("div", {class: "c"}, commitCells(ahead.slice(0, 1))),
