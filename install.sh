@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Symlink agent-instructions content into Claude Code and Codex homes so both
-# tools read the same user-level instructions. Also installs the markdown
-# pre-commit hook for this repo, and builds and installs the `builds` tool.
+# tools read the same user-level instructions. Also points git at the repo's
+# hooks (.githooks, whose pre-commit runs `builds checks run`), installs
+# mdformat, which those checks run, and builds and installs the `builds` tool.
 #
 # Idempotent — safe to re-run after pulling new files.
 
@@ -11,7 +12,7 @@ set -euo pipefail
 # points there, so nothing in a side worktree goes live before it lands.
 repo="$(git -C "$(dirname "${BASH_SOURCE[0]}")" worktree list --porcelain | sed -n '1s/^worktree //p')"
 
-# Pre-commit hook: enforce mdformat on markdown files.
+# mdformat, which the commit checks run on markdown (.checks).
 if ! command -v mdformat >/dev/null 2>&1; then
   echo "Installing mdformat via pipx..."
   command -v pipx >/dev/null 2>&1 || brew install pipx
@@ -93,32 +94,20 @@ if [[ -d "$repo/claude/skills" ]]; then
   done
 fi
 
-for subdir in rules principles; do
-  mkdir -p "$HOME/.claude/$subdir"
-  # A link to a file since removed or merged into another is dropped.
-  for link in "$HOME/.claude/$subdir"/*.md; do
-    if [[ -L "$link" && ! -e "$link" && "$(readlink "$link")" == "$repo/$subdir"/* ]]; then
-      rm "$link"
-      echo "Removed ~/.claude/$subdir/$(basename "$link") (its file is gone)"
-    fi
-  done
-  for f in "$repo/$subdir"/*.md; do
-    [[ -f "$f" ]] || continue
-    name="$(basename "$f")"
-    ln -sf "$f" "$HOME/.claude/$subdir/$name"
-    echo "Linked ~/.claude/$subdir/$name -> $f"
-  done
+mkdir -p "$HOME/.claude/rules"
+# A link to a rule since removed or merged into another is dropped.
+for link in "$HOME/.claude/rules"/*.md; do
+  if [[ -L "$link" && ! -e "$link" && "$(readlink "$link")" == "$repo/rules"/* ]]; then
+    rm "$link"
+    echo "Removed ~/.claude/rules/$(basename "$link") (its file is gone)"
+  fi
 done
-
-if [[ -d "$repo/claude/agents" ]]; then
-  mkdir -p "$HOME/.claude/agents"
-  for f in "$repo/claude/agents"/*.md; do
-    [[ -f "$f" ]] || continue
-    name="$(basename "$f")"
-    ln -sf "$f" "$HOME/.claude/agents/$name"
-    echo "Linked ~/.claude/agents/$name -> $f"
-  done
-fi
+for f in "$repo/rules"/*.md; do
+  [[ -f "$f" ]] || continue
+  name="$(basename "$f")"
+  ln -sf "$f" "$HOME/.claude/rules/$name"
+  echo "Linked ~/.claude/rules/$name -> $f"
+done
 
 # Per-project instruction symlinks. Convention: each projects/<name>.md
 # targets ~/dev/<name>/CLAUDE.md and ~/dev/<name>/AGENTS.md. Skip projects whose

@@ -70,14 +70,6 @@ impl Material {
         self.grouping = format!("model {model}");
         self
     }
-
-    fn principle(&self, name: &str) -> (String, String) {
-        let path = self.root.join("principles").join(format!("{name}.md"));
-        (
-            name.to_string(),
-            std::fs::read_to_string(path).unwrap_or_default(),
-        )
-    }
 }
 
 /// FNV-1a of <text> as 16 hex digits.
@@ -218,11 +210,6 @@ pub fn ask_groups(
     }
     let one = |unit: &Unit, pass: usize| {
         let group = unit.group;
-        let principles: Vec<(String, String)> = group
-            .principles
-            .iter()
-            .map(|p| material.principle(p))
-            .collect();
         let settled = settled(&group.name);
         let (text_diff, context) = match &unit.file {
             Some(file) => (
@@ -235,7 +222,6 @@ pub fn ask_groups(
             group,
             rules: unit.members,
             project_text: &material.project_text,
-            principles: &principles,
             brief,
             settled: &settled,
             diff: text_diff,

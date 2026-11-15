@@ -21,11 +21,11 @@ Two things a screen shows don't come from SQL:
 
 - A value that changes many times a second (playback position, transfer bytes,
   rates, levels) travels on a keyed latest-value stream
-  (`high-frequency-values-skip-observed-ui-state.md`).
+  (`native-views-draw-fast-changing-values.md`).
 - State that exists only on screen (hover, focus, an open popover or menu, a
   drag in progress) stays in the view and never goes into SQL.
 
-### Why
+### Why nothing goes between the query and the screen
 
 The database is bae's own: SQLite on the device's disk, with no server or
 network in between. SQLite reads and writes fast, and coven reruns a query
@@ -73,7 +73,7 @@ both ends:
 WHERE (sort) >= (:from) AND (sort) < (:until) ORDER BY sort
 ```
 
-Coven decides which writes rerun a query from its WHERE comparisons, not from
+coven decides which writes rerun a query from its WHERE comparisons, not from
 LIMIT or OFFSET. A bounded window reruns only when a row inside it changes;
 `LIMIT 100` reruns for every change after its start, and `OFFSET` for every
 change at all.
@@ -90,7 +90,7 @@ subscribe({from: <row 100>, until: <key of row 200>})  -- rows 100-199
 subscribe(SELECT COUNT(*) FROM ...)                    -- the count
 ```
 
-### Never, in Rust or in the apps
+### Shapes that Rust and the apps never use
 
 - **Memory between reads.** No counts, windows, positions or last results kept
   (in a `Mutex`, `OnceLock`, atomic, field or cache) for a later read to use.
@@ -118,7 +118,7 @@ subscribe(SELECT COUNT(*) FROM ...)                    -- the count
 A plan or brief that proposes one of these shapes is wrong: raise it instead of
 building it.
 
-### What checks this
+### What the pre-commit hook checks
 
 bae's pre-commit hook refuses the shapes it can see in Rust read code (the
 ownership check's `read-shapes` rule). The violations in the code today are
@@ -129,9 +129,3 @@ only shrink as the code is fixed. A frozen row is a violation not yet fixed,
 never permission: a change to a frozen site that keeps the shape still breaks
 this rule. Uses over values that are not a read's rows (a constant table, one
 name's characters) go in `allowed` with what the values are.
-
-The landing review covers what the hook cannot see: the apps' Swift and Kotlin,
-work on rows after they leave read code (the bridge, services), loops that
-filter without the named methods, statements combined in Rust without a map,
-memory kept outside a live-query holder, a counter Rust writes as a bound value,
-a threshold with no named constant, and calls through receivers of unknown type.

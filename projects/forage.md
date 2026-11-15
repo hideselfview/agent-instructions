@@ -1,15 +1,15 @@
 # forage
 
-The Forage scraping DSL + runtime. A `.forage` recipe declaratively describes
-how to fetch structured records from a site or API; the runtime executes recipes
-against an HTTP engine or a real browser engine (wry-backed WebView). Ships with
-a CLI, an LSP, and Forage Studio for interactive authoring.
+Forage is a language for scraping and the runtime that runs it. A `.forage`
+recipe describes how to fetch structured records from a site or API, and the
+runtime runs recipes against an HTTP engine or a real browser engine (a
+wry-backed WebView). Forage comes with a CLI, a language server and Forage
+Studio, an app for writing recipes interactively.
 
-## Greenfield — no migrations, no compat shims
+## Shapes change in one commit, with no compatibility code
 
-Pre-1.0 — break things and move on. When you change the canonical definition of
-anything (schema, AST, IR, binary format, capture/replay fixtures, hub-api KV
-entries, LSP wire messages), edit the definition and update every caller in one
-PR. No migration shims, no dual-shape compatibility flags, no
-`#[serde(default)]` to silently absorb renamed fields. If a fixture is stale,
-regenerate it.
+forage follows
+`rules/change-a-shape-in-one-commit-with-no-compatibility-code.md`. In forage,
+its shapes include the schema, the AST, the IR, the binary format, the capture
+and replay fixtures, the hub-api KV entries and the language server's wire
+messages.

@@ -45,8 +45,11 @@ Cut a section, a paragraph or a sentence when:
 - It explains how a tool works inside, when the reader only needs to know what
   to run.
 - It gives a reason that is true but isn't why the rule exists.
-- It quotes someone to repeat the sentence before it ("(the person, 2026-11-13:
-  '...')"). Keep a quote only when it adds something.
+- It is ephemera: a dated example ("Example (<project>, <date>):"), a story of
+  what once went wrong, a quote of who said the rule and when, "as of" a date.
+  - Work what it teaches into the rule as a timeless statement or example, or
+    cut it.
+  - The document says what holds now, not how it came to be.
 - It says what the reader would assume anyway ("comes from SQL" when all data is
   in SQL). Say what is specific, or cut it.
 

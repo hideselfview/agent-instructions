@@ -1,86 +1,51 @@
 ---
-digest: UI iterates and renders; sorting/filtering/grouping/formatting/deriving belongs in the data layer. In bae, bae-bridge is only type translation and the locale never crosses the bridge; the UI formats raw data and resolves message keys, and derives no domain value or decision.
+digest: UI code, in any framework, iterates over the data it receives and renders it; sorting, filtering, grouping, deriving and domain decisions belong in the data layer, and the bridge between core and UI only translates types. The UI may convert types for display, format numbers and dates for the locale, resolve message keys, and compute a command's target from the value it shows.
 paths:
   - '**/*.swift'
   - '**/*.kt'
   - '**/*.cs'
   - '**/*.tsx'
-  - '**/*.jsx'
-  - bae-web/**/*.rs
   - bae-bridge/**/*.rs
+  - visible-bridge/**/*.rs
 blocking: false
 ---
 
 ## UI iterates and renders, nothing more
 
-The UI's job is to iterate and render. Domain logic — sorting, filtering,
-grouping, computing, formatting, deriving — belongs in the data layer (core,
-store, server). The state layer should deliver data in the exact shape the UI
-needs: pre-sorted, pre-grouped, pre-formatted, with pre-computed flags. The UI
-maps that structure to visual elements.
+UI code, in any UI framework, iterates over the data it receives and renders it.
+Domain logic (sorting, filtering, grouping, computing, deriving) belongs in the
+data layer: the core, the store or the server. The data layer delivers data in
+the shape the UI shows, already sorted and grouped, with its flags computed, so
+nothing has to be written again for each platform.
 
-Exceptions:
+The bridge between the core and the UI only translates types. It converts the
+core's types to the types each platform's generated bindings use, such as uniffi
+records and enums, and has no logic of its own: no database reads, API calls,
+formatting, filtering, orchestration or mutable state. New behavior goes in the
+core, and the bridge calls it.
 
-- Type coercion for rendering (e.g., `Int → String` for `Text()`, `String → URL`
-  for image loading).
-- Localized string building and matching (platform-native localization APIs).
-- Computing a command's target from the value being rendered — `set(!shuffled)`,
-  `setRepeat(mode.next())` — and sending that absolute value to the data layer.
-  Naming the desired next state isn't deriving domain data, and it's preferred
-  over a `toggle()` (`rules/set-state-don-t-toggle.md`).
+### What the UI computes
 
-## In bae: UI and bridge thinness (letter of the law)
+- Type conversions for rendering: `Int` to `String` for a text view, `String` to
+  `URL` to load an image.
+- Formatting for the reader's locale, with the platform's own APIs:
+  - numbers, byte counts, durations and dates, with its formatters;
+  - messages, looked up by key in its string catalogs.
+- A command's target, computed from the value on screen and sent as an absolute
+  value: `setShuffle(!shuffled)`, `setRepeat(mode.next())`
+  (`set-state-don-t-toggle`).
+  - A `!bool` or `mode.next()` names the next state; real logic, such as
+    building a URL, still arrives as a field.
 
-The rule above is enforced strictly in bae because cross-platform UI is the
-goal: macOS, iOS, Android, and Windows from one core. Anything in the UI is
-something we'd rewrite per platform.
+### Violations
 
-**bae-bridge is ONLY type translation.** It converts bae-core types ↔
-uniffi/Swift/Kotlin types (and, via the Windows FFI, the C# wire shapes) and
-nothing else. No DB lookups, no API calls, no formatting, no filtering, no
-orchestration, no mutable state, no event filtering. If you need to add
-functionality, add it to bae-core; the bridge calls it. Never add "just a quick
-helper" to the bridge. A value the UI must not derive comes from the read's SQL
-(a column, or its own live query); Rust converts rows to bridge types and
-computes it no more than the UI does
-(reactive-screens-read-plain-live-queries.md).
-
-**The locale never crosses the bridge.** bae-core and bae-bridge emit raw data —
-numbers, typed enums, and stable message keys — never prose or locale-formatted
-text. The one computation the UI is *required* to do is locale-aware rendering
-of that data: formatting numbers, byte counts, durations, and dates with the
-platform's locale formatters, and resolving stable message keys through native
-string catalogs (String Catalogs / `strings.xml`). That rendering is inherently
-per-platform and OS-owned, so it lives in the UI by design.
-
-Bridge / UI boundary violations to flag:
-
-- The UI computes a derived value from multiple bridge fields instead of
-  receiving a pre-computed field (e.g., `badAudioCount > 0 || badImageCount > 0`
-  instead of `isIncomplete`).
-- The UI switches on bridge string/enum values to make domain decisions (e.g.,
-  `source == "musicbrainz"` to build a URL) instead of receiving the result as a
-  field.
-- The UI sorts/filters bridge arrays using domain rules instead of receiving
-  pre-sorted/pre-filtered data.
-- The UI groups flat arrays into structured data (tracks by side) instead of
-  receiving pre-grouped data — receive the grouping/position as a structured
-  field; only the localized words ("Side", "Disc") are the UI's. The grouping
-  and position come from the read's SQL (a column, or its own live query), and
-  Rust only converts rows (reactive-screens-read-plain-live-queries.md).
-- The UI constructs URLs, file paths, or identifiers from bridge field values
-  instead of receiving them pre-built.
-- String literals in the UI that encode domain knowledge (source names, format
-  names, status strings) — those are bae-core concepts and cross as enums/keys.
-
-What is NOT a violation: the UI formatting raw numbers/dates/byte counts for
-display, or resolving a localized string by key. That is the required
-locale-rendering described above, not a thinness breach — bae-core has no locale
-and cannot do it.
-
-Also NOT a violation: computing a command's target from a rendered bridge value
-and sending that absolute value back — `setShuffle(!shuffled)` — even though
-core also holds the state. Naming the desired next state is not a domain
-decision; it's the preferred shape over a core-side `toggle()`
-(`set-state-don-t-toggle`). A `!bool` or `mode.next()` is fine; real logic —
-URL-building, source switching — still crosses as a field.
+- The UI computes a value from several fields instead of receiving it as a
+  field: `badAudioCount > 0 || badImageCount > 0` instead of `isIncomplete`.
+- The UI switches on a string or enum to make a domain decision, such as
+  `source == "musicbrainz"` to build a URL.
+- The UI sorts or filters a list by domain rules.
+- The UI groups a flat list, such as tracks by side, instead of receiving the
+  grouping as a field. Only the localized words ("Side", "Disc") are the UI's.
+- The UI builds URLs, file paths or identifiers from field values.
+- A string literal in the UI encodes domain knowledge: a source name, a format
+  name, a status string. These cross as enums or message keys.

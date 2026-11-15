@@ -20,15 +20,6 @@ fn every_rule_of_the_checkout_is_in_exactly_one_group_and_every_slug_names_a_rul
     let rules = rules::load(&root, None).unwrap();
     assert!(!rules.is_empty());
     assert_eq!(groups.faults(&rules), Vec::<String>::new());
-    for group in &groups.groups {
-        for name in &group.principles {
-            assert!(
-                root.join("principles").join(format!("{name}.md")).is_file(),
-                "group {} names principle {name}, which is no file",
-                group.name
-            );
-        }
-    }
 }
 
 #[test]

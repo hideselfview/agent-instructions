@@ -1,5 +1,5 @@
 //! What one reviewer is told and how it must answer. A reviewer has no tools:
-//! the rules, the project's instructions, the principles, the brief, the
+//! the rules, the project's instructions, the brief, the
 //! settled findings and the diff are all in its prompt.
 
 use serde_json::{Value, json};
@@ -29,8 +29,6 @@ pub struct Input<'a> {
     pub rules: &'a [&'a Rule],
     /// The project's always-loaded instructions; empty when it has none.
     pub project_text: &'a str,
-    /// (name, text) of each principle the group names.
-    pub principles: &'a [(String, String)],
     /// (path, text) of the landing's brief, when it has one.
     pub brief: Option<&'a (String, String)>,
     pub settled: &'a [Settled],
@@ -139,8 +137,8 @@ fn change_part(input: &Input) -> String {
     out
 }
 
-/// What is the group's own: its question, how to answer, its rules, its
-/// principles and the findings already settled.
+/// What is the group's own: its question, how to answer, its rules and the
+/// findings already settled.
 pub fn group_part(input: &Input) -> String {
     let group = input.group;
     let mut out = String::new();
@@ -185,9 +183,6 @@ pub fn group_part(input: &Input) -> String {
     );
     if let Some(extra) = &group.instructions {
         out.push_str(&format!("- {extra}\n"));
-    }
-    for (name, text) in input.principles {
-        out.push_str(&format!("\n# Principle: {name}\n\n{}\n", text.trim_end()));
     }
     out.push_str("\n# Rules\n");
     for rule in input.rules {

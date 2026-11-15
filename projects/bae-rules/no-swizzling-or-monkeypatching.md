@@ -20,7 +20,6 @@ does.
 
 When a framework misbehaves, fix it with its documented API: change how bae
 declares what the framework handles, or move to the layer whose documented
-behavior fits. SwiftUI's App lifecycle rebuilt the macOS menus on focus changes
-and crashed in the Edit menu; the fix was an AppKit shell (an
-`NSApplicationDelegate` and a plain `NSMenu` of AppKit's standard Edit items and
-actions), not a swizzle of AppKit's menu code or an undocumented default.
+behavior fits. bae's macOS menus, for example, are an AppKit shell (an
+`NSApplicationDelegate` and a plain `NSMenu` of AppKit's standard Edit items),
+because SwiftUI's App lifecycle crashed in the Edit menu.

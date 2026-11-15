@@ -1,5 +1,5 @@
 ---
-digest: A sum return whose only caller switches on it is a misplaced precondition gate — move the gate to the caller, make the function unconditional.
+digest: A function that returns either its result or a "didn't do it" case, and whose only caller switches on that, holds a check that belongs to the caller; move the check to the caller and make the function unconditional.
 paths:
   - '**/*.rs'
   - '**/*.swift'
@@ -9,12 +9,14 @@ paths:
 blocking: false
 ---
 
-**Precondition gates belong at the call site.** A function that returns
-`enum { case ok(T); case blocked(Reason) }` and whose only caller switches on it
-is bundling the work that produces `T` with a gate deciding whether to produce
-it. The sum is intermediate data between produce and consume that nothing else
-uses. Move the gate to the caller — the function becomes unconditional
-construction; the caller checks the precondition before calling.
+## Precondition gates belong at the call site
+
+A function that returns `enum { case ok(T); case blocked(Reason) }`, and whose
+only caller switches on it, combines two things: the work that produces `T`, and
+a check that decides whether to produce it. The enum is data passed between the
+two that nothing else uses. Move the check to the caller: the function builds
+its result unconditionally, and the caller checks the precondition before it
+calls.
 
 ```swift
 // Before
@@ -33,7 +35,7 @@ if handle.getConfig().needsUnlock { showUnlock(...); return }
 self.service = AppService(handle: handle, ...)
 ```
 
-Doesn't fire for `Result<T, Error>` / `Optional<T>` (absence is domain) or sums
-whose cases are all valid products. Diagnostic: one case carries the primary
-output, others carry "didn't do it" *and* the caller has the inputs to evaluate
-the gate itself.
+The rule applies when one case carries the result, the others carry "didn't do
+it", and the caller has the inputs to make the check itself. It doesn't apply to
+`Result<T, Error>` or `Optional<T>`, where the absence is part of the domain, or
+to an enum whose cases are all valid results.

@@ -1,63 +1,76 @@
 # agent-instructions
 
-Personal coding standards and guidelines for AI coding agents, written by
-[@dminkovsky](https://github.com/dminkovsky). Used by local agents (Claude Code
-via `~/.claude/` symlinks and Codex via `~/.codex/` symlinks). `builds land`
-records a review of every landing against the rules, one reviewer per group of
-rules, and the agent holding the implementation context reviews its own diff
-once.
+Personal coding standards for AI coding agents, written by
+[@dminkovsky](https://github.com/dminkovsky). The repo holds the instructions,
+rules, settings and skills that Claude Code and Codex load, and the `builds`
+tool that agents run builds, landings and reviews through. `install.sh` links
+them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
 
 ## Layout
 
-- `instructions-agent.md` — always-on agent behavior: working style,
-  communication style, writing style, agent workflow.
-- `claude/CLAUDE.md` — generated, gitignored: `instructions-agent.md` only.
-  Linked into `~/.claude/CLAUDE.md`.
-- `codex/AGENTS.md` — generated, gitignored: `instructions-agent.md` plus a
-  digest index built from `rules/*` frontmatter. Linked into
-  `~/.codex/AGENTS.md`.
-- `CLAUDE.md` / `AGENTS.md` — repo-level aliases to `claude/CLAUDE.md` and
-  `codex/AGENTS.md`, so the repo can be opened directly by Claude Code or Codex.
-- `rules/*.md` — one code rule per file. Frontmatter: `digest` (the one-liner
-  stitched into `codex/AGENTS.md`), `paths` (globs scoping when the body loads
-  and which files the rule applies to), `blocking` (whether a violation blocks
-  the PR), and optional `review: false` for authoring-only rules excluded from
-  the deprecated review runner. The body loads into agent context only when a
-  matching file is read.
-- `principles/*.md` — elaborated principles referenced from
-  `instructions-agent.md`. Loaded on demand when an agent reaches for the
-  longer-form treatment of a rule.
-- `claude/settings.json` — portable Claude Code settings: env vars, permission
-  default mode, enabled plugins, UI prefs. Linked into `~/.claude/`.
-  Machine-specific overrides go in `~/.claude/settings.local.json` (not in this
-  repo).
-- `codex/config.toml` — portable Codex settings: model, permissions, TUI prefs,
-  and feature flags. Linked into `~/.codex/config.toml`.
-- `codex/skills/` — Codex skills linked into `~/.codex/skills/` by `install.sh`.
-- `projects/<name>.md` — always-on project facts too narrow for user-level rules
-  (e.g. a project's pre-1.0 development stance). Linked into a project's working
-  tree via `install.sh`.
-- `projects/<name>-rules/*.md` — project-specific path-scoped rules (same
-  frontmatter as `rules/`), symlinked into the project's `.claude/rules/`.
+- `instructions-agent.md` holds the instructions every agent loads on every
+  turn.
+  - They cover how to design and judge work, how to find out what is true, how
+    to talk with the user, and commits.
+- `generate.py` writes two gitignored files from `instructions-agent.md`:
+  - `claude/CLAUDE.md` holds `instructions-agent.md` alone.
+  - `codex/AGENTS.md` adds an index of the rules, built from each rule's
+    `digest`.
+  - `CLAUDE.md` and `AGENTS.md` at the repo root link to them, so Claude Code or
+    Codex opened in this repo loads them.
+- `rules/*.md` holds one code rule per file. Each file's frontmatter has these
+  fields:
+  - `digest`: the one line that goes into the Codex index.
+  - `paths`: globs for the files the rule covers. Claude Code loads the rule's
+    body when it reads a matching file.
+  - `blocking`: whether a standing finding against the rule makes
+    `builds review` exit 1.
+  - `review: false` (optional): marks a rule a reviewer can't check, which
+    `builds review` leaves out.
+- `projects/<name>.md` holds a project's always-loaded instructions.
+- `projects/<name>-rules/*.md` holds a project's rules, with the same
+  frontmatter as `rules/`.
+- `rules/groups.toml` puts each rule, general or project, in one review group
+  for `builds review`; its header comment explains the fields.
+- `claude/settings.json` holds the Claude Code settings: environment variables,
+  permissions, hooks and plugins.
+  - Machine-specific settings go in `~/.claude/settings.local.json`, outside
+    this repo.
+- `claude/skills/` holds Claude Code's skills, one folder each.
+- `claude/plugins/` is a local plugin marketplace that `claude/settings.json`
+  registers.
+  - Its rust-analyzer plugin builds into each repo's `target-ra` and checks
+    nothing on save.
+- `codex/config.toml` holds the Codex settings.
+- `codex/skills/` holds Codex's skills.
+  - Its `code-rules-review` is a symlink to the Claude Code copy.
+- `scripts/builds/` is the `builds` tool, a Rust program (`builds help`).
+- `scripts/hooks/` holds the Claude Code hooks that `claude/settings.json` runs
+  before each Bash command.
+  - They refuse full local test suites, polling loops, and moves in an app
+    checkout without its lock.
+- `scripts/rules_review/matching_rules.py` lists the rule files whose `paths`
+  match given repo paths.
+- `.githooks/` holds this repo's git hooks.
+  - `pre-commit` runs `builds checks run`, which runs the checks `.checks` lists
+    on the staged files.
+  - `post-commit` and `post-merge` run `install.sh` again in the main checkout
+    when a change touches what it installs.
 
 ## Where a rule goes
 
-Claude Code loads `rules/*.md` natively: a file with `paths` frontmatter loads
-only when a matching file is read; a file with **no** `paths` loads at launch,
-always-on (same priority as `CLAUDE.md`). So:
+Claude Code loads `rules/*.md` itself. A file with `paths` frontmatter loads
+only when Claude Code reads a matching file; a file with no `paths` loads at
+launch, on every turn, like `CLAUDE.md`. So:
 
-- Every `rules/` file gets `paths`. Language rule → narrow globs (`**/*.rs`).
-  Universal design rule → broad code globs (`**/*.rs`, `**/*.swift`, `**/*.kt`,
-  `**/*.ts`, `**/*.tsx`) so it loads when you touch any code, but not during
-  pure chat.
-- Always-every-turn content (agent behavior: be terse, hold position, no
-  marketing) is **not** a `rules/` file — it stays prose in
-  `instructions-agent.md`, always-on by being part of each generated instruction
-  file.
-
-Rule of thumb: `rules/` = scoped rules (always have `paths`);
-`instructions-agent.md` = always-on behavior; `projects/<name>-rules/` =
-project-specific scoped rules.
+- Every `rules/` file has `paths`.
+  - A language rule gets narrow globs (`**/*.rs`).
+  - A design rule for all code gets the code globs (`**/*.rs`, `**/*.swift`,
+    `**/*.kt`, `**/*.ts`, `**/*.tsx`), so it loads when an agent reads code but
+    not during chat.
+- Agent behavior that applies on every turn (be terse, hold your position) goes
+  in `instructions-agent.md`, not in `rules/`.
+- A rule for one project goes in `projects/<name>-rules/`.
 
 ## Local setup
 
@@ -66,59 +79,56 @@ git clone git@github.com:hideselfview/agent-instructions.git ~/dev/agent-instruc
 ~/dev/agent-instructions/install.sh
 ```
 
-`install.sh` generates `claude/CLAUDE.md` and `codex/AGENTS.md`, links them into
-`~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`, links `claude/settings.json`
-into `~/.claude/`, and links every file under `rules/`, `principles/`, and
-`claude/agents/` into `~/.claude/`. It also links `codex/config.toml` into
-`~/.codex/config.toml`, this repo into `~/.codex/agent-instructions`, and
-`codex/skills/` into `~/.codex/skills/`. It always links the main checkout,
-whichever worktree runs it, and the repo's post-commit and post-merge hooks
-re-run it in main when a commit, pull or landed branch changes what it consumes.
+`install.sh` does the following, and is safe to run again:
+
+- installs mdformat if it is missing, and sets this repo's hooks folder to
+  `.githooks`
+- runs `generate.py` and links `claude/CLAUDE.md` into `~/.claude/CLAUDE.md` and
+  `codex/AGENTS.md` into `~/.codex/AGENTS.md`
+- links `claude/settings.json` into `~/.claude/` and `codex/config.toml` into
+  `~/.codex/`
+  - It first moves an existing `~/.codex/config.toml` that is not a link aside.
+- links each skill folder of `claude/skills/` into `~/.claude/skills/` and of
+  `codex/skills/` into `~/.codex/skills/`
+- links every file of `rules/` into `~/.claude/rules/`, and this repo into
+  `~/.codex/agent-instructions`
+- links each project's files, as the next section describes
+- builds `builds` from the committed HEAD and runs `builds install`
+
+It always links the main checkout, whichever worktree runs it.
 
 ## Per-project setup
 
-A project gets two things, both auto-linked by `install.sh` (projects whose
-target dir doesn't exist on this machine are skipped):
+`install.sh` links two things for each project whose folder (`~/dev/<name>`)
+exists on this machine, and skips the rest:
 
-- `projects/<name>.md` → `~/dev/<name>/CLAUDE.md` and `~/dev/<name>/AGENTS.md` —
-  the always-on project facts.
-- `projects/<name>-rules/*.md` → `~/dev/<name>/.claude/rules/` — path-scoped
-  project rules. Same frontmatter as user-level `rules/` (`digest` / `paths` /
-  `blocking` / optional `review`); Claude Code loads each body when a matching
-  file is read, exactly like the user-level rules. They apply alongside `rules/`
-  during authoring and manual review.
+- `projects/<name>.md` → `~/dev/<name>/CLAUDE.md` and `~/dev/<name>/AGENTS.md`
+- `projects/<name>-rules/*.md` → `.claude/rules/` in `~/dev/<name>` and in each
+  of its worktrees
+  - A project's own post-checkout hook links them into a worktree it creates.
+  - Claude Code loads these rules the same way as the ones in `rules/`, and
+    `builds review` reviews against them too.
 
-Gitignore both `CLAUDE.md`/`AGENTS.md` and `.claude/rules/` in the target
-project so cloners don't inherit the machine-local symlinks.
+Gitignore `CLAUDE.md`, `AGENTS.md` and `.claude/rules/` in the project, because
+they are links to this machine's files.
 
-## Codex Rule Loading
+## Rules in Codex
 
-Codex reads `AGENTS.md`, but it does not have Claude Code's native path-scoped
-rule loading. The generated `codex/AGENTS.md` carries the rule index and tells
-Codex to list matching full rule bodies before editing files:
+Codex reads `AGENTS.md` but doesn't load rules by path. The generated
+`codex/AGENTS.md` holds the rule index and tells Codex to list the matching rule
+files before it edits:
 
 ```bash
 python3 ~/.codex/agent-instructions/scripts/rules_review/matching_rules.py \
   --project <project> <repo-relative-path>...
 ```
 
-The script prints the full rule files whose frontmatter `paths` match the target
-paths, including project rules under `projects/<project>-rules/`. Codex must
-read those files before editing and apply them during its manual review. Listing
-and reading rules does not launch reviewers or require model calls.
+The script prints the rule files whose `paths` match, including the project's
+rules in `projects/<project>-rules/`. Codex reads each of them before it edits.
 
 ## Code review
 
-After it pushes, `builds land` starts a review of the landed commits in the
-background and returns without waiting for it. The review never blocks or fails
-a landing: it records each call's input, output, model and tokens in the
-project's store, and writes its findings to a log in the store's `review-logs`
-folder. `review/groups.toml` puts every rule in one group; a group runs when one
-of its rules covers a changed path, and its reviewer answers with a verdict for
-every rule in the group. `builds review <worktree>` runs the same review early
-and exits 1 on a standing blocking finding; `builds help` describes the review
-commands. The agent holding the implementation context still reviews its own
-diff once before it reports.
-
-`scripts/rules_review/matching_rules.py` lists the rule bodies to read while
-writing code. It runs no review.
+`builds land` reviews every landing against the rules, with one reviewer per
+group of rules in `rules/groups.toml`. The `code-rules-review` skill says how to
+run a review early and settle its findings, and `builds help` describes each
+review command.

@@ -58,10 +58,14 @@ PLAN, BRIEF, EXECUTE, REVIEW
     checks. A brief leaves the executor no design decision, but doesn't name
     each file and line: the executor reads the code. `builds help briefs` is
     the instructions for a planner agent that writes briefs.
-  - Execute: every dispatched agent runs a faster, cheaper model. An agent
-    runs the strongest model only for a software plan too large for the
-    coordinator to hold; its brief says what the coordinator read and what
-    stays unknown, and it writes a plan for the faster model to execute.
+  - Execute: an agent that carries out a brief or a plan the strongest model
+    settled runs a faster, cheaper model. Name that model on every such
+    dispatch: an agent dispatched without a model runs the strongest one.
+  - Judgment work (a software plan, an edit of documents, a survey, a review)
+    runs the strongest model. A software plan too large for the coordinator
+    to hold goes to such an agent; its brief says what the coordinator read
+    and what stays unknown, and it writes a plan for the faster model to
+    execute.
   - Review: the coordinator reads each commit's diff against its brief and
     the rules before landing it, and sends each finding back to the agent
     that made it. `builds land` also reviews each landing in the background,

@@ -1,5 +1,5 @@
 ---
-digest: Never swallow/default around an error (unwrap_or, .ok(), try?, ??, silent continue/return); surface it, log legit skips. Redundant "belt-and-suspenders"/"just in case" backups mask the primary's failure — keep one mechanism, fail loud.
+digest: Never swallow or default around an error (unwrap_or, .ok(), let _ =, try?, ??, a silent continue or return); surface it, and log a skip that is correct. Keep one mechanism for each guarantee, with no "just in case" backup. Never pass 0, nil, "" or an empty collection because it type-checks; trace the real value, or make the parameter optional.
 paths:
   - '**/*.rs'
   - '**/*.swift'
@@ -9,85 +9,90 @@ paths:
 blocking: true
 ---
 
-**Never mask errors with defaults.**
+## Never mask errors with defaults
 
-No `unwrap_or_else(|| "default")`, no `?? <default>`, no `try?` when the error
-matters, no `.ok()` dropping a Result, no `let _ = …` swallowing one, and no
-silent control-flow skip — `continue`, `break`, early `return`, `return None`,
-or `let Some(x) = … else { continue; };` style guards — when the guarded
-condition is exceptional on the main path. Covers every language idiom that
-swallows or defaults around an error: Rust `unwrap_or` / `.ok()` / `let _ = …`,
-Swift `try?` / `??`, and equivalents. No carve-outs for read-only display
-defaults or "semantically correct nil" — empty IS the value in question, and
-silencing it is the masking (seeding *editable* form inputs is the one
-exception, below). If data should be present, its absence is a bug — surface it
-with `expect()`, `Result`, or make the types prevent it. Masking is bad on every
-axis: it hides broken assumptions and creates silent failures downstream; it
-impedes structure discovery by erasing the failure cases that are part of the
-system's real shape (when *can* this fail? what does it mean when it does? what
-should the type encode?); and it lies about correctness — code that "works"
-because errors are silenced isn't working, just quiet.
+A value that should be present and isn't is a bug. Surface it with `expect()` or
+a `Result`, or make the types rule the absence out. Code that works only because
+its errors are silenced is not working: the silence hides the broken assumption,
+moves the failure far from its cause, and erases the failure cases the types
+should model.
 
-The *only* escape hatch — when a silent skip is genuinely correct behavior (the
-value really is optional, the case really should be skipped) — is to log the
-bail-out at the skip point: `warn!` if it's rare/abnormal, `debug!` if it's
-common-but-noteworthy. This applies equally to expression-level swallowers
-(`unwrap_or`, `.ok()`) and control-flow skips (`continue`, `break`, early
-`return`, guard-`else`). Include the input that triggered it; "skipping CUE path
-with no UTF-8 stem: {:?}" is actionable, "skipping" alone is useless. This is
-the only exception. If you don't want to log, you don't have a legitimate skip —
-you have a masked error. (Pure functional Option-returning helpers don't count
-as bail-outs; this covers exceptional skips on the main path.)
+### Swallowed errors
 
-**Phrasing tells — "belt and suspenders" and friends.** When you catch yourself
-describing a mechanism as "belt and suspenders," "just in case," "as a backup,"
-"a safety net," "to be safe," "defensive default," or "fall back to," you are
-proposing a *redundant fallback* — a second path kept alongside the
-authoritative one to cover it if it fails. That is masking by another name: if
-the primary silently breaks, the backup quietly covers for it and you never
-learn the primary broke, so the bug lives forever behind a green build. Keep one
-correct mechanism and let it fail loud; delete the backup (or, if the "primary"
-genuinely can't be trusted, fix *that* — don't paper over it). These phrases are
-flags everywhere they appear: code, comments, commit messages, and conversation.
-Wanting two mechanisms for one guarantee is the smell; the right number is one
-that works.
+Never swallow or default around an error that matters, in any language:
 
-Do not confuse this with a *default*. A default **follows** the primary
-mechanism: it supplies a value for the legitimate, designed-for "caller didn't
-specify one" case (`create_library_default()` below), and the absence it fills
-is a valid input you planned for, not a failure. A masking fallback **shadows**
-the primary: it fires when the primary *unexpectedly breaks* and silently covers
-the surprise. The default handles a case you designed for; the fallback hides a
-case you didn't. The test is what activates the secondary path — an expected
-absence (a default, fine) or the primary failing (masking, banned).
+- Expressions that drop or replace an error:
+  - Rust: `unwrap_or`, `unwrap_or_else(|| "default")`, `.ok()` on a `Result`,
+    `let _ = …`.
+  - Swift: `try?`, `?? <default>`.
+- Control flow that skips a case that is exceptional on the main path:
+  - `continue`, `break`, an early `return` or `return None`.
+  - A guard such as `let Some(x) = … else { continue; };`.
+  - A pure helper that returns `Option` is not a skip.
 
-**Editable form-state seeding is exempt.** Converting an optional domain field
-into the string state of an *editable* text input — Swift
-`opt.map(String.init) ?? ""` / `opt ?? ""`, Rust `opt.unwrap_or_default()` /
-`opt.map(|v| v.to_string()).unwrap_or_default()` rendering a wire field back to
-raw editor text — when populating a form the user will edit is not masking. The
-empty string is the input's representation of "no value", and it round-trips:
-shaping/validating the form on save maps empty back to `None`/absent (the
-inverse of the trim-empty-to-`None` shaping). The absence isn't a swallowed
-error — it's a blank the user can fill. This is narrow to *writable* inputs:
-rendering `?? "Unknown"` into read-only display to hide a missing value is still
-masking.
+Read-only display gets no exception: `?? "Unknown"` on a label hides a missing
+value like any other default.
 
-API design follows: when a function would take `Option<T>` just to `unwrap_or`
-internally, split into two — one that requires the value, a `_default()` wrapper
-that generates the default and calls the first. The default stays explicit at
-the boundary, not buried inside.
+When a skip is correct (the value really is optional, or the case really should
+be skipped), log it at the skip point:
+
+- Use `warn!` when the skip is rare or abnormal, and `debug!` when it is common.
+- Include the input that caused it: "skipping CUE path with no UTF-8 stem:
+  {:?}", not "skipping".
+- A skip you don't want to log is a masked error.
+
+### Editable form fields
+
+Seeding an editable text field from an optional value is not masking (Swift
+`opt ?? ""`, Rust `opt.unwrap_or_default()`). The empty string is how the field
+shows "no value", and saving the form maps empty back to `None`. This holds only
+for fields the user can edit.
+
+### Backup mechanisms
+
+A second mechanism kept beside the main one, in case the main one fails, masks
+errors too: when the main one breaks, the backup covers for it and nobody
+learns. Keep one mechanism, let it fail loudly, and delete the backup; when the
+main one can't be trusted, fix it. These words propose a backup, in code,
+comments, commit messages and chat: "belt and suspenders", "just in case", "as a
+backup", "a safety net", "to be safe", "defensive default", "fall back to".
+
+A default is different: it supplies a value for a case you designed for, such as
+a caller who didn't give one. Ask what makes the second path run. An absence you
+planned for is a default and is allowed; the main path failing is masking and is
+banned.
+
+### Defaults at the boundary
+
+When a function would take `Option<T>` only to `unwrap_or` inside, split it in
+two: one function requires the value, and a `_default()` wrapper makes the
+default and calls the first.
 
 ```rust
-// Bad — Option<String> exists so internal unwrap_or can fire
+// Bad: the Option exists so an internal unwrap_or can fire
 pub fn create_library(name: Option<String>) -> Result<Config> {
     let name = name.unwrap_or_else(generate_library_name);
     ...
 }
 
-// Good — required param, separate default wrapper
+// Good: a required parameter, and a separate default wrapper
 pub fn create_library(name: String) -> Result<Config> { ... }
 pub fn create_library_default() -> Result<Config> {
     create_library(generate_library_name())
 }
 ```
+
+### Arguments you don't know
+
+Never pass `0`, `nil`, `None` or `""` for a parameter because it type-checks.
+Trace the real value to its source. A wrong zero breaks something later: a
+`samples_to_skip: 0` looks harmless and replays seconds of audio.
+
+Empty collections are the same. `Vec::new()`, `Default::default()`, `[]` or `{}`
+passed for data you don't have claims "there were none", which is a different
+claim from "not captured here". When a field applies to some constructors and
+not to others, make it `Option<Collection>`: `None` when the source didn't
+capture it, `Some(empty)` only when the source saw none.
+
+A parameter that really is optional is `Option` in the signature. A test may
+pass defaults for parameters it doesn't exercise.

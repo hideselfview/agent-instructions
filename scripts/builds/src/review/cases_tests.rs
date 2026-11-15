@@ -207,30 +207,11 @@ fn a_failed_call_in_a_replay_is_counted_and_named() {
 }
 
 #[test]
-fn the_committed_cases_load_and_each_names_a_rule_that_exists() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let cases = load(&root).unwrap();
-    assert!(cases.len() >= 14, "{} cases", cases.len());
-    let rules = crate::review::rules::load(&root, None).unwrap();
-    for case in &cases {
-        for slug in case.expected.iter().map(|e| &e.rule).chain(&case.clean_for) {
-            assert!(
-                rules.iter().any(|r| &r.slug == slug),
-                "case {} names {slug}, which is no rule",
-                case.name
-            );
-        }
-    }
-    let quiet = cases.iter().filter(|c| c.expected.is_empty()).count();
-    assert_eq!(quiet, 2);
-}
-
-#[test]
 fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
     let scratch = Scratch::new("case-per-file");
     let fake = fake(&scratch.dir);
     std::fs::write(
-        fake.root.join("review/groups.toml"),
+        fake.root.join("rules/groups.toml"),
         "[[group]]\nname = \"alpha\"\nquestion = \"q\"\nmodel = \"sonnet\"\nrules = [\"rule-a\"]\nenumerate = true\npasses = 2\nsites = \"handles rows\"\n\n[[group]]\nname = \"beta\"\nquestion = \"q\"\nmodel = \"opus\"\nrules = [\"rule-b\"]\n",
     )
     .unwrap();

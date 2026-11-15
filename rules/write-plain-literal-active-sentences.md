@@ -1,19 +1,7 @@
 ---
-digest: Every sentence a person reads is plain, literal and active - who does what, in the words for what it does, starting with the verb for a title or task; no figures of speech, borrowed metaphors, coinages, headline grammar or passive voice.
+digest: Every sentence a person reads is plain, literal and active - who does what, in the words for what it does, starting with the verb for a title or task; no figures of speech, borrowed metaphors, coinages, headline grammar, passive voice or marketing adjectives (public website pages that aren't docs are exempt from the last).
 paths:
-  - '**/*.md'
-  - '**/*.swift'
-  - '**/*.kt'
-  - '**/*.xml'
-  - '**/*.xcstrings'
-  - '**/*.strings'
-  - '**/*.html'
-  - '**/*.tsx'
-  - '**/*.ts'
-  - '**/*.axaml'
-  - '**/*.cs'
-  - '**/*.rs'
-  - design/**
+  - '**/*'
 blocking: true
 ---
 
@@ -35,18 +23,26 @@ signed, "fan-out"), made-up coinages ("wire-printed") and pattern names used as
 nouns ("the strategy", "the visitor"). Write what the thing does instead.
 
 **Plain.** Pick the simplest word that does the job. Spell out any abbreviation
-the reader hasn't met. A word that needs a parenthetical to explain it should be
-replaced by the parenthetical.
+the reader hasn't met. When a word needs a parenthetical to explain it, use the
+parenthetical instead of the word.
 
 **Whole sentences.** Keep the articles and verbs. Headline grammar ("Dashboard
 reads like its new board", "Key wait names devices holding it") saves a word and
-costs the reader the meaning.
+loses the meaning.
 
 **Name the subject; don't open with "It".** A sentence that starts with "It"
 pointing back at the last one ("This Mac is offline. It holds your changes…")
-reads as machine-written. Name the thing, or start from what the reader cares
+looks machine-written. Name the thing, or start from what the reader cares
 about: "This Mac is offline. Your changes stay here until it reconnects." The
 same goes for "This" and "That" standing alone as a subject.
+
+**No marketing language.** Don't praise what you describe: no "improves user
+experience", "seamless", "powerful", "elegant", "robust", "intuitive" or
+"delightful". Say what it does.
+
+- Public website pages that aren't docs are exempt: landing, pricing, feature
+  and download pages, and their translations.
+- Docs pages are covered, even when they are part of the website.
 
 Examples:
 
@@ -61,9 +57,3 @@ Examples:
 Before you send or commit text, read each sentence and ask: who does what, and
 would someone who doesn't know the code understand it the first time? If not,
 rewrite it.
-
-Example (2026-11-13): an item titled "Dashboard reads like its new board" left
-the person asking "what does this mean"; "Rebuild the dashboard to match its
-board" was "so much simpler to understand". The person: "the most important
-thing about how you output human language, both to me and in strings: plain,
-non-figurative language. active not passive."

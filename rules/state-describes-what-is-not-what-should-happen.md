@@ -1,46 +1,42 @@
 ---
-digest: State is what the UI is; one-shot commands use pub/sub, not an observable flag + observe + reset; an A to B imperative push uses pub/sub (B subscribes), not ref-registration through containers.
+digest: In any UI framework, observable state says what the UI is; a one-shot command (scroll, flash, focus, play once) travels on a stream the receiver subscribes to, not a flag that is set, observed and reset; and a component that pushes commands to another publishes to a stream the other subscribes to, rather than registering references through containers.
 paths:
   - '**/*.swift'
+  - '**/*.kt'
+  - '**/*.cs'
   - '**/*.tsx'
-  - '**/*.jsx'
-  - bae-web/**/*.rs
 blocking: false
 ---
 
 ## State describes what is, not what should happen
 
-Don't use observable state fields as imperative command triggers. The "set a
-flag, observe via `.task(id:)`/`onChange`, reset the flag" pattern conflates two
-concepts: state is what the UI *is*; commands are what should *happen once*.
-Packing a one-shot command into an observable field leaks it through every
-reader, requires edge-triggered guards, and creates subtle bugs (equal-value
-sets don't re-fire).
+This rule holds in every UI framework. Observable state says what the UI is; a
+command says what should happen once. Don't use an observable field to trigger a
+command: setting a flag, reacting to its change, then resetting it. A command
+stored as state reaches every reader of the state, needs guards that fire only
+on a change, and fails when the same value is set twice, because nothing
+changed.
 
-For ephemeral commands (scroll, flash, focus, play-this-once), use pub/sub:
+- SwiftUI: a flag observed with `.task(id:)` or `.onChange`.
+- Compose: a flag used as the key of a `LaunchedEffect`.
 
-- **SwiftUI**: `PassthroughSubject` / `AsyncStream` — sender publishes, receiver
-  subscribes via `.onReceive`.
-- **React**: event emitter or imperative ref method.
-- **Dioxus**: channel or explicit signal dispatch.
+Send one-shot commands (scroll, flash, focus, play once) on a stream instead:
+the sender publishes, and the receiver subscribes.
 
-Diagnostic: if you find yourself writing `uiState.xyz = value` followed by a
-reader that resets `uiState.xyz = nil` after handling, the design is wrong —
-replace with a subject.
+- SwiftUI: a `PassthroughSubject` received with `.onReceive`, or an
+  `AsyncStream` read in `.task`.
+- Compose: a `Channel` or `MutableSharedFlow` collected in a `LaunchedEffect`.
 
-## Pub/sub over ref-registration
+When you write `uiStore.xyz = value`, and the reader sets `uiStore.xyz = nil`
+after handling it, replace the field with a stream.
 
-When component A needs to push imperative updates to component B, bypassing the
-normal reactive flow, prefer pub/sub: B subscribes to a stream A publishes to.
-Avoid ref-registration, where intermediate containers collect refs to B and the
-parent calls methods on them.
+### Streams, not registered references
 
-Registration forces every layer in the hierarchy to know B's type and wire the
-connection, leaking B through containers that shouldn't care about it. Pub/sub
-lets B self-wire at construction: no registration step, no leaked types, no
-coupling through the tree. The framework instances are the same as above
-(`PassthroughSubject` / `AsyncStream`, an event emitter or context with a
-callback registry, a channel or a signal B watches).
+When component A pushes commands to component B outside the normal flow of
+state, B subscribes to a stream A publishes to. Don't have the containers
+between them collect references to B for A to call. Registration makes every
+layer between them know B's type and wire the connection; with a stream, B
+subscribes itself when it is created, and no layer in between knows about it.
 
-Fall back to registration only when the update requires calling multiple methods
-on a stateful object that can't be captured in a single message.
+Register a reference only when one update has to call several methods on a
+stateful object, and no single message can carry it.

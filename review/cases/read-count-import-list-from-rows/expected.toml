@@ -1,6 +1,0 @@
-project = "bae"
-clean_for = []
-
-[[finding]]
-rule = "reactive-screens-read-plain-live-queries"
-file = "BaeKit/Sources/BaeKit/Services/PaginatedList.swift"

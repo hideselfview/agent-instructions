@@ -89,12 +89,8 @@ fn the_shuffle_is_the_same_for_a_seed_and_holds_every_rule_once() {
         .map(|n| Rule::parse(&format!("r{n}"), "---\npaths: ['**']\n---\nb\n"))
         .collect();
     let refs: Vec<&Rule> = rules.iter().collect();
-    let groups = Groups::parse(
-        "[[group]]\nname = \"g\"\nquestion = \"q\"\nmodel = \"sonnet\"\nrules = [\"r0\"]\n",
-    )
-    .unwrap();
-    let a = shuffled_groups(&groups, &refs, 3, &mut Rng(42));
-    let b = shuffled_groups(&groups, &refs, 3, &mut Rng(42));
+    let a = shuffled_groups(&refs, 3, &mut Rng(42));
+    let b = shuffled_groups(&refs, 3, &mut Rng(42));
     assert_eq!(a, b);
     assert_eq!(a.len(), 3);
     let mut all: Vec<String> = a.iter().flat_map(|g| g.rules.clone()).collect();

@@ -4,4 +4,4 @@
 while authoring a change. It runs no review.
 
 `builds review` reviews a change against the rules. Its groups of rules are in
-`review/groups.toml`, and `builds land` records a review of every landing.
+`rules/groups.toml`, and `builds land` records a review of every landing.

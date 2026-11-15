@@ -1,5 +1,5 @@
 ---
-digest: Every .swift filename must reference a type inside it — primary type, extension target, or caseless-enum namespace.
+digest: Every .swift file's name names something in the file - its primary type, the type it extends, or a caseless enum used as a namespace.
 paths:
   - '**/*.swift'
 blocking: false
@@ -7,31 +7,19 @@ blocking: false
 
 ## Filename matches a real type inside
 
-Every `.swift` file's name must reference something that exists in the file — a
-primary type, an extension target, or a caseless-enum namespace. Filenames that
-don't correspond to anything inside read as "where's the type?" and tend to
-attract unrelated dumping over time.
+Every `.swift` file's name names something the file contains. A name that
+matches nothing inside leaves the reader looking for the type, and the file
+collects unrelated code over time. Three shapes are allowed:
 
-Acceptable shapes:
+1. **One primary type.** `LightboxView.swift` contains `struct LightboxView`.
+   - Types tied to the primary one, such as the data it takes or its sub-views,
+     may share the file.
+2. **An extension of one type.** `BridgeArtistSortField+CaseIterable.swift`
+   extends `BridgeArtistSortField`, in Apple's `<Type>+<Aspect>.swift` form.
+3. **A caseless enum used as a namespace.** `ImageLoader.swift` contains
+   `enum ImageLoader { static func … }`.
+   - Use it to group free functions or related types under one name: the public
+     API inside the enum, private helpers at file scope.
 
-1. **Single primary type** — `LightboxOverlay.swift` contains
-   `struct LightboxOverlay`. Tightly-coupled secondary types (data types the
-   primary consumes, sub-views) can coexist.
-2. **Extension target** — `BridgeSortField+CaseIterable.swift` contains an
-   extension on `BridgeSortField`. Apple's `<Type>+<Aspect>.swift` convention.
-3. **Caseless-enum namespace** — `ImageLoader.swift` contains
-   `enum ImageLoader { static func load... }`. Use this when grouping free
-   functions or related types under a topic — public API inside the enum,
-   private helpers at file scope.
-
-When you find a violation:
-
-- Single primary type with mismatched filename → rename file to match.
-- Multiple unrelated types under a topic name → split into per-type files.
-- Free functions in a topic-named file → wrap public API in
-  `enum Topic { static func ... }`.
-- Junk-drawer extensions file → split into per-type extension files.
-
-This matters less in tests. A test file may group several `*Tests` suites for
-one area under a topic name (e.g. `LibraryStoreTests.swift`); the rule targets
-production junk-drawer dumping, not test organization.
+Tests may group by area: a test file may hold several `*Tests` suites under the
+area's name.

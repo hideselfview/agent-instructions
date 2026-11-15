@@ -1,29 +1,26 @@
 ---
-digest: Reducers derive output purely from the event payload; widen the payload, don't dereference other slices.
+digest: In any UI framework, a reducer computes what it writes from the event alone; widen the event's payload instead of looking up other parts of the state.
 paths:
   - '**/*.swift'
+  - '**/*.kt'
+  - '**/*.cs'
   - '**/*.tsx'
-  - '**/*.jsx'
-  - bae-web/**/*.rs
 blocking: false
 ---
 
 ## Reducers must not read state to write state
 
-Event handlers that mutate state must derive their output purely from the event
-payload. If a reducer reaches into other state slices (`summaries[albumId]`) to
-compute what it writes (`storageSummaries[releaseId]`), the store becomes
-ordering-dependent — whichever slice populated first wins — and forces fallback
-defaults on cache miss.
+A reducer, the handler that writes an event into the store, computes what it
+writes from the event alone, in any UI framework. A reducer that looks up
+another part of the state (`summaries[albumId]`) to compute what it writes
+(`storageSummaries[releaseId]`) makes the store depend on order, so whichever
+part filled first wins, and it needs a default for when the lookup misses.
 
-Fix: widen the event payload so the reducer is a pure function of the event.
-Events can carry foreign-key ids, but must not require the reducer to
-dereference them against other slices. On the producer side (emitter, bridge,
-backend), this may mean joining data before emitting so the event payload
-mirrors what every reducer consumer needs — not the raw DB row.
+Widen the event's payload instead, so the reducer is a function of the event
+alone. An event may carry the ids of other records, but the reducer must not
+need to look them up. The producer (the emitter, the bridge, the backend) may
+have to join data before it emits, so the payload holds what every reducer needs
+rather than the raw database row.
 
-Scope: this is about *reducers* — handlers that write to the store. A UI action
-that reads the value it's rendering to compute a command's argument
-(`set(!shuffled)`) is not a reducer and not a violation — that's the preferred
-absolute-`set` shape (`rules/set-state-don-t-toggle.md`), not a store write
-dereferencing another slice.
+A UI action that reads the value it shows to compute a command's argument
+(`set(!shuffled)`) is not a reducer, and is allowed (`set-state-don-t-toggle`).

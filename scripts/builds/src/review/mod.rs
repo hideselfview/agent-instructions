@@ -1,5 +1,5 @@
 //! `builds review`: reviews a change against the rules of agent-instructions,
-//! one reviewer per group of rules (`review/groups.toml`), and records every
+//! one reviewer per group of rules (`rules/groups.toml`), and records every
 //! review in the project's store.
 //!
 //! ```text

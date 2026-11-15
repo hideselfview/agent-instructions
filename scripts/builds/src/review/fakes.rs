@@ -28,7 +28,7 @@ rules = ["rule-b"]
 pub fn fake(scratch: &Path) -> Fake {
     let root = scratch.join("instructions");
     let dir = scratch.join("reviewer");
-    for sub in ["rules", "review", "projects", "principles"] {
+    for sub in ["rules", "projects"] {
         std::fs::create_dir_all(root.join(sub)).unwrap();
     }
     std::fs::create_dir_all(dir.join("calls")).unwrap();
@@ -51,7 +51,7 @@ pub fn fake(scratch: &Path) -> Fake {
         false,
         "**Rule B.** Never do the other thing.",
     );
-    std::fs::write(root.join("review/groups.toml"), GROUPS).unwrap();
+    std::fs::write(root.join("rules/groups.toml"), GROUPS).unwrap();
     std::fs::write(root.join("projects/demo.md"), "Demo project facts.\n").unwrap();
     let program = dir.join("claude");
     let script = format!(

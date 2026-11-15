@@ -1,4 +1,4 @@
-//! `review/groups.toml` of agent-instructions: the groups of rules that each
+//! `rules/groups.toml` of agent-instructions: the groups of rules that each
 //! get one reviewer. Every rule is in exactly one group.
 
 use std::collections::BTreeMap;
@@ -11,7 +11,7 @@ use crate::fail::{Context, Result};
 use crate::review::rules::Rule;
 
 /// Where the file sits in a checkout.
-pub const FILE: &str = "review/groups.toml";
+pub const FILE: &str = "rules/groups.toml";
 
 fn one() -> usize {
     1
@@ -26,9 +26,6 @@ pub struct Group {
     pub model: String,
     /// Rule slugs.
     pub rules: Vec<String>,
-    /// Files under `principles/`, without `.md`.
-    #[serde(default)]
-    pub principles: Vec<String>,
     /// Extra words for the reviewer.
     #[serde(default)]
     pub instructions: Option<String>,

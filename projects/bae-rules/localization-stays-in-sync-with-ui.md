@@ -1,58 +1,49 @@
 ---
-digest: A change that adds, removes, or rewords user-facing text must update the string catalogs (key + translations) in the same change.
+digest: A change that adds, removes or rewords user-facing text updates the string catalogs (key and every locale's translation) in the same change. The locale never crosses the bridge.
 paths:
   - bae-macos/**/*.swift
   - bae-ios/**/*.swift
+  - BaeKit/**/*.swift
   - bae-android/**/*.kt
   - bae-bridge/src/**/*.rs
   - bae-bridge/loc/catalog.toml
+  - '**/*.xcstrings'
+  - bae-android/**/strings.xml
 blocking: false
 ---
 
 ## Localization stays in sync with the UI
 
-**Localization is never "out of scope."** Catalog work is part of the change
-that adds, removes, or rewords user-facing text — never a follow-up PR, never a
-"translation TODO" punted to later, never triaged away as "not this change's
-concern," never deferred because the build is otherwise green. A reviewer or
-agent who finds a UI-text change without its matching catalog update must treat
-that as an **incomplete change**, not a deferrable nicety. There is no "merge
-now, localize later." When a localization rule finding is raised, the only
-acceptable dispositions are *fix it* or *it was already correct* — never *defer
-it*.
+bae ships the locales in bae-loc's `TARGET_LOCALES` (`loc-gen locales` prints
+them), and every user-facing string is in a catalog, never inline in the code. A
+change that adds, removes or rewords user-facing text updates the catalogs in
+the same change. A change without its catalog update is incomplete, and a
+finding about it is fixed, never deferred.
 
-bae ships the locale set declared in `bae-loc`'s `TARGET_LOCALES`
-(`loc-gen locales` prints it); every user-facing string lives in a catalog, not
-inline in the code. A change that touches user-facing text must update the
-strings in the **same** change — otherwise the new text is English-only, the
-stale text misleads translators, and dead keys accumulate. Three cases, each
-with an obligation:
+The locale never crosses the bridge. bae-bridge sends the apps raw data
+(numbers, typed enums and stable message keys), never prose or text formatted
+for a locale. Each app formats numbers, byte counts, durations and dates with
+its platform's locale formatters, and resolves each message key through its
+string catalogs.
 
-- **Added text** — a new `Text(...)` / label / menu item / alert, or a new
-  `core.*` message produced in bae-bridge — adds its catalog key. A `core.*` key
-  goes in `bae-bridge/loc/catalog.toml` (plus the `bridge_*_key` producer if it
-  is enum-mapped — the `loc_key_coverage` test fails otherwise); UI chrome goes
-  in that platform's catalog (`Localizable.xcstrings` / `strings.xml`).
-  Translate every supported locale in the same change. Every non-source locale
-  must contain a real translation in that locale. Do not copy the English source
-  into non-English locale slots, do not write placeholder text, do not leave
-  TODO/fuzzy/untranslated/new states, do not mark locales as `new`, and do not
-  rely on any catalog facility that queues translation for later. The code
-  author and reviewer are state-of-the-art language models that can translate
-  any language effortlessly; any placeholder or non-translation is incomplete
-  work.
+Each kind of change has its own catalog work:
 
-- **Removed text** — deleting a screen, button, or message deletes its key
-  across the catalog and every locale slot in `TARGET_LOCALES`. A key no code
-  references is dead (see `yagni`); leave none behind — `no_orphan_core_keys`
-  catches `core.*` orphans, Android `UnusedResources` catches chrome orphans.
-
-- **Reworded text** — changing the English source updates the string **and**
-  re-flags its locale slots for re-translation. A changed source with stale
-  translations is worse than an untranslated one: it ships a confident
-  mistranslation.
-
-Applies to the macOS, iOS, and Android UIs and to bae-bridge message producers.
-The locale never crosses the bridge (see
-`ui-iterates-and-renders-nothing-more`); this rule keeps the catalogs the bridge
-keys into complete and current.
+- **Added text** adds its catalog key.
+  - Added text is a new `Text(...)`, label, menu item or alert, or a new
+    `core.*` message that bae-bridge produces.
+  - A `core.*` key goes in `bae-bridge/loc/catalog.toml`. When an enum maps to
+    it, its `bridge_*_key` producer maps it too, or the `loc_key_coverage` test
+    fails.
+  - UI text goes in the catalog of the module that shows it: an `.xcstrings`
+    file on macOS (the app's or a BaeKit module's), `strings.xml` on Android.
+  - Translate it into every locale in the same change. Never copy the English
+    into another locale, write placeholder text, or leave a string marked new,
+    untranslated or fuzzy for later.
+- **Removed text** removes its key from the catalog and every locale.
+  - A key no code uses is dead (`rules/write-only-what-is-needed-today.md`).
+  - `no_orphan_core_keys` catches an orphaned `core.*` key, and the hook's
+    `loc-orphans` check (`scripts/loc-chrome-orphans.py`) catches an orphaned
+    key in a macOS or Android catalog.
+- **Reworded text** changes the English and retranslates every locale.
+  - A changed English string with old translations is worse than an untranslated
+    one: the app shows a wrong translation with no sign that it is wrong.

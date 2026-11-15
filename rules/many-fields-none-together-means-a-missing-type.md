@@ -1,5 +1,5 @@
 ---
-digest: Several fields nilled in one conditional block = a missing type; extract a sub-struct or enum variant.
+digest: Several fields set to None together in one branch mean a missing type; extract a sub-struct or an enum variant, and put a variant's data in the variant. In Rust, no `Default` or `#[default]` on an enum.
 paths:
   - '**/*.rs'
   - '**/*.swift'
@@ -9,18 +9,16 @@ paths:
 blocking: true
 ---
 
-**Many fields → `None` together means a missing type.**
+## Many fields set to None together mean a missing type
 
-When you see code that sets several fields of a struct to `None`/`nil` in the
-same conditional block, the type is hiding a missing variant. The fields that
-flip together belong in their own type — extract a sub-struct, or model the
-distinction as an enum variant on a parent type. Per-field `Option` should mean
-"this field is individually optional in the domain." Using per-field `Option`s
-to express "this whole subset is absent" overloads the type and forces every
-consumer to know the implicit discriminator.
+A per-field `Option` means that field is optional on its own in the domain. When
+code sets several fields to `None` or `nil` in one branch, those fields are
+absent together, and the type is missing the variant that says so. Every reader
+then has to know the hidden condition. Move the fields that change together into
+their own type: a sub-struct, or a variant of an enum on the parent.
 
 ```rust
-// Bad — the "every pressing field nilled" block reveals a missing type.
+// Bad: the block that clears every pressing field shows a missing type
 let mut edit = ReleaseUserEdit {
     year: detail.year,
     format: detail.format,
@@ -37,7 +35,7 @@ if matches!(choice, Approximate | Unknown) {
     edit.barcode = None;
 }
 
-// Good — name the cluster.
+// Good: name the group
 struct PressingEdit { year, format, label, country, barcode, .. }
 impl PressingEdit { fn blank() -> Self { ... } }
 
@@ -48,6 +46,16 @@ let pressing = match choice {
 let edit = ReleaseUserEdit { album_title, pressing, tracks };
 ```
 
-Naming the discriminator structurally (sub-struct, enum variant) makes the
-absence visible at the type level instead of buried in per-consumer
-conditionals.
+The same holds for an enum with a field beside it that only one variant uses:
+put the data in the variant.
+
+```rust
+// Bad
+enum Mode { Created, Loading, Ready }
+struct State { mode: Mode, loading_id: Option<String> }
+
+// Good
+enum Mode { Created, Loading(String), Ready }
+```
+
+In Rust, don't derive `Default` on an enum or mark a variant `#[default]`.

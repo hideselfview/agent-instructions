@@ -11,15 +11,15 @@ blocking: true
 
 ## Build each screen to match its board
 
-The design session draws each screen as a board, and the apps are built to match
-it. Where a board and an app differ, the app changes. Never copy a board's
-words, sizes, names (accessible names included), punctuation or layout from the
-app, its strings, its shots or a test's sample data, not even to make a shot
-check pass or two platforms agree: put the difference on the app's work queue. A
-board changes only when the person decides it or when it breaks a written rule
-(the words check, the design system), and the commit says which. Where a board
-leaves something out (a placeholder, a control with no name), draw what the
-design calls for and say so.
+The design session draws each screen as a board, and each app builds the screen
+to match it. Where a board and an app differ, the app changes. Never copy a
+board's words, sizes, names (accessible names included), punctuation or layout
+from the app, its strings, its shots or a test's sample data, not even to make a
+shot check pass or two platforms agree: put the difference on the app's work
+queue. A board changes only when the person decides it or when it breaks a
+written rule (the words check, the design system), and the commit says which.
+Where a board leaves something out (a placeholder, a control with no name), draw
+what the design calls for and say so.
 
 ### Laying out a screen
 
@@ -71,8 +71,8 @@ lists by name every change to the existing layout, so the implementer doesn't
 keep what the board replaced. The implementer and the reviewer open the board's
 file before the plan's prose, and build and check against the markup.
 
-The code's picture of a board is a shot, so don't add IDE previews (`#Preview`,
-Compose `@Preview`). There are two kinds of shot:
+A shot draws the code's version of a board, so don't add IDE previews
+(`#Preview`, Compose `@Preview`). There are two kinds of shot:
 
 - A component shot draws a design-system component in each state its preview
   shows.
@@ -99,11 +99,11 @@ Every name follows from a component, a preview state or a board. The view that
 reads app state for a component is `<Component>Container`
 (`MacNowPlayingBarContainer`), nested just above the component, because a view
 that reads a piece of state redraws when it changes
-(`rules/read-at-the-leaf-not-the-parent.md`). A screen's view reads only what no
-container below it reads. Pass a value down only when it rarely changes; in
-Compose, pass a lambda (`{ position }`) so the read happens where the value is
-used. The component under the container takes plain values, so its shot can draw
-it from a preview state with no app running.
+(`rules/a-component-reads-its-state-at-the-leaf.md`). A screen's view reads only
+what no container below it reads. Pass a value down only when it rarely changes;
+in Compose, pass a lambda (`{ position }`) so the read happens where the value
+is used. The component under the container takes plain values, so its shot can
+draw it from a preview state with no app running.
 
 ### Checking shots against boards
 

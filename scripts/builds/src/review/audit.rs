@@ -56,23 +56,12 @@ fn group_of<'a>(groups: &'a Groups, slug: &str) -> Option<&'a Group> {
         .find(|g| g.rules.iter().any(|r| r == slug))
 }
 
-fn synthetic(name: String, model: &str, question: &str, rules: &[&Rule], groups: &Groups) -> Group {
-    let mut principles: Vec<String> = Vec::new();
-    for rule in rules {
-        if let Some(original) = group_of(groups, &rule.slug) {
-            for p in &original.principles {
-                if !principles.contains(p) {
-                    principles.push(p.clone());
-                }
-            }
-        }
-    }
+fn synthetic(name: String, model: &str, question: &str, rules: &[&Rule]) -> Group {
     Group {
         name,
         question: question.to_string(),
         model: model.to_string(),
         rules: rules.iter().map(|r| r.slug.clone()).collect(),
-        principles,
         instructions: None,
         project_facts: false,
         enumerate: false,
@@ -90,24 +79,13 @@ pub fn per_rule_groups(groups: &Groups, matched: &[&Rule]) -> Vec<Group> {
             let (model, question) = group_of(groups, &rule.slug)
                 .map(|g| (g.model.as_str(), g.question.clone()))
                 .unwrap_or(("sonnet", String::new()));
-            synthetic(
-                format!("audit {}", rule.slug),
-                model,
-                &question,
-                &[rule],
-                groups,
-            )
+            synthetic(format!("audit {}", rule.slug), model, &question, &[rule])
         })
         .collect()
 }
 
 /// The rules in a random order, cut into groups of <size>.
-pub fn shuffled_groups(
-    groups: &Groups,
-    matched: &[&Rule],
-    size: usize,
-    rng: &mut Rng,
-) -> Vec<Group> {
+pub fn shuffled_groups(matched: &[&Rule], size: usize, rng: &mut Rng) -> Vec<Group> {
     let mut order: Vec<&Rule> = matched.to_vec();
     for i in (1..order.len()).rev() {
         let j = (rng.next() % (i as u64 + 1)) as usize;
@@ -122,7 +100,6 @@ pub fn shuffled_groups(
                 "sonnet",
                 "Does the change follow each of these rules?",
                 chunk,
-                groups,
             )
         })
         .collect()
@@ -284,7 +261,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
     let size = matched.len().div_ceil(reviewed_groups);
     let per_rule = per_rule_groups(&material.groups, &matched);
     let mut rng = Rng(inputs.seed | 1);
-    let shuffled = shuffled_groups(&material.groups, &matched, size, &mut rng);
+    let shuffled = shuffled_groups(&matched, size, &mut rng);
     let ask = |groups: &[Group]| {
         let picked: Vec<(&Group, Vec<&Rule>)> = groups
             .iter()

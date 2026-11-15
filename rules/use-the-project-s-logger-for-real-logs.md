@@ -1,5 +1,5 @@
 ---
-digest: Committed logs go through the project's structured logger, not println/print/console.log.
+digest: Committed logs go through the project's structured logger, not println, print or console.log.
 paths:
   - '**/*.rs'
   - '**/*.swift'
@@ -9,10 +9,9 @@ paths:
 blocking: false
 ---
 
-**Use the project's logger for real logs.** Any log that will live in committed
-code goes through the project's structured logger —
-`tracing::info!`/`warn!`/`error!`, the project's `Logger.<category>` helper, the
-language's standard logging crate, whatever the codebase uses. Not
-`println!`/`print`/`console.log`. Structured loggers give you levels,
-categories, filtering, persistence; stdout prints don't. Temporary investigative
-prints are fine during active debugging but must be removed before commit.
+## Use the project's logger for real logs
+
+A log in committed code goes through the project's structured logger: Rust's
+`tracing` macros (`info!`, `warn!`, `error!`), the project's `Logger.<category>`
+helper in Swift, or whatever logger the codebase uses. Never `println!`, `print`
+or `console.log`.

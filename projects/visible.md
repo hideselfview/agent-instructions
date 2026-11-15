@@ -1,46 +1,43 @@
 # visible
 
-Home inventory. Organize the physical things in your house as a browsable tree —
-your house at the root, then rooms, containers, and individual things, each with
-a photo. Rust core (`visible-core`), platform UIs via uniffi (`visible-bridge` →
-`visible-android`, `visible-ios`), local-first storage on coven (the same
-end-to-end-encrypted SQLite sync layer bae uses), sharing with co-householders
-to come.
+visible is a home inventory app. It organizes the physical things in a house as
+a tree that the person browses: the house at the root, then rooms, containers
+and single things, each with photos. It also keeps the household's task list. A
+Rust core (`visible-core`) does the work, and native apps show it through a
+uniffi bridge (`visible-bridge`). The library is stored and synced through
+coven, the end-to-end-encrypted SQLite sync layer bae also uses, and the person
+shares it with the people they live with through an invite code.
 
-Project rules are path-scoped atomic files in `projects/visible-rules/`. Claude
-Code receives them through `.claude/rules/` symlinks. Codex receives the rule
-index in `AGENTS.md`; before editing files in this project, list matching full
-rule bodies with
-`~/.codex/agent-instructions/scripts/rules_review/matching_rules.py --project visible <path>...`
-and read every listed file. This file holds the always-on project facts.
+## Crates and apps
 
-## Architecture
+- `visible-core` owns the domain: the node tree, image files and tasks.
+- `visible-bridge` translates core types to Swift and Kotlin and nothing else.
+- `visible-android` is the Android app, in Jetpack Compose.
+- `visible-ios` is the iOS app, in SwiftUI.
+- `visible-macos` is the macOS app.
+  - It compiles the iOS app's SwiftUI sources, which branch on `#if os(...)`
+    where the platforms differ (`visible-macos/visible/project.yml` lists them).
 
-Everything the user owns is a *node* in one tree: `id` (text primary key),
-`parent_id` (NULL for the root house), `name`, `position` (sibling order),
-`image_id` (NULL or a local image file), `created_at`, `_updated_at`. Children
-of a node are its contents. coven owns the SQLite connection
-(`coven::Database::open` returns the connection handle plus the `_updated_at`
-stamper), the on-disk layout (`coven::LibraryDir`), and per-library config +
-device id (`coven::config`). visible-core owns the node domain and image files;
-visible-bridge translates core types to Swift/Kotlin and nothing else.
+## Data
 
-## Greenfield — break things and move on
+Everything the person owns is a node in one tree (the `nodes` table). The house
+is the root (`parent_id` NULL), and a node's children are its contents, in
+`position` order. A node's photos are `node_images` rows and its tags
+`node_tags` rows, and `tasks` holds the household's task list. The schema is in
+`visible-core/src/node.rs` and `visible-core/src/task.rs`.
 
-Pre-1.0. `rm -rf ~/.visible` is the migration strategy. When the canonical shape
-of anything changes — DB schema, bridge types, on-disk layout — edit the
-definition and update every caller in one PR. No migration shims, no dual-shape
-compatibility flags, no `#[serde(default)]` to absorb renames, no fallback
-decoders for old data. Regenerate stale fixtures.
+coven owns the SQLite connection (`coven::Database::open` returns the database
+and the `_updated_at` stamper every write uses), the on-disk layout
+(`coven::LibraryDir`), and each library's config and device id
+(`coven::config`).
 
-## Bridge types are defined in Rust, generated per language
+## Shapes change in one commit, with no compatibility code
 
-The `Bridge*` records/enums live in `visible-bridge/src/types.rs`
-(`uniffi::Record` / `uniffi::Enum`). The Swift/Kotlin equivalents are generated
-at build and gitignored (`visible-bridge/swift-bindings/`,
-`visible-bridge/kotlin-bindings/`, the copies in the app trees) — absent from
-the repo and from review. To check a bridge type's existence/fields, read
-`visible-bridge/src/types.rs`; never conclude from the (missing) generated file.
+visible follows
+`rules/change-a-shape-in-one-commit-with-no-compatibility-code.md`. To reset a
+device's data, delete the app's data folder: Application Support on iOS and
+macOS (inside the app's sandbox container on macOS), and the app's files folder
+on Android.
 
 ## iOS and Android are at parity
 
@@ -50,8 +47,15 @@ without the other is incomplete.
 
 ## Building the bridge
 
-- Android: `./visible-bridge/build-android.sh` cross-compiles for the Android
-  NDK targets, generates the Kotlin bindings, and stages the `.so`s into
+Each script cross-compiles `visible-bridge` and generates the bindings, which
+are gitignored:
+
+- `./visible-bridge/build-android.sh` builds for the Android NDK targets,
+  generates the Kotlin bindings, and copies the `.so` files into
   `visible-android/app/src/main/jniLibs/`.
-- iOS: `./visible-bridge/build-ios.sh` cross-compiles for device + simulator,
-  generates the Swift bindings, and packages `VisibleBridgeFFI-ios.xcframework`.
+- `./visible-bridge/build-ios.sh` builds for device and simulator, generates the
+  Swift bindings, and packages `visible-ios/VisibleBridgeFFI-ios.xcframework`.
+- `./visible-bridge/build-macos.sh` builds for this Mac and copies the Swift
+  bindings into `visible-macos/visible/visible/`.
+  - `./visible-macos/run.sh` runs it, then builds the macOS app and opens it
+    (`--no-open` builds only).
