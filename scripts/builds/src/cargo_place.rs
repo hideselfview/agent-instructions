@@ -12,9 +12,13 @@
 //! prunes as a build here does.
 //!
 //! A command that must see this Mac stays here (`stays_here` says why for
-//! each). A host that does not answer when asked for its load is skipped. A
-//! host that stops answering while cargo runs ends the command with an error
-//! naming the host: nothing runs the command again here.
+//! each). A host that does not answer when asked for its load, or refuses
+//! jobs (host.rs), is skipped. A host that refuses the job itself, before
+//! cargo starts there (the send of the commit or the claim of a worktree
+//! fails there), is recorded as refusing jobs, and the command runs on this
+//! Mac. A host that stops answering while cargo runs ends the command with an
+//! error naming the host: nothing runs the command again here, since cargo
+//! may have run part of it there.
 //!
 //! `BUILDS_CARGO_HOST=<name>` picks the host for one command (`local` is this
 //! Mac), for the person's debugging; a callers' own scripts never set it.
@@ -26,7 +30,8 @@ use crate::fail;
 use crate::fail::Result;
 use crate::host::{self, Host, Ssh};
 use crate::places::Places;
-use crate::remote::{self, Request, Transport, What};
+use crate::remote::{self, Job, Request, Start, Transport, What};
+use crate::text::note;
 
 /// The environment variable naming a program to run before cargo (`Before`).
 pub const BEFORE_VARIABLE: &str = "BUILDS_CARGO_BEFORE";
@@ -361,35 +366,56 @@ fn join(why: String, more: Vec<String>) -> String {
         .join("; ")
 }
 
-/// Runs <args> on <host> in a worktree there holding <checkout>'s working
-/// tree, passing the output through, and returns cargo's exit status. A host
-/// that stops answering fails the command, naming it.
-pub fn run_on(
-    places: &Places,
-    ssh: &Ssh,
-    host: &Host,
+/// Starts the command where <choice> says. On a host, that sends
+/// <checkout>'s working tree there and claims a worktree for <args>, and the
+/// job comes back to be run (`finish`). A host that refuses the job (the send
+/// or the claim fails there) is recorded as refusing jobs (`remote::start_job`),
+/// and the command runs on this Mac instead, saying so on stderr.
+pub fn start<'a>(
+    places: &'a Places,
+    ssh: &'a Ssh,
+    choice: Choice,
     checkout: &Checkout,
     args: &[String],
     env: &dyn Fn(&str) -> Option<OsString>,
-) -> Result<i32> {
+) -> Result<(Choice, Option<Job<'a>>)> {
+    let Choice::On(host, why) = choice else {
+        return Ok((choice, None));
+    };
+    note(format!("builds cargo runs on host {}: {why}", host.name));
+    // A stop signal during the send or the claim stops the job once its
+    // command starts, and the job removes what it left on the host.
+    remote::stop_on_signals();
     let request = Request {
         repo: checkout.repo(),
         what: What::Working,
         host: None,
         command: host_command(args, checkout, env),
     };
-    let code = remote::run_job(
-        places,
-        ssh,
-        host,
-        &checkout.top,
-        &request,
-        remote::stop_on_signals(),
-    )?;
+    match remote::start_job(places, ssh, &host, &checkout.top, &request)? {
+        Start::Started(job) => Ok((Choice::On(host, why), Some(job))),
+        Start::Refused(said) => {
+            note(format!(
+                "host {name} refused the job: {said}\nbuilds cargo runs it on this Mac, and passes over host {name} until a probe finds it answering with git running (`builds health` says what to do)",
+                name = host.name
+            ));
+            Ok((
+                Choice::Here(format!("host {} refused the job", host.name)),
+                None,
+            ))
+        }
+    }
+}
+
+/// Runs the started cargo job, passing the output through, and returns
+/// cargo's exit status. A host that stops answering fails the command,
+/// naming it.
+pub fn finish(job: Job) -> Result<i32> {
+    let host = job.host_name().to_string();
+    let code = job.run(remote::stop_on_signals())?;
     if code == SSH_FAILED {
         fail!(
-            "host {} stopped answering while cargo ran (ssh exited {SSH_FAILED}); nothing ran the command again",
-            host.name
+            "host {host} stopped answering while cargo ran (ssh exited {SSH_FAILED}); nothing ran the command again"
         );
     }
     Ok(code)

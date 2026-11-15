@@ -9,8 +9,9 @@
 //! (its own, or one it holds the app lock for), the volume under its
 //! free-space floor, a lists store that fails its check, a running item
 //! whose worktree is gone or has no claim (lists/running.rs), a held worktree
-//! whose item waits on nothing open, or commits that change design files no
-//! recorded design change covers (lists/held.rs).
+//! whose item waits on nothing open, commits that change design files no
+//! recorded design change covers (lists/held.rs), or a build host that refuses
+//! jobs (host.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -52,6 +53,8 @@ pub enum FindingKind {
     Lists,
     /// A process with a lot of CPU time that looks stuck.
     Busy,
+    /// A build host that refuses jobs.
+    Host,
 }
 
 /// One line of what needs acting on.
@@ -988,6 +991,12 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         crate::stuck::findings(&busy)
             .into_iter()
             .map(|text| Finding::new(FindingKind::Busy, text)),
+    );
+    // Read now: a probe in another command may have just written or removed one.
+    health.findings.extend(
+        crate::host::refusals(&tool.places)?
+            .iter()
+            .map(|refusal| Finding::new(FindingKind::Host, crate::host::refusal_finding(refusal))),
     );
     if json {
         let mut value = serde_json::to_value(&health).expect("health serializes");

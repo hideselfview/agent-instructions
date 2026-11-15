@@ -28,6 +28,9 @@ pub struct HostPage {
     pub free_kib: Option<u64>,
     /// What went wrong asking, when the host did not answer.
     pub unreachable: Option<String>,
+    /// What git printed when it failed on a host that answered: the host
+    /// refuses every job.
+    pub refuses: Option<String>,
     /// The cargo runs on it that have not ended, oldest first.
     pub running: Vec<RunningPage>,
     /// How many cargo runs started on it in the last hour.
@@ -96,6 +99,10 @@ pub fn read(places: &Places, ssh: &Ssh, now: i64) -> Result<Vec<HostPage>> {
             room: probe.as_ref().ok().map(host::Probe::room),
             free_kib: probe.as_ref().ok().map(|probe| probe.free_kib),
             unreachable: probe.as_ref().err().cloned(),
+            refuses: probe
+                .as_ref()
+                .ok()
+                .and_then(|probe| probe.git_fails.clone()),
             name: host.name,
             target: host.target,
             cores: host.cores,

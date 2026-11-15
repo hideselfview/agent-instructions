@@ -50,11 +50,74 @@ fn reads_what_a_host_prints() {
         Probe {
             cores: 10,
             load: 1.5,
-            free_kib: 447_000_000
+            free_kib: 447_000_000,
+            git_fails: None,
         }
     );
     assert!((probe.load_per_core() - 0.15).abs() < 1e-9);
     assert!(parse_probe("cores=10\n").is_err());
+    let refusing = parse_probe(
+        "cores=10\nload=1.50\nfree_kib=4\ngit_fails=You have not agreed to the Xcode license agreements. \n",
+    )
+    .unwrap();
+    assert_eq!(
+        refusing.git_fails.as_deref(),
+        Some("You have not agreed to the Xcode license agreements.")
+    );
+}
+
+#[test]
+fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
+    let refusing = || {
+        Ok(Probe {
+            cores: 10,
+            load: 0.0,
+            free_kib: 100,
+            git_fails: Some("no license".to_string()),
+        })
+    };
+    let hosts = vec![
+        (host("local"), probe_with(8, 6.0, 100)),
+        (host("m1"), refusing()),
+    ];
+    let (ranked, why) = rank_by_room(&hosts, 50);
+    assert_eq!(ranked, [host("local")]);
+    assert!(
+        why.contains("m1 refuses jobs (git fails there: no license)"),
+        "{why}"
+    );
+    let (chosen, why) = choose(&hosts, 50).unwrap();
+    assert_eq!(chosen, host("local"));
+    assert!(why.contains("m1 refuses jobs"), "{why}");
+    assert!(!why.contains("m1 0.00"), "{why}");
+}
+
+#[test]
+fn refusals_keep_the_first_time_and_go_with_their_host() {
+    let scratch = Scratch::new("host-refusals");
+    let places = scratch.places();
+    let file = hosts_file(&places);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "m1 u@m1 10\n").unwrap();
+    record_refusal(&places, "m1", "first").unwrap();
+    record_refusal(&places, "m1", "second").unwrap();
+    // A record of a host that is not recorded is not listed.
+    record_refusal(&places, "old", "gone").unwrap();
+    let found = refusals(&places).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        (found[0].host.as_str(), found[0].said.as_str()),
+        ("m1", "first")
+    );
+    assert!(found[0].at > 0);
+    remove(&places, "m1").unwrap();
+    assert!(refusals(&places).unwrap().is_empty());
+    std::fs::write(&file, "m1 u@m1 10\n").unwrap();
+    assert!(
+        refusals(&places).unwrap().is_empty(),
+        "removing m1 removed its record"
+    );
+    clear_refusal(&places, "m1").unwrap();
 }
 
 fn host(name: &str) -> Host {
@@ -70,6 +133,7 @@ fn probe_of(load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
         cores: 10,
         load,
         free_kib,
+        git_fails: None,
     })
 }
 
@@ -185,6 +249,7 @@ fn probe_with(cores: u32, load: f64, free_kib: u64) -> std::result::Result<Probe
         cores,
         load,
         free_kib,
+        git_fails: None,
     })
 }
 

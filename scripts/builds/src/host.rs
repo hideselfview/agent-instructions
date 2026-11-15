@@ -1,8 +1,16 @@
 //! Hosts: the Macs builds can run a job on. This Mac is always one (`local`);
 //! `builds host add` records another, reached over ssh. builds keeps the list
 //! in the file `hosts` beside the lists folder, one `<name> <target> <cores>`
-//! per line, and asks each host for its load, cores and free disk when
-//! `builds host list` or `builds remote run` needs them.
+//! per line, and asks each host for its load, cores and free disk, and whether
+//! git runs there, when `builds host list` or `builds remote run` needs them.
+//!
+//! A host refuses jobs when it answers but cannot start one: git fails there
+//! (as when its Xcode license is not accepted), or sending a job's commit or
+//! claiming a worktree for it failed there. builds records each such host in
+//! the folder `host-refusals` beside `hosts`, one file per host holding when it
+//! first refused and what it said, and passes over a host recorded there. A
+//! probe that finds the host answering and git running removes the record, so
+//! the next pick may choose the host again.
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -11,7 +19,7 @@ use crate::checkout::parallel_map;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::Places;
-use crate::text::human;
+use crate::text::{human, local_minute};
 use crate::tool::{Tool, volume_space};
 
 /// The name of this Mac among the hosts. No other host may take it.
@@ -103,6 +111,10 @@ pub struct Probe {
     /// The one-minute load average.
     pub load: f64,
     pub free_kib: u64,
+    /// What git printed when it failed on the host, in the shell that a job's
+    /// push reaches: every job runs git there, so the host refuses every job.
+    /// None when git runs.
+    pub git_fails: Option<String>,
 }
 
 impl Probe {
@@ -117,10 +129,13 @@ impl Probe {
     }
 }
 
-/// Runs on the host to print what `parse_probe` reads.
+/// Runs on the host to print what `parse_probe` reads. git runs in the shell
+/// ssh starts, with no PATH of builds' own, as the `git-receive-pack` that a
+/// job's push starts there does.
 const PROBE_SCRIPT: &str = r#"echo cores=$(sysctl -n hw.ncpu)
 echo load=$(sysctl -n vm.loadavg | tr -d '{}')
-echo free_kib=$(df -k "$HOME" | awk 'NR==2{print $4}')"#;
+echo free_kib=$(df -k "$HOME" | awk 'NR==2{print $4}')
+if ! said=$(git --version 2>&1); then echo "git_fails=$(printf '%s' "$said" | tr '\n' ' ')"; fi"#;
 
 /// Reads what `PROBE_SCRIPT` printed.
 pub fn parse_probe(text: &str) -> Result<Probe> {
@@ -145,10 +160,15 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
     let free_kib: u64 = value("free_kib")?
         .parse()
         .context(|| "reading the host's free disk".to_string())?;
+    let git_fails = text
+        .lines()
+        .find_map(|line| line.strip_prefix("git_fails="))
+        .map(|said| said.trim().to_string());
     Ok(Probe {
         cores,
         load,
         free_kib,
+        git_fails,
     })
 }
 
@@ -177,18 +197,142 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
     if unsafe { libc::getloadavg(loads.as_mut_ptr(), 1) } != 1 {
         fail!("reading this Mac's load average");
     }
+    // A job here runs in this Mac's own clone: nothing is pushed.
     Ok(Probe {
         cores: Host::local().cores,
         load: loads[0],
         free_kib: volume_space(&places.home)?.free_kib,
+        git_fails: None,
     })
 }
 
-/// Asks <host>.
+/// Asks <host>, and keeps its refusal record current with the answer: a host
+/// whose git fails is recorded as refusing jobs, and one whose git runs loses
+/// its record. A host that does not answer keeps its record as it is.
 pub fn probe(places: &Places, ssh: &Ssh, host: &Host) -> std::result::Result<Probe, String> {
-    match &host.target {
-        Some(target) => probe_target(ssh, target),
-        None => probe_local(places).map_err(|fail| fail.text()),
+    let Some(target) = &host.target else {
+        return probe_local(places).map_err(|fail| fail.text());
+    };
+    let probe = probe_target(ssh, target)?;
+    let kept = match &probe.git_fails {
+        Some(said) => record_refusal(places, &host.name, &format!("git fails there: {said}")),
+        None => clear_refusal(places, &host.name),
+    };
+    kept.map_err(|fail| fail.text())?;
+    Ok(probe)
+}
+
+/// A host that refused a job, as `host-refusals` records it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Refusal {
+    pub host: String,
+    /// When it first refused, seconds since 1970.
+    pub at: i64,
+    /// What the host said.
+    pub said: String,
+}
+
+/// The folder of refusal records, beside the hosts file.
+fn refusals_dir(places: &Places) -> PathBuf {
+    hosts_file(places).with_file_name("host-refusals")
+}
+
+/// Records that host <name> refused a job, saying <said>. A host already
+/// recorded keeps the time of its first refusal and what it said then.
+pub fn record_refusal(places: &Places, name: &str, said: &str) -> Result<()> {
+    let dir = refusals_dir(places);
+    let file = dir.join(name);
+    if file.exists() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs() as i64);
+    let part = dir.join(format!(".{name}.{}", std::process::id()));
+    std::fs::write(&part, format!("{at}\n{said}\n"))
+        .context(|| format!("writing {}", part.display()))?;
+    std::fs::rename(&part, &file).context(|| format!("replacing {}", file.display()))
+}
+
+/// Removes host <name>'s refusal record, when it has one.
+pub fn clear_refusal(places: &Places, name: &str) -> Result<()> {
+    let file = refusals_dir(places).join(name);
+    match std::fs::remove_file(&file) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => fail!("removing {}: {error}", file.display()),
+    }
+}
+
+/// Every recorded refusal of a host still recorded, by host name.
+pub fn refusals(places: &Places) -> Result<Vec<Refusal>> {
+    let dir = refusals_dir(places);
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => fail!("listing {}: {error}", dir.display()),
+    };
+    let hosts = read_remote(places)?;
+    let mut found = Vec::new();
+    for entry in entries {
+        let path = entry
+            .context(|| format!("listing {}", dir.display()))?
+            .path();
+        let name = crate::checkout::file_name(&path);
+        // A file being written starts with a dot.
+        if name.starts_with('.') || !hosts.iter().any(|host| host.name == name) {
+            continue;
+        }
+        let text =
+            std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
+        let (at, said) = text.split_once('\n').unwrap_or((&text, ""));
+        found.push(Refusal {
+            host: name,
+            at: at
+                .trim()
+                .parse()
+                .context(|| format!("reading the time in {}", path.display()))?,
+            said: said.trim().to_string(),
+        });
+    }
+    found.sort_by(|a, b| a.host.cmp(&b.host));
+    Ok(found)
+}
+
+/// The line `builds health` prints under "needs action" for <refusal>.
+pub fn refusal_finding(refusal: &Refusal) -> String {
+    let name = &refusal.host;
+    format!(
+        "host {name} refuses jobs (since {}), so builds runs its jobs on this Mac. Fix what {name} said on {name}; builds uses {name} again once a probe finds it answering with git running (`builds host list` probes every host, and so does each `builds cargo` that may leave this Mac). {name} said: {}",
+        local_minute(refusal.at),
+        refusal.said
+    )
+}
+
+/// Why <probe> keeps <host> from taking a job, or None when it can take one:
+/// it does not answer, its free disk is under <floor_kib>, or it refuses jobs.
+fn passed_over(
+    host: &Host,
+    probe: &std::result::Result<Probe, String>,
+    floor_kib: u64,
+) -> Option<String> {
+    match probe {
+        Err(error) => Some(format!("{} is unreachable ({error})", host.name)),
+        Ok(probe) if probe.free_kib < floor_kib => Some(format!(
+            "{} has {} free, under the floor of {}",
+            host.name,
+            human(probe.free_kib),
+            human(floor_kib)
+        )),
+        Ok(Probe {
+            git_fails: Some(said),
+            ..
+        }) => Some(format!(
+            "{} refuses jobs (git fails there: {said})",
+            host.name
+        )),
+        Ok(_) => None,
     }
 }
 
@@ -300,19 +444,24 @@ pub fn remove(places: &Places, name: &str) -> Result<()> {
         fail!("no host named {name}");
     };
     hosts.remove(at);
-    write_remote(places, &hosts)
+    write_remote(places, &hosts)?;
+    clear_refusal(places, name)
 }
 
 /// One line of `builds host list`.
 pub fn list_line(host: &Host, probe: &std::result::Result<Probe, String>) -> String {
     match probe {
         Ok(probe) => format!(
-            "{}  {}  {} cores  load {:.2} per core  free {}  reachable",
+            "{}  {}  {} cores  load {:.2} per core  free {}  {}",
             host.name,
             host.describe(),
             probe.cores,
             probe.load_per_core(),
-            human(probe.free_kib)
+            human(probe.free_kib),
+            match &probe.git_fails {
+                Some(said) => format!("refuses jobs: git fails there: {said}"),
+                None => "reachable".to_string(),
+            }
         ),
         Err(error) => format!(
             "{}  {}  {} cores  unreachable: {error}",
@@ -333,19 +482,12 @@ pub fn choose(
     let mut best: Option<(&Host, &Probe)> = None;
     let mut skipped = Vec::new();
     for (host, probe) in hosts {
-        match probe {
-            Err(error) => skipped.push(format!("{} is unreachable ({error})", host.name)),
-            Ok(probe) if probe.free_kib < floor_kib => skipped.push(format!(
-                "{} has {} free, under the floor of {}",
-                host.name,
-                human(probe.free_kib),
-                human(floor_kib)
-            )),
-            Ok(probe) => {
-                if best.is_none_or(|(_, held)| probe.load_per_core() < held.load_per_core()) {
-                    best = Some((host, probe));
-                }
-            }
+        if let Some(why) = passed_over(host, probe, floor_kib) {
+            skipped.push(why);
+        } else if let Ok(probe) = probe
+            && best.is_none_or(|(_, held)| probe.load_per_core() < held.load_per_core())
+        {
+            best = Some((host, probe));
         }
     }
     let Some((host, probe)) = best else {
@@ -359,8 +501,8 @@ pub fn choose(
     );
     for (other, other_probe) in hosts {
         if other.name != host.name
+            && passed_over(other, other_probe, floor_kib).is_none()
             && let Ok(other_probe) = other_probe
-            && other_probe.free_kib >= floor_kib
         {
             why.push_str(&format!(
                 "; {} {:.2}",
@@ -389,15 +531,9 @@ pub fn rank_by_room(
     let mut fits: Vec<(&Host, &Probe)> = Vec::new();
     let mut skipped = Vec::new();
     for (host, probe) in hosts {
-        match probe {
-            Err(error) => skipped.push(format!("{} is unreachable ({error})", host.name)),
-            Ok(probe) if probe.free_kib < floor_kib => skipped.push(format!(
-                "{} has {} free, under the floor of {}",
-                host.name,
-                human(probe.free_kib),
-                human(floor_kib)
-            )),
-            Ok(probe) => fits.push((host, probe)),
+        match passed_over(host, probe, floor_kib) {
+            Some(why) => skipped.push(why),
+            None => fits.extend(probe.as_ref().ok().map(|probe| (host, probe))),
         }
     }
     let hundredths = |probe: &Probe| (probe.room() * 100.0).round() as i64;

@@ -206,25 +206,18 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
             named.as_deref(),
         )?,
     };
+    let (choice, job) = match checkout.as_ref() {
+        Some(checkout) => cargo_place::start(&places, &ssh, choice, checkout, args, &env)?,
+        None => (choice, None),
+    };
     let record = Record::begin(&places, checkout.as_ref(), &choice, args);
-    let result = match &choice {
-        Choice::Here(_) => run_before_here(checkout.as_ref(), &env)
+    let result = match job {
+        None => run_before_here(checkout.as_ref(), &env)
             .and_then(|()| run_here(&places, checkout.as_ref(), subcommand, format, args)),
-        Choice::On(host, why) => {
-            crate::text::note(format!("builds cargo runs on host {}: {why}", host.name));
-            cargo_place::run_on(
-                &places,
-                &ssh,
-                host,
-                checkout.as_ref().expect("a checkout was found"),
-                args,
-                &env,
-            )
-            .and_then(|code| match code {
-                0 => Ok(()),
-                code => Err(Fail::Exit(code)),
-            })
-        }
+        Some(job) => cargo_place::finish(job).and_then(|code| match code {
+            0 => Ok(()),
+            code => Err(Fail::Exit(code)),
+        }),
     };
     record.end(&result);
     result

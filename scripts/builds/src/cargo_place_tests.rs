@@ -147,7 +147,30 @@ fn probe(load: f64) -> std::result::Result<Probe, String> {
         cores: 10,
         load,
         free_kib: 1 << 30,
+        git_fails: None,
     })
+}
+
+/// Starts <args> on <host> and runs it there; panics when the host refuses.
+fn run_on(
+    places: &Places,
+    ssh: &Ssh,
+    host: &Host,
+    checkout: &Checkout,
+    args: &[String],
+    env: &dyn Fn(&str) -> Option<OsString>,
+) -> Result<i32> {
+    match start(
+        places,
+        ssh,
+        Choice::On(host.clone(), "named".to_string()),
+        checkout,
+        args,
+        env,
+    )? {
+        (Choice::On(..), Some(job)) => finish(job),
+        (choice, _) => panic!("the host refused the job: {choice:?}"),
+    }
 }
 
 struct Remote {
@@ -312,15 +335,6 @@ fn a_host_that_drops_fails_loudly_naming_it() {
         message.contains("nothing ran the command again"),
         "{message}"
     );
-
-    // A host that is gone before the send fails the same loud way.
-    let gone = host("gone", Some("unreachable"));
-    let Err(crate::fail::Fail::Message(message)) =
-        run_on(&places, &r.ssh, &gone, &side, &args(&["test"]), &no_env)
-    else {
-        panic!("expected a failure");
-    };
-    assert!(message.contains("host gone"), "{message}");
 }
 
 #[test]
@@ -424,4 +438,138 @@ fn a_before_program_outside_the_checkout_keeps_the_command_here_and_runs_here() 
             .run_here(&side)
             .is_err()
     );
+}
+
+/// An ssh that reaches the fake host's home with a `git` and a
+/// `git-receive-pack` that fail as git does on a Mac whose Xcode license is
+/// not accepted, while the file `refuses` is in <home>.
+fn refusing_ssh(r: &Remote) -> Ssh {
+    let bin = r.scratch.dir.join("refusing-bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let git = String::from_utf8(
+        std::process::Command::new("sh")
+            .args(["-c", "command -v git"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    for name in ["git", "git-receive-pack"] {
+        let program = bin.join(name);
+        let real_program = if name == "git" {
+            git.trim().to_string()
+        } else {
+            format!("{} receive-pack", git.trim())
+        };
+        std::fs::write(
+            &program,
+            format!(
+                "#!/bin/sh\nif [ -e '{home}/refuses' ]; then\n  echo \"You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license'.\" >&2\n  exit 69\nfi\nexec {real_program} \"$@\"\n",
+                home = r.home.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let wrapper = r.scratch.dir.join("refusing-ssh");
+    std::fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\nPATH='{bin}':\"$PATH\" exec '{ssh}' \"$@\"\n",
+            bin = bin.display(),
+            ssh = r.ssh.program
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Ssh {
+        program: wrapper.display().to_string(),
+    }
+}
+
+#[test]
+fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_git_runs() {
+    let (r, _main, side) = remote("place-refuses", true, RECORDING_BUILDS);
+    let places = r.scratch.places();
+    let file = host::hosts_file(&places);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "m1 user@m1 10\n").unwrap();
+    let ssh = refusing_ssh(&r);
+    let m1 = host("m1", Some("user@m1"));
+    std::fs::write(r.home.join("refuses"), "").unwrap();
+
+    // The push of the commit fails on the host: the command runs here.
+    let (choice, job) = start(
+        &places,
+        &ssh,
+        Choice::On(m1.clone(), "most room".to_string()),
+        &side,
+        &args(&["test"]),
+        &no_env,
+    )
+    .unwrap();
+    assert!(job.is_none());
+    assert_eq!(choice, Choice::Here("host m1 refused the job".to_string()));
+    assert!(!r.home.join("dev/demo-worktrees/ran.txt").exists());
+    let refusals = host::refusals(&places).unwrap();
+    assert_eq!(refusals.len(), 1);
+    assert_eq!(refusals[0].host, "m1");
+    assert!(
+        refusals[0]
+            .said
+            .contains("You have not agreed to the Xcode license agreements"),
+        "{:?}",
+        refusals[0]
+    );
+    let finding = host::refusal_finding(&refusals[0]);
+    assert!(
+        finding.starts_with("host m1 refuses jobs (since ")
+            && finding.contains("sudo xcodebuild -license")
+            && finding.contains("Fix what m1 said on m1")
+            && finding.contains("`builds host list`"),
+        "{finding}"
+    );
+
+    // A pick probes the host, finds git failing there and passes it over, so
+    // the command runs here even though m1 has the most room.
+    let local = host("local", None);
+    let probes = host::probe_all(&places, &ssh, vec![local.clone(), m1.clone()]);
+    assert!(probes[1].1.as_ref().unwrap().git_fails.is_some());
+    let probes: Vec<_> = vec![(local.clone(), probe(9.0)), probes[1].clone()];
+    let Choice::Here(why) = pick_ranked(&places, &ssh, "demo", &probes, 0).unwrap() else {
+        panic!("expected this Mac");
+    };
+    assert!(
+        why.contains("m1 refuses jobs (git fails there: You have not agreed"),
+        "{why}"
+    );
+    assert_eq!(host::refusals(&places).unwrap().len(), 1);
+
+    // Once git runs there, the probe removes the record and m1 takes jobs.
+    std::fs::remove_file(r.home.join("refuses")).unwrap();
+    let probes = host::probe_all(&places, &ssh, vec![m1.clone()]);
+    assert_eq!(probes[0].1.as_ref().unwrap().git_fails, None);
+    assert!(host::refusals(&places).unwrap().is_empty());
+    let probes = vec![(local, probe(9.0)), probes[0].clone()];
+    assert!(matches!(
+        pick_ranked(&places, &ssh, "demo", &probes, 0).unwrap(),
+        Choice::On(..)
+    ));
+    assert_eq!(
+        run_on(&places, &ssh, &m1, &side, &args(&["test"]), &no_env).unwrap(),
+        0
+    );
+
+    // A host gone before the send refuses the same way.
+    let gone = host("gone", Some("unreachable"));
+    let (choice, job) = start(
+        &places,
+        &ssh,
+        Choice::On(gone, "most room".to_string()),
+        &side,
+        &args(&["test"]),
+        &no_env,
+    )
+    .unwrap();
+    assert!(job.is_none() && matches!(choice, Choice::Here(_)));
 }

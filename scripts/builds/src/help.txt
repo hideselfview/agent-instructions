@@ -231,14 +231,19 @@ CARGO_INCREMENTAL=1, with which sccache refuses every compile.
 In a side worktree, `builds cargo` runs test, clippy, check, doc and nextest
 run|list on the host with the most free cores (cores minus the one-minute load;
 this Mac wins a tie), passing over a host that does not answer, is under the
-free-disk floor or has no clone of the repo. It sends the checkout's HEAD plus
-its working tree (staged and unstaged edits, deletions, and files git neither
-tracks nor ignores) as a commit to the host's clone only, runs cargo in a
-remote worktree there that keeps its build between runs, prints the same output
-and exits with the same status; one line on stderr names the host. A stop
-signal stops cargo on the host, and a host that drops mid-run fails the
-command, naming the host; builds never runs the command again here. These stay
-on this Mac:
+free-disk floor, refuses jobs (HOSTS) or has no clone of the repo. It sends the
+checkout's HEAD plus its working tree (staged and unstaged edits, deletions,
+and files git neither tracks nor ignores) as a commit to the host's clone only,
+runs cargo in a remote worktree there that keeps its build between runs, prints
+the same output and exits with the same status; one line on stderr names the
+host. When the host refuses the job before cargo starts there (sending the
+commit or claiming a worktree fails there), builds records the host as
+refusing jobs, says so on stderr with what the host said, and runs the command
+on this Mac. A stop signal stops cargo on the host, and a host that drops
+mid-run fails the command, naming the host; builds never runs the command
+again here, since cargo may have run part of it there. A landing's compile
+check runs `builds cargo`, so it follows the same rules. These stay on this
+Mac:
 
   - every other subcommand (build, rustc, run, bench, install)
   - a command with --message-format, --target, --release or a path argument
@@ -501,6 +506,19 @@ local. A host keeps its clone of each repo at ~/dev/<repo>, its worktrees at
 ~/dev/<repo>-worktrees/, and its build roots in ~/builds-root in place of
 /Volumes/Builds.
 
+A host refuses jobs when it answers but cannot start one. builds finds this
+two ways: a probe, which asks the host for its load and disk, also runs git
+there, in the shell a job's push reaches, and git fails (as it does on a Mac
+whose Xcode license is not accepted); or sending a job's commit or claiming a
+worktree for it fails there. builds records each host that refuses jobs in
+the folder host-refusals beside the file `hosts`, with when it first refused
+and what it said, and every pick passes over it. `builds health` lists each
+recorded host under "needs action", and the dashboard's host row says
+"refuses jobs" when git fails there. Fix the cause on the host; the next probe
+that finds the host answering with git running removes the record, and builds
+uses the host again. `builds host list` probes every host, and so does every
+`builds cargo` and `builds remote run` that picks one.
+
   builds host add <name> <ssh target>
   builds host setup <name>
   builds host list
@@ -511,7 +529,9 @@ local. A host keeps its clone of each repo at ~/dev/<repo>, its worktrees at
                               to ~/.local/bin/builds on the host (both are
                               arm64 macOS) and makes its ~/builds-root. `list`
                               asks every host for its load average per core,
-                              its free disk and whether it answers
+                              its free disk, whether it answers and whether it
+                              refuses jobs, and keeps each host's refusal
+                              record current with the answer
   builds remote run <repo> <ref> [--host <name>] -- <command> [<args>...]
   builds remote run <repo> --staged [--host <name>] -- <command> [<args>...]
   builds remote run <repo> --working [--host <name>] -- <command> [<args>...]
@@ -533,12 +553,15 @@ local. A host keeps its clone of each repo at ~/dev/<repo>, its worktrees at
                               the ref and the worktree's claim. A stop signal
                               stops the command on the host. Without --host,
                               builds picks the host with the lowest load
-                              average per core among those that answer and
-                              have free disk above the floor, this Mac
-                              included, and says which and why; a host named
-                              with --host that does not answer fails the job,
-                              naming the host and the ssh error. BUILDS_SSH
-                              names a program to use in place of ssh
+                              average per core among those that answer, have
+                              free disk above the floor and do not refuse
+                              jobs, this Mac included, and says which and why;
+                              a host named with --host that does not answer
+                              fails the job, naming the host and the ssh error.
+                              A host that refuses the job fails it with what
+                              the host said, and builds records the host as
+                              refusing jobs. BUILDS_SSH names a program to use
+                              in place of ssh
   builds remote step <host> <worktree> -- <command> [<args>...]
                               run the command in <worktree>, a folder on the
                               host that already holds the files, and pass its
@@ -784,7 +807,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               read before anyone kills it); fseventsd as soon
                               as it is busy, with `sudo kill -9 <pid>` added
                               when it answers clients with event id 0 on this
-                              Mac (a plain kill does not end it)
+                              Mac (a plain kill does not end it); a build host
+                              that refuses jobs (HOSTS), with what the host
+                              said and what to fix
   builds dashboard [--port <port>] [--listen <address>]
                               run the daemon until it is killed. It follows
                               the volume, the checkouts and the lists through

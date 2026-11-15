@@ -266,30 +266,50 @@ impl Transport<'_> {
     /// Runs <script> to its end and returns its stdout; a failure names the
     /// host and what the script printed.
     pub fn capture(&self, script: &str, what: &str) -> Result<String> {
+        self.ask(script, what)?.map_err(Fail::Message)
+    }
+
+    /// Runs <script> to its end. The outer error is this Mac's (the command
+    /// would not start); the inner one is the host's: the script failed
+    /// there, and the text names the host and what the script printed.
+    pub fn ask(&self, script: &str, what: &str) -> Result<std::result::Result<String, String>> {
         let output = self
             .command(script)
             .stdin(Stdio::null())
             .output()
             .context(|| format!("running {what} on host {}", self.host.name))?;
         if !output.status.success() {
-            fail!(
+            return Ok(Err(format!(
                 "{what} failed on host {} ({}): {}",
                 self.host.name,
                 output.status,
                 String::from_utf8_lossy(&output.stderr).trim()
-            );
+            )));
         }
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        Ok(Ok(String::from_utf8_lossy(&output.stdout).into_owned()))
     }
 
-    /// Sends <sha> to the host's clone as the ref of job <id>. One send to a
-    /// host's clone of <repo> runs at a time: two lanes of one build send the
-    /// same commit together, and git on the host fails one of two pushes that
-    /// receive the same pack at once ("unable to migrate objects to permanent
-    /// storage").
+    /// Sends <sha> to the host's clone as the ref of job <id>; a failure
+    /// names the host and what git printed.
     pub fn send(&self, source: &Path, repo: &str, sha: &str, id: &str) -> Result<()> {
+        self.push(source, repo, sha, id)?.map_err(Fail::Message)
+    }
+
+    /// Sends <sha> to the host's clone as the ref of job <id>. The outer error
+    /// is this Mac's; the inner one is the push's, which failed on the way to
+    /// the host or there. One send to a host's clone of <repo> runs at a time:
+    /// two lanes of one build send the same commit together, and git on the
+    /// host fails one of two pushes that receive the same pack at once
+    /// ("unable to migrate objects to permanent storage").
+    fn push(
+        &self,
+        source: &Path,
+        repo: &str,
+        sha: &str,
+        id: &str,
+    ) -> Result<std::result::Result<(), String>> {
         let Some(target) = &self.host.target else {
-            return Ok(());
+            return Ok(Ok(()));
         };
         let folder = self.places.root.join(repo);
         std::fs::create_dir_all(&folder).context(|| format!("creating {}", folder.display()))?;
@@ -304,13 +324,13 @@ impl Transport<'_> {
             .output()
             .context(|| "running git push".to_string())?;
         if !output.status.success() {
-            fail!(
+            return Ok(Err(format!(
                 "sending the commit to host {} ({target}) failed: {}",
                 self.host.name,
                 String::from_utf8_lossy(&output.stderr).trim()
-            );
+            )));
         }
-        Ok(())
+        Ok(Ok(()))
     }
 }
 
@@ -477,8 +497,133 @@ pub fn job_id() -> String {
     )
 }
 
+/// A job whose commit is on its host and whose worktree there is claimed:
+/// what is left is to run its command (`Job::run`).
+pub struct Job<'a> {
+    places: &'a Places,
+    ssh: &'a Ssh,
+    host: Host,
+    repo: String,
+    command: Vec<String>,
+    worktree: String,
+    id: String,
+}
+
+/// How the start of a job went.
+pub enum Start<'a> {
+    Started(Job<'a>),
+    /// The host would not take the job: sending its commit or claiming a
+    /// worktree failed there, before its command ran. Holds what the host
+    /// said; `start_job` has recorded the host as refusing jobs.
+    Refused(String),
+}
+
+/// Sends the commit to <host> and claims a worktree there. A failure on this
+/// Mac (making the commit, starting git or ssh) is an error; a failure of the
+/// host is `Start::Refused`, except on this Mac, which never refuses its own
+/// jobs. Whatever the job left on the host when it did not start is removed.
+pub fn start_job<'a>(
+    places: &'a Places,
+    ssh: &'a Ssh,
+    host: &Host,
+    source: &Path,
+    request: &Request,
+) -> Result<Start<'a>> {
+    let sha = commit_of(source, &request.what)?;
+    let id = job_id();
+    let transport = Transport { places, ssh, host };
+    // The outer error is this Mac's; the inner one is the host's.
+    let started = (|| -> Result<std::result::Result<String, String>> {
+        if let Err(said) = transport.push(source, &request.repo, &sha, &id)? {
+            return Ok(Err(said));
+        }
+        let claimed = match transport.ask(
+            &claim_script(host, &request.repo, &sha, &id),
+            "claiming a worktree",
+        )? {
+            Ok(claimed) => claimed,
+            Err(said) => return Ok(Err(said)),
+        };
+        Ok(worktree_in(&claimed).map_err(|error| format!("host {}: {}", host.name, error.text())))
+    })();
+    // Whatever the job left on the host when it did not start.
+    let release = || {
+        if let Err(release) = transport.capture(
+            &release_script(&request.repo, None, &id),
+            "removing the job's ref and claim",
+        ) {
+            note(release.text());
+        }
+    };
+    let said = match started {
+        Ok(Ok(worktree)) => {
+            return Ok(Start::Started(Job {
+                places,
+                ssh,
+                host: host.clone(),
+                repo: request.repo.clone(),
+                command: request.command.clone(),
+                worktree,
+                id,
+            }));
+        }
+        Ok(Err(said)) => said,
+        Err(error) => {
+            release();
+            return Err(error);
+        }
+    };
+    release();
+    if host.target.is_none() {
+        fail!("{said}");
+    }
+    if let Err(error) = host::record_refusal(places, &host.name, &said) {
+        note(error.text());
+    }
+    Ok(Start::Refused(said))
+}
+
+impl Job<'_> {
+    /// The name of the host the job runs on.
+    pub fn host_name(&self) -> &str {
+        &self.host.name
+    }
+
+    /// Runs the job's command on its host, passing its output through,
+    /// removes the job's ref and claim, and returns the command's exit status.
+    pub fn run(self, stop: &AtomicBool) -> Result<i32> {
+        let transport = Transport {
+            places: self.places,
+            ssh: self.ssh,
+            host: &self.host,
+        };
+        let code = run_command(&transport, stop, &self.worktree, &self.command);
+        let released = transport.capture(
+            &release_script(&self.repo, Some(&self.worktree), &self.id),
+            "removing the job's ref and claim",
+        );
+        let code = match code {
+            Ok(code) => code,
+            Err(error) => {
+                if let Err(release) = released {
+                    note(release.text());
+                }
+                return Err(error);
+            }
+        };
+        if let Err(error) = released {
+            if code == 0 {
+                return Err(error);
+            }
+            note(error.text());
+        }
+        Ok(code)
+    }
+}
+
 /// Sends the commit to <host>, runs the command there and cleans up; the
-/// command's exit status.
+/// command's exit status. A host that refuses the job fails it, saying what
+/// the host said.
 pub fn run_job(
     places: &Places,
     ssh: &Ssh,
@@ -487,40 +632,10 @@ pub fn run_job(
     request: &Request,
     stop: &AtomicBool,
 ) -> Result<i32> {
-    let sha = commit_of(source, &request.what)?;
-    let id = job_id();
-    let transport = Transport { places, ssh, host };
-    let ran = (|| {
-        transport.send(source, &request.repo, &sha, &id)?;
-        let claimed = transport.capture(
-            &claim_script(host, &request.repo, &sha, &id),
-            "claiming a worktree",
-        )?;
-        let worktree = worktree_in(&claimed)?;
-        let code = run_command(&transport, stop, &worktree, &request.command);
-        Ok::<_, Fail>((worktree, code))
-    })();
-    let worktree = ran.as_ref().ok().map(|(worktree, _)| worktree.as_str());
-    let released = transport.capture(
-        &release_script(&request.repo, worktree, &id),
-        "removing the job's ref and claim",
-    );
-    let code = match ran {
-        Ok((_, code)) => code?,
-        Err(error) => {
-            if let Err(release) = released {
-                note(release.text());
-            }
-            return Err(error);
-        }
-    };
-    if let Err(error) = released {
-        if code == 0 {
-            return Err(error);
-        }
-        note(error.text());
+    match start_job(places, ssh, host, source, request)? {
+        Start::Started(job) => job.run(stop),
+        Start::Refused(said) => fail!("{said}"),
     }
-    Ok(code)
 }
 
 /// Picks the host: the one named, or the least loaded.
