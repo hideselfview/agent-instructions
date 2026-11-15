@@ -392,17 +392,21 @@ fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
     })
 }
 
+/// The project a landing's records go to, and who they name as having landed.
+struct Recording {
+    project: String,
+    /// The worktree's claim, read before the landing starts.
+    by: String,
+}
+
 struct Landing<'a> {
     program: &'a Path,
     workdir: PathBuf,
     request: Request,
     start: Start,
-    /// The project of the repo; None when it is in no project.
-    project: Option<String>,
-    /// Who the records name as having landed: the worktree's claim, read
-    /// before the landing starts. None in a repo of no project, which records
-    /// nothing.
-    by: Option<String>,
+    /// What the store records the landing under; None when the repo is in no
+    /// project, which records nothing.
+    recording: Option<Recording>,
 }
 
 impl Landing<'_> {
@@ -433,7 +437,7 @@ impl Landing<'_> {
     fn check_lists(&self, out: &mut dyn Write) -> Result<()> {
         let request = &self.request;
         let workdir = self.workdir.display();
-        let Some(project) = &self.project else {
+        let Some(Recording { project, .. }) = &self.recording else {
             if !request.items.is_empty() || request.design.is_some() {
                 return Err(refuse(
                     out,
@@ -540,7 +544,7 @@ impl Landing<'_> {
     /// the commits as given. Each is idempotent, so a failure prints the
     /// rerun. Says whether every record was written.
     fn record(&self, on_main: &[String], out: &mut dyn Write) -> bool {
-        let Some(project) = &self.project else {
+        let Some(Recording { project, by }) = &self.recording else {
             return true;
         };
         let mut all_written = true;
@@ -556,10 +560,8 @@ impl Landing<'_> {
         }
         lines.push(self.review_line("landed", project));
         for mut line in lines {
-            if let Some(by) = &self.by {
-                line.push("--by".to_string());
-                line.push(by.clone());
-            }
+            line.push("--by".to_string());
+            line.push(by.clone());
             let (ok, said) = self.run_line(&line);
             if !ok {
                 all_written = false;
@@ -744,7 +746,7 @@ impl Landing<'_> {
                     let on_main = self.copies_on_main(out);
                     // An earlier push that reported failure may have landed
                     // without its record.
-                    if self.project.is_some() && on_main.iter().any(String::is_empty) {
+                    if self.recording.is_some() && on_main.iter().any(String::is_empty) {
                         self.leave(out);
                         return Err(refuse(
                             out,
@@ -983,8 +985,7 @@ pub fn land(program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> 
         workdir,
         request,
         start,
-        project: None,
-        by: None,
+        recording: None,
     };
     let (ok, project) = landing.builds(&[
         "lists",
@@ -997,9 +998,9 @@ pub fn land(program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> 
             format!("refusing: builds lists project-of failed: {project}"),
         ));
     }
-    landing.project = (!project.is_empty()).then_some(project);
-    if landing.project.is_some() {
-        landing.by = Some(require_claim(&landing.workdir, out)?);
+    if !project.is_empty() {
+        let by = require_claim(&landing.workdir, out)?;
+        landing.recording = Some(Recording { project, by });
     }
     landing.check_lists(out)?;
     let on_main = landing.put_on_main(out)?;
