@@ -108,8 +108,8 @@ impl Host {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Probe {
     pub cores: u32,
-    /// The one-minute load average.
-    pub load: f64,
+    /// The 1, 5 and 15-minute load averages.
+    pub load: [f64; 3],
     pub free_kib: u64,
     /// What git printed when it failed on the host, in the shell that a job's
     /// push reaches: every job runs git there, so the host refuses every job.
@@ -119,13 +119,13 @@ pub struct Probe {
 
 impl Probe {
     pub fn load_per_core(&self) -> f64 {
-        self.load / f64::from(self.cores.max(1))
+        self.load[0] / f64::from(self.cores.max(1))
     }
 
     /// The cores nothing is using: the cores minus the one-minute load
     /// average, below zero for a host with more work than cores.
     pub fn room(&self) -> f64 {
-        f64::from(self.cores) - self.load
+        f64::from(self.cores) - self.load[0]
     }
 }
 
@@ -151,12 +151,20 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
     let cores: u32 = value("cores")?
         .parse()
         .context(|| "reading the host's cores".to_string())?;
-    let load: f64 = value("load")?
+    let averages: Vec<f64> = value("load")?
         .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .parse()
-        .context(|| "reading the host's load average".to_string())?;
+        .map(|average| {
+            average
+                .parse()
+                .context(|| "reading the host's load average".to_string())
+        })
+        .collect::<Result<_>>()?;
+    let Ok(load) = <[f64; 3]>::try_from(averages) else {
+        fail!(
+            "the host's load has not three averages: {:?}",
+            value("load")?
+        );
+    };
     let free_kib: u64 = value("free_kib")?
         .parse()
         .context(|| "reading the host's free disk".to_string())?;
@@ -193,14 +201,14 @@ pub fn probe_target(ssh: &Ssh, target: &str) -> std::result::Result<Probe, Strin
 
 /// This Mac's cores, load and free disk.
 pub fn probe_local(places: &Places) -> Result<Probe> {
-    let mut loads = [0f64; 1];
-    if unsafe { libc::getloadavg(loads.as_mut_ptr(), 1) } != 1 {
+    let mut loads = [0f64; 3];
+    if unsafe { libc::getloadavg(loads.as_mut_ptr(), 3) } != 3 {
         fail!("reading this Mac's load average");
     }
     // A job here runs in this Mac's own clone: nothing is pushed.
     Ok(Probe {
         cores: Host::local().cores,
-        load: loads[0],
+        load: loads,
         free_kib: volume_space(&places.home)?.free_kib,
         git_fails: None,
     })

@@ -74,7 +74,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .fig .v { font: 500 18px var(--mono); color: var(--text); line-height: 1.1; }
 .fig .v small { font: 400 12px var(--sans); color: var(--muted-2); margin-left: 4px; }
 .fig .row { display: flex; align-items: flex-end; gap: 12px; }
-.fig.bad .v { color: var(--bad); }
+.fig.bad .v, .fig .h.bad { color: var(--bad); }
 .fig.hook { cursor: pointer; }
 .fig.hook:hover { border-color: var(--muted-2); }
 .fig.hook.on { border-color: var(--accent); }
@@ -190,7 +190,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .land { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .land .c { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; align-items: baseline; }
 .land .c .mono { color: var(--muted-2); font-size: 12px; }
-.land .c > span:not(.mono) { color: var(--muted); }
+.land .c > span:not(.mono) { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .land details summary { cursor: pointer; padding: 0; font-size: 12px; color: var(--muted); list-style: none; }
 .land details summary::-webkit-details-marker { display: none; }
 .land details .c { margin-top: 2px; }
@@ -656,7 +656,7 @@ function cardLine(c) {
   return h("div", {class: "foot"}, foot);
 }
 function commitCells(commits) {
-  return commits.flatMap(x => [h("span", {class: "mono"}, x.sha), h("span", {}, x.subject)]);
+  return commits.flatMap(x => [h("span", {class: "mono"}, x.sha), h("span", {title: x.subject}, x.subject)]);
 }
 // A worktree's card, the way the board draws one: a bar with its state and
 // its disk (green for Working, blue for Ready to land, grey for a branch whose
@@ -838,10 +838,20 @@ function secs(ms) { return (ms / 1000).toFixed(1) + "s"; }
 function limitText(ms) { return ms / 1000 + " s"; }
 function figure(cls, title, ...kids) { return h("div", {class: "fig" + (cls ? " " + cls : ""), title}, ...kids); }
 
-// The load: the three averages, a line of the last ten minutes against the
-// core count (dashed), and the core count, on one line.
-function loadFigure(load) {
-  if (!load) return figure("line", "Load: 1, 5 and 15-minute averages, read while the daemon runs", h("span", {class: "h"}, "reading the load"));
+// A load card: the three averages, a line of the last ten minutes against the
+// core count (dashed), and the core count, on one line. This Mac's comes from
+// the daemon's own samples (<load>), another host's from its probe (a host of
+// hosts.rs, <name> its name). A host that git fails on says "refuses jobs" in
+// red in place of its core count, and one that did not answer says so in place
+// of the averages, with what went wrong as the title. <label> names the card
+// when more than one is shown.
+function loadFigure(load, label, host) {
+  const title = "Load: 1, 5 and 15-minute averages" + (host ? " on " + host.name : "");
+  const name = label ? [h("span", {class: "h"}, label)] : [];
+  if (host && host.load === null) {
+    return figure("bad line", title, h("div", {class: "row"}, ...name, h("span", {class: "v", title: host.unreachable}, "not answering")));
+  }
+  if (!load) return figure("line", title + ", read while the daemon runs", ...name, h("span", {class: "h"}, "reading the load"));
   const width = 120, height = 28;
   const points = load.history;
   const top = Math.max(load.cores * 1.25, ...points.map(p => p[1]), 1);
@@ -853,11 +863,20 @@ function loadFigure(load) {
     const t0 = points[0][0], span = Math.max(1, points[points.length - 1][0] - t0);
     line.append(svg("polyline", {class: "spark", points: points.map(p => ((p[0] - t0) / span * width).toFixed(1) + "," + y(p[1])).join(" ")}));
   }
-  return figure("line", "Load: 1, 5 and 15-minute averages",
+  const cores = host && host.refuses
+    ? h("span", {class: "h bad", title: "git fails there: " + host.refuses}, "refuses jobs")
+    : h("span", {class: "h"}, load.cores + " cores");
+  return figure("line", title,
     h("div", {class: "row"},
+      ...name,
       h("span", {class: "v", title: "1, 5 and 15-minute load averages on " + load.cores + " cores"}, load.now.map(n => n.toFixed(1)).join(" ")),
       line,
-      h("span", {class: "h"}, load.cores + " cores")));
+      cores));
+}
+// Another host's load card from its row in the state.
+function hostLoadFigure(host) {
+  const load = host.load && {now: host.load, cores: host.cores, history: host.history};
+  return loadFigure(load, host.name, host);
 }
 // Disk: the free space alone, red under the floor where builds warn.
 function diskFigure(v) {
@@ -865,27 +884,6 @@ function diskFigure(v) {
   return figure((under ? "bad " : "") + "line",
     "Free space on the build volume; red under its " + wholeSize(v.floor_kib) + " floor, where builds warn; they stop under " + wholeSize(v.hard_floor_kib),
     h("span", {class: "v"}, wholeSize(v.free_kib), h("small", {}, "free")));
-}
-
-// A host's row (hosts.rs): its name, the cores nothing uses, and what it runs
-// now, one line a cargo run (the repo, the checkout, the command, how long it
-// has run). A host that did not answer, or answered but refuses jobs because
-// git fails there, says so in place of its room, with what went wrong as the
-// title. Shown only when a host besides this Mac is recorded.
-function hostFigure(host) {
-  const where = host.target ? host.target : "this Mac";
-  const room = host.room === null
-    ? h("span", {class: "v", title: host.unreachable}, "not answering")
-    : host.refuses
-    ? h("span", {class: "v", title: "git fails there: " + host.refuses}, "refuses jobs")
-    : h("span", {class: "v", title: host.cores + " cores minus the 1-minute load, " + wholeSize(host.free_kib) + " free"},
-        Math.max(0, host.room).toFixed(1), h("small", {}, "of " + host.cores + " cores free"));
-  const running = host.running.length === 0
-    ? [h("span", {class: "h"}, "nothing running" + (host.last_hour ? " · " + host.last_hour + " cargo runs in the last hour" : ""))]
-    : host.running.map(r => h("span", {class: "h"}, r.repo + " " + r.checkout + " · cargo " + r.command + " · ", agoSpan(r.started_at, "", "")));
-  return figure((host.room === null || host.refuses ? "bad " : "") + "host", "Host " + host.name + ", " + where,
-    h("div", {class: "row"}, h("span", {class: "v"}, host.name), room),
-    ...running);
 }
 
 // ---- The commit hook figures
@@ -1111,8 +1109,7 @@ function render() {
   const timingErrors = [...new Set(waitLanes().map(w => w.error).filter(Boolean))];
   document.getElementById("errors").append(...timingErrors.map(e => h("div", {class: "error"}, "The app build times: " + e)));
   for (const repo of state.repos) for (const {lane} of repo.lanes) buildPanelOf(repo, lane);
-  document.getElementById("top").replaceChildren(loadFigure(state.load), diskFigure(state.volume),
-    ...(state.hosts.length > 1 ? state.hosts.map(hostFigure) : []),
+  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "this Mac" : null), ...state.hosts.map(hostLoadFigure), diskFigure(state.volume),
     ...state.repos.map(r => hookFigure(r.name)), ...waitLanes().map((w, _, all) => waitFigure(w, all)));
   hookDetails();
   waitDetails();

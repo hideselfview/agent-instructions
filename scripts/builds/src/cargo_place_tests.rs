@@ -145,7 +145,7 @@ fn host(name: &str, target: Option<&str>) -> Host {
 fn probe(load: f64) -> std::result::Result<Probe, String> {
     Ok(Probe {
         cores: 10,
-        load,
+        load: [load, load, load],
         free_kib: 1 << 30,
         git_fails: None,
     })

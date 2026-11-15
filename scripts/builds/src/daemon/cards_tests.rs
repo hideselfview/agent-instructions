@@ -326,13 +326,7 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
         );
         (card.chip.unwrap(), card.line)
     };
-    assert_eq!(
-        said(ReviewWait::NotRun),
-        (
-            "Needs review",
-            "Waits on the coordinator to review its commits against the rules.".to_string()
-        )
-    );
+    assert_eq!(said(ReviewWait::NotRun), ("Needs review", String::new()));
     assert_eq!(said(ReviewWait::Running).0, "Reviewing");
     assert_eq!(
         said(ReviewWait::ToSettle(3)),

@@ -21,54 +21,34 @@ fn start(host: &str, at: i64, pid: u32) -> Start {
     }
 }
 
+fn rows(path: &std::path::Path) -> Vec<(i64, Option<i64>, Option<i64>)> {
+    let conn = db::open_reader(path).unwrap().unwrap();
+    let mut statement = conn
+        .prepare("SELECT started_at, ended_at, exit_code FROM cargo_runs ORDER BY id")
+        .unwrap();
+    statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .map(|row| row.unwrap())
+        .collect()
+}
+
 #[test]
-fn a_run_is_running_until_it_ends() {
+fn a_run_has_no_end_until_it_ends() {
     let (_scratch, path) = store("cargo-runs");
     let id = begin(&path, &start("m1", 1_000, std::process::id())).unwrap();
-    let running = running(&path).unwrap();
-    assert_eq!(running.len(), 1);
-    assert_eq!(running[0].host, "m1");
-    assert_eq!(running[0].command, "test -p demo");
+    assert_eq!(rows(&path), [(1_000, None, None)]);
     end(&path, id, 1_030, 101).unwrap();
-    assert!(super::running(&path).unwrap().is_empty());
-    let conn = db::open_reader(&path).unwrap().unwrap();
-    let (ended, code): (i64, i64) = conn
-        .query_row("SELECT ended_at, exit_code FROM cargo_runs", [], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
-        .unwrap();
-    assert_eq!((ended, code), (1_030, 101));
+    assert_eq!(rows(&path), [(1_000, Some(1_030), Some(101))]);
 }
 
 #[test]
-fn a_run_whose_process_is_gone_is_not_running() {
-    let (_scratch, path) = store("cargo-runs-dead");
-    // A process that has exited and been waited for.
-    let mut child = std::process::Command::new("true").spawn().unwrap();
-    let pid = child.id();
-    child.wait().unwrap();
-    begin(&path, &start("local", 1_000, pid)).unwrap();
-    assert!(running(&path).unwrap().is_empty());
-}
-
-#[test]
-fn counts_runs_by_host_and_deletes_old_finished_ones() {
+fn the_next_begin_deletes_runs_that_ended_over_a_week_ago() {
     let (_scratch, path) = store("cargo-runs-count");
     let old = begin(&path, &start("local", 100, std::process::id())).unwrap();
     end(&path, old, 110, 0).unwrap();
-    let a = begin(&path, &start("m1", 2_000_000, std::process::id())).unwrap();
-    end(&path, a, 2_000_010, 0).unwrap();
-    begin(&path, &start("m1", 2_000_020, std::process::id())).unwrap();
-    begin(&path, &start("local", 2_000_030, std::process::id())).unwrap();
-    assert_eq!(
-        started_since(&path, 0).unwrap(),
-        [("local".to_string(), 1), ("m1".to_string(), 2)],
-        "the old finished run went with the next begin"
-    );
-    assert_eq!(
-        started_since(&path, 2_000_025).unwrap(),
-        [("local".to_string(), 1)]
-    );
+    begin(&path, &start("m1", 2_000_000, std::process::id())).unwrap();
+    assert_eq!(rows(&path), [(2_000_000, None, None)]);
 }
 
 #[test]

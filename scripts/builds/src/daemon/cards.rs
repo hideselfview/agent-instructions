@@ -66,9 +66,8 @@ impl ReviewWait {
             n => format!("{n} {what} findings wait"),
         };
         match self {
-            ReviewWait::NotRun => {
-                "Waits on the coordinator to review its commits against the rules.".to_string()
-            }
+            // The chip says it.
+            ReviewWait::NotRun => String::new(),
             ReviewWait::Running => "The rules review of its commits runs.".to_string(),
             ReviewWait::ToSettle(n) => format!(
                 "{} on the coordinator to settle {}.",

@@ -42,6 +42,8 @@ const HOSTS_EVERY: Duration = Duration::from_secs(5);
 const IDLE_HOSTS_EVERY: Duration = Duration::from_secs(60);
 /// How often sccache is asked for its count.
 const SCCACHE_EVERY: Duration = Duration::from_secs(30);
+/// How long a host's load samples are kept for the page's line, seconds.
+const HOST_LOAD_SECONDS: i64 = 600;
 /// Load samples kept for the page's line: ten minutes at SAMPLE_EVERY.
 const LOAD_KEPT: usize = 300;
 
@@ -98,8 +100,10 @@ struct State {
     health: Option<Health>,
     sccache_at: Option<Instant>,
     sccache: Option<(bool, Option<u64>, Option<crate::health::Reading>)>,
-    /// The hosts' rows (hosts.rs), empty before the first reading.
+    /// The other hosts' load cards (hosts.rs), empty before the first reading.
     hosts: Vec<super::hosts::HostPage>,
+    /// Each host's 1-minute load over the last ten minutes, by host name.
+    host_load: HashMap<String, VecDeque<(i64, f64)>>,
 }
 
 pub struct Model {
@@ -545,8 +549,7 @@ impl Model {
         drop(self.sampling.lock().expect("no panic holding it"));
     }
 
-    /// Asks the hosts and reads their cargo runs from the start, on a thread
-    /// of its own: an ssh round trip to a host that does not answer takes ten
+    /// Asks the hosts for their load on a thread of its own: an ssh round trip to a host that does not answer takes ten
     /// seconds, which no other reading waits for.
     fn hosts_loop(self: Arc<Self>) {
         let ssh = crate::host::Ssh::from_env();
@@ -554,9 +557,26 @@ impl Model {
             if self.stopped.load(Ordering::SeqCst) {
                 return;
             }
-            match super::hosts::read(&self.places, &ssh, now_seconds()) {
-                Ok(hosts) => {
+            match super::hosts::read(&self.places, &ssh) {
+                Ok(mut hosts) => {
+                    let now = now_seconds();
                     let mut state = self.state.lock().expect("no panic holding it");
+                    state
+                        .host_load
+                        .retain(|name, _| hosts.iter().any(|host| host.name == *name));
+                    for host in &mut hosts {
+                        let kept = state.host_load.entry(host.name.clone()).or_default();
+                        if let Some(load) = host.load {
+                            kept.push_back((now, load[0]));
+                        }
+                        while kept
+                            .front()
+                            .is_some_and(|(at, _)| *at < now - HOST_LOAD_SECONDS)
+                        {
+                            kept.pop_front();
+                        }
+                        host.history = kept.iter().copied().collect();
+                    }
                     if state.hosts != hosts {
                         state.hosts = hosts;
                         state.version += 1;
@@ -1195,7 +1215,7 @@ pub struct Page {
     pub load: Option<LoadPage>,
     pub daemon: DaemonPage,
     pub health: Option<Health>,
-    /// This Mac and every recorded host, each with what it is running.
+    /// Every recorded host besides this Mac, with its load.
     pub hosts: Vec<super::hosts::HostPage>,
     pub repos: Vec<RepoPage>,
 }

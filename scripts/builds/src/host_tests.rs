@@ -49,15 +49,16 @@ fn reads_what_a_host_prints() {
         probe,
         Probe {
             cores: 10,
-            load: 1.5,
+            load: [1.5, 1.2, 1.1],
             free_kib: 447_000_000,
             git_fails: None,
         }
     );
     assert!((probe.load_per_core() - 0.15).abs() < 1e-9);
     assert!(parse_probe("cores=10\n").is_err());
+    assert!(parse_probe("cores=10\nload=1.50\nfree_kib=4\n").is_err());
     let refusing = parse_probe(
-        "cores=10\nload=1.50\nfree_kib=4\ngit_fails=You have not agreed to the Xcode license agreements. \n",
+        "cores=10\nload=1.50 1.20 1.10\nfree_kib=4\ngit_fails=You have not agreed to the Xcode license agreements. \n",
     )
     .unwrap();
     assert_eq!(
@@ -71,7 +72,7 @@ fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
     let refusing = || {
         Ok(Probe {
             cores: 10,
-            load: 0.0,
+            load: [0.0; 3],
             free_kib: 100,
             git_fails: Some("no license".to_string()),
         })
@@ -131,7 +132,7 @@ fn host(name: &str) -> Host {
 fn probe_of(load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
     Ok(Probe {
         cores: 10,
-        load,
+        load: [load, load, load],
         free_kib,
         git_fails: None,
     })
@@ -247,7 +248,7 @@ fn setup_copies_builds_to_the_host_and_makes_its_root() {
 fn probe_with(cores: u32, load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
     Ok(Probe {
         cores,
-        load,
+        load: [load, load, load],
         free_kib,
         git_fails: None,
     })

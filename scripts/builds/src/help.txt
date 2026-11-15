@@ -14,12 +14,19 @@ More help:
                         writes implementation briefs
 
 builds is a Rust program in agent-instructions (scripts/builds).
-agent-instructions' install.sh builds it from the committed HEAD, never from
-the working tree, so another session's edit in progress is never installed, and
-runs `builds install`, which puts it on PATH as ~/.local/bin/builds. A commit
-or merge in agent-instructions' main checkout that changes scripts/builds/ runs
-install.sh again. To try an edit to builds before it lands, run the binary your
-worktree built (./target/debug/builds).
+agent-instructions' install.sh builds it from the main checkout's committed
+HEAD, never from the working tree, and runs `builds install`, which puts it on
+PATH as ~/.local/bin/builds. Agents change agent-instructions the way they
+change bae and coven: on a branch in a side worktree from `builds new
+~/dev/agent-instructions --for <who> --project builds` (or `--project bae` for
+bae's rules and project file), reviewed and landed (`builds help workflow`).
+The main checkout is the person's, and it is the live copy: install.sh links
+its files into ~/.claude and ~/.codex. Its post-commit and post-merge hooks run
+install.sh again when a commit or merge on its main branch changes what
+install.sh consumes, scripts/builds/ included. A commit on a side worktree's
+branch installs nothing; it goes live once it is on main and the main
+checkout's main moves to it. To try an edit to builds before it lands, run the
+binary your worktree built (scripts/builds/target/debug/builds).
 
 
 BUILD VOLUME
@@ -283,8 +290,7 @@ workflow` says when to restart the server.
                               BUILDS_CARGO_HOST=<name> picks the host for one
                               command (local is this Mac); a command that must
                               stay here runs here, with a note on stderr. Each
-                              run's host and time go to the project's store,
-                              and the dashboard shows them on its host rows
+                              run's host and time go to the project's store.
 
 
 APP BUILDS
@@ -513,8 +519,8 @@ whose Xcode license is not accepted); or sending a job's commit or claiming a
 worktree for it fails there. builds records each host that refuses jobs in
 the folder host-refusals beside the file `hosts`, with when it first refused
 and what it said, and every pick passes over it. `builds health` lists each
-recorded host under "needs action", and the dashboard's host row says
-"refuses jobs" when git fails there. Fix the cause on the host; the next probe
+recorded host under "needs action", and the dashboard's load card for the host
+says "refuses jobs" in place of its core count when git fails there. Fix the cause on the host; the next probe
 that finds the host answering with git running removes the record, and builds
 uses the host again. `builds host list` probes every host, and so does every
 `builds cargo` and `builds remote run` that picks one.
@@ -825,8 +831,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               refuses what changes state, the queue buttons,
                               Build and a design change's Approve, from any
                               address but 127.0.0.1 or localhost on this Mac).
-                              The page shows the load, the free space and
-                              each repo's hook times; a Needs attention box;
+                              The page shows the load of this Mac and of
+                              each other host, the free space and each repo's
+                              hook times; a Needs attention box;
                               per repo, its app build lanes with their queues
                               and Build buttons and its worktree cards; and
                               the lists (also at /api/lists and in the
