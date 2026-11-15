@@ -1,12 +1,13 @@
 ---
 name: code-rules-review
-description: Review a change against the rules with `builds review`. Use to run the review early, or to settle the findings `builds land` refused a landing for.
+description: Review a change against the rules with `builds review`. Use to run the review early, or to settle the findings `builds land` recorded for a landing.
 ---
 
 # Review a change against the rules
 
-`builds land` reviews every landing against the rules before it pushes. This
-skill is for running that review early, and for settling its findings.
+`builds land` records a review of every landing against the rules, in the
+background after it pushes; it never refuses a landing. This skill is for
+running that review early, and for settling its findings.
 
 - `builds review <worktree> [<base>]` reviews the worktree's commits past
   `origin/main`. It runs one reviewer per group of rules (`review/groups.toml`

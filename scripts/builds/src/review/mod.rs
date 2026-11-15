@@ -3,7 +3,7 @@
 //! review in the project's store.
 //!
 //! ```text
-//! builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--record-only] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review settle FINDING confirmed|dropped --why TEXT
 //! builds review show LANDING
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
@@ -48,7 +48,7 @@ use crate::tool::Tool;
 use prompt::Settled;
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review sample --landing KEY --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--record-only] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review show LANDING\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--groups FILE] [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review sample --landing KEY --repo-dir DIR [--roll N] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -88,6 +88,9 @@ pub struct Inputs<'a> {
     pub repo: &'a str,
     pub worktree: &'a Path,
     pub base: &'a str,
+    /// The commit to review, read from a copy of its files; the worktree's
+    /// HEAD, read in place, when none.
+    pub head: Option<&'a str>,
     /// Names the landing across reruns.
     pub key: &'a str,
     pub root: &'a Path,
@@ -108,7 +111,16 @@ pub struct Reported {
 
 /// Reviews the worktree's change past the base and records it.
 pub fn review(inputs: &Inputs) -> Result<Reported> {
-    let diff = run::diff_of(inputs.worktree, inputs.base)?;
+    let diff = match inputs.head {
+        Some(head) => {
+            let mut diff = run::diff_between(inputs.worktree, inputs.base, head)?;
+            if let Some(source) = &mut diff.source {
+                source.in_place = false;
+            }
+            diff
+        }
+        None => run::diff_of(inputs.worktree, inputs.base)?,
+    };
     if diff.text.trim().is_empty() {
         return Ok(Reported {
             landing: None,
@@ -254,7 +266,66 @@ fn short(rev: &str) -> &str {
 }
 
 fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["landing", "item", "rules-root", "reviewer"], &[])?;
+    let args = Args::parse(
+        args,
+        &["landing", "item", "rules-root", "reviewer", "head"],
+        &["record-only"],
+    )?;
+    if args.switch("record-only") {
+        return record_only(tool, &args);
+    }
+    let reported = run_review(tool, &args)?.0;
+    print!("{}", reported.text);
+    match reported.refusal {
+        Some(refusal) => {
+            print!("{refusal}");
+            if let Some(landing) = reported.landing {
+                println!("builds review show {landing} lists every run of this landing");
+            }
+            Err(Fail::Exit(1))
+        }
+        None => Ok(()),
+    }
+}
+
+/// `builds review run ... --record-only`: the review of a landing that is on
+/// main already. It reads the commits as they were when the landing pushed
+/// (`--head`), keeps everything it asks and answers in the store, writes what
+/// it found to a log in the store's folder and never fails.
+fn record_only(tool: &Tool, args: &Args) -> Result<()> {
+    let project = args.require("project")?;
+    let log_dir = Store::named(&tool.places, project)?.dir.join("review-logs");
+    let text = match run_review(tool, args) {
+        Ok((reported, head)) => {
+            let mut text = format!("record-only review of {}\n{}", short(&head), reported.text);
+            if let Some(refusal) = reported.refusal {
+                text.push_str(&refusal);
+            }
+            text
+        }
+        Err(why) => format!(
+            "the review failed; the landing was not refused: {}\n",
+            why.text()
+        ),
+    };
+    let key = args.value("landing")?.unwrap_or("review");
+    let head = args.value("head")?.unwrap_or("head");
+    let name = format!(
+        "{}-{}.log",
+        key.replace(|c: char| !c.is_ascii_alphanumeric() && c != ',', "-"),
+        short(head)
+    );
+    let write =
+        std::fs::create_dir_all(&log_dir).and_then(|()| std::fs::write(log_dir.join(&name), &text));
+    if let Err(error) = write {
+        eprintln!("builds: writing the review log {name}: {error}\n{text}");
+    }
+    Ok(())
+}
+
+/// Runs the review `builds review run` names; returns what it found and the
+/// commit it reviewed.
+fn run_review(tool: &Tool, args: &Args) -> Result<(Reported, String)> {
     let (worktree, base) = match args.positional() {
         [worktree] => (worktree.as_str(), "origin/main"),
         [worktree, base] => (worktree.as_str(), base.as_str()),
@@ -279,34 +350,26 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let stamp = Stamp {
         at: tool.now,
-        by: resolve_by(&args, &worktree).or_else(|_| resolve_by(&args, &current_dir()?))?,
+        by: resolve_by(args, &worktree).or_else(|_| resolve_by(args, &current_dir()?))?,
     };
-    let brief = brief_of(&store, &args, &worktree)?;
-    let root = rules_root(&args)?;
+    let brief = brief_of(&store, args, &worktree)?;
+    let root = rules_root(args)?;
     let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let head = args.value("head")?;
     let reported = review(&Inputs {
         store: &store,
         project: &project,
         repo: &checkout.repo(),
         worktree: &worktree,
         base,
+        head,
         key: &key,
         root: &root,
         reviewer: &reviewer,
         stamp: &stamp,
         brief,
     })?;
-    print!("{}", reported.text);
-    match reported.refusal {
-        Some(refusal) => {
-            print!("{refusal}");
-            if let Some(landing) = reported.landing {
-                println!("builds review show {landing} lists every run of this landing");
-            }
-            Err(Fail::Exit(1))
-        }
-        None => Ok(()),
-    }
+    Ok((reported, head.unwrap_or("HEAD").to_string()))
 }
 
 /// The branch the worktree is on, else its HEAD.

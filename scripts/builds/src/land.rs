@@ -38,16 +38,12 @@
 //! other. It fails the same way. A fast-forward runs both too: a branch rebased
 //! after its hook ran is a tree no hook has seen.
 //!
-//! A repo of a project then has its result reviewed against the rules
-//! (`builds review run WORKTREE origin/main`, under the landing's key: the
-//! items it names, else its design change). A blocking finding standing, or a
-//! reviewer that failed, refuses the landing the way a failed check does: the
-//! findings and the `builds review settle` command are named, nothing is
-//! pushed, and the worktree goes back to origin/main. The landing goes
-//! through once the findings are fixed or settled as dropped; the rerun asks
-//! only the groups that found something. After the push and its record,
-//! `builds review sample` decides whether the review is audited later, in the
-//! background, and never fails the landing.
+//! After the push and its record, a repo of a project has its landed commits
+//! reviewed against the rules in the background (`builds review run
+//! --record-only`, under the landing's key: the items it names, else its
+//! design change). The landing does not wait for it and no review result
+//! refuses or fails a landing: the review records what each reviewer was sent
+//! and answered, and writes its findings to a log in the store's folder.
 //!
 //! The store's checks and records run as `builds` commands of this same
 //! program, so their output is held back and shown only when one fails.
@@ -464,51 +460,35 @@ impl Landing<'_> {
                 ));
             }
         }
-        if self.project.is_some() {
-            let mut line = vec![
-                "review".to_string(),
-                "run".to_string(),
-                self.workdir.display().to_string(),
-                "origin/main".to_string(),
-                "--landing".to_string(),
-                self.review_key(),
-            ];
-            for item in self.request.items.chunks(2) {
-                line.extend(["--item".to_string(), item[1].clone()]);
-            }
-            let (ok, said) = self.run_line(&line);
-            if !ok {
-                return Err(back(
-                    out,
-                    "REVIEW REFUSED the result, nothing pushed: builds review run".to_string(),
-                    said,
-                ));
-            }
-        }
         Ok(())
     }
 
-    /// Asks `builds review sample` whether the review of this landing is
-    /// audited; it starts the audit in the background and answers at once. A
-    /// landing is already on main, so nothing here fails it.
-    fn sample_audit(&self) {
+    /// Starts `builds review run --record-only` on the commits just pushed
+    /// and returns at once: the review runs on in the background, records
+    /// what its reviewers were sent and answered, writes its findings to a log
+    /// in the store's folder, and never refuses or fails the landing.
+    fn start_review(&self, base: &str, head: &str) {
+        use std::os::unix::process::CommandExt;
         let Some(project) = &self.project else {
             return;
         };
-        let line = [
-            "review",
-            "sample",
-            "--project",
-            project,
-            "--landing",
-            &self.review_key(),
-            "--repo-dir",
-            &self.workdir.display().to_string(),
-        ];
-        let (ok, said) = self.builds(&line);
-        if !ok {
+        let mut command = Command::new(self.program);
+        command
+            .args(["review", "run"])
+            .arg(&self.workdir)
+            .args([base, "--head", head, "--landing", &self.review_key()])
+            .args(["--project", project, "--record-only"]);
+        for item in self.request.items.chunks(2) {
+            command.args(["--item", &item[1]]);
+        }
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0);
+        if let Err(error) = command.spawn() {
             let _ = std::io::stderr()
-                .write_all(format!("builds: no audit sampled: {said}\n").as_bytes());
+                .write_all(format!("builds: the review was not started: {error}\n").as_bytes());
         }
     }
 
@@ -641,7 +621,8 @@ impl Landing<'_> {
                         .map(str::to_string)
                         .collect();
                 return if self.record(&on_main, out) {
-                    self.sample_audit();
+                    let landed = git_text(dir, &["rev-parse", "HEAD"]).unwrap_or_default();
+                    self.start_review(&before, &landed);
                     Ok(())
                 } else {
                     Err(Fail::Exit(1))

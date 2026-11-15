@@ -3,8 +3,9 @@
 Personal coding standards and guidelines for AI coding agents, written by
 [@dminkovsky](https://github.com/dminkovsky). Used by local agents (Claude Code
 via `~/.claude/` symlinks and Codex via `~/.codex/` symlinks). `builds land`
-reviews every landing against the rules, one reviewer per group of rules, and
-the agent holding the implementation context reviews its own diff once.
+records a review of every landing against the rules, one reviewer per group of
+rules, and the agent holding the implementation context reviews its own diff
+once.
 
 ## Layout
 
@@ -108,13 +109,16 @@ and reading rules does not launch reviewers or require model calls.
 
 ## Code review
 
-`builds land` reviews every landing before it pushes. `review/groups.toml` puts
-every rule in one group; a group runs when one of its rules covers a changed
-path, and its reviewer answers with a verdict for every rule in the group. A
-finding on a rule with `blocking: true` refuses the landing. The coordinator
-settles each finding with `builds review settle`; `builds help` describes the
-review commands. The agent holding the implementation context still reviews its
-own diff once before it reports.
+After it pushes, `builds land` starts a review of the landed commits in the
+background and returns without waiting for it. The review never blocks or fails
+a landing: it records each call's input, output, model and tokens in the
+project's store, and writes its findings to a log in the store's `review-logs`
+folder. `review/groups.toml` puts every rule in one group; a group runs when one
+of its rules covers a changed path, and its reviewer answers with a verdict for
+every rule in the group. `builds review <worktree>` runs the same review early
+and exits 1 on a standing blocking finding; `builds help` describes the review
+commands. The agent holding the implementation context still reviews its own
+diff once before it reports.
 
 `scripts/rules_review/matching_rules.py` lists the rule bodies to read while
 writing code. It runs no review.

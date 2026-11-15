@@ -31,10 +31,10 @@ here are only those it can't check.
 3. **Execute** (Sonnet, as of 2026-11): every dispatched agent ("Plan with Opus,
    execute with Sonnet").
 4. **Review** every commit before landing ("Review every executor's work").
-   `builds land` also reviews the landing against the rules and refuses it on a
-   blocking finding; the coordinator reads each finding, settles it with
-   `builds review settle`, and sends a confirmed one back to the agent that made
-   the commit.
+   `builds land` also records a review of the landing against the rules in the
+   background; it never refuses a landing. The coordinator reads its findings,
+   settles each with `builds review settle`, and sends a confirmed one back to
+   the agent that made the commit.
 5. **Hold the project's standing rules at every step.** Before a plan or brief
    goes to an agent, the coordinator checks its shape against the project's
    rules that a plan's author never loads by touching files: for bae, the reads

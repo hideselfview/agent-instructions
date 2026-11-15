@@ -17,6 +17,7 @@ fn run_review(demo: &Demo, fake: &Fake, side: &Path, key: &str) -> Reported {
         repo: "demo",
         worktree: side,
         base: "main",
+        head: None,
         key,
         root: &fake.root,
         reviewer: &fake.program,
@@ -323,4 +324,50 @@ fn a_confirmed_finding_becomes_a_case_and_an_unconfirmed_one_does_not() {
     assert_eq!(cases[0].expected[0].rule, "rule-a");
     assert_eq!(cases[0].expected[0].file, "a.rs");
     assert!(cases[0].patch.contains("+a.rs"));
+}
+
+#[test]
+fn a_review_of_a_given_head_reads_a_copy_and_keeps_what_each_reviewer_was_sent_and_answered() {
+    let demo = demo("review-head");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    let head = crate::checkout::git(&side)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    let head = String::from_utf8(head.stdout).unwrap().trim().to_string();
+    let reported = review(&Inputs {
+        store: &demo.store,
+        project: "demo",
+        repo: "demo",
+        worktree: &side,
+        base: "main",
+        head: Some(&head),
+        key: "k",
+        root: &fake.root,
+        reviewer: &fake.program,
+        stamp: &stamp(),
+        brief: None,
+    })
+    .unwrap();
+    assert!(reported.refusal.is_none());
+    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let (system, message, output, tokens): (String, String, String, i64) = conn
+        .query_row(
+            "SELECT s.text, m.text, e.output, e.tokens_in FROM review_exchange e JOIN review_text s ON s.hash = e.system_hash JOIN review_text m ON m.hash = e.message_hash",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap();
+    assert!(
+        system.contains("Never do the bad thing here.") && system.contains("Demo project facts.")
+    );
+    assert!(message.contains("+a.rs"));
+    assert!(output.contains("rule-a"));
+    assert_eq!(tokens, 100);
+    let version: String = conn
+        .query_row("SELECT rules_version FROM review_run", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, "", "the fake rules folder is no repo");
 }

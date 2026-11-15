@@ -297,18 +297,17 @@ chat.
 against its brief and the rules that apply before landing it. A finding goes
 back to the agent that made it.
 
-**Code review: `builds land` reviews every landing.** Before it pushes,
-`builds land` reviews the landing's whole diff against the rules: one reviewer
-per group of rules (`review/groups.toml` in agent-instructions), each answering
-for every rule in its group. A finding on a rule marked `blocking` refuses the
-landing and prints the finding and the command that settles it. The coordinator
-reads every finding and settles it with
-`builds review settle <finding> confirmed|dropped --why <text>`: a confirmed
-finding goes back to the agent that made it, and a dropped finding stays dropped
-when the rerun raises it again. The agent holding the implementation context
-still reviews its own diff once before it reports, and
-`builds review <worktree>` runs the same review early. Reading the bodies of the
-applicable rules remains required.
+**Code review: `builds land` records a review of every landing.** After it
+pushes, `builds land` starts a review of the landed commits in the background:
+one reviewer per group of rules (`review/groups.toml` in agent-instructions),
+each answering for every rule in its group. The review never blocks or fails a
+landing. It records each call's input, output, model and tokens in the project's
+store and writes its findings to a log in the store's `review-logs` folder; the
+coordinator judges findings from there, and
+`builds review settle <finding> confirmed|dropped --why <text>` records the
+judgment. The agent holding the implementation context still reviews its own
+diff once before it reports, and `builds review <worktree>` runs the same review
+early. Reading the bodies of the applicable rules remains required.
 
 **One small PR per task when dispatching agents.** Tell agents with multiple
 tasks to execute serially, one small PR per task — preferably each into main,
