@@ -131,7 +131,7 @@ pub struct CheckRecord {
     /// The `builds cargo` run it started, when it started one: the host cargo
     /// ran on, with that host's load. `record` writes none: `builds cargo`
     /// records its own run (cargo_run.rs), and reading a run finds it.
-    pub cargo: Option<crate::cargo_run::HookCargoRun>,
+    pub cargo: Option<crate::cargo_run::CargoRun>,
 }
 
 impl CheckRecord {
@@ -144,8 +144,11 @@ impl CheckRecord {
                 "on {}, {}{}",
                 cargo.host,
                 cargo.load.text(),
-                match cargo.lock_wait_ms {
-                    Some(ms) if ms > 0 => format!(", {} waiting for cargo's locks", seconds(ms)),
+                match cargo.lock_wait {
+                    Some(wait) if !wait.is_zero() => format!(
+                        ", {} waiting for cargo's locks",
+                        seconds(wait.as_millis() as u64)
+                    ),
                     _ => String::new(),
                 }
             )),

@@ -49,52 +49,45 @@ fn parse_hook_check(value: &str) -> Result<(i64, u32)> {
     }
 }
 
-/// A `builds cargo` run that a hook check started, as the hook's figures read
-/// it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct HookCargoRun {
-    pub host: String,
-    pub load: Load,
-    /// None when cargo printed to a terminal.
-    pub lock_wait_ms: Option<u64>,
-}
-
-/// The `builds cargo` runs that the checks of the hook run that started at
-/// <started_at> in <worktree> started, by the check's position; of several
-/// runs one check started, the longest.
+/// Returns the `builds cargo` runs that the checks of the hook run that
+/// started at <started_at> in <worktree> started, keyed by each check's
+/// position. When one check started several runs, the map keeps the longest.
 pub fn hook_runs(
     conn: &Connection,
     worktree: &str,
     started_at: i64,
     path: &Path,
-) -> Result<HashMap<u32, HookCargoRun>> {
+) -> Result<HashMap<u32, CargoRun>> {
     let what = || format!("reading {}", path.display());
     let mut statement = conn
         .prepare(
-            "SELECT hook_position, host, cores, load, lock_wait_ms FROM builds_cargo_runs
+            "SELECT hook_position, host, cores, load, lock_wait_ms, ms FROM builds_cargo_runs
              WHERE worktree = ?1 AND hook_started_at = ?2 ORDER BY ms",
         )
         .context(what)?;
+    let millis = |ms: i64| Duration::from_millis(ms as u64);
     let rows = statement
         .query_map(params![worktree, started_at], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                HookCargoRun {
-                    host: row.get(1)?,
-                    load: Load {
-                        cores: row.get::<_, i64>(2)? as u32,
-                        one_minute: row.get(3)?,
-                    },
-                    lock_wait_ms: row.get::<_, Option<i64>>(4)?.map(|ms| ms as u64),
+            let position = row.get::<_, i64>(0)? as u32;
+            Ok(CargoRun {
+                worktree: worktree.to_string(),
+                host: row.get(1)?,
+                load: Load {
+                    cores: row.get::<_, i64>(2)? as u32,
+                    one_minute: row.get(3)?,
                 },
-            ))
+                lock_wait: row.get::<_, Option<i64>>(4)?.map(millis),
+                took: millis(row.get(5)?),
+                hook_check: (started_at, position),
+            })
         })
         .context(what)?;
     let mut found = HashMap::new();
-    // Longest last, so it is the one kept.
+    // The query sorts the longest run last, so its insert replaces the
+    // shorter ones.
     for row in rows {
-        let (position, run) = row.context(what)?;
-        found.insert(position as u32, run);
+        let run = row.context(what)?;
+        found.insert(run.hook_check.1, run);
     }
     Ok(found)
 }
