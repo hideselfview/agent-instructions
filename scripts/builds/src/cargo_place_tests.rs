@@ -538,11 +538,14 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     assert_eq!(finding.command.as_deref(), Some("builds host list"));
 
     // A pick probes the host, finds git failing there and passes it over, so
-    // the command runs here even though m1 has the most room.
+    // the command runs here even though m1 has the most room. m1's probe
+    // reads this Mac's own cores and load through the stand-in ssh, so this
+    // Mac's probe gets a load no real one reaches, and m1 has more room
+    // however busy this Mac is.
     let local = host("local", None);
     let probes = host::probe_all(&places, &ssh, vec![local.clone(), m1.clone()]);
     assert!(probes[1].1.as_ref().unwrap().git_fails.is_some());
-    let probes: Vec<_> = vec![(local.clone(), probe(9.0)), probes[1].clone()];
+    let probes: Vec<_> = vec![(local.clone(), probe(1000.0)), probes[1].clone()];
     let Choice::Here(why) =
         pick_ranked(&places, &ssh, "demo", &probes, 0, &Default::default()).unwrap()
     else {
@@ -559,7 +562,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     let probes = host::probe_all(&places, &ssh, vec![m1.clone()]);
     assert_eq!(probes[0].1.as_ref().unwrap().git_fails, None);
     assert!(host::refusals(&places).unwrap().is_empty());
-    let probes = vec![(local, probe(9.0)), probes[0].clone()];
+    let probes = vec![(local, probe(1000.0)), probes[0].clone()];
     assert!(matches!(
         pick_ranked(&places, &ssh, "demo", &probes, 0, &Default::default()).unwrap(),
         Choice::On(..)
