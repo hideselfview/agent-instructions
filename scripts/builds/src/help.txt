@@ -723,8 +723,8 @@ action" with the commands.
                               into the host's builds root (/Volumes/Builds, or
                               ~/builds-root on a host without that volume), and
                               then the repo's scripts/hooks/post-checkout runs
-                              in it with BUILDS_ROOT set to that root (the
-                              command gets the same). When the job ends,
+                              in the worktree with BUILDS_ROOT set to that root
+                              (the command gets the same). When the job ends,
                               builds deletes the ref and the worktree's claim.
                               A stop signal stops the command on the host. The
                               job ends when the command exits, even when it
