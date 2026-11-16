@@ -235,16 +235,16 @@ pub fn migrate_stores(places: &Places) -> Result<()> {
 /// equals a fresh database's, and keeping a time only for a passed check.
 fn check_times() -> String {
     let schema = db::schema();
-    let slice = |from: &str, end: &str| {
-        let start = schema.find(from).expect("the schema has it");
-        let stop = start + schema[start..].find(end).expect("it ends") + end.len();
-        schema[start..stop].to_string()
-    };
-    let table = slice(
+    let table = db::statement(
+        &schema,
         "CREATE TABLE IF NOT EXISTS hook_run_checks",
         "WITHOUT ROWID;",
     );
-    let index = slice("CREATE INDEX IF NOT EXISTS idx_hook_run_checks_name", ";");
+    let index = db::statement(
+        &schema,
+        "CREATE INDEX IF NOT EXISTS idx_hook_run_checks_name",
+        ";",
+    );
     format!(
         "ALTER TABLE hook_run_checks RENAME TO hook_run_checks_old;
 {table}
@@ -259,25 +259,13 @@ DROP TABLE hook_run_checks_old;
 /// The statement that makes `design_tip` as design.sql writes it, taken from
 /// today's schema text so the result equals a fresh database's.
 fn design_tip() -> String {
-    let schema = db::schema();
-    let start = schema
-        .find("CREATE TABLE design_tip")
-        .expect("the schema has it");
-    let end = "STRICT;";
-    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
-    schema[start..stop].to_string()
+    db::statement(&db::schema(), "CREATE TABLE design_tip", "STRICT;").to_string()
 }
 
 /// The statement that makes `design_fix` as design.sql writes it, taken from
 /// today's schema text so the result equals a fresh database's.
 fn design_fix() -> String {
-    let schema = db::schema();
-    let start = schema
-        .find("CREATE TABLE design_fix")
-        .expect("the schema has it");
-    let end = "STRICT;";
-    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
-    schema[start..stop].to_string()
+    db::statement(&db::schema(), "CREATE TABLE design_fix", "STRICT;").to_string()
 }
 
 fn move_store(path: &Path) -> Result<()> {

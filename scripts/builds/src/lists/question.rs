@@ -386,21 +386,13 @@ pub fn apply_blocked(
     Ok(())
 }
 
-/// The statement of question.sql that starts with <from> and ends with the
-/// first <end> after it.
-fn statement(from: &str, end: &str) -> &'static str {
-    let schema = include_str!("question.sql");
-    let start = schema.find(from).expect("question.sql has it");
-    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
-    &schema[start..stop]
-}
-
 /// Moves a store's `question` table from before questions named an origin to
 /// today's, with the statements taken from question.sql so the result equals a
 /// fresh database's: no question has an origin yet. migrate.rs runs it with
 /// the foreign keys off, and the rename runs under `legacy_alter_table`, so
 /// the tables that point at `question` keep naming it.
 pub fn move_to_origins(db: &Connection) -> Result<()> {
+    const SQL: &str = include_str!("question.sql");
     db.execute_batch(&format!(
         "PRAGMA legacy_alter_table = ON;
 ALTER TABLE question RENAME TO question_old;
@@ -410,8 +402,8 @@ INSERT INTO question (id, record_kind, title, details, kind, blocks_nothing)
 DROP TABLE question_old;
 {}
 PRAGMA legacy_alter_table = OFF;",
-        statement("CREATE TABLE question (", "STRICT;"),
-        statement("CREATE INDEX question_origin", ";"),
+        crate::db::statement(SQL, "CREATE TABLE question (", "STRICT;"),
+        crate::db::statement(SQL, "CREATE INDEX question_origin", ";"),
     ))
     .sql()
 }

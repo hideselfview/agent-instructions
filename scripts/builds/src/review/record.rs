@@ -632,11 +632,7 @@ pub fn audited_landings(db: &Connection) -> Result<Vec<i64>> {
 /// `review_run`'s reference keeps naming `review_landing`.
 pub fn move_to_landing_review(db: &Connection) -> Result<()> {
     let schema = crate::db::REVIEW_PART;
-    let slice = |from: &str, end: &str| {
-        let start = schema.find(from).expect("record.sql has it");
-        let stop = start + schema[start..].find(end).expect("it ends") + end.len();
-        &schema[start..stop]
-    };
+    let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
     let landing = slice("CREATE TABLE review_landing", "STRICT;");
     let index = slice("CREATE INDEX review_landing_key", ";");
     let commit = slice("CREATE TABLE review_commit", "WITHOUT ROWID;");
@@ -671,11 +667,7 @@ PRAGMA legacy_alter_table = OFF;"
 /// it.
 pub fn move_to_scored_calls(db: &Connection) -> Result<()> {
     let schema = crate::db::REVIEW_PART;
-    let slice = |from: &str, end: &str| {
-        let start = schema.find(from).expect("record.sql has it");
-        let stop = start + schema[start..].find(end).expect("it ends") + end.len();
-        &schema[start..stop]
-    };
+    let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
     let call = slice("CREATE TABLE review_call", "STRICT;");
     let index = slice("CREATE INDEX review_call_run", ";");
     db.execute_batch(&format!(

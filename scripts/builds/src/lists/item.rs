@@ -604,15 +604,6 @@ impl Lists {
     }
 }
 
-/// The statement of item.sql that starts with <from> and ends with the first
-/// <end> after it.
-fn statement(from: &str, end: &str) -> &'static str {
-    let schema = include_str!("item.sql");
-    let start = schema.find(from).expect("item.sql has it");
-    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
-    &schema[start..stop]
-}
-
 /// Moves a store's `item` table from before an origin could be a record of any
 /// kind to today's, with the statements taken from item.sql so the result
 /// equals a fresh database's: each item keeps the decision or design change
@@ -620,6 +611,7 @@ fn statement(from: &str, end: &str) -> &'static str {
 /// and the rename runs under `legacy_alter_table`, so the tables that point at
 /// `item` keep naming it.
 pub fn move_to_origins(db: &Connection) -> Result<()> {
+    const SQL: &str = include_str!("item.sql");
     db.execute_batch(&format!(
         "PRAGMA legacy_alter_table = ON;
 ALTER TABLE item RENAME TO item_old;
@@ -630,9 +622,9 @@ DROP TABLE item_old;
 {}
 {}
 PRAGMA legacy_alter_table = OFF;",
-        statement("CREATE TABLE item (", "STRICT;"),
-        statement("CREATE INDEX item_origin", ";"),
-        statement("CREATE INDEX item_area", ";"),
+        crate::db::statement(SQL, "CREATE TABLE item (", "STRICT;"),
+        crate::db::statement(SQL, "CREATE INDEX item_origin", ";"),
+        crate::db::statement(SQL, "CREATE INDEX item_area", ";"),
     ))
     .sql()
 }

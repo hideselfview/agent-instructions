@@ -85,6 +85,19 @@ pub fn schema_before_app_timing() -> String {
     format!("{}\n{HOOK_PART}", LISTS_PARTS.join("\n"))
 }
 
+/// The statement of <schema> that starts with <from>, through the first <end>
+/// after it: what a move that makes a table again takes from the schema text,
+/// so the result equals a fresh database's.
+pub fn statement<'a>(schema: &'a str, from: &str, end: &str) -> &'a str {
+    let Some(start) = schema.find(from) else {
+        panic!("the schema has no statement that starts with {from:?}");
+    };
+    let Some(length) = schema[start..].find(end) else {
+        panic!("the statement that starts with {from:?} has no {end:?} after it");
+    };
+    &schema[start..start + length + end.len()]
+}
+
 /// The stamp of the schema text: its FNV-1a hash, folded into `user_version`'s
 /// positive range and kept off 0 (no schema) and 1 (which a hook-stats-only
 /// database once carried).
