@@ -291,10 +291,10 @@ One sccache server serves every checkout. launchd runs it
 (local.sccache-server) on sccache's default port, 4226, with the system's
 TMPDIR and no idle timeout; its cache is caches/sccache, capped in
 ~/Library/Application Support/Mozilla.sccache/config. `builds install` writes
-both, `builds host setup` writes them on a host (whose cache is its own
-~/Library/Caches/Mozilla.sccache), `builds status` flags a config that no
-longer holds builds' cap, and `builds health` names each Mac whose server
-launchd does not run.
+both here and on every host, `builds host setup` writes them on a host (whose
+cache is its own ~/Library/Caches/Mozilla.sccache), `builds status` flags a
+config that no longer holds builds' cap, and `builds health` names each Mac
+whose server launchd does not run or whose config does not hold builds' cap.
 Never start a server any other way: a server inherits the TMPDIR of the client
 that starts it and fails every compile once that folder is deleted, and the
 Unix-socket mode (SCCACHE_SERVER_UDS) races when clients start at once and
@@ -1040,8 +1040,10 @@ STATUS, HEALTH AND THE DASHBOARD
                               ~/.local/bin/builds is missing or differs from
                               this Mac's (`builds host setup <name>`); a build
                               host, or this Mac, whose sccache server launchd
-                              does not run from builds' plist (`builds host
-                              setup <name>`, or `builds install` here); a
+                              does not run from builds' plist, or whose
+                              sccache config does not hold builds' cap
+                              (`builds host setup <name>`, or `builds install`
+                              here); a
                               build host that builds could not ask what it
                               has installed, with what went wrong
   builds dashboard [--port <port>] [--listen <address>]
@@ -1614,11 +1616,14 @@ INSTALLING
                               point Xcode's default DerivedData at the
                               volume, restart a running dashboard so it runs
                               the new code, and copy the same builds to every
-                              recorded host (HOSTS). When builds cannot reach a
-                              host or install on it, builds copies to every
-                              other host first, then fails the install and
-                              names that host, and `builds health` lists it
-                              until its builds matches this Mac's. Run it from
+                              recorded host (HOSTS), where it runs `builds host
+                              setup-here` to write the sccache config and run
+                              the server under launchd as here. When builds
+                              cannot reach a host or install on it, builds
+                              installs on every other host first, then fails
+                              the install and names that host, and `builds
+                              health` lists it until its builds matches this
+                              Mac's and its config holds builds' cap. Run it from
                               a fresh build (install.sh does), never from the
                               installed binary, which can't copy itself onto
                               itself

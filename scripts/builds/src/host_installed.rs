@@ -1,6 +1,7 @@
 //! What each host, this Mac included, has set up for builds' jobs: the
 //! `builds` program its jobs run, whether launchd runs its sccache server,
-//! and the settings that UI tests need on the host (ui_test_settings.rs). `builds
+//! whether its sccache config holds builds' cap, and the settings that UI
+//! tests need on the host (ui_test_settings.rs). `builds
 //! health` and the dashboard compare each host with this Mac and say what to
 //! run for each one that differs; `ui_test_settings::findings` says what to
 //! run for the settings.
@@ -24,27 +25,37 @@ pub struct Installed {
     /// launchd's job (`sccache::launchd_serves`, the same check that setup
     /// uses).
     pub sccache_under_launchd: bool,
+    /// Whether the host's sccache config holds builds' cap
+    /// (`install::sccache_cap_kib`), which `install::run_sccache_under_launchd`
+    /// writes and the server reads when it starts.
+    pub sccache_cap: bool,
     /// The settings that UI tests need on this host, which `builds host
     /// setup` turns on.
     pub ui_tests: crate::ui_test_settings::UiTestSettings,
 }
 
 /// Runs on a host, and on this Mac, to print what `parse_installed` reads:
-/// the builds digest, whether builds' plist is there, the pid listening on
-/// sccache's port, the settings that UI tests need, and last, after `job=loaded`,
-/// what `launchctl print` says about launchd's job.
+/// the builds digest, whether builds' plist is there, each line of the
+/// sccache config after `sccache_config:`, the pid listening on sccache's
+/// port, the settings that UI tests need, and last, after `job=loaded`, what
+/// `launchctl print` says about launchd's job.
 fn installed_script() -> String {
     let label = crate::install::SCCACHE_LABEL;
     format!(
         r#"if [ -e "$HOME/.local/bin/builds" ]; then echo "builds=$(shasum -a 256 "$HOME/.local/bin/builds" | cut -d ' ' -f 1)"; else echo builds=missing; fi
 if [ -e "$HOME/Library/LaunchAgents/{label}.plist" ]; then echo plist=present; else echo plist=missing; fi
+if [ -e "$HOME/{config}" ]; then sed 's/^/{CONFIG_PREFIX}/' "$HOME/{config}"; fi
 {listener}
 {ui_tests}
 if job=$(launchctl print "gui/$(id -u)/{label}" 2>/dev/null); then echo job=loaded; printf '%s\n' "$job"; else echo job=none; fi"#,
+        config = crate::install::SCCACHE_CONFIG,
         listener = crate::sccache::listener_script(),
         ui_tests = crate::ui_test_settings::SCRIPT
     )
 }
+
+/// What `installed_script` puts before each line of the sccache config.
+const CONFIG_PREFIX: &str = "sccache_config:";
 
 /// Reads what `installed_script` printed.
 pub fn parse_installed(text: &str) -> Result<Installed> {
@@ -63,6 +74,14 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
     };
     let listener = crate::sccache::parse_listener_lines(text)?;
     let ui_tests = crate::ui_test_settings::parse(text)?;
+    let config: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.strip_prefix(CONFIG_PREFIX))
+        .collect();
+    let sccache_cap = crate::install::sccache_config_text_holds(
+        &config.join("\n"),
+        crate::install::sccache_cap_kib(),
+    );
     let job = match text.split_once("\njob=") {
         Some((_, rest)) if rest.starts_with("loaded") => Some(crate::sccache::parse_job(rest)?),
         Some((_, rest)) if rest.starts_with("none") => None,
@@ -75,6 +94,7 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
             digest => Some(digest.to_string()),
         },
         sccache_under_launchd: plist && crate::sccache::launchd_serves(job.as_ref(), listener),
+        sccache_cap,
         ui_tests,
     })
 }
@@ -109,7 +129,8 @@ pub fn read_all_installed(places: &Places, ssh: &Ssh, hosts: &[Host]) -> Vec<Hos
 
 /// The "needs action" lines for <reads>: each host whose builds is not this
 /// Mac's, each host, this Mac included, whose sccache server launchd does not
-/// run, and each host that builds could not ask, with what went wrong.
+/// run or whose sccache config does not hold builds' cap, and each host that
+/// builds could not ask, with what went wrong.
 pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice> {
     let Some(local) = reads.iter().find(|read| read.host == LOCAL) else {
         return Vec::new();
@@ -126,6 +147,12 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
     if !local.sccache_under_launchd {
         out.push(crate::health::Advice::run(
             format!("this Mac's {SCCACHE_OUTSIDE_LAUNCHD} Run it under launchd with"),
+            "builds install".to_string(),
+        ));
+    }
+    if !local.sccache_cap {
+        out.push(crate::health::Advice::run(
+            format!("this Mac's {} Write it with", sccache_cap_differs()),
             "builds install".to_string(),
         ));
     }
@@ -155,6 +182,12 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
         if !installed.sccache_under_launchd {
             out.push(crate::health::Advice::run(
                 format!("host {name}'s {SCCACHE_OUTSIDE_LAUNCHD} Run it under launchd with"),
+                setup.clone(),
+            ));
+        }
+        if !installed.sccache_cap {
+            out.push(crate::health::Advice::run(
+                format!("host {name}'s {} Write it with", sccache_cap_differs()),
                 setup,
             ));
         }
@@ -164,6 +197,14 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
 
 /// What a host whose sccache server launchd does not run loses.
 const SCCACHE_OUTSIDE_LAUNCHD: &str = "sccache server does not run under launchd, so the first compile starts one that takes the client's TMPDIR and open-file limit and exits when idle.";
+
+/// What a Mac whose sccache config does not hold builds' cap loses.
+fn sccache_cap_differs() -> String {
+    format!(
+        "sccache config does not hold builds' cap of {}, so its sccache server keeps a cache of another size.",
+        crate::text::human(crate::install::sccache_cap_kib())
+    )
+}
 
 #[cfg(test)]
 #[path = "host_installed_tests.rs"]

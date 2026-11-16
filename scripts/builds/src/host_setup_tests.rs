@@ -26,7 +26,8 @@ fn install_program_copies_builds_to_the_host_and_makes_its_root() {
         cores: 10,
         speed: Some(1.0),
     };
-    install_program(&ssh, &host).unwrap();
+    let exe = std::env::current_exe().unwrap();
+    install_program(&ssh, &host, &exe).unwrap();
     let installed = home.join(".local/bin/builds");
     assert_eq!(
         std::fs::read(&installed).unwrap(),
@@ -40,19 +41,19 @@ fn install_program_copies_builds_to_the_host_and_makes_its_root() {
         "builds-linker runs the host's builds"
     );
     // A second install leaves the link as it is.
-    install_program(&ssh, &host).unwrap();
+    install_program(&ssh, &host, &exe).unwrap();
     assert_eq!(
         std::fs::read_link(crate::linker::path(&home)).unwrap(),
         Path::new("builds")
     );
-    assert!(install_program(&ssh, &Host::local()).is_err());
+    assert!(install_program(&ssh, &Host::local(), &exe).is_err());
     let gone = Host {
         name: "gone".to_string(),
         target: Some("unreachable".to_string()),
         cores: 1,
         speed: Some(1.0),
     };
-    let Err(Fail::Message(message)) = install_program(&ssh, &gone) else {
+    let Err(Fail::Message(message)) = install_program(&ssh, &gone, &exe) else {
         panic!("expected a failure");
     };
     assert!(message.contains("host gone"), "{message}");

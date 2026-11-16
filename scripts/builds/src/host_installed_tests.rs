@@ -11,9 +11,19 @@ fn host(name: &str) -> Host {
     }
 }
 
-/// What `installed_script` prints for a host with builds' plist, the pid
-/// <listener> on sccache's port, the settings that UI tests need all on, and
-/// launchd's job as `launchctl print` printed <job>, or no job.
+/// What `installed_script` prints for the sccache config `builds install`
+/// writes for a cap of <cap_kib>.
+fn config_lines(cap_kib: u64) -> String {
+    format!(
+        "sccache_config:# Written by builds install.\nsccache_config:[cache.disk]\nsccache_config:size = {}\n",
+        cap_kib * 1024
+    )
+}
+
+/// What `installed_script` prints for a host with builds' plist, an sccache
+/// config with builds' cap, the pid <listener> on sccache's port, the
+/// settings that UI tests need all on, and launchd's job as `launchctl print`
+/// printed <job>, or no job.
 fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> String {
     let job = match job {
         Some(printed) => format!("job=loaded\n{printed}"),
@@ -21,7 +31,8 @@ fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> Strin
     };
     let status = if listener.is_empty() { 1 } else { 0 };
     format!(
-        "builds={builds}\nplist={plist}\nlistener_status={status}\nlistener={listener}\nlistener_said=\n{UI_TESTS}{job}"
+        "builds={builds}\nplist={plist}\n{config}listener_status={status}\nlistener={listener}\nlistener_said=\n{UI_TESTS}{job}",
+        config = config_lines(crate::install::sccache_cap_kib())
     )
 }
 
@@ -48,6 +59,7 @@ fn reads_what_a_host_has_installed() {
         Installed {
             builds: Some("ab12".to_string()),
             sccache_under_launchd: true,
+            sccache_cap: true,
             ui_tests: all_on(),
         }
     );
@@ -56,6 +68,7 @@ fn reads_what_a_host_has_installed() {
         Installed {
             builds: None,
             sccache_under_launchd: false,
+            sccache_cap: true,
             ui_tests: all_on(),
         }
     );
@@ -142,7 +155,7 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
     );
     assert_eq!(found[0].command.as_deref(), Some("builds host setup m1"));
 
-    crate::host_setup::install_program(&ssh, &m1).unwrap();
+    crate::host_setup::install_program(&ssh, &m1, &std::env::current_exe().unwrap()).unwrap();
     assert_eq!(findings(), [], "m1 has this Mac's builds");
 
     std::fs::write(home.join(".local/bin/builds"), "older").unwrap();
@@ -165,6 +178,7 @@ fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
     let installed = |sccache_under_launchd| Installed {
         builds: Some("ab12".to_string()),
         sccache_under_launchd,
+        sccache_cap: true,
         ui_tests: all_on(),
     };
     let read = |host: &str, under: bool| HostInstalled {
@@ -197,4 +211,74 @@ fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
         .map(|read| read.read.as_ref().unwrap().sccache_under_launchd)
         .collect();
     assert_eq!(under, [false, false]);
+}
+
+/// A Mac whose sccache config does not hold builds' cap, such as a host that
+/// kept the old cap when builds raised it, gets a finding: a host's names
+/// `builds host setup`, and this Mac's names `builds install`.
+/// read_all_installed reads each home's config.
+#[test]
+fn a_host_whose_sccache_config_does_not_hold_builds_cap_is_a_finding() {
+    use crate::sccache::tests::RUNNING;
+    let cap = crate::install::sccache_cap_kib();
+    let holds = |config: &str| {
+        let text =
+            answer("ab12", "present", "2914", Some(RUNNING)).replace(&config_lines(cap), config);
+        parse_installed(&text).unwrap().sccache_cap
+    };
+    assert!(holds(&config_lines(cap)));
+    assert!(!holds(&config_lines(30 * 1024 * 1024)), "the old cap");
+    assert!(!holds(""), "no config");
+    assert!(
+        holds(&config_lines(cap).replace("Written by builds install.", "an older comment")),
+        "a comment is no setting"
+    );
+
+    let read = |host: &str, sccache_cap: bool| HostInstalled {
+        host: host.to_string(),
+        read: Ok(Installed {
+            builds: Some("ab12".to_string()),
+            sccache_under_launchd: true,
+            sccache_cap,
+            ui_tests: all_on(),
+        }),
+    };
+    assert_eq!(
+        installed_findings(&[read(LOCAL, true), read("m1", true)]),
+        []
+    );
+    let found = installed_findings(&[read(LOCAL, false), read("m1", false)]);
+    let shown: Vec<(&str, Option<&str>)> = found
+        .iter()
+        .map(|advice| (advice.text.as_str(), advice.command.as_deref()))
+        .collect();
+    let says = format!(
+        "sccache config does not hold builds' cap of {}",
+        crate::text::human(cap)
+    );
+    assert_eq!(shown.len(), 2, "{shown:?}");
+    assert!(
+        shown[0].0.starts_with(&format!("this Mac's {says}")),
+        "{shown:?}"
+    );
+    assert_eq!(shown[0].1, Some("builds install"));
+    assert!(
+        shown[1].0.starts_with(&format!("host m1's {says}")),
+        "{shown:?}"
+    );
+    assert_eq!(shown[1].1, Some("builds host setup m1"));
+
+    let scratch = Scratch::new("host-sccache-cap");
+    let places = scratch.places();
+    let home = scratch.dir.join("remote-home");
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let config = crate::install::sccache_config_path(&home);
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+    std::fs::write(&config, format!("[cache.disk]\nsize = {}\n", cap * 1024)).unwrap();
+    let reads = read_all_installed(&places, &ssh, &[Host::local(), host("m1")]);
+    let caps: Vec<bool> = reads
+        .iter()
+        .map(|read| read.read.as_ref().unwrap().sccache_cap)
+        .collect();
+    assert_eq!(caps, [false, true], "only m1's home has a config");
 }

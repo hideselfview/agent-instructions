@@ -23,9 +23,12 @@ pub const SCCACHE_LABEL: &str = "local.sccache-server";
 
 /// The sccache config file, which sccache reads on every client and server
 /// start, whatever the caller's environment, so the cap holds for builds that
-/// never source a shell profile.
+/// never source a shell profile. Relative to $HOME.
+pub const SCCACHE_CONFIG: &str = "Library/Application Support/Mozilla.sccache/config";
+
+/// The sccache config file in <home>.
 pub fn sccache_config_path(home: &Path) -> PathBuf {
-    home.join("Library/Application Support/Mozilla.sccache/config")
+    home.join(SCCACHE_CONFIG)
 }
 
 /// The file the sccache server launchd runs writes its errors to.
@@ -53,11 +56,16 @@ fn settings(text: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Does <text>, an sccache config, hold the cap <cap_kib>?
+pub fn sccache_config_text_holds(text: &str, cap_kib: u64) -> bool {
+    settings(text) == settings(&sccache_config(cap_kib))
+}
+
 /// Does the sccache config hold the cap <cap_kib>?
 pub fn sccache_config_holds(home: &Path, cap_kib: u64) -> Result<bool> {
     let file = sccache_config_path(home);
     match std::fs::read_to_string(&file) {
-        Ok(text) => Ok(settings(&text) == settings(&sccache_config(cap_kib))),
+        Ok(text) => Ok(sccache_config_text_holds(&text, cap_kib)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => fail!("reading {}: {error}", file.display()),
     }
@@ -574,28 +582,42 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     if replaced {
         restart_dashboards(home)?;
     }
-    install_on_hosts(&tool.places, &crate::host::Ssh::from_env())
+    let me = std::env::current_exe().context(|| "finding this binary".to_string())?;
+    install_on_hosts(&tool.places, &crate::host::Ssh::from_env(), &me)
 }
 
-/// Copies this build to every recorded host (`host_setup::install_program`), so
-/// each host's jobs run the builds this Mac runs. The function tries every
-/// host first, then fails and names each host it could not install on.
-/// `builds health` reports a host that runs a different builds until a later
-/// install or `builds host setup` copies the new one there.
-fn install_on_hosts(places: &crate::places::Places, ssh: &crate::host::Ssh) -> Result<()> {
+/// Installs <program>, this build, on every recorded host
+/// (`host_setup::install_on_host`): copies it there, so each host's jobs run
+/// the builds this Mac runs, and has it write the host's sccache config with
+/// builds' cap and run its sccache server under launchd, so a change of the
+/// cap reaches every host when it lands. The function tries every host
+/// first, then fails and names each host it could not install on. `builds
+/// health` reports a host that runs a different builds, or whose sccache
+/// config does not hold builds' cap, until a later install or `builds host
+/// setup` fixes it.
+fn install_on_hosts(
+    places: &crate::places::Places,
+    ssh: &crate::host::Ssh,
+    program: &Path,
+) -> Result<()> {
     let hosts = crate::host::read_remote(places)?;
-    let installed =
-        crate::checkout::parallel_map(&hosts, |host| crate::host_setup::install_program(ssh, host));
+    let installed = crate::checkout::parallel_map(&hosts, |host| {
+        crate::host_setup::install_on_host(places, ssh, host, program)
+    });
     let mut failed = Vec::new();
     for (host, result) in hosts.iter().zip(installed) {
         match result {
-            Ok(_) => note(format!("installed this builds on host {}", host.name)),
+            Ok((_, said)) => note(format!(
+                "installed this builds on host {}: {}",
+                host.name,
+                said.trim()
+            )),
             Err(error) => failed.push(format!("host {}: {}", host.name, error.text())),
         }
     }
     if !failed.is_empty() {
         fail!(
-            "builds install updated builds on this Mac but could not copy it to these hosts: {}. `builds health` reports each host whose builds differs from this Mac's, and `builds host setup <name>` installs it there",
+            "builds install updated builds on this Mac but could not install it on these hosts: {}. `builds health` reports each host whose builds differs from this Mac's or whose sccache config does not hold builds' cap, and `builds host setup <name>` installs it there",
             failed.join("; ")
         );
     }
@@ -838,10 +860,13 @@ mod tests {
         install.join().unwrap();
     }
 
-    /// Every host that answers gets this build, and the install fails with an
-    /// error that names each host that does not answer.
+    /// Every host that answers gets this build and runs its `host
+    /// setup-here`, which writes the host's sccache config, so a change of
+    /// builds' cap reaches the host. The install fails with an error that
+    /// names each host that does not answer.
     #[test]
-    fn install_copies_this_build_to_every_host_and_names_the_ones_it_missed() {
+    fn install_copies_this_build_to_every_host_sets_it_up_and_names_the_ones_it_missed() {
+        use std::os::unix::fs::PermissionsExt;
         let scratch = crate::testing::Scratch::new("install-hosts");
         let places = scratch.places();
         let home = scratch.dir.join("remote-home");
@@ -849,14 +874,23 @@ mod tests {
         let hosts = crate::host::hosts_file(&places);
         std::fs::create_dir_all(hosts.parent().unwrap()).unwrap();
         std::fs::write(&hosts, "m1 u@m1 10\ngone unreachable 4\n").unwrap();
-        let Err(crate::fail::Fail::Message(message)) = install_on_hosts(&places, &ssh) else {
+        // A builds that writes down each command the host runs it with.
+        let program = scratch.dir.join("builds");
+        std::fs::write(&program, "#!/bin/sh\necho \"$*\" >> \"$HOME/ran.txt\"\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let Err(crate::fail::Fail::Message(message)) = install_on_hosts(&places, &ssh, &program)
+        else {
             panic!("expected a failure for the host that does not answer");
         };
         assert!(message.contains("host gone:"), "{message}");
         assert!(!message.contains("host m1"), "{message}");
         assert_eq!(
             std::fs::read(home.join(".local/bin/builds")).unwrap(),
-            std::fs::read(std::env::current_exe().unwrap()).unwrap()
+            std::fs::read(&program).unwrap()
+        );
+        assert_eq!(
+            std::fs::read_to_string(home.join("ran.txt")).unwrap(),
+            "host setup-here\n"
         );
     }
 }

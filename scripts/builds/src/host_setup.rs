@@ -3,7 +3,7 @@
 //! measuring the speed of its cores against this Mac's, and turning on the
 //! settings that UI tests need there (ui_test_settings.rs).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use crate::fail;
@@ -22,15 +22,13 @@ pub struct SetUp {
     pub speed: f64,
 }
 
-/// Sets <host> up to take jobs: copies this program there (`install_program`),
-/// has that copy run `builds host setup-here` there, which runs the host's
-/// sccache server under launchd with the cache size limit that builds sets,
-/// as `builds install` does on this Mac, and records the host's core speed against this Mac's
+/// Sets <host> up to take jobs: installs this program there
+/// (`install_on_host`) and records the host's core speed against this Mac's
 /// (`core_speed`) in the hosts file, timing the same compile there with
 /// `builds host speed-here` and here.
 pub fn setup_host(places: &Places, ssh: &Ssh, host: &Host) -> Result<SetUp> {
-    let root = install_program(ssh, host)?;
-    let said = run_builds_there(places, ssh, host, "host setup-here", "setting up")?;
+    let exe = std::env::current_exe().context(|| "finding this program".to_string())?;
+    let (root, said) = install_on_host(places, ssh, host, &exe)?;
     let printed = run_builds_there(places, ssh, host, "host speed-here", "timing a compile")?;
     let there = crate::core_speed::parse_line(&printed)?;
     let here = crate::core_speed::time_compile(&speed_folder())?;
@@ -65,18 +63,34 @@ fn run_builds_there(
     crate::remote::Transport { places, ssh, host }.capture(&script, doing)
 }
 
-/// Copies this Mac's `builds` program to `~/.local/bin/builds` on <host> and
-/// creates its builds root. The repo's own `scripts/build-layout.sh` and
+/// Installs <program>, this Mac's `builds`, on <host> (`install_program`)
+/// and has that copy run `builds host setup-here` there, which writes the
+/// sccache config with builds' cap and runs the host's sccache server under
+/// launchd, as `builds install` does on this Mac. Returns the host's builds
+/// root and what setup-here said. `builds install` runs this for every host,
+/// so a change of builds' sccache cap reaches each host when it lands.
+pub fn install_on_host(
+    places: &Places,
+    ssh: &Ssh,
+    host: &Host,
+    program: &Path,
+) -> Result<(String, String)> {
+    let root = install_program(ssh, host, program)?;
+    let said = run_builds_there(places, ssh, host, "host setup-here", "setting up")?;
+    Ok((root, said))
+}
+
+/// Copies <program>, this Mac's `builds`, to `~/.local/bin/builds` on <host>
+/// and creates its builds root. The repo's own `scripts/build-layout.sh` and
 /// `scripts/cargo.sh` find the program there, so a repo's hooks and scripts
 /// work on the host as they do here. Both Macs run arm64 macOS, so the same
 /// program runs on both.
-pub fn install_program(ssh: &Ssh, host: &Host) -> Result<String> {
+pub fn install_program(ssh: &Ssh, host: &Host, program: &Path) -> Result<String> {
     use std::io::Write;
     let Some(target) = &host.target else {
         fail!("{LOCAL} is this Mac and already has builds");
     };
-    let exe = std::env::current_exe().context(|| "finding this program".to_string())?;
-    let program = std::fs::read(&exe).context(|| format!("reading {}", exe.display()))?;
+    let program = std::fs::read(program).context(|| format!("reading {}", program.display()))?;
     let script = format!(
         "{root}mkdir -p \"$HOME/.local/bin\" \"$BUILDS_ROOT\" && cat > \"$HOME/.local/bin/builds.part\" && chmod 755 \"$HOME/.local/bin/builds.part\" && mv \"$HOME/.local/bin/builds.part\" \"$HOME/.local/bin/builds\" && ln -sfn builds \"$HOME/.local/bin/{linker}\" && echo \"$BUILDS_ROOT\"",
         linker = crate::linker::NAME,
