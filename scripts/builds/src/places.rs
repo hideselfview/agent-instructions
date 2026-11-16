@@ -108,6 +108,12 @@ impl Places {
         })
     }
 
+    /// The folder of `builds install`'s gates and the uses of the stores
+    /// (install_gate.rs), beside the stores' folder.
+    pub fn install_dir(&self) -> PathBuf {
+        self.lists.with_file_name("install")
+    }
+
     pub fn trash(&self) -> PathBuf {
         self.root.join(".trash")
     }

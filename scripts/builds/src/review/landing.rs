@@ -390,7 +390,7 @@ pub fn refusal(commits: &[Commit], verdict: &Verdict) -> Option<String> {
 /// reading, and the commits with the groups each needs.
 struct Asked {
     store: Store,
-    conn: Connection,
+    conn: crate::db::Held,
     repo: String,
     dir: PathBuf,
     needs: Vec<Need>,
@@ -527,7 +527,10 @@ fn start_audit(asked: &Asked, landing: i64, roll: f64, reviewer: &str) -> Result
         return Ok(());
     }
     let program = std::env::current_exe().context(|| "finding this program".to_string())?;
+    // The audit outlives this command, so no use this command runs under
+    // covers it, and it holds one of its own.
     std::process::Command::new(program)
+        .env_remove(crate::install_gate::VARIABLE)
         .args(["review", "audit", &landing.to_string()])
         .args(["--project", &asked.store.project])
         .arg("--repo-dir")

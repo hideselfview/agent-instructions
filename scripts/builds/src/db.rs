@@ -176,6 +176,12 @@ pub fn stamp_of(conn: &Connection, path: &Path) -> Result<i64> {
 
 /// Refuses a stamp that is not this schema's, naming both.
 fn require_stamp(found: i64, path: &Path) -> Result<()> {
+    if found != stamp() && crate::install_gate::program_replaced() {
+        fail!(
+            "builds install replaced this builds program while this command ran, and moved {} to the new program's schema; run the command again",
+            path.display()
+        );
+    }
     if found != stamp() {
         fail!(
             "{} was made by another builds schema (it carries {found}, this builds' schema is {}); `builds install` moves a store of an older one",
@@ -206,10 +212,44 @@ pub enum Make {
     Never,
 }
 
+/// A connection to a store, and the use of the stores it takes while it is
+/// open (install_gate.rs).
+pub struct Held {
+    // Declared first, so it closes before the use ends.
+    conn: Connection,
+    _use: Option<crate::install_gate::ConnectionUse<'static>>,
+}
+
+impl std::ops::Deref for Held {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        &self.conn
+    }
+}
+
+impl std::fmt::Debug for Held {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.conn.fmt(f)
+    }
+}
+
+impl std::ops::DerefMut for Held {
+    fn deref_mut(&mut self) -> &mut Connection {
+        &mut self.conn
+    }
+}
+
 /// The database at <path> for writing, with the schema's stamp. The folder
 /// must exist; this never makes it. A new file gets the whole schema and the
 /// stamp in its first transaction, in WAL mode.
-pub fn open(path: &Path, make: Make) -> Result<Connection> {
+pub fn open(path: &Path, make: Make) -> Result<Held> {
+    let taken = crate::install_gate::for_connection()?;
+    let conn = open_connection(path, make)?;
+    Ok(Held { conn, _use: taken })
+}
+
+fn open_connection(path: &Path, make: Make) -> Result<Connection> {
     let flags = match make {
         Make::Allowed => OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
         Make::Never => OpenFlags::SQLITE_OPEN_READ_WRITE,
@@ -246,10 +286,15 @@ pub fn open(path: &Path, make: Make) -> Result<Connection> {
 
 /// The database at <path> for reading, read-only; None when there is no file
 /// or no schema in it yet.
-pub fn open_reader(path: &Path) -> Result<Option<Connection>> {
+pub fn open_reader(path: &Path) -> Result<Option<Held>> {
     if !path.exists() {
         return Ok(None);
     }
+    let taken = crate::install_gate::for_connection()?;
+    Ok(open_read_only(path)?.map(|conn| Held { conn, _use: taken }))
+}
+
+fn open_read_only(path: &Path) -> Result<Option<Connection>> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .context(|| format!("opening {}", path.display()))?;
     conn.busy_timeout(BUSY)

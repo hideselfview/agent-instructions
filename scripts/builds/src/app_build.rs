@@ -771,7 +771,7 @@ impl Timing {
             let Some(database) = database else {
                 return Ok(());
             };
-            app_timing::record_with_installed(
+            app_timing::record(
                 &database,
                 &RunRecord {
                     started_at: self.started_at,

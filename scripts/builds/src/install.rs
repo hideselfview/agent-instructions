@@ -480,9 +480,20 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("usage: builds install");
     }
     let home = &tool.places.home;
+    // Install waits for every use of the stores, and so forever for the use
+    // of a command it runs under.
+    if let Ok(holder) = std::env::var(crate::install_gate::VARIABLE) {
+        fail!(
+            "builds install runs under builds process {holder}, which holds a use of the stores until it ends, so install would wait for it forever; run install outside it"
+        );
+    }
+    // No builds command uses the stores from closing the gates until the new
+    // program is on PATH, so none writes a store of another schema.
+    let closed = crate::install_gate::close(&tool.places, &mut |line| note(line))?;
     crate::migrate::migrate_app_files(&tool.places)?;
     crate::migrate::migrate_stores(&tool.places)?;
     let replaced = put_on_path(home)?;
+    drop(closed);
     tool.places.require_volume()?;
     let caches = tool.places.caches();
     let derived_data = tool.places.derived_data();

@@ -237,13 +237,13 @@ fn kind_of(word: &str) -> Result<Kind> {
 
 /// The database at <path> ready for writing: made with its schema when it is
 /// new. The folder must exist; this never makes it.
-fn open_for_writing(path: &Path) -> Result<Connection> {
+fn open_for_writing(path: &Path) -> Result<crate::db::Held> {
     crate::db::open(path, crate::db::Make::Allowed)
 }
 
 /// The database at <path> for reading; None when there is no file or no
 /// schema in it yet.
-pub(crate) fn open_for_reading(path: &Path) -> Result<Option<Connection>> {
+pub(crate) fn open_for_reading(path: &Path) -> Result<Option<crate::db::Held>> {
     crate::db::open_reader(path)
 }
 

@@ -1436,9 +1436,23 @@ agent-instructions and run `review replay --rules-root` on it.
 
 INSTALLING
 
-  builds install              copy builds onto PATH in one rename (a failed
-                              build leaves the installed one) and link
-                              ~/.local/bin/builds-linker to it, create the
+  builds install              wait until no builds command will write a store
+                              with the schema it started with, naming each
+                              and when it started: first every hook run
+                              (`checks run`), app build and review that asks
+                              reviewers, each of which records after long
+                              work; then every other command's open store
+                              connection, which lasts one transaction. While
+                              install waits for the first kind, a command of
+                              that kind that starts waits, then runs the
+                              installed builds; other commands keep working.
+                              A builds command started by one of the first
+                              kind runs under it, and install refuses to run
+                              under one. Then move the stores to this builds'
+                              schema, copy builds onto PATH in one rename (a
+                              failed build leaves the installed one), link
+                              ~/.local/bin/builds-linker to it, and let the
+                              waiting commands start. Then create the
                               shared caches and their links (moving a real
                               folder already there onto the volume), write the
                               sccache config, run the sccache server under

@@ -32,6 +32,7 @@ mod host;
 mod host_installed;
 mod host_setup;
 mod install;
+mod install_gate;
 mod install_hook;
 mod land;
 mod lane;
@@ -107,6 +108,15 @@ fn main() -> ExitCode {
         print!("{HELP}");
         return ExitCode::from(2);
     };
+    let entered = enter_stores(command, &args);
+    let _use = match entered {
+        Ok(held) => held,
+        Err(Fail::Message(message)) => {
+            text::note(message);
+            return ExitCode::from(1);
+        }
+        Err(Fail::Exit(code)) => return ExitCode::from(code.clamp(0, 255) as u8),
+    };
     match run(command, rest) {
         Ok(()) => ExitCode::SUCCESS,
         Err(Fail::Message(message)) => {
@@ -117,6 +127,90 @@ fn main() -> ExitCode {
     }
 }
 
+/// The commands that take no use of the stores (install_gate.rs): install,
+/// which closes the gates, the dashboard, which install restarts, and the
+/// help.
+const UNGATED: [&str; 5] = ["install", "dashboard", "help", "-h", "--help"];
+
+/// Whether `builds <command> <rest>` holds a use of the stores for its life
+/// (install_gate.rs): it writes a store after long work, with what it measured
+/// since it started. Every other command writes in short transactions, or
+/// runs under a holder's use: `builds cargo` records a run only for a hook
+/// check, under the hook run's use.
+fn holds_for_life(command: &str, rest: &[String]) -> bool {
+    match command {
+        // Records the hook run once its checks end (hook_stats.rs).
+        "checks" => rest.first().is_some_and(|sub| sub == "run"),
+        // Records each shots run's findings once the run ends, and each
+        // lane's run, with its wait for the lane and its steps, once the lane
+        // ends (app_build.rs).
+        "app-build" => true,
+        // A run, a replay and an audit record what the reviewers answered
+        // once they answer (review/mod.rs); the other review commands read or
+        // write in one transaction.
+        "review" => !matches!(
+            rest.first().map(String::as_str),
+            Some(
+                "groups"
+                    | "settle"
+                    | "fixed"
+                    | "show"
+                    | "check-landing"
+                    | "landed"
+                    | "misses"
+                    | "rates"
+                    | "scores"
+                    | "case"
+            )
+        ),
+        _ => false,
+    }
+}
+
+/// Enters the stores for command <command>, run with <args> (the command
+/// first): returns the use it holds for its life, or None when it takes a use
+/// per store connection, takes none, or runs under a holder's use. A command
+/// that waited at a closed gate while an install ran runs the program at this
+/// program's path in its place, with the same arguments: install replaced the
+/// program it started from.
+fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::Use>> {
+    if UNGATED.contains(&command) || std::env::var_os(install_gate::VARIABLE).is_some() {
+        return Ok(None);
+    }
+    let places = Places::from_env()?;
+    let pid = std::process::id();
+    let (what, since) = (args.join(" "), text::clock());
+    if !holds_for_life(command, &args[1..]) {
+        if !install_gate::may_start(&places)? {
+            run_again(args)?;
+        }
+        install_gate::use_per_connection(install_gate::PerConnection::new(
+            places, pid, &what, &since,
+        ));
+        return Ok(None);
+    }
+    match install_gate::enter_for_life(&places, pid, &what, &since)? {
+        install_gate::Entered::Holds(held) => {
+            // SAFETY: no other thread runs yet, so none reads the environment
+            // while this writes it. Every builds command this one starts runs
+            // under its use.
+            unsafe { std::env::set_var(install_gate::VARIABLE, pid.to_string()) };
+            Ok(Some(held))
+        }
+        install_gate::Entered::RunAgain => run_again(args).map(|()| None),
+    }
+}
+
+/// Runs the program at this program's path with <args> in this process's
+/// place; returns only when it cannot.
+fn run_again(args: &[String]) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let program = std::env::current_exe()
+        .map_err(|error| Fail::Message(format!("finding this program: {error}")))?;
+    let error = std::process::Command::new(&program).args(args).exec();
+    fail!("running {} again: {error}", program.display())
+}
+
 fn run(command: &str, args: &[String]) -> Result<()> {
     match command {
         // These run in the caller's environment as it is, which cargo
@@ -125,7 +219,6 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "checks" => return checks_run::cmd_checks(args),
         "install-hook" => return install_hook::cmd_install_hook(args),
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
-        "record-run" => return app_timing::cmd_record_run(args),
         "app-build" => return app_build::cmd_app_build(&Places::from_env()?, args),
         "shots" => return shot_findings::cmd_shots(&Places::from_env()?, args),
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),

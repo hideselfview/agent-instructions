@@ -55,8 +55,6 @@ mod score;
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::Connection;
-
 use crate::checkout::{Checkout, git};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -781,7 +779,7 @@ fn replay_landings(tool: &Tool, args: &Args) -> Result<()> {
 /// for reading: `--project`, else the project of the current directory's
 /// repo. Fails when that project has no store, so that no review command
 /// answers from an empty one.
-fn store_of(tool: &Tool, args: &Args) -> Result<(Store, Connection)> {
+fn store_of(tool: &Tool, args: &Args) -> Result<(Store, crate::db::Held)> {
     let store = Store::resolve(&tool.places, args, &current_dir()?)?;
     let conn = store.open_existing()?;
     Ok((store, conn))

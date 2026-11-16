@@ -1,0 +1,369 @@
+//! The gates that keep a builds program off a store of another schema.
+//!
+//! `builds install` moves each store to its program's schema and puts that
+//! program on PATH. A builds program refuses a store of another schema
+//! (db.rs), so a command that started before an install and wrote a store
+//! after it lost its write: a hook run that recorded itself when its checks
+//! ended was refused that way.
+//!
+//! A command uses the stores in one of two ways:
+//! - A command that writes a store after long work, with what it measured
+//!   since it started (main.rs's `holds_for_life` names them: a hook run, an
+//!   app build, a review that asks reviewers), holds a command use for its
+//!   life.
+//! - Every other command takes a connection use while each store connection
+//!   it opens is open. Its writes are each one short transaction, so a
+//!   command such as `builds cargo test` holds no use while it builds.
+//!
+//! A use is a locked file of its own in its kind's folder that says which
+//! process runs what and since when. Each kind has a gate: a file that a use
+//! holds a shared lock on while it starts and that install locks
+//! exclusively. Install closes the commands gate and waits for every command
+//! use, then closes the connections gate and waits for every connection use,
+//! then moves the stores, puts its program on PATH and opens both gates. So
+//! while install waits for a long command, only a command that would hold a
+//! use for its life waits at the gate; the others keep working.
+//!
+//! A command that finds a gate closed when it starts waits until the gate
+//! opens, then runs the program at its own path in its place, since install
+//! replaced that program. A connection that finds the gate closed waits too,
+//! then opens the store; when install moved it to another schema, db.rs
+//! refuses it and says to run the command again.
+//!
+//! A builds command that a command use's holder starts runs under the
+//! holder's use (`BUILDS_USE` in its environment names the holder) and takes
+//! none of its own: waiting at a gate, it would wait for install, which waits
+//! for the holder, which waits for it. A holder that starts a builds command
+//! it does not wait for removes `BUILDS_USE` from that command's
+//! environment. For the same reason install refuses to run under a holder.
+
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock, PoisonError};
+
+use crate::fail;
+use crate::fail::{Context, Result};
+use crate::places::Places;
+
+/// The variable that names the process whose use covers a builds command.
+pub const VARIABLE: &str = "BUILDS_USE";
+
+/// What a use spans.
+#[derive(Clone, Copy)]
+enum Kind {
+    /// A command's life.
+    Command,
+    /// An open store connection.
+    Connection,
+}
+
+impl Kind {
+    fn gate(self, places: &Places) -> PathBuf {
+        places.install_dir().join(match self {
+            Kind::Command => "commands.gate",
+            Kind::Connection => "connections.gate",
+        })
+    }
+
+    fn uses(self, places: &Places) -> PathBuf {
+        places.install_dir().join(match self {
+            Kind::Command => "commands",
+            Kind::Connection => "connections",
+        })
+    }
+}
+
+/// Takes <how> (`LOCK_SH` or `LOCK_EX`) on <file>, waiting for it; with
+/// <wait> false, returns false at once when another process holds a lock
+/// that keeps it out.
+fn lock(file: &File, how: libc::c_int, wait: bool, what: &Path) -> Result<bool> {
+    let how = if wait { how } else { how | libc::LOCK_NB };
+    loop {
+        if unsafe { libc::flock(file.as_raw_fd(), how) } == 0 {
+            return Ok(true);
+        }
+        let error = std::io::Error::last_os_error();
+        match error.kind() {
+            std::io::ErrorKind::Interrupted => continue,
+            std::io::ErrorKind::WouldBlock => return Ok(false),
+            _ => fail!("locking {}: {error}", what.display()),
+        }
+    }
+}
+
+fn open(path: &Path) -> Result<File> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
+    }
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .context(|| format!("opening {}", path.display()))
+}
+
+/// A use of the stores: its file, locked until dropped, then removed.
+pub struct Use {
+    path: PathBuf,
+    _file: File,
+}
+
+impl Drop for Use {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Passes <kind>'s gate: returns its file, holding a shared lock, and
+/// whether the gate was open. When it is closed, says <waiting> on stderr
+/// and waits until it opens.
+fn pass(places: &Places, kind: Kind, waiting: &str) -> Result<(File, bool)> {
+    let path = kind.gate(places);
+    let gate = open(&path)?;
+    if lock(&gate, libc::LOCK_SH, false, &path)? {
+        return Ok((gate, true));
+    }
+    crate::text::note(waiting);
+    lock(&gate, libc::LOCK_SH, true, &path)?;
+    Ok((gate, false))
+}
+
+/// Takes a use of <kind> for process <pid>, which runs `builds <what>` since
+/// the local time <since>, while the gate held open by <gate> stays open.
+fn take(places: &Places, kind: Kind, gate: File, pid: u32, what: &str, since: &str) -> Result<Use> {
+    let path = kind.uses(places).join(pid.to_string());
+    let mut file = open(&path)?;
+    lock(&file, libc::LOCK_EX, true, &path)?;
+    file.set_len(0)
+        .context(|| format!("writing {}", path.display()))?;
+    file.write_all(format!("process {pid}, builds {what}, since {since}\n").as_bytes())
+        .context(|| format!("writing {}", path.display()))?;
+    // Closing the gate's file releases the shared lock; the use is in place.
+    drop(gate);
+    Ok(Use { path, _file: file })
+}
+
+const RUNS_AGAIN: &str =
+    "builds install runs: this command waits until it finishes, then runs the installed builds";
+
+/// How a command that holds a use for its life enters.
+pub enum Entered {
+    /// It holds this use for its life.
+    Holds(Use),
+    /// It waited while an install ran, and must run the installed program in
+    /// its place.
+    RunAgain,
+}
+
+/// Enters the stores for the command <what> of process <pid>, started at the
+/// local time <since>, which holds a use for its life.
+pub fn enter_for_life(places: &Places, pid: u32, what: &str, since: &str) -> Result<Entered> {
+    match pass(places, Kind::Command, RUNS_AGAIN)? {
+        (gate, true) => Ok(Entered::Holds(take(
+            places,
+            Kind::Command,
+            gate,
+            pid,
+            what,
+            since,
+        )?)),
+        (_, false) => Ok(Entered::RunAgain),
+    }
+}
+
+/// Whether a command that takes a use per connection may start: false when
+/// it waited at the closed gate while an install ran, and must run the
+/// installed program in its place.
+pub fn may_start(places: &Places) -> Result<bool> {
+    Ok(pass(places, Kind::Connection, RUNS_AGAIN)?.1)
+}
+
+/// The identity of the file at <path>: its device and inode.
+fn identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path)
+        .ok()
+        .map(|meta| (meta.dev(), meta.ino()))
+}
+
+/// The connection uses of one process: the first open connection takes the
+/// process's use, and the last one to close ends it.
+pub struct PerConnection {
+    places: Places,
+    pid: u32,
+    what: String,
+    since: String,
+    /// The program file this process started from, which install replaces.
+    program: Option<(PathBuf, Option<(u64, u64)>)>,
+    held: Mutex<Option<(usize, Use)>>,
+}
+
+impl PerConnection {
+    pub fn new(places: Places, pid: u32, what: &str, since: &str) -> PerConnection {
+        let program = std::env::current_exe().ok().map(|exe| {
+            let found = identity(&exe);
+            (exe, found)
+        });
+        PerConnection {
+            places,
+            pid,
+            what: what.to_string(),
+            since: since.to_string(),
+            program,
+            held: Mutex::new(None),
+        }
+    }
+
+    /// A use for one connection, waiting at the gate while an install runs.
+    pub fn take(&self) -> Result<ConnectionUse<'_>> {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        match held.as_mut() {
+            Some((count, _)) => *count += 1,
+            None => {
+                let (gate, _) = pass(
+                    &self.places,
+                    Kind::Connection,
+                    "builds install moves the stores: this command waits until it finishes",
+                )?;
+                let taken = take(
+                    &self.places,
+                    Kind::Connection,
+                    gate,
+                    self.pid,
+                    &self.what,
+                    &self.since,
+                )?;
+                *held = Some((1, taken));
+            }
+        }
+        Ok(ConnectionUse { owner: self })
+    }
+
+    /// Whether install has put another program at this process's path
+    /// since it started.
+    fn program_replaced(&self) -> bool {
+        self.program
+            .as_ref()
+            .is_some_and(|(path, started)| started.is_some() && identity(path) != *started)
+    }
+}
+
+/// One connection's share of its process's use.
+pub struct ConnectionUse<'a> {
+    owner: &'a PerConnection,
+}
+
+impl Drop for ConnectionUse<'_> {
+    fn drop(&mut self) {
+        let mut held = self
+            .owner
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some((count, _)) = held.as_mut() {
+            *count -= 1;
+            if *count == 0 {
+                *held = None;
+            }
+        }
+    }
+}
+
+/// This process's connection uses, when it takes them; set once at start.
+static PER_CONNECTION: OnceLock<PerConnection> = OnceLock::new();
+
+/// Has this process take a use for each store connection it opens.
+pub fn use_per_connection(per_connection: PerConnection) {
+    let _ = PER_CONNECTION.set(per_connection);
+}
+
+/// The use of the stores that a store connection this process opens takes:
+/// None when the process holds a use for its life, a holder's use covers it,
+/// or it takes none (install, the dashboard, tests).
+pub fn for_connection() -> Result<Option<ConnectionUse<'static>>> {
+    PER_CONNECTION.get().map(PerConnection::take).transpose()
+}
+
+/// Whether install has put another program at this process's path since it
+/// started; false for a process that takes no use per connection.
+pub fn program_replaced() -> bool {
+    PER_CONNECTION
+        .get()
+        .is_some_and(PerConnection::program_replaced)
+}
+
+/// The closed gates: no use starts while they live.
+pub struct Closed {
+    _gates: [File; 2],
+}
+
+/// Closes <kind>'s gate, waiting for another install that holds it closed.
+fn close_gate(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Result<File> {
+    let path = kind.gate(places);
+    let gate = open(&path)?;
+    if !lock(&gate, libc::LOCK_EX, false, &path)? {
+        say("another builds install runs: waiting for it".to_string());
+        lock(&gate, libc::LOCK_EX, true, &path)?;
+    }
+    Ok(gate)
+}
+
+/// Waits until every use of <kind> ends, telling <say> each use it waits
+/// on, and removes each use's file.
+fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Result<()> {
+    let dir = kind.uses(places);
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => fail!("listing {}: {error}", dir.display()),
+    };
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for entry in entries {
+        let entry = entry.context(|| format!("listing {}", dir.display()))?;
+        paths.push(entry.path());
+    }
+    paths.sort();
+    for path in paths {
+        let mut file = match OpenOptions::new().read(true).open(&path) {
+            Ok(file) => file,
+            // The use ended between the listing and the open.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => fail!("opening {}: {error}", path.display()),
+        };
+        if !lock(&file, libc::LOCK_EX, false, &path)? {
+            let mut text = String::new();
+            let _ = file.read_to_string(&mut text);
+            say(format!("waiting for {}", text.trim()));
+            lock(&file, libc::LOCK_EX, true, &path)?;
+        }
+        // The use ended, or its process died without removing its file.
+        match std::fs::remove_file(&path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                fail!("removing {}: {error}", path.display())
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Closes the commands gate and waits for every command use, then closes
+/// the connections gate and waits for every connection use, telling <say>
+/// each use it waits on.
+pub fn close(places: &Places, say: &mut dyn FnMut(String)) -> Result<Closed> {
+    let commands = close_gate(places, Kind::Command, say)?;
+    wait_for_uses(places, Kind::Command, say)?;
+    let connections = close_gate(places, Kind::Connection, say)?;
+    wait_for_uses(places, Kind::Connection, say)?;
+    Ok(Closed {
+        _gates: [commands, connections],
+    })
+}
+
+#[cfg(test)]
+#[path = "install_gate_tests.rs"]
+mod tests;

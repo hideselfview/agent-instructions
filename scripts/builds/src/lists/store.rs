@@ -81,7 +81,7 @@ impl Store {
 
     /// The database for reading: None when there is none, or none with a
     /// project in it.
-    fn reader(&self) -> Result<Option<Connection>> {
+    fn reader(&self) -> Result<Option<db::Held>> {
         let Some(conn) = db::open_reader(&self.database())? else {
             return Ok(None);
         };
@@ -93,7 +93,7 @@ impl Store {
 
     /// The database for reading, for a command that needs the store to
     /// exist, such as a review command: fails when the project has no store.
-    pub fn open_existing(&self) -> Result<Connection> {
+    pub fn open_existing(&self) -> Result<db::Held> {
         let Some(conn) = self.reader()? else {
             fail!("there is no store for project {}", self.project);
         };

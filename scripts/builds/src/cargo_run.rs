@@ -191,9 +191,12 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
         }
         log.set_len(0)?;
         let mut command = Command::new(std::env::current_exe()?);
+        // The prune outlives this command, so no use this command runs under
+        // covers it.
         command
             .args(["units", "after-build"])
             .arg(&checkout.top)
+            .env_remove(crate::install_gate::VARIABLE)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(log);
