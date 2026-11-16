@@ -1366,6 +1366,7 @@ mod tests {
             host: "m1".to_string(),
             busy: Err("ssh failed".to_string()),
             wedged: None,
+            hung: Vec::new(),
         }];
         let found = host_findings(&busy, &[refusal]);
         assert_eq!(found.len(), 1, "{found:?}");

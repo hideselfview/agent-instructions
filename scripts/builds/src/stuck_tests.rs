@@ -270,6 +270,7 @@ fn findings_come_only_from_hosts_that_were_read() {
             host: "m1".into(),
             busy: Err("ssh failed".into()),
             wedged: None,
+            hung: Vec::new(),
         },
         HostBusy {
             host: "local".into(),
@@ -288,6 +289,7 @@ fn findings_come_only_from_hosts_that_were_read() {
                 &sampling(),
             )),
             wedged: None,
+            hung: Vec::new(),
         },
     ];
     assert_eq!(findings(&hosts).len(), 1);
@@ -378,6 +380,7 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
         host: "local".into(),
         busy: Ok(judge("local", &rows, &HashMap::new(), &sampling())),
         wedged: wedged("local", &rows, 0, &sampling()),
+        hung: Vec::new(),
     }];
     let found = findings(&hosts);
     assert_eq!(found.len(), 1, "{found:?}");
@@ -385,4 +388,72 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
         found[0].text.starts_with("fseventsd does not answer"),
         "{found:?}"
     );
+}
+
+/// A test binary under `builds cargo` on a host that has used next to no CPU
+/// for 20 minutes or more is hung, and its finding names the worktree, the
+/// command and the idle time, with the ssh command that stops it. A test
+/// that uses CPU, one younger than 20 minutes and one no `builds cargo` runs
+/// are not.
+#[test]
+fn an_idle_test_that_builds_cargo_runs_on_a_host_is_hung() {
+    const TEST: &str = "/Users/d/builds-root/bae/remote-1/target/debug/deps/bae_store-0123456789abcdef --test-threads 4";
+    let rows = vec![
+        row(1, 0, 0, 0.0, 10.0, 9_000_000, "/sbin/launchd"),
+        row(
+            10,
+            1,
+            501,
+            0.0,
+            0.1,
+            2_300,
+            "sh -c builds cargo test -p bae-store",
+        ),
+        row(
+            11,
+            10,
+            501,
+            0.0,
+            0.5,
+            2_300,
+            "/Users/d/.local/bin/builds cargo test -p bae-store",
+        ),
+        row(12, 11, 501, 0.0, 30.0, 2_290, "cargo test -p bae-store"),
+        row(13, 12, 501, 0.0, 2.0, 37 * 60, TEST),
+        // Uses CPU: a long test at work.
+        row(14, 12, 501, 40.0, 900.0, 37 * 60, TEST),
+        // Too young to tell.
+        row(15, 12, 501, 0.0, 1.0, 10 * 60, TEST),
+        // Under an agent's own cargo, which the agent shell's rules cover.
+        row(20, 1, 501, 0.0, 1.0, 2_300, "cargo test"),
+        row(21, 20, 501, 0.0, 1.0, 37 * 60, TEST),
+    ];
+    assert!(pids_to_place(&rows).contains(&13));
+    let cwds = HashMap::from([(13, "/Users/d/dev/bae-worktrees/remote-1".to_string())]);
+    let on_m1 = Sampling {
+        home: "$HOME".into(),
+        target: Some("d@m1".into()),
+        at: 1_763_100_000,
+    };
+    let hung = hung_tests("m1", &rows, &cwds, &on_m1);
+    assert_eq!(hung.len(), 1, "{hung:?}");
+    let finding = hung[0].finding();
+    assert_eq!(finding.command.as_deref(), Some("ssh d@m1 'kill 13'"));
+    assert!(
+        finding
+            .text
+            .starts_with("hung test: m1 pid 13 in bae/remote-1 has sat idle for 37m")
+            && finding
+                .text
+                .contains("bae_store-0123456789abcdef --test-threads 4"),
+        "{}",
+        finding.text
+    );
+    let host = HostBusy {
+        host: "m1".into(),
+        busy: Ok(Vec::new()),
+        wedged: None,
+        hung,
+    };
+    assert_eq!(findings(&[host]).len(), 1);
 }

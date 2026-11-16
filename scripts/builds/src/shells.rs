@@ -23,8 +23,8 @@ use crate::text::tilde;
 
 /// A shell this old, whose whole tree has used less than IDLE_SHARE of a
 /// core, is stuck on input or a lock.
-const IDLE_MINUTES: i64 = 20;
-const IDLE_SHARE: f64 = 0.02;
+pub const IDLE_MINUTES: i64 = 20;
+pub const IDLE_SHARE: f64 = 0.02;
 /// A copy younger than this may be a command run twice on purpose.
 const COPY_SECONDS: i64 = 60;
 /// How much of a command a line shows.

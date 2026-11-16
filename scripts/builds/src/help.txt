@@ -836,7 +836,14 @@ STATUS, HEALTH AND THE DASHBOARD
                               design change waits on the person's review is
                               not idle); a build past its step's 45-minute
                               default limit, or a test binary past 30 minutes
-                              (`kill <pid>`); a system daemon with 2+ hours of
+                              (`kill <pid>`); a test binary that `builds
+                              cargo` runs, here or on a host, that has run 20+
+                              minutes and used under 2% of a core since it
+                              started, the rule that marks an agent shell
+                              idle, since a hung test and the builds cargo
+                              waiting on it use no CPU (with its worktree,
+                              command and idle time, and `kill <pid>`, over
+                              ssh on a host); a system daemon with 2+ hours of
                               CPU still busy (`sudo sample <pid> 5 -file
                               <file>` into ~/Library/Application
                               Support/builds/samples, over ssh on a host, to
