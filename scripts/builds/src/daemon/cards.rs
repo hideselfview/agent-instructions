@@ -235,8 +235,9 @@ pub struct Words {
     pub pill: Option<Pill>,
     /// The items running here, in list order.
     pub items: Vec<RunningItem>,
-    /// Only when no item runs: the claim note, else what the worktree waits
-    /// on or what its state means.
+    /// Only when no item runs: the claim note, unless the pill's title holds
+    /// it; with no claim note and no pill, what the worktree waits on or what
+    /// its state means.
     pub note: Option<String>,
     /// The uncommitted files; None for a clean tree, or when git was not
     /// read here.
@@ -285,8 +286,9 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemW
         .as_ref()
         .and_then(|claim| claim.note.clone())
         .filter(|note| !note.is_empty());
-    // <said> is the sentence the card falls back on when no item runs and
-    // the agent left no note.
+    // <said> is the sentence the card falls back on when no item runs, the
+    // agent left no note and the card has no pill, whose title holds its own
+    // sentence.
     let (chip, pill, said) = match checkout.state {
         Some("queued") => match wait {
             Some(ItemWait::AppBuild {
@@ -300,12 +302,12 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemW
         Some("waiting-on-you") if wait.is_some_and(ItemWait::needs_person) => (
             Some("Waiting on you"),
             wait.and_then(ItemWait::pill),
-            wait.map(ItemWait::sentence).unwrap_or_default(),
+            String::new(),
         ),
         Some("ready-to-land") if wait == Some(&ItemWait::Unrecorded) => (
             Some("Ready to land"),
             wait.and_then(ItemWait::pill),
-            wait.map(ItemWait::sentence).unwrap_or_default(),
+            String::new(),
         ),
         Some("working") if wait.is_some() => (
             Some("Working"),
@@ -342,9 +344,9 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemW
                 Some("Working"),
                 Some(Pill {
                     text: "Held".to_string(),
-                    title: why.clone(),
+                    title: why,
                 }),
-                why,
+                String::new(),
             )
         }
         Some("winding-down") => (
@@ -358,8 +360,11 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemW
             "Working; its agent left no note.".to_string(),
         ),
     };
-    let note = match items {
-        [] => claim_note.or((!said.is_empty()).then_some(said)),
+    // The note never repeats the pill's title: a held worktree's pill holds
+    // its claim note.
+    let note = match (items, &pill) {
+        ([], None) => claim_note.or((!said.is_empty()).then_some(said)),
+        ([], Some(pill)) => claim_note.filter(|note| *note != pill.title),
         _ => None,
     };
     Words {

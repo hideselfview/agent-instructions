@@ -304,21 +304,44 @@ fn a_design_branch_with_no_running_item_shows_its_note_and_the_change_in_the_pil
         &[],
         Some(&review),
     );
-    assert_eq!(
-        unnoted.note.as_deref(),
-        Some("Waits on your review of design change 1419: AirPlay PIN sheet")
-    );
+    assert_eq!(unnoted.note, None, "the pill holds the sentence");
 }
 
 #[test]
-fn a_held_worktree_says_held_in_the_pill_with_its_note() {
+fn a_card_whose_pill_holds_the_sentence_shows_no_note_without_a_claim_note() {
+    let answer = ItemWait::Answer {
+        id: 438,
+        title: "Which port?".into(),
+    };
+    let asked = words(
+        &card(Some("waiting-on-you"), claim(None), Some(0)),
+        &[],
+        Some(&answer),
+    );
+    assert!(asked.pill.is_some());
+    assert_eq!(asked.note, None);
+    let unrecorded = words(
+        &card(Some("ready-to-land"), claim(None), Some(0)),
+        &[],
+        Some(&ItemWait::Unrecorded),
+    );
+    assert_eq!(unrecorded.note, None);
+}
+
+#[test]
+fn a_held_worktree_says_held_in_the_pill_with_its_note_and_shows_no_note() {
     let card = listed("held", Some("Until the store lands."), &[(3, "Item")]);
     assert_eq!(card.chip, Some("Working"));
     assert_eq!(card.pill, pill("Held", "Until the store lands."));
+    let idle = listed("held", Some("Until the store lands."), &[]);
+    assert_eq!(idle.pill, pill("Held", "Until the store lands."));
+    assert_eq!(idle.note, None, "the pill holds the note");
+    let unnoted = listed("held", None, &[]);
     assert_eq!(
-        listed("held", None, &[]).pill,
+        unnoted.pill,
         pill("Held", "Held on purpose with no work running.")
     );
+    assert_eq!(unnoted.note, None);
 }
 
 #[test]
