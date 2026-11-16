@@ -802,8 +802,9 @@ pub fn choose(
     Ok((host.clone(), why))
 }
 
-/// The hosts a cargo build may run on, the one with the most room first: the
-/// reachable hosts above the free-disk floor with a measured core speed,
+/// The hosts a cargo build may run on, each with its probe, the one with the
+/// most room first: the reachable hosts above the free-disk floor with a
+/// measured core speed,
 /// ordered by `Probe::room_after`, given the number of runs that <recent>
 /// counts on each host, times the host's core speed against this Mac's.
 /// Hosts whose weighed room is equal to the hundredth of a core keep the
@@ -815,7 +816,7 @@ pub fn rank_by_room(
     hosts: &[(Host, std::result::Result<Probe, String>)],
     floor_kib: u64,
     recent: &crate::cargo_starts::Recent,
-) -> (Vec<Host>, String) {
+) -> (Vec<(Host, Probe)>, String) {
     let mut skipped = Vec::new();
     let mut fits: Vec<(&Host, &Probe, f64)> = Vec::new();
     for (host, probe) in hosts {
@@ -872,7 +873,9 @@ pub fn rank_by_room(
         .collect();
     why.extend(skipped);
     (
-        fits.into_iter().map(|(host, _, _)| host.clone()).collect(),
+        fits.into_iter()
+            .map(|(host, probe, _)| (host.clone(), probe.clone()))
+            .collect(),
         why.join("; "),
     )
 }

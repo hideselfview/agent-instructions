@@ -47,8 +47,10 @@ fn a_burst_of_runs_picks_both_hosts() {
         let starts = read(&places, now + at).unwrap();
         let (ranked, _) = rank_by_room(&hosts, 0, &starts.recent);
         let run = running();
-        starts.record(run.id(), &ranked[0].name, now + at).unwrap();
-        picks.push(ranked[0].name.clone());
+        starts
+            .record(run.id(), &ranked[0].0.name, now + at)
+            .unwrap();
+        picks.push(ranked[0].0.name.clone());
         runs.push(run);
     }
     assert_eq!(picks, ["local", "m1", "local"]);

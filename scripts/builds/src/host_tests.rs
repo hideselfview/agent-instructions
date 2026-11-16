@@ -82,7 +82,8 @@ fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
         (host("m1"), refusing()),
     ];
     let (ranked, why) = rank_by_room(&hosts, 50, &Default::default());
-    assert_eq!(ranked, [host("local")]);
+    let names: Vec<&str> = ranked.iter().map(|(h, _)| h.name.as_str()).collect();
+    assert_eq!(names, ["local"]);
     assert!(
         why.contains("m1 refuses jobs (git fails there: no license)"),
         "{why}"
@@ -298,7 +299,7 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
         (host("gone"), Err("refused".to_string())),
     ];
     let (ranked, why) = rank_by_room(&hosts, 50, &Default::default());
-    let names: Vec<&str> = ranked.iter().map(|h| h.name.as_str()).collect();
+    let names: Vec<&str> = ranked.iter().map(|(h, _)| h.name.as_str()).collect();
     assert_eq!(names, ["m1", "local", "big"]);
     assert!(
         why.starts_with(
@@ -314,7 +315,7 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
         (host("m1"), probe_with(8, 2.0, 100)),
     ];
     assert_eq!(
-        rank_by_room(&tie, 0, &Default::default()).0[0].name,
+        rank_by_room(&tie, 0, &Default::default()).0[0].0.name,
         "local"
     );
 
@@ -346,7 +347,7 @@ fn ranks_hosts_by_their_room_at_their_core_speed() {
         (at("new", None), probe_with(10, 0.0, 100)),
     ];
     let (ranked, why) = rank_by_room(&hosts, 50, &Default::default());
-    let names: Vec<&str> = ranked.iter().map(|h| h.name.as_str()).collect();
+    let names: Vec<&str> = ranked.iter().map(|(h, _)| h.name.as_str()).collect();
     // 8 free cores at half speed are 4 of this Mac's, ahead of its own 2; at
     // a quarter they are 2, a tie this Mac wins.
     assert_eq!(names, ["slow", "local", "slower"]);
@@ -365,7 +366,7 @@ fn ranks_hosts_by_their_room_at_their_core_speed() {
         (at("local", Some(1.0)), probe_with(10, 15.0, 100)),
     ];
     let (ranked, _) = rank_by_room(&busy, 50, &Default::default());
-    let names: Vec<&str> = ranked.iter().map(|h| h.name.as_str()).collect();
+    let names: Vec<&str> = ranked.iter().map(|(h, _)| h.name.as_str()).collect();
     assert_eq!(names, ["local", "slow"]);
 }
 

@@ -379,20 +379,12 @@ fn pick_ranked(
 ) -> Result<Choice> {
     let (ranked, why) = host::rank_by_room(probes, floor_kib, recent);
     let mut passed_over = Vec::new();
-    for host in ranked {
+    for (host, probe) in ranked {
         if host.target.is_none() {
             return Ok(Choice::Here(join(why, passed_over)));
         }
         match has_clone(places, ssh, &host, repo) {
-            Ok(()) => {
-                let probe = probes
-                    .iter()
-                    .find_map(|(known, probe)| (known.name == host.name).then_some(probe))
-                    .and_then(|probe| probe.as_ref().ok())
-                    .expect("a ranked host answered its probe")
-                    .clone();
-                return Ok(Choice::On(host, probe, join(why, passed_over)));
-            }
+            Ok(()) => return Ok(Choice::On(host, probe, join(why, passed_over))),
             Err(error) => passed_over.push(format!("{} cannot build {repo} ({error})", host.name)),
         }
     }
