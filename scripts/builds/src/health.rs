@@ -242,7 +242,6 @@ pub struct AppBuildRun {
     pub repo: String,
     /// The ref it builds: the branch, as `builds app-build` is run.
     pub reference: String,
-    pub started: i64,
     /// The checkout its working directory is in.
     pub started_from: Option<String>,
 }
@@ -412,7 +411,6 @@ pub fn sample(
                 pid: process.pid,
                 repo: repo.to_string(),
                 reference: reference.to_string(),
-                started: process.started,
                 started_from: cwd(process.pid)
                     .and_then(|dir| place_of(places, &dir))
                     .map(|at| places[at].label.clone()),
@@ -1478,7 +1476,6 @@ mod tests {
                 pid: 4242,
                 place: 0,
                 host: "m1".to_string(),
-                started: now - 600,
             }],
             app_builds: Vec::new(),
             unread: Vec::new(),
@@ -1549,7 +1546,6 @@ mod tests {
             pid: 5151,
             repo: "demo".to_string(),
             reference: reference.to_string(),
-            started: now - 600,
             started_from: Some("demo/main".to_string()),
         };
         let judge = |app_builds: Vec<AppBuildRun>| {

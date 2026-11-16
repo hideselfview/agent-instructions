@@ -468,7 +468,6 @@ pub struct RemoteRun {
     pub place: usize,
     /// The name of the host.
     pub host: String,
-    pub started: i64,
 }
 
 /// The `builds cargo` runs among <processes> that use one of <hosts>: each
@@ -533,7 +532,6 @@ pub fn remote_runs(
                     pid: process.pid,
                     place,
                     host: name.to_string(),
-                    started: process.started,
                 };
                 if !found.contains(&run) {
                     found.push(run);
