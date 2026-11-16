@@ -635,30 +635,11 @@ pub fn read_installed(
     ssh: &Ssh,
     host: &Host,
 ) -> std::result::Result<Installed, String> {
-    let mut command = match &host.target {
-        Some(target) => ssh.command(target, &installed_script()),
-        None => {
-            let mut command = Command::new("sh");
-            command
-                .arg("-c")
-                .arg(installed_script())
-                .env("HOME", &places.home);
-            command
-        }
-    };
-    let output = command
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| format!("asking host {}: {error}", host.name))?;
-    if !output.status.success() {
-        return Err(format!(
-            "asking host {} what it has installed failed ({}): {}",
-            host.name,
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    parse_installed(&String::from_utf8_lossy(&output.stdout)).map_err(|fail| fail.text())
+    let transport = crate::remote::Transport { places, ssh, host };
+    let printed = transport
+        .ask(&installed_script(), "asking what it has installed")
+        .map_err(|fail| fail.text())??;
+    parse_installed(&printed).map_err(|fail| fail.text())
 }
 
 /// What one host said it has installed, or why asking failed.
@@ -919,8 +900,8 @@ pub struct SetUp {
 /// `builds host speed-here` and here.
 pub fn setup_host(places: &Places, ssh: &Ssh, host: &Host) -> Result<SetUp> {
     let root = install_program(ssh, host)?;
-    let (_, said) = run_builds_there(ssh, host, "host setup-here", "setting up")?;
-    let (printed, _) = run_builds_there(ssh, host, "host speed-here", "timing a compile on")?;
+    let said = run_builds_there(places, ssh, host, "host setup-here", "setting up")?;
+    let printed = run_builds_there(places, ssh, host, "host speed-here", "timing a compile")?;
     let there = crate::core_speed::parse_line(&printed)?;
     let here = crate::core_speed::time_compile(&speed_folder())?;
     let speed = crate::core_speed::factor(here, there);
@@ -939,30 +920,24 @@ fn speed_folder() -> PathBuf {
 }
 
 /// Runs `~/.local/bin/builds <words>` on <host> with its builds root and
-/// PATH; returns what it printed and what it said on stderr. <doing> names
-/// the step in errors.
-fn run_builds_there(ssh: &Ssh, host: &Host, words: &str, doing: &str) -> Result<(String, String)> {
-    let Some(target) = &host.target else {
+/// PATH, and returns what it printed on stdout and stderr, in order. When it
+/// fails, the error names the host and holds all of that. <doing> names the
+/// step in errors.
+fn run_builds_there(
+    places: &Places,
+    ssh: &Ssh,
+    host: &Host,
+    words: &str,
+    doing: &str,
+) -> Result<String> {
+    if host.target.is_none() {
         fail!("{LOCAL} is this Mac, not a host to run builds on over ssh");
-    };
+    }
     let script = format!(
-        "{root}\"$HOME/.local/bin/builds\" {words}",
+        "{root}if out=$(\"$HOME/.local/bin/builds\" {words} 2>&1); then printf '%s\\n' \"$out\"; else status=$?; printf '%s\\n' \"$out\" >&2; exit $status; fi",
         root = crate::remote::root_script(host)
     );
-    let output = ssh
-        .command(target, &format!("sh -c {}", sh_quote(&script)))
-        .stdin(Stdio::null())
-        .output()
-        .context(|| format!("running {} to {}", ssh.program, host.name))?;
-    let said = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if !output.status.success() {
-        fail!(
-            "{doing} host {} ({target}) failed ({}): {said}",
-            host.name,
-            output.status
-        );
-    }
-    Ok((String::from_utf8_lossy(&output.stdout).into_owned(), said))
+    crate::remote::Transport { places, ssh, host }.capture(&script, doing)
 }
 
 /// Copies this Mac's `builds` program to `~/.local/bin/builds` on <host> and

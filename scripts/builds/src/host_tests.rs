@@ -511,3 +511,33 @@ fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
         .collect();
     assert_eq!(under, [false, false]);
 }
+
+/// A builds command run on a host comes back with what it printed on stdout
+/// and stderr, and a failing one fails with all of that, naming the host.
+#[test]
+fn a_builds_command_on_a_host_returns_its_output_or_fails_with_it() {
+    let scratch = Scratch::new("host-run-builds");
+    let places = scratch.places();
+    let home = scratch.dir.join("remote-home");
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let builds = home.join(".local/bin/builds");
+    std::fs::create_dir_all(builds.parent().unwrap()).unwrap();
+    std::fs::write(
+        &builds,
+        "#!/bin/sh\necho \"said $*\" >&2\necho ms=5\n[ \"$1\" = fail ] && exit 3\nexit 0\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&builds, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let m1 = host("m1");
+    let printed =
+        run_builds_there(&places, &ssh, &m1, "host speed-here", "timing a compile").unwrap();
+    assert_eq!(printed, "said host speed-here\nms=5\n");
+    let Err(Fail::Message(message)) = run_builds_there(&places, &ssh, &m1, "fail", "setting up")
+    else {
+        panic!("expected a failure");
+    };
+    assert!(
+        message.contains("setting up failed on host m1") && message.contains("said fail"),
+        "{message}"
+    );
+}
