@@ -282,8 +282,8 @@ fn design_globs_sets_the_globs_of_an_existing_store() {
     );
     assert!(refusal(run(&tool, "design-globs bae")).contains("needs --canvas, --design-places"));
 
-    // A project publishes no canvas until it says so, and --canvas alone
-    // changes only that.
+    // A project publishes no canvas until someone runs init or design-globs
+    // with --canvas yes, and --canvas alone changes only the canvas setting.
     let canvas = || {
         Store::named(&tool.places, "bae")
             .unwrap()

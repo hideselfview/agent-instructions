@@ -1,8 +1,8 @@
 //! The project: its name, whether it publishes its boards as a canvas, the
 //! repos its lists cover, and each repo's globs for design places,
-//! design-system sources and spec files. These are the writes of the tables
-//! in project.sql; `command` is `lists init`, `lists add-repo` and
-//! `lists design-globs` around them.
+//! design-system sources and spec files. This module writes the tables in
+//! project.sql, and `command` runs `lists init`, `lists add-repo` and
+//! `lists design-globs` with these functions.
 
 use std::collections::BTreeMap;
 

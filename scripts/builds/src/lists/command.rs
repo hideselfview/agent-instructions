@@ -96,7 +96,7 @@ fn add_repo(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 /// `--canvas yes|no`: whether the project publishes its boards as a
-/// claude.ai canvas; None when the flag is not given.
+/// claude.ai canvas; None when the caller leaves the flag out.
 fn canvas(args: &Args) -> Result<Option<bool>> {
     match args.value("canvas")? {
         None => Ok(None),
