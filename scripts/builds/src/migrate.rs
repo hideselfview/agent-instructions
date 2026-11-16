@@ -15,7 +15,7 @@
 //! first move run after the builds end (`builds install` runs it each time).
 
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension};
 
@@ -250,9 +250,18 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// store already at today's stamp, or with no database, is left alone; any
 /// other stamp is refused. Delete this once it has run.
 pub fn migrate_stores(places: &Places) -> Result<()> {
+    for store in stores(places)? {
+        move_store(places, &store)?;
+    }
+    Ok(())
+}
+
+/// The path of each project's `builds.sqlite`, in the order of the projects'
+/// names, whether the file exists or not.
+fn stores(places: &Places) -> Result<Vec<PathBuf>> {
     let entries = match std::fs::read_dir(&places.lists) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => fail!("listing {}: {error}", places.lists.display()),
     };
     let mut dirs = Vec::new();
@@ -263,10 +272,27 @@ pub fn migrate_stores(places: &Places) -> Result<()> {
         }
     }
     dirs.sort();
-    for dir in dirs {
-        move_store(places, &dir.join(DATABASE))?;
+    Ok(dirs.into_iter().map(|dir| dir.join(DATABASE)).collect())
+}
+
+/// Whether every store already has this program's schema, so `migrate_stores`
+/// moves none: true when one store at least has a schema and every store that
+/// has one has this program's. A store with no schema yet says nothing, and
+/// with no store that has one, the stores do not say which schema the
+/// installed program writes, so the answer is false.
+pub fn every_store_has_this_schema(places: &Places) -> Result<bool> {
+    let mut any = false;
+    for store in stores(places)? {
+        if !store.is_file() {
+            continue;
+        }
+        match db::stamp_at(&store)? {
+            0 => {}
+            found if found == db::stamp() => any = true,
+            _ => return Ok(false),
+        }
     }
-    Ok(())
+    Ok(any)
 }
 
 /// The statements that rebuild `hook_run_checks` as hook_stats.sql writes it,
@@ -589,4 +615,4 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
 
 #[cfg(test)]
 #[path = "migrate_tests.rs"]
-mod tests;
+pub mod tests;

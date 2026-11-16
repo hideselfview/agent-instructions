@@ -255,7 +255,11 @@ names it as the fix of one of its confirmed findings.
     what landed. Agents still never edit, build or commit in a main checkout.
     In agent-instructions, the main checkout's post-merge hook then runs
     install.sh, which installs the landed builds and links the landed rules
-    and skills. When land prints MAIN CHECKOUT BEHIND
+    and skills. When the landed builds changes a store's schema, install
+    waits for every running hook run, review and app build lane, and every
+    hook run and review that starts meanwhile waits for install, so commits
+    in every project wait until it ends (`builds help`, INSTALLING). An
+    install that changes no store's schema waits for none. When land prints MAIN CHECKOUT BEHIND
     (the checkout is not on main, or the person's commits or uncommitted
     edits there stop the fast-forward), tell the person and give them the
     command it prints; never stash or reset their edits.

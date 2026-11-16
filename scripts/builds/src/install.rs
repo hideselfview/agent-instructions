@@ -474,26 +474,59 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
     Ok(())
 }
 
-/// `builds install`.
-pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
-    if !args.is_empty() {
-        fail!("usage: builds install");
+/// Moves the stores to this program's schema and puts this program on PATH
+/// with <put>, which returns whether it replaced the installed one. <holder>
+/// names the builds process whose use of the stores covers this one
+/// (`install_gate::VARIABLE`), if any. Gives <say> each line it has for the
+/// person.
+fn replace_program(
+    places: &crate::places::Places,
+    holder: Option<String>,
+    put: impl FnOnce() -> Result<bool>,
+    say: &mut dyn FnMut(String),
+) -> Result<bool> {
+    let installing = crate::install_gate::begin(places, say)?;
+    if crate::migrate::every_store_has_this_schema(places)? {
+        // A command that runs the installed program writes the schema this
+        // program reads, so install waits for none.
+        say(
+            "every store has this builds' schema, so install waits for no builds command"
+                .to_string(),
+        );
+        crate::migrate::migrate_app_files(places)?;
+        let replaced = put()?;
+        drop(installing);
+        return Ok(replaced);
     }
-    let home = &tool.places.home;
     // Install waits for every command that uses the stores, so it would wait
     // forever for the builds command that started it.
-    if let Ok(holder) = std::env::var(crate::install_gate::VARIABLE) {
+    if let Some(holder) = holder {
         fail!(
             "builds install is running inside builds process {holder}, and install would wait forever for that process to end; run install from a shell outside it"
         );
     }
     // No builds command uses the stores from closing the gates until the new
     // program is on PATH, so none writes a store of another schema.
-    let closed = crate::install_gate::close(&tool.places, &mut |line| note(line))?;
-    crate::migrate::migrate_app_files(&tool.places)?;
-    crate::migrate::migrate_stores(&tool.places)?;
-    let replaced = put_on_path(home)?;
+    let closed = installing.close(say)?;
+    crate::migrate::migrate_app_files(places)?;
+    crate::migrate::migrate_stores(places)?;
+    let replaced = put()?;
     drop(closed);
+    Ok(replaced)
+}
+
+/// `builds install`.
+pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
+    if !args.is_empty() {
+        fail!("usage: builds install");
+    }
+    let home = &tool.places.home;
+    let replaced = replace_program(
+        &tool.places,
+        std::env::var(crate::install_gate::VARIABLE).ok(),
+        || put_on_path(home),
+        &mut |line| note(line),
+    )?;
     tool.places.require_volume()?;
     let caches = tool.places.caches();
     let derived_data = tool.places.derived_data();
@@ -660,6 +693,136 @@ mod tests {
         assert!(
             last_lines(&scratch.dir.join("missing.log")).starts_with("nothing builds could read")
         );
+    }
+
+    /// What a thread that runs `replace_program` tells the test.
+    #[derive(Debug, PartialEq)]
+    enum Event {
+        /// A line `replace_program` gave its `say`.
+        Said(String),
+        /// `replace_program` called its `put`.
+        Put,
+        /// `replace_program` returned.
+        Done,
+    }
+
+    /// How long a test waits for an event that must come before it fails:
+    /// the event, not this time, tells the test that something happened.
+    const PATIENCE: Duration = Duration::from_secs(30);
+
+    /// Runs `replace_program` on a thread with no holder, and sends what it
+    /// says, when it puts the program on PATH and when it returns.
+    fn installing(
+        places: &crate::places::Places,
+    ) -> (
+        std::thread::JoinHandle<()>,
+        std::sync::mpsc::Receiver<Event>,
+    ) {
+        let (events, received) = std::sync::mpsc::channel();
+        let places = places.clone();
+        let install = std::thread::spawn(move || {
+            let put = events.clone();
+            replace_program(
+                &places,
+                None,
+                move || {
+                    put.send(Event::Put).unwrap();
+                    Ok(true)
+                },
+                &mut |line| events.send(Event::Said(line)).unwrap(),
+            )
+            .unwrap();
+            events.send(Event::Done).unwrap();
+        });
+        (install, received)
+    }
+
+    fn next(events: &std::sync::mpsc::Receiver<Event>) -> Event {
+        events.recv_timeout(PATIENCE).expect("the event comes")
+    }
+
+    /// A hook run's use of the stores, held for its life, for process <pid>.
+    fn hook_run(places: &crate::places::Places, pid: u32) -> crate::install_gate::Use {
+        match crate::install_gate::enter_for_life(
+            places,
+            pid,
+            "checks run",
+            "10:00:00",
+            &mut |line| panic!("the gate is open: {line}"),
+        )
+        .unwrap()
+        {
+            crate::install_gate::Entered::Holds(held) => held,
+            crate::install_gate::Entered::RunAgain => panic!("the gate is open"),
+        }
+    }
+
+    /// When every store already has this program's schema, install moves no
+    /// store, so it puts the program on PATH while a hook run holds its use,
+    /// and leaves the gate open for the next hook run.
+    #[test]
+    fn an_install_that_changes_no_schema_waits_for_no_command() {
+        let scratch = crate::testing::Scratch::new("install-same-schema");
+        let places = scratch.places();
+        let store = places.lists.join("builds");
+        std::fs::create_dir_all(&store).unwrap();
+        drop(crate::db::open(&store.join(crate::db::DATABASE), crate::db::Make::Allowed).unwrap());
+        let held = hook_run(&places, 11);
+        let (install, events) = installing(&places);
+        assert_eq!(
+            next(&events),
+            Event::Said(
+                "every store has this builds' schema, so install waits for no builds command"
+                    .to_string()
+            )
+        );
+        assert_eq!(next(&events), Event::Put);
+        assert_eq!(next(&events), Event::Done);
+        install.join().unwrap();
+        drop(hook_run(&places, 12));
+        drop(held);
+    }
+
+    /// When a store has an older schema, install waits for the hook run's
+    /// use before it moves the store and puts the program on PATH.
+    #[test]
+    fn an_install_that_changes_a_schema_waits_for_the_commands_that_use_the_stores() {
+        let scratch = crate::testing::Scratch::new("install-older-schema");
+        let places = scratch.places();
+        let store = crate::migrate::tests::store_before_pushed(&places.lists.join("bae"));
+        let held = hook_run(&places, 11);
+        let (install, events) = installing(&places);
+        assert_eq!(
+            next(&events),
+            Event::Said("waiting for process 11, builds checks run, since 10:00:00".to_string())
+        );
+        drop(held);
+        assert_eq!(next(&events), Event::Put);
+        assert_eq!(next(&events), Event::Done);
+        install.join().unwrap();
+        assert!(
+            crate::db::open_reader(&store).unwrap().is_some(),
+            "the store has today's schema"
+        );
+    }
+
+    /// With no store that has a schema, the stores do not say which schema
+    /// the installed program writes, so install waits for the hook run's use.
+    #[test]
+    fn an_install_with_no_store_waits_for_the_commands_that_use_the_stores() {
+        let scratch = crate::testing::Scratch::new("install-no-store");
+        let places = scratch.places();
+        std::fs::create_dir_all(places.lists.join("builds")).unwrap();
+        let held = hook_run(&places, 11);
+        let (install, events) = installing(&places);
+        assert_eq!(
+            next(&events),
+            Event::Said("waiting for process 11, builds checks run, since 10:00:00".to_string())
+        );
+        drop(held);
+        assert_eq!(next(&events), Event::Put);
+        assert_eq!(next(&events), Event::Done);
+        install.join().unwrap();
     }
 
     /// Every host that answers gets this build, and the install fails with an

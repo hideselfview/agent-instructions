@@ -174,6 +174,17 @@ pub fn stamp_of(conn: &Connection, path: &Path) -> Result<i64> {
         .context(|| format!("reading {}", path.display()))
 }
 
+/// The stamp the database at <path> holds, read without the stamp check and
+/// without a use of the stores: 0 for none. `builds install` reads it to
+/// learn whether it moves the store.
+pub fn stamp_at(path: &Path) -> Result<i64> {
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .context(|| format!("opening {}", path.display()))?;
+    conn.busy_timeout(BUSY)
+        .context(|| format!("configuring {}", path.display()))?;
+    stamp_of(&conn, path)
+}
+
 /// Refuses a stamp that is not this schema's, naming both.
 fn require_stamp(found: i64, path: &Path) -> Result<()> {
     if found != stamp() && crate::install_gate::install_ran()? {

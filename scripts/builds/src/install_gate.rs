@@ -4,7 +4,9 @@
 //! program on PATH. A builds program refuses a store of another schema
 //! (db.rs), so a command that started before an install could not write a
 //! store after the install moved it. The gates make install wait for each
-//! such command first.
+//! such command first. When every store already has the new program's
+//! schema, install moves no store, a command that started before it writes
+//! the schema the new program reads, and install closes no gate.
 //!
 //! A command uses the stores in one of three ways. A use is a locked file of
 //! its own in its kind's folder that says which process runs what and since
@@ -21,13 +23,20 @@
 //!   it opens is open. Its writes are each one short transaction, so a
 //!   command such as `builds cargo test` holds no use while it builds.
 //!
+//! Install first takes the install lock, which it holds until its program
+//! is on PATH, so a second install waits for it, and no install moves a
+//! store or replaces the program while another reads the stores' schemas. Then it
+//! reads each store's schema (migrate.rs) and, when every store has its
+//! program's, puts the program on PATH with both gates open.
+//!
 //! A command use and a connection use each have a gate: a file that a use
 //! holds a shared lock on while it starts and that install locks
-//! exclusively. Install closes the commands gate and waits for every command
-//! use, then closes the connections gate and waits for every connection use,
-//! then counts one more install in the generation file, moves the stores,
-//! puts its program on PATH and opens both gates. So while install waits for
-//! a long command, only a command that would hold a command use waits at the
+//! exclusively. An install that moves a store, or that finds no store with a
+//! schema, closes the commands gate and waits for every command use, then
+//! closes the connections gate and waits for every connection use, then
+//! counts one more install in the generation file, moves the stores, puts
+//! its program on PATH and opens both gates. So while install waits for a
+//! long command, only a command that would hold a command use waits at the
 //! gate; the others keep working.
 //!
 //! A command that finds a gate closed when it starts waits until the gate
@@ -75,12 +84,12 @@ pub fn run_again() -> Fail {
     Fail::Message(format!("running {} again: {error}", program.display()))
 }
 
-/// The file that counts the installs that moved the stores.
+/// The file that counts the installs that closed the gates.
 fn generation_file(places: &Places) -> PathBuf {
     places.install_dir().join("generation")
 }
 
-/// How many installs moved the stores: 0 before the first.
+/// How many installs closed the gates: 0 before the first.
 fn generation(places: &Places) -> Result<u64> {
     let path = generation_file(places);
     match std::fs::read_to_string(&path) {
@@ -222,9 +231,11 @@ pub struct PerConnection {
     pid: u32,
     what: String,
     since: String,
-    /// The installs counted when this process started. Install counts one
-    /// more before it moves the stores and replaces the program, so a count
-    /// that differs says an install ran since.
+    /// The installs counted when this process started. An install that
+    /// closes the gates counts one more before it moves the stores and
+    /// replaces the program, so a count that differs says such an install
+    /// ran since. An install that closes no gate moves no store and counts
+    /// none.
     generation: u64,
     /// The use that the process's open connections share. It ends when the
     /// last of them closes and drops it.
@@ -300,7 +311,8 @@ impl PerConnection {
         Ok(Some(ConnectionUse { _use: taken }))
     }
 
-    /// Whether an install ran since this process started.
+    /// Whether an install that closed the gates ran since this process
+    /// started.
     fn install_ran(&self) -> Result<bool> {
         Ok(generation(&self.places)? != self.generation)
     }
@@ -352,8 +364,8 @@ pub fn hold_from_now() -> Result<Option<Use>> {
     Ok(Some(taken))
 }
 
-/// Whether an install ran since this process started; false for a process
-/// that takes no use per connection.
+/// Whether an install that closed the gates ran since this process started;
+/// false for a process that takes no use per connection.
 pub fn install_ran() -> Result<bool> {
     match PER_CONNECTION.get() {
         Some(per_connection) => per_connection.install_ran(),
@@ -361,39 +373,68 @@ pub fn install_ran() -> Result<bool> {
     }
 }
 
-/// The closed gates: no use starts until install drops this value, which
-/// releases the gates' locks.
+/// The install lock, held by one install from before it reads the stores'
+/// schemas until its program is on PATH.
+pub struct Installing {
+    places: Places,
+    lock: File,
+}
+
+/// Takes the install lock, waiting while another install holds it, and gives
+/// <say> the line that says it waits.
+pub fn begin(places: &Places, say: &mut dyn FnMut(String)) -> Result<Installing> {
+    let path = places.install_dir().join("install.lock");
+    let file = open(&path)?;
+    if !try_lock(&file, libc::LOCK_EX, &path)? {
+        say("another builds install runs: waiting for it".to_string());
+        lock(&file, libc::LOCK_EX, &path)?;
+    }
+    Ok(Installing {
+        places: places.clone(),
+        lock: file,
+    })
+}
+
+impl Installing {
+    /// Closes the commands gate and waits for every command use, then closes
+    /// the connections gate and waits for every connection use, telling
+    /// <say> each use it waits on; then counts one more install.
+    pub fn close(self, say: &mut dyn FnMut(String)) -> Result<Closed> {
+        let commands = close_gate(&self.places, Kind::Command)?;
+        wait_for_uses(&self.places, Kind::Command, say)?;
+        let connections = close_gate(&self.places, Kind::Connection)?;
+        wait_for_uses(&self.places, Kind::Connection, say)?;
+        advance_generation(&self.places)?;
+        Ok(Closed {
+            _install: self.lock,
+            _gates: [commands, connections],
+        })
+    }
+}
+
+/// The closed gates and the install lock: no use starts and no other install
+/// begins until install drops this value, which releases their locks.
 pub struct Closed {
+    _install: File,
     _gates: [File; 2],
 }
 
-/// Closes <kind>'s gate, waiting for whoever holds it.
-fn close_gate(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Result<File> {
+/// Closes <kind>'s gate. The install lock keeps every other install out, so
+/// only a command that passes the gate holds a lock on it: a shared lock,
+/// held while the command takes its use. A child process that another thread
+/// of the command starts holds the same lock until the child calls exec,
+/// which closes the gate's file in the child.
+fn close_gate(places: &Places, kind: Kind) -> Result<File> {
     let path = kind.gate(places);
     let gate = open(&path)?;
-    if !try_lock(&gate, libc::LOCK_EX, &path)? {
-        if closed_by_install(&gate, &path)? {
-            say("another builds install runs: waiting for it".to_string());
-        }
-        lock(&gate, libc::LOCK_EX, &path)?;
-    }
+    lock(&gate, libc::LOCK_EX, &path)?;
     Ok(gate)
-}
-
-/// Whether another install keeps the gate at <path> closed; <gate> is that
-/// gate's open file. Only an install locks a gate exclusively. A command that
-/// passes the gate holds a shared lock on it for a moment. A child process
-/// that another thread of the command starts holds the same lock until the
-/// child calls exec, which closes the gate's file in the child. When no
-/// install holds the gate, <gate> holds a shared lock on return.
-fn closed_by_install(gate: &File, path: &Path) -> Result<bool> {
-    Ok(!try_lock(gate, libc::LOCK_SH, path)?)
 }
 
 /// Waits until every use of <kind> ends, telling <say> each use it waits
 /// on, and removes each use's file. Only install removes a use's file, and
-/// it holds the gate that keeps a second install out, so each file it lists
-/// is there until it removes it.
+/// it holds the install lock that keeps a second install out, so each file
+/// it lists is there until it removes it.
 fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Result<()> {
     let dir = kind.uses(places);
     let entries = match std::fs::read_dir(&dir) {
@@ -423,20 +464,6 @@ fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Re
         std::fs::remove_file(&path).context(|| format!("removing {}", path.display()))?;
     }
     Ok(())
-}
-
-/// Closes the commands gate and waits for every command use, then closes
-/// the connections gate and waits for every connection use, telling <say>
-/// each use it waits on; then counts one more install.
-pub fn close(places: &Places, say: &mut dyn FnMut(String)) -> Result<Closed> {
-    let commands = close_gate(places, Kind::Command, say)?;
-    wait_for_uses(places, Kind::Command, say)?;
-    let connections = close_gate(places, Kind::Connection, say)?;
-    wait_for_uses(places, Kind::Connection, say)?;
-    advance_generation(places)?;
-    Ok(Closed {
-        _gates: [commands, connections],
-    })
 }
 
 #[cfg(test)]

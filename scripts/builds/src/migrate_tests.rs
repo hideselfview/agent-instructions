@@ -2029,23 +2029,27 @@ fn the_pushed_stamp_is_the_schema_before_pushed_commits() {
     );
 }
 
+/// A store in <dir> as the schema before `review_pushed` made it: that
+/// schema's text, its stamp, one run. Install moves it to today's schema.
+pub fn store_before_pushed(dir: &std::path::Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&without_ranks(schema_before_pushed()))
+        .unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_PUSHED_STAMP)
+        .unwrap();
+    plant_run(&conn);
+    path
+}
+
 /// A store from before `review_pushed` keeps its runs, gains the empty table
 /// and equals a fresh schema.
 #[test]
 fn a_store_from_before_pushed_commits_keeps_its_runs_and_gains_the_table() {
     let scratch = Scratch::new("move-pushed");
     let places = scratch.places();
-    let dir = places.lists.join("bae");
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join(DATABASE);
-    {
-        let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&without_ranks(schema_before_pushed()))
-            .unwrap();
-        conn.pragma_update(None, "user_version", BEFORE_PUSHED_STAMP)
-            .unwrap();
-        plant_run(&conn);
-    }
+    let path = store_before_pushed(&places.lists.join("bae"));
     migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()

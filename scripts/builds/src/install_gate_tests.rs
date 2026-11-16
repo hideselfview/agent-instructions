@@ -39,7 +39,8 @@ fn closing(places: &Places) -> (std::thread::JoinHandle<Closed>, Receiver<Event>
     let (events, received) = channel();
     let places = places.clone();
     let closer = std::thread::spawn(move || {
-        let closed = close(&places, &mut |line| events.send(Event::Said(line)).unwrap()).unwrap();
+        let say = &mut |line| events.send(Event::Said(line)).unwrap();
+        let closed = begin(&places, say).unwrap().close(say).unwrap();
         events.send(Event::Done(true)).unwrap();
         closed
     });
@@ -135,7 +136,8 @@ fn while_install_waits_for_a_command_use_connections_still_open_and_install_wait
     // Every use ended, so the next install waits for none and removes their
     // files.
     let mut lines = Vec::new();
-    drop(close(&places, &mut |line| lines.push(line)).unwrap());
+    let say = &mut |line| lines.push(line);
+    drop(begin(&places, say).unwrap().close(say).unwrap());
     assert!(lines.is_empty(), "{lines:?}");
     assert_eq!(count(&Kind::Command.uses(&places)), 0);
     assert_eq!(count(&Kind::Connection.uses(&places)), 0);
@@ -152,26 +154,42 @@ fn holds_use(places: &Places, kind: Kind, pid: u32) -> bool {
     !try_lock(&file, libc::LOCK_EX, &path).unwrap()
 }
 
-/// A command that passes the gate holds it shared, and install waits for it
-/// without saying another install runs; a closed gate is another install's.
+/// A second install waits for the first to put its program on PATH, says
+/// so, and begins once the first drops its lock, whether the first closed
+/// the gates or not.
 #[test]
-fn install_says_another_install_runs_only_when_one_holds_the_gate() {
-    let scratch = Scratch::new("install-gate-holder");
+fn a_second_install_waits_for_the_first() {
+    let scratch = Scratch::new("install-gate-second");
     let places = scratch.places();
-    let path = Kind::Command.gate(&places);
-    let passing = open(&path).unwrap();
-    assert!(try_lock(&passing, libc::LOCK_SH, &path).unwrap());
-    let probe = open(&path).unwrap();
-    assert!(
-        !closed_by_install(&probe, &path).unwrap(),
-        "a command passing the gate is no install"
+    let quiet = &mut |line: String| panic!("no install or use to wait for: {line}");
+    let second = |places: &Places| {
+        let (events, received) = channel();
+        let places = places.clone();
+        let install = std::thread::spawn(move || {
+            let installing =
+                begin(&places, &mut |line| events.send(Event::Said(line)).unwrap()).unwrap();
+            events.send(Event::Done(true)).unwrap();
+            installing
+        });
+        (install, received)
+    };
+    let first = begin(&places, quiet).unwrap();
+    let (install, events) = second(&places);
+    assert_eq!(
+        next(&events),
+        said("another builds install runs: waiting for it")
     );
-    drop(probe);
-    drop(passing);
-    let closed = close(&places, &mut |line| panic!("no use to wait for: {line}")).unwrap();
-    let probe = open(&path).unwrap();
-    assert!(closed_by_install(&probe, &path).unwrap());
+    drop(first);
+    assert_eq!(next(&events), Event::Done(true));
+    let closed = install.join().unwrap().close(quiet).unwrap();
+    let (install, events) = second(&places);
+    assert_eq!(
+        next(&events),
+        said("another builds install runs: waiting for it")
+    );
     drop(closed);
+    assert_eq!(next(&events), Event::Done(true));
+    drop(install.join().unwrap());
 }
 
 #[test]
@@ -187,7 +205,8 @@ fn the_file_of_a_use_whose_process_died_holds_no_install() {
         .unwrap();
     }
     let mut said = Vec::new();
-    let closed = close(&places, &mut |line| said.push(line)).unwrap();
+    let say = &mut |line| said.push(line);
+    let closed = begin(&places, say).unwrap().close(say).unwrap();
     assert!(said.is_empty(), "{said:?}");
     assert_eq!(count(&Kind::Command.uses(&places)), 0);
     assert_eq!(count(&Kind::Connection.uses(&places)), 0);
@@ -218,7 +237,12 @@ fn a_lane_holds_a_use_once_it_holds_its_lock_and_sees_an_install_that_ran_while_
     assert!(!building.install_ran().unwrap());
     drop(held);
     // An install runs while the other lane waits for its lock.
-    drop(close(&places, &mut |_| {}).unwrap());
+    drop(
+        begin(&places, &mut |_| {})
+            .unwrap()
+            .close(&mut |_| {})
+            .unwrap(),
+    );
     let held = waiting.hold_from_now().unwrap();
     assert!(
         waiting.install_ran().unwrap(),

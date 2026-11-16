@@ -1566,25 +1566,32 @@ agent-instructions and run `review replay --rules-root` on it.
 
 INSTALLING
 
-  builds install              wait until no builds command will write a store
-                              with the schema it started with, naming each
-                              and when it started: first every hook run
+  builds install              wait for another install to put its builds on
+                              PATH, then read each store's schema. When every
+                              store already has this builds' schema, move no
+                              store, wait for no command, and copy builds onto
+                              PATH as below. Otherwise (a store has another
+                              schema, or no store has one yet), wait until no
+                              builds command will write a store with the
+                              schema it started with, naming each and when it
+                              started: first every hook run
                               (`checks run`), review that asks reviewers, and
                               app build lane that holds its lane's lock, each
                               of which records after long work; then every
                               other command's open store connection, which
                               lasts one transaction. An app build waiting for
-                              its lane holds nothing; when install ran while
-                              it waited, the lane, once it holds the lock,
+                              its lane holds nothing; when such an install ran
+                              while it waited, the lane, once it holds the lock,
                               leaves the queue and runs the installed builds,
                               which queues again. While install waits for the
                               first kind, a command of that kind that starts
                               waits, then runs the installed builds; other
                               commands keep working.
                               A builds command started by one of the first
-                              kind runs under it, and install refuses to run
-                              under one. Then move the stores to this builds'
-                              schema, copy builds onto PATH in one rename (a
+                              kind runs under it, and an install that would
+                              wait refuses to run under one. Then move the
+                              stores to this builds' schema, copy builds onto
+                              PATH in one rename (a
                               failed build leaves the installed one), link
                               ~/.local/bin/builds-linker to it, and let the
                               waiting commands start. Then create the
