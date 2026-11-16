@@ -3,9 +3,11 @@
 //!
 //! A job sends the commit to the host's clone as the ref
 //! `refs/builds/jobs/<id>` (`git push <target>:dev/<repo>`, never to GitHub),
-//! claims a worktree on the host (`~/dev/<repo>-worktrees/remote-N`, the first
-//! one with no claim, kept between jobs so its build output stays warm),
-//! checks the commit out there and runs the command. When the job ends,
+//! claims the worktree on the host that belongs to the checkout the job comes
+//! from (`~/dev/<repo>-worktrees/remote-<checkout's folder name>`, or
+//! `remote-<name>.<n>` while another job from that checkout holds it, kept
+//! between jobs so its files and build output stay as that checkout's last
+//! job left them), checks the commit out there and runs the command. When the job ends,
 //! however it ends, builds deletes the ref and the claim. A stopped `builds
 //! remote run` (SIGTERM, SIGINT, SIGHUP) stops the command on the host.
 //!
@@ -354,32 +356,48 @@ export PATH
     }
 }
 
-/// Finds the repo's clone and claims the first free worktree for job <id>,
-/// with <sha> checked out in it, then sets the worktree up as `builds new`
-/// sets up a side worktree: the repo's `scripts/hooks/post-checkout` runs in
-/// it as git runs it for a new worktree (build folders linked into the
-/// builds root, shared files linked from the main checkout). Prints
-/// `worktree=<path>`.
-fn claim_script(host: &Host, repo: &str, sha: &str, id: &str) -> String {
+/// The name of the worktree on a host that jobs from the checkout <source>
+/// use: `remote-<the checkout's folder name>`, so each checkout here builds
+/// in its own worktree there, whose files and build folders stay as its last
+/// job left them. A second job from the same checkout while the first runs
+/// takes `remote-<name>.2`, and so on.
+pub fn pinned_name(source: &Path) -> Result<String> {
+    match source.file_name().and_then(|name| name.to_str()) {
+        Some(name) if !name.is_empty() => Ok(format!("remote-{name}")),
+        _ => fail!(
+            "{} has no folder name to name its worktree on a host",
+            source.display()
+        ),
+    }
+}
+
+/// Finds the repo's clone and claims worktree <pinned> for job <id>, or the
+/// first free `<pinned>.<n>` while another job holds it, with <sha> checked
+/// out in it, then sets the worktree up as `builds new` sets up a side
+/// worktree: the repo's `scripts/hooks/post-checkout` runs in it as git runs
+/// it for a new worktree (build folders linked into the builds root, shared
+/// files linked from the main checkout). Prints `worktree=<path>`.
+fn claim_script(host: &Host, repo: &str, pinned: &str, sha: &str, id: &str) -> String {
     format!(
         r#"{root}set -e
 clone="$HOME/{clone}"
 if [ ! -e "$clone/.git" ]; then echo "no clone of {repo} at $clone" >&2; exit 90; fi
 wts="$HOME/dev/{repo}-worktrees"
 mkdir -p "$wts"
+pinned="$wts"/{pinned}
+wt="$pinned"
 n=1
-while ! mkdir "$wts/remote-$n.job" 2>/dev/null; do n=$((n+1)); done
-wt="$wts/remote-$n"
-echo {id} > "$wts/remote-$n.job/id"
+while ! mkdir "$wt.job" 2>/dev/null; do n=$((n+1)); wt="$pinned.$n"; done
+echo {id} > "$wt.job/id"
 if [ -e "$wt/.git" ]; then
   git -C "$wt" checkout -q --force --detach {sha} && git -C "$wt" clean -fdq
 else
   git -C "$clone" worktree add -q --detach "$wt" {sha}
-fi || {{ rm -rf "$wts/remote-$n.job"; exit 91; }}
+fi || {{ rm -rf "$wt.job"; exit 91; }}
 if [ -x "$wt/scripts/hooks/post-checkout" ]; then
   if ! said=$(cd "$wt" && "$wt/scripts/hooks/post-checkout" 0000000000000000000000000000000000000000 {sha} 1 2>&1); then
     echo "post-checkout failed in $wt: $said" >&2
-    rm -rf "$wts/remote-$n.job"
+    rm -rf "$wt.job"
     exit 93
   fi
 fi
@@ -387,6 +405,7 @@ echo "worktree=$wt""#,
         root = root_script(host),
         clone = clone_path(repo),
         repo = repo,
+        pinned = sh_quote(pinned),
         sha = sh_quote(sha),
         id = sh_quote(id),
     )
@@ -547,6 +566,7 @@ pub fn start_job<'a>(
     request: &Request,
 ) -> Result<Start<'a>> {
     let sha = commit_of(source, &request.what)?;
+    let pinned = pinned_name(source)?;
     let id = job_id();
     let transport = Transport { places, ssh, host };
     // The outer error is this Mac's; the inner one is the host's.
@@ -555,7 +575,7 @@ pub fn start_job<'a>(
             return Ok(Err(said));
         }
         let claimed = match transport.ask(
-            &claim_script(host, &request.repo, &sha, &id),
+            &claim_script(host, &request.repo, &pinned, &sha, &id),
             "claiming a worktree",
         )? {
             Ok(claimed) => claimed,

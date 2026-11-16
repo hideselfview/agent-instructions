@@ -316,7 +316,7 @@ fn a_host_builds_the_working_tree_and_its_exit_status_comes_back() {
         ran.starts_with("host=local args=cargo test -p demo flags=-Dx\n"),
         "{ran}"
     );
-    assert!(ran.contains("demo-worktrees/remote-1"), "{ran}");
+    assert!(ran.contains("demo-worktrees/remote-side-1"), "{ran}");
     assert!(ran.ends_with("an untracked edit\n"), "{ran}");
 
     // A failing command fails the same way.
@@ -396,11 +396,11 @@ fn a_wrapper_and_a_before_program_inside_the_checkout_run_from_the_hosts_worktre
     let wts = r.home.join("dev/demo-worktrees");
     assert_eq!(
         read(&wts.join("wrapper.txt")).trim(),
-        format!("{}/remote-1/scripts/wrap.sh", wts.display())
+        format!("{}/remote-side-1/scripts/wrap.sh", wts.display())
     );
     assert_eq!(
         read(&wts.join("seen-before.txt")).trim(),
-        "one two remote-1"
+        "one two remote-side-1"
     );
 
     // A program that fails stops the command before cargo, with its status.

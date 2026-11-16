@@ -134,16 +134,20 @@ fn runs_a_commit_in_a_worktree_and_cleans_up() {
         std::fs::read_to_string(wts.join("where.txt"))
             .unwrap()
             .trim()
-            .ends_with("demo-worktrees/remote-1")
+            .ends_with("demo-worktrees/remote-demo"),
+        "the worktree of the checkout the job came from"
     );
-    assert!(!wts.join("remote-1.job").exists(), "the claim is released");
+    assert!(
+        !wts.join("remote-demo.job").exists(),
+        "the claim is released"
+    );
     assert_eq!(
         refs(&s.home.join("dev/demo")),
         "",
         "the job's ref is deleted"
     );
     assert_eq!(refs(&s.source), "", "nothing is left in the source");
-    // A second job reuses the free worktree.
+    // A second job from the checkout reuses its worktree.
     run_job(
         &places,
         &s.ssh,
@@ -152,7 +156,7 @@ fn runs_a_commit_in_a_worktree_and_cleans_up() {
         &request(What::Ref("main".to_string()), &["true"]),
     )
     .unwrap();
-    assert!(!wts.join("remote-2").exists());
+    assert!(!wts.join("remote-demo.2").exists());
 }
 
 #[test]
@@ -160,7 +164,7 @@ fn a_busy_worktree_sends_the_next_job_to_another() {
     let s = setup("remote-busy");
     let places = s.scratch.places();
     let wts = s.home.join("dev/demo-worktrees");
-    std::fs::create_dir_all(wts.join("remote-1.job")).unwrap();
+    std::fs::create_dir_all(wts.join("remote-demo.job")).unwrap();
     let job = request(
         What::Ref("main".to_string()),
         &["sh", "-c", "pwd > ../where.txt"],
@@ -170,10 +174,10 @@ fn a_busy_worktree_sends_the_next_job_to_another() {
         std::fs::read_to_string(wts.join("where.txt"))
             .unwrap()
             .trim()
-            .ends_with("remote-2")
+            .ends_with("remote-demo.2")
     );
     assert!(
-        wts.join("remote-1.job").exists(),
+        wts.join("remote-demo.job").exists(),
         "another job's claim stays"
     );
 }
@@ -266,9 +270,9 @@ fn this_mac_runs_a_job_without_pushing() {
         std::fs::read_to_string(wts.join("where.txt"))
             .unwrap()
             .trim()
-            .ends_with("remote-1")
+            .ends_with("remote-demo")
     );
-    assert!(!wts.join("remote-1.job").exists());
+    assert!(!wts.join("remote-demo.job").exists());
     assert_eq!(refs(&s.source), "");
 }
 
@@ -299,7 +303,7 @@ fn a_stop_signal_stops_the_command_on_the_host() {
     let code = super::run_job(&places, &s.ssh, &s.host, &s.source, &job, &stop).unwrap();
     signaller.join().unwrap();
     assert_eq!(code, STOPPED_EXIT);
-    assert!(!s.home.join("dev/demo-worktrees/remote-1.job").exists());
+    assert!(!s.home.join("dev/demo-worktrees/remote-demo.job").exists());
     assert_eq!(refs(&s.home.join("dev/demo")), "");
 }
 
@@ -335,7 +339,7 @@ fn a_new_remote_worktree_runs_the_repos_post_checkout_with_the_hosts_root() {
     assert_eq!(
         hook.trim(),
         format!(
-            "{root} 0000000000000000000000000000000000000000 1 {}/remote-1",
+            "{root} 0000000000000000000000000000000000000000 1 {}/remote-demo",
             wts.display()
         )
     );
@@ -359,7 +363,7 @@ fn a_failing_post_checkout_fails_the_job_and_releases_the_claim() {
     };
     assert!(message.contains("post-checkout failed"), "{message}");
     assert!(message.contains("broken"), "{message}");
-    assert!(!s.home.join("dev/demo-worktrees/remote-1.job").exists());
+    assert!(!s.home.join("dev/demo-worktrees/remote-demo.job").exists());
     assert_eq!(refs(&s.home.join("dev/demo")), "");
 }
 

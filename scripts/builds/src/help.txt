@@ -601,9 +601,13 @@ cannot start refuses mac app builds only (APP BUILDS).
                               --working sends HEAD plus the whole working tree.
                               The commit goes to the host's clone only, as
                               refs/builds/jobs/<id>, never to GitHub. The
-                              worktree is the first free
-                              ~/dev/<repo>-worktrees/remote-N, kept between
-                              jobs so its build output stays; the repo's
+                              worktree belongs to the checkout the job comes
+                              from: ~/dev/<repo>-worktrees/remote-<the
+                              checkout's folder name> (remote-side-2 for
+                              side-2), or remote-<name>.2 and on while another
+                              job from that checkout holds it. It is kept
+                              between jobs, so a checkout's job finds the files
+                              and build output its last job left; the repo's
                               scripts/hooks/post-checkout runs in it with
                               BUILDS_ROOT set to ~/builds-root (the command
                               gets the same). When the job ends, builds deletes
