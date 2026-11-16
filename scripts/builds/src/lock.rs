@@ -109,18 +109,49 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
     }
 }
 
-/// Which of a lane's app checkouts a build may take: only the side worktrees
-/// of this Mac, for a command that runs here (`builds lock`, `build-app`), or
-/// also those on hosts (`app-build`, whose steps run where the checkout is).
+/// Which of a lane's app checkouts a build may take, and where one step of an
+/// app build may run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Where {
+    /// Only the side worktrees of this Mac: for a command that runs here
+    /// (`builds lock`, `build-app`) and a step the repo keeps here (`here`
+    /// lines).
     Here,
+    /// Only the checkouts on hosts: for a test run that opens windows
+    /// (`opens-windows` lines), which on this Mac would reach the person's
+    /// screen.
+    Hosts,
+    /// Any of them (`app-build`, whose steps run where the checkout is).
     Anywhere,
 }
 
 impl Where {
     fn allows(self, entry: &str) -> bool {
-        self == Where::Anywhere || crate::app_remote::split(entry).is_none()
+        let on_host = crate::app_remote::split(entry).is_some();
+        match self {
+            Where::Here => !on_host,
+            Where::Hosts => on_host,
+            Where::Anywhere => true,
+        }
+    }
+
+    /// The words that follow "runs only" in a message.
+    pub fn only(self) -> &'static str {
+        match self {
+            Where::Here => "on this Mac",
+            Where::Hosts => "on a host",
+            Where::Anywhere => "anywhere",
+        }
+    }
+
+    /// The words a message about the checkouts it allows puts after
+    /// "checkout": nothing for `Anywhere`.
+    fn checkouts(self) -> &'static str {
+        match self {
+            Where::Here => "on this Mac ",
+            Where::Hosts => "on a host ",
+            Where::Anywhere => "",
+        }
     }
 }
 
@@ -268,11 +299,7 @@ fn take_free_lock(
             fail!(
                 "{repo} has no {} app checkout {}recorded; builds app-checkout records one",
                 lane.word(),
-                if allowed == Where::Here {
-                    "on this Mac "
-                } else {
-                    ""
-                }
+                allowed.checkouts()
             );
         }
         let broken = if lane.uses_xcode() {
@@ -342,7 +369,7 @@ pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
 }
 
 /// `take` with <allowed>: with `Where::Anywhere`, the checkouts on hosts too,
-/// the one on the less loaded host first.
+/// the one on the less loaded host first; with `Where::Hosts`, only those.
 pub fn take_where(
     places: &Places,
     ssh: &Ssh,
@@ -362,11 +389,7 @@ fn take_in(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, allowed: Where) -
         fail!(
             "{repo} has no {} app checkout {}recorded in {}; builds app-checkout records one",
             lane.word(),
-            if allowed == Where::Here {
-                "on this Mac "
-            } else {
-                ""
-            },
+            allowed.checkouts(),
             places.app_checkouts_file(repo, lane).display()
         );
     }

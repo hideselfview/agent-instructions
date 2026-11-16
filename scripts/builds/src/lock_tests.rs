@@ -231,6 +231,29 @@ fn a_build_that_runs_here_never_takes_a_checkout_on_a_host() {
 }
 
 #[test]
+fn a_build_that_runs_on_hosts_never_takes_a_checkout_on_this_mac() {
+    let scratch = Scratch::new("lock-hosts");
+    let places = places_with_host(&scratch, "side-2\n");
+    let ssh = ssh_with_load(&scratch.dir.join("ssh"), "0.00");
+    let Err(error) = take_where(&places, &ssh, "demo", Lane::Android, Where::Hosts) else {
+        panic!("only this Mac's checkout is recorded");
+    };
+    let text = error.text();
+    assert!(text.contains("on a host"), "{text}");
+    std::fs::write(
+        places.app_checkouts_file("demo", Lane::Android),
+        "side-2\nm1:app-1\n",
+    )
+    .unwrap();
+    // This Mac's load per core is never 1000, so a pick by load alone would
+    // take side-2.
+    let busy = ssh_with_load(&scratch.dir.join("busy"), "1000.00");
+    let held = take_where(&places, &busy, "demo", Lane::Android, Where::Hosts).unwrap();
+    assert_eq!(held.checkout, "m1:app-1");
+    held.release();
+}
+
+#[test]
 fn the_checkout_on_the_less_loaded_host_goes_first() {
     let scratch = Scratch::new("lock-load");
     let places = places_with_host(&scratch, "side-2\nm1:app-1\n");

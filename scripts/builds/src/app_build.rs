@@ -212,9 +212,33 @@ fn lane_steps(
             lane,
             command: picker.command_for(arg),
             limit: Some(kind.limit()),
+            place: picker.place,
         });
     }
     Ok(steps)
+}
+
+/// Where a lane's checkout must be to run all of <steps>: where each of them
+/// may run. Fails, naming two of them, when no checkout can run both.
+fn place_of(steps: &[Step]) -> Result<lock::Where> {
+    let mut narrowed: Option<&Step> = None;
+    for step in steps
+        .iter()
+        .filter(|step| step.place != lock::Where::Anywhere)
+    {
+        match narrowed {
+            None => narrowed = Some(step),
+            Some(first) if first.place == step.place => {}
+            Some(first) => fail!(
+                "{} runs only {} and {} only {}, so no app checkout can run both: run them in separate app-builds",
+                first.name,
+                first.place.only(),
+                step.name,
+                step.place.only()
+            ),
+        }
+    }
+    Ok(narrowed.map_or(lock::Where::Anywhere, |step| step.place))
 }
 
 /// The names in <names> that are steps of <lane> in <config>, in order.
@@ -808,18 +832,19 @@ fn build_lane(
     ));
     let ssh = Ssh::from_env();
     // A step the repo keeps on this Mac (`here` lines) keeps the build off
-    // the hosts' checkouts.
+    // the hosts' checkouts, and a test run that opens windows (`opens-windows`
+    // lines) keeps it off this Mac's.
     let config = config_at(places, repo, commit)?;
     let source = local_source(places, repo)?;
     let program_of = |class: &str| crate::derive::program_of(&source, &config, commit, lane, class);
-    let allowed = if lane_steps(&config, lane, names, picks, &program_of)?
-        .iter()
-        .any(|step| config.here.contains(&step.name))
-    {
-        lock::Where::Here
-    } else {
-        lock::Where::Anywhere
-    };
+    let steps = lane_steps(&config, lane, names, picks, &program_of)?;
+    let allowed = place_of(&steps)?;
+    if let Some(windowed) = steps.iter().find(|step| step.place == lock::Where::Hosts) {
+        note(format!(
+            "{} opens windows, so it runs only in an app checkout on a host, never on this Mac, where the windows would cover the person's screen",
+            windowed.name
+        ));
+    }
     let waiting = Instant::now();
     let mut held = lock::take_where(places, &ssh, repo, lane, allowed)?;
     timing.wait += waiting.elapsed();
@@ -1188,8 +1213,16 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
             );
         }
         for picker in &config.pickers {
+            let program = picker
+                .program
+                .as_ref()
+                .map_or(String::new(), |program| format!(":{program}"));
+            let place = match picker.place {
+                lock::Where::Anywhere => String::new(),
+                place => format!(" (runs only {})", place.only()),
+            };
             println!(
-                "{} {} <{}> {}",
+                "{}{program} {} <{}> {}{place}",
                 picker.lane.word(),
                 picker.kind.flag(),
                 picker.kind.what(),

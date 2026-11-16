@@ -395,6 +395,11 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
                     copies back to this Mac
   here <step>...    steps that never run on another host (bae's signed macos
                     step)
+  opens-windows <lane>[:<name>]...
+                    the test lines whose runs open windows (bae's mac:ui line,
+                    for its UI tests); a --test run of such a line never runs
+                    on this Mac, where the windows would cover the person's
+                    screen, only on a host
   limit <step> <time>
                     the step's time limit (90s, 30m, 2h), in place of 45
                     minutes
@@ -414,7 +419,15 @@ takeover; its output comes back behind [<lane> <host>:<name>]. After each
 `results` lines are copied to /Volumes/Builds/<repo>/<host>:<name>/<path> here,
 where agents read them. A mac lane checkout on a host needs Xcode there.
 build-app, `builds lock` and a build that runs a `here` step never take a
-checkout on a host.
+checkout on a host. A build that runs a test class through a line an
+`opens-windows` line names takes only a checkout on a host, never one on this
+Mac, and fails when the lane has none (in bae, the M1's mac lane checkouts run
+the UI tests). A build can't run both kinds; it fails, naming one of each. A
+host runs UI tests only when its Automation Mode needs no password, since nobody
+is at its screen to type one: run `sudo automationmodetool
+enable-automationmode-without-authentication` there once (`automationmodetool`
+says the setting). Without it, xcodebuild says "Timed out while enabling
+automation mode" and the class runs no tests.
 
 When a host's Xcode cannot start, every xcodebuild run there fails, whatever
 code it builds: xcodebuild prints "A required plugin failed to load" and names
@@ -448,7 +461,8 @@ built again.
                               the lane it starts with (mac. or android.); a
                               lane with runs and no step builds its `needs`
                               steps; each lane takes the free app checkout on
-                              the less loaded host. A --shots pick whose
+                              the less loaded host (only a host's for a test
+                              line that opens windows). A --shots pick whose
                               findings are already stored prints them and
                               takes no lock; --fresh runs it anyway
   builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--fresh]

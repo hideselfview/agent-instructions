@@ -36,10 +36,15 @@
 //! `--test` or `--shots` copies them back to this Mac after it ends, passed
 //! or failed. A lane may have several such lines.
 //!
-//! A `here <step>...` line names steps that run only in an app checkout on this
-//! Mac, never on a host (app_remote.rs): the signed macOS app for the person,
-//! whose signing identity only this Mac has. A lane's build with such a step
-//! takes only a checkout here.
+//! Each step and each test line has a place, the app checkouts it may run in
+//! (`lock::Where`): any of the lane's, unless a line says otherwise. A `here
+//! <step>...` line names steps that run only in an app checkout on this Mac,
+//! never on a host (app_remote.rs): the signed macOS app for the person, whose
+//! signing identity only this Mac has. An `opens-windows <lane>[:<program>]...`
+//! line names test lines whose runs open windows (bae's UI tests), which run
+//! only in an app checkout on a host: on this Mac the windows would cover the
+//! person's screen. A lane's build takes a checkout where all its steps may
+//! run.
 //!
 //! Three kinds of line let `builds app-build` with no step named (derive.rs) choose the steps of a
 //! branch, so no caller names one:
@@ -77,7 +82,7 @@ use crate::checkout::{git, git_text};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
-use crate::lock::{self, Within};
+use crate::lock::{self, Where, Within};
 use crate::places::Places;
 
 pub const CONFIG: &str = ".app-build";
@@ -106,8 +111,6 @@ pub struct Config {
     /// The folders each lane's runs of tests and screenshots write, from the
     /// `results` lines, in the order written.
     pub results: Vec<(Lane, String)>,
-    /// The steps that run only on this Mac, from the `here` lines.
-    pub here: Vec<String>,
     /// The `on` lines: which changed paths need which steps.
     pub rules: Vec<Rule>,
     /// The `needs` lines: the steps a pick in the lane needs built first.
@@ -257,6 +260,9 @@ pub struct Picker {
     /// lane's default.
     pub program: Option<String>,
     pub command: Vec<String>,
+    /// Where its runs may go: `Where::Hosts` for a test line an
+    /// `opens-windows` line names, else `Where::Anywhere`.
+    pub place: Where,
 }
 
 impl Picker {
@@ -300,6 +306,9 @@ pub struct Step {
     pub command: Vec<String>,
     /// From the step's `limit` line; `DEFAULT_STEP_LIMIT` without one.
     pub limit: Option<Duration>,
+    /// Where it may run: `Where::Here` for a step a `here` line names, the
+    /// place of its test line for a test run, else `Where::Anywhere`.
+    pub place: Where,
 }
 
 impl Step {
@@ -345,6 +354,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let mut shots_source: Option<String> = None;
     let mut results: Vec<(Lane, String)> = Vec::new();
     let mut here: Vec<String> = Vec::new();
+    let mut windowed: Vec<(Lane, Option<String>)> = Vec::new();
     let mut rules: Vec<Rule> = Vec::new();
     let mut needs: Vec<(Lane, Vec<String>)> = Vec::new();
     let mut sources: Vec<Source> = Vec::new();
@@ -387,6 +397,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     lane,
                     command,
                     limit: None,
+                    place: Where::Anywhere,
                 });
             }
             (keyword @ ("test" | "shots"), _) => {
@@ -424,6 +435,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     kind,
                     program,
                     command,
+                    place: Where::Anywhere,
                 });
             }
             ("shots-source", _) => {
@@ -488,6 +500,20 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 }
                 here.extend(named);
             }
+            ("opens-windows", _) => {
+                let named = words(field);
+                if named.is_empty() {
+                    fail!("{CONFIG}: an opens-windows line names no test line");
+                }
+                for word in named {
+                    let Some(test) = lane_and_program(&word) else {
+                        fail!(
+                            "{CONFIG}: {line:?}: an opens-windows line names test lines by lane, mac or android, with a program after a colon for a named one, not {word:?}"
+                        );
+                    };
+                    windowed.push(test);
+                }
+            }
             ("results", _) => {
                 let Some(lane) = Lane::parse(name) else {
                     fail!(
@@ -526,8 +552,23 @@ pub fn parse_config(text: &str) -> Result<Config> {
         }
     }
     for name in &here {
-        if !steps.iter().any(|step| step.name == *name) {
-            fail!("{CONFIG}: here names step {name}, which {CONFIG} does not name");
+        match steps.iter_mut().find(|step| step.name == *name) {
+            Some(step) => step.place = Where::Here,
+            None => fail!("{CONFIG}: here names step {name}, which {CONFIG} does not name"),
+        }
+    }
+    for (lane, program) in windowed {
+        let named = match &program {
+            Some(program) => format!("{}:{program}", lane.word()),
+            None => lane.word().to_string(),
+        };
+        match pickers.iter_mut().find(|picker| {
+            picker.lane == lane && picker.kind == PickKind::Class && picker.program == program
+        }) {
+            Some(picker) => picker.place = Where::Hosts,
+            None => {
+                fail!("{CONFIG}: opens-windows names {named}, which has no `test {named}` line")
+            }
         }
     }
     for step in rules
@@ -579,7 +620,6 @@ pub fn parse_config(text: &str) -> Result<Config> {
         pickers,
         shots_source,
         results,
-        here,
         rules,
         needs,
         sources,

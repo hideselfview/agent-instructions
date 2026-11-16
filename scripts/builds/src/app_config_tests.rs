@@ -42,7 +42,6 @@ fn a_config_names_each_platforms_build() {
             pickers: Vec::new(),
             shots_source: None,
             results: Vec::new(),
-            here: Vec::new(),
             rules: Vec::new(),
             needs: Vec::new(),
             sources: Vec::new(),
@@ -99,6 +98,7 @@ fn step_lines_name_a_command_each_in_the_order_written() {
         lane: Lane::Mac,
         command: words(command),
         limit: None,
+        place: Where::Anywhere,
     };
     assert_eq!(
         config.steps,
@@ -183,13 +183,15 @@ fn a_test_line_gives_a_lane_the_command_that_runs_one_class() {
                 lane: Lane::Mac,
                 kind: PickKind::Class,
                 program: None,
-                command: words("./t.sh --run-only {class}")
+                command: words("./t.sh --run-only {class}"),
+                place: Where::Anywhere,
             },
             Picker {
                 lane: Lane::Android,
                 kind: PickKind::Class,
                 program: None,
-                command: words("./g.sh --tests *{class}")
+                command: words("./g.sh --tests *{class}"),
+                place: Where::Anywhere,
             },
         ]
     );
@@ -232,6 +234,7 @@ fn the_class_fills_each_word_it_stands_in() {
         kind: PickKind::Class,
         program: None,
         command: words("./g.sh --tests *{class}"),
+        place: Where::Anywhere,
     };
     assert_eq!(
         test.command_for("FooTest"),
@@ -384,10 +387,37 @@ fn results_lines_name_the_folders_a_lane_copies_back() {
 
 #[test]
 fn a_here_line_names_steps_that_stay_on_this_mac() {
-    let config = parse_config("step mac a ./a\nstep mac b ./b\nhere a\nhere b a\n").unwrap();
-    assert_eq!(config.here, vec!["a", "b", "a"]);
+    let config =
+        parse_config("step mac a ./a\nstep mac b ./b\nstep mac c ./c\nhere a\nhere b a\n").unwrap();
+    let places: Vec<Where> = config.steps.iter().map(|step| step.place).collect();
+    assert_eq!(places, vec![Where::Here, Where::Here, Where::Anywhere]);
     assert!(parse_config("here a").is_err(), "a step it does not name");
     assert!(parse_config("step mac a ./a\nhere").is_err());
+}
+
+#[test]
+fn an_opens_windows_line_keeps_its_test_lines_on_hosts() {
+    let config = parse_config(
+        "sources mac:ui app/ui\ntest mac ./t {class}\ntest mac:ui ./t --ui {class}\ntest android ./g {class}\nopens-windows mac:ui android\n",
+    )
+    .unwrap();
+    let place = |lane, program| {
+        config
+            .picker_in(lane, PickKind::Class, program)
+            .unwrap()
+            .place
+    };
+    assert_eq!(place(Lane::Mac, Some("ui")), Where::Hosts);
+    assert_eq!(place(Lane::Android, None), Where::Hosts);
+    assert_eq!(place(Lane::Mac, None), Where::Anywhere);
+    for refused in [
+        "opens-windows",
+        "test mac ./t {class}\nopens-windows mac:ui",
+        "shots mac ./s {select}\nopens-windows mac",
+        "test mac ./t {class}\nopens-windows ios",
+    ] {
+        assert!(parse_config(refused).is_err(), "{refused} is refused");
+    }
 }
 
 #[test]

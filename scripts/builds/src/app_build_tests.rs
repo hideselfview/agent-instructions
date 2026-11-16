@@ -88,6 +88,7 @@ fn steps_stop_at_the_first_failure() {
         lane: Lane::Mac,
         command: command.iter().map(|w| w.to_string()).collect(),
         limit: None,
+        place: lock::Where::Anywhere,
     };
     let steps = [
         step("a", &["touch", "a"]),
@@ -122,6 +123,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
         lane: Lane::Mac,
         command: vec!["sh".to_string(), "-c".to_string(), script],
         limit: None,
+        place: lock::Where::Anywhere,
     };
     let broken = step(format!("echo building; echo \"{said}\" >&2; exit 70"));
     assert_eq!(
@@ -169,12 +171,14 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
             .map(str::to_string)
             .to_vec(),
         limit: Some(Duration::from_millis(500)),
+        place: lock::Where::Anywhere,
     };
     let after = Step {
         name: "after".to_string(),
         lane: Lane::Mac,
         command: vec!["touch".to_string(), "after".to_string()],
         limit: None,
+        place: lock::Where::Anywhere,
     };
     let started = std::time::Instant::now();
     let Err(Fail::Message(message)) =
@@ -342,6 +346,39 @@ fn a_class_runs_through_the_program_its_folder_names() {
 }
 
 #[test]
+fn a_test_run_that_opens_windows_takes_a_checkout_on_a_host_and_no_here_step() {
+    let config = parse_config(
+        "step mac build ./b\nstep mac signed ./s\nhere signed\nsources mac:ui ui\ntest mac ./t {class}\ntest mac:ui ./t --ui {class}\nopens-windows mac:ui\n",
+    )
+    .unwrap();
+    let program_of = |class: &str| Ok((class == "MenuTests").then(|| "ui".to_string()));
+    let picks = [
+        (Lane::Mac, PickKind::Class, "MenuTests".to_string()),
+        (Lane::Mac, PickKind::Class, "ModelTests".to_string()),
+    ];
+    let steps = lane_steps(&config, Lane::Mac, &args(&["build"]), &picks, &program_of).unwrap();
+    assert_eq!(steps[1].place, lock::Where::Hosts);
+    assert_eq!(steps[2].place, lock::Where::Anywhere);
+    assert_eq!(place_of(&steps).unwrap(), lock::Where::Hosts);
+    assert_eq!(
+        place_of(&steps[2..]).unwrap(),
+        lock::Where::Anywhere,
+        "a unit test class runs anywhere"
+    );
+    let signed = lane_steps(&config, Lane::Mac, &args(&["signed"]), &[], &program_of).unwrap();
+    assert_eq!(place_of(&signed).unwrap(), lock::Where::Here);
+    let both = lane_steps(&config, Lane::Mac, &args(&["signed"]), &picks, &program_of).unwrap();
+    let Err(Fail::Message(message)) = place_of(&both) else {
+        panic!("no checkout runs both")
+    };
+    assert!(
+        message.contains("signed runs only on this Mac")
+            && message.contains("test MenuTests only on a host"),
+        "{message}"
+    );
+}
+
+#[test]
 fn a_pick_step_is_known_by_its_name() {
     assert_eq!(pick_kind_of("test Foo"), Some(PickKind::Class));
     assert_eq!(pick_kind_of("shots mac.x."), Some(PickKind::Shots));
@@ -401,6 +438,7 @@ fn fake(name: &str, command: &[&str], limit: Option<Duration>) -> Step {
         lane: Lane::Mac,
         command: command.iter().map(|w| w.to_string()).collect(),
         limit,
+        place: lock::Where::Anywhere,
     }
 }
 
