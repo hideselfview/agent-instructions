@@ -332,7 +332,7 @@ fn take_free_lock(
             format!(
                 "{entry} (on host {}, {}; `builds health` says what fixes it)",
                 host_of(entry),
-                cause_on(entry).unwrap_or_default()
+                cause_on(entry).expect("the partition put only an entry with a cause here")
             )
         }));
         if ordered.is_empty() {
