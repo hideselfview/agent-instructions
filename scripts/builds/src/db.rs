@@ -176,7 +176,7 @@ pub fn stamp_of(conn: &Connection, path: &Path) -> Result<i64> {
 
 /// Refuses a stamp that is not this schema's, naming both.
 fn require_stamp(found: i64, path: &Path) -> Result<()> {
-    if found != stamp() && crate::install_gate::program_replaced() {
+    if found != stamp() && crate::install_gate::program_replaced()? {
         fail!(
             "builds install replaced this builds program while this command ran, and moved {} to the new program's schema; run the command again",
             path.display()

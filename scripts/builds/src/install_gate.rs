@@ -154,16 +154,10 @@ fn open(path: &Path) -> Result<File> {
         .context(|| format!("opening {}", path.display()))
 }
 
-/// A use of the stores: its file, locked until dropped, then removed.
+/// A use of the stores: its file, locked until dropped. The file stays;
+/// install removes the file of each use that ended.
 pub struct Use {
-    path: PathBuf,
     _file: File,
-}
-
-impl Drop for Use {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
 }
 
 /// Passes <kind>'s gate: returns its file, holding a shared lock, and
@@ -192,7 +186,7 @@ fn take(places: &Places, kind: Kind, gate: File, pid: u32, what: &str, since: &s
         .context(|| format!("writing {}", path.display()))?;
     // Closing the gate's file releases the shared lock; the use is in place.
     drop(gate);
-    Ok(Use { path, _file: file })
+    Ok(Use { _file: file })
 }
 
 const RUNS_AGAIN: &str =
@@ -231,11 +225,10 @@ pub fn may_start(places: &Places) -> Result<bool> {
 }
 
 /// The identity of the file at <path>: its device and inode.
-fn identity(path: &Path) -> Option<(u64, u64)> {
+fn identity(path: &Path) -> Result<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
-    std::fs::metadata(path)
-        .ok()
-        .map(|meta| (meta.dev(), meta.ino()))
+    let meta = std::fs::metadata(path).context(|| format!("reading {}", path.display()))?;
+    Ok((meta.dev(), meta.ino()))
 }
 
 /// The connection uses of one process: the first open connection takes the
@@ -246,8 +239,9 @@ pub struct PerConnection {
     pid: u32,
     what: String,
     since: String,
-    /// The program file this process started from, which install replaces.
-    program: Option<(PathBuf, Option<(u64, u64)>)>,
+    /// The path of the program file this process started from, which
+    /// install replaces, and that file's identity.
+    program: (PathBuf, (u64, u64)),
     /// The installs counted when this process started.
     generation: u64,
     held: Mutex<Option<(usize, Use)>>,
@@ -267,10 +261,9 @@ pub enum FromNow {
 
 impl PerConnection {
     pub fn new(places: Places, pid: u32, what: &str, since: &str) -> Result<PerConnection> {
-        let program = std::env::current_exe().ok().map(|exe| {
-            let found = identity(&exe);
-            (exe, found)
-        });
+        let exe = std::env::current_exe().context(|| "finding this program".to_string())?;
+        let started = identity(&exe)?;
+        let program = (exe, started);
         Ok(PerConnection {
             generation: generation(&places)?,
             places,
@@ -301,7 +294,7 @@ impl PerConnection {
             &self.what,
             &self.since,
         )?;
-        if generation(&self.places)? != self.generation || self.program_replaced() {
+        if generation(&self.places)? != self.generation || self.program_replaced()? {
             return Ok(FromNow::InstallRan);
         }
         self.held_for_life.store(true, Ordering::SeqCst);
@@ -339,10 +332,9 @@ impl PerConnection {
 
     /// Whether install has put another program at this process's path
     /// since it started.
-    fn program_replaced(&self) -> bool {
-        self.program
-            .as_ref()
-            .is_some_and(|(path, started)| started.is_some() && identity(path) != *started)
+    fn program_replaced(&self) -> Result<bool> {
+        let (path, started) = &self.program;
+        Ok(identity(path)? != *started)
     }
 }
 
@@ -372,7 +364,13 @@ static PER_CONNECTION: OnceLock<PerConnection> = OnceLock::new();
 
 /// Has this process take a use for each store connection it opens.
 pub fn use_per_connection(per_connection: PerConnection) {
-    let _ = PER_CONNECTION.set(per_connection);
+    if let Err(second) = PER_CONNECTION.set(per_connection) {
+        let first = PER_CONNECTION.get().expect("set returned the second");
+        panic!(
+            "this process's use of the stores was set twice: for process {}, builds {}, then for process {}, builds {}",
+            first.pid, first.what, second.pid, second.what
+        );
+    }
 }
 
 /// The use of the stores that a store connection this process opens takes:
@@ -403,10 +401,11 @@ pub fn hold_from_now() -> Result<FromNow> {
 
 /// Whether install has put another program at this process's path since it
 /// started; false for a process that takes no use per connection.
-pub fn program_replaced() -> bool {
-    PER_CONNECTION
-        .get()
-        .is_some_and(PerConnection::program_replaced)
+pub fn program_replaced() -> Result<bool> {
+    match PER_CONNECTION.get() {
+        Some(per_connection) => per_connection.program_replaced(),
+        None => Ok(false),
+    }
 }
 
 /// The closed gates: no use starts while they live.
@@ -449,11 +448,12 @@ fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Re
         };
         if !lock(&file, libc::LOCK_EX, false, &path)? {
             let mut text = String::new();
-            let _ = file.read_to_string(&mut text);
+            file.read_to_string(&mut text)
+                .context(|| format!("reading which process holds {}", path.display()))?;
             say(format!("waiting for {}", text.trim()));
             lock(&file, libc::LOCK_EX, true, &path)?;
         }
-        // The use ended, or its process died without removing its file.
+        // The use ended, or its process died.
         match std::fs::remove_file(&path) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
                 fail!("removing {}: {error}", path.display())

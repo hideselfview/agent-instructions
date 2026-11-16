@@ -98,16 +98,24 @@ fn while_install_waits_for_a_command_use_connections_still_open_and_install_wait
     assert!(opened_rx.recv_timeout(Duration::from_secs(10)).unwrap());
     waiter.join().unwrap();
     opener.join().unwrap();
-    assert_eq!(
-        count(&Kind::Command.uses(&places)),
-        0,
-        "every use removed its file"
-    );
-    assert_eq!(
-        count(&Kind::Connection.uses(&places)),
-        0,
-        "every use removed its file"
-    );
+    // Every use ended, so the next install waits for none and removes their
+    // files.
+    let mut said = Vec::new();
+    drop(close(&places, &mut |line| said.push(line)).unwrap());
+    assert!(said.is_empty(), "{said:?}");
+    assert_eq!(count(&Kind::Command.uses(&places)), 0);
+    assert_eq!(count(&Kind::Connection.uses(&places)), 0);
+}
+
+/// Whether process <pid> holds its use of <kind>.
+fn holds_use(places: &Places, kind: Kind, pid: u32) -> bool {
+    let path = kind.uses(places).join(pid.to_string());
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(error) => panic!("opening {}: {error}", path.display()),
+    };
+    !lock(&file, libc::LOCK_EX, false, &path).unwrap()
 }
 
 #[test]
@@ -161,9 +169,8 @@ fn a_lane_holds_a_use_once_it_holds_its_lock_unless_an_install_ran_while_it_wait
         waiting.hold_from_now().unwrap(),
         FromNow::InstallRan
     ));
-    assert_eq!(
-        count(&Kind::Command.uses(&places)),
-        0,
+    assert!(
+        !holds_use(&places, Kind::Command, 21),
         "the lane that runs again holds no use"
     );
     // The installed builds, run again, holds its use.
