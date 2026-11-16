@@ -1188,7 +1188,7 @@ fn a_store_with_cargo_runs_loses_the_table_and_its_rows_keeps_the_rest_and_equal
 /// a design change and an `origin_kind` that names which, and `question` with
 /// no origin.
 fn without_origins(schema: String) -> String {
-    let mut old = schema;
+    let mut old = without_finished(schema);
     for (now, then) in [
         (
             "    -- The record it came from, of any kind (trail.rs).
@@ -1337,4 +1337,122 @@ fn a_store_from_before_origins_keeps_each_item_its_origin_and_equals_a_fresh_sch
     assert_eq!(broken, None);
     let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
     assert_eq!(stats.runs, 1, "the move keeps the old run");
+}
+
+/// <schema> as its text read before an item could close as finished.
+fn without_finished(schema: String) -> String {
+    let mut old = schema;
+    for (now, then) in [
+        (
+            "'landed', 'finished', 'dropped', 'deferred', 'moved-to-stack')\n    ),",
+            "'landed', 'dropped', 'deferred', 'moved-to-stack')\n    ),",
+        ),
+        (
+            "WHEN 'item' THEN how IN ('landed', 'finished', 'dropped', 'deferred', 'moved-to-stack')",
+            "WHEN 'item' THEN how IN ('landed', 'dropped', 'deferred', 'moved-to-stack')",
+        ),
+        (
+            "    -- Why it was settled, dropped or deferred, or what a finished item made.\n",
+            "",
+        ),
+        (
+            "CHECK ((how IN ('settled', 'finished', 'dropped', 'deferred')) = (reason IS NOT NULL))",
+            "CHECK ((how IN ('settled', 'dropped', 'deferred')) = (reason IS NOT NULL))",
+        ),
+    ] {
+        assert_eq!(old.matches(now).count(), 1, "{now}");
+        old = old.replace(now, then);
+    }
+    old
+}
+
+#[test]
+fn the_finished_stamp_is_the_schema_before_finished() {
+    assert_eq!(
+        db::stamp_of_text(&without_finished(db::schema())),
+        BEFORE_FINISHED_STAMP
+    );
+}
+
+/// A store from before an item could close as finished keeps every closing,
+/// equals a fresh schema, and then takes a finished item.
+#[test]
+fn a_store_from_before_finished_keeps_its_closings_and_takes_a_finished_item() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-finished");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&without_finished(db::schema())).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_FINISHED_STAMP)
+            .unwrap();
+        crate::lists::area::plant(&conn, &[("name", v("Alpha")), ("position", v(0))]).unwrap();
+        for id in [1, 2] {
+            crate::lists::record::plant(
+                &conn,
+                "record",
+                &[
+                    ("id", v(id)),
+                    ("kind", v("item")),
+                    ("opened_at", v(5)),
+                    ("opened_by", v("coordinator")),
+                ],
+            )
+            .unwrap();
+            crate::lists::item::plant(
+                &conn,
+                "item",
+                &[
+                    ("id", v(id)),
+                    ("title", v("Audit the screens")),
+                    ("area", v("Alpha")),
+                    ("details", v("d")),
+                    ("audience", v("coordinator")),
+                ],
+            )
+            .unwrap();
+        }
+        crate::lists::record::plant(
+            &conn,
+            "closing",
+            &[
+                ("record_id", v(1)),
+                ("kind", v("item")),
+                ("how", v("dropped")),
+                ("at", v(6)),
+                ("by", v("coordinator")),
+                ("reason", v("not needed")),
+            ],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    drop(conn);
+    let conn = Connection::open(&path).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    let closings = crate::lists::record::read_closings(&conn).unwrap();
+    assert_eq!(
+        closings[&crate::lists::Id(1)].0,
+        crate::lists::How::Dropped("not needed".to_string())
+    );
+    crate::lists::record::close(
+        &conn,
+        crate::lists::Id(2),
+        crate::lists::How::Finished("items 3 and 4".to_string()),
+        &crate::lists::Stamp {
+            at: 7,
+            by: "coordinator".to_string(),
+        },
+    )
+    .unwrap();
 }

@@ -27,6 +27,7 @@ fn how_words(how: &How) -> String {
             let short: Vec<&str> = commits.iter().map(|c| &c[..c.len().min(9)]).collect();
             format!("landed ({})", short.join(" "))
         }
+        How::Finished(made) => format!("finished: {made}"),
         How::Dropped(why) => format!("dropped: {why}"),
         How::Deferred(url) => format!("deferred to {url}"),
         How::MovedToStack(question) => format!("moved to the stack as {question}"),

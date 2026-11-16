@@ -78,6 +78,9 @@ pub enum How {
     Settled(String),
     Done,
     Landed(Vec<String>),
+    /// An item whose work finished with no commits (an audit, research):
+    /// what it made (items, stack entries, notes).
+    Finished(String),
     Dropped(String),
     /// The open GitHub issue it moved to.
     Deferred(String),
@@ -164,6 +167,7 @@ impl How {
             How::Settled(_) => "settled",
             How::Done => "done",
             How::Landed(_) => "landed",
+            How::Finished(_) => "finished",
             How::Dropped(_) => "dropped",
             How::Deferred(_) => "deferred",
             How::MovedToStack(_) => "moved-to-stack",
@@ -179,7 +183,11 @@ impl How {
             ),
             Kind::Item => matches!(
                 self,
-                How::Landed(_) | How::Dropped(_) | How::Deferred(_) | How::MovedToStack(_)
+                How::Landed(_)
+                    | How::Finished(_)
+                    | How::Dropped(_)
+                    | How::Deferred(_)
+                    | How::MovedToStack(_)
             ),
             Kind::Design => matches!(self, How::Landed(_)),
             Kind::Decision => false,
@@ -316,9 +324,10 @@ fn insert_closing(db: &Connection, id: Id, kind: Kind, how: &How, stamp: &Stamp)
     let (decision, question, reason) = match how {
         How::Answered(decision) => (Some(*decision), None, None),
         How::MovedToStack(question) => (None, Some(*question), None),
-        How::Settled(reason) | How::Dropped(reason) | How::Deferred(reason) => {
-            (None, None, Some(reason.as_str()))
-        }
+        How::Settled(reason)
+        | How::Finished(reason)
+        | How::Dropped(reason)
+        | How::Deferred(reason) => (None, None, Some(reason.as_str())),
         How::Done | How::Landed(_) => (None, None, None),
     };
     db.execute(
@@ -336,6 +345,27 @@ fn insert_closing(db: &Connection, id: Id, kind: Kind, how: &How, stamp: &Stamp)
         }
     }
     Ok(())
+}
+
+/// Makes the `closing` table again as record.sql writes it today, where an
+/// item may close as finished, and copies every closing into it. The
+/// statement comes from record.sql, so the table equals a fresh database's.
+/// migrate.rs runs this with the foreign keys off, and SQLite renames the old
+/// table under `legacy_alter_table`, so `closing_commit` keeps naming
+/// `closing`.
+pub fn move_to_finished(db: &Connection) -> Result<()> {
+    const SQL: &str = include_str!("record.sql");
+    db.execute_batch(&format!(
+        "PRAGMA legacy_alter_table = ON;
+ALTER TABLE closing RENAME TO closing_old;
+{}
+INSERT INTO closing (record_id, kind, how, at, by, decision_id, question_id, reason)
+    SELECT record_id, kind, how, at, by, decision_id, question_id, reason FROM closing_old;
+DROP TABLE closing_old;
+PRAGMA legacy_alter_table = OFF;",
+        crate::db::statement(SQL, "CREATE TABLE closing (", "STRICT;"),
+    ))
+    .sql()
 }
 
 /// How <id> left its list and who closed it when, or None when it is open.
@@ -387,6 +417,7 @@ pub fn read_closings(db: &Connection) -> Result<BTreeMap<Id, (How, Stamp)>> {
             "settled" => How::Settled(reason()),
             "done" => How::Done,
             "landed" => How::Landed(commits.remove(&id).unwrap_or_default()),
+            "finished" => How::Finished(reason()),
             "dropped" => How::Dropped(reason()),
             "deferred" => How::Deferred(reason()),
             "moved-to-stack" => {

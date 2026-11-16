@@ -594,3 +594,34 @@ fn origins_go_on_with_add_and_edit_open_or_closed_and_the_trail_keeps_the_tags()
         "{shown}"
     );
 }
+
+/// An item whose work made no commits closes as finished while it runs,
+/// saying what it made: its running ends, and an item waiting on it is
+/// ready.
+#[test]
+fn finished_closes_a_running_item_with_what_it_made() {
+    let demo = demo("item-finished");
+    let side = demo.add_side(1, "agent A", "audit");
+    let brief = demo.brief("b.md");
+    add(&demo, FIVE, &[]).unwrap();
+    add(&demo, "Do the second thing now", &["--wait", "item:1"]).unwrap();
+    item(
+        &demo,
+        &take_args(side.to_str().unwrap(), &brief, &["1"], "audit"),
+    )
+    .unwrap();
+    assert!(refusal(item(&demo, &["finished", "1"])).contains("--made"));
+    item(&demo, &["finished", "1", "--made", "items 3 and 4"]).unwrap();
+    let lists = open(&demo);
+    assert!(
+        matches!(&lists.closed[0], Closed { record: Record::Item(i), how: How::Finished(made), .. } if i.id == Id(1) && made == "items 3 and 4")
+    );
+    assert!(lists.items.iter().all(|i| i.running.is_empty()));
+    assert!(
+        lists.items[0]
+            .waits
+            .iter()
+            .all(|wait| crate::lists::derive::wait_met(&lists, wait))
+    );
+    assert!(refusal(item(&demo, &["finished", "1", "--made", "again"])).contains("1"));
+}

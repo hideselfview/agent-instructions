@@ -178,6 +178,9 @@ const BEFORE_CARGO_RUNS_REMOVED_STAMP: i64 = 989_967_553;
 /// could be a record of any kind.
 const BEFORE_ORIGINS_STAMP: i64 = 778_443_283;
 
+/// The stamp of the schema before an item could close as finished.
+const BEFORE_FINISHED_STAMP: i64 = 1_574_915_211;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -206,7 +209,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// a tag yet), and the move drops the `cargo_runs` table, which nothing read,
 /// and its rows from every store, and every store gets `item` with an origin of
 /// any kind (each item keeps the decision or design change that made it) and
-/// `question` with an origin (no question has one yet). The moves run in one transaction, the store
+/// `question` with an origin (no question has one yet), and every store gets
+/// `closing` where an item may close as finished, with every closing kept.
+/// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
 /// other stamp is refused. Delete this once it has run.
@@ -295,11 +300,12 @@ fn move_store(path: &Path) -> Result<()> {
         BEFORE_TAGS_STAMP,
         BEFORE_CARGO_RUNS_REMOVED_STAMP,
         BEFORE_ORIGINS_STAMP,
+        BEFORE_FINISHED_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP} and {BEFORE_ORIGINS_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP} and {BEFORE_FINISHED_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -318,6 +324,7 @@ fn move_store(path: &Path) -> Result<()> {
         BEFORE_TAGS_STAMP,
         BEFORE_CARGO_RUNS_REMOVED_STAMP,
         BEFORE_ORIGINS_STAMP,
+        BEFORE_FINISHED_STAMP,
     ]
     .contains(&found)
     {
@@ -385,15 +392,26 @@ fn move_store(path: &Path) -> Result<()> {
     }
     // Of the stores this moves, only those stamped just before builds dropped
     // the cargo runs' table or after it already have the tags' table.
-    if found != BEFORE_CARGO_RUNS_REMOVED_STAMP && found != BEFORE_ORIGINS_STAMP {
+    if ![
+        BEFORE_CARGO_RUNS_REMOVED_STAMP,
+        BEFORE_ORIGINS_STAMP,
+        BEFORE_FINISHED_STAMP,
+    ]
+    .contains(&found)
+    {
         tx.execute_batch(db::TAG_PART).sql()?;
     }
     // Stores stamped after builds added the cargo runs' table still have it;
     // dropping the table also drops its index.
     tx.execute_batch("DROP TABLE IF EXISTS cargo_runs;").sql()?;
-    // No store this moves has today's `item` and `question`.
-    crate::lists::item::move_to_origins(&tx)?;
-    crate::lists::question::move_to_origins(&tx)?;
+    // Only a store from before an item could close as finished has today's
+    // `item` and `question`.
+    if found != BEFORE_FINISHED_STAMP {
+        crate::lists::item::move_to_origins(&tx)?;
+        crate::lists::question::move_to_origins(&tx)?;
+    }
+    // No store this moves has today's `closing`.
+    crate::lists::record::move_to_finished(&tx)?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))

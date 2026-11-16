@@ -29,7 +29,7 @@ use crate::lists::{
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF)\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n(REF is item:N, question:N, design:N or condition:TEXT)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF)\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n(REF is item:N, question:N, design:N or condition:TEXT)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -44,6 +44,7 @@ pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
         "take" => take::take(tool, rest, &cwd),
         "handoff" => handoff(tool, rest, &cwd),
         "stop" => stop(tool, rest, &cwd),
+        "finished" => finished(tool, rest, &cwd),
         "drop" => drop_item(tool, rest, &cwd),
         "defer" => defer(tool, rest, &cwd, &issue::real_gh),
         "place" => place(tool, rest, &cwd),
@@ -391,6 +392,27 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str) -> Result<()> {
             );
         }
     }
+    Ok(())
+}
+
+/// `item finished N --made WHAT`: closes an open item whose work finished
+/// with no commits (an audit, research), saying what it made, and ends its
+/// running everywhere. It meets the waits on it, as a landing does.
+fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+    let args = Args::parse(args, &["made"], &[])?;
+    let id = one_id(&args, "builds item finished N --made WHAT")?;
+    let made = args.require("made")?.to_string();
+    if made.trim().is_empty() {
+        fail!("--made says what the item made: the items, stack entries or notes");
+    }
+    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    store.write(&stamp, &format!("item finished {id}"), |db| {
+        open_item(&store::read(db)?, id)?;
+        running::end(db, id)?;
+        close(db, id, How::Finished(made.clone()), &stamp)
+    })?;
+    note(format!("closed {id} as finished"));
     Ok(())
 }
 

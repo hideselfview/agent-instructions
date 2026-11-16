@@ -132,7 +132,7 @@ fn every_named_constraint_of_the_record_tables_refuses_its_row() {
     };
     refused.check(
         "closing_how_known",
-        plant(&db, "closing", &on_second(&[("how", v("finished"))])),
+        plant(&db, "closing", &on_second(&[("how", v("completed"))])),
     );
     refused.check(
         "closing_by_says_something",

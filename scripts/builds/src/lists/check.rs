@@ -78,7 +78,8 @@ pub fn repo_name_fault(repo: &str) -> Option<String> {
 
 /// A closing's `how` that meets a wait on the record it closed.
 const MEETS_WAIT: &str = "((c.kind = 'question' AND c.how IN ('answered', 'settled', 'done')) \
-                           OR (c.kind IN ('item', 'design') AND c.how = 'landed'))";
+                           OR (c.kind IN ('item', 'design') AND c.how = 'landed') \
+                           OR (c.kind = 'item' AND c.how = 'finished'))";
 
 /// Every fault of the store behind <db>, one line each. <project> is the
 /// name of the folder the store is in.

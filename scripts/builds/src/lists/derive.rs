@@ -16,8 +16,8 @@ use crate::text::local_day;
 pub const FLOW_DAYS: usize = 14;
 
 /// Does a record that closed this way meet the waits on it? A question
-/// answered, settled or done; an item or design change landed. One that was
-/// dropped, deferred or moved to the stack never does.
+/// answered, settled or done; an item or design change landed; an item
+/// finished. One that was dropped, deferred or moved to the stack never does.
 pub fn closed_meets_wait(closed: &Closed) -> bool {
     use crate::lists::How;
     matches!(
@@ -26,6 +26,7 @@ pub fn closed_meets_wait(closed: &Closed) -> bool {
             Record::Question(_),
             How::Answered(_) | How::Settled(_) | How::Done
         ) | (Record::Item(_) | Record::Design(_), How::Landed(_))
+            | (Record::Item(_), How::Finished(_))
     )
 }
 

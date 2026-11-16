@@ -202,6 +202,12 @@ no commit); an absolute path is itself.
       Puts the item back in the queue, out of every worktree; the why is a
       note.
 
+  builds item finished N --made WHAT
+      Closes an open item whose work made no commits (an audit, research) as
+      finished, with what it made (items, stack entries, notes), and ends its
+      running everywhere. A finished item meets the waits on it, as a landed
+      one does.
+
   builds item drop N --why WHY | builds item defer N --issue URL
       Refused while the item runs, while an open item waits on it (the message
       names them and the `item wait --off` that frees each), or when it is the
