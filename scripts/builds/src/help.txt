@@ -1581,9 +1581,10 @@ INSTALLING
                               other command's open store connection, which
                               lasts one transaction. An app build waiting for
                               its lane holds nothing, and neither does one
-                              that a takeover or a host fault sent back to the
-                              queue; when such an install ran while it
-                              waited, the lane, once it holds the lock,
+                              that went back to the queue because another lane
+                              took over its host or its host failed a step;
+                              when an install that moves the stores ran while
+                              it waited, the lane, once it holds the lock,
                               leaves the queue and runs the installed builds,
                               which queues again. While install waits for the
                               first kind, a command of that kind that starts

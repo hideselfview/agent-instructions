@@ -5,8 +5,8 @@
 //! (db.rs), so a command that started before an install could not write a
 //! store after the install moved it. The gates make install wait for each
 //! such command first. When every store already has the new program's
-//! schema, install moves no store, a command that started before it writes
-//! the schema the new program reads, and install closes no gate.
+//! schema, install moves no store and closes no gate: a command that started
+//! before the install still writes the schema that the new program reads.
 //!
 //! A command uses the stores in one of three ways. A use is a locked file of
 //! its own in its kind's folder that says which process runs what and since
