@@ -1471,7 +1471,8 @@ function itemRow(it) {
 // A running work is one line: its title with its worktree beside it; opened,
 // what is happening now and its items, agent, branch, plan and landed commits.
 // A work of one item starts with that item's id; a work of several starts
-// with how many items it holds, and opened, lists each item on its own line.
+// with how many items it holds, and when the reader opens it, it lists each
+// item on its own line.
 // The daemon groups and words each one (board.rs).
 function workRow(w) {
   const first = w.items[0].id;

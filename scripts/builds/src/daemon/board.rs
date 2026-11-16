@@ -59,9 +59,9 @@ fn short(commit: &str) -> String {
     commit.chars().take(7).collect()
 }
 
-/// The job named by <agent>, the name its worktree was claimed under,
-/// without the " agent" that ends most names: "screen reads library agent"
-/// names the job "screen reads library".
+/// The job that `agent` names: the name a coordinator gave the worktree when
+/// it claimed it, without the " agent" that ends most names, so "screen
+/// reads library agent" names the job "screen reads library".
 fn job(agent: &str) -> &str {
     agent.strip_suffix(" agent").unwrap_or(agent)
 }
