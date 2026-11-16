@@ -852,7 +852,7 @@ caches/<name>, linked from where the tool looks, with a cap each:
   npm      1 GiB  ~/.npm
   nuget    6 GiB  ~/.nuget
   swiftpm  3 GiB  ~/Library/Caches/org.swift.swiftpm
-  sccache 30 GiB  ~/Library/Caches/Mozilla.sccache
+  sccache 50 GiB  ~/Library/Caches/Mozilla.sccache
 
 `setup` and `prune` delete a cache that is over its cap, whole, once nothing
 has written to it for 30 minutes and no process holds a file in it, and put

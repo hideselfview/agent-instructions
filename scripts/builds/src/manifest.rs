@@ -234,9 +234,11 @@ const GIB: u64 = 1024 * 1024;
 /// rather than fitting tightly. sccache's cap is the size `install` writes
 /// into its config, and sccache evicts within it itself; its own accounting
 /// reads about 0.2 GiB under the folder's size on disk, so status may show
-/// it a little over. 30G holds about two days of builds: on a day of agents
-/// building in seven bae and five coven checkouts sccache wrote 12.6G, and
-/// nothing in it was older than three days.
+/// it a little over. The cap is 50G because 30G was too small: on November
+/// 16, 2026 the cache sat at its 30G cap on both Macs, and sccache found
+/// only 54% of Rust compiles in it on the M1 and 58% on the other Mac. A
+/// full cache evicts the outputs it used least recently, which agents in
+/// other checkouts then compile again.
 ///
 /// The links for Gradle and NuGet point at their tools' whole home folders,
 /// which also hold settings the person writes (gradle.properties, init
@@ -273,7 +275,7 @@ pub const SHARED_CACHES: &[SharedCache] = &[
     },
     SharedCache {
         name: "sccache",
-        cap_kib: 30 * GIB,
+        cap_kib: 50 * GIB,
         link: "Library/Caches/Mozilla.sccache",
         settings: &[],
     },
