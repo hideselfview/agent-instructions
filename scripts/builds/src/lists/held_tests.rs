@@ -1,6 +1,6 @@
 use super::*;
 use crate::claim::cmd_note;
-use crate::lists::fixtures::{NOON, db, design_drawn, item, question, read, stamp};
+use crate::lists::fixtures::{NOON, db, design_drawn, design_tipped, item, question, read, stamp};
 use crate::lists::item_fixtures::{Demo, demo, refusal};
 use crate::lists::{How, Running};
 
@@ -203,11 +203,66 @@ fn design_branch(name: &str, recorded: bool) -> (Demo, Worktree, Lists) {
     lists.repos = vec!["demo".into()];
     for design in &mut lists.designs {
         design.repo = "demo".into();
+        design.tip = Some(sha.clone());
     }
     lists
         .design_places
         .insert("demo".into(), vec!["design/mocks/*.dc.html".into()]);
     (demo, worktree(&top, "agent", None, vec![sha]), lists)
+}
+
+/// Each commit counts as covered by any open design change whose last commit
+/// is that commit or a later one and whose places hold the commit's places,
+/// approved or waiting; a commit made after a change's last commit is not.
+#[test]
+fn health_counts_a_commit_covered_by_any_change_whose_range_holds_it() {
+    let demo = demo("held-design-ranges");
+    let top = demo.add_side(1, "agent", "work");
+    std::fs::create_dir_all(top.join("design/mocks")).unwrap();
+    let a = demo.commit(&top, "design/mocks/a.dc.html");
+    let b = demo.commit(&top, "design/mocks/b.dc.html");
+    let c = demo.commit(&top, "design/mocks/c.dc.html");
+    let db = db();
+    let path = top.display().to_string();
+    let first = design_drawn(
+        &db,
+        &path,
+        &[("design/mocks/a.dc.html", "https://canvas/a")],
+        Vec::new(),
+    );
+    design_tipped(&db, first, &a);
+    let second = design_drawn(
+        &db,
+        &path,
+        &[
+            ("design/mocks/b.dc.html", "https://canvas/b"),
+            ("design/mocks/c.dc.html", "https://canvas/c"),
+        ],
+        Vec::new(),
+    );
+    design_tipped(&db, second, &b);
+    let mut lists = read(&db);
+    lists.repos = vec!["demo".into()];
+    for design in &mut lists.designs {
+        design.repo = "demo".into();
+        if design.id == second {
+            design.approved = Some(stamp(NOON));
+        }
+    }
+    lists
+        .design_places
+        .insert("demo".into(), vec!["design/mocks/*.dc.html".into()]);
+    let covered = worktree(&top, "agent", None, vec![a.clone(), b.clone()]);
+    assert!(findings(&loaded(lists.clone()), &[covered]).is_empty());
+    let after = worktree(&top, "agent", None, vec![a.clone(), b, c.clone()]);
+    let found = findings(&loaded(lists), &[after]);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].text.contains(&c[..10])
+            && !found[0].text.contains(&a[..10])
+            && found[0].text.contains("(design/mocks/c.dc.html)"),
+        "{found:?}"
+    );
 }
 
 #[test]

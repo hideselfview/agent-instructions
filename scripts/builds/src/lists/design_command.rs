@@ -20,7 +20,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR SHA...\n       builds design only DIR SHA...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N DIR SHA...\n       builds design landed N DIR SHA...\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]";
+const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N DIR REV...\n       builds design landed N DIR SHA...\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -95,8 +95,7 @@ fn open_store(tool: &Tool, args: &Args, checkout: &Checkout) -> Result<(Store, L
     Ok((store, lists))
 }
 
-fn scope(tool: &Tool, args: &Args, dir: &str, shas: Vec<String>) -> Result<Scope> {
-    let checkout = Checkout::find(dir)?;
+fn scope(tool: &Tool, args: &Args, checkout: Checkout, shas: Vec<String>) -> Result<Scope> {
     let (store, lists) = open_store(tool, args, &checkout)?;
     let globs = Globs::of(&lists, &checkout.repo());
     let changes = design_paths::changes_of(&checkout.top, &globs, &shas)?;
@@ -109,6 +108,23 @@ fn scope(tool: &Tool, args: &Args, dir: &str, shas: Vec<String>) -> Result<Scope
         tip,
         changes,
     })
+}
+
+/// The scope of the commits <revs> name in worktree <dir>: each is a commit,
+/// or a range (`A~1..A`) that stands for its commits, oldest first. A name
+/// that is no commit is refused: git would find no board in it and call
+/// every board deleted.
+fn named_scope(tool: &Tool, args: &Args, dir: &str, revs: &[String]) -> Result<Scope> {
+    let checkout = Checkout::find(dir)?;
+    let mut shas = Vec::new();
+    for rev in revs {
+        if rev.contains("..") {
+            shas.extend(design_paths::commits_of_range(&checkout.top, rev)?);
+        } else {
+            shas.push(design_paths::full_sha(&checkout.top, rev)?);
+        }
+    }
+    scope(tool, args, checkout, shas)
 }
 
 fn lines(paths: impl IntoIterator<Item = String>) -> String {
@@ -128,7 +144,7 @@ fn places(tool: &Tool, args: &[String]) -> Result<String> {
     if shas.is_empty() {
         fail!("{USAGE}");
     }
-    let scope = scope(tool, &args, dir, shas.to_vec())?;
+    let scope = named_scope(tool, &args, dir, shas)?;
     let c = scope.changes;
     let places = c.places.into_iter().map(|p| format!("place {p}"));
     let sources = c.sources.into_iter().map(|p| format!("source {p}"));
@@ -144,7 +160,7 @@ fn places(tool: &Tool, args: &[String]) -> Result<String> {
     ))
 }
 
-/// `only DIR SHA...`: prints nothing and succeeds when every path the
+/// `only DIR REV...`: prints nothing and succeeds when every path the
 /// commits change is a design file (boards, the design system, spec lines),
 /// so they carry no app work; otherwise names the paths that are not.
 fn only(tool: &Tool, args: &[String]) -> Result<String> {
@@ -155,7 +171,7 @@ fn only(tool: &Tool, args: &[String]) -> Result<String> {
     if shas.is_empty() {
         fail!("{USAGE}");
     }
-    let scope = scope(tool, &args, dir, shas.to_vec())?;
+    let scope = named_scope(tool, &args, dir, shas)?;
     if !scope.changes.is_design_change() {
         fail!("the commits change no design files");
     }
@@ -173,7 +189,7 @@ fn only(tool: &Tool, args: &[String]) -> Result<String> {
 fn request_scope(tool: &Tool, args: &Args, request: &DesignRequest) -> Result<Scope> {
     let checkout = Checkout::find(&request.worktree)?;
     let shas = design_paths::commits_of_range(&checkout.top, &request.range)?;
-    scope(tool, args, &request.worktree, shas)
+    scope(tool, args, checkout, shas)
 }
 
 /// The request's places that are no place the range changes but name a
@@ -380,7 +396,7 @@ fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     ))
 }
 
-/// `check N DIR SHA...`: the store is read, not written.
+/// `check N DIR REV...`: the store is read, not written.
 fn check(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let [id, dir, shas @ ..] = args.positional() else {
@@ -390,7 +406,7 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
         fail!("{USAGE}");
     }
     let id = Id::parse(id)?;
-    let scope = scope(tool, &args, dir, shas.to_vec())?;
+    let scope = named_scope(tool, &args, dir, shas)?;
     design::check_changes(&scope.lists, id, &scope.checkout.repo(), &scope.changes)?;
     Ok(format!(
         "design change {id} resolves every place the commits change and is approved\n"

@@ -333,14 +333,17 @@ board, or returns it in JSON. When no session listens on the socket any more,
 the card says the session that recorded the change has ended, and nothing is
 sent again.
 
-  builds design places DIR SHA...
+  builds design places DIR REV...
+      Each REV is a commit, or a range (A~1..A) that stands for its commits;
+      a REV that names no commit is refused. Here and in `only` and `check`,
+      the commits are those the REVs name.
       Prints every design path the commits change, one per line: `place
       PATH` (a component folder once, with a trailing /), `source PATH`,
       `deleted PATH` (a board file the commits delete), `spec PATH#HEADING` or
       `shared PATH`; nothing when there is none. builds land requires
       --design N whenever this prints anything.
 
-  builds design only DIR SHA...
+  builds design only DIR REV...
       Prints nothing and succeeds when the commits are a design change and
       every path they change is a design file (boards, the design system,
       spec sections); otherwise names the paths that are not. Only then does
@@ -411,7 +414,7 @@ sent again.
       same approval again writes nothing, and the command sends nothing to
       any session.
 
-  builds design check N DIR SHA...
+  builds design check N DIR REV...
       Every place the commits change is resolved in open change N, shared
       files and sources are answered for, and the person has approved it;
       names what is not.

@@ -458,20 +458,24 @@ pub fn full_sha(top: &Path, sha: &str) -> Result<String> {
 
 /// Is commit <sha> on origin/main, as the checkout at <top> knows it?
 pub fn on_origin_main(top: &Path, sha: &str) -> Result<bool> {
+    is_ancestor(top, sha, "origin/main")
+}
+
+/// Is commit <sha> the commit <rev> names or one before it, in the checkout
+/// at <top>?
+pub fn is_ancestor(top: &Path, sha: &str, rev: &str) -> Result<bool> {
     let status = git(top)
-        .args(["merge-base", "--is-ancestor", sha, "origin/main"])
+        .args(["merge-base", "--is-ancestor", sha, rev])
         .stdin(std::process::Stdio::null())
         .output()
         .map_err(|error| {
-            crate::fail::Fail::Message(format!(
-                "running git to test {sha} against origin/main: {error}"
-            ))
+            crate::fail::Fail::Message(format!("running git to test {sha} against {rev}: {error}"))
         })?;
     match status.status.code() {
         Some(0) => Ok(true),
         Some(1) => Ok(false),
         _ => fail!(
-            "git failed to test {sha} against origin/main: {}",
+            "git failed to test {sha} against {rev}: {}",
             String::from_utf8_lossy(&status.stderr).trim()
         ),
     }

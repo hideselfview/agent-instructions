@@ -174,6 +174,21 @@ fn delete_boards(w: &World, gone: &[&str]) -> String {
     w.sha("HEAD")
 }
 
+/// `places` reads a range as the commits it holds, as it reads their SHAs,
+/// and refuses a name that is no commit rather than call every board deleted.
+#[test]
+fn places_reads_a_range_as_its_commits() {
+    let w = world("design-places-range");
+    let board = "design/mocks/A.dc.html";
+    w.commit(&[board]);
+    let head = w.commit(&[board]);
+    let wt = w.worktree();
+    let by_sha = w.run(&format!("places {wt} {head}")).unwrap();
+    assert_eq!(by_sha, format!("place {board}\n"));
+    assert_eq!(w.run(&format!("places {wt} HEAD~1..HEAD")).unwrap(), by_sha);
+    assert!(w.run(&format!("places {wt} nothing-here")).is_err());
+}
+
 #[test]
 fn a_deleted_board_needs_no_answer_no_link_and_no_place_on_the_review_page() {
     let w = world("design-deleted");
