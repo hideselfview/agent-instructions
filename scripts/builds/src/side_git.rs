@@ -3,7 +3,7 @@
 //! nothing fetched. Main checkouts are the person's; nothing here asks git
 //! about them, and main_checkout.rs reads their refs through `run`.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -192,6 +192,20 @@ fn uncommitted(top: &Path) -> Result<(usize, Option<i64>), String> {
         }
     }
     Ok((count, newest))
+}
+
+/// The paths `git status` calls dirty in <top>: staged, changed and
+/// untracked alike, each file named.
+pub fn uncommitted_paths(top: &Path) -> Result<BTreeSet<String>, String> {
+    let status = run(
+        top,
+        &["status", "--porcelain", "-z", "-uall", "--no-renames"],
+    )?;
+    Ok(status
+        .split('\0')
+        .filter(|entry| entry.len() > 3)
+        .map(|entry| entry[3..].to_string())
+        .collect())
 }
 
 /// Only HEAD's commit, for a main checkout: its working tree is the person's

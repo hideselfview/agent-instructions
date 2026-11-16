@@ -122,6 +122,9 @@ pub struct Item {
     /// item is never both running and parked.
     pub parked: Vec<Parked>,
     pub landed: Vec<LandedPart>,
+    /// What it held when the person dropped it: one entry per worktree it ran
+    /// or was parked in. Empty for an open item.
+    pub dropped: Vec<crate::lists::dropped::DroppedWork>,
     /// Newest last.
     pub notes: Vec<Note>,
     /// The record it came from (trail.rs).
@@ -588,6 +591,7 @@ pub fn read(
     let mut running = running::read(db)?;
     let mut parked = parked::read(db)?;
     let mut landed = landing::read(db)?;
+    let mut dropped = crate::lists::dropped::read_all(db)?;
     let mut statement = db
         .prepare("SELECT id, title, area, details, audience, brief, origin FROM item ORDER BY id")
         .sql()?;
@@ -623,6 +627,7 @@ pub fn read(
             running: running.remove(&id).unwrap_or_default(),
             parked: parked.remove(&id).unwrap_or_default(),
             landed: landed.remove(&id).unwrap_or_default(),
+            dropped: dropped.remove(&id).unwrap_or_default(),
             notes: notes.remove(&id).unwrap_or_default(),
             origin,
             opened: opened[&id].clone(),

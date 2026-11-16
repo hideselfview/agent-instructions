@@ -95,7 +95,7 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
         )),
         _ => {}
     }
-    let queries: [(&str, String); 10] = [
+    let queries: [(&str, String); 11] = [
         // 1. A project has at least one repo: a parent that needs a child.
         ("repos", "SELECT 'the project has no repos' WHERE NOT EXISTS (SELECT 1 FROM repo)".to_string()),
         // 2. A question that says nothing of why it blocks nothing has an open item waiting on it.
@@ -168,6 +168,14 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
              FROM parked_place p JOIN (SELECT item_id, worktree FROM running_place \
                  UNION ALL SELECT item_id, worktree FROM parked_place) o \
              ON o.worktree = p.worktree AND o.item_id <> p.item_id"
+                .to_string(),
+        ),
+        // 6b. Only an item closed as dropped records the work it held.
+        (
+            "dropped",
+            "SELECT DISTINCT 'item #' || d.item_id || ' records dropped work but is not closed as dropped' \
+             FROM dropped_place d WHERE NOT EXISTS (SELECT 1 FROM closing c \
+             WHERE c.record_id = d.item_id AND c.how = 'dropped') ORDER BY d.item_id"
                 .to_string(),
         ),
         // 7. Every landed closing and every landed part has a commit: a parent that needs a child.

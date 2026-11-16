@@ -227,6 +227,30 @@ fn a_parked_branch_and_a_running_branch_in_one_worktree_are_a_fault() {
     );
 }
 
+/// Dropped work belongs to an item closed as dropped.
+#[test]
+fn dropped_work_on_an_item_not_closed_as_dropped_is_a_fault() {
+    use crate::lists::dropped::{DroppedWork, record};
+    let db = db();
+    let id = item(&db, vec![]);
+    let work = DroppedWork {
+        repo: "bae".into(),
+        worktree: "/d/bae-worktrees/side-1".into(),
+        branch: "work".into(),
+        commits: Vec::new(),
+        files: vec!["loose".into()],
+    };
+    record(&db, id, std::slice::from_ref(&work)).unwrap();
+    assert_eq!(
+        faults_of(&db),
+        [format!(
+            "item {id} records dropped work but is not closed as dropped"
+        )]
+    );
+    close(&db, id, How::Dropped("no".into()), &stamp(NOON)).unwrap();
+    assert_eq!(faults_of(&db), Vec::<String>::new());
+}
+
 #[test]
 fn a_landed_closing_or_a_landed_part_with_no_commit_is_a_fault() {
     let db = db();

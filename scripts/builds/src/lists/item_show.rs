@@ -117,6 +117,21 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
     for parked in parked {
         let _ = writeln!(out, "{}", parked_words(parked));
     }
+    for work in &item.dropped {
+        let _ = writeln!(
+            out,
+            "dropped the work in {} on {}: {}",
+            work.worktree,
+            work.branch,
+            crate::text::counted(work.commits.len(), "commit", "commits")
+        );
+        for commit in &work.commits {
+            let _ = writeln!(out, "  {} {}", commit.sha, commit.subject);
+        }
+        if !work.files.is_empty() {
+            let _ = writeln!(out, "  not committed: {}", work.files.join(", "));
+        }
+    }
     for part in &item.landed {
         let _ = writeln!(
             out,

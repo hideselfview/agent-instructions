@@ -77,23 +77,10 @@ fn differing(top: &Path, commit: &str) -> Result<BTreeSet<String>> {
     Ok(paths)
 }
 
-/// The paths `git status` calls dirty in <top>: staged, changed and untracked
-/// alike, each file named.
-fn dirty(top: &Path) -> Result<BTreeSet<String>> {
-    let status = run_git(
-        top,
-        &["status", "--porcelain", "-z", "-uall", "--no-renames"],
-    )?;
-    Ok(status
-        .split('\0')
-        .filter(|entry| entry.len() > 3)
-        .map(|entry| entry[3..].to_string())
-        .collect())
-}
-
 /// The dirty paths of <top> that none of <commits> holds exactly.
 fn foreign_changes(top: &Path, commits: &[&str]) -> Result<Vec<String>> {
-    let mut foreign = dirty(top)?;
+    let mut foreign =
+        crate::side_git::uncommitted_paths(top).map_err(crate::fail::Fail::Message)?;
     for commit in commits {
         if foreign.is_empty() {
             break;

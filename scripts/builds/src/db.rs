@@ -71,13 +71,18 @@ pub const CARGO_RUNS_PART: &str = include_str!("cargo_run.sql");
 /// last part of the schema.
 pub const PARKED_PART: &str = include_str!("lists/parked.sql");
 
+/// The work dropped items held (lists/dropped.sql), the last part of the
+/// schema.
+pub const DROPPED_PART: &str = include_str!("lists/dropped.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
-/// loads, then the cargo runs', then the parked items'.
+/// loads, then the cargo runs', then the parked items', then the dropped
+/// items' work.
 pub fn schema() -> String {
     format!(
-        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{PARKED_PART}",
+        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{PARKED_PART}\n{DROPPED_PART}",
         schema_before_review()
     )
 }

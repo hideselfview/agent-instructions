@@ -355,7 +355,7 @@ fn release_is_refused_while_an_item_runs_in_the_worktree() {
 }
 
 #[test]
-fn drop_refuses_a_waited_on_running_or_last_blocking_item() {
+fn drop_refuses_a_waited_on_or_last_blocking_item() {
     let demo = demo("item-drop");
     add(&demo, FIVE, &[]).unwrap();
     add(&demo, "Do the second thing now", &["--wait", "item:1"]).unwrap();
@@ -376,7 +376,7 @@ fn drop_refuses_a_waited_on_running_or_last_blocking_item() {
 }
 
 #[test]
-fn drop_refuses_the_last_item_a_question_blocks_and_a_running_item() {
+fn drop_refuses_the_last_item_a_question_blocks() {
     let demo = demo("item-drop-last");
     demo.store
         .write(&crate::lists::fixtures::stamp(1), "seed", |db| {
@@ -392,20 +392,6 @@ fn drop_refuses_the_last_item_a_question_blocks_and_a_running_item() {
         refused.contains("last item question #2") && refused.contains("--blocks-nothing"),
         "{refused}"
     );
-}
-
-#[test]
-fn drop_refuses_a_running_item() {
-    let demo = demo("item-drop-running");
-    let side = demo.add_side(1, "agent A", "work");
-    let brief = demo.brief("b.md");
-    add(&demo, FIVE, &[]).unwrap();
-    item(
-        &demo,
-        &take_args(side.to_str().unwrap(), &brief, &["1"], "work"),
-    )
-    .unwrap();
-    assert!(refusal(item(&demo, &["drop", "1", "--why", "no"])).contains("item stop 1"));
 }
 
 #[test]
@@ -699,7 +685,7 @@ fn park_keeps_the_work_for_the_queue_and_take_runs_it_there_again() {
 /// A queued item that never ran parks too; park refuses an item running
 /// elsewhere, one parked already and a worktree another item runs in; take
 /// refuses another worktree for a parked item and another item for a parked
-/// worktree; drop and finished refuse a parked item.
+/// worktree; finished refuses a parked item.
 #[test]
 fn park_and_take_refuse_what_would_split_an_item_from_its_work() {
     let demo = demo("item-park-refuse");
@@ -738,13 +724,8 @@ fn park_and_take_refuse_what_would_split_an_item_from_its_work() {
         wrong_place.contains(&format!("is parked in {two_arg} on other")),
         "{wrong_place}"
     );
-    for leave in [
-        vec!["drop", "2", "--why", "no"],
-        vec!["finished", "2", "--made", "nothing"],
-    ] {
-        let said = refusal(item(&demo, &leave));
-        assert!(said.contains("is parked in"), "{leave:?}: {said}");
-    }
+    let said = refusal(item(&demo, &["finished", "2", "--made", "nothing"]));
+    assert!(said.contains("is parked in"), "{said}");
 }
 
 /// In a repo two projects hold, an item of the project the claim does not
@@ -788,4 +769,116 @@ fn release_and_health_see_an_item_of_another_project_in_the_worktree() {
         "{:?}",
         health.findings
     );
+}
+
+/// Dropping a running item throws its work away in one step: the closed item
+/// records the branch, the commits origin/main lacks and the files not
+/// committed, the branch is gone, the worktree is detached at origin/main
+/// with nothing left uncommitted, and its claim is gone.
+#[test]
+fn drop_records_and_throws_away_a_running_items_work() {
+    let demo = demo("item-drop-work");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let brief = demo.brief("b.md");
+    add(&demo, FIVE, &[]).unwrap();
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+    let sha = demo.commit(&side, "unlanded");
+    std::fs::write(side.join("loose"), "x").unwrap();
+
+    item(
+        &demo,
+        &["drop", "1", "--why", "the person does not want it"],
+    )
+    .unwrap();
+    let lists = open(&demo);
+    let Closed {
+        record: Record::Item(dropped),
+        how: How::Dropped(why),
+        ..
+    } = &lists.closed[0]
+    else {
+        panic!("{:?}", lists.closed)
+    };
+    assert_eq!(why, "the person does not want it");
+    assert_eq!(dropped.dropped.len(), 1, "{:?}", dropped.dropped);
+    let work = &dropped.dropped[0];
+    assert_eq!(
+        (work.worktree.as_str(), work.branch.as_str()),
+        (side_arg.as_str(), "work")
+    );
+    assert_eq!(
+        work.commits
+            .iter()
+            .map(|c| c.sha.as_str())
+            .collect::<Vec<_>>(),
+        [sha.as_str()]
+    );
+    assert_eq!(work.files, ["loose"]);
+    let checkout = Checkout::find(&side_arg).unwrap();
+    assert_eq!(
+        checkout.branch().unwrap(),
+        None,
+        "the worktree is still on a branch"
+    );
+    assert!(
+        !side.join("loose").exists(),
+        "the files not committed stayed"
+    );
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_none(),
+        "the worktree kept its claim"
+    );
+    let branches = crate::checkout::git_text(
+        crate::checkout::git(&demo.main).args(["branch", "--list", "work"]),
+        "list branches",
+    )
+    .unwrap();
+    assert!(branches.trim().is_empty(), "the branch stayed: {branches}");
+}
+
+/// Dropping a parked item throws away the work in its worktree the same way.
+#[test]
+fn drop_throws_away_a_parked_items_work() {
+    let demo = demo("item-drop-parked");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let brief = demo.brief("b.md");
+    add(&demo, FIVE, &[]).unwrap();
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+    demo.commit(&side, "unlanded");
+    item(&demo, &park_args("1", &side_arg, "work")).unwrap();
+    item(&demo, &["drop", "1", "--why", "no longer wanted"]).unwrap();
+    let lists = open(&demo);
+    assert!(lists.items.is_empty());
+    let checkout = Checkout::find(&side_arg).unwrap();
+    assert_eq!(checkout.branch().unwrap(), None);
+    assert!(
+        crate::side_git::waiting_to_land(&side, "HEAD")
+            .unwrap()
+            .is_empty()
+    );
+}
+
+/// A drop refused for another reason changes nothing in git: the branch and
+/// the files stay.
+#[test]
+fn a_refused_drop_leaves_the_work_where_it_was() {
+    let demo = demo("item-drop-refused-work");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let brief = demo.brief("b.md");
+    add(&demo, FIVE, &[]).unwrap();
+    add(&demo, "Do the second thing now", &["--wait", "item:1"]).unwrap();
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+    demo.commit(&side, "unlanded");
+    std::fs::write(side.join("loose"), "x").unwrap();
+    let before = demo.state();
+    assert!(refusal(item(&demo, &["drop", "1", "--why", "no"])).contains("waits on #1"));
+    assert_eq!(demo.state(), before);
+    assert!(side.join("loose").exists());
+    let checkout = Checkout::find(&side_arg).unwrap();
+    assert_eq!(checkout.branch().unwrap().as_deref(), Some("work"));
 }

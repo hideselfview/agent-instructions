@@ -24,7 +24,8 @@ use crate::lists::record::close;
 use crate::lists::show::wait_words;
 use crate::lists::store::{self, Store};
 use crate::lists::{
-    How, Id, Kind, Lists, Located, Stamp, issue, item_show, landing, running, tag, take, trail,
+    How, Id, Kind, Lists, Located, Stamp, dropped, issue, item_show, landing, parked, running, tag,
+    take, trail,
 };
 use crate::text::note;
 use crate::tool::Tool;
@@ -349,11 +350,12 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 /// What stands in the way of item <id> leaving the queue without being done:
-/// it runs, an open item waits on it, or it is the last item an open
-/// question blocks. Names each and the command that frees it.
-fn require_can_leave(lists: &Lists, id: Id, how: &str) -> Result<()> {
+/// an open item waits on it, or it is the last item an open question blocks.
+/// Names each and the command that frees it. Unless <work_goes> (a drop,
+/// which throws the item's work away), it also must not run or be parked.
+fn require_can_leave(lists: &Lists, id: Id, how: &str, work_goes: bool) -> Result<()> {
     let item = open_item(lists, id)?;
-    if !item.running.is_empty() {
+    if !work_goes && !item.running.is_empty() {
         let worktrees: Vec<&str> = item.running.iter().map(|r| r.worktree.as_str()).collect();
         fail!(
             "{id} runs in {}; `builds item stop {} --why WHY` first, then {how} it",
@@ -361,7 +363,7 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str) -> Result<()> {
             id.0
         );
     }
-    if !item.parked.is_empty() {
+    if !work_goes && !item.parked.is_empty() {
         let worktrees: Vec<&str> = item.parked.iter().map(|p| p.worktree.as_str()).collect();
         fail!(
             "{id} is parked in {}, where its work waits; take it there and land the work before you {how} it",
@@ -413,16 +415,54 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
+/// `item drop N --why WHY`: closes the item as dropped. When it runs or is
+/// parked, the drop throws its work away in the same step: it records each
+/// worktree's branch, the commits origin/main lacks and the files not
+/// committed on the closed item, then detaches the worktree at origin/main,
+/// discards its changes, deletes the branch and removes its claim
+/// (lists/dropped.rs). Git runs inside the store's write, after the whole
+/// state passes its check, so a git failure leaves the item open.
 fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["why"], &[])?;
     let id = one_id(&args, "builds item drop N --why WHY")?;
     let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.write(&stamp, &format!("item drop {id}"), |db| {
-        require_can_leave(&store::read(db)?, id, "drop")?;
-        close(db, id, How::Dropped(why.clone()), &stamp)
+    let works = store.write(&stamp, &format!("item drop {id}"), |db| {
+        let lists = store::read(db)?;
+        require_can_leave(&lists, id, "drop", true)?;
+        let item = open_item(&lists, id)?;
+        let places = item
+            .running
+            .iter()
+            .map(|r| (&r.worktree, &r.branch))
+            .chain(item.parked.iter().map(|p| (&p.worktree, &p.branch)));
+        let works = places
+            .map(|(worktree, branch)| dropped::read(worktree, branch))
+            .collect::<Result<Vec<_>>>()?;
+        running::end(db, id)?;
+        parked::end(db, id)?;
+        close(db, id, How::Dropped(why.clone()), &stamp)?;
+        dropped::record(db, id, &works)?;
+        crate::lists::store::require_no_faults(db, &store.project)?;
+        for work in &works {
+            dropped::discard(work)?;
+        }
+        Ok(works)
     })?;
+    for work in &works {
+        note(format!(
+            "threw away the work in {} on {}: {} and {}",
+            work.worktree,
+            work.branch,
+            crate::text::counted(work.commits.len(), "commit", "commits"),
+            crate::text::counted(
+                work.files.len(),
+                "file not committed",
+                "files not committed"
+            )
+        ));
+    }
     note(format!("dropped {id}"));
     Ok(())
 }
@@ -435,7 +475,7 @@ fn defer(tool: &Tool, args: &[String], cwd: &Path, gh: issue::GhRunner<'_>) -> R
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, &format!("item defer {id}"), |db| {
-        require_can_leave(&store::read(db)?, id, "defer")?;
+        require_can_leave(&store::read(db)?, id, "defer", false)?;
         close(db, id, How::Deferred(url.clone()), &stamp)
     })?;
     note(format!("deferred {id} to {url}"));
