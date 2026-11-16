@@ -97,7 +97,7 @@ impl World {
         // in, which is no repo of the project here.
         if matches!(
             args.first().map(String::as_str),
-            Some("show" | "list" | "approve")
+            Some("show" | "list" | "approve" | "drop")
         ) {
             args.extend(["--project".to_string(), "demo".to_string()]);
         }
@@ -718,6 +718,115 @@ fn landed_records_the_worktrees_claim_wherever_it_runs() {
         state.closed_record(Id(1)).unwrap().closed.by,
         "design session"
     );
+}
+
+/// Runs `design drop <id> --why <why>`.
+fn drop_change(w: &World, id: u32, why: &str) -> Result<String> {
+    w.run_args(
+        ["drop", &id.to_string(), "--why", why]
+            .iter()
+            .map(|word| word.to_string())
+            .collect(),
+    )
+}
+
+#[test]
+fn drop_closes_an_open_change_keeps_why_and_leaves_the_open_lists() {
+    let w = world("design-drop");
+    w.commit(&["design/mocks/A.dc.html"]);
+    w.request(base_request(
+        &w,
+        json!({ "design/mocks/A.dc.html": { "matches": "the app draws it" } }),
+    ))
+    .unwrap();
+    let why = "design change 2 covers the whole move";
+    let out = drop_change(&w, 1, why).unwrap();
+    assert_eq!(out, "design change #1 dropped\n");
+    let state = w.state();
+    assert!(state.designs.is_empty());
+    assert_eq!(
+        state.closed_record(Id(1)).unwrap().how,
+        How::Dropped(why.to_string())
+    );
+    assert_eq!(w.run("list").unwrap(), "");
+    let view = crate::lists::view::View::build(&state, NOON).unwrap();
+    assert!(
+        view.designs.is_empty(),
+        "a dropped change is not one that landed"
+    );
+    let board = crate::daemon::board::board(&view);
+    assert_eq!(board.waiting, 0);
+    let shown = w.run("show 1").unwrap();
+    assert!(
+        shown.contains("[dropped ") && shown.contains(&format!("dropped: {why}")),
+        "{shown}"
+    );
+    assert!(!shown.contains("waiting on the person's review"), "{shown}");
+
+    let once = w.bytes();
+    assert!(message(drop_change(&w, 1, why)).contains("design change #1 was dropped"));
+    assert!(message(w.run("approve 1 --by-person")).contains("design change #1 was dropped"));
+    let sha = w.sha("HEAD");
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    assert!(
+        message(w.run(&format!("landed 1 {} {sha}", w.worktree())))
+            .contains("design change #1 was dropped")
+    );
+    assert_eq!(w.bytes(), once);
+}
+
+#[test]
+fn drop_refuses_a_landed_change_another_record_and_no_why() {
+    let w = world("design-drop-refused");
+    let sha = w.commit(&["design/mocks/A.dc.html"]);
+    w.request(base_request(
+        &w,
+        json!({ "design/mocks/A.dc.html": { "matches": "the app draws it" } }),
+    ))
+    .unwrap();
+    assert!(message(w.run("drop 1")).contains("--why"));
+    assert!(message(drop_change(&w, 1, " ")).contains("--why is empty"));
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    w.run(&format!("landed 1 {} {sha}", w.worktree())).unwrap();
+    assert!(message(drop_change(&w, 1, "late")).contains("design change #1 has already landed"));
+    assert!(message(drop_change(&w, 9, "none")).contains("not a record"));
+    w.store
+        .write(&stamp(NOON), "item add", |db| {
+            crate::lists::item::add_item(
+                db,
+                &serde_json::from_value(draft("Build the grid the board shows")).unwrap(),
+                None,
+                &stamp(NOON),
+            )
+        })
+        .unwrap();
+    assert!(message(drop_change(&w, 2, "no")).contains("not a design change"));
+}
+
+#[test]
+fn drop_refuses_while_an_open_item_waits_on_the_change() {
+    let w = world("design-drop-waited");
+    w.commit(&["design/mocks/A.dc.html"]);
+    w.request(base_request(
+        &w,
+        json!({ "design/mocks/A.dc.html": { "new": draft("Build the grid the board shows") } }),
+    ))
+    .unwrap();
+    let once = w.bytes();
+    let refused = message(drop_change(&w, 1, "not needed"));
+    assert!(
+        refused.contains("#2 \"Build the grid the board shows\" waits on #1")
+            && refused.contains("builds item wait 2 --off design:1"),
+        "{refused}"
+    );
+    assert_eq!(w.bytes(), once);
+    w.store
+        .write(&stamp(NOON), "item wait 2 --off design:1", |db| {
+            crate::lists::item::remove_wait(db, Id(2), &Wait::Design(Id(1)))
+        })
+        .unwrap();
+    drop_change(&w, 1, "not needed").unwrap();
+    assert!(w.state().designs.is_empty());
 }
 
 #[test]

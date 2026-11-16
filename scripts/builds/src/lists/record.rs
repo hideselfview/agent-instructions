@@ -189,7 +189,7 @@ impl How {
                     | How::Deferred(_)
                     | How::MovedToStack(_)
             ),
-            Kind::Design => matches!(self, How::Landed(_)),
+            Kind::Design => matches!(self, How::Landed(_) | How::Dropped(_)),
             Kind::Decision => false,
         }
     }
@@ -348,12 +348,13 @@ fn insert_closing(db: &Connection, id: Id, kind: Kind, how: &How, stamp: &Stamp)
 }
 
 /// Makes the `closing` table again as record.sql writes it today, where an
-/// item may close as finished, and copies every closing into it. The
+/// item may close as finished and a design change as dropped, and copies
+/// every closing into it. The
 /// statement comes from record.sql, so the table equals a fresh database's.
 /// migrate.rs runs this with the foreign keys off, and SQLite renames the old
 /// table under `legacy_alter_table`, so `closing_commit` keeps naming
 /// `closing`.
-pub fn move_to_finished(db: &Connection) -> Result<()> {
+pub fn remake_closing(db: &Connection) -> Result<()> {
     const SQL: &str = include_str!("record.sql");
     crate::db::remake_table(
         db,

@@ -20,7 +20,7 @@ use crate::lists::design_session::{self, SessionState};
 use crate::lists::item::{ItemDraft, add_item};
 use crate::lists::record;
 use crate::lists::store;
-use crate::lists::{How, Id, Kind, Lists, Located, Record, Stamp, Standing, Wait};
+use crate::lists::{Closed, How, Id, Kind, Lists, Located, Record, Stamp, Standing, Wait};
 use crate::text::local_minute;
 
 /// How a design place was resolved.
@@ -636,11 +636,21 @@ fn open_design(lists: &Lists, id: Id) -> Result<&DesignChange> {
             fail!("{id} is a {}, not a design change", kind.name())
         }
         Some(Located {
-            standing: Standing::Closed(_),
+            standing: Standing::Closed(closed),
             ..
-        }) => fail!("design change {id} has already landed"),
+        }) => fail!("{}", how_it_closed(id, &closed.how)),
         Some(_) => lists.design(id).expect("located open"),
     })
+}
+
+/// How design change <id> closed, as <how> says: it landed or was dropped,
+/// the two ways `closing_how_fits_kind` lets a design change close.
+fn how_it_closed(id: Id, how: &How) -> String {
+    match how {
+        How::Landed(_) => format!("design change {id} has already landed"),
+        How::Dropped(why) => format!("design change {id} was dropped: {why}"),
+        other => unreachable!("closing_how_fits_kind holds, but {id} closed as {other:?}"),
+    }
 }
 
 /// The open design change <id>, of <repo>.
@@ -761,8 +771,11 @@ pub fn already_landed(lists: &Lists, id: Id, repo: &str, commits: &[String]) -> 
     let Some(closed) = lists.closed_record(id) else {
         return Ok(false);
     };
-    let (Record::Design(design), How::Landed(was)) = (&closed.record, &closed.how) else {
+    let Record::Design(design) = &closed.record else {
         fail!("{id} is not a design change that landed");
+    };
+    let How::Landed(was) = &closed.how else {
+        fail!("{}", how_it_closed(id, &closed.how));
     };
     if design.repo != repo {
         fail!("design change {id} is of repo {}, not {repo}", design.repo);
@@ -812,6 +825,17 @@ pub fn landed(
     Ok(Landed::Closed { ready })
 }
 
+/// Closes open design change <id> without landing it, keeping <why>. A
+/// change that landed or was dropped is refused, and so is one an open item
+/// waits on: dropping it would leave that item waiting on a change that never
+/// lands.
+pub fn drop(db: &Connection, id: Id, why: &str, stamp: &Stamp) -> Result<()> {
+    let lists = &store::read(db)?;
+    open_design(lists, id)?;
+    lists.require_none_waits_on(&Wait::Design(id), "drop")?;
+    record::close(db, id, How::Dropped(why.to_string()), stamp)
+}
+
 fn resolution_words(lists: &Lists, resolution: &Resolution) -> String {
     match resolution {
         Resolution::Item(id) => match lists.locate(*id) {
@@ -833,10 +857,10 @@ fn resolution_words(lists: &Lists, resolution: &Resolution) -> String {
     }
 }
 
-fn describe(lists: &Lists, design: &DesignChange, landed: Option<&crate::lists::Closed>) -> String {
+fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> String {
     let mut out = String::new();
-    let state = match landed {
-        Some(closed) => format!("landed {}", local_minute(closed.closed.at)),
+    let state = match closed {
+        Some(closed) => format!("{} {}", closed.how.label(), local_minute(closed.closed.at)),
         None => "open".to_string(),
     };
     let _ = writeln!(
@@ -862,7 +886,7 @@ fn describe(lists: &Lists, design: &DesignChange, landed: Option<&crate::lists::
                 stamp.by
             );
         }
-        None if landed.is_none() => {
+        None if closed.is_none() => {
             let _ = writeln!(out, "waiting on the person's review");
         }
         None => {}
@@ -904,10 +928,17 @@ fn describe(lists: &Lists, design: &DesignChange, landed: Option<&crate::lists::
             landing.commits.join(" ")
         );
     }
+    if let Some(Closed {
+        how: How::Dropped(why),
+        ..
+    }) = closed
+    {
+        let _ = writeln!(out, "  dropped: {why}");
+    }
     out
 }
 
-/// `design show`: an open or landed design change.
+/// `design show`: an open, landed or dropped design change.
 pub fn show(lists: &Lists, id: Id) -> Result<String> {
     match lists.locate(id) {
         None => fail!("{id} is not a record"),

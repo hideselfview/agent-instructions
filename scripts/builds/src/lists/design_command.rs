@@ -1,5 +1,5 @@
 //! `builds design places | only | record | amend | approve | check | landed |
-//! show | list | render | tokens-css`.
+//! drop | show | list | render | tokens-css`.
 //!
 //! The commands that read git (`places`, `record`, `amend`, `check`,
 //! `landed`) find the project from the repo of the worktree they are given,
@@ -20,7 +20,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N DIR REV...\n       builds design landed N DIR SHA...\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR";
+const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -52,6 +52,7 @@ pub fn run_in_session(
         "approve" => approve(tool, rest, &cwd),
         "check" => check(tool, rest),
         "landed" => landed(tool, rest),
+        "drop" => drop(tool, rest, &cwd),
         "show" => show(tool, rest, &cwd),
         "list" => list(tool, rest, &cwd),
         "render" => render(tool, rest),
@@ -461,6 +462,23 @@ fn landed(tool: &Tool, args: &[String]) -> Result<String> {
             out
         }
     })
+}
+
+/// `drop N --why WHY`: closes design change N, which will not land, and
+/// keeps why.
+fn drop(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
+    let args = Args::parse(args, &["why"], &[])?;
+    let [id] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
+    let id = Id::parse(id)?;
+    let why = args.why()?;
+    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    store.write(&stamp, &format!("design drop {id}"), |db| {
+        design::drop(db, id, why, &stamp)
+    })?;
+    Ok(format!("design change {id} dropped\n"))
 }
 
 fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {

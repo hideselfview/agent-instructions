@@ -33,7 +33,7 @@ CREATE TABLE closing (
         CASE kind
             WHEN 'question' THEN how IN ('answered', 'settled', 'done', 'dropped', 'deferred')
             WHEN 'item' THEN how IN ('landed', 'finished', 'dropped', 'deferred', 'moved-to-stack')
-            WHEN 'design' THEN how = 'landed'
+            WHEN 'design' THEN how IN ('landed', 'dropped')
             ELSE 0
         END
     ),

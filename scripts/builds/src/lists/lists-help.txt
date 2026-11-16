@@ -433,8 +433,17 @@ sent again.
       again record once; other commits for a landed change are refused. Who
       landed is --by, else DIR's claim.
 
+  builds design drop N --why WHY
+      Closes open change N, which will not land, and keeps WHY. The change
+      leaves the Waiting on you tab and the open lists, and `builds design
+      show N` says why it was dropped. The command refuses a change that
+      landed or was dropped, and a change an open item waits on: it names
+      each such item and the `builds item wait ITEM --off design:N` that
+      frees it.
+
   builds design show N | builds design list
-      One design change, open or landed; the open ones, one line each.
+      One design change, open, landed or dropped; the open ones, one line
+      each.
 
   builds design render DIR BOARD [--theme light|dark] [--now | --at REV]
       Prints board BOARD of worktree DIR as one page of HTML, the way the

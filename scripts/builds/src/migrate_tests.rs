@@ -1696,10 +1696,133 @@ fn schema_before_check_starts() -> String {
     without_check_starts(schema_before_canvas())
 }
 
+/// <schema> as its text read before a design change could close as dropped:
+/// record.sql's `closing` letting a design change only land.
+fn without_design_drop(schema: String) -> String {
+    let (now, then) = (
+        "WHEN 'design' THEN how IN ('landed', 'dropped')",
+        "WHEN 'design' THEN how = 'landed'",
+    );
+    assert_eq!(schema.matches(now).count(), 1, "{now}");
+    schema.replace(now, then)
+}
+
+/// The schema text before a design change could close as dropped.
+fn schema_before_design_drop() -> String {
+    without_design_drop(db::schema())
+}
+
+#[test]
+fn the_design_drop_stamp_is_the_schema_before_design_drop() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_design_drop()),
+        BEFORE_DESIGN_DROP_STAMP
+    );
+}
+
+/// A store from before a design change could close as dropped keeps its
+/// closings, equals a fresh schema, and then takes a dropped design change.
+#[test]
+fn a_store_from_before_design_drop_keeps_its_closings_and_takes_a_dropped_change() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-design-drop");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_design_drop()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_DESIGN_DROP_STAMP)
+            .unwrap();
+        crate::lists::project::plant(
+            &conn,
+            "project",
+            &[("singleton", v(1)), ("name", v("bae")), ("canvas", v(1))],
+        )
+        .unwrap();
+        crate::lists::project::plant(&conn, "repo", &[("name", v("bae"))]).unwrap();
+        for id in [1, 2] {
+            crate::lists::record::plant(
+                &conn,
+                "record",
+                &[
+                    ("id", v(id)),
+                    ("kind", v("design")),
+                    ("opened_at", v(5)),
+                    ("opened_by", v("tester")),
+                ],
+            )
+            .unwrap();
+            crate::lists::design::plant(
+                &conn,
+                "design",
+                &[
+                    ("id", v(id)),
+                    ("title", v("A design change")),
+                    ("details", v("d")),
+                    ("repo", v("bae")),
+                    ("worktree", v("/d/wt")),
+                ],
+            )
+            .unwrap();
+        }
+        crate::lists::record::plant(
+            &conn,
+            "closing",
+            &[
+                ("record_id", v(1)),
+                ("kind", v("design")),
+                ("how", v("landed")),
+                ("at", v(6)),
+                ("by", v("tester")),
+            ],
+        )
+        .unwrap();
+        crate::lists::record::plant(
+            &conn,
+            "closing_commit",
+            &[
+                ("record_id", v(1)),
+                ("how", v("landed")),
+                ("position", v(0)),
+                ("sha", v("a".repeat(40))),
+            ],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    drop(conn);
+    let conn = Connection::open(&path).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    let closings = crate::lists::record::read_closings(&conn).unwrap();
+    assert_eq!(
+        closings[&crate::lists::Id(1)].0,
+        crate::lists::How::Landed(vec!["a".repeat(40)])
+    );
+    crate::lists::record::close(
+        &conn,
+        crate::lists::Id(2),
+        crate::lists::How::Dropped("another change covers it".to_string()),
+        &crate::lists::Stamp {
+            at: 7,
+            by: "tester".to_string(),
+        },
+    )
+    .unwrap();
+}
+
 /// <schema> as its text read before a project said whether it publishes its
-/// boards as a canvas: project.sql without `canvas`.
+/// boards as a canvas: project.sql without `canvas`, and every newer change.
 fn without_canvas(schema: String) -> String {
-    let mut old = schema;
+    let mut old = without_design_drop(schema);
     for (now, then) in [
         (
             "-- The project: its name, whether it publishes its boards as a canvas, the

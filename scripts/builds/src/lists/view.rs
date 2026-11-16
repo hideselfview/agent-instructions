@@ -364,6 +364,7 @@ fn designs(lists: &Lists, now: i64) -> Vec<DesignView> {
         .collect();
     for closed in lists.closed.iter().rev() {
         if let crate::lists::Record::Design(design) = &closed.record
+            && matches!(closed.how, crate::lists::How::Landed(_))
             && closed.closed.at >= recent
         {
             views.push(design_view(lists, design, Some(closed.closed.clone())));
