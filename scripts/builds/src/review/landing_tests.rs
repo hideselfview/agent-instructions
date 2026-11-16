@@ -222,13 +222,7 @@ fn a_rebased_commit_whose_added_lines_changed_is_a_new_diff() {
     // makes.
     std::fs::write(side.join("b.rs"), "resolved\n").unwrap();
     crate::testing::git(&side, &["commit", "-q", "--amend", "-a", "--no-edit"]);
-    let changed = crate::checkout::git_text(
-        crate::checkout::git(&side).args(["rev-parse", "HEAD"]),
-        "read HEAD",
-    )
-    .unwrap()
-    .trim()
-    .to_string();
+    let changed = head(&side);
     let asked = verdict_of(&demo, &fake, &side, &[a, changed.clone()]);
     let Verdict::Unfinished(_, unfinished) = &asked.0 else {
         panic!("{asked:?}")
@@ -249,13 +243,7 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
     let other = demo.add_side(2, "agent", "picked");
     demo.commit(&other, "other.txt");
     crate::testing::git(&other, &["cherry-pick", &a]);
-    let picked = crate::checkout::git_text(
-        crate::checkout::git(&other).args(["rev-parse", "HEAD"]),
-        "read HEAD",
-    )
-    .unwrap()
-    .trim()
-    .to_string();
+    let picked = head(&other);
     assert_ne!(picked, a);
     let asked_picked = asked(&demo, &fake, &other, std::slice::from_ref(&picked));
     let conn = demo.store.open_existing().unwrap();
@@ -330,13 +318,7 @@ fn a_rename_out_of_a_covered_folder_is_reviewed_by_the_group_of_its_old_path() {
     std::fs::create_dir_all(side.join("tool")).unwrap();
     crate::testing::git(&side, &["mv", "src/a.kt", "tool/a.kt"]);
     crate::testing::git(&side, &["commit", "-q", "-m", "move a.kt out of src"]);
-    let moved = crate::checkout::git_text(
-        crate::checkout::git(&side).args(["rev-parse", "HEAD"]),
-        "read HEAD",
-    )
-    .unwrap()
-    .trim()
-    .to_string();
+    let moved = head(&side);
     let reported = review_of(&demo, &fake, &side);
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1, "{}", reported.text);
@@ -357,13 +339,7 @@ fn commit_with(top: &Path, file: &str, message: &str) -> String {
     std::fs::write(top.join(file), file).unwrap();
     crate::testing::git(top, &["add", file]);
     crate::testing::git(top, &["commit", "-q", "-m", message]);
-    crate::checkout::git_text(
-        crate::checkout::git(top).args(["rev-parse", "HEAD"]),
-        "read HEAD",
-    )
-    .unwrap()
-    .trim()
-    .to_string()
+    head(top)
 }
 
 /// What the reviewer of group alpha answers: rule-a's findings, each as
@@ -401,13 +377,7 @@ fn a_branch_lands_in_two_parts_each_with_the_fixes_of_its_own_findings() {
     // The fix of the finding on a.rs changes a.rs.
     std::fs::write(side.join("a.rs"), "fixed\n").unwrap();
     crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Fix a"]);
-    let fa = crate::checkout::git_text(
-        crate::checkout::git(&side).args(["rev-parse", "HEAD"]),
-        "read HEAD",
-    )
-    .unwrap()
-    .trim()
-    .to_string();
+    let fa = head(&side);
     fix(&demo, &side, found[0].id, &fa);
     // A reworded commit keeps its patch id, so it names the fix of a finding
     // on its message.
@@ -448,6 +418,7 @@ fn fix_refused(demo: &Demo, side: &Path, finding: i64, sha: &str) -> String {
         .text()
 }
 
+/// The commit HEAD names in <side>.
 fn head(side: &Path) -> String {
     crate::checkout::git_text(
         crate::checkout::git(side).args(["rev-parse", "HEAD"]),
@@ -558,13 +529,7 @@ fn a_group_whose_files_a_later_commit_changed_back_answers_no_findings() {
     let changed_back = {
         std::fs::write(side.join("src/a.kt"), "src/a.kt").unwrap();
         crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Change src/a.kt back"]);
-        crate::checkout::git_text(
-            crate::checkout::git(&side).args(["rev-parse", "HEAD"]),
-            "read HEAD",
-        )
-        .unwrap()
-        .trim()
-        .to_string()
+        head(&side)
     };
     let reported = review_of(&demo, &fake, &side);
     let prompts = fake.prompts();
