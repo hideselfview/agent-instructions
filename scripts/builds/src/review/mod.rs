@@ -237,16 +237,13 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             .into_iter()
             .filter(|(group, _)| ask.groups.contains(&group.name))
             .collect();
-        answers.push(
-            run::ask_groups(
-                &material,
-                inputs.reviewer,
-                &picked,
-                &ask.diff,
-                inputs.brief.as_ref(),
-            )
-            .calls,
-        );
+        answers.push(run::ask_groups(
+            &material,
+            inputs.reviewer,
+            &picked,
+            &ask.diff,
+            inputs.brief.as_ref(),
+        ));
     }
     let stamp = inputs.stamp;
     let (landing, runs) = inputs
@@ -257,7 +254,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                 None => record::add_landing(db, inputs.key, inputs.repo, stamp.at)?,
             };
             let mut runs = Vec::new();
-            for (ask, calls) in asks.iter().zip(&answers) {
+            for (ask, asked) in asks.iter().zip(&answers) {
                 let (run_id, _) = record::add_run(
                     db,
                     &record::NewRun {
@@ -271,7 +268,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                         grouping: &material.grouping,
                         rules_version: &run::rules_version(inputs.root),
                     },
-                    calls,
+                    &asked.calls,
                 )?;
                 runs.push((
                     run_id,
@@ -283,7 +280,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         })?;
     drop(running);
     let mut text = String::new();
-    for (ask, (run_id, calls, findings)) in asks.iter().zip(&runs) {
+    for ((ask, asked), (run_id, calls, findings)) in asks.iter().zip(&answers).zip(&runs) {
         text.push_str(&format!(
             "review of {} (landing {landing}, run {run_id}) over {}...{}\n",
             inputs.key,
@@ -292,6 +289,11 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         ));
         if let Some(note) = &ask.note {
             text.push_str(note);
+        }
+        for group in &asked.nothing_to_read {
+            text.push_str(&format!(
+                "{group}: the diff holds none of the files its rules cover (a commit changed one and a later commit changed it back), so it had nothing to read: its answer is no findings\n"
+            ));
         }
         text.push_str(&render::run_report(calls, findings));
     }

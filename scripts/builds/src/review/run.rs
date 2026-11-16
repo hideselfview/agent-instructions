@@ -170,9 +170,14 @@ pub fn ask_groups(
     let checkout = match diff.source.as_ref().map(files::Source::checkout) {
         Some(Ok(checkout)) => Some(checkout),
         Some(Err(why)) => {
+            let why = why.text();
             return Asked {
-                calls: failed_all(picked, &why.text()),
+                calls: picked
+                    .iter()
+                    .map(|(group, members)| bare_call(group, members, Some(why.clone())))
+                    .collect(),
                 repeat: Tokens::default(),
+                nothing_to_read: Vec::new(),
             };
         }
         None => None,
@@ -307,14 +312,32 @@ pub fn ask_groups(
             }
         }
     }
-    Asked { calls, repeat }
+    // A group that reads one file per call and covers a path some commit
+    // changed has no file to read when a later commit changed that path back:
+    // the range diff holds none of its files. It has nothing to find there, so
+    // its answer is no findings.
+    let mut nothing_to_read = Vec::new();
+    for (group, members) in picked {
+        if !units.iter().any(|unit| unit.group.name == group.name) {
+            calls.push(bare_call(group, members, None));
+            nothing_to_read.push(group.name.clone());
+        }
+    }
+    Asked {
+        calls,
+        repeat,
+        nothing_to_read,
+    }
 }
 
-/// What a review asked: one call per group, and the tokens of the passes
-/// after each group's first.
+/// What a review asked: one call per group, the tokens of the passes after
+/// each group's first, and the groups that had no file to read in the diff.
 pub struct Asked {
     pub calls: Vec<NewCall>,
     pub repeat: Tokens,
+    /// Groups that read one file per call and found no file of theirs in the
+    /// diff: each has a call with no findings that ran no reviewer.
+    pub nothing_to_read: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -334,28 +357,25 @@ impl Tokens {
     }
 }
 
-/// A failed call for each group of <picked>, because the checkout the
-/// reviewers read could not be made.
-fn failed_all(picked: &[(&Group, Vec<&Rule>)], why: &str) -> Vec<NewCall> {
-    picked
-        .iter()
-        .map(|(group, members)| NewCall {
-            group: group.name.clone(),
-            model: group.model.clone(),
-            prompt: prompt::setup(group, members),
-            rules: prompt::answer_names(group, members),
-            tokens_in: 0,
-            tokens_out: 0,
-            tokens_cached: 0,
-            tokens_written: 0,
-            cost_microdollars: 0,
-            sites: None,
-            failure: Some(why.to_string()),
-            verdicts: Vec::new(),
-            findings: Vec::new(),
-            exchanges: Vec::new(),
-        })
-        .collect()
+/// A call of <group> that ran no reviewer: failed with <failure>, or, with
+/// none, an answer of no findings.
+fn bare_call(group: &Group, members: &[&Rule], failure: Option<String>) -> NewCall {
+    NewCall {
+        group: group.name.clone(),
+        model: group.model.clone(),
+        prompt: prompt::setup(group, members),
+        rules: prompt::answer_names(group, members),
+        tokens_in: 0,
+        tokens_out: 0,
+        tokens_cached: 0,
+        tokens_written: 0,
+        cost_microdollars: 0,
+        sites: None,
+        failure,
+        verdicts: Vec::new(),
+        findings: Vec::new(),
+        exchanges: Vec::new(),
+    }
 }
 
 /// <held> with <more>: tokens added, verdicts joined (`finding` when either

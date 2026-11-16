@@ -458,3 +458,55 @@ fn a_finding_on_the_message_of_a_commit_an_earlier_landing_pushed_needs_no_fix_h
         "{both:?}"
     );
 }
+
+#[test]
+fn a_group_whose_files_a_later_commit_changed_back_answers_no_findings() {
+    let demo = demo("landing-reverted");
+    let fake = fake(&demo.scratch.dir);
+    // Group gamma covers only src/, and its reviewer reads one file per call.
+    std::fs::create_dir_all(fake.root.join("rules/gamma")).unwrap();
+    std::fs::write(
+        fake.root.join("rules/gamma/rule-g.md"),
+        "---\ndigest: d\npaths:\n  - 'src/**'\nblocking: false\n---\n\n**Rule G.** Never do it in src.\n",
+    )
+    .unwrap();
+    crate::review::fakes::group_file(
+        &fake.root,
+        "gamma",
+        "gamma",
+        "sonnet",
+        "enumerate = true\nsites = \"handles rows\"\n",
+    );
+    std::fs::create_dir_all(demo.main.join("src")).unwrap();
+    demo.commit(&demo.main, "src/a.kt");
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::write(side.join("src/a.kt"), "changed\n").unwrap();
+    crate::testing::git(&side, &["add", "src/a.kt"]);
+    let changed = commit_with(&side, "a.rs", "Change src/a.kt");
+    let changed_back = {
+        std::fs::write(side.join("src/a.kt"), "src/a.kt").unwrap();
+        crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Change src/a.kt back"]);
+        crate::checkout::git_text(
+            crate::checkout::git(&side).args(["rev-parse", "HEAD"]),
+            "read HEAD",
+        )
+        .unwrap()
+        .trim()
+        .to_string()
+    };
+    let reported = review_of(&demo, &fake, &side);
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", reported.text);
+    assert_eq!(prompts[0].0, "alpha");
+    assert!(
+        reported.text.contains("gamma (sonnet): no findings")
+            && reported
+                .text
+                .contains("gamma: the diff holds none of the files its rules cover"),
+        "{}",
+        reported.text
+    );
+    assert!(reported.refusal.is_none(), "{:?}", reported.refusal);
+    let asked = verdict_of(&demo, &fake, &side, &[changed, changed_back]);
+    assert!(matches!(asked.0, Verdict::Takes(_)), "{asked:?}");
+}

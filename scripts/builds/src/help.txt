@@ -1295,7 +1295,10 @@ agent-instructions and run `review replay --rules-root` on it.
                               --rules-root (default the agent-instructions
                               checkout linked at ~/.codex/agent-instructions),
                               one reviewer per group, or per changed file for a
-                              group that lists sites. PROGRAM (default claude)
+                              group that lists sites; such a group whose
+                              files the diff no longer holds (a later commit
+                              changed them back) answers no findings with no
+                              reviewer run. PROGRAM (default claude)
                               runs each reviewer. <key> names the change and
                               defaults to the worktree's branch
                               (branch:<name>); a key opens a landing under
