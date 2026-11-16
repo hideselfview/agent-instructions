@@ -142,10 +142,49 @@ fn open(path: &Path) -> Result<File> {
     crate::flock::open_creating(path)
 }
 
-/// A use of the stores: its file, locked until dropped. The file stays;
-/// install removes the file of each use that ended.
+/// A use of the stores: its file, locked until dropped, when the use
+/// removes the file. Install removes the file of a use whose process ended
+/// without dropping it.
+///
+/// Only a process that holds a use file's lock removes the file, and only
+/// after it checks that the path still names the file it locked, since
+/// another process may have made a new file there. A process that takes a
+/// use checks the same once it holds the lock, and starts again when the
+/// path names another file or none: a file removed while it waited for the
+/// lock is no use install can see.
 pub struct Use {
     _file: File,
+    path: PathBuf,
+}
+
+impl Drop for Use {
+    fn drop(&mut self) {
+        // The use holds the lock, so the path names its file. A file that
+        // stays is one that install removes later, since its lock is free.
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Whether the path <path> names the open file <file>.
+fn names(file: &File, path: &Path) -> Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let open = file
+        .metadata()
+        .context(|| format!("reading {}", path.display()))?;
+    match std::fs::metadata(path) {
+        Ok(named) => Ok(named.dev() == open.dev() && named.ino() == open.ino()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => fail!("reading {}: {error}", path.display()),
+    }
+}
+
+/// Removes the use file at <path>, whose lock <file> holds, when the path
+/// still names that file.
+fn remove_use_file(file: &File, path: &Path) -> Result<()> {
+    if names(file, path)? {
+        std::fs::remove_file(path).context(|| format!("removing {}", path.display()))?;
+    }
+    Ok(())
 }
 
 /// Passes <kind>'s gate: returns its file, holding a shared lock, and
@@ -171,15 +210,20 @@ fn pass(
 /// the local time <since>, while the gate held open by <gate> stays open.
 fn take(places: &Places, kind: Kind, gate: File, pid: u32, what: &str, since: &str) -> Result<Use> {
     let path = kind.uses(places).join(pid.to_string());
-    let mut file = open(&path)?;
-    lock(&file, libc::LOCK_EX, &path)?;
+    let mut file = loop {
+        let file = open(&path)?;
+        lock(&file, libc::LOCK_EX, &path)?;
+        if names(&file, &path)? {
+            break file;
+        }
+    };
     file.set_len(0)
         .context(|| format!("writing {}", path.display()))?;
     file.write_all(format!("process {pid}, builds {what}, since {since}\n").as_bytes())
         .context(|| format!("writing {}", path.display()))?;
     // Closing the gate's file releases the shared lock; the use is in place.
     drop(gate);
-    Ok(Use { _file: file })
+    Ok(Use { _file: file, path })
 }
 
 const RUNS_AGAIN: &str =
@@ -429,6 +473,13 @@ pub fn begin(places: &Places, say: &mut dyn FnMut(String)) -> Result<Installing>
 }
 
 impl Installing {
+    /// Removes the file of each use whose process ended without removing it,
+    /// with both gates open: for an install that waits for no use.
+    pub fn remove_ended_uses(&self) -> Result<()> {
+        remove_ended_uses(&self.places, Kind::Command)?;
+        remove_ended_uses(&self.places, Kind::Connection)
+    }
+
     /// Closes the commands gate and waits for every command use, then closes
     /// the connections gate and waits for every connection use, telling
     /// <say> each use it waits on; then counts one more install.
@@ -464,15 +515,13 @@ fn close_gate(places: &Places, kind: Kind) -> Result<File> {
     Ok(gate)
 }
 
-/// Waits until every use of <kind> ends, telling <say> each use it waits
-/// on, and removes each use's file. Only install removes a use's file, and
-/// it holds the install lock that keeps a second install out, so each file
-/// it lists is there until it removes it.
-fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Result<()> {
+/// The use files of <kind>, each open, in the order of their names. A file
+/// that its use removed after the listing is left out.
+fn use_files(places: &Places, kind: Kind) -> Result<Vec<(File, PathBuf)>> {
     let dir = kind.uses(places);
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => fail!("listing {}: {error}", dir.display()),
     };
     let mut paths: Vec<PathBuf> = Vec::new();
@@ -481,11 +530,22 @@ fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Re
         paths.push(entry.path());
     }
     paths.sort();
+    let mut files = Vec::new();
     for path in paths {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .open(&path)
-            .context(|| format!("opening {}", path.display()))?;
+        match OpenOptions::new().read(true).open(&path) {
+            Ok(file) => files.push((file, path)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => fail!("opening {}: {error}", path.display()),
+        }
+    }
+    Ok(files)
+}
+
+/// Waits until every use of <kind> ends, telling <say> each use it waits
+/// on, and removes the file of each use whose process ended without
+/// removing it.
+fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Result<()> {
+    for (mut file, path) in use_files(places, kind)? {
         if !try_lock(&file, libc::LOCK_EX, &path)? {
             let mut text = String::new();
             file.read_to_string(&mut text)
@@ -493,8 +553,19 @@ fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Re
             say(format!("waiting for {}", text.trim()));
             lock(&file, libc::LOCK_EX, &path)?;
         }
-        // The use ended, or its process died.
-        std::fs::remove_file(&path).context(|| format!("removing {}", path.display()))?;
+        remove_use_file(&file, &path)?;
+    }
+    Ok(())
+}
+
+/// Removes the file of each use of <kind> whose lock is free: its process
+/// ended without removing it, so nothing reads the file. Leaves the file of
+/// each use that holds its lock.
+fn remove_ended_uses(places: &Places, kind: Kind) -> Result<()> {
+    for (file, path) in use_files(places, kind)? {
+        if try_lock(&file, libc::LOCK_EX, &path)? {
+            remove_use_file(&file, &path)?;
+        }
     }
     Ok(())
 }

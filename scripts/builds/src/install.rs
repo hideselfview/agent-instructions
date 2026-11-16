@@ -495,6 +495,7 @@ fn replace_program(
         );
         crate::migrate::migrate_app_files(places)?;
         let replaced = put()?;
+        installing.remove_ended_uses()?;
         drop(installing);
         return Ok(replaced);
     }
@@ -768,6 +769,12 @@ mod tests {
         std::fs::create_dir_all(&store).unwrap();
         drop(crate::db::open(&store.join(crate::db::DATABASE), crate::db::Make::Allowed).unwrap());
         let held = hook_run(&places, 11);
+        let uses = places.install_dir().join("commands");
+        std::fs::write(
+            uses.join("99"),
+            "process 99, builds checks run, since 09:00:00\n",
+        )
+        .unwrap();
         let (install, events) = installing(&places);
         assert_eq!(
             next(&events),
@@ -779,6 +786,11 @@ mod tests {
         assert_eq!(next(&events), Event::Put);
         assert_eq!(next(&events), Event::Done);
         install.join().unwrap();
+        assert!(
+            !uses.join("99").exists(),
+            "install removes the file of a use whose process died"
+        );
+        assert!(uses.join("11").exists(), "the hook run still holds its use");
         drop(hook_run(&places, 12));
         drop(held);
     }

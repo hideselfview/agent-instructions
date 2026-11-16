@@ -308,3 +308,68 @@ fn a_lane_that_queues_again_holds_no_use_while_it_waits() {
     );
     drop(held);
 }
+
+/// A use removes its file when it ends, whether it lasts a command's life or
+/// one connection.
+#[test]
+fn a_use_removes_its_file_when_it_ends() {
+    let scratch = Scratch::new("install-gate-own-file");
+    let places = scratch.places();
+    let quiet = &mut |_: &str| {};
+    let hook_run = holds(enter_for_life(&places, 31, "checks run", "10:00:00", quiet).unwrap());
+    assert_eq!(count(&Kind::Command.uses(&places)), 1);
+    drop(hook_run);
+    assert_eq!(count(&Kind::Command.uses(&places)), 0);
+    let listing = PerConnection::new(places.clone(), 32, "item list", "10:00:01").unwrap();
+    let connection = listing.take().unwrap();
+    assert_eq!(count(&Kind::Connection.uses(&places)), 1);
+    drop(connection);
+    assert_eq!(count(&Kind::Connection.uses(&places)), 0);
+}
+
+/// An install that waits for no use removes the file of each use whose
+/// process died, and leaves the file of each use that is held.
+#[test]
+fn an_install_that_waits_for_no_use_removes_only_the_files_of_ended_uses() {
+    let scratch = Scratch::new("install-gate-ended");
+    let places = scratch.places();
+    for kind in [Kind::Command, Kind::Connection] {
+        std::fs::create_dir_all(kind.uses(&places)).unwrap();
+        std::fs::write(
+            kind.uses(&places).join("98"),
+            "process 98, builds item list, since 09:00:00\n",
+        )
+        .unwrap();
+    }
+    let quiet = &mut |_: &str| {};
+    let hook_run = holds(enter_for_life(&places, 33, "checks run", "10:00:00", quiet).unwrap());
+    let listing = PerConnection::new(places.clone(), 34, "item list", "10:00:01").unwrap();
+    let connection = listing.take().unwrap();
+    begin(&places, &mut |line| {
+        panic!("no install to wait for: {line}")
+    })
+    .unwrap()
+    .remove_ended_uses()
+    .unwrap();
+    assert!(!Kind::Command.uses(&places).join("98").exists());
+    assert!(!Kind::Connection.uses(&places).join("98").exists());
+    assert!(holds_use(&places, Kind::Command, 33));
+    assert!(holds_use(&places, Kind::Connection, 34));
+    drop(connection);
+    drop(hook_run);
+}
+
+/// A use file's path names the file only while no process removed it or
+/// made another file there.
+#[test]
+fn a_path_names_its_file_until_the_file_is_removed_or_replaced() {
+    let scratch = Scratch::new("install-gate-names");
+    let path = scratch.dir.join("40");
+    let file = open(&path).unwrap();
+    assert!(names(&file, &path).unwrap());
+    std::fs::remove_file(&path).unwrap();
+    assert!(!names(&file, &path).unwrap());
+    let again = open(&path).unwrap();
+    assert!(!names(&file, &path).unwrap());
+    assert!(names(&again, &path).unwrap());
+}
