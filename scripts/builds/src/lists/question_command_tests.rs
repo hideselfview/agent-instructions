@@ -1178,7 +1178,7 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
             &no_gh
         )
         .unwrap()
-        .contains("no question on the stack shows the tag nothing")
+        .contains("no question on the stack has the tag nothing on its trail")
     );
 
     run(
@@ -1242,7 +1242,7 @@ fn ask_and_edit_give_a_question_its_origin_and_the_trail_shows_it() {
     let lists = store.load().unwrap();
     let asked = lists.questions[0].id;
     assert_eq!(lists.questions[0].origin, Some(work));
-    // The question shows the item's tag, which it does not carry itself.
+    // The question carries no tag itself, and its trail has the item's tag.
     assert!(lists.questions[0].tags.is_empty());
     assert!(
         go(&scratch, &tool, "list --tag audit")

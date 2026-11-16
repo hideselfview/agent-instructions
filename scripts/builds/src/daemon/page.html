@@ -275,7 +275,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-tagbar button .l-count { font: 500 11px var(--mono); white-space: nowrap; opacity: 0.85; }
 .l-tagbar button[aria-pressed="true"] { background: var(--on); border-color: var(--on); color: var(--on-text); }
 .l-tagbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-/* A row's trail: the tags it shows, then each record from the first to it, on one line. */
+/* A row's trail: the tags of the records on it, then each record from the first to the row's own, on one line. */
 .l-trail { display: inline-block; max-width: 100%; margin-left: 4px; vertical-align: bottom; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 500 11px var(--sans); color: var(--muted); }
 .l-trail a.l-ref { color: var(--muted); }
 .l-tag { display: inline-block; margin: 0 4px 0 0; vertical-align: baseline; font: 500 11px var(--sans); color: var(--muted); background: var(--line-soft); border: 0; border-radius: 4px; padding: 1px 6px; cursor: pointer; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
@@ -1271,12 +1271,12 @@ function section(title, n, ...kids) {
 function empty(text) { return {key: "none", data: text, make: () => h("div", {class: "l-empty"}, text)}; }
 
 // ---- Trails and tags
-// A question's or an item's trail is where it came from: the tags it shows,
-// then each record from the first to it. The earlier records show their
-// numbers, and the one it came from its title too, so the trail stays on one
-// line. Each tag names the audit or group the trail began in. A tag on a row
-// shows that tag's entries alone; so does the tag bar, whose All shows every
-// entry again.
+// A question's or an item's trail is where it came from: the tags of the
+// records on it, then each record from the first to it. The earlier records
+// show their numbers, and the record it came from also shows its title, so
+// the trail stays on one line. Each tag names the audit or group the trail
+// began in. Choosing a tag on a row shows that tag's entries alone, and so
+// does choosing it in the tag bar, whose All shows every entry again.
 // <id> is the row's record, which ends the trail; null for tags alone.
 function trailRow(id, trail) {
   if (!trail.tags.length && !trail.earlier.length) return null;
@@ -1293,16 +1293,16 @@ function trailRow(id, trail) {
 }
 function tagged(tags) { return !tagFilter || (tags || []).includes(tagFilter); }
 function itemTags(id) { const it = lists.items.find(i => i.id === id); return it ? it.trail.tags : []; }
-// The tags of a running work: those each of its items' trails show.
+// The tags of a running work: the tags on each of its items' trails.
 function workTags(w) { return [...new Set(w.items.flatMap(i => itemTags(i.id)))].sort(); }
 // A running work of one item shows that item's trail; one of several items
-// shows the tags their trails show.
+// shows the tags on their trails.
 function workTrail(w) {
   if (w.items.length !== 1) return trailRow(null, {tags: workTags(w), earlier: []});
   const it = lists.items.find(i => i.id === w.items[0].id);
   return it ? trailRow(it.id, it.trail) : null;
 }
-// Every tag the open questions' and items' trails show, with how many show it.
+// Every tag on the open questions' and items' trails, with how many trails have it.
 function tagCounts() {
   const counts = new Map();
   for (const rec of [...lists.stack, ...lists.items]) for (const t of rec.trail.tags) counts.set(t, (counts.get(t) || 0) + 1);

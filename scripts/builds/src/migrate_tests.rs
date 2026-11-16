@@ -1183,9 +1183,10 @@ fn a_store_with_cargo_runs_loses_the_table_and_its_rows_keeps_the_rest_and_equal
     assert_eq!(stats.runs, 1, "the move keeps the old run");
 }
 
-/// <schema> as the text read before questions named an origin and an origin
-/// could be a record of any kind: `item` with an origin of a decision or a
-/// design change and the kind beside it, and `question` without an origin.
+/// <schema> as its text read before questions named an origin and an origin
+/// could be a record of any kind: `item` with an origin that is a decision or
+/// a design change and an `origin_kind` that names which, and `question` with
+/// no origin.
 fn without_origins(schema: String) -> String {
     let mut old = schema;
     for (now, then) in [
@@ -1335,5 +1336,5 @@ fn a_store_from_before_origins_keeps_each_item_its_origin_and_equals_a_fresh_sch
         .unwrap();
     assert_eq!(broken, None);
     let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
-    assert_eq!(stats.runs, 1, "the old run is kept");
+    assert_eq!(stats.runs, 1, "the move keeps the old run");
 }

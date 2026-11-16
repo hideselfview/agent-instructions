@@ -17,7 +17,8 @@ fn tags(list: &[&str]) -> Vec<String> {
     list.iter().map(|tag| tag.to_string()).collect()
 }
 
-/// The tags record <id> carries itself.
+/// The tags that record <id> carries itself, without the tags of the earlier
+/// records on its trail.
 fn own_tags(db: &Connection, id: Id) -> Vec<String> {
     crate::lists::tag::read(db)
         .unwrap()
@@ -117,7 +118,7 @@ fn a_tag_the_trail_already_shows_is_refused_and_a_tag_on_an_earlier_record_leave
     let message = refusal(add_tags(&db, work, &tags(&["a audit"])));
     assert!(
         message.contains(&format!(
-            "{work}'s trail already shows the tag 'a audit': {first} carries it"
+            "{first}, earlier on the trail of {work}, already carries the tag 'a audit'"
         )),
         "{message}"
     );

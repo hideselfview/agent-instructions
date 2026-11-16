@@ -29,7 +29,7 @@ pub fn wait_words(lists: &Lists, wait: &Wait) -> String {
     }
 }
 
-/// An item as lines; fails when its trail does (`trail::trail`).
+/// An item as lines. Fails when `trail::trail` fails on the item's trail.
 pub fn item_line(lists: &Lists, item: &Item) -> Result<String> {
     let state = derive::item_state(lists, item);
     let mut line = format!("  {} [{}] {}", item.id, state.label(), item.title);
@@ -109,7 +109,7 @@ pub fn stack_entry(lists: &Lists, number: usize, entry: &StackEntry<'_>) -> Resu
 }
 
 /// The stack and the queue as text; with <wanted>, only the questions and
-/// items whose trail shows that tag, each question keeping its place in the
+/// items whose trail has that tag, each question keeping its place in the
 /// stack.
 pub fn render(lists: &Lists, wanted: Option<&str>) -> Result<String> {
     let mut out = String::new();

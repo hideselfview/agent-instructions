@@ -386,11 +386,12 @@ pub fn apply_blocked(
     Ok(())
 }
 
-/// Moves a store's `question` table from before questions named an origin to
-/// today's, with the statements taken from question.sql so the result equals a
-/// fresh database's: no question has an origin yet. migrate.rs runs it with
-/// the foreign keys off, and the rename runs under `legacy_alter_table`, so
-/// the tables that point at `question` keep naming it.
+/// Rebuilds a store's `question` table with the origin column and its index
+/// from question.sql, and copies the old rows into it with no origin. The
+/// statements come from question.sql, so the table equals a fresh database's.
+/// migrate.rs runs this with the foreign keys off, and SQLite renames the old
+/// table under `legacy_alter_table`, so the tables that point at `question`
+/// keep naming it.
 pub fn move_to_origins(db: &Connection) -> Result<()> {
     const SQL: &str = include_str!("question.sql");
     db.execute_batch(&format!(

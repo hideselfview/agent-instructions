@@ -170,7 +170,7 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
                  FROM earlier WHERE record = earlier ORDER BY record"
             ),
         ),
-        // 9. A record carries no tag its trail already shows.
+        // 9. A record carries no tag that an earlier record of its trail carries.
         (
             "tags",
             format!(

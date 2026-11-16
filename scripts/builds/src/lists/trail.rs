@@ -1,12 +1,12 @@
 //! Where each question and item came from. A question or an item may name its
 //! origin, the record it came from: a question, an item, a decision or a design
 //! change (item.sql, question.sql). Its trail is the chain of origins from the
-//! first record to it, and shows the tags of the records on it. Only the first
-//! record of a trail carries a tag: tag.rs refuses a tag that a record's trail
-//! already shows, and takes off the tags that a new origin's trail shows. A
-//! record can't be its own origin, and a chain of origins can't loop.
-//! `set_origin` holds the rule for a record's new origin; item.rs and
-//! question.rs write the column.
+//! first record to it, with the tags of the records on that chain. Only the
+//! first record of a trail that has a tag carries it: tag.rs refuses a tag
+//! that an earlier record of the trail carries, and removes the tags that a
+//! new origin makes a record repeat. A record can't be its own origin, and a
+//! chain of origins can't loop. `set_origin` holds the rule for a record's new
+//! origin; item.rs and question.rs write the column.
 
 use std::fmt::Write;
 
@@ -29,8 +29,9 @@ pub const EARLIER: &str = "WITH RECURSIVE origin (record, earlier) AS ( \
          SELECT record, earlier FROM origin \
          UNION SELECT e.record, o.earlier FROM earlier e JOIN origin o ON o.record = e.earlier)";
 
-/// Refuses <origin> when no record has it: what a new record's origin needs,
-/// since nothing can come from a record not yet made.
+/// Refuses <origin> when no record has that id. A new record's origin needs
+/// only this check, since no record can come from a record made one line
+/// earlier.
 pub fn require_record(db: &Connection, origin: Id) -> Result<()> {
     if record::standing(db, origin)?.is_none() {
         fail!("the origin {origin} is not a record");
@@ -70,11 +71,11 @@ pub fn set_origin(db: &Connection, entry: Entry, id: Id, origin: Id) -> Result<(
         Entry::Question => question::write_origin(db, id, origin)?,
         Entry::Item => item::write_origin(db, id, origin)?,
     }
-    tag::drop_shown(db)
+    tag::drop_repeated(db)
 }
 
-/// The record whose trail already shows tag <tag> to record <id>: the earlier
-/// record of its trail that carries it, or None.
+/// The earlier record on the trail of record <id> that carries tag <tag>, or
+/// None.
 pub fn earlier_with_tag(db: &Connection, id: Id, tag: &str) -> Result<Option<Id>> {
     db.query_row(
         &format!(

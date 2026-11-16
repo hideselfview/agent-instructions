@@ -86,8 +86,8 @@ pub fn schema_before_app_timing() -> String {
 }
 
 /// The statement of <schema> that starts with <from>, through the first <end>
-/// after it: what a move that makes a table again takes from the schema text,
-/// so the result equals a fresh database's.
+/// after it. A move that makes a table again takes the table's statements
+/// from the schema text this way, so the table equals a fresh database's.
 pub fn statement<'a>(schema: &'a str, from: &str, end: &str) -> &'a str {
     let Some(start) = schema.find(from) else {
         panic!("the schema has no statement that starts with {from:?}");
@@ -105,8 +105,8 @@ pub fn stamp() -> i64 {
     stamp_of_text(&schema())
 }
 
-/// The stamp a schema of text <text> carries (`stamp`), for the stamps of
-/// the older schemas the moves know.
+/// The stamp of a schema whose text is <text>. `stamp` takes it of today's
+/// schema, and the tests take it of each older schema the moves know.
 pub fn stamp_of_text(text: &str) -> i64 {
     let mut hash: u32 = 0x811c_9dc5;
     for byte in text.bytes() {

@@ -184,7 +184,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
         if let Some(from) = from_item {
             let Some(item) = lists.item(from) else { fail!("--from-item names {from}, which is not an open item") };
             if !item.running.is_empty() {
-                fail!("item {from} is running; `builds item stop {} --why …` first, then move it to the stack", from.0);
+                fail!("item {from} is running; run `builds item stop {} --why …` first, then move it to the stack", from.0);
             }
         }
         let new = NewQuestion {
@@ -524,7 +524,7 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
 
 /// `question edit N`: changes an open question's fields, and gives any
 /// question, open or closed, the origin `--origin` names and the tags `--tag`
-/// names, and takes off those `--untag` names.
+/// names, and removes the tags `--untag` names.
 fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
     let args = Args::parse(
         args,
@@ -588,8 +588,9 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
             };
             question::edit(db, id, title, details, blocks_nothing)?;
         } else if !matches!(lists.locate(id), Some(Located { kind: Kind::Question, .. })) {
-            // A question's origin and tags change open or closed; anything
-            // else is refused as a question would be.
+            // The edit gives an open or a closed question its origin and
+            // tags; for a record that is no question, open_question refuses
+            // the edit and says what the record is.
             open_question(lists, id)?;
         }
         if let Some(origin) = origin {
@@ -638,7 +639,7 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 }
 
 /// The stack in the order it is asked; with `--tag T`, only the questions
-/// whose trail shows T, each keeping its place in the stack.
+/// whose trail has T, each keeping its place in the stack.
 fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &["tag"], &[])?;
     args.exactly(0, USAGE)?;
@@ -657,7 +658,9 @@ fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     if shown.is_empty()
         && let Some(wanted) = wanted
     {
-        return Ok(format!("no question on the stack shows the tag {wanted}\n"));
+        return Ok(format!(
+            "no question on the stack has the tag {wanted} on its trail\n"
+        ));
     }
     Ok(shown)
 }

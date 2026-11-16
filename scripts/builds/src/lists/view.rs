@@ -178,8 +178,8 @@ impl View {
         }
     }
 
-    /// The view of <lists> at <now>; fails when a record's trail does
-    /// (`trail::trail`).
+    /// The view of <lists> at <now>. Fails when `trail::trail` fails on a
+    /// record's trail.
     pub fn build(lists: &Lists, now: i64) -> Result<View> {
         Ok(View {
             project: lists.project.clone(),

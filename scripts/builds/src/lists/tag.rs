@@ -2,9 +2,9 @@
 //! as "screen-reads audit", so the person can see one group's records
 //! together (tag.sql). A record has any number of tags, kept in the order of
 //! their text, and keeps them when it closes, so a closed record can still be
-//! tagged or untagged. Only the first record of a trail carries a tag
-//! (trail.rs): every later record shows it, so a record never carries a tag
-//! its trail already shows.
+//! tagged or untagged. Only the first record of a trail that has a tag
+//! carries it (trail.rs): every later record's trail has the tag, so a record
+//! never carries a tag that an earlier record of its trail carries.
 
 use std::collections::BTreeMap;
 
@@ -56,9 +56,9 @@ fn taggable(db: &Connection, id: Id) -> Result<Kind> {
     }
 }
 
-/// Gives record <id> each of <tags> it does not have yet. Refuses a tag its
-/// trail already shows, naming the record that carries it; the later records
-/// whose trail now shows a tag lose their own copy of it.
+/// Gives record <id> each of <tags> it does not have yet. Refuses a tag that
+/// an earlier record of its trail carries, naming that record, and removes
+/// each new tag from the later records that carried it.
 pub fn add_tags(db: &Connection, id: Id, tags: &[String]) -> Result<()> {
     if tags.is_empty() {
         return Ok(());
@@ -66,7 +66,7 @@ pub fn add_tags(db: &Connection, id: Id, tags: &[String]) -> Result<()> {
     let kind = taggable(db, id)?;
     for tag in tags {
         if let Some(on) = trail::earlier_with_tag(db, id, tag)? {
-            fail!("{id}'s trail already shows the tag '{tag}': {on} carries it");
+            fail!("{on}, earlier on the trail of {id}, already carries the tag '{tag}'");
         }
         db.execute(
             "INSERT OR IGNORE INTO record_tag (record_id, kind, tag) VALUES (?1, ?2, ?3)",
@@ -74,13 +74,13 @@ pub fn add_tags(db: &Connection, id: Id, tags: &[String]) -> Result<()> {
         )
         .sql()?;
     }
-    drop_shown(db)
+    drop_repeated(db)
 }
 
-/// Takes off each record every tag that an earlier record of its trail
+/// Removes from each record every tag that an earlier record of its trail
 /// carries. A new origin, or a tag on an earlier record, can make a record
 /// repeat such a tag.
-pub fn drop_shown(db: &Connection) -> Result<()> {
+pub fn drop_repeated(db: &Connection) -> Result<()> {
     db.execute(
         &format!(
             "{} DELETE FROM record_tag WHERE EXISTS (SELECT 1 FROM earlier e \

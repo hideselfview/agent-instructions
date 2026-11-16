@@ -143,8 +143,8 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 /// `item edit N`: changes an open item's fields, and gives any item, open or
-/// closed, the origin `--origin` names and the tags `--tag` names, and takes
-/// off those `--untag` names.
+/// closed, the origin `--origin` names and the tags `--tag` names, and removes
+/// the tags `--untag` names.
 fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     const EDIT_USAGE: &str = "builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...";
     let args = Args::parse(
@@ -195,8 +195,9 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 ..
             })
         ) {
-            // An item's origin and tags change open or closed; anything else
-            // is refused as an item would be.
+            // The edit gives an open or a closed item its origin and tags; for
+            // a record that is no item, open_item refuses the edit and says
+            // what the record is.
             open_item(&lists, id)?;
         }
         if let Some(origin) = origin {

@@ -165,7 +165,7 @@ struct Choice<'a> {
 /// The items `list` prints: those running when asked, those ready when asked
 /// (in the queue's order, which the dashboard's Queue tab shows; the rest of
 /// the list stays in id order), in the area, for the audience and whose trail
-/// shows the tag when given.
+/// has the tag when given.
 fn chosen<'a>(lists: &'a Lists, choice: &Choice) -> Result<Vec<&'a Item>> {
     let mut chosen: Vec<&Item> = Vec::new();
     for item in lists

@@ -39,25 +39,27 @@ answer made ready.
 A question or an item may name its origin (`--origin N`), the record it came
 from: a question, an item, a decision or a design change. An item that a
 decision or a design change makes comes from it, and a question that `question
-ask --from-item N` asks comes from item N. A record can't come from itself, and
-a chain of origins can't loop. A record's trail is that chain from the first
-record to it: the tags of the records on it, then each record, with the title
-of the one it came from, such as `screen-reads audit → #3 → #50 Read each
-chained screen value at once → #51`.
+ask --from-item N` creates comes from item N. A record can't come from itself,
+and a chain of origins can't loop. A record's trail is its chain of origins
+from the first record to it. builds prints a trail as the tags of the records
+on it, then each record's number, with the title of the record it came from,
+such as `screen-reads audit → #3 → #50 Read each chained screen value at once →
+#51`.
 
 A question or an item may carry tags (`--tag T`, repeatable), each naming the
 audit or group it came from, such as "screen-reads audit". A tag is one line
-with no spaces at its ends. A tag goes on the first record of a trail, and
-every later record's trail shows it: a command refuses a tag that a record's
-trail already shows, naming the record that carries it, and setting an origin
-or tagging an earlier record takes off each later record the tags its trail now
-shows. `question show`, `item show`, `question list`, `item list` and `lists
-show` print each record's trail, and the list commands take `--tag T` to show
-only the records whose trail shows T, each question keeping its place in the
-stack; the dashboard shows each row's trail and a bar of every tag that shows
-one tag's entries together. A record keeps its origin and its tags when it
-closes, and `edit --origin N`, `edit --tag T` and `edit --untag T` change those
-of an open or a closed record; an edit of any other field needs an open one.
+with no spaces at its ends. Only the first record of a trail that has a tag
+carries it, and every later record's trail has the tag. A command refuses a tag
+that an earlier record of the trail carries, and names that record. When a
+command sets an origin or tags an earlier record, it removes from each later
+record every tag that an earlier record of its trail now carries. `question
+show`, `item show`, `question list`, `item list` and `lists show` print each
+record's trail, and the list commands take `--tag T` to show only the records
+whose trail has T, each question keeping its place in the stack. The dashboard
+shows each row's trail, and a bar of every tag, where choosing a tag shows that
+tag's entries together. A record keeps its origin and its tags when it closes,
+and `edit --origin N`, `edit --tag T` and `edit --untag T` change those of an
+open or a closed record; an edit of any other field needs an open one.
 
 Every write is one SQLite transaction, taken as the write lock: the command's
 own changes, the line of the write log, and the check below, then commit. A
@@ -69,8 +71,8 @@ The tables hold most of what must always be true: ids are unique across the
 four kinds of record; a reference (a wait, a closing's decision or question, a
 decision's replaced decision, a design change's places) names an existing
 record of the right kind, open or closed; an origin names an existing record of
-any kind other than the record itself; titles are one
-line; every item's area exists; a running item's worktrees are side worktrees
+any kind other than the record itself; titles are one line; every item's area
+exists; a running item's worktrees are side worktrees
 (<parent>/<repo>-worktrees/side-N) of project repos, one per repo; a record
 leaves only the ways its kind can; and a decision has a YYYY-MM-DD date, a
 decider and a body, and replaces only an older decision. A check run on every
@@ -79,11 +81,11 @@ question has an open item waiting on it or says why it is asked anyway; no open
 item waits on a record that closed in a way that never meets a wait (dropped,
 deferred, moved to the stack); no open items wait on each other in a circle; a
 closed item runs nowhere; a worktree holds one branch of work; a landed closing
-or part has a commit; no chain of origins loops; no record carries a tag its
-trail already shows; and the project row names the folder's project. A store
-that fails the check makes every command fail, naming each fault, and nothing
-repairs it. The command that writes them checks the rest: item titles of five
-to seven words, and git, files and GitHub.
+or part has a commit; no chain of origins loops; no record carries a tag that
+an earlier record of its trail carries; and the project row names the folder's
+project. A store that fails the check makes every command fail, naming each
+fault, and nothing repairs it. The command that writes them checks the rest:
+item titles of five to seven words, and git, files and GitHub.
 
 
 DECISION STACK
@@ -105,9 +107,9 @@ placed last.
       --first puts it on top, with why. --from-item N closes item N as moved
       to the stack (it was the person's work), every item that waited on N
       waits on the new entry instead, and the entry comes from N, so its trail
-      shows N's tags; refused for a running item. --origin N names the record
-      it came from otherwise. --plan and --plan-number tie it to a plan's open
-      question, and its answer carries the link.
+      has N's tags; refused for a running item. --origin N names the record
+      the entry came from when no item moves. --plan and --plan-number tie it
+      to a plan's open question, and its answer carries the link.
 
   builds question answer N --request F
       The request: {"decision": {"title", "body", "by", "replaces"?},
@@ -452,7 +454,7 @@ PROJECTS
 
   builds lists show [--json | --tag T] [--project P]
       The stack in the order it is asked, then the queue, as text, each record
-      with its trail; with --tag T only the records whose trail shows T; with
+      with its trail; with --tag T only the records whose trail has T; with
       --json the whole state with its derived fields (each item's state, what
       each question blocks, each record's trail, the flow of the last 14
       days), the JSON the dashboard reads. The dashboard adds, to each

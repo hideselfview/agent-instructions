@@ -556,10 +556,10 @@ fn origins_go_on_with_add_and_edit_open_or_closed_and_the_trail_keeps_the_tags()
             "Do the fourth thing now",
             &["--origin", "1", "--tag", "screen-reads audit"]
         ))
-        .contains("#4's trail already shows the tag 'screen-reads audit': #1 carries it")
+        .contains("#1, earlier on the trail of #4, already carries the tag 'screen-reads audit'")
     );
 
-    // The new origin's trail shows the audit, so #3 no longer carries it.
+    // #1, on #3's new trail, carries the audit, so #3 no longer carries it.
     item(&demo, &["edit", "3", "--origin", "2"]).unwrap();
     let lists = open(&demo);
     assert_eq!(lists.items[2].origin, Some(Id(2)));

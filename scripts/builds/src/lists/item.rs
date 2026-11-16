@@ -604,12 +604,13 @@ impl Lists {
     }
 }
 
-/// Moves a store's `item` table from before an origin could be a record of any
-/// kind to today's, with the statements taken from item.sql so the result
-/// equals a fresh database's: each item keeps the decision or design change
-/// that made it as its origin. migrate.rs runs it with the foreign keys off,
-/// and the rename runs under `legacy_alter_table`, so the tables that point at
-/// `item` keep naming it.
+/// Rebuilds a store's `item` table from the old schema, where an origin was
+/// only a decision or a design change and `origin_kind` named which, to the
+/// schema in item.sql, and copies the old rows into it: each item keeps the
+/// decision or design change that made it as its origin. The statements come
+/// from item.sql, so the table equals a fresh database's. migrate.rs runs this
+/// with the foreign keys off, and SQLite renames the old table under
+/// `legacy_alter_table`, so the tables that point at `item` keep naming it.
 pub fn move_to_origins(db: &Connection) -> Result<()> {
     const SQL: &str = include_str!("item.sql");
     db.execute_batch(&format!(
