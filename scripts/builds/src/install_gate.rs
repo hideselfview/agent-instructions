@@ -47,7 +47,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -226,7 +226,9 @@ pub struct PerConnection {
     /// more before it moves the stores and replaces the program, so a count
     /// that differs says an install ran since.
     generation: u64,
-    held: Mutex<Option<(usize, Use)>>,
+    /// The use that the process's open connections share. It ends when the
+    /// last of them closes and drops it.
+    shared: Mutex<Weak<Use>>,
     held_for_life: AtomicBool,
 }
 
@@ -238,7 +240,7 @@ impl PerConnection {
             pid,
             what: what.to_string(),
             since: since.to_string(),
-            held: Mutex::new(None),
+            shared: Mutex::new(Weak::new()),
             held_for_life: AtomicBool::new(false),
         })
     }
@@ -267,37 +269,35 @@ impl PerConnection {
 
     /// A use for one connection, waiting at the gate while an install runs;
     /// none once the process holds a use for its life.
-    pub fn take(&self) -> Result<Option<ConnectionUse<'_>>> {
+    pub fn take(&self) -> Result<Option<ConnectionUse>> {
         self.take_saying(&mut |line| crate::text::note(line))
     }
 
     /// `take`, giving <say> the line that says it waits at the closed gate.
-    fn take_saying(&self, say: &mut dyn FnMut(&str)) -> Result<Option<ConnectionUse<'_>>> {
+    fn take_saying(&self, say: &mut dyn FnMut(&str)) -> Result<Option<ConnectionUse>> {
         if self.held_for_life.load(Ordering::SeqCst) {
             return Ok(None);
         }
-        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-        match held.as_mut() {
-            Some((count, _)) => *count += 1,
-            None => {
-                let (gate, _) = pass(
-                    &self.places,
-                    Kind::Connection,
-                    "builds install moves the stores: this command waits until it finishes",
-                    say,
-                )?;
-                let taken = take(
-                    &self.places,
-                    Kind::Connection,
-                    gate,
-                    self.pid,
-                    &self.what,
-                    &self.since,
-                )?;
-                *held = Some((1, taken));
-            }
+        let mut shared = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(open) = shared.upgrade() {
+            return Ok(Some(ConnectionUse { _use: open }));
         }
-        Ok(Some(ConnectionUse { owner: self }))
+        let (gate, _) = pass(
+            &self.places,
+            Kind::Connection,
+            "builds install moves the stores: this command waits until it finishes",
+            say,
+        )?;
+        let taken = Arc::new(take(
+            &self.places,
+            Kind::Connection,
+            gate,
+            self.pid,
+            &self.what,
+            &self.since,
+        )?);
+        *shared = Arc::downgrade(&taken);
+        Ok(Some(ConnectionUse { _use: taken }))
     }
 
     /// Whether an install ran since this process started.
@@ -307,24 +307,8 @@ impl PerConnection {
 }
 
 /// One connection's share of its process's use.
-pub struct ConnectionUse<'a> {
-    owner: &'a PerConnection,
-}
-
-impl Drop for ConnectionUse<'_> {
-    fn drop(&mut self) {
-        let mut held = self
-            .owner
-            .held
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if let Some((count, _)) = held.as_mut() {
-            *count -= 1;
-            if *count == 0 {
-                *held = None;
-            }
-        }
-    }
+pub struct ConnectionUse {
+    _use: Arc<Use>,
 }
 
 /// This process's connection uses, when it takes them; set once at start.
@@ -344,7 +328,7 @@ pub fn use_per_connection(per_connection: PerConnection) {
 /// The use of the stores that a store connection this process opens takes:
 /// None when the process holds a use for its life, a holder's use covers it,
 /// or it takes none (install, the dashboard, tests).
-pub fn for_connection() -> Result<Option<ConnectionUse<'static>>> {
+pub fn for_connection() -> Result<Option<ConnectionUse>> {
     match PER_CONNECTION.get() {
         Some(per_connection) => per_connection.take(),
         None => Ok(None),

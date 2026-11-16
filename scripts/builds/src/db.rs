@@ -218,7 +218,7 @@ pub struct Held {
     // Rust drops fields in the order they are declared, so `conn` closes
     // before `_use` ends the use.
     conn: Connection,
-    _use: Option<crate::install_gate::ConnectionUse<'static>>,
+    _use: Option<crate::install_gate::ConnectionUse>,
 }
 
 impl std::ops::Deref for Held {
