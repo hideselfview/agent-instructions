@@ -313,9 +313,13 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-work > summary .l-wt { font: 400 12px var(--mono); color: var(--muted-2); white-space: nowrap; margin-left: auto; }
 .l-work > :not(summary) { background: var(--bg); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; }
 .l-plain { display: flex; flex-direction: column; gap: 8px; }
-/* The ids of a record or work: a work running many items wraps them at the
-   spaces between ids, inside its card, and never breaks an id. */
+/* A record's id, first in its row. */
 .l-id { font: 400 12px var(--mono); color: var(--muted-2); overflow-wrap: normal; margin-right: 6px; }
+/* How many items a running work of several items holds, where a single item's id sits. */
+.l-pill { font: 400 12px var(--mono); color: var(--muted); background: var(--line-soft); border-radius: 4px; padding: 1px 6px; white-space: nowrap; margin-right: 8px; }
+/* The items of an opened running work, one to a line, each id in a column of the same width. */
+.l-items { list-style: none; padding-left: 0; }
+.l-items .l-id { display: inline-block; min-width: 6ch; }
 .l-title { font-size: 14px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
 .l-sub { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .l-fact { font-size: 13px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
@@ -1309,7 +1313,7 @@ function fold(key, id, summaryKids, body, cls) {
 }
 const mono = text => h("span", {class: "mono"}, text);
 // A row's record number, first in its summary, in the muted mono face.
-const idChip = (...ids) => h("span", {class: "l-id"}, ids.map(i => "#" + i).join(" "));
+const idChip = id => h("span", {class: "l-id"}, "#" + id);
 function fact(label, ...kids) { return h("div", {class: "l-fact"}, h("span", {class: "k"}, label + " "), kids.flat(Infinity)); }
 function stamp(at) { return when(new Date(at * 1000)); }
 function opened(rec, verb) { return h("span", {class: "l-sub"}, agoSpan(rec.opened.at, verb + " ", " ago by " + rec.opened.by)); }
@@ -1466,15 +1470,22 @@ function itemRow(it) {
 }
 // A running work is one line: its title with its worktree beside it; opened,
 // what is happening now and its items, agent, branch, plan and landed commits.
+// A work of one item starts with that item's id; a work of several starts
+// with how many items it holds, and opened, lists each item on its own line.
 // The daemon groups and words each one (board.rs).
 function workRow(w) {
   const first = w.items[0].id;
+  const several = w.items.length > 1;
   return fold("i:" + first, first,
-    [h("span", {class: "l-title"}, idChip(...w.items.map(i => i.id)), w.title, workTrail(w)), h("span", {class: "l-wt"}, repoDisplayName(w.repo) + " " + w.checkout)],
+    [h("span", {class: "l-title"}, several ? h("span", {class: "l-pill"}, w.items.length + " items") : idChip(first), w.title, workTrail(w)),
+      h("span", {class: "l-wt"}, repoDisplayName(w.repo) + " " + w.checkout)],
     () => h("div", {class: "l-plain"},
       w.now ? h("div", {class: "l-fact"}, inline(w.now)) : null,
       h("div", {class: "l-facts"},
-        fact("Items", w.items.map(i => i.title).join(", ")),
+        several
+          ? h("div", {class: "l-fact"}, h("span", {class: "k"}, "Items"),
+            h("ul", {class: "l-list l-items"}, w.items.map(i => h("li", {}, idChip(i.id), i.title))))
+          : fact("Items", w.items[0].title),
         w.agent ? fact("Agent", w.agent + ", since " + stamp(w.since.at)) : null,
         fact("Branch", mono(w.branch)),
         fact("Plan", mono(w.plan)),

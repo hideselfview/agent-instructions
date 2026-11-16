@@ -78,6 +78,44 @@ fn a_work_says_what_it_is() {
     );
 }
 
+/// The works of a worktree running two items, claimed under <agent>, and the
+/// first item's title.
+fn two_items_claimed_by(agent: Option<&str>) -> (Vec<Work>, String) {
+    let db = db();
+    let first = item(&db, vec![]);
+    let second = item(&db, vec![]);
+    start(&db, first, "side-3");
+    start(&db, second, "side-3");
+    let mut view = View::build(&read(&db), NOON).unwrap();
+    for item in &mut view.items {
+        for running in &mut item.running {
+            running.claim = Some(ClaimFacts {
+                agent: agent.map(str::to_string),
+                note: None,
+                note_state: None,
+                waiting_to_land: 0,
+            });
+        }
+    }
+    (works(&view), read(&db).item(first).unwrap().title.clone())
+}
+
+#[test]
+fn a_work_of_several_items_is_titled_by_its_agents_job() {
+    let (works, _) = two_items_claimed_by(Some("screen reads library agent"));
+    assert_eq!(works[0].title, "screen reads library");
+    assert_eq!(
+        works[0].agent.as_deref(),
+        Some("screen reads library agent")
+    );
+}
+
+#[test]
+fn a_work_of_several_items_without_an_agent_name_takes_its_first_items_title() {
+    let (works, first_title) = two_items_claimed_by(None);
+    assert_eq!(works[0].title, first_title);
+}
+
 fn facts_of(note_state: Option<&str>) -> ClaimFacts {
     ClaimFacts {
         agent: Some("agent".into()),

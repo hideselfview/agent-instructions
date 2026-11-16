@@ -34,7 +34,10 @@ pub struct Board {
 /// The running items of one worktree: the work an agent does there.
 #[derive(Clone, Debug, Serialize)]
 pub struct Work {
-    /// The first item's title.
+    /// What the work is called: the title of its one item, or for a work of
+    /// several items the job its agent claimed the worktree for (`job`). A work
+    /// of several items whose worktree has no agent name takes its first
+    /// item's title.
     pub title: String,
     pub repo: String,
     pub checkout: String,
@@ -54,6 +57,13 @@ pub struct Work {
 
 fn short(commit: &str) -> String {
     commit.chars().take(7).collect()
+}
+
+/// The job named by <agent>, the name its worktree was claimed under,
+/// without the " agent" that ends most names: "screen reads library agent"
+/// names the job "screen reads library".
+fn job(agent: &str) -> &str {
+    agent.strip_suffix(" agent").unwrap_or(agent)
 }
 
 /// Does <item> wait on the person's answer or review
@@ -122,6 +132,13 @@ pub fn works(view: &View) -> Vec<Work> {
         }
     }
     let mut works: Vec<Work> = by_worktree.into_values().collect();
+    for work in &mut works {
+        if work.items.len() > 1
+            && let Some(agent) = &work.agent
+        {
+            work.title = job(agent).to_string();
+        }
+    }
     works.sort_by_key(|work| work.since.at);
     works
 }
