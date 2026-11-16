@@ -44,7 +44,6 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
@@ -127,31 +126,14 @@ impl Kind {
 /// <wait> false, returns false at once when another process holds a lock
 /// that keeps it out.
 fn lock(file: &File, how: libc::c_int, wait: bool, what: &Path) -> Result<bool> {
-    let how = if wait { how } else { how | libc::LOCK_NB };
-    loop {
-        if unsafe { libc::flock(file.as_raw_fd(), how) } == 0 {
-            return Ok(true);
-        }
-        let error = std::io::Error::last_os_error();
-        match error.kind() {
-            std::io::ErrorKind::Interrupted => continue,
-            std::io::ErrorKind::WouldBlock => return Ok(false),
-            _ => fail!("locking {}: {error}", what.display()),
-        }
-    }
+    crate::flock::lock(file, if wait { how } else { how | libc::LOCK_NB }, what)
 }
 
 fn open(path: &Path) -> Result<File> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
     }
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)
-        .context(|| format!("opening {}", path.display()))
+    crate::flock::open_creating(path)
 }
 
 /// A use of the stores: its file, locked until dropped. The file stays;

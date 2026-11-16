@@ -33,30 +33,7 @@ pub fn lock_shared(places: &Places) -> Result<File> {
 }
 
 fn lock_exclusive(places: &Places) -> Result<File> {
-    let path = places.trash_lock();
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&path)
-        .context(|| format!("opening {}", path.display()))?;
-    flock(&file, libc::LOCK_EX, &path)?;
-    Ok(file)
-}
-
-fn flock(file: &File, operation: i32, path: &Path) -> Result<bool> {
-    loop {
-        if unsafe { libc::flock(file.as_raw_fd(), operation) } == 0 {
-            return Ok(true);
-        }
-        let error = std::io::Error::last_os_error();
-        match error.kind() {
-            std::io::ErrorKind::Interrupted => {}
-            std::io::ErrorKind::WouldBlock => return Ok(false),
-            _ => fail!("locking {}: {error}", path.display()),
-        }
-    }
+    crate::evict::lock_exclusive_creating(&places.trash_lock())
 }
 
 /// <dir> opened, with its exclusive lock taken: waiting for it, or None
@@ -68,7 +45,7 @@ fn lock_folder(dir: &Path, wait: bool) -> Result<Option<File>> {
     } else {
         libc::LOCK_EX | libc::LOCK_NB
     };
-    Ok(flock(&file, operation, dir)?.then_some(file))
+    Ok(crate::flock::lock(&file, operation, dir)?.then_some(file))
 }
 
 /// A slot in the trash, locked while it is removed. Made while the caller

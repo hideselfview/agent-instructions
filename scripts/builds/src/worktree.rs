@@ -101,21 +101,9 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
 /// An exclusive lock on <main>'s repo for picking a worktree (flock on a file
 /// in the common git dir), held until the returned file is dropped.
 fn lock_picking(main: &Path) -> Result<std::fs::File> {
-    use std::os::fd::AsRawFd;
     let path = main.join(".git/builds-new.lock");
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(&path)
-        .context(|| format!("opening {}", path.display()))?;
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        fail!(
-            "locking {}: {}",
-            path.display(),
-            std::io::Error::last_os_error()
-        );
-    }
+    let file = crate::flock::open_creating(&path)?;
+    crate::flock::lock(&file, libc::LOCK_EX, &path)?;
     Ok(file)
 }
 

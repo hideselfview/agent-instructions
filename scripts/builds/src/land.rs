@@ -95,9 +95,7 @@
 //! The store's checks and records run as `builds` commands of this same
 //! program, so their output is held back and shown only when one fails.
 
-use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -199,19 +197,8 @@ fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Resul
     let git_dir = git_text(worktree, &["rev-parse", "--absolute-git-dir"])
         .ok_or_else(|| Fail::Message(format!("{} is not a git worktree", worktree.display())))?;
     let path = PathBuf::from(git_dir).join("land.lock");
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&path)
-        .context(|| format!("opening {}", path.display()))?;
-    let fd = file.as_raw_fd();
-    if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::WouldBlock {
-            fail!("locking {}: {error}", path.display());
-        }
+    let mut file = crate::flock::open_creating(&path)?;
+    if !crate::flock::lock(&file, libc::LOCK_EX | libc::LOCK_NB, &path)? {
         let mut holder = String::new();
         let _ = file.read_to_string(&mut holder);
         let holder = holder.trim();
@@ -226,13 +213,7 @@ fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Resul
             }
         );
         let _ = out.flush();
-        if unsafe { libc::flock(fd, libc::LOCK_EX) } != 0 {
-            fail!(
-                "locking {}: {}",
-                path.display(),
-                std::io::Error::last_os_error()
-            );
-        }
+        crate::flock::lock(&file, libc::LOCK_EX, &path)?;
         let _ = writeln!(out, "the landing in {} has its turn", worktree.display());
     }
     let text = format!(

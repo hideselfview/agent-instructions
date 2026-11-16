@@ -175,7 +175,6 @@ fn role_config(checkout: Option<&Checkout>) -> &'static [&'static str] {
 /// doesn't free stays for the next prune, so a failure to start it is said
 /// and the build's own result stands.
 fn start_after_build(checkout: &Checkout, root: &Path) {
-    use std::os::unix::io::AsRawFd;
     use std::os::unix::process::CommandExt;
     let started = (|| -> std::io::Result<()> {
         let log = std::fs::OpenOptions::new()
@@ -183,12 +182,7 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
             .create(true)
             .truncate(false)
             .open(root.join(".after-build.log"))?;
-        while unsafe { libc::flock(log.as_raw_fd(), libc::LOCK_EX) } != 0 {
-            let error = std::io::Error::last_os_error();
-            if error.kind() != std::io::ErrorKind::Interrupted {
-                return Err(error);
-            }
-        }
+        crate::flock::lock_io(&log, libc::LOCK_EX)?;
         log.set_len(0)?;
         let mut command = Command::new(std::env::current_exe()?);
         // The prune outlives this command, so no use this command runs under

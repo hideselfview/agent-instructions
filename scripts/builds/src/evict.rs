@@ -21,7 +21,6 @@ use std::ffi::CString;
 use std::fs::File;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -168,20 +167,13 @@ pub fn try_lock(path: &Path) -> Result<Option<File>> {
         .write(true)
         .open(path)
         .context(|| format!("opening {}", path.display()))?;
-    flock_now(file, path)
+    lock_now(file, path)
 }
 
 /// Like `try_lock`, creating the file when it is missing (cargo's own
 /// profile lock, the package cache's).
 pub fn try_lock_creating(path: &Path) -> Result<Option<File>> {
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)
-        .context(|| format!("opening {}", path.display()))?;
-    flock_now(file, path)
+    lock_now(crate::flock::open_creating(path)?, path)
 }
 
 /// Takes a shared flock on <path>, creating it when missing, waiting while
@@ -197,33 +189,13 @@ pub fn lock_exclusive_creating(path: &Path) -> Result<File> {
 }
 
 fn lock_creating_waiting(path: &Path, operation: libc::c_int) -> Result<File> {
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)
-        .context(|| format!("opening {}", path.display()))?;
-    loop {
-        if unsafe { libc::flock(file.as_raw_fd(), operation) } == 0 {
-            return Ok(file);
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
-            fail!("locking {}: {error}", path.display());
-        }
-    }
+    let file = crate::flock::open_creating(path)?;
+    crate::flock::lock(&file, operation, path)?;
+    Ok(file)
 }
 
-fn flock_now(file: File, path: &Path) -> Result<Option<File>> {
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-        return Ok(Some(file));
-    }
-    let error = std::io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::EWOULDBLOCK) {
-        return Ok(None);
-    }
-    fail!("locking {}: {error}", path.display())
+fn lock_now(file: File, path: &Path) -> Result<Option<File>> {
+    Ok(crate::flock::lock(&file, libc::LOCK_EX | libc::LOCK_NB, path)?.then_some(file))
 }
 
 /// Does any process but this one hold a file, a working directory or a

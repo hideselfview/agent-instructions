@@ -22,6 +22,7 @@ mod design_render;
 mod design_tokens;
 mod evict;
 mod fail;
+mod flock;
 mod floor;
 mod free_worktrees;
 mod health;
