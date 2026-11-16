@@ -645,8 +645,8 @@ pub fn assess(
             .cloned()
             .collect();
         let quiet_minutes = git.activity().map(|when| minutes_since(now, when));
-        // A claim just begun is not idle, however old the files it was
-        // handed are.
+        // A worktree claimed a few minutes ago is not idle, even when its
+        // files have not changed for hours.
         let idle_minutes = git
             .activity()
             .max(Some(claim.since))
@@ -1263,8 +1263,8 @@ mod tests {
         assert!(findings.is_empty(), "{findings:?}");
     }
 
-    /// A claim older than the quiet limit still counts files unchanged for
-    /// that long.
+    /// When a claim is older than the quiet limit, health lists the worktree
+    /// as quiet if its files have not changed for that long.
     #[test]
     fn a_worktree_claimed_long_ago_with_no_change_for_an_hour_is_quiet() {
         let findings = findings_for(5 * 3600, 2 * 3600);
