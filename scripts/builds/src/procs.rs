@@ -134,6 +134,18 @@ pub fn runs(pid: i32) -> bool {
     signalled == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
+/// The arguments of <pid>: None when it has exited, and an error that names
+/// it when it still runs and builds cannot read its arguments.
+pub fn live_args(pid: i32) -> std::result::Result<Option<Vec<String>>, String> {
+    match args(pid) {
+        Some(argv) => Ok(Some(argv)),
+        None if !runs(pid) => Ok(None),
+        None => Err(format!(
+            "builds cannot read the arguments of process {pid}, which still runs"
+        )),
+    }
+}
+
 /// The working directory of <pid>; None when it exited or can't be read.
 pub fn cwd(pid: i32) -> Option<PathBuf> {
     let mut info: libc::proc_vnodepathinfo = unsafe { std::mem::zeroed() };
@@ -559,6 +571,24 @@ mod tests {
         };
         assert_eq!(placed(in_folder.id()), Some("demo/side-1".to_string()));
         assert_eq!(placed(by_argument.id()), Some("demo/main".to_string()));
+    }
+
+    /// A process that runs has arguments to read; one that has exited has
+    /// none, and that is no error.
+    #[test]
+    fn the_arguments_of_a_process_that_exited_are_none() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let pid = child.id() as i32;
+        assert_eq!(
+            live_args(pid),
+            Ok(Some(vec!["sleep".to_string(), "30".to_string()]))
+        );
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(live_args(pid), Ok(None));
     }
 
     #[test]

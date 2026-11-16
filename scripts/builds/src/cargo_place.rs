@@ -32,7 +32,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::host::{self, Host, Ssh};
 use crate::places::Places;
-use crate::procs::{Place, Processes, args, cwd, place_of};
+use crate::procs::{Place, Processes, cwd, live_args, place_of};
 use crate::remote::{self, Job, Request, Start, Transport, What};
 use crate::text::note;
 
@@ -478,25 +478,53 @@ pub struct RemoteRun {
 /// child at every step: it asks the host for its load, sends the job, claims
 /// a worktree there, runs cargo there and releases the worktree. While it
 /// asks several hosts for their load before it picks one, the run uses each
-/// of them.
-pub fn remote_runs(processes: &Processes, places: &[Place], hosts: &[Host]) -> Vec<RemoteRun> {
+/// of them. Also returns what builds could not read: the arguments of a
+/// `builds` process or of a `builds cargo` child that still runs, one line
+/// each, since without them builds cannot tell whether a run uses a host.
+pub fn remote_runs(
+    processes: &Processes,
+    places: &[Place],
+    hosts: &[Host],
+) -> (Vec<RemoteRun>, Vec<String>) {
     let targets: Vec<(&str, &str)> = hosts
         .iter()
         .filter_map(|host| Some((host.target.as_deref()?, host.name.as_str())))
         .collect();
     let mut found = Vec::new();
+    let mut unread = Vec::new();
     if targets.is_empty() {
-        return found;
+        return (found, unread);
     }
     for process in processes.list.iter().filter(|p| p.name == "builds") {
-        if args(process.pid).is_none_or(|argv| argv.get(1).map(String::as_str) != Some("cargo")) {
+        let argv = match live_args(process.pid) {
+            Ok(Some(argv)) => argv,
+            // It ended after the listing: it runs nothing now.
+            Ok(None) => continue,
+            Err(error) => {
+                unread.push(format!(
+                    "{error}, so health cannot tell whether it is a `builds cargo` that uses another host"
+                ));
+                continue;
+            }
+        };
+        if argv.get(1).map(String::as_str) != Some("cargo") {
             continue;
         }
         let Some(place) = cwd(process.pid).and_then(|dir| place_of(places, &dir)) else {
             continue;
         };
         for child in processes.children(process.pid) {
-            let argv = args(child.pid).unwrap_or_default();
+            let argv = match live_args(child.pid) {
+                Ok(Some(argv)) => argv,
+                Ok(None) => continue,
+                Err(error) => {
+                    unread.push(format!(
+                        "{error}; it is a child of `builds cargo` (pid {}) in {}, so health cannot tell whether that run uses another host",
+                        process.pid, places[place].label
+                    ));
+                    continue;
+                }
+            };
             for (target, name) in &targets {
                 if !argv.iter().skip(1).any(|arg| arg == target) {
                     continue;
@@ -513,7 +541,7 @@ pub fn remote_runs(processes: &Processes, places: &[Place], hosts: &[Host]) -> V
             }
         }
     }
-    found
+    (found, unread)
 }
 
 #[cfg(test)]

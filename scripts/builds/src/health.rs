@@ -30,7 +30,7 @@ use crate::lane::Lane;
 use crate::places::DiskSpace;
 use crate::procs::{
     BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, cwd,
-    load_average, open_files, place_of, usage,
+    live_args, load_average, open_files, place_of, usage,
 };
 use crate::shells::Shells;
 use crate::side_git::SideGit;
@@ -65,6 +65,8 @@ pub enum FindingKind {
     Host,
     /// No dashboard runs.
     Dashboard,
+    /// A process whose arguments builds could not read.
+    Processes,
 }
 
 /// What a finding says, and the command it suggests running, if any. The
@@ -338,6 +340,8 @@ pub struct Machine {
     pub remote_runs: Vec<RemoteRun>,
     /// The `builds app-build` requests that run.
     pub app_builds: Vec<AppBuildRun>,
+    /// What builds could not read of the processes it needed, one line each.
+    pub unread: Vec<String>,
     pub sccache: SccacheHealth,
     pub shells: Shells,
     pub locks: Vec<LockHealth>,
@@ -388,13 +392,21 @@ pub fn sample(
 ) -> Machine {
     let processes = Processes::read();
     let builds = build_processes(&processes, places, &BUILD_NAMES);
-    let remote_runs = crate::cargo_place::remote_runs(&processes, places, hosts);
+    let (remote_runs, mut unread) = crate::cargo_place::remote_runs(&processes, places, hosts);
     let app_builds = processes
         .list
         .iter()
         .filter(|process| process.name == "builds")
         .filter_map(|process| {
-            let argv = args(process.pid)?;
+            let argv = match live_args(process.pid) {
+                Ok(argv) => argv?,
+                Err(error) => {
+                    unread.push(format!(
+                        "{error}, so health cannot tell whether it is a `builds app-build` request"
+                    ));
+                    return None;
+                }
+            };
             let (repo, reference) = crate::app_build::requested(&argv)?;
             Some(AppBuildRun {
                 pid: process.pid,
@@ -547,6 +559,7 @@ pub fn sample(
         builds,
         remote_runs,
         app_builds,
+        unread,
         sccache: SccacheHealth {
             listening,
             executed,
@@ -670,6 +683,12 @@ pub fn assess(
             _ => {}
         }
     }
+    findings.extend(machine.unread.iter().map(|line| {
+        Finding::new(
+            FindingKind::Processes,
+            Advice::said(format!("processes: {line}")),
+        )
+    }));
     if !machine.shells.junk.is_empty() {
         findings.push(Finding::new(
             FindingKind::Shells,
@@ -1300,6 +1319,7 @@ mod tests {
             builds: Vec::new(),
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
+            unread: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),
@@ -1378,6 +1398,7 @@ mod tests {
             builds: Vec::new(),
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
+            unread: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),
@@ -1460,6 +1481,7 @@ mod tests {
                 started: now - 600,
             }],
             app_builds: Vec::new(),
+            unread: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),
@@ -1538,6 +1560,7 @@ mod tests {
                 builds: Vec::new(),
                 remote_runs: Vec::new(),
                 app_builds,
+                unread: Vec::new(),
                 sccache: SccacheHealth {
                     listening: true,
                     executed: Some(1),
@@ -1597,6 +1620,52 @@ mod tests {
         assert_eq!(judge(vec![run("other")]).findings.len(), 1);
     }
 
+    /// A process whose arguments builds could not read is a finding that
+    /// says what health cannot tell without them.
+    #[test]
+    fn a_process_builds_could_not_read_is_a_finding() {
+        let now = 1_800_000_000;
+        let line = "builds cannot read the arguments of process 77, which still runs, so health cannot tell whether it is a `builds app-build` request";
+        let machine = Machine {
+            at: now,
+            load: [1.0; 3],
+            cores: 8,
+            builds: Vec::new(),
+            remote_runs: Vec::new(),
+            app_builds: Vec::new(),
+            unread: vec![line.to_string()],
+            sccache: SccacheHealth {
+                listening: true,
+                executed: Some(1),
+                compared: None,
+                waiting: Vec::new(),
+            },
+            shells: Shells::default(),
+            locks: Vec::new(),
+            queues: Vec::new(),
+        };
+        let health = assess(
+            now,
+            DiskSpace {
+                free_kib: 100 << 20,
+                floor_kib: 30 << 20,
+                hard_floor_kib: 10 << 20,
+            },
+            machine,
+            &[],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        assert_eq!(
+            health.findings,
+            [Finding::new(
+                FindingKind::Processes,
+                Advice::said(format!("processes: {line}"))
+            )]
+        );
+    }
+
     /// An unclaimed worktree holding commits missing from origin/main is
     /// work left behind; one holding none is not a finding.
     #[test]
@@ -1609,6 +1678,7 @@ mod tests {
             builds: Vec::new(),
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
+            unread: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),
