@@ -1,11 +1,15 @@
 //! Work that origin/main lacks. `builds release` and `builds retire` refuse a
 //! worktree that holds such work which nothing else holds (`in_worktree`), so
-//! a session can't drop it by releasing. Work leaves a worktree only by landing,
-//! by an item that holds it (running held on the person, or parked), or by
-//! the person dropping that item (lists/dropped.rs).
+//! a session can't drop it by releasing; `builds health` lists each local
+//! branch that holds such work while no worktree checks it out and no open
+//! item names it (`loose_branches`, `unheld`). Work leaves a worktree only by
+//! landing, by an item that holds it (running held on the person, or parked),
+//! or by the person dropping that item (lists/dropped.rs).
 
-use std::collections::BTreeSet;
-use std::path::Path;
+use std::collections::{BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 use crate::checkout::{Checkout, git, git_text};
 use crate::fail;
@@ -177,6 +181,100 @@ pub fn refusal(what: &str, top: &Path, held: &Held) -> String {
         "Land it (`builds land {top} --done N SHA...`), park it under its item (`builds item park N --worktree {top} --branch {branch}`), or hand it to an item held on the person (`builds item take N --worktree {top} --branch {branch} --brief P --held WHY`). Commit the files and give detached commits a branch (`git -C {top} switch -c NAME`) first. Only the person throws work away, by dropping its item."
     ));
     lines.join("\n")
+}
+
+/// A local branch that holds commits origin/main lacks while no worktree
+/// checks it out: work nothing in builds shows unless an open item names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LooseBranch {
+    pub repo: String,
+    /// The repo's main checkout.
+    pub main: PathBuf,
+    pub branch: String,
+    /// Newest first.
+    pub commits: Vec<Commit>,
+}
+
+/// What `loose_branches` found of each branch tip against origin/main's tip,
+/// kept between readings so a branch is judged again only when either moves.
+#[derive(Default)]
+pub struct Judged(HashMap<(String, String), Vec<Commit>>);
+
+/// Every local branch of the repo whose main checkout is <main> that holds
+/// commits origin/main lacks and that no worktree checks out, in branch
+/// order. <judged> keeps what earlier readings found.
+pub fn loose_branches(main: &Path, judged: &mut Judged) -> Result<Vec<LooseBranch>> {
+    let repo = crate::checkout::file_name(main);
+    let tip = git_text(
+        git(main).args(["rev-parse", "--verify", "origin/main^{commit}"]),
+        "read origin/main",
+    )?
+    .trim()
+    .to_string();
+    let checked_out: BTreeSet<String> = crate::checkout::worktree_list(main)?
+        .into_iter()
+        .filter_map(|listed| listed.branch)
+        .collect();
+    let listed = git_text(
+        git(main).args([
+            "for-each-ref",
+            "--format=%(refname:short)%00%(objectname)",
+            "--no-merged=origin/main",
+            "refs/heads",
+        ]),
+        "list the branches",
+    )?;
+    let branches: Vec<(String, String)> = listed
+        .lines()
+        .filter_map(|line| line.split_once('\0'))
+        .filter(|(branch, _)| !checked_out.contains(*branch))
+        .map(|(branch, sha)| (branch.to_string(), sha.to_string()))
+        .collect();
+    let unjudged: Vec<&(String, String)> = branches
+        .iter()
+        .filter(|(_, sha)| !judged.0.contains_key(&(sha.clone(), tip.clone())))
+        .collect();
+    if !unjudged.is_empty() {
+        let copies = crate::side_git::MainCopies::all(main).map_err(fail::Fail::Message)?;
+        let found = crate::checkout::parallel_map(&unjudged, |(_, sha)| {
+            crate::side_git::waiting_to_land_beside(main, sha, &copies)
+        });
+        for ((_, sha), commits) in unjudged.iter().zip(found) {
+            let commits = commits.map_err(fail::Fail::Message)?;
+            judged.0.insert((sha.clone(), tip.clone()), commits);
+        }
+    }
+    let kept: BTreeSet<(String, String)> = branches
+        .iter()
+        .map(|(_, sha)| (sha.clone(), tip.clone()))
+        .collect();
+    judged.0.retain(|key, _| kept.contains(key));
+    Ok(branches
+        .into_iter()
+        .filter_map(|(branch, sha)| {
+            let commits = judged.0[&(sha, tip.clone())].clone();
+            (!commits.is_empty()).then(|| LooseBranch {
+                repo: repo.clone(),
+                main: main.to_path_buf(),
+                branch,
+                commits,
+            })
+        })
+        .collect())
+}
+
+/// The branches of <loose> that no open item of <loaded> names: an item's
+/// running or parked place names its repo and branch. A store that does not
+/// load names nothing, and is a finding of its own.
+pub fn unheld(
+    loose: Vec<LooseBranch>,
+    loaded: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
+) -> Vec<LooseBranch> {
+    let named = named_branches(loaded.as_deref().unwrap_or_default());
+    loose
+        .into_iter()
+        .filter(|b| !named.contains(&(b.repo.clone(), b.branch.clone())))
+        .collect()
 }
 
 /// The repo and branch of every running or parked place of an open item of

@@ -121,6 +121,12 @@ struct State {
     host_findings: Vec<crate::health::Finding>,
     /// Each host's 1-minute load over the last ten minutes, by host name.
     host_load: HashMap<String, VecDeque<(i64, f64)>>,
+    /// Each repo's branches with commits waiting to land that no worktree
+    /// checks out, by the repo's main checkout, with what the readings found
+    /// of each branch tip; read again when any checkout of the repo changes.
+    loose: HashMap<PathBuf, (crate::unlanded::Judged, Vec<crate::unlanded::LooseBranch>)>,
+    /// What reading a repo's branches failed with, by its main checkout.
+    loose_errors: HashMap<PathBuf, String>,
 }
 
 pub struct Model {
@@ -458,6 +464,54 @@ impl Model {
                 facts.git = git;
             }
         }
+        // Each repo's branches, when a checkout of the repo changed: a
+        // branch moves in the common git dir, which every checkout's
+        // events cover.
+        let mains: Vec<PathBuf> = roots
+            .iter()
+            .filter_map(|root| root.live.as_ref())
+            .filter(|checkout| {
+                checkout.is_main()
+                    && roots
+                        .iter()
+                        .filter_map(|r| r.live.as_ref())
+                        .any(|other| other.main == checkout.main && dirty.git.contains(&other.top))
+            })
+            .map(|checkout| checkout.top.clone())
+            .collect();
+        {
+            // A repo whose main checkout is gone has no branches to list.
+            let live: Vec<&PathBuf> = roots
+                .iter()
+                .filter_map(|root| root.live.as_ref())
+                .filter(|checkout| checkout.is_main())
+                .map(|checkout| &checkout.top)
+                .collect();
+            let mut state = self.state.lock().expect("no panic holding it");
+            state.loose.retain(|main, _| live.contains(&main));
+            state.loose_errors.retain(|main, _| live.contains(&main));
+        }
+        for main in mains {
+            let mut judged = self
+                .state
+                .lock()
+                .expect("no panic holding it")
+                .loose
+                .remove(&main)
+                .map(|(judged, _)| judged)
+                .unwrap_or_default();
+            let found = crate::unlanded::loose_branches(&main, &mut judged);
+            let mut state = self.state.lock().expect("no panic holding it");
+            match found {
+                Ok(loose) => {
+                    state.loose_errors.remove(&main);
+                    state.loose.insert(main, (judged, loose));
+                }
+                Err(error) => {
+                    state.loose_errors.insert(main, error.text());
+                }
+            }
+        }
         // Sizes, from the tracker's index: no disk is walked.
         for root in roots.iter().filter(|r| dirty.sizes.contains(&r.path)) {
             let manifest = self
@@ -691,10 +745,32 @@ impl Model {
         )?;
         let lists =
             crate::health::lists_findings(&self.places, &loaded, &places, &mut claimed, &held)?;
-        let mut health = assess(now, disk, machine, &places, claimed, unclaimed, lists);
+        let loose: Vec<crate::unlanded::LooseBranch> = state
+            .loose
+            .values()
+            .flat_map(|(_, loose)| loose.iter().cloned())
+            .collect();
+        let mut health = assess(
+            now,
+            disk,
+            machine,
+            &places,
+            claimed,
+            crate::health::LeftBehind {
+                worktrees: unclaimed,
+                branches: crate::unlanded::unheld(loose, &loaded),
+            },
+            lists,
+        );
         health
             .findings
             .extend(crate::main_checkout::findings(&self.places.home, &loaded));
+        health.findings.extend(
+            state
+                .loose_errors
+                .iter()
+                .map(|(main, error)| crate::health::branches_unread(main, error)),
+        );
         Ok(health)
     }
 

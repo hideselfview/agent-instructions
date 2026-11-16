@@ -101,12 +101,18 @@ fn commits(top: &Path, rev: &[&str]) -> Result<Vec<Commit>, String> {
 /// The commits on origin/main by author time and subject, which a
 /// cherry-pick and a rebase both keep: what tells a landed copy of a commit
 /// whose patch the landing changed (`waiting_to_land`).
-struct MainCopies(HashSet<(i64, String)>);
+pub struct MainCopies(HashSet<(i64, String)>);
 
 impl MainCopies {
     /// The commits on origin/main since <rev> left it: enough to judge <rev>.
     fn since(top: &Path, rev: &str) -> Result<MainCopies, String> {
         MainCopies::of(top, &format!("{rev}..origin/main"))
+    }
+
+    /// Every commit on origin/main: enough to judge any rev, read once
+    /// when many revs are judged together.
+    pub fn all(top: &Path) -> Result<MainCopies, String> {
+        MainCopies::of(top, "origin/main")
     }
 
     fn of(top: &Path, range: &str) -> Result<MainCopies, String> {
@@ -141,7 +147,7 @@ pub fn waiting_to_land(top: &Path, rev: &str) -> Result<Vec<Commit>, String> {
 /// of every commit on both sides, which takes most of the time for a branch
 /// far behind origin/main, so it runs only when author time and subject
 /// leave a commit unmatched.
-fn waiting_to_land_beside(
+pub fn waiting_to_land_beside(
     top: &Path,
     rev: &str,
     copies: &MainCopies,

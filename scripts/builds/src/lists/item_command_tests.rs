@@ -970,3 +970,107 @@ fn release_lets_go_of_parked_or_landed_work() {
     .unwrap();
     cmd_release(&demo.tool.places, &[two_arg]).unwrap();
 }
+
+/// The findings about loose branches that health reports for <demo>.
+fn branch_findings(demo: &Demo) -> Vec<crate::health::Finding> {
+    crate::health::health(&demo.tool)
+        .unwrap()
+        .findings
+        .into_iter()
+        .filter(|f| f.kind == crate::health::FindingKind::Branch)
+        .collect()
+}
+
+/// A branch `loose` in <demo>'s repo with one commit origin/main lacks,
+/// which no worktree checks out; returns the commit. Sets up the main
+/// checkout's build root, which is how health finds the repo.
+fn add_loose_branch(demo: &Demo) -> String {
+    let main = Checkout::find(&demo.main.display().to_string()).unwrap();
+    crate::setup::setup(&demo.tool, &main).unwrap();
+    crate::testing::git(&demo.main, &["switch", "-q", "-c", "loose", "origin/main"]);
+    let sha = demo.commit(&demo.main, "unlanded");
+    crate::testing::git(&demo.main, &["switch", "-q", "main"]);
+    sha
+}
+
+/// Health lists a branch with commits origin/main lacks that no worktree
+/// checks out and no item names, with the command that takes it back, and
+/// goes quiet once a worktree takes it back or the branch lands.
+#[test]
+fn health_lists_a_loose_branch_until_a_worktree_takes_it_or_it_lands() {
+    let demo = demo("health-loose");
+    let sha = add_loose_branch(&demo);
+    let found = branch_findings(&demo);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0]
+            .advice
+            .text
+            .starts_with("branch: demo loose holds 1 commit"),
+        "{found:?}"
+    );
+    assert_eq!(
+        found[0].advice.command.as_deref(),
+        Some(format!("builds new {} --resume loose", demo.main.display()).as_str())
+    );
+
+    crate::worktree::cmd_new(
+        &demo.tool,
+        &[
+            demo.main.display().to_string(),
+            "--resume".into(),
+            "loose".into(),
+            "--project".into(),
+            "demo".into(),
+        ],
+    )
+    .unwrap();
+    assert!(
+        branch_findings(&demo).is_empty(),
+        "a worktree checks it out"
+    );
+
+    let side = crate::checkout::worktree_list(&demo.main)
+        .unwrap()
+        .into_iter()
+        .find(|listed| listed.branch.as_deref() == Some("loose"))
+        .unwrap()
+        .top;
+    crate::testing::git(&side, &["switch", "-q", "--detach", "origin/main"]);
+    assert_eq!(branch_findings(&demo).len(), 1, "the branch is loose again");
+    crate::testing::git(&demo.main, &["cherry-pick", &sha]);
+    crate::testing::git(&demo.main, &["push", "-q", "origin", "main"]);
+    crate::testing::git(&demo.main, &["fetch", "-q", "origin"]);
+    assert!(branch_findings(&demo).is_empty(), "the branch landed");
+}
+
+/// An open item of any project that names a loose branch in one of its
+/// running places holds it, so health stays quiet about it.
+#[test]
+fn health_leaves_a_branch_an_item_of_another_project_names() {
+    let demo = demo("health-loose-other");
+    add_loose_branch(&demo);
+    let other = crate::lists::fixtures::make_store_named(&demo.tool.places, "other", &["demo"]);
+    other
+        .write(&crate::lists::fixtures::stamp(NOON), "start", |db| {
+            let id = crate::lists::fixtures::item(db, vec![]);
+            crate::lists::running::start(
+                db,
+                &[id],
+                &[crate::lists::Running {
+                    worktree: demo
+                        .scratch
+                        .dir
+                        .join("demo-worktrees/side-1")
+                        .display()
+                        .to_string(),
+                    branch: "loose".into(),
+                    brief: "b.md".into(),
+                    since: crate::lists::fixtures::stamp(NOON),
+                }],
+            )
+        })
+        .unwrap();
+    let found = branch_findings(&demo);
+    assert!(found.is_empty(), "{found:?}");
+}

@@ -59,6 +59,9 @@ pub enum FindingKind {
     Shells,
     /// A worktree with commits waiting to land and no claim.
     Unclaimed,
+    /// A local branch with commits waiting to land that no worktree checks
+    /// out and no open item names.
+    Branch,
     /// A claimed worktree with no change and no build for a while.
     Quiet,
     Lists,
@@ -667,6 +670,16 @@ pub struct Unclaimed {
     pub git: SideGit,
 }
 
+/// Work an agent left where no claim shows it: side worktrees with no claim
+/// that hold commits origin/main lacks, and local branches with such commits
+/// that no worktree checks out and no open item names
+/// (`unlanded::loose_branches`).
+#[derive(Default)]
+pub struct LeftBehind {
+    pub worktrees: Vec<Unclaimed>,
+    pub branches: Vec<crate::unlanded::LooseBranch>,
+}
+
 /// Judges what needs acting on.
 pub fn assess(
     now: i64,
@@ -674,7 +687,7 @@ pub fn assess(
     machine: Machine,
     places: &[Place],
     claimed: Vec<Claimed>,
-    unclaimed: Vec<Unclaimed>,
+    left: LeftBehind,
     lists: Vec<Advice>,
 ) -> Health {
     let mut findings = Vec::new();
@@ -732,7 +745,7 @@ pub fn assess(
             ),
         ));
     }
-    for Unclaimed { place, git } in unclaimed {
+    for Unclaimed { place, git } in left.worktrees {
         if !git.ahead.is_empty() {
             findings.push(Finding::new(
                 FindingKind::Unclaimed,
@@ -743,6 +756,9 @@ pub fn assess(
                 )),
             ));
         }
+    }
+    for branch in left.branches {
+        findings.push(Finding::new(FindingKind::Branch, loose_advice(&branch)));
     }
     let mut worktrees = Vec::new();
     for Claimed {
@@ -838,6 +854,52 @@ pub fn assess(
         queues: machine.queues,
         findings,
     }
+}
+
+/// What health says of <branch>: its commits, and the command that takes it
+/// back into a worktree.
+fn loose_advice(branch: &crate::unlanded::LooseBranch) -> Advice {
+    let commits: Vec<String> = branch
+        .commits
+        .iter()
+        .map(|c| format!("{} {}", c.sha, c.subject))
+        .collect();
+    Advice::run(
+        format!(
+            "branch: {} {} holds {} origin/main lacks ({}), and no worktree checks it out or open item names it; take it back into a worktree with",
+            branch.repo,
+            branch.branch,
+            crate::text::counted(branch.commits.len(), "commit", "commits"),
+            commits.join("; ")
+        ),
+        format!(
+            "builds new {} --resume {}",
+            branch.main.display(),
+            branch.branch
+        ),
+    )
+}
+
+/// The finding when health could not read the branches of the repo whose
+/// main checkout is <main>.
+pub fn branches_unread(main: &Path, error: &str) -> Finding {
+    Finding::new(
+        FindingKind::Branch,
+        Advice::said(format!(
+            "branch: health could not read the branches of {}: {error}",
+            main.display()
+        )),
+    )
+}
+
+/// The main checkout of each repo among <roots> that has a live one.
+pub fn mains_of(roots: &[Root]) -> Vec<PathBuf> {
+    roots
+        .iter()
+        .filter_map(|root| root.live.as_ref())
+        .filter(|checkout| checkout.is_main())
+        .map(|checkout| checkout.top.clone())
+        .collect()
 }
 
 /// The places processes are placed in: every live checkout.
@@ -1006,13 +1068,23 @@ pub fn health(tool: &Tool) -> Result<Health> {
         });
     }
     let lists = lists_findings(&tool.places, &loaded, &places, &mut judged, &held_worktrees)?;
+    let mut loose = Vec::new();
+    for main in mains_of(&roots) {
+        match crate::unlanded::loose_branches(&main, &mut crate::unlanded::Judged::default()) {
+            Ok(found) => loose.extend(found),
+            Err(error) => unreadable.push(branches_unread(&main, &error.text())),
+        }
+    }
     let mut health = assess(
         now,
         tool.disk_space()?,
         machine,
         &places,
         judged,
-        unclaimed,
+        LeftBehind {
+            worktrees: unclaimed,
+            branches: crate::unlanded::unheld(loose, &loaded),
+        },
         lists,
     );
     health.findings.extend(unreadable);
@@ -1420,7 +1492,7 @@ mod tests {
             machine,
             &[place(1), place(2), place(3)],
             vec![claimed(1, None), claimed(2, Some("held")), claimed(3, None)],
-            Vec::new(),
+            LeftBehind::default(),
             Vec::new(),
         );
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
@@ -1500,7 +1572,7 @@ mod tests {
             machine,
             &[place],
             vec![claimed],
-            Vec::new(),
+            LeftBehind::default(),
             Vec::new(),
         )
         .findings
@@ -1583,7 +1655,7 @@ mod tests {
             machine,
             &[place],
             vec![claimed],
-            Vec::new(),
+            LeftBehind::default(),
             Vec::new(),
         );
         assert!(health.findings.is_empty(), "{:?}", health.findings);
@@ -1662,7 +1734,7 @@ mod tests {
                 machine,
                 &[place],
                 vec![claimed],
-                Vec::new(),
+                LeftBehind::default(),
                 Vec::new(),
             )
         };
@@ -1712,7 +1784,7 @@ mod tests {
             machine,
             &[],
             Vec::new(),
-            Vec::new(),
+            LeftBehind::default(),
             Vec::new(),
         );
         assert_eq!(
@@ -1777,16 +1849,19 @@ mod tests {
             machine,
             &[place(1), place(2)],
             Vec::new(),
-            vec![
-                Unclaimed {
-                    place: 0,
-                    git: git(vec![commit]),
-                },
-                Unclaimed {
-                    place: 1,
-                    git: git(Vec::new()),
-                },
-            ],
+            LeftBehind {
+                worktrees: vec![
+                    Unclaimed {
+                        place: 0,
+                        git: git(vec![commit]),
+                    },
+                    Unclaimed {
+                        place: 1,
+                        git: git(Vec::new()),
+                    },
+                ],
+                branches: Vec::new(),
+            },
             Vec::new(),
         );
         assert_eq!(health.findings.len(), 1, "{:?}", health.findings);
