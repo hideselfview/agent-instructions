@@ -154,7 +154,8 @@ DISPATCH
     The coordinator places each critical item first (`--priority first`). A
     cleanup is critical only when the person says so: ask before placing one
     first. The screen-reads cleanup is critical, because the iOS, Windows and
-    Linux apps wait on it so that they don't copy the read shapes it removes.
+    Linux apps wait on it, so that they don't copy the ways of reading data
+    that the cleanup replaces with plain live queries.
     Other cleanups (rewording, deleting dead code, merging duplicate types)
     start only when no critical item is ready.
   - Take items from `builds next`. Claim the worktree (`builds claim`), mark
