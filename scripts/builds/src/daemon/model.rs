@@ -466,31 +466,23 @@ impl Model {
         }
         // Each repo's branches, when a checkout of the repo changed: a
         // branch moves in the common git dir, which every checkout's
-        // events cover.
-        let mains: Vec<PathBuf> = roots
-            .iter()
-            .filter_map(|root| root.live.as_ref())
-            .filter(|checkout| {
-                checkout.is_main()
-                    && roots
-                        .iter()
-                        .filter_map(|r| r.live.as_ref())
-                        .any(|other| other.main == checkout.main && dirty.git.contains(&other.top))
-            })
-            .map(|checkout| checkout.top.clone())
-            .collect();
+        // events cover. A repo whose main checkout is gone has no branches
+        // to list.
+        let live = crate::health::mains_of(&roots);
         {
-            // A repo whose main checkout is gone has no branches to list.
-            let live: Vec<&PathBuf> = roots
-                .iter()
-                .filter_map(|root| root.live.as_ref())
-                .filter(|checkout| checkout.is_main())
-                .map(|checkout| &checkout.top)
-                .collect();
             let mut state = self.state.lock().expect("no panic holding it");
-            state.loose.retain(|main, _| live.contains(&main));
-            state.loose_errors.retain(|main, _| live.contains(&main));
+            state.loose.retain(|main, _| live.contains(main));
+            state.loose_errors.retain(|main, _| live.contains(main));
         }
+        let mains: Vec<PathBuf> = live
+            .into_iter()
+            .filter(|main| {
+                roots
+                    .iter()
+                    .filter_map(|r| r.live.as_ref())
+                    .any(|other| other.main == *main && dirty.git.contains(&other.top))
+            })
+            .collect();
         for main in mains {
             let mut judged = self
                 .state
