@@ -55,7 +55,9 @@ fn a_branch_whose_change_waits_on_review_names_the_change() {
     let ahead = branch(&top, &[BOARD]);
     let (lists, id) = lists_with(&top, &ahead, &[BOARD]);
     let title = lists.design(id).unwrap().title.clone();
-    let wait = Reads::default().standing(&lists, "bae", &top, &ahead);
+    let wait = Reads::default()
+        .standing(&lists, "bae", &top, &ahead)
+        .unwrap();
     assert_eq!(wait, Some(ItemWait::Review { id: id.0, title }));
 }
 
@@ -65,7 +67,9 @@ fn a_design_branch_no_recorded_change_covers_waits_on_the_design_session() {
     let top = scratch.dir.join("side-2");
     let ahead = branch(&top, &[BOARD, "design/mocks/Other.dc.html"]);
     let (lists, _) = lists_with(&top, &ahead, &[BOARD]);
-    let wait = Reads::default().standing(&lists, "bae", &top, &ahead);
+    let wait = Reads::default()
+        .standing(&lists, "bae", &top, &ahead)
+        .unwrap();
     assert_eq!(wait, Some(ItemWait::Unrecorded));
 }
 
@@ -75,5 +79,27 @@ fn a_branch_with_no_design_files_has_no_design_standing() {
     let top = scratch.dir.join("side-2");
     let ahead = branch(&top, &["src/main.rs"]);
     let (lists, _) = lists_with(&top, &ahead, &[BOARD]);
-    assert_eq!(Reads::default().standing(&lists, "bae", &top, &ahead), None);
+    assert_eq!(
+        Reads::default()
+            .standing(&lists, "bae", &top, &ahead)
+            .unwrap(),
+        None
+    );
+}
+
+/// A change whose last commit git can't read is an error the card shows,
+/// never a card with no design standing.
+#[test]
+fn a_change_whose_last_commit_git_cannot_read_is_an_error() {
+    let scratch = Scratch::new("design-cards-unreadable");
+    let top = scratch.dir.join("side-2");
+    let ahead = branch(&top, &[BOARD]);
+    let mut gone = ahead.clone();
+    gone[0].full = "0".repeat(40);
+    let (lists, _) = lists_with(&top, &gone, &[BOARD]);
+    let fault = Reads::default()
+        .standing(&lists, "bae", &top, &ahead)
+        .unwrap_err()
+        .text();
+    assert!(fault.contains(&"0".repeat(40)), "{fault}");
 }

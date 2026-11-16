@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use super::cards::ItemWait;
+use crate::fail::Result;
 use crate::lists::design::{design_commits, open_designs};
 use crate::lists::design_paths::Globs;
 use crate::lists::{Id, Lists};
@@ -35,7 +36,7 @@ impl Reads {
         repo: &str,
         top: &Path,
         shas: &[String],
-    ) -> Option<Vec<Option<Id>>> {
+    ) -> Result<Vec<Option<Id>>> {
         let designs: Vec<_> = open_designs(lists, repo).collect();
         let key = (
             top.to_path_buf(),
@@ -44,12 +45,10 @@ impl Reads {
         );
         let mut known = self.coverage.lock().expect("no panic holding it");
         if let Some(found) = known.get(&key) {
-            return Some(found.clone());
+            return Ok(found.clone());
         }
-        // A worktree that stops existing or a failed git read says nothing
-        // about design; the next page build asks again.
-        let read: Vec<Option<Id>> = design_commits(lists, repo, top, shas)
-            .ok()?
+        // A failed git read is not kept, so the next page build reads again.
+        let read: Vec<Option<Id>> = design_commits(lists, repo, top, shas)?
             .iter()
             .map(|commit| commit.covered_by.map(|design| design.id))
             .collect();
@@ -57,20 +56,20 @@ impl Reads {
             known.clear();
         }
         known.insert(key, read.clone());
-        Some(read)
+        Ok(read)
     }
 
     /// The standing of the design branch in <top>, a worktree of <repo>
     /// whose commits not on origin/main are <ahead> (newest first); None
     /// when the commits change no design files or approved changes cover
-    /// them.
+    /// them. Fails when git can't read the commits or a change's last commit.
     pub fn standing(
         &self,
         lists: &Lists,
         repo: &str,
         top: &Path,
         ahead: &[Commit],
-    ) -> Option<ItemWait> {
+    ) -> Result<Option<ItemWait>> {
         let shas: Vec<String> = ahead.iter().rev().map(|c| c.full.clone()).collect();
         let coverage = self.coverage(lists, repo, top, &shas)?;
         let reviewing = coverage
@@ -78,14 +77,14 @@ impl Reads {
             .flatten()
             .filter_map(|id| lists.design(*id))
             .find(|design| design.waits_on_person());
-        match reviewing {
+        Ok(match reviewing {
             Some(design) => Some(ItemWait::Review {
                 id: design.id.0,
                 title: design.title.clone(),
             }),
             None if coverage.iter().any(Option::is_none) => Some(ItemWait::Unrecorded),
             None => None,
-        }
+        })
     }
 }
 

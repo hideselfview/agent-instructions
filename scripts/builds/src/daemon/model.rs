@@ -1071,9 +1071,24 @@ impl Model {
                         .map(|lists| super::lists::running_items(lists, &checkout.path))
                         .unwrap_or_default();
                     let design = match (project, &checkout.git) {
-                        (Some(lists), Some(git)) if !checkout.main && git.error.is_none() => self
-                            .design_reads
-                            .standing(lists, &repo.name, Path::new(&checkout.path), &git.ahead),
+                        (Some(lists), Some(git)) if !checkout.main && git.error.is_none() => {
+                            let standing = self.design_reads.standing(
+                                lists,
+                                &repo.name,
+                                Path::new(&checkout.path),
+                                &git.ahead,
+                            );
+                            match standing {
+                                Ok(standing) => standing,
+                                Err(error) => {
+                                    checkout.errors.push(format!(
+                                        "The daemon can't read which design changes cover this worktree's commits: {}",
+                                        error.text()
+                                    ));
+                                    None
+                                }
+                            }
+                        }
                         _ => None,
                     };
                     // The rules review stands only between commits waiting

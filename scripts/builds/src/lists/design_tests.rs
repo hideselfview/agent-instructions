@@ -655,7 +655,9 @@ fn card_of(w: &World, range: &str) -> Option<crate::daemon::cards::ItemWait> {
                 subject: "a commit".into(),
             })
             .collect();
-    crate::daemon::design_cards::Reads::default().standing(&w.state(), "bae", &w.dir, &ahead)
+    crate::daemon::design_cards::Reads::default()
+        .standing(&w.state(), "bae", &w.dir, &ahead)
+        .unwrap()
 }
 
 /// The dashboard's design card and health decide coverage the same way: on
