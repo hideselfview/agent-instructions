@@ -623,8 +623,8 @@ mod tests {
         let scratch = crate::testing::Scratch::new("install-confirm");
         let log = scratch.dir.join("sccache-server.log");
         let mut looks = vec![
-            (Some(parse_job(RUNNING)), Some(2914)),
-            (Some(parse_job(RUNNING)), None),
+            (Some(parse_job(RUNNING).unwrap()), Some(2914)),
+            (Some(parse_job(RUNNING).unwrap()), None),
             (None, None),
         ];
         let pid = confirm_serving(
@@ -643,7 +643,7 @@ mod tests {
         said.push_str("sccache: error: Address already in use (os error 48)\n\n");
         std::fs::write(&log, said).unwrap();
         let Err(crate::fail::Fail::Message(message)) = confirm_serving(
-            || Ok((Some(parse_job(RESPAWNING)), Some(77))),
+            || Ok((Some(parse_job(RESPAWNING).unwrap()), Some(77))),
             Duration::from_millis(300),
             &log,
             "the log",

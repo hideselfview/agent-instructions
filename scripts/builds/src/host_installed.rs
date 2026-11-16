@@ -55,7 +55,7 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
     };
     let listener = crate::sccache::parse_listener_lines(text)?;
     let job = match text.split_once("\njob=") {
-        Some((_, rest)) if rest.starts_with("loaded") => Some(crate::sccache::parse_job(rest)),
+        Some((_, rest)) if rest.starts_with("loaded") => Some(crate::sccache::parse_job(rest)?),
         Some((_, rest)) if rest.starts_with("none") => None,
         _ => fail!("the host's answer has no job line: {text:?}"),
     };

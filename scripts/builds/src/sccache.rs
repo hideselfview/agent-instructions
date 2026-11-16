@@ -126,7 +126,9 @@ impl Job {
 /// (`host_installed::installed_script`). The job's own fields are
 /// indented by one tab; deeper lines belong to nested sections, some of which
 /// have a `state` of their own.
-pub fn parse_job(text: &str) -> Job {
+/// Fails when the job has no `state` line or a `pid` that is not a number,
+/// since launchctl then printed something builds does not know how to read.
+pub fn parse_job(text: &str) -> Result<Job> {
     let field = |key: &str| {
         text.lines()
             .find_map(|line| {
@@ -136,11 +138,21 @@ pub fn parse_job(text: &str) -> Job {
             })
             .map(|value| value.trim().to_string())
     };
-    Job {
-        state: field("state").unwrap_or_default(),
-        pid: field("pid").and_then(|pid| pid.parse().ok()),
+    let Some(state) = field("state") else {
+        fail!("launchctl print printed no state for the job: {text:?}");
+    };
+    let pid = match field("pid") {
+        None => None,
+        Some(pid) => match pid.parse() {
+            Ok(pid) => Some(pid),
+            Err(_) => fail!("launchctl print printed a pid that is not a number: {pid:?}"),
+        },
+    };
+    Ok(Job {
+        state,
+        pid,
         last_exit: field("last exit code"),
-    }
+    })
 }
 
 /// What launchd says about <service>, or None when launchd has not loaded
@@ -151,10 +163,10 @@ pub fn read_job(service: &str) -> Result<Option<Job>> {
         .stderr(Stdio::null())
         .output()
         .context(|| "running launchctl".to_string())?;
-    Ok(output
-        .status
-        .success()
-        .then(|| parse_job(&String::from_utf8_lossy(&output.stdout))))
+    if !output.status.success() {
+        return Ok(None);
+    }
+    parse_job(&String::from_utf8_lossy(&output.stdout)).map(Some)
 }
 
 /// Does launchd's job serve sccache's port: is the process listening there
@@ -270,7 +282,7 @@ pub mod tests {
 
     #[test]
     fn reads_what_launchctl_says_about_a_job() {
-        let running = parse_job(RUNNING);
+        let running = parse_job(RUNNING).unwrap();
         assert_eq!(
             running,
             Job {
@@ -280,7 +292,7 @@ pub mod tests {
             }
         );
         assert_eq!(running.running_pid(), Some(2914));
-        let respawning = parse_job(RESPAWNING);
+        let respawning = parse_job(RESPAWNING).unwrap();
         assert_eq!(respawning.state, "spawn scheduled");
         assert_eq!(respawning.running_pid(), None);
         assert_eq!(
@@ -289,18 +301,30 @@ pub mod tests {
         );
     }
 
+    /// Output with no state for the job, or a pid that is not a number, is a
+    /// failure, not a job with an empty state or no pid.
+    #[test]
+    fn launchctl_output_builds_cannot_read_is_an_error() {
+        assert!(parse_job("gui/501/x = {\n\tendpoints = {\n\t\tstate = active\n\t}\n}\n").is_err());
+        assert!(parse_job("\tstate = running\n\tpid = twelve\n").is_err());
+        assert_eq!(parse_job("\tstate = not running\n").unwrap().pid, None);
+    }
+
     /// launchd's job serves sccache's port only when its running process is
     /// the one listening there.
     #[test]
     fn launchd_serves_only_when_its_process_listens() {
-        let running = parse_job(RUNNING);
+        let running = parse_job(RUNNING).unwrap();
         assert!(launchd_serves(Some(&running), Some(2914)));
         assert!(
             !launchd_serves(Some(&running), Some(77)),
             "a client's server"
         );
         assert!(!launchd_serves(Some(&running), None), "not listening yet");
-        assert!(!launchd_serves(Some(&parse_job(RESPAWNING)), Some(77)));
+        assert!(!launchd_serves(
+            Some(&parse_job(RESPAWNING).unwrap()),
+            Some(77)
+        ));
         assert!(!launchd_serves(None, Some(77)), "launchd has no job");
     }
 
