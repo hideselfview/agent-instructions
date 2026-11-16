@@ -11,98 +11,132 @@ fn holds(entered: Entered) -> Use {
     }
 }
 
-/// Starts an install's close on a thread: what it said arrives on the
-/// returned channel once both gates are closed.
-fn closing(places: &Places) -> (std::thread::JoinHandle<Closed>, Receiver<Vec<String>>) {
-    let (said_tx, said_rx) = channel();
+/// What a thread of the test tells the test.
+#[derive(Debug, PartialEq)]
+enum Event {
+    /// The line the code under test gave its `say`.
+    Said(String),
+    /// What it returned: that the gates are closed, or that the command must
+    /// run again or may go on.
+    Done(bool),
+}
+
+/// How long a test waits for an event that must come before it fails: the
+/// event, not this time, tells the test that something happened.
+const PATIENCE: Duration = Duration::from_secs(30);
+
+fn next(events: &Receiver<Event>) -> Event {
+    events.recv_timeout(PATIENCE).expect("the event comes")
+}
+
+fn said(line: &str) -> Event {
+    Event::Said(line.to_string())
+}
+
+/// Runs `close` on a thread, which sends each line `close` gives its `say`,
+/// then `Done(true)` once it has closed both gates.
+fn closing(places: &Places) -> (std::thread::JoinHandle<Closed>, Receiver<Event>) {
+    let (events, received) = channel();
     let places = places.clone();
     let closer = std::thread::spawn(move || {
-        let mut said = Vec::new();
-        let closed = close(&places, &mut |line| said.push(line)).unwrap();
-        said_tx.send(said).unwrap();
+        let closed = close(&places, &mut |line| events.send(Event::Said(line)).unwrap()).unwrap();
+        events.send(Event::Done(true)).unwrap();
         closed
     });
-    (closer, said_rx)
+    (closer, received)
 }
 
 fn count(dir: &Path) -> usize {
-    std::fs::read_dir(dir).map_or(0, |entries| entries.count())
+    match std::fs::read_dir(dir) {
+        Ok(entries) => entries.count(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => panic!("listing {}: {error}", dir.display()),
+    }
 }
 
 #[test]
 fn while_install_waits_for_a_command_use_connections_still_open_and_install_waits_for_them_next() {
     let scratch = Scratch::new("install-gate");
     let places = scratch.places();
-    let hook_run = holds(enter_for_life(&places, 11, "checks run", "10:00:00").unwrap());
+    let quiet = &mut |_: &str| {};
+    let hook_run = holds(enter_for_life(&places, 11, "checks run", "10:00:00", quiet).unwrap());
     let listing = PerConnection::new(places.clone(), 12, "item list", "10:00:01").unwrap();
-    let (closer, said) = closing(&places);
-    assert!(
-        said.recv_timeout(Duration::from_millis(300)).is_err(),
-        "install waits while the hook run runs"
+    let (closer, install) = closing(&places);
+    assert_eq!(
+        next(&install),
+        said("waiting for process 11, builds checks run, since 10:00:00"),
+        "install closed the commands gate and waits for the hook run"
     );
-    // The commands gate is closed: a hook run that starts now waits.
-    let (ran_tx, ran_rx) = channel();
+    // A hook run that starts now waits at the closed gate.
+    let (events, hook_run_2) = channel();
     let waiter = {
         let places = places.clone();
         std::thread::spawn(move || {
-            let entered = enter_for_life(&places, 13, "checks run", "10:00:02").unwrap();
-            ran_tx.send(matches!(entered, Entered::RunAgain)).unwrap();
+            let entered = enter_for_life(&places, 13, "checks run", "10:00:02", &mut |line| {
+                events.send(Event::Said(line.to_string())).unwrap()
+            })
+            .unwrap();
+            events
+                .send(Event::Done(matches!(entered, Entered::RunAgain)))
+                .unwrap();
         })
     };
-    assert!(
-        ran_rx.recv_timeout(Duration::from_millis(300)).is_err(),
-        "the hook run waits at the closed gate"
-    );
+    assert_eq!(next(&hook_run_2), said(RUNS_AGAIN));
     // A command that takes a use per connection starts, and its two
     // connections share one use.
-    assert!(may_start(&places).unwrap(), "the connections gate is open");
+    assert!(
+        may_start(&places, &mut |line| panic!(
+            "the connections gate is open: {line}"
+        ))
+        .unwrap()
+    );
     let first = listing.take().unwrap();
     let second = listing.take().unwrap();
     assert_eq!(count(&Kind::Connection.uses(&places)), 1);
     drop(hook_run);
-    assert!(
-        said.recv_timeout(Duration::from_millis(300)).is_err(),
-        "install waits while the connections are open"
+    assert_eq!(
+        next(&install),
+        said("waiting for process 12, builds item list, since 10:00:01"),
+        "install closed the connections gate and waits for the open connections"
     );
     drop(first);
     assert!(
-        said.recv_timeout(Duration::from_millis(300)).is_err(),
-        "install waits while one connection is open"
+        holds_use(&places, Kind::Connection, 12),
+        "one connection is open, so its use holds"
     );
     drop(second);
-    let said = said.recv_timeout(Duration::from_secs(10)).unwrap();
-    assert_eq!(
-        said,
-        vec![
-            "waiting for process 11, builds checks run, since 10:00:00".to_string(),
-            "waiting for process 12, builds item list, since 10:00:01".to_string(),
-        ]
-    );
+    assert_eq!(next(&install), Event::Done(true));
     let closed = closer.join().unwrap();
     // With both gates closed, a connection waits until install ends.
-    let (opened_tx, opened_rx) = channel();
+    let (events, opener_events) = channel();
     let opener = {
         let places = places.clone();
         std::thread::spawn(move || {
             let listing = PerConnection::new(places, 14, "item list", "10:00:03").unwrap();
-            let taken = listing.take().map(drop);
-            opened_tx.send(taken.is_ok()).unwrap();
+            let taken = listing
+                .take_saying(&mut |line| events.send(Event::Said(line.to_string())).unwrap())
+                .map(drop);
+            events.send(Event::Done(taken.is_ok())).unwrap();
         })
     };
-    assert!(
-        opened_rx.recv_timeout(Duration::from_millis(300)).is_err(),
-        "the connection waits at the closed gate"
+    assert_eq!(
+        next(&opener_events),
+        said("builds install moves the stores: this command waits until it finishes")
     );
     drop(closed);
-    assert!(ran_rx.recv_timeout(Duration::from_secs(10)).unwrap());
-    assert!(opened_rx.recv_timeout(Duration::from_secs(10)).unwrap());
+    assert_eq!(
+        next(&hook_run_2),
+        Event::Done(true),
+        "the hook run runs again"
+    );
+    assert_eq!(next(&opener_events), Event::Done(true));
     waiter.join().unwrap();
     opener.join().unwrap();
     // Every use ended, so the next install waits for none and removes their
     // files.
-    let mut said = Vec::new();
-    drop(close(&places, &mut |line| said.push(line)).unwrap());
-    assert!(said.is_empty(), "{said:?}");
+    let mut lines = Vec::new();
+    drop(close(&places, &mut |line| lines.push(line)).unwrap());
+    assert!(lines.is_empty(), "{lines:?}");
     assert_eq!(count(&Kind::Command.uses(&places)), 0);
     assert_eq!(count(&Kind::Connection.uses(&places)), 0);
 }

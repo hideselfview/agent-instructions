@@ -140,15 +140,20 @@ pub struct Use {
 }
 
 /// Passes <kind>'s gate: returns its file, holding a shared lock, and
-/// whether the gate was open. When it is closed, says <waiting> on stderr
-/// and waits until it opens.
-fn pass(places: &Places, kind: Kind, waiting: &str) -> Result<(File, bool)> {
+/// whether the gate was open. When it is closed, gives <say> the line
+/// <waiting> and waits until it opens.
+fn pass(
+    places: &Places,
+    kind: Kind,
+    waiting: &str,
+    say: &mut dyn FnMut(&str),
+) -> Result<(File, bool)> {
     let path = kind.gate(places);
     let gate = open(&path)?;
     if lock(&gate, libc::LOCK_SH, false, &path)? {
         return Ok((gate, true));
     }
-    crate::text::note(waiting);
+    say(waiting);
     lock(&gate, libc::LOCK_SH, true, &path)?;
     Ok((gate, false))
 }
@@ -181,9 +186,16 @@ pub enum Entered {
 }
 
 /// Enters the stores for the command <what> of process <pid>, started at the
-/// local time <since>, which holds a use for its life.
-pub fn enter_for_life(places: &Places, pid: u32, what: &str, since: &str) -> Result<Entered> {
-    match pass(places, Kind::Command, RUNS_AGAIN)? {
+/// local time <since>, which holds a use for its life; gives <say> the line
+/// that says it waits at the closed gate.
+pub fn enter_for_life(
+    places: &Places,
+    pid: u32,
+    what: &str,
+    since: &str,
+    say: &mut dyn FnMut(&str),
+) -> Result<Entered> {
+    match pass(places, Kind::Command, RUNS_AGAIN, say)? {
         (gate, true) => Ok(Entered::Holds(take(
             places,
             Kind::Command,
@@ -198,9 +210,9 @@ pub fn enter_for_life(places: &Places, pid: u32, what: &str, since: &str) -> Res
 
 /// Whether a command that takes a use per connection may start: false when
 /// it waited at the closed gate while an install ran, and must run the
-/// installed program in its place.
-pub fn may_start(places: &Places) -> Result<bool> {
-    Ok(pass(places, Kind::Connection, RUNS_AGAIN)?.1)
+/// installed program in its place. Gives <say> the line that says it waits.
+pub fn may_start(places: &Places, say: &mut dyn FnMut(&str)) -> Result<bool> {
+    Ok(pass(places, Kind::Connection, RUNS_AGAIN, say)?.1)
 }
 
 /// The identity of the file at <path>: its device and inode.
@@ -264,6 +276,7 @@ impl PerConnection {
             &self.places,
             Kind::Command,
             "builds install runs: this command waits until it finishes",
+            &mut |line| crate::text::note(line),
         )?;
         let taken = take(
             &self.places,
@@ -283,6 +296,11 @@ impl PerConnection {
     /// A use for one connection, waiting at the gate while an install runs;
     /// none once the process holds a use for its life.
     pub fn take(&self) -> Result<Option<ConnectionUse<'_>>> {
+        self.take_saying(&mut |line| crate::text::note(line))
+    }
+
+    /// `take`, giving <say> the line that says it waits at the closed gate.
+    fn take_saying(&self, say: &mut dyn FnMut(&str)) -> Result<Option<ConnectionUse<'_>>> {
         if self.held_for_life.load(Ordering::SeqCst) {
             return Ok(None);
         }
@@ -294,6 +312,7 @@ impl PerConnection {
                     &self.places,
                     Kind::Connection,
                     "builds install moves the stores: this command waits until it finishes",
+                    say,
                 )?;
                 let taken = take(
                     &self.places,

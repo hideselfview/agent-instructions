@@ -181,7 +181,7 @@ fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::U
     let pid = std::process::id();
     let (what, since) = (args.join(" "), text::clock());
     if !holds_for_life(command, &args[1..]) {
-        if !install_gate::may_start(&places)? {
+        if !install_gate::may_start(&places, &mut |line| text::note(line))? {
             return Err(install_gate::run_again());
         }
         install_gate::use_per_connection(install_gate::PerConnection::new(
@@ -189,7 +189,7 @@ fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::U
         )?);
         return Ok(None);
     }
-    match install_gate::enter_for_life(&places, pid, &what, &since)? {
+    match install_gate::enter_for_life(&places, pid, &what, &since, &mut |line| text::note(line))? {
         install_gate::Entered::Holds(held) => {
             // SAFETY: no other thread runs yet, so none reads the environment
             // while this writes it. Every builds command this one starts runs
