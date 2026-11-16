@@ -69,8 +69,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::app_config::{
-    CONFIG, Config, PickKind, Step, app_checkout_top, check_out, parse_config, run_command_keeping,
-    run_git, show_duration,
+    CONFIG, Config, PickKind, Picker, Step, app_checkout_top, check_out, parse_config,
+    run_command_keeping, run_git, show_duration,
 };
 use crate::app_remote::{RemoteApp, local_source};
 use crate::app_timing::{self, RunRecord, StepKind, StepRecord, StepResult, Timer};
@@ -224,12 +224,10 @@ pub fn missing_line(lane: Lane, kind: PickKind, arg: &str) -> Fail {
     ))
 }
 
-/// One run of a `test` or `shots` line: the line's kind and program, and its
-/// arguments (every class of the lane's picks that the program runs, or one
-/// shots prefix).
+/// One run of a `test` or `shots` line: the line, and its arguments (every
+/// class of the lane's picks that the line runs, or one shots prefix).
 struct PickRun<'a> {
-    kind: PickKind,
-    program: Option<String>,
+    picker: &'a Picker,
     args: Vec<&'a str>,
 }
 
@@ -258,28 +256,28 @@ fn lane_steps(
             PickKind::Class => program_of(arg)?,
             PickKind::Shots => None,
         };
+        let Some(picker) = config.picker_in(lane, *kind, program.as_deref()) else {
+            return Err(missing_line(lane, *kind, arg));
+        };
         let same = runs
             .iter_mut()
-            .find(|run| *kind == PickKind::Class && run.kind == *kind && run.program == program);
+            .find(|run| picker.kind == PickKind::Class && std::ptr::eq(run.picker, picker));
         match same {
             Some(run) => run.args.push(arg),
             None => runs.push(PickRun {
-                kind: *kind,
-                program,
+                picker,
                 args: vec![arg],
             }),
         }
     }
     for run in runs {
-        let Some(picker) = config.picker_in(lane, run.kind, run.program.as_deref()) else {
-            return Err(missing_line(lane, run.kind, &run.args.join(" ")));
-        };
+        let kind = run.picker.kind;
         steps.push(Step {
-            name: format!("{}{}", run.kind.step_prefix(), run.args.join(" ")),
+            name: format!("{}{}", kind.step_prefix(), run.args.join(" ")),
             lane,
-            command: picker.command_for(&run.args),
-            limit: Some(run.kind.limit()),
-            place: picker.place,
+            command: run.picker.command_for(&run.args),
+            limit: Some(kind.limit()),
+            place: run.picker.place,
             ci_only: false,
         });
     }
