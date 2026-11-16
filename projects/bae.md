@@ -90,7 +90,8 @@ There are two exceptions:
   drag in progress, the text typed in an input field) stays in the view that
   controls it. A drag or click that writes stays in progress until its write
   returns, so the view draws the moved row or new value until then and the
-  screen never jumps back.
+  screen never jumps back. A query whose request changes, such as a search,
+  keeps drawing its last answer until the new request's first answer arrives.
 
 The full rules are
 `projects/bae-rules/screen-reads/reactive-screens-read-plain-live-queries.md`
