@@ -424,11 +424,8 @@ checkout on a host. A build that runs a test class through a line an
 Mac, and fails when the lane has none (in bae, the M1's mac lane checkouts run
 the UI tests). A build cannot run both a `here` step and a test class from an
 `opens-windows` line; it fails and names one of each. A host runs UI tests only
-when its Automation Mode needs no password, since nobody is at its screen to
-type one: run `sudo automationmodetool
-enable-automationmode-without-authentication` there once (`automationmodetool`
-says the setting). Without it, xcodebuild says "Timed out while enabling
-automation mode" and the class runs no tests.
+with the settings HOSTS names, since nobody is at its screen to type a
+password.
 
 When a host's Xcode cannot start, every xcodebuild run there fails, whatever
 code it builds: xcodebuild prints "A required plugin failed to load" and names
@@ -440,7 +437,12 @@ place in the queue in a checkout on another host. The mac lane skips a recorded
 host's checkouts, and `builds health` lists the host under "needs action" with
 xcodebuild's fix, until `builds host clear-xcode <name>` removes the record. A
 step that fails without that line failed because of its code, and fails the
-build.
+build. A mac lane step that fails after XCTest printed "Timed out while
+enabling automation mode" failed because the host lacks the settings UI tests
+need (HOSTS): builds records the host in the folder host-ui-automation-failures
+beside the file `hosts` and runs the lane again on another host in the same
+way, until `builds host setup <name>` finds the settings on and removes the
+record.
 
 Each --shots run's findings (what the shots program printed) are stored in the
 project's store under the repo, the full commit, the lane, the prefix and the
@@ -482,7 +484,9 @@ built again.
                               on the less loaded host first (load average per
                               core, this Mac counted). The lane skips a host
                               that does not answer, and the mac lane also
-                              skips a host whose Xcode cannot start. Each
+                              skips a host whose Xcode cannot start or whose
+                              UI tests timed out turning on automation mode.
+                              Each
                               lane's run goes to the project's store when it
                               ends: the ref, the claim of the worktree it ran
                               from, the checkout, its
@@ -588,10 +592,34 @@ says "refuses jobs" in place of its core count when git fails there. Fix the cau
 that finds the host answering with git running removes the record, and builds
 uses the host again. `builds host list` probes every host, and so does every
 `builds cargo` and `builds remote run` that picks one. A host whose Xcode
-cannot start refuses mac app builds only (APP BUILDS).
+cannot start, or whose UI tests timed out turning on automation mode, refuses
+mac app builds only (APP BUILDS).
+
+A Mac runs UI tests with nobody at its screen only with three settings on.
+Without them, XCTest asks for a password on its screen, or says "Timed out
+while enabling automation mode" (and `automationmodetool` says the device
+requires user authentication), and the test class runs no tests. Each
+setting has a check that only reads and a command that turns it on:
+
+  - Automation Mode without a password: `automationmodetool` says the device
+    does not require authentication;
+    `sudo automationmodetool enable-automationmode-without-authentication`
+  - developer mode: `DevToolsSecurity -status` says enabled;
+    `sudo DevToolsSecurity -enable`
+  - the user in the _developer group:
+    `dseditgroup -o checkmember -m <user> _developer` says yes;
+    `sudo dseditgroup -o edit -a <user> -t user _developer`
+
+`builds host setup` checks the three on the host and runs the commands for
+the ones that are off through sudo there when a person is at this terminal to
+type the password (over `ssh -t`); with nobody at the terminal it fails and
+names the commands to run on the host. `builds health` checks them on every
+host, this Mac included, and lists each host that lacks one under "needs
+action" with the commands.
 
   builds host add <name> <ssh target>
   builds host setup <name>
+  builds host setup local
   builds host setup-here
   builds host speed-here
   builds host list
@@ -615,9 +643,16 @@ cannot start refuses mac app builds only (APP BUILDS).
                               host's core speed in `hosts`: this Mac's time
                               over the host's for the fixed compile `builds
                               host speed-here` times on each (rustc on one
-                              core, the fastest of three). `builds install`
-                              copies the program to every host the same way,
-                              without the sccache step or the timing. `list`
+                              core, the fastest of three), then checks the
+                              settings UI tests need there and turns on the
+                              ones that are off (above), and once all are on
+                              removes the host's record of UI tests timing
+                              out, so mac app builds use its checkouts again.
+                              `setup local` does only that last step on this
+                              Mac, whose rest `builds install` sets up.
+                              `builds install` copies the program to every
+                              host the same way, without the sccache step, the
+                              timing or the settings. `list`
                               asks every host for its load average per core,
                               its free disk, whether it answers and whether it
                               refuses jobs, and keeps each host's record of

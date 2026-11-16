@@ -1,7 +1,9 @@
-//! What each host, this Mac included, has installed of builds' own: the
-//! `builds` program its jobs run, and whether launchd runs its sccache
-//! server. `builds health` and the dashboard compare each host with this Mac
-//! and say what to run for each one that differs.
+//! What each host, this Mac included, has set up for builds' jobs: the
+//! `builds` program its jobs run, whether launchd runs its sccache server,
+//! and the settings UI tests need there (ui_test_settings.rs). `builds
+//! health` and the dashboard compare each host with this Mac and say what to
+//! run for each one that differs; `ui_test_settings::findings` says what to
+//! run for the settings.
 
 use crate::checkout::parallel_map;
 use crate::fail;
@@ -9,7 +11,7 @@ use crate::fail::Result;
 use crate::host::{Host, LOCAL, Ssh};
 use crate::places::Places;
 
-/// What a host has installed of builds' own, as `installed_script` prints it.
+/// What a host has set up for builds' jobs, as `installed_script` prints it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Installed {
     /// The SHA-256 of the host's ~/.local/bin/builds, the program its jobs
@@ -22,20 +24,24 @@ pub struct Installed {
     /// launchd's job (`sccache::launchd_serves`, the same check that setup
     /// uses).
     pub sccache_under_launchd: bool,
+    /// The settings UI tests need there, which `builds host setup` turns on.
+    pub ui_tests: crate::ui_test_settings::UiTestSettings,
 }
 
 /// Runs on a host, and on this Mac, to print what `parse_installed` reads:
 /// the builds digest, whether builds' plist is there, the pid listening on
-/// sccache's port, and last, after `job=loaded`, what `launchctl print` says
-/// about launchd's job.
+/// sccache's port, the settings UI tests need, and last, after `job=loaded`,
+/// what `launchctl print` says about launchd's job.
 fn installed_script() -> String {
     let label = crate::install::SCCACHE_LABEL;
     format!(
         r#"if [ -e "$HOME/.local/bin/builds" ]; then echo "builds=$(shasum -a 256 "$HOME/.local/bin/builds" | cut -d ' ' -f 1)"; else echo builds=missing; fi
 if [ -e "$HOME/Library/LaunchAgents/{label}.plist" ]; then echo plist=present; else echo plist=missing; fi
 {listener}
+{ui_tests}
 if job=$(launchctl print "gui/$(id -u)/{label}" 2>/dev/null); then echo job=loaded; printf '%s\n' "$job"; else echo job=none; fi"#,
-        listener = crate::sccache::listener_script()
+        listener = crate::sccache::listener_script(),
+        ui_tests = crate::ui_test_settings::SCRIPT
     )
 }
 
@@ -55,6 +61,7 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
         _ => fail!("the host's answer has no plist line: {text:?}"),
     };
     let listener = crate::sccache::parse_listener_lines(text)?;
+    let ui_tests = crate::ui_test_settings::parse(text)?;
     let job = match text.split_once("\njob=") {
         Some((_, rest)) if rest.starts_with("loaded") => Some(crate::sccache::parse_job(rest)?),
         Some((_, rest)) if rest.starts_with("none") => None,
@@ -67,6 +74,7 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
             digest => Some(digest.to_string()),
         },
         sccache_under_launchd: plist && crate::sccache::launchd_serves(job.as_ref(), listener),
+        ui_tests,
     })
 }
 

@@ -65,6 +65,7 @@ mod text;
 mod tool;
 mod trash;
 mod trees;
+mod ui_test_settings;
 mod units;
 mod usage;
 mod warm;

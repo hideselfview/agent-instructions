@@ -152,7 +152,7 @@ fn a_watching_run_keeps_the_first_line_that_holds_the_text() {
             None,
             Keep {
                 all: None,
-                line_with: Some(("plugin failed", &found)),
+                line_with: Some((&["plugin failed"], &found)),
             },
         );
         found.lock().unwrap().clone()
@@ -176,7 +176,7 @@ fn a_watching_run_keeps_the_first_line_that_holds_the_text() {
 fn a_watch_joins_a_line_split_across_two_reads() {
     let found = Found::default();
     let mut watch = LineWatch {
-        needle: "plugin failed",
+        needles: &["plugin failed"],
         found: found.clone(),
         line: Vec::new(),
     };

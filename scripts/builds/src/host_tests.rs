@@ -103,10 +103,10 @@ fn refusals_keep_the_first_time_and_go_with_their_host() {
     std::fs::write(&file, "m1 u@m1 10\n").unwrap();
     record_refusal(&places, Refused::Jobs, "m1", "first").unwrap();
     record_refusal(&places, Refused::Jobs, "m1", "second").unwrap();
-    record_refusal(&places, Refused::MacBuilds, "m1", "plugin").unwrap();
+    record_refusal(&places, Refused::Xcode, "m1", "plugin").unwrap();
     // `refusals` lists this Mac's record of refusing mac app builds too,
     // because this Mac is always a host.
-    record_refusal(&places, Refused::MacBuilds, LOCAL, "plugin here").unwrap();
+    record_refusal(&places, Refused::Xcode, LOCAL, "plugin here").unwrap();
     // A record of a host that is not recorded is not listed.
     record_refusal(&places, Refused::Jobs, "old", "gone").unwrap();
     let found = refusals(&places).unwrap();
@@ -117,27 +117,36 @@ fn refusals_keep_the_first_time_and_go_with_their_host() {
     assert_eq!(
         listed,
         vec![
-            (LOCAL, Refused::MacBuilds, "plugin here"),
+            (LOCAL, Refused::Xcode, "plugin here"),
             ("m1", Refused::Jobs, "first"),
-            ("m1", Refused::MacBuilds, "plugin"),
+            ("m1", Refused::Xcode, "plugin"),
         ]
     );
     assert!(found[0].at > 0);
+    let mac = |places: &Places| -> Vec<(String, Refused)> {
+        refusing_mac_builds(places)
+            .unwrap()
+            .into_iter()
+            .map(|refusal| (refusal.host, refusal.refused))
+            .collect()
+    };
+    record_refusal(&places, Refused::UiAutomation, "m1", "timed out").unwrap();
     assert_eq!(
-        refusing(&places, Refused::MacBuilds).unwrap(),
-        vec![LOCAL.to_string(), "m1".to_string()]
+        mac(&places),
+        [
+            (LOCAL.to_string(), Refused::Xcode),
+            ("m1".to_string(), Refused::Xcode),
+            ("m1".to_string(), Refused::UiAutomation),
+        ],
+        "both kinds that refuse mac app builds, and not jobs"
     );
     clear_refusal(&places, Refused::Jobs, "m1").unwrap();
-    assert_eq!(
-        refusing(&places, Refused::MacBuilds).unwrap(),
-        vec![LOCAL.to_string(), "m1".to_string()],
-        "clearing one kind leaves the other"
-    );
+    assert_eq!(mac(&places).len(), 3, "clearing one kind leaves the others");
     remove(&places, "m1").unwrap();
     std::fs::write(&file, "m1 u@m1 10\n").unwrap();
     assert_eq!(
-        refusing(&places, Refused::MacBuilds).unwrap(),
-        vec![LOCAL.to_string()],
+        mac(&places),
+        [(LOCAL.to_string(), Refused::Xcode)],
         "removing m1 removed its records"
     );
 }

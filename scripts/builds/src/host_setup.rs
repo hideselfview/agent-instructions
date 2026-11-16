@@ -1,6 +1,7 @@
 //! Setting a host up to take jobs (`builds host setup`): copying this Mac's
 //! `builds` program there, running the host's sccache server under launchd,
-//! and measuring the speed of its cores against this Mac's.
+//! measuring the speed of its cores against this Mac's, and turning on the
+//! settings UI tests need there (ui_test_settings.rs).
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -109,22 +110,31 @@ pub fn install_program(ssh: &Ssh, host: &Host) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// `builds host setup <name>`.
+/// `builds host setup <name>`: `setup_host`, then the settings UI tests
+/// need (`ui_test_settings::set_up`), whose sudo commands run only when a
+/// person is at this terminal. For this Mac (`local`), whose rest `builds
+/// install` sets up, only the settings.
 pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
+    use std::io::IsTerminal;
     let Some(host) = host::all(&tool.places)?
         .into_iter()
         .find(|host| host.name == name)
     else {
         fail!("no host named {name} (`builds host list`)");
     };
-    let set_up = setup_host(&tool.places, ssh, &host)?;
-    for line in set_up.said.lines() {
-        println!("host {name}: {line}");
+    if host.target.is_some() {
+        let set_up = setup_host(&tool.places, ssh, &host)?;
+        for line in set_up.said.lines() {
+            println!("host {name}: {line}");
+        }
+        println!(
+            "installed builds on host {name}, with its builds root in {}; its cores compile at {:.2} of this Mac's speed",
+            set_up.root, set_up.speed
+        );
     }
-    println!(
-        "installed builds on host {name}, with its builds root in {}; its cores compile at {:.2} of this Mac's speed",
-        set_up.root, set_up.speed
-    );
+    let said =
+        crate::ui_test_settings::set_up(&tool.places, ssh, &host, std::io::stdin().is_terminal())?;
+    println!("host {name}: {said}");
     Ok(())
 }
 

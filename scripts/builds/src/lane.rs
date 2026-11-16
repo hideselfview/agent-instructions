@@ -43,7 +43,8 @@ impl Lane {
     }
 
     /// Whether the lane builds with Xcode, so a host whose Xcode cannot start
-    /// (xcode.rs) cannot build it.
+    /// (xcode.rs), or whose UI tests time out turning on automation mode
+    /// (ui_test_settings.rs), cannot build it.
     pub fn uses_xcode(self) -> bool {
         match self {
             Lane::Mac => true,

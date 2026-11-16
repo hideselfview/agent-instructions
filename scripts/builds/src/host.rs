@@ -17,9 +17,13 @@
 //! in the folder `host-xcode-failures` the same way, and the mac lane skips
 //! the host's app checkouts. No probe can find out whether Xcode starts
 //! again, so the record stays until `builds host clear-xcode` removes it,
-//! once someone has run the fix xcodebuild named on the host.
+//! once someone has run the fix xcodebuild named on the host. An app build
+//! whose step timed out turning on automation mode for UI tests records the
+//! host in the folder `host-ui-automation-failures`, with the same effect,
+//! until `builds host setup` finds the settings UI tests need in place there
+//! (ui_test_settings.rs).
 //!
-//! host_installed.rs checks what each host has installed of builds' own, and
+//! host_installed.rs checks what each host has set up for builds' jobs, and
 //! host_setup.rs sets a host up to take jobs.
 
 use std::path::PathBuf;
@@ -72,6 +76,19 @@ impl Ssh {
         let mut command = Command::new(&self.program);
         command
             .args(Self::options())
+            .arg(target)
+            .arg(remote_command);
+        command
+    }
+
+    /// `command`, with a terminal on the host for the command (`-t`), so a
+    /// program there such as sudo can ask the person at this terminal for a
+    /// password.
+    pub fn terminal_command(&self, target: &str, remote_command: &str) -> Command {
+        let mut command = Command::new(&self.program);
+        command
+            .args(Self::options())
+            .arg("-t")
             .arg(target)
             .arg(remote_command);
         command
@@ -294,18 +311,32 @@ pub enum Refused {
     /// Every job: git fails there, or a job could not start there.
     Jobs,
     /// Mac app builds: its Xcode cannot start.
-    MacBuilds,
+    Xcode,
+    /// Mac app builds: its UI tests timed out turning on automation mode,
+    /// which asks for a password there (ui_test_settings.rs).
+    UiAutomation,
 }
 
 impl Refused {
-    const ALL: [Refused; 2] = [Refused::Jobs, Refused::MacBuilds];
+    const ALL: [Refused; 3] = [Refused::Jobs, Refused::Xcode, Refused::UiAutomation];
 
     /// The folder of its records, beside the hosts file.
     fn dir(self, places: &Places) -> PathBuf {
         hosts_file(places).with_file_name(match self {
             Refused::Jobs => "host-refusals",
-            Refused::MacBuilds => "host-xcode-failures",
+            Refused::Xcode => "host-xcode-failures",
+            Refused::UiAutomation => "host-ui-automation-failures",
         })
+    }
+
+    /// Why a host recorded this way refuses mac app builds, or None for a
+    /// kind that leaves mac app builds alone.
+    pub fn mac_builds_cause(self) -> Option<&'static str> {
+        match self {
+            Refused::Jobs => None,
+            Refused::Xcode => Some("Xcode cannot start"),
+            Refused::UiAutomation => Some("UI tests time out turning on automation mode"),
+        }
     }
 }
 
@@ -360,11 +391,12 @@ pub fn refusals(places: &Places) -> Result<Vec<Refusal>> {
     Ok(found)
 }
 
-/// The names of the hosts recorded as refusing <refused>.
-pub fn refusing(places: &Places, refused: Refused) -> Result<Vec<String>> {
-    Ok(refusals_of(places, refused, &all(places)?)?
+/// The records of hosts that refuse mac app builds, of every kind that
+/// refuses them (`Refused::mac_builds_cause`).
+pub fn refusing_mac_builds(places: &Places) -> Result<Vec<Refusal>> {
+    Ok(refusals(places)?
         .into_iter()
-        .map(|refusal| refusal.host)
+        .filter(|refusal| refusal.refused.mac_builds_cause().is_some())
         .collect())
 }
 
@@ -403,31 +435,34 @@ fn refusals_of(places: &Places, refused: Refused, hosts: &[Host]) -> Result<Vec<
     Ok(found)
 }
 
-/// The line `builds health` prints under "needs action" for <refusal>.
-pub fn refusal_finding(refusal: &Refusal) -> crate::health::Advice {
+/// The line `builds health` prints under "needs action" for <refusal>; None
+/// for a host whose UI tests timed out, whose line `ui_test_settings::findings`
+/// writes with the host's settings.
+pub fn refusal_finding(refusal: &Refusal) -> Option<crate::health::Advice> {
     let name = &refusal.host;
-    if refusal.refused == Refused::MacBuilds {
-        let fix = match crate::xcode::fix_named_in(&refusal.said) {
-            Some(fix) => format!("Run sudo {fix} on {name}"),
-            None => format!("Fix what xcodebuild said on {name}"),
-        };
-        return crate::health::Advice::run(
+    let at = local_minute(refusal.at);
+    let said = refusal.said.trim_end_matches('.');
+    match refusal.refused {
+        Refused::Jobs => Some(crate::health::Advice::run(
             format!(
-                "host {name}'s Xcode cannot start (since {}), so mac app builds skip its app checkouts. xcodebuild said: {}. {fix}, then tell builds to use {name} again with",
-                local_minute(refusal.at),
-                refusal.said.trim_end_matches('.')
+                "host {name} refuses jobs (since {at}), so builds runs its jobs on this Mac. {name} said: {said}. Fix what {name} said on {name}. builds uses {name} again once a probe finds it answering with git running. Each builds cargo that may leave this Mac probes it; to probe every host now, run"
             ),
-            format!("builds host clear-xcode {name}"),
-        );
+            "builds host list".to_string(),
+        )),
+        Refused::Xcode => {
+            let fix = match crate::xcode::fix_named_in(&refusal.said) {
+                Some(fix) => format!("Run sudo {fix} on {name}"),
+                None => format!("Fix what xcodebuild said on {name}"),
+            };
+            Some(crate::health::Advice::run(
+                format!(
+                    "host {name}'s Xcode cannot start (since {at}), so mac app builds skip its app checkouts. xcodebuild said: {said}. {fix}, then tell builds to use {name} again with"
+                ),
+                format!("builds host clear-xcode {name}"),
+            ))
+        }
+        Refused::UiAutomation => None,
     }
-    crate::health::Advice::run(
-        format!(
-            "host {name} refuses jobs (since {}), so builds runs its jobs on this Mac. {name} said: {}. Fix what {name} said on {name}. builds uses {name} again once a probe finds it answering with git running. Each builds cargo that may leave this Mac probes it; to probe every host now, run",
-            local_minute(refusal.at),
-            refusal.said.trim_end_matches('.')
-        ),
-        "builds host list".to_string(),
-    )
 }
 
 /// Why <probe> keeps <host> from taking a job, or None when it can take one:
@@ -780,7 +815,7 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             if !all(&tool.places)?.iter().any(|host| host.name == *name) {
                 fail!("no host named {name} (`builds host list`)");
             }
-            clear_refusal(&tool.places, Refused::MacBuilds, name)?;
+            clear_refusal(&tool.places, Refused::Xcode, name)?;
             println!("mac app builds use the app checkouts on host {name} again");
             Ok(())
         }

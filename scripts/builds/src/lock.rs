@@ -280,8 +280,9 @@ fn by_load(loads: &mut Loads, entries: Vec<String>) -> (Vec<String>, Vec<String>
 }
 
 /// Takes the first free lock among the lane's app checkouts <allowed> lets in,
-/// the less loaded host's first and none on a host whose Xcode cannot start
-/// when the lane builds with Xcode, waiting for one to free when the builds ahead
+/// the less loaded host's first and none on a host recorded as refusing mac
+/// app builds (`host::refusing_mac_builds`) when the lane builds with Xcode,
+/// waiting for one to free when the builds ahead
 /// have not yet taken theirs or a stopped build is still going down; returns
 /// it with the checkout's name. The lane's queue lets in as many as there are
 /// locks, so a lock is free within moments.
@@ -313,18 +314,25 @@ fn take_free_lock(
             );
         }
         let broken = if lane.uses_xcode() {
-            host::refusing(places, host::Refused::MacBuilds)?
+            host::refusing_mac_builds(places)?
         } else {
             Vec::new()
         };
+        let cause_on = |entry: &str| {
+            broken
+                .iter()
+                .find(|refusal| refusal.host == host_of(entry))
+                .and_then(|refusal| refusal.refused.mac_builds_cause())
+        };
         let (on_broken, checkouts): (Vec<String>, Vec<String>) = checkouts
             .into_iter()
-            .partition(|entry| broken.iter().any(|name| name == host_of(entry)));
+            .partition(|entry| cause_on(entry).is_some());
         let (ordered, mut skipped) = by_load(&mut loads, checkouts);
         skipped.extend(on_broken.iter().map(|entry| {
             format!(
-                "{entry} (host {}'s Xcode cannot start; `builds health` says what fixes it)",
-                host_of(entry)
+                "{entry} (on host {}, {}; `builds health` says what fixes it)",
+                host_of(entry),
+                cause_on(entry).unwrap_or_default()
             )
         }));
         if ordered.is_empty() {
@@ -505,8 +513,8 @@ pub fn run_in_group_within(
 /// What a command printed, kept as it arrived on both streams.
 pub type Captured = Arc<Mutex<Vec<u8>>>;
 
-/// The first line a command printed that holds the text a run watches for,
-/// once one has come.
+/// The first line a command printed that holds one of the texts a run
+/// watches for, once one has come.
 pub type Found = Arc<Mutex<Option<String>>>;
 
 /// What a run keeps of the command's output, which it passes on to this
@@ -516,8 +524,8 @@ pub type Found = Arc<Mutex<Option<String>>>;
 pub struct Keep<'a> {
     /// All of it.
     pub all: Option<&'a Captured>,
-    /// The first line that holds the text.
-    pub line_with: Option<(&'static str, &'a Found)>,
+    /// The first line that holds one of the texts.
+    pub line_with: Option<(&'static [&'static str], &'a Found)>,
 }
 
 impl Keep<'_> {
@@ -535,9 +543,9 @@ const OUTPUT_GRACE: Duration = Duration::from_secs(2);
 const LINE_LIMIT: usize = 64 * 1024;
 const LINE_TAIL: usize = 1024;
 
-/// One stream's watch for the first line that holds <needle>.
+/// One stream's watch for the first line that holds one of <needles>.
 struct LineWatch {
-    needle: &'static str,
+    needles: &'static [&'static str],
     found: Found,
     /// The stream's line so far.
     line: Vec<u8>,
@@ -558,7 +566,7 @@ impl LineWatch {
     /// Looks at the line so far as a whole line and starts the next.
     fn end_line(&mut self) {
         let text = String::from_utf8_lossy(&self.line);
-        if text.contains(self.needle) {
+        if self.needles.iter().any(|needle| text.contains(needle)) {
             let mut found = self.found.lock().expect("no thread panicked holding it");
             if found.is_none() {
                 *found = Some(text.trim_end().to_string());
@@ -660,8 +668,8 @@ fn run_group(
     let mut copies = 0;
     let all = || keep.all.cloned();
     let watch = || {
-        keep.line_with.map(|(needle, found)| LineWatch {
-            needle,
+        keep.line_with.map(|(needles, found)| LineWatch {
+            needles,
             found: found.clone(),
             line: Vec::new(),
         })

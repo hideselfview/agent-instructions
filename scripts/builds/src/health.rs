@@ -15,7 +15,9 @@
 //! recorded design change covers (lists/held.rs), a repo with a design folder
 //! and no design globs (lists/project.rs), or a build host that refuses
 //! jobs, whose Xcode cannot start, whose installed `builds` differs from this
-//! Mac's or whose sccache server launchd does not run (host_installed.rs).
+//! Mac's or whose sccache server launchd does not run (host_installed.rs), or
+//! that lacks a setting UI tests need or whose UI tests timed out turning on
+//! automation mode (ui_test_settings.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -61,7 +63,8 @@ pub enum FindingKind {
     Claim,
     /// A process with a lot of CPU time that looks stuck.
     Busy,
-    /// A build host that refuses jobs, or whose Xcode cannot start.
+    /// A build host that refuses work, or lacks something builds sets up
+    /// there.
     Host,
     /// No dashboard runs.
     Dashboard,
@@ -1150,9 +1153,11 @@ pub fn lines(health: &Health) -> Vec<String> {
 
 /// The findings that come from the hosts: each process that looks stuck on
 /// one (stuck.rs), each host that refuses jobs or whose Xcode cannot start,
-/// and what `host_installed::installed_findings` reports: each host whose installed
+/// what `host_installed::installed_findings` reports: each host whose installed
 /// `builds` differs from this Mac's or that builds could not ask, and each
-/// Mac whose sccache server launchd does not run (host_installed.rs). `assess` judges
+/// Mac whose sccache server launchd does not run (host_installed.rs), and
+/// each Mac that lacks a setting UI tests need or whose UI tests timed out
+/// (ui_test_settings.rs). `assess` judges
 /// only what this Mac's process reading finds, which runs no ssh, so `builds
 /// health` and the dashboard each add these findings to the ones `assess`
 /// returns.
@@ -1165,13 +1170,11 @@ pub fn host_findings(
         .into_iter()
         .map(|advice| Finding::new(FindingKind::Busy, advice))
         .chain(
-            refusals.iter().map(|refusal| {
-                Finding::new(FindingKind::Host, crate::host::refusal_finding(refusal))
-            }),
-        )
-        .chain(
-            crate::host_installed::installed_findings(installed)
-                .into_iter()
+            refusals
+                .iter()
+                .filter_map(crate::host::refusal_finding)
+                .chain(crate::host_installed::installed_findings(installed))
+                .chain(crate::ui_test_settings::findings(refusals, installed))
                 .map(|advice| Finding::new(FindingKind::Host, advice)),
         )
         .collect()
@@ -1778,7 +1781,7 @@ mod tests {
     fn a_host_whose_xcode_cannot_start_names_the_fix_and_how_to_use_it_again() {
         let refusal = crate::host::Refusal {
             host: "m1".to_string(),
-            refused: crate::host::Refused::MacBuilds,
+            refused: crate::host::Refused::Xcode,
             at: 1_800_000_000,
             said: "A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.".to_string(),
         };

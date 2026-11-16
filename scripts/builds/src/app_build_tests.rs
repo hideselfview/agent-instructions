@@ -135,7 +135,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
             true
         )
         .unwrap(),
-        Ended::XcodeCannotStart(said.to_string())
+        Ended::HostFault(Refused::Xcode, said.to_string())
     );
     assert!(
         matches!(

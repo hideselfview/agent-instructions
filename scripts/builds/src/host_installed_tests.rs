@@ -12,8 +12,8 @@ fn host(name: &str) -> Host {
 }
 
 /// What `installed_script` prints for a host with builds' plist, the pid
-/// <listener> on sccache's port, and launchd's job as `launchctl print`
-/// printed <job>, or no job.
+/// <listener> on sccache's port, the settings UI tests need all on, and
+/// launchd's job as `launchctl print` printed <job>, or no job.
 fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> String {
     let job = match job {
         Some(printed) => format!("job=loaded\n{printed}"),
@@ -21,8 +21,23 @@ fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> Strin
     };
     let status = if listener.is_empty() { 1 } else { 0 };
     format!(
-        "builds={builds}\nplist={plist}\nlistener_status={status}\nlistener={listener}\nlistener_said=\n{job}"
+        "builds={builds}\nplist={plist}\nlistener_status={status}\nlistener={listener}\nlistener_said=\n{UI_TESTS}{job}"
     )
+}
+
+/// What `ui_test_settings::SCRIPT` prints on a Mac with every setting on.
+const UI_TESTS: &str = "ui_user=u
+ui_automation=This device DOES NOT REQUIRE user authentication to enable Automation Mode.
+ui_developer_mode=Developer mode is currently enabled.
+ui_developer_group=yes u is a member of _developer
+";
+
+/// The settings UI tests need, all on, for user u.
+fn all_on() -> crate::ui_test_settings::UiTestSettings {
+    crate::ui_test_settings::UiTestSettings {
+        user: "u".to_string(),
+        missing: Vec::new(),
+    }
 }
 
 #[test]
@@ -33,6 +48,7 @@ fn reads_what_a_host_has_installed() {
         Installed {
             builds: Some("ab12".to_string()),
             sccache_under_launchd: true,
+            ui_tests: all_on(),
         }
     );
     assert_eq!(
@@ -40,6 +56,7 @@ fn reads_what_a_host_has_installed() {
         Installed {
             builds: None,
             sccache_under_launchd: false,
+            ui_tests: all_on(),
         }
     );
     assert!(parse_installed(&answer("", "present", "", None)).is_err());
@@ -148,6 +165,7 @@ fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
     let installed = |sccache_under_launchd| Installed {
         builds: Some("ab12".to_string()),
         sccache_under_launchd,
+        ui_tests: all_on(),
     };
     let read = |host: &str, under: bool| HostInstalled {
         host: host.to_string(),

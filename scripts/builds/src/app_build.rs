@@ -48,11 +48,13 @@
 //! the checkout, behind the build that took over.
 //!
 //! When a step of the mac lane fails after xcodebuild printed that it cannot
-//! start (xcode.rs), the host caused the failure, not the code. The lane then
-//! records the host as refusing mac app builds (host.rs), and `builds health`
-//! lists the host with the fix xcodebuild named. The lane runs again from its
-//! place in the queue, in a checkout on another host, because the lane's lock
-//! skips checkouts on hosts recorded this way.
+//! start (xcode.rs), or after XCTest printed that it timed out turning on
+//! automation mode (ui_test_settings.rs), the host caused the failure, not
+//! the code. The lane then records the host as refusing mac app builds
+//! (host.rs), and `builds health` lists the host with what fixes it: the fix
+//! xcodebuild named, or the commands that turn on the settings UI tests need.
+//! The lane runs again from its place in the queue, in a checkout on another
+//! host, because the lane's lock skips checkouts on hosts recorded this way.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
@@ -72,7 +74,7 @@ use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::host::Ssh;
+use crate::host::{Refused, Ssh};
 use crate::install_gate;
 use crate::lane::Lane;
 use crate::lock::{self, Found, Keep, Ran, Within};
@@ -344,37 +346,60 @@ enum Ended {
     Finished,
     /// A takeover stopped a step.
     TakenOver,
-    /// A step failed after xcodebuild printed that it cannot start on the
-    /// host; the line it printed.
-    XcodeCannotStart(String),
+    /// A step failed after printing a line that says the host failed it
+    /// (`HOST_FAULTS`): what the host refuses from now on, and the line.
+    HostFault(Refused, String),
+}
+
+/// The lines a mac lane step prints when the host failed it, not the code,
+/// each with what the host refuses once a step failed after printing it.
+const HOST_FAULTS: [(&str, Refused); 2] = [
+    (crate::xcode::CANNOT_START, Refused::Xcode),
+    (
+        crate::ui_test_settings::AUTOMATION_TIMED_OUT,
+        Refused::UiAutomation,
+    ),
+];
+
+/// The texts of `HOST_FAULTS`, which a mac lane step's run watches for.
+const HOST_FAULT_TEXTS: &[&str] = &[HOST_FAULTS[0].0, HOST_FAULTS[1].0];
+
+/// What the host refuses after a step failed having printed <said>, a line
+/// that holds one of `HOST_FAULT_TEXTS`.
+fn refused_after(said: &str) -> Refused {
+    HOST_FAULTS
+        .iter()
+        .find(|(text, _)| said.contains(text))
+        .map(|(_, refused)| *refused)
+        .expect("the watch keeps only a line that holds one of the texts")
 }
 
 /// What a step's run keeps of its output: all of it for a shots run with a
-/// store that keeps its findings (<all>), and xcodebuild's line saying it
-/// cannot start when the lane watches for it (<xcode>).
+/// store that keeps its findings (<all>), and the first line saying the host
+/// failed the step when the lane watches for one (<fault>).
 fn keep_for<'a>(
     kind: StepKind,
     shots: Option<&ShotsStore>,
     all: &'a lock::Captured,
-    xcode: Option<&'a Found>,
+    fault: Option<&'a Found>,
 ) -> Keep<'a> {
     Keep {
         all: (kind == StepKind::Shots && shots.is_some()).then_some(all),
-        line_with: xcode.map(|found| (crate::xcode::CANNOT_START, found)),
+        line_with: fault.map(|found| (HOST_FAULT_TEXTS, found)),
     }
 }
 
-/// Runs <step> (of <kind>) in the checkout <top>, watching for xcodebuild's
-/// line in <xcode>; a shots run with a store keeps the findings it printed.
+/// Runs <step> (of <kind>) in the checkout <top>, watching for a line of
+/// `HOST_FAULTS` in <fault>; a shots run with a store keeps the findings it printed.
 fn run_local_step(
     top: &Path,
     step: &Step,
     kind: StepKind,
     shots: Option<&ShotsStore>,
-    xcode: Option<&Found>,
+    fault: Option<&Found>,
 ) -> Result<Within> {
     let kept = lock::Captured::default();
-    let keep = keep_for(kind, shots, &kept, xcode);
+    let keep = keep_for(kind, shots, &kept, fault);
     let outcome = run_command_keeping(top, &step.command, Some(step.limit()), keep);
     if let (StepKind::Shots, Some(store)) = (kind, shots) {
         store.keep_of(&outcome, &kept, step, top, &mut LocalRun(top));
@@ -390,19 +415,19 @@ fn run_steps(
     shots: Option<&ShotsStore>,
     watch: bool,
 ) -> Result<Ended> {
-    run_steps_with(steps, log, watch, &mut |step, kind, xcode| {
-        run_local_step(top, step, kind, shots, xcode)
+    run_steps_with(steps, log, watch, &mut |step, kind, fault| {
+        run_local_step(top, step, kind, shots, fault)
     })
 }
 
-/// Runs one step of a kind, watching for xcodebuild's line when given where
-/// to keep it.
+/// Runs one step of a kind, watching for a line of `HOST_FAULTS` when given
+/// where to keep it.
 type RunStep<'a> = dyn FnMut(&Step, StepKind, Option<&Found>) -> Result<Within> + 'a;
 
 /// Runs <steps> in order, each by <run>, stopping at the first that fails.
 /// `run_steps_with` times each step it starts into <log> (app_timing.rs).
-/// With <watch>, each step's run watches for xcodebuild's line saying it cannot start, and a step
-/// that fails after printing it ends the run with `XcodeCannotStart`.
+/// With <watch>, each step's run watches for a line of `HOST_FAULTS`, and a
+/// step that fails after printing one ends the run with `HostFault`.
 fn run_steps_with(
     steps: &[Step],
     log: &mut Vec<StepRecord>,
@@ -447,7 +472,7 @@ fn run_steps_with(
             Err(Fail::Exit(code)) => {
                 note(format!("step {} failed (exit {code})", step.name));
                 if let Some(said) = found.lock().expect("no thread panicked holding it").take() {
-                    return Ok(Ended::XcodeCannotStart(said));
+                    return Ok(Ended::HostFault(refused_after(&said), said));
                 }
                 return Err(Fail::Exit(code));
             }
@@ -546,15 +571,15 @@ impl Site {
     ) -> Result<Ended> {
         match self {
             Site::Local(top) => run_steps(top, steps, log, shots, watch),
-            Site::Remote(remote) => run_steps_with(steps, log, watch, &mut |step, kind, xcode| {
-                run_remote_step(remote, step, kind, results, shots, xcode)
+            Site::Remote(remote) => run_steps_with(steps, log, watch, &mut |step, kind, fault| {
+                run_remote_step(remote, step, kind, results, shots, fault)
             }),
         }
     }
 }
 
-/// Runs <step> (of <kind>) in the checkout on a host, watching for
-/// xcodebuild's line in <xcode>, keeps the findings of a shots run here, then
+/// Runs <step> (of <kind>) in the checkout on a host, watching for a line of
+/// `HOST_FAULTS` in <fault>, keeps the findings of a shots run here, then
 /// copies <results> back, since a step that failed or ran out of time has
 /// written the reports its reader needs most. A copy that fails fails a step
 /// that passed; after a step that failed, the run notes the copy's error and
@@ -565,11 +590,11 @@ fn run_remote_step(
     kind: StepKind,
     results: &[String],
     shots: Option<&ShotsStore>,
-    xcode: Option<&Found>,
+    fault: Option<&Found>,
 ) -> Result<Within> {
     let start = remote.step_command(&step.command)?;
     let kept = lock::Captured::default();
-    let keep = keep_for(kind, shots, &kept, xcode);
+    let keep = keep_for(kind, shots, &kept, fault);
     let ran = lock::run_in_group_keeping(start, &step.command[0], Some(step.limit()), keep);
     if let (StepKind::Shots, Some(store)) = (kind, shots) {
         // The commit is the host's checkout's, which this Mac holds too.
@@ -938,11 +963,14 @@ fn build_lane(
                     "the build was stopped for a takeover; building {commit} again after it"
                 ));
             }
-            Ended::XcodeCannotStart(said) => {
+            Ended::HostFault(refused, said) => {
                 let host = site.host_name().to_string();
-                crate::host::record_refusal(places, crate::host::Refused::MacBuilds, &host, &said)?;
+                crate::host::record_refusal(places, refused, &host, &said)?;
                 note(format!(
-                    "host {host}'s Xcode cannot start, so the build failed there and the code did not cause it. builds health now lists {host} with the fix, mac app builds skip its app checkouts, and {commit} builds again in a checkout on another host. xcodebuild said: {said}"
+                    "on host {host}, {}, so the build failed there and the code did not cause it. builds health now lists {host} with what fixes it, mac app builds skip its app checkouts, and {commit} builds again in a checkout on another host. The step printed: {said}",
+                    refused
+                        .mac_builds_cause()
+                        .expect("every host fault refuses mac app builds")
                 ));
             }
         }

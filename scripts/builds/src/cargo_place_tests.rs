@@ -530,7 +530,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
         "{:?}",
         refusals[0]
     );
-    let finding = host::refusal_finding(&refusals[0]);
+    let finding = host::refusal_finding(&refusals[0]).expect("a host refusing jobs has a line");
     assert!(
         finding.text.starts_with("host m1 refuses jobs (since ")
             && finding.text.contains("sudo xcodebuild -license")
