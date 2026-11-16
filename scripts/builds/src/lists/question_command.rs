@@ -503,12 +503,7 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
         let lists = &store::read(db)?;
         open_question(lists, id)?;
         match spot {
-            Some(spot) => {
-                if let Spot::Above(next) | Spot::Below(next) = spot {
-                    open_question(lists, next)?;
-                }
-                question::place(db, id, spot, why, by_person)
-            }
+            Some(spot) => question::place(db, id, spot, why, by_person),
             None => question::unplace(db, id),
         }
     })?;

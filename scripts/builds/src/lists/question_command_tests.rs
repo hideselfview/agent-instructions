@@ -1052,7 +1052,7 @@ fn place_next_to_a_question_needs_one_in_the_ranked_order() {
         ),
         (
             format!("place {c} --above 99 --why w"),
-            "#99 is not a record".to_string(),
+            "#99 is not an open question".to_string(),
         ),
     ] {
         refuses(&scratch, &tool, &store, &command, &expected);
