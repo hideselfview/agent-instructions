@@ -70,8 +70,10 @@ struct Facts {
     claim: Option<Claim>,
     branch: Option<String>,
     git: Option<SideGit>,
-    /// Per manifest entry, in order.
-    folders: Vec<FolderFacts>,
+    /// Per manifest entry, in order; None until the daemon reads the sizes,
+    /// which it does after the checkout's git, so a page asked for between
+    /// the two shows the size as not known yet, not as nothing.
+    folders: Option<Vec<FolderFacts>>,
     /// A gone root's whole size.
     gone_kib: Option<u64>,
 }
@@ -497,7 +499,7 @@ impl Model {
             };
             let mut state = self.state.lock().expect("no panic holding it");
             let facts = state.facts.entry(root.path.clone()).or_default();
-            facts.folders = folders;
+            facts.folders = Some(folders);
             facts.gone_kib = gone_kib;
         }
         self.publish();
@@ -975,12 +977,14 @@ impl Model {
             };
             let checkout = match &root.live {
                 Some(live) => {
-                    let total = facts.folders.iter().try_fold(0u64, |sum, f| {
-                        if f.exists {
-                            f.kib.map(|k| sum + k)
-                        } else {
-                            Some(sum)
-                        }
+                    let total = facts.folders.as_ref().and_then(|folders| {
+                        folders.iter().try_fold(0u64, |sum, f| {
+                            if f.exists {
+                                f.kib.map(|k| sum + k)
+                            } else {
+                                Some(sum)
+                            }
+                        })
                     });
                     CheckoutPage {
                         name: root.name(),
@@ -995,7 +999,7 @@ impl Model {
                             .then(|| worktree_state(facts.claim.as_ref(), facts.git.as_ref())),
                         claim: facts.claim.clone(),
                         git: facts.git.clone(),
-                        folders: Some(facts.folders.clone()),
+                        folders: facts.folders.clone(),
                         total_kib: total,
                         activity: Activity {
                             cpu: processes.iter().filter_map(|p| p.cpu).sum(),
@@ -1428,9 +1432,11 @@ pub struct CheckoutPage {
     pub claim: Option<Claim>,
     pub git: Option<SideGit>,
     pub state: Option<&'static str>,
-    /// None for a gone root.
+    /// None for a gone root, and for a live one until the daemon reads its
+    /// sizes.
     pub folders: Option<Vec<FolderFacts>>,
-    /// None while a folder is still being walked.
+    /// None until the daemon reads the sizes, and while a folder is still
+    /// being walked.
     pub total_kib: Option<u64>,
     pub activity: Activity,
     /// The words of the worktree's card (cards.rs); empty for a gone root
