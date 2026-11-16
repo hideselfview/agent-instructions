@@ -632,7 +632,11 @@ impl Model {
         ssh: &crate::host::Ssh,
     ) -> crate::fail::Result<Vec<crate::health::Finding>> {
         let hosts = crate::host::all(&self.places)?;
-        let busy = crate::checkout::parallel_map(&hosts, |host| crate::stuck::read(ssh, host));
+        // This daemon is the dashboard.
+        let dashboard = std::process::id() as i32;
+        let busy = crate::checkout::parallel_map(&hosts, |host| {
+            crate::stuck::read(ssh, host, host.target.is_none().then_some(dashboard))
+        });
         let refusals = crate::host::refusals(&self.places)?;
         Ok(crate::health::host_findings(&busy, &refusals))
     }

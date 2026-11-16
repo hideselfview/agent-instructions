@@ -55,7 +55,7 @@ fn lists_a_pegged_system_daemon_with_the_sudo_command() {
         ),
         row(18, 1, 501, 3.0, 5000.0, 9_000, "/usr/bin/quiet"),
     ];
-    let busy = judge("local", &rows, &HashMap::new(), &sampling());
+    let busy = judge("local", &rows, &HashMap::new(), &sampling(), None);
     assert_eq!(busy.len(), 1);
     assert_eq!(
         busy[0].owner,
@@ -77,7 +77,7 @@ fn lists_a_pegged_system_daemon_with_the_sudo_command() {
 #[test]
 fn a_busy_system_daemon_with_little_cpu_time_is_listed_not_flagged() {
     let rows = vec![row(9, 1, 0, 95.0, 700.0, 2_000, "/usr/libexec/mds")];
-    let busy = judge("local", &rows, &HashMap::new(), &sampling());
+    let busy = judge("local", &rows, &HashMap::new(), &sampling(), None);
     assert_eq!(busy.len(), 1);
     assert_eq!(busy[0].action, None);
 }
@@ -96,7 +96,7 @@ fn thresholds_pick_busy_processes() {
         // 40% for hours: not busy.
         row(5, 0, 501, 40.0, 9_000.0, 20_000, "/usr/bin/e"),
     ];
-    let pids: Vec<i32> = judge("local", &rows, &HashMap::new(), &sampling())
+    let pids: Vec<i32> = judge("local", &rows, &HashMap::new(), &sampling(), None)
         .iter()
         .map(|b| b.pid)
         .collect();
@@ -131,7 +131,7 @@ fn a_build_past_its_step_limit_is_flagged_with_its_checkout() {
         100,
         "/Users/x/dev/bae-worktrees/side-1/bae-macos".to_string(),
     )]);
-    let busy = judge("m1", &rows, &cwds, &sampling());
+    let busy = judge("m1", &rows, &cwds, &sampling(), None);
     assert_eq!(busy.len(), 1);
     assert_eq!(
         busy[0].owner,
@@ -177,7 +177,7 @@ fn a_build_inside_its_step_limit_is_listed_not_flagged() {
             "rustc --crate-name x",
         ),
     ];
-    let busy = judge("local", &rows, &HashMap::new(), &sampling());
+    let busy = judge("local", &rows, &HashMap::new(), &sampling(), None);
     assert_eq!(busy.len(), 1);
     assert_eq!(busy[0].action, None);
 }
@@ -197,7 +197,7 @@ fn an_agent_process_names_the_shells_worktree() {
         ),
     ];
     let cwds = HashMap::from([(50, "/Users/x/dev/bae-worktrees/side-7".to_string())]);
-    let busy = judge("local", &rows, &cwds, &sampling());
+    let busy = judge("local", &rows, &cwds, &sampling(), None);
     assert_eq!(
         busy[0].owner,
         Owner::Agent {
@@ -216,7 +216,7 @@ fn a_test_binary_is_flagged_after_the_time_a_test_run_takes() {
         row(70, 1, 501, 100.0, 3_000.0, 40 * 60, binary),
         row(71, 1, 501, 100.0, 700.0, 12 * 60, binary),
     ];
-    let busy = judge("local", &rows, &HashMap::new(), &sampling());
+    let busy = judge("local", &rows, &HashMap::new(), &sampling(), None);
     let long = busy.iter().find(|b| b.pid == 70).unwrap();
     let short = busy.iter().find(|b| b.pid == 71).unwrap();
     assert_eq!(
@@ -287,6 +287,7 @@ fn findings_come_only_from_hosts_that_were_read() {
                 )],
                 &HashMap::new(),
                 &sampling(),
+                None,
             )),
             wedged: None,
             hung: Vec::new(),
@@ -301,7 +302,7 @@ fn findings_come_only_from_hosts_that_were_read() {
 fn a_busy_fseventsd_is_flagged_at_once_with_the_sample_command() {
     // 98% with 28m of CPU: far under the 2h a daemon needs for the old rule.
     let rows = vec![row(17, 1, 0, 98.0, 28.0 * 60.0, 3 * 3600, FSEVENTSD_PATH)];
-    let busy = judge("local", &rows, &HashMap::new(), &sampling());
+    let busy = judge("local", &rows, &HashMap::new(), &sampling(), None);
     let sample = "mkdir -p \"/Users/x/Library/Application Support/builds/samples\" && sudo sample 17 5 -file \"/Users/x/Library/Application Support/builds/samples/local-17-1763100000.txt\"";
     let action = busy[0].action.as_ref().unwrap();
     assert_eq!(action.command.as_deref(), Some(sample));
@@ -329,7 +330,7 @@ fn a_busy_fseventsd_on_another_host_is_sampled_over_ssh_there() {
     };
     let sampling = Sampling::new(&host, 1_763_100_000);
     let rows = vec![row(40, 1, 0, 95.0, 1_000.0, 4_000, FSEVENTSD_PATH)];
-    let busy = judge("m1", &rows, &HashMap::new(), &sampling);
+    let busy = judge("m1", &rows, &HashMap::new(), &sampling, None);
     let action = busy[0].action.as_ref().unwrap();
     assert_eq!(
         action.command.as_deref(),
@@ -342,7 +343,7 @@ fn a_busy_fseventsd_on_another_host_is_sampled_over_ssh_there() {
 #[test]
 fn an_idle_fseventsd_is_not_flagged() {
     let rows = vec![row(17, 1, 0, 2.0, 5_000.0, 90_000, FSEVENTSD_PATH)];
-    assert!(judge("local", &rows, &HashMap::new(), &sampling()).is_empty());
+    assert!(judge("local", &rows, &HashMap::new(), &sampling(), None).is_empty());
     assert_eq!(wedged("local", &rows, 123_456, &sampling()), None);
 }
 
@@ -378,7 +379,7 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
     let rows = vec![row(17, 1, 0, 100.0, 40.0 * 60.0, 3 * 3600, FSEVENTSD_PATH)];
     let hosts = vec![HostBusy {
         host: "local".into(),
-        busy: Ok(judge("local", &rows, &HashMap::new(), &sampling())),
+        busy: Ok(judge("local", &rows, &HashMap::new(), &sampling(), None)),
         wedged: wedged("local", &rows, 0, &sampling()),
         hung: Vec::new(),
     }];
@@ -456,4 +457,25 @@ fn an_idle_test_that_builds_cargo_runs_on_a_host_is_hung() {
         hung,
     };
     assert_eq!(findings(&[host]).len(), 1);
+}
+
+/// The dashboard, busy for hours as builds started it, is no busy process and
+/// gets no finding; another builds process like it would.
+#[test]
+fn the_dashboard_is_never_a_busy_build() {
+    let rows = vec![
+        row(1, 0, 0, 0.0, 10.0, 9_000_000, "/sbin/launchd"),
+        row(
+            70525,
+            1,
+            501,
+            80.0,
+            3_000.0,
+            102 * 60,
+            "builds dashboard --listen 192.168.1.166",
+        ),
+    ];
+    assert!(judge("local", &rows, &HashMap::new(), &sampling(), Some(70525)).is_empty());
+    let busy = judge("local", &rows, &HashMap::new(), &sampling(), None);
+    assert!(busy[0].finding().is_some(), "{busy:?}");
 }

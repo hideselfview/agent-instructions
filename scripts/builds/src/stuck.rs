@@ -510,17 +510,21 @@ fn duration(seconds: i64) -> String {
 }
 
 /// The busy processes among <rows> on <host>, most CPU time first, each with
-/// its owner. <cwds> are the working folders of `pids_to_place(rows)`.
+/// its owner. <cwds> are the working folders of `pids_to_place(rows)`. The
+/// dashboard (<dashboard>, its pid on this host) is never one: it runs as
+/// long as the machine is up and is busy whenever the volume changes a lot,
+/// and health checks it only for being up.
 pub fn judge(
     host: &str,
     rows: &[Row],
     cwds: &HashMap<i32, String>,
     sampling: &Sampling,
+    dashboard: Option<i32>,
 ) -> Vec<Busy> {
     let by_pid: HashMap<i32, &Row> = rows.iter().map(|r| (r.pid, r)).collect();
     let mut found: Vec<Busy> = rows
         .iter()
-        .filter(|row| is_busy(row))
+        .filter(|row| is_busy(row) && Some(row.pid) != dashboard)
         .map(|row| {
             let owner = owner_of(&by_pid, row, cwds);
             let action = action_for(host, &owner, row, sampling);
@@ -663,8 +667,9 @@ fn now_seconds() -> i64 {
         .as_secs() as i64
 }
 
-/// Reads <host>'s processes and judges them.
-pub fn read(ssh: &Ssh, host: &Host) -> HostBusy {
+/// Reads <host>'s processes and judges them, passing over the dashboard,
+/// whose pid on the host is <dashboard>.
+pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
     let busy = (|| {
         let listing = match &host.target {
             Some(target) => output_of(
@@ -708,7 +713,7 @@ pub fn read(ssh: &Ssh, host: &Host) -> HostBusy {
             Some(_) => None,
         };
         Ok((
-            judge(&host.name, &rows, &cwds, &sampling),
+            judge(&host.name, &rows, &cwds, &sampling, dashboard),
             wedged,
             hung_tests(&host.name, &rows, &cwds, &sampling),
         ))

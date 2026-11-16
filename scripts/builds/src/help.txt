@@ -822,8 +822,13 @@ STATUS, HEALTH AND THE DASHBOARD
                                 pid, host, CPU now, CPU time, age, command,
                                 and what each belongs to (a build with its
                                 worktree and step, an agent shell, a test
-                                binary, a system daemon)
-                              These are findings, each with what to run: an
+                                binary, a system daemon); the dashboard is
+                                never one, since it runs as long as the Mac
+                                is up
+                              - whether the dashboard runs, and its pid, which
+                                it writes in the daemon's lock file
+                              These are findings, each with what to run: no
+                              dashboard running (`builds dashboard`); an
                               unclaimed worktree with commits waiting to land;
                               a claimed worktree with no change and no build
                               for an hour (counted from its claim, if later); a lists store that fails its check;

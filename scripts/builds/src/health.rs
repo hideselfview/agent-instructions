@@ -58,6 +58,8 @@ pub enum FindingKind {
     Busy,
     /// A build host that refuses jobs, or whose Xcode cannot start.
     Host,
+    /// No dashboard runs.
+    Dashboard,
 }
 
 /// What a finding says, and the command it suggests running, if any. The
@@ -1042,6 +1044,21 @@ pub fn host_findings(
         .collect()
 }
 
+/// The finding when no dashboard runs (<dashboard> is its pid): the person
+/// reads the worktrees and the lists there.
+fn dashboard_finding(dashboard: Option<i32>) -> Option<Finding> {
+    dashboard.is_none().then(|| {
+        Finding::new(
+            FindingKind::Dashboard,
+            Advice::run(
+                "dashboard: no dashboard runs, so its page shows nothing; start it with"
+                    .to_string(),
+                "builds dashboard".to_string(),
+            ),
+        )
+    })
+}
+
 /// `builds health [--json]`: exits 1 when something needs acting on.
 pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let (json, stop_junk) = match args {
@@ -1075,7 +1092,17 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     // ones stuck.rs judges stuck.
     let ssh = crate::host::Ssh::from_env();
     let hosts = crate::host::all(&tool.places)?;
-    let busy = parallel_map(&hosts, |host| crate::stuck::read(&ssh, host));
+    let lock = tool.places.daemon_lock();
+    let dashboard = crate::daemon::live::daemon_pid(&lock)
+        .context(|| format!("reading the dashboard's pid from {}", lock.display()))?;
+    let busy = parallel_map(&hosts, |host| {
+        crate::stuck::read(
+            &ssh,
+            host,
+            host.target.is_none().then_some(dashboard).flatten(),
+        )
+    });
+    health.findings.extend(dashboard_finding(dashboard));
     // Read now: a probe in another command may have just written or removed one.
     let refusals = crate::host::refusals(&tool.places)?;
     health.findings.extend(host_findings(&busy, &refusals));
@@ -1092,13 +1119,19 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         );
         println!("{value}");
     } else {
-        // The busy processes come before "needs action", which is last.
+        // The dashboard and the busy processes come before "needs action",
+        // which is last.
         let mut out = lines(&health);
         let at = out
             .iter()
             .position(|line| line.starts_with("needs action"))
             .unwrap_or(out.len());
-        out.splice(at..at, crate::stuck::lines(&busy));
+        let mut before = vec![match dashboard {
+            Some(pid) => format!("dashboard: up (pid {pid})"),
+            None => "dashboard: not running".to_string(),
+        }];
+        before.extend(crate::stuck::lines(&busy));
+        out.splice(at..at, before);
         for line in out {
             println!("{line}");
         }
@@ -1406,5 +1439,15 @@ mod tests {
                 && line.contains("Run sudo xcodebuild -runFirstLaunch on m1"),
             "{line}"
         );
+    }
+
+    /// A dashboard that runs is no finding; none running is one that says
+    /// how to start it.
+    #[test]
+    fn health_asks_for_a_dashboard_only_when_none_runs() {
+        assert_eq!(dashboard_finding(Some(70525)), None);
+        let found = dashboard_finding(None).expect("a finding");
+        assert_eq!(found.kind, FindingKind::Dashboard);
+        assert_eq!(found.advice.command.as_deref(), Some("builds dashboard"));
     }
 }

@@ -2,10 +2,12 @@
 //! macOS refuses a connection both when nobody listens and when the listener's
 //! backlog is full. A live daemon holds an exclusive lock on its lock file
 //! until it exits, and the system drops the lock when the process dies, so the
-//! lock says whether a daemon owns the socket.
+//! lock says whether a daemon owns the socket. The lock file holds the pid of
+//! the daemon that claimed it, so `builds health` knows which process is the
+//! dashboard.
 
 use std::fs::{File, OpenOptions, TryLockError};
-use std::io;
+use std::io::{self, Write};
 use std::path::Path;
 
 /// A daemon's claim on its root: held until dropped or the process exits.
@@ -13,17 +15,37 @@ pub struct Claim {
     _file: File,
 }
 
-/// Claims <lock> for this process. None when a live daemon already holds it.
+/// Claims <lock> for this process and writes its pid there. None when a live
+/// daemon already holds it.
 pub fn claim(lock: &Path) -> io::Result<Option<Claim>> {
-    let file = OpenOptions::new()
+    let mut file = OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .open(lock)?;
     match file.try_lock() {
-        Ok(()) => Ok(Some(Claim { _file: file })),
+        Ok(()) => {
+            file.set_len(0)?;
+            writeln!(file, "{}", std::process::id())?;
+            Ok(Some(Claim { _file: file }))
+        }
         Err(TryLockError::WouldBlock) => Ok(None),
         Err(TryLockError::Error(error)) => Err(error),
+    }
+}
+
+/// The pid of the live daemon that holds <lock>, or None when none does.
+pub fn daemon_pid(lock: &Path) -> io::Result<Option<i32>> {
+    if !daemon_lives(lock)? {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(lock)?;
+    match text.trim().parse() {
+        Ok(pid) => Ok(Some(pid)),
+        Err(error) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{} holds {text:?}, not a pid: {error}", lock.display()),
+        )),
     }
 }
 
@@ -38,5 +60,23 @@ pub fn daemon_lives(lock: &Path) -> io::Result<bool> {
         Ok(()) => Ok(false),
         Err(TryLockError::WouldBlock) => Ok(true),
         Err(TryLockError::Error(error)) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The lock file names the daemon that holds it while it lives, and no
+    /// daemon once its claim is gone.
+    #[test]
+    fn the_pid_of_the_daemon_holding_the_lock_is_read_while_it_lives() {
+        let scratch = crate::testing::Scratch::new("live-pid");
+        let lock = scratch.dir.join("lock");
+        assert_eq!(daemon_pid(&lock).unwrap(), None);
+        let claim = claim(&lock).unwrap().unwrap();
+        assert_eq!(daemon_pid(&lock).unwrap(), Some(std::process::id() as i32));
+        drop(claim);
+        assert_eq!(daemon_pid(&lock).unwrap(), None);
     }
 }
