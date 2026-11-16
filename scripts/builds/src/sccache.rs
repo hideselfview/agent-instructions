@@ -351,6 +351,20 @@ pub mod tests {
         fn pid(&self) -> u32 {
             self.0.id()
         }
+
+        /// Returns once sh has started its one child, and panics when it has
+        /// not after 10 seconds.
+        fn wait_for_child(&self) {
+            let start = std::time::Instant::now();
+            while compiles(self.pid()).unwrap() != 1 {
+                assert!(
+                    start.elapsed() < Duration::from_secs(10),
+                    "sh (pid {}) started no child in 10 seconds",
+                    self.pid()
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
     }
 
     impl Drop for Group {
@@ -367,13 +381,12 @@ pub mod tests {
     fn waits_for_a_servers_compiles_to_finish() {
         // sh runs `sleep 0.5` as a child, then becomes `sleep 30` itself.
         let finishing = Group::start("sleep 0.5; exec sleep 30");
-        std::thread::sleep(Duration::from_millis(100));
-        assert_eq!(compiles(finishing.pid()).unwrap(), 1);
+        finishing.wait_for_child();
         wait_for_compiles(finishing.pid(), Duration::from_secs(10)).unwrap();
         assert_eq!(compiles(finishing.pid()).unwrap(), 0);
 
         let busy = Group::start("sleep 30; exit 0");
-        std::thread::sleep(Duration::from_millis(100));
+        busy.wait_for_child();
         let Err(crate::fail::Fail::Message(message)) =
             wait_for_compiles(busy.pid(), Duration::from_millis(300))
         else {
