@@ -188,9 +188,8 @@ impl Glob {
 
     /// The folder the design files live in: the glob's plain directory
     /// segments up to and including one named `design`, else all of them
-    /// (`design` for design/mocks/*.dc.html, `scripts/builds/design` for
-    /// scripts/builds/design/*.html). None when the glob has no plain
-    /// directory.
+    /// (`design` for design/mocks/*.dc.html, `web/design` for
+    /// web/design/*.html). None when the glob has no plain directory.
     fn root(&self) -> Option<String> {
         let directories = self.segments.split_last()?.1;
         let plain: Vec<&String> = directories

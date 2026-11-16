@@ -333,30 +333,21 @@ fn exists_in_tells_a_folder_a_file_and_a_missing_path_apart() {
 }
 
 #[test]
-fn a_project_board_deep_in_a_repo_makes_only_its_design_folder_shared() {
+fn a_board_deep_in_a_repo_makes_only_its_design_folder_shared() {
     let globs = Globs {
-        places: vec!["scripts/builds/design/*.html".into()],
+        places: vec!["web/design/*.html".into()],
         ..Globs::default()
     };
     let changes = classify(
         &globs,
         &paths(&[
-            "scripts/builds/design/dashboard.html",
-            "scripts/builds/design/canvas.json",
-            "scripts/builds/src/main.rs",
-            "scripts/rules_review/README.md",
+            "web/design/dashboard.html",
+            "web/design/canvas.json",
+            "web/src/main.rs",
+            "web/README.md",
         ]),
     );
-    assert_eq!(
-        changes.places,
-        set(&["scripts/builds/design/dashboard.html"])
-    );
-    assert_eq!(changes.shared, set(&["scripts/builds/design/canvas.json"]));
-    assert_eq!(
-        changes.outside,
-        set(&[
-            "scripts/builds/src/main.rs",
-            "scripts/rules_review/README.md"
-        ])
-    );
+    assert_eq!(changes.places, set(&["web/design/dashboard.html"]));
+    assert_eq!(changes.shared, set(&["web/design/canvas.json"]));
+    assert_eq!(changes.outside, set(&["web/src/main.rs", "web/README.md"]));
 }
