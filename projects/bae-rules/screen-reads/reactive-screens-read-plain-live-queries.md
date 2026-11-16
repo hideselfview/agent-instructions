@@ -52,10 +52,10 @@ Two things a screen shows don't come from SQL:
   When the write fails, the view draws the query's rows, which show what is
   stored. The view keeps nothing past the write's return, and never waits for a
   later query result to match what it drew.
-- A query whose request changes, such as a search as the person types, stays in
-  progress until the new request's first answer arrives. The view keeps drawing
-  the last answer until then, so the screen never empties between requests, and
-  then draws the new answer.
+- When a query's parameters change, such as a search's text as the person types,
+  the view keeps drawing the last rows until the query returns its first rows
+  for the new parameters, and then draws those. The screen never empties between
+  one set of parameters and the next.
 
 ### Why nothing goes between the query and the screen
 
