@@ -154,9 +154,9 @@ impl Config {
     /// The lane's picker of <kind> for the named <program> (a `test
     /// <lane>:<program>` line), or the default one when <program> is None.
     pub fn picker_in(&self, lane: Lane, kind: PickKind, program: Option<&str>) -> Option<&Picker> {
-        self.pickers.iter().find(|picker| {
-            picker.lane == lane && picker.kind == kind && picker.program.as_deref() == program
-        })
+        self.pickers
+            .iter()
+            .find(|picker| picker.is(lane, kind, program))
     }
 }
 
@@ -266,6 +266,12 @@ pub struct Picker {
 }
 
 impl Picker {
+    /// Is it the <lane>'s line of <kind> for <program> (None: the lane's
+    /// default line)?
+    pub fn is(&self, lane: Lane, kind: PickKind, program: Option<&str>) -> bool {
+        self.lane == lane && self.kind == kind && self.program.as_deref() == program
+    }
+
     /// The command with <arg> in each word's placeholder; the argument stays
     /// one argument, never read by a shell.
     pub fn command_for(&self, arg: &str) -> Vec<String> {
@@ -425,9 +431,10 @@ pub fn parse_config(text: &str) -> Result<Config> {
                         kind.what()
                     );
                 }
-                if pickers.iter().any(|picker| {
-                    picker.lane == lane && picker.kind == kind && picker.program == program
-                }) {
+                if pickers
+                    .iter()
+                    .any(|picker| picker.is(lane, kind, program.as_deref()))
+                {
                     fail!("{CONFIG}: two {keyword} lines for {name}");
                 }
                 pickers.push(Picker {
@@ -562,9 +569,10 @@ pub fn parse_config(text: &str) -> Result<Config> {
             Some(program) => format!("{}:{program}", lane.word()),
             None => lane.word().to_string(),
         };
-        match pickers.iter_mut().find(|picker| {
-            picker.lane == lane && picker.kind == PickKind::Class && picker.program == program
-        }) {
+        match pickers
+            .iter_mut()
+            .find(|picker| picker.is(lane, PickKind::Class, program.as_deref()))
+        {
             Some(picker) => picker.place = Where::Hosts,
             None => {
                 fail!("{CONFIG}: opens-windows names {named}, which has no `test {named}` line")
@@ -595,11 +603,9 @@ pub fn parse_config(text: &str) -> Result<Config> {
     }
     for source in &sources {
         if let Some(program) = &source.program
-            && !pickers.iter().any(|picker| {
-                picker.lane == source.lane
-                    && picker.kind == PickKind::Class
-                    && picker.program.as_deref() == Some(program.as_str())
-            })
+            && !pickers
+                .iter()
+                .any(|picker| picker.is(source.lane, PickKind::Class, Some(program)))
         {
             fail!(
                 "{CONFIG}: sources for {}:{program}, which has no `test {}:{program}` line",
