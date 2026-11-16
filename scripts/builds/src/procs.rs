@@ -225,6 +225,63 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
     Some(found)
 }
 
+/// A `git commit` that runs: until it ends (its hooks can wait minutes),
+/// the files it commits are in neither the working tree's changes nor a
+/// commit for long, and the worktree is not free.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GitCommit {
+    pub pid: i32,
+    /// Its working directory: the worktree, or a folder in it.
+    pub dir: PathBuf,
+}
+
+/// The `git commit` processes among <processes> whose working directory
+/// builds can read.
+pub fn git_commits(processes: &Processes) -> Vec<GitCommit> {
+    processes
+        .list
+        .iter()
+        .filter(|process| process.name == "git")
+        .filter(|process| {
+            args(process.pid).is_some_and(|argv| git_subcommand(&argv) == Some("commit"))
+        })
+        .filter_map(|process| {
+            Some(GitCommit {
+                pid: process.pid,
+                dir: cwd(process.pid)?,
+            })
+        })
+        .collect()
+}
+
+/// The subcommand of the git command line <argv>: its first word that is
+/// neither an option nor the value of `-C`, `-c` or another global option
+/// that takes its value as the next word.
+pub fn git_subcommand(argv: &[String]) -> Option<&str> {
+    let mut rest = argv.iter().skip(1);
+    while let Some(word) = rest.next() {
+        match word.as_str() {
+            "-C" | "-c" | "--git-dir" | "--work-tree" | "--namespace" | "--config-env"
+            | "--exec-path" | "--super-prefix" | "--list-cmds" => {
+                rest.next();
+            }
+            option if option.starts_with('-') => {}
+            subcommand => return Some(subcommand),
+        }
+    }
+    None
+}
+
+/// The pids of <commits> that run in <top> or a folder in it.
+pub fn commits_in(commits: &[GitCommit], top: &Path) -> Vec<i32> {
+    let real = std::fs::canonicalize(top).unwrap_or_else(|_| top.to_path_buf());
+    commits
+        .iter()
+        .filter(|commit| commit.dir.starts_with(top) || commit.dir.starts_with(&real))
+        .map(|commit| commit.pid)
+        .collect()
+}
+
 /// CPU time used so far, in seconds, and the physical footprint in bytes.
 pub fn usage(pid: i32) -> Option<(f64, u64)> {
     let mut info: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
@@ -496,6 +553,20 @@ pub fn build_processes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The subcommand is the first word past git's global options and
+    /// their values.
+    #[test]
+    fn finds_the_subcommand_past_the_global_options() {
+        let words = |line: &str| -> Vec<String> { line.split(' ').map(str::to_string).collect() };
+        assert_eq!(git_subcommand(&words("git commit -m x")), Some("commit"));
+        assert_eq!(
+            git_subcommand(&words("git -C /w -c core.hooksPath=h --no-pager commit -q")),
+            Some("commit")
+        );
+        assert_eq!(git_subcommand(&words("git -C commit log")), Some("log"));
+        assert_eq!(git_subcommand(&words("git --version")), None);
+    }
 
     #[test]
     fn reads_a_child_process() {

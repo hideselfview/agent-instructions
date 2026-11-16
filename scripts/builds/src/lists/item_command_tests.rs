@@ -944,6 +944,74 @@ fn release_refuses_a_branch_the_worktree_left_and_detached_commits() {
     assert!(said.contains("detached HEAD: "), "{said}");
 }
 
+/// While a `git commit` runs in a worktree (its hook can wait for minutes),
+/// release refuses it and health does not say to release it; once the
+/// commit ends with nothing committed, both let it go.
+#[test]
+fn release_and_health_wait_for_a_git_commit_that_runs_in_the_worktree() {
+    let demo = demo("release-committing");
+    let side = demo.add_side(1, "agent A", "work");
+    let checkout = Checkout::find(&side.display().to_string()).unwrap();
+    crate::setup::setup(&demo.tool, &checkout).unwrap();
+    let hooks = demo.scratch.dir.join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let gate = demo.scratch.dir.join("gate");
+    let started = demo.scratch.dir.join("started");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&gate)
+            .status()
+            .unwrap()
+            .success()
+    );
+    // The hook says it started, waits for the test to open the gate, and
+    // then fails, so the commit commits nothing.
+    let hook = hooks.join("pre-commit");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\n: > '{}'\nread line < '{}'\nexit 1\n",
+            started.display(),
+            gate.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let mut commit = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&side)
+        .arg("-c")
+        .arg(format!("core.hooksPath={}", hooks.display()))
+        .args(["commit", "-q", "--allow-empty", "-m", "waits"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !started.exists() {
+        assert!(std::time::Instant::now() < deadline, "the hook never ran");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let releases = |health: &crate::health::Health| {
+        health
+            .findings
+            .iter()
+            .any(|finding| finding.advice.text.contains("no item runs there"))
+    };
+    let said = release_refused(&demo, &side);
+    assert!(said.contains("a git commit runs in it (pid "), "{said}");
+    assert!(!releases(&crate::health::health(&demo.tool).unwrap()));
+
+    std::fs::write(&gate, "go\n").unwrap();
+    assert!(
+        !commit.wait().unwrap().success(),
+        "the hook let the commit through"
+    );
+    assert!(releases(&crate::health::health(&demo.tool).unwrap()));
+    cmd_release(&demo.tool.places, &[side.display().to_string()]).unwrap();
+}
+
 /// Work an item holds parked lets the worktree go, and so does work that
 /// landed.
 #[test]

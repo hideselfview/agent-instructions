@@ -731,7 +731,13 @@ impl Model {
             places,
             disk,
         } = sample;
-        let (mut claimed, held) = claimed_of(&self.places, &state.roots, &state.facts, &places)?;
+        let (mut claimed, held) = claimed_of(
+            &self.places,
+            &state.roots,
+            &state.facts,
+            &places,
+            &machine.commits,
+        )?;
         let (_, loaded) = self.lists.current();
         let unclaimed = unclaimed_of(
             &self.places,
@@ -1323,11 +1329,14 @@ fn folder_facts(
     }
 }
 
+/// The claimed side worktrees of <roots>, with <commits>, the `git
+/// commit`s that ran when the processes were last read.
 fn claimed_of(
     tool_places: &Places,
     roots: &[Root],
     facts: &HashMap<PathBuf, Facts>,
     places: &[Place],
+    commits: &[crate::procs::GitCommit],
 ) -> crate::fail::Result<(Vec<Claimed>, Vec<crate::lists::held::Worktree>)> {
     let mut claimed = Vec::new();
     let mut held = Vec::new();
@@ -1359,6 +1368,8 @@ fn claimed_of(
                 .app_lane_of(&checkout.repo(), &checkout.name())?
                 .is_some(),
             ahead: git.ahead.iter().rev().map(|c| c.full.clone()).collect(),
+            uncommitted: git.uncommitted,
+            committing: crate::procs::commits_in(commits, &checkout.top),
         });
         claimed.push(Claimed {
             place,

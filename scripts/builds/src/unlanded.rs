@@ -27,6 +27,9 @@ pub struct Held {
     pub left: Vec<(String, Vec<Commit>)>,
     /// The files not committed.
     pub uncommitted: Vec<String>,
+    /// The pids of the `git commit`s that run in it: work on its way into a
+    /// commit, which a hook can hold for minutes.
+    pub committing: Vec<i32>,
 }
 
 impl Held {
@@ -34,6 +37,7 @@ impl Held {
         self.head.1.is_empty()
             && self.left.iter().all(|(_, commits)| commits.is_empty())
             && self.uncommitted.is_empty()
+            && self.committing.is_empty()
     }
 }
 
@@ -82,8 +86,8 @@ fn branches_left(top: &Path, since: i64) -> Result<Vec<String>> {
 /// The work in <checkout> that origin/main lacks and no open item holds:
 /// HEAD's commits, the commits of each branch the worktree left since
 /// <since> (its claim's start) that no worktree checks out now and no name
-/// of <held> (the branches open items run or are parked on) covers, and the
-/// files not committed.
+/// of <held> (the branches open items run or are parked on) covers, the
+/// files not committed, and the `git commit`s that run there.
 pub fn in_worktree(checkout: &Checkout, since: i64, held: &[String]) -> Result<Held> {
     let top = &checkout.top;
     let unread = |error: String| {
@@ -117,6 +121,10 @@ pub fn in_worktree(checkout: &Checkout, since: i64, held: &[String]) -> Result<H
             .map_err(unread)?
             .into_iter()
             .collect(),
+        committing: crate::procs::commits_in(
+            &crate::procs::git_commits(&crate::procs::Processes::read()),
+            top,
+        ),
     })
 }
 
@@ -174,6 +182,16 @@ pub fn refusal(what: &str, top: &Path, held: &Held) -> String {
             "  {} not committed: {}",
             crate::text::counted(held.uncommitted.len(), "file", "files"),
             held.uncommitted.join(", ")
+        ));
+    }
+    if !held.committing.is_empty() {
+        lines.push(format!(
+            "  a git commit runs in it (pid {}); wait for it to end",
+            held.committing
+                .iter()
+                .map(|pid| pid.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     let branch = branch.as_deref().unwrap_or("BRANCH");

@@ -253,15 +253,17 @@ because landing rebases or cherry-picks it.
                               work origin/main lacks that no item holds: commits
                               on HEAD, on a branch the worktree left since its
                               claim began (HEAD's reflog says which) that no
-                              worktree checks out, or files not committed. A
-                              detached HEAD past origin/main counts too. The
-                              refusal names the commits and files, and the
-                              ways the work may leave: land it, park it under
-                              its item (`builds item park`), or take it under
-                              an item held on the person (`builds item take
+                              worktree checks out, files not committed, or a
+                              `git commit` that runs there (its hook can hold
+                              the files for minutes). A detached HEAD past
+                              origin/main counts too. The refusal names the
+                              commits, files and commits that run, and the ways
+                              the work may leave: land it, park it under its
+                              item (`builds item park`), or take it under an
+                              item held on the person (`builds item take
                               --held`). An item parked there holds all of it.
-                              Only the person throws work away, by dropping
-                              its item
+                              Only the person throws work away, by dropping its
+                              item
   builds retire <checkout>    remove a clean, unclaimed side worktree and its
                               build root; refuses an app checkout, a worktree
                               an item is parked in, and one whose HEAD or files
@@ -1079,6 +1081,10 @@ STATUS, HEALTH AND THE DASHBOARD
                               for an hour (counted from its claim, if later); a lists store that fails its check;
                               a running item whose worktree is gone or has no
                               claim; a held worktree whose wait closed; a
+                              claimed worktree that no item of any project
+                              runs in, with no commits waiting to land, no
+                              files not committed and no `git commit` running
+                              (`builds release`); a
                               repo with a design folder and no design globs
                               in any project (`builds lists design-globs`);
                               commits that change design files that no open

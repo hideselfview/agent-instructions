@@ -86,6 +86,7 @@ pub fn require_hold_allowed(places: &Places, checkout: &Checkout) -> Result<()> 
 }
 
 /// A claimed worktree as `builds health` read it.
+#[derive(Debug)]
 pub struct Worktree {
     pub label: String,
     pub top: PathBuf,
@@ -98,6 +99,10 @@ pub struct Worktree {
     pub app_checkout: bool,
     /// The commits origin/main has no copy of, oldest first.
     pub ahead: Vec<String>,
+    /// How many files are not committed; None when git could not tell.
+    pub uncommitted: Option<usize>,
+    /// The pids of the `git commit`s that run in it.
+    pub committing: Vec<i32>,
 }
 
 impl Worktree {
@@ -182,14 +187,19 @@ pub fn findings(
                 format!("builds note {top} TEXT"),
             ));
         }
+        // Release refuses a worktree with commits, files or a commit in
+        // flight that nothing else holds, so health says to release only one
+        // with none of them.
         if !standing
             && worktree.claim.note_state.as_deref() != Some("held")
             && worktree.ahead.is_empty()
+            && worktree.uncommitted == Some(0)
+            && worktree.committing.is_empty()
             && running.is_empty()
         {
             found.push(Advice::run(
                 format!(
-                    "lists: {} claims {}, but no item runs there and the worktree has no commits that origin/main lacks; release it with",
+                    "lists: {} claims {}, but no item runs there and the worktree has no commits that origin/main lacks, no files not committed and no git commit running; release it with",
                     worktree.claim.who, worktree.label
                 ),
                 format!("builds release {top}"),

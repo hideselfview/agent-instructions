@@ -358,6 +358,8 @@ pub struct Machine {
     pub app_builds: Vec<AppBuildRun>,
     /// What builds could not read of the processes it needed, one line each.
     pub unread: Vec<String>,
+    /// The `git commit`s that run, which keep their worktree from being free.
+    pub commits: Vec<crate::procs::GitCommit>,
     pub sccache: SccacheHealth,
     pub shells: Shells,
     pub locks: Vec<LockHealth>,
@@ -583,6 +585,7 @@ pub fn sample(
         remote_runs,
         app_builds,
         unread,
+        commits: crate::procs::git_commits(&processes),
         sccache: SccacheHealth {
             listening,
             executed,
@@ -1058,6 +1061,8 @@ pub fn health(tool: &Tool) -> Result<Health> {
                 .app_lane_of(&checkout.repo(), &checkout.name())?
                 .is_some(),
             ahead: git.ahead.iter().rev().map(|c| c.full.clone()).collect(),
+            uncommitted: git.uncommitted,
+            committing: crate::procs::commits_in(&machine.commits, &checkout.top),
         });
         judged.push(Claimed {
             place,
@@ -1448,6 +1453,7 @@ mod tests {
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
             unread: Vec::new(),
+            commits: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),
@@ -1528,6 +1534,7 @@ mod tests {
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
             unread: Vec::new(),
+            commits: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),
@@ -1611,6 +1618,7 @@ mod tests {
             }],
             app_builds: Vec::new(),
             unread: Vec::new(),
+            commits: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),
@@ -1690,6 +1698,7 @@ mod tests {
                 remote_runs: Vec::new(),
                 app_builds,
                 unread: Vec::new(),
+                commits: Vec::new(),
                 sccache: SccacheHealth {
                     listening: true,
                     executed: Some(1),
@@ -1764,6 +1773,7 @@ mod tests {
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
             unread: vec![line.to_string()],
+            commits: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),
@@ -1809,6 +1819,7 @@ mod tests {
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
             unread: Vec::new(),
+            commits: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),

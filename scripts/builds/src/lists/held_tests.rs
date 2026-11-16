@@ -135,6 +135,8 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
         project: None,
         app_checkout: false,
         ahead,
+        uncommitted: Some(0),
+        committing: Vec::new(),
     }
 }
 
@@ -418,11 +420,18 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
     );
     let mut waiting = bae_worktree(None);
     waiting.ahead = vec!["abc".into()];
-    assert!(
-        findings(&loaded(read(&db)), &[waiting])
-            .iter()
-            .all(|line| !line.text.contains("no item runs there"))
-    );
+    let mut editing = bae_worktree(None);
+    editing.uncommitted = Some(1);
+    let mut committing = bae_worktree(None);
+    committing.committing = vec![4242];
+    for busy in [waiting, editing, committing] {
+        assert!(
+            findings(&loaded(read(&db)), std::slice::from_ref(&busy))
+                .iter()
+                .all(|line| !line.text.contains("no item runs there")),
+            "{busy:?}"
+        );
+    }
 }
 
 #[test]
