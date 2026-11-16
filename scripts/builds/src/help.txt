@@ -312,17 +312,19 @@ restart the server.
                               BUILDS_CARGO_HOST=<name> picks the host for one
                               command (local is this Mac); a command that must
                               stay here runs here, with a note on stderr.
-                              When cargo exits, the run goes to the project's
-                              store: its start, worktree, the host it ran on
-                              with that host's cores and one-minute load when
-                              builds picked it, how long cargo waited for its
-                              file locks (from each "Blocking waiting for file
-                              lock" line it printed to the next; not measured
-                              when cargo prints to a terminal, which builds
-                              leaves to cargo), its time, and the hook check
-                              that started it, which `builds checks run` names
-                              in BUILDS_HOOK_CHECK. A repo in no project
-                              records nothing.
+                              When cargo exits after a hook check started it
+                              (`builds checks run` puts the check's run start
+                              and position in BUILDS_HOOK_CHECK), builds
+                              records the run in the project's store: its
+                              worktree, the host it ran on with that host's
+                              cores and one-minute load when builds picked it,
+                              how long cargo waited for its file locks (from
+                              each "Blocking waiting for file lock" line it
+                              printed to the next; builds does not measure the
+                              wait when cargo prints to a terminal, which
+                              builds leaves to cargo), its time and the check.
+                              builds records no other run, and nothing for a
+                              repo in no project.
 
 
 APP BUILDS

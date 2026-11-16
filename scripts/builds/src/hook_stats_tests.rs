@@ -727,8 +727,6 @@ fn a_check_comes_back_with_where_it_ran_and_how_loaded_that_host_was() {
     let written = run(7, 123_000, true, vec![fmt, clippy]);
     record(&path, &written).unwrap();
     let cargo = |position: u32, lock_wait: Option<u64>| crate::cargo_run::CargoRun {
-        started_at: 8,
-        repo: "bae".into(),
         worktree: "/d/bae".into(),
         host: "m1".into(),
         load: Load {
@@ -737,12 +735,12 @@ fn a_check_comes_back_with_where_it_ran_and_how_loaded_that_host_was() {
         },
         lock_wait: lock_wait.map(std::time::Duration::from_millis),
         took: std::time::Duration::from_secs(120),
-        hook_check: Some((7, position)),
+        hook_check: (7, position),
     };
     crate::cargo_run::record_run(&path, &cargo(1, Some(12_000))).unwrap();
     // A cargo run of another hook run names no check of this one.
     let mut other = cargo(0, None);
-    other.hook_check = Some((6, 0));
+    other.hook_check = (6, 0);
     crate::cargo_run::record_run(&path, &other).unwrap();
     let read = recorded_runs(&path, "bae");
     let places: Vec<Option<String>> = read[0].checks.iter().map(CheckRecord::place_text).collect();

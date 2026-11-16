@@ -3,11 +3,11 @@
 //! checkout's guard while the build runs, and pruning the copies it replaced
 //! once it ends.
 //!
-//! Each run is recorded in the project's database (cargo_run.sql) when cargo
-//! exits: the host it ran on with that host's load, how long cargo waited for
-//! its file locks (lock_wait.rs), how long the run took, and the hook check
-//! that started it. A run whose record can't be written says so on stderr and
-//! ends as cargo did.
+//! When cargo exits after a hook check started it, builds records the run in
+//! the project's database (cargo_run.sql): the host it ran on with that
+//! host's load, how long cargo waited for its file locks (lock_wait.rs), how
+//! long the run took, and the check. When builds cannot write the record, it
+//! says so on stderr, and the run ends as cargo did.
 
 use std::collections::HashMap;
 use std::io::BufReader;
@@ -99,12 +99,10 @@ pub fn hook_runs(
     Ok(found)
 }
 
-/// One `builds cargo` run, as it is recorded once cargo exits.
+/// One `builds cargo` run that a hook check started, as builds records it
+/// once cargo exits.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CargoRun {
-    /// Seconds since 1970.
-    pub started_at: i64,
-    pub repo: String,
     pub worktree: String,
     pub host: String,
     /// The host's cores and load when builds picked it.
@@ -113,7 +111,7 @@ pub struct CargoRun {
     pub lock_wait: Option<Duration>,
     pub took: Duration,
     /// The hook check that started it: its run's start and its position.
-    pub hook_check: Option<(i64, u32)>,
+    pub hook_check: (i64, u32),
 }
 
 /// Writes <run> to the database at <path>, made with its schema when it is
@@ -122,19 +120,17 @@ pub fn record_run(path: &Path, run: &CargoRun) -> Result<()> {
     let conn = crate::db::open(path, crate::db::Make::Allowed)?;
     let ms = |took: Duration| took.as_millis() as i64;
     conn.execute(
-        "INSERT INTO builds_cargo_runs (started_at, repo, worktree, host, cores, load, lock_wait_ms, ms, hook_started_at, hook_position)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO builds_cargo_runs (worktree, host, cores, load, lock_wait_ms, ms, hook_started_at, hook_position)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
-            run.started_at,
-            run.repo,
             run.worktree,
             run.host,
             run.load.cores,
             run.load.one_minute,
             run.lock_wait.map(ms),
             ms(run.took),
-            run.hook_check.map(|(at, _)| at),
-            run.hook_check.map(|(_, position)| position),
+            run.hook_check.0,
+            run.hook_check.1,
         ],
     )
     .context(|| format!("writing {}", path.display()))?;
@@ -246,7 +242,6 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         Some(other) => fail!("cargo: cargo {other} builds nothing; run it without builds"),
     };
     let began = Instant::now();
-    let started_at = crate::app_timing::now();
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let places = Places::from_env()?;
     let checkout = Checkout::at_keeping_env(&dir)?;
@@ -295,18 +290,26 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         Some(job) => cargo_place::finish(job)?,
     };
     if let Some(checkout) = &checkout {
-        let run = CargoRun {
-            started_at,
-            repo: checkout.repo(),
-            worktree: checkout.top.display().to_string(),
-            host,
-            load,
-            lock_wait: exited.lock_wait,
-            took: began.elapsed(),
-            hook_check: None,
-        };
-        if let Err(error) = record_finished(&places, checkout, run) {
-            crate::text::note(format!("this cargo run was not recorded: {}", error.text()));
+        let recorded = hook_check().and_then(|hook_check| match hook_check {
+            None => Ok(()),
+            Some(hook_check) => record_finished(
+                &places,
+                checkout,
+                &CargoRun {
+                    worktree: checkout.top.display().to_string(),
+                    host,
+                    load,
+                    lock_wait: exited.lock_wait,
+                    took: began.elapsed(),
+                    hook_check,
+                },
+            ),
+        });
+        if let Err(error) = recorded {
+            crate::text::note(format!(
+                "builds could not record this cargo run: {}",
+                error.text()
+            ));
         }
     }
     match exited.code {
@@ -315,17 +318,22 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     }
 }
 
-/// Records <run> in the database of <checkout>'s project, with the hook check
-/// that started it, if one did; a repo in no project records nothing.
-fn record_finished(places: &Places, checkout: &Checkout, mut run: CargoRun) -> Result<()> {
+/// The hook check that started this run, from `HOOK_CHECK_VARIABLE`; None
+/// when no hook check started it.
+fn hook_check() -> Result<Option<(i64, u32)>> {
+    match std::env::var(HOOK_CHECK_VARIABLE) {
+        Ok(value) => Ok(Some(parse_hook_check(&value)?)),
+        Err(_) => Ok(None),
+    }
+}
+
+/// Records <run> in the database of <checkout>'s project; a repo in no
+/// project records nothing.
+fn record_finished(places: &Places, checkout: &Checkout, run: &CargoRun) -> Result<()> {
     let Some(database) = crate::lists::store::database_of(places, checkout)? else {
         return Ok(());
     };
-    run.hook_check = match std::env::var(HOOK_CHECK_VARIABLE) {
-        Ok(value) => Some(parse_hook_check(&value)?),
-        Err(_) => None,
-    };
-    record_run(&database, &run)
+    record_run(&database, run)
 }
 
 /// How cargo ended: its exit status (or the recorder's, `run_here`), and how

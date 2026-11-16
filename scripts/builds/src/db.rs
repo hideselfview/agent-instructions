@@ -63,8 +63,8 @@ pub const REVIEW_PART: &str = include_str!("review/record.sql");
 /// This Mac's load when each hook check started (hook_check_starts.sql).
 pub const HOOK_CHECK_STARTS_PART: &str = include_str!("hook_check_starts.sql");
 
-/// The record of `builds cargo` runs (cargo_run.sql), the last part of the
-/// schema.
+/// The record of the `builds cargo` runs hook checks started (cargo_run.sql),
+/// the last part of the schema.
 pub const CARGO_RUNS_PART: &str = include_str!("cargo_run.sql");
 
 /// The whole schema: the lists' tables, then the hook stats', then the
