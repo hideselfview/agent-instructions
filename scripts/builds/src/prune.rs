@@ -6,7 +6,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::cargo_run::builds_incrementally;
 use crate::checkout::{Checkout, Root, app_lane, git, git_text};
 use crate::evict::{Recreate, Removal, evict, make_temp_dir};
 use crate::fail;
@@ -55,7 +54,7 @@ pub fn prune_root(
     if folders.is_empty() {
         return Ok(());
     }
-    let mut freed = units::prune::prune(&cargo_ages(tool, checkout)?, run.dry(), &folders)?;
+    let mut freed = units::prune::prune(&cargo_ages(tool), run.dry(), &folders)?;
     freed.extend(prune_trees(tool, root, checkout, &folders, run)?);
     let claimed = checkout.claim_file().is_file();
     let lane = app_lane(&tool.places, root)?;
@@ -95,8 +94,6 @@ pub fn prune_root(
         };
         // A claimed worktree's agent is mid-task; emptying its folder costs it
         // a cold rebuild of every dependency, as the floor's exemption says.
-        // Its builds run without incremental compilation, so the unit prune
-        // above already deleted every incremental folder in it.
         if claimed {
             note(format!("claimed, kept: {} ({reason})", folder.display()));
             continue;
@@ -113,16 +110,13 @@ pub fn prune_root(
     Ok(())
 }
 
-/// The rules for <checkout>'s build copies: its incremental folders go after
-/// the idle hours where its builds compile incrementally, and every one where
-/// they don't, since no build there reads them.
-fn cargo_ages(tool: &Tool, checkout: &Checkout) -> Result<units::prune::Ages> {
-    let idle = if builds_incrementally(checkout) {
-        tool.rules.incremental_hours
-    } else {
-        0
-    };
-    Ok(units::prune::Ages::new(tool.rules.unused_days, idle))
+/// The rules for a checkout's build copies. Its incremental folders go after
+/// the idle hours in every checkout: main's builds compile incrementally, and
+/// in the others a repo's lint wrapper may keep an incremental folder for
+/// the crates it lints (bae's scripts/clippy-rustc-wrapper.sh) while every
+/// other crate builds without. The build folder's cap bounds what is left.
+fn cargo_ages(tool: &Tool) -> units::prune::Ages {
+    units::prune::Ages::new(tool.rules.unused_days, tool.rules.incremental_hours)
 }
 
 /// `builds units after-build <checkout>`, which `builds cargo` starts as it
@@ -139,7 +133,7 @@ pub fn prune_after_build(tool: &Tool, checkout: &Checkout) -> Result<()> {
         .map(|entry| root.join(&entry.path))
         .filter(|folder| folder.is_dir())
         .collect();
-    units::prune::prune(&cargo_ages(tool, checkout)?, false, &folders)?;
+    units::prune::prune(&cargo_ages(tool), false, &folders)?;
     Ok(())
 }
 

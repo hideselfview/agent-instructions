@@ -307,9 +307,10 @@ pub struct Rules {
     /// a week.
     pub unused_days: u64,
     /// An incremental folder nothing wrote anywhere inside for this many
-    /// hours is deleted in main, the one checkout whose builds compile
-    /// incrementally; in the others every one goes. Cargo never deletes a
-    /// folder of an old hash, so they
+    /// hours is deleted, in every checkout: main's builds compile
+    /// incrementally, and a lint wrapper may keep incremental folders for the
+    /// crates it lints in the others. Cargo never deletes a folder of an old
+    /// hash, so they
     /// fill the cap: one coven checkout had 112 of 162 folders, most of 28 GB,
     /// unwritten for two hours. Losing one costs an incremental rebuild of its
     /// crate.

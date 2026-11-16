@@ -1,7 +1,6 @@
 //! Deleting the build copies no build used for days, the copies a newer copy
 //! of the same thing replaced, the incremental folders only they used or
-//! nothing wrote to for hours (every one, in a checkout that builds without
-//! incremental compilation), and the object files nothing reads.
+//! nothing wrote to for hours, and the object files nothing reads.
 
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -25,8 +24,8 @@ use crate::usage::{Seen, bytes_with, freeable};
 #[derive(Clone, Debug)]
 pub struct Ages {
     pub days: u64,
-    /// 0 for a checkout whose builds run without incremental compilation,
-    /// where no build reads an incremental folder.
+    /// 0 deletes every incremental folder (`builds units prune` with 0
+    /// hours).
     pub idle_hours: u64,
     /// No build used a unit since this: it goes.
     pub cutoff: f64,
@@ -55,7 +54,7 @@ impl Ages {
     /// Why an incremental folder the idle rule picks goes.
     fn idle_why(&self) -> String {
         if self.idle_hours == 0 {
-            "this checkout builds without incremental compilation".to_string()
+            "0 incremental hours were asked for".to_string()
         } else {
             format!("nothing wrote to in {} hours", self.idle_hours)
         }

@@ -154,9 +154,11 @@ pub fn builds_incrementally(checkout: &Checkout) -> bool {
 /// refuses every incremental compile, so with it off sccache keeps each
 /// workspace crate any worktree built, and a build of the same sources in
 /// another worktree, or in the app checkout, where agents take turns on
-/// their own branches, comes from the cache; and no incremental folders
-/// pile up (on 2026-11-10, deleting those nothing had written for ten
-/// minutes in five busy bae worktrees freed 38 GB).
+/// their own branches, comes from the cache; and the only incremental
+/// folders are those a repo's lint wrapper keeps for the crates it lints,
+/// which `prune` deletes after the idle hours (on 2026-11-10, before this,
+/// deleting the incremental folders nothing had written for ten minutes in
+/// five busy bae worktrees freed 38 GB).
 /// Main, the person's checkout, keeps incremental, which halves an
 /// edit-and-recheck loop's CPU in a checkout that stays on one branch.
 ///

@@ -91,3 +91,43 @@ fn a_scratch_entry_goes_only_when_its_session_ended_and_nothing_inside_changed_f
         "a running session's entry was deleted"
     );
 }
+
+/// A side worktree, whose builds run without incremental compilation, keeps
+/// the incremental folders a lint wrapper writes until nothing wrote them for
+/// the rules' idle hours, as main does.
+#[test]
+fn a_side_worktree_keeps_its_incremental_folders_for_the_idle_hours() {
+    let scratch = Scratch::new("prune-incremental");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    crate::testing::repo(&main, "target 1G\n");
+    let side = scratch.dir.join("demo-worktrees/side-1");
+    crate::testing::git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &side.display().to_string(),
+        ],
+    );
+    let checkout = Checkout::find(&side.display().to_string()).unwrap();
+    crate::setup::setup(&tool, &checkout).unwrap();
+    let profile = checkout.build_root(&tool.places).join("target/debug");
+    std::fs::create_dir_all(profile.join(".fingerprint")).unwrap();
+    let increment = |name: &str, hours: u64| {
+        let dir = profile.join("incremental").join(name);
+        fill(&dir.join("s-1/query-cache.bin"), 64);
+        age_all(&dir, hours);
+        dir
+    };
+    let recent = increment("linted-1a2b", 1);
+    let idle = increment("linted-3c4d", tool.rules.incremental_hours + 1);
+    prune_after_build(&tool, &checkout).unwrap();
+    assert!(
+        recent.exists(),
+        "an incremental folder written an hour ago went"
+    );
+    assert!(!idle.exists(), "an idle incremental folder stayed");
+}

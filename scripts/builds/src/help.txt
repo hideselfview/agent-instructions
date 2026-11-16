@@ -233,7 +233,8 @@ passes --config build.incremental=false), the app checkouts included. sccache
 refuses every incremental compile, so with incremental off sccache keeps each
 workspace crate any worktree built: a build of the same sources in another
 worktree, or in an app checkout that agents move between branches, comes from
-the cache, and no incremental folders pile up. A full build without incremental
+the cache, and the only incremental folders are those a repo's lint wrapper
+keeps for the crates it lints (DISK). A full build without incremental
 output is smaller, so the app checkouts' folders take lower caps. Main, the
 person's checkout, stays on one branch and keeps incremental. To turn
 incremental on in a profile, set profile.dev.incremental in Cargo.toml, never
@@ -659,10 +660,11 @@ last build that reported it, rebuilt or up to date; a unit that no recorded
 build used counts as used when cargo last built it.
 
 Incremental folders. builds deletes the incremental folders that only deleted
-units used. In main, whose builds compile incrementally, it also deletes every
-incremental folder that nothing wrote anywhere inside for
-BUILDS_INCREMENTAL_HOURS hours (default 6); in the other checkouts, whose
-builds don't, it deletes every incremental folder, since no build reads them.
+units used, and every incremental folder that nothing wrote anywhere inside
+for BUILDS_INCREMENTAL_HOURS hours (default 6), in every checkout: main's
+builds compile incrementally, and in the others a repo's lint wrapper may keep
+an incremental folder for the crates it lints (bae's
+scripts/clippy-rustc-wrapper.sh). The build folder's cap bounds the rest.
 
 Object files. In every checkout, builds deletes the object files that no build
 or debugger reads: an rlib's loose objects, and the objects a binary's debug
