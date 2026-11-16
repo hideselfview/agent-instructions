@@ -390,7 +390,9 @@ fn closed_by_install(gate: &File, path: &Path) -> Result<bool> {
 }
 
 /// Waits until every use of <kind> ends, telling <say> each use it waits
-/// on, and removes each use's file.
+/// on, and removes each use's file. Only install removes a use's file, and
+/// it holds the gate that keeps a second install out, so each file it lists
+/// is there until it removes it.
 fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Result<()> {
     let dir = kind.uses(places);
     let entries = match std::fs::read_dir(&dir) {
@@ -405,12 +407,10 @@ fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Re
     }
     paths.sort();
     for path in paths {
-        let mut file = match OpenOptions::new().read(true).open(&path) {
-            Ok(file) => file,
-            // The use ended between the listing and the open.
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => fail!("opening {}: {error}", path.display()),
-        };
+        let mut file = OpenOptions::new()
+            .read(true)
+            .open(&path)
+            .context(|| format!("opening {}", path.display()))?;
         if !try_lock(&file, libc::LOCK_EX, &path)? {
             let mut text = String::new();
             file.read_to_string(&mut text)
@@ -419,12 +419,7 @@ fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Re
             lock(&file, libc::LOCK_EX, &path)?;
         }
         // The use ended, or its process died.
-        match std::fs::remove_file(&path) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                fail!("removing {}: {error}", path.display())
-            }
-            _ => {}
-        }
+        std::fs::remove_file(&path).context(|| format!("removing {}", path.display()))?;
     }
     Ok(())
 }
