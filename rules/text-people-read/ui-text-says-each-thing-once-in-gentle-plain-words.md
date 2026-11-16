@@ -32,10 +32,10 @@ never with breaks placed by hand:
 
 **An action that hasn't happened yet takes "will".** A confirmation describes
 what happens after the person confirms, so its line says what the app will do.
-Don't put that coming action in the simple present: "bae deletes 540 MB" reads
-as if it already happens. The slip usually comes from turning a passive sentence
-("540 MB will be removed") into an active one and dropping the "will" with the
-passive.
+Don't put that coming action in the simple present: a reader takes "bae deletes
+540 MB" to mean the deletion is already happening. The slip usually comes from
+turning a passive sentence ("540 MB will be removed") into an active one and
+dropping the "will" with the passive.
 
 - ✗ "bae deletes 540 MB from this phone." → ✓ "bae will delete 540 MB from this
   phone."
