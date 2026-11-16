@@ -13,7 +13,7 @@
 //! recorded design change covers (lists/held.rs), a repo with a design folder
 //! and no design globs (lists/project.rs), or a build host that refuses
 //! jobs, whose Xcode cannot start, whose installed `builds` differs from this
-//! Mac's or whose sccache server launchd does not run (host.rs).
+//! Mac's or whose sccache server launchd does not run (host_installed.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -1026,16 +1026,16 @@ pub fn lines(health: &Health) -> Vec<String> {
 
 /// The findings that come from the hosts: each process that looks stuck on
 /// one (stuck.rs), each host that refuses jobs or whose Xcode cannot start,
-/// and what `host::installed_findings` reports: each host whose installed
+/// and what `host_installed::installed_findings` reports: each host whose installed
 /// `builds` differs from this Mac's or that builds could not ask, and each
-/// Mac whose sccache server launchd does not run (host.rs). `assess` judges
+/// Mac whose sccache server launchd does not run (host_installed.rs). `assess` judges
 /// only what this Mac's process reading finds, which runs no ssh, so `builds
 /// health` and the dashboard each add these findings to the ones `assess`
 /// returns.
 pub fn host_findings(
     busy: &[crate::stuck::HostBusy],
     refusals: &[crate::host::Refusal],
-    installed: &[crate::host::HostInstalled],
+    installed: &[crate::host_installed::HostInstalled],
 ) -> Vec<Finding> {
     crate::stuck::findings(busy)
         .into_iter()
@@ -1046,7 +1046,7 @@ pub fn host_findings(
             }),
         )
         .chain(
-            crate::host::installed_findings(installed)
+            crate::host_installed::installed_findings(installed)
                 .into_iter()
                 .map(|advice| Finding::new(FindingKind::Host, advice)),
         )
@@ -1113,7 +1113,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     health.findings.extend(dashboard_finding(dashboard));
     // Read now: a probe in another command may have just written or removed one.
     let refusals = crate::host::refusals(&tool.places)?;
-    let installed = crate::host::read_all_installed(&tool.places, &ssh, &hosts);
+    let installed = crate::host_installed::read_all_installed(&tool.places, &ssh, &hosts);
     health
         .findings
         .extend(host_findings(&busy, &refusals, &installed));

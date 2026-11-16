@@ -619,7 +619,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     install_on_hosts(&tool.places, &crate::host::Ssh::from_env())
 }
 
-/// Copies this build to every recorded host (`host::install_program`), so
+/// Copies this build to every recorded host (`host_setup::install_program`), so
 /// each host's jobs run the builds this Mac runs. The function tries every
 /// host first, then fails and names each host it could not install on.
 /// `builds health` reports a host that runs a different builds until a later
@@ -627,7 +627,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
 fn install_on_hosts(places: &crate::places::Places, ssh: &crate::host::Ssh) -> Result<()> {
     let hosts = crate::host::read_remote(places)?;
     let installed =
-        crate::checkout::parallel_map(&hosts, |host| crate::host::install_program(ssh, host));
+        crate::checkout::parallel_map(&hosts, |host| crate::host_setup::install_program(ssh, host));
     let mut failed = Vec::new();
     for (host, result) in hosts.iter().zip(installed) {
         match result {

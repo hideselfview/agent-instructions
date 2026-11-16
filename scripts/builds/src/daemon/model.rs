@@ -638,7 +638,7 @@ impl Model {
             crate::stuck::read(ssh, host, host.target.is_none().then_some(dashboard))
         });
         let refusals = crate::host::refusals(&self.places)?;
-        let installed = crate::host::read_all_installed(&self.places, ssh, &hosts);
+        let installed = crate::host_installed::read_all_installed(&self.places, ssh, &hosts);
         Ok(crate::health::host_findings(&busy, &refusals, &installed))
     }
 
