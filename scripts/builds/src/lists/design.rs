@@ -130,8 +130,8 @@ pub struct DesignChange {
 }
 
 impl DesignChange {
-    /// Does the change wait on the person? It waits on their review until
-    /// they approve it, and then only on its landing.
+    /// Does the change wait on the person? The change waits on their review
+    /// until they approve it, and after that only on its landing.
     pub fn waits_on_person(&self) -> bool {
         self.approved.is_none()
     }

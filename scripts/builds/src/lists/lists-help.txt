@@ -156,16 +156,16 @@ WORK QUEUE
 
 An item waits on records (REF: item:N, question:N, design:N or condition:TEXT).
 A wait is met when its question was answered, settled or done, or its item or
-design change landed; a condition is met only when removed. A wait on a
-question waits on the person until the question closes as answered, settled or
-done. A wait on a design change waits on the person until they approve the
-change, and then only on its landing. The dashboard lists a running item's work
-under Waiting on you while a wait of the item waits on the person. An open item
-is then, in order: running; the design session's (shown apart, never
-dispatched); waiting (on a wait not met, or placed last while any other open
-coordinator item that is not placed last exists); or ready. A brief path that
-is relative is looked up in the main checkout of the repo the command runs in
-(plans are in no commit); an absolute path is itself.
+design change landed; a condition is met only when someone removes it. A wait
+on a question waits on the person until the question closes as answered,
+settled or done. A wait on a design change waits on the person until they
+approve the change, and then only on its landing. The dashboard lists a
+running item's work under Waiting on you while a wait of the item waits on the
+person. An open item is then, in order: running; the design session's (shown
+apart, never dispatched); waiting (on a wait not met, or placed last while any
+other open coordinator item that is not placed last exists); or ready. The
+command looks up a relative brief path in the main checkout of the repo it
+runs in (plans are in no commit); an absolute path is itself.
 
   builds item add --title T --area A --details-file F [--for design-session]
                   [--wait REF]... [--brief P] [--priority first|last --why WHY]
