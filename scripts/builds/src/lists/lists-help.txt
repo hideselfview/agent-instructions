@@ -461,8 +461,9 @@ PROJECTS
       REPO:GLOB entries as init. Each flag given replaces that kind's globs
       for each repo it names; the other kinds and repos keep theirs. `builds
       health` names a repo whose main checkout has a design folder and that
-      has no --design-places globs, since the design session cannot record a
-      design change in that repo.
+      no project gives --design-places globs, since the design session cannot
+      record a design change in that repo. A repo two projects hold needs
+      the globs in one of them: the one whose design files it holds.
 
   builds lists add-repo PROJECT REPO [--by WHO]
       Adds a repo to the project, so its worktrees run items, land commits

@@ -284,4 +284,16 @@ fn design_globs_sets_the_globs_of_an_existing_store() {
     assert!(
         refusal(run(&tool, "design-globs nobody --spec-files bae:spec/*.md")).contains("nobody")
     );
+
+    // A repo two projects hold needs design globs in one of them only.
+    run(&tool, "init builds --repos tools --by tester").unwrap();
+    run(&tool, "add-repo bae tools --by tester").unwrap();
+    std::fs::create_dir_all(tool.places.home.join("dev/tools/design/mocks")).unwrap();
+    assert_eq!(missing().len(), 2, "{:?}", missing());
+    run(
+        &tool,
+        "design-globs builds --design-places tools:design/mocks/*.dc.html --by tester",
+    )
+    .unwrap();
+    assert!(missing().is_empty(), "{:?}", missing());
 }

@@ -893,7 +893,7 @@ STATUS, HEALTH AND THE DASHBOARD
                               a running item whose worktree is gone or has no
                               claim; a held worktree whose wait closed; a
                               repo with a design folder and no design globs
-                              (`builds lists design-globs`);
+                              in any project (`builds lists design-globs`);
                               commits that change design files that no open
                               design change covers, approved or waiting (a
                               change covers a commit when its last commit is

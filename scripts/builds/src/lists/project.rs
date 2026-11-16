@@ -155,9 +155,11 @@ pub fn set_design_globs(db: &Connection, kind: GlobKind, globs: &Globs) -> Resul
 }
 
 /// The health finding for each repo of a loaded store whose main checkout
-/// (`<home>/dev/<repo>`) has a design folder and that has no design place
-/// globs: lists cannot record a design change in it, and `land` never asks
-/// for one.
+/// (`<home>/dev/<repo>`) has a design folder and that no store gives design
+/// place globs: lists cannot record a design change in it, and `land` never
+/// asks for one. A repo two projects hold has its design files in one of
+/// them (agent-instructions is in bae and builds, and builds' store names its
+/// boards), so the other store needs no globs for it.
 pub fn missing_globs_findings(
     home: &std::path::Path,
     loaded: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
@@ -165,11 +167,18 @@ pub fn missing_globs_findings(
     let Ok(loaded) = loaded else {
         return Vec::new();
     };
+    let stores: Vec<&crate::lists::Lists> = loaded
+        .iter()
+        .filter_map(|store| store.lists.as_ref().ok())
+        .collect();
     let mut found = Vec::new();
-    for lists in loaded.iter().filter_map(|store| store.lists.as_ref().ok()) {
+    for lists in &stores {
         for repo in &lists.repos {
             let design = home.join(crate::host::clone_path(repo)).join("design");
-            if design.is_dir() && !lists.design_places.contains_key(repo) {
+            let globbed = stores
+                .iter()
+                .any(|store| store.design_places.contains_key(repo));
+            if design.is_dir() && !globbed {
                 found.push(crate::health::Advice::run(
                     format!(
                         "lists: repo {repo} has a design folder ({}), and project {}'s store names none of its design places, so lists cannot record a design change there and landing never asks for one; set its globs with",
