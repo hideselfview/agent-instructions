@@ -533,28 +533,49 @@ pub fn remove(places: &Places, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// What a host has installed of builds' own, as `INSTALLED_SCRIPT` prints it.
+/// What a host has installed of builds' own, as `installed_script` prints it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Installed {
     /// The SHA-256 of the host's ~/.local/bin/builds, the program its jobs
     /// and the repos' scripts run there; None when the host has none.
     pub builds: Option<String>,
+    /// Whether launchd runs the host's sccache server from the plist builds
+    /// writes (`install::run_sccache_under_launchd`), so the server has
+    /// builds' cap and never idles out.
+    pub sccache_under_launchd: bool,
 }
 
 /// Runs on a host, and on this Mac, to print what `parse_installed` reads.
-const INSTALLED_SCRIPT: &str = r#"if [ -e "$HOME/.local/bin/builds" ]; then echo "builds=$(shasum -a 256 "$HOME/.local/bin/builds" | cut -d ' ' -f 1)"; else echo builds=missing; fi"#;
+fn installed_script() -> String {
+    let label = crate::install::SCCACHE_LABEL;
+    format!(
+        r#"if [ -e "$HOME/.local/bin/builds" ]; then echo "builds=$(shasum -a 256 "$HOME/.local/bin/builds" | cut -d ' ' -f 1)"; else echo builds=missing; fi
+if [ -e "$HOME/Library/LaunchAgents/{label}.plist" ] && launchctl print "gui/$(id -u)/{label}" 2>/dev/null | grep -q 'state = running'; then echo sccache=launchd; else echo sccache=not-launchd; fi"#
+    )
+}
 
-/// Reads what `INSTALLED_SCRIPT` printed.
+/// Reads what `installed_script` printed.
 pub fn parse_installed(text: &str) -> Result<Installed> {
-    let Some(builds) = text.lines().find_map(|line| line.strip_prefix("builds=")) else {
+    let value = |key: &str| {
+        text.lines()
+            .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
+            .map(str::trim)
+    };
+    let Some(builds) = value("builds") else {
         fail!("the host's answer has no builds line: {text:?}");
     };
+    let sccache_under_launchd = match value("sccache") {
+        Some("launchd") => true,
+        Some("not-launchd") => false,
+        _ => fail!("the host's answer has no sccache line: {text:?}"),
+    };
     Ok(Installed {
-        builds: match builds.trim() {
+        builds: match builds {
             "missing" => None,
             "" => fail!("shasum printed nothing for the host's builds: {text:?}"),
             digest => Some(digest.to_string()),
         },
+        sccache_under_launchd,
     })
 }
 
@@ -566,12 +587,12 @@ pub fn read_installed(
     host: &Host,
 ) -> std::result::Result<Installed, String> {
     let mut command = match &host.target {
-        Some(target) => ssh.command(target, INSTALLED_SCRIPT),
+        Some(target) => ssh.command(target, &installed_script()),
         None => {
             let mut command = Command::new("sh");
             command
                 .arg("-c")
-                .arg(INSTALLED_SCRIPT)
+                .arg(installed_script())
                 .env("HOME", &places.home);
             command
         }
@@ -606,7 +627,8 @@ pub fn read_all_installed(places: &Places, ssh: &Ssh, hosts: &[Host]) -> Vec<Hos
 }
 
 /// The "needs action" lines for <reads>: each host whose builds is not this
-/// Mac's. A host that did not answer adds none, since its load card and
+/// Mac's, and each host, this Mac included, whose sccache server launchd does
+/// not run. A host that did not answer adds none, since its load card and
 /// `builds host list` already say it does not answer.
 pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice> {
     let Some(local) = reads.iter().find(|read| read.host == LOCAL) else {
@@ -616,32 +638,44 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
         Ok(installed) => installed,
         Err(error) => {
             return vec![crate::health::Advice::said(format!(
-                "builds could not read this Mac's own ~/.local/bin/builds to compare the hosts' with it: {error}"
+                "builds could not read what this Mac has installed to compare the hosts with it: {error}"
             ))];
         }
     };
     let mut out = Vec::new();
+    if !local.sccache_under_launchd {
+        out.push(crate::health::Advice::run(
+            format!("this Mac's {SCCACHE_OUTSIDE_LAUNCHD} Run it under launchd with"),
+            "builds install".to_string(),
+        ));
+    }
     for read in reads.iter().filter(|read| read.host != LOCAL) {
         let Ok(installed) = &read.read else { continue };
-        if installed.builds == local.builds {
-            continue;
-        }
         let name = &read.host;
-        let text = match installed.builds {
-            None => format!(
-                "host {name} has no builds at ~/.local/bin/builds, so the repos' scripts fail in its jobs. Install this Mac's builds there with"
-            ),
-            Some(_) => format!(
-                "host {name} runs another builds than this Mac (its ~/.local/bin/builds differs), so its jobs run another version's host logic and store schema. Install this Mac's builds there with"
-            ),
-        };
-        out.push(crate::health::Advice::run(
-            text,
-            format!("builds host setup {name}"),
-        ));
+        let setup = format!("builds host setup {name}");
+        if installed.builds != local.builds {
+            let text = match installed.builds {
+                None => format!(
+                    "host {name} has no builds at ~/.local/bin/builds, so the repos' scripts fail in its jobs. Install this Mac's builds there with"
+                ),
+                Some(_) => format!(
+                    "host {name} runs another builds than this Mac (its ~/.local/bin/builds differs), so its jobs run another version's host logic and store schema. Install this Mac's builds there with"
+                ),
+            };
+            out.push(crate::health::Advice::run(text, setup.clone()));
+        }
+        if !installed.sccache_under_launchd {
+            out.push(crate::health::Advice::run(
+                format!("host {name}'s {SCCACHE_OUTSIDE_LAUNCHD} Run it under launchd with"),
+                setup,
+            ));
+        }
     }
     out
 }
+
+/// What a host whose sccache server launchd does not run loses.
+const SCCACHE_OUTSIDE_LAUNCHD: &str = "sccache server does not run under launchd, so the first compile starts one that takes the client's TMPDIR and open-file limit and exits when idle.";
 
 /// One line of `builds host list`.
 pub fn list_line(host: &Host, probe: &std::result::Result<Probe, String>) -> String {
@@ -765,7 +799,7 @@ pub fn probe_all(
     hosts.into_iter().zip(probes).collect()
 }
 
-const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | list | remove <name> | clear-xcode <name>";
+const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | setup-here | list | remove <name> | clear-xcode <name>";
 
 /// The build volume, where a host that has one keeps its builds root, as this
 /// Mac does.
@@ -776,12 +810,42 @@ pub const VOLUME: &str = "/Volumes/Builds";
 /// there, as a side worktree's live under /Volumes/Builds here.
 pub const REMOTE_ROOT: &str = "builds-root";
 
+/// Sets <host> up to take jobs: copies this program there (`install_program`)
+/// and has that copy run `builds host setup-here` there, which runs the
+/// host's sccache server under launchd with builds' cap, as `builds install`
+/// does on this Mac. Returns the host's builds root and what setup-here said.
+pub fn setup_host(ssh: &Ssh, host: &Host) -> Result<(String, String)> {
+    let root = install_program(ssh, host)?;
+    let target = host
+        .target
+        .as_ref()
+        .expect("install_program refuses this Mac");
+    let script = format!(
+        "{root}\"$HOME/.local/bin/builds\" host setup-here",
+        root = crate::remote::root_script(host)
+    );
+    let output = ssh
+        .command(target, &format!("sh -c {}", sh_quote(&script)))
+        .stdin(Stdio::null())
+        .output()
+        .context(|| format!("running {} to {}", ssh.program, host.name))?;
+    let said = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !output.status.success() {
+        fail!(
+            "setting up host {} ({target}) failed ({}): {said}",
+            host.name,
+            output.status
+        );
+    }
+    Ok((root, said))
+}
+
 /// Copies this Mac's `builds` program to `~/.local/bin/builds` on <host> and
 /// creates its builds root. The repo's own `scripts/build-layout.sh` and
 /// `scripts/cargo.sh` find the program there, so a repo's hooks and scripts
 /// work on the host as they do here. Both Macs run arm64 macOS, so the same
 /// program runs on both.
-pub fn setup_host(ssh: &Ssh, host: &Host) -> Result<String> {
+pub fn install_program(ssh: &Ssh, host: &Host) -> Result<String> {
     use std::io::Write;
     let Some(target) = &host.target else {
         fail!("{LOCAL} is this Mac and already has builds");
@@ -831,9 +895,15 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             let Some(host) = all(&tool.places)?.into_iter().find(|h| h.name == *name) else {
                 fail!("no host named {name} (`builds host list`)");
             };
-            let root = setup_host(ssh, &host)?;
+            let (root, said) = setup_host(ssh, &host)?;
+            for line in said.lines() {
+                println!("host {name}: {line}");
+            }
             println!("installed builds on host {name}, with its builds root in {root}");
             Ok(())
+        }
+        [word] if word == "setup-here" => {
+            crate::install::run_sccache_under_launchd(&tool.places.home, tool.places.uid)
         }
         [word, name] if word == "clear-xcode" => {
             if !all(&tool.places)?.iter().any(|host| host.name == *name) {

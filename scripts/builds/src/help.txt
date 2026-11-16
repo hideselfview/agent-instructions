@@ -273,7 +273,10 @@ One sccache server serves every checkout. launchd runs it
 (local.sccache-server) on sccache's default port, 4226, with the system's
 TMPDIR and no idle timeout; its cache is caches/sccache, capped in
 ~/Library/Application Support/Mozilla.sccache/config. `builds install` writes
-both, and `builds status` flags a config that no longer holds builds' cap.
+both, `builds host setup` writes them on a host (whose cache is its own
+~/Library/Caches/Mozilla.sccache), `builds status` flags a config that no
+longer holds builds' cap, and `builds health` names each Mac whose server
+launchd does not run.
 Never start a server any other way: a server inherits the TMPDIR of the client
 that starts it and fails every compile once that folder is deleted, and the
 Unix-socket mode (SCCACHE_SERVER_UDS) races when clients start at once and
@@ -560,6 +563,7 @@ cannot start refuses mac app builds only (APP BUILDS).
 
   builds host add <name> <ssh target>
   builds host setup <name>
+  builds host setup-here
   builds host list
   builds host remove <name>
   builds host clear-xcode <name>
@@ -568,9 +572,15 @@ cannot start refuses mac app builds only (APP BUILDS).
                               records it in the file `hosts` beside the lists
                               folder. `setup` copies this Mac's builds program
                               to ~/.local/bin/builds on the host (both are
-                              arm64 macOS) and makes its ~/builds-root;
-                              `builds install` copies it to every host the
-                              same way. `list`
+                              arm64 macOS), makes its ~/builds-root, and has
+                              that copy run `builds host setup-here` there,
+                              which writes the host's sccache config with
+                              builds' cap and runs its sccache server under
+                              launchd, as `builds install` does here (it
+                              needs the host's user logged in to its desktop,
+                              where launchd runs user agents). `builds
+                              install` copies the program to every host the
+                              same way, without the sccache step. `list`
                               asks every host for its load average per core,
                               its free disk, whether it answers and whether it
                               refuses jobs, and keeps each host's record of
@@ -875,7 +885,10 @@ STATUS, HEALTH AND THE DASHBOARD
                               that refuses jobs (HOSTS), with what the host
                               said and what to fix; a build host whose
                               ~/.local/bin/builds is missing or differs from
-                              this Mac's (`builds host setup <name>`)
+                              this Mac's (`builds host setup <name>`); a build
+                              host, or this Mac, whose sccache server launchd
+                              does not run from builds' plist (`builds host
+                              setup <name>`, or `builds install` here)
   builds dashboard [--port <port>] [--listen <address>]
                               run the daemon until it is killed. It follows
                               the volume, the checkouts and the lists through

@@ -15,7 +15,8 @@ use crate::manifest::SHARED_CACHES;
 use crate::text::{human, note, tilde};
 use crate::tool::Tool;
 
-const SCCACHE_LABEL: &str = "local.sccache-server";
+/// The launchd label of the sccache server builds runs on each Mac.
+pub const SCCACHE_LABEL: &str = "local.sccache-server";
 
 /// The sccache config file, which sccache reads on every client and server
 /// start, whatever the caller's environment, so the cap holds for builds that
@@ -289,37 +290,31 @@ fn launchctl(args: &[&str]) -> Result<bool> {
         .success())
 }
 
-/// `builds install`.
-pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
-    if !args.is_empty() {
-        fail!("usage: builds install");
-    }
-    let home = &tool.places.home;
-    crate::migrate::migrate_app_files(&tool.places)?;
-    crate::migrate::migrate_stores(&tool.places)?;
-    let replaced = put_on_path(home)?;
-    tool.places.require_volume()?;
-    let caches = tool.places.caches();
-    let derived_data = tool.places.derived_data();
-    for dir in [&caches, &derived_data] {
-        std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
-    }
-    for cache in SHARED_CACHES {
-        link_cache(&caches.join(cache.name), &cache.link_path(home), home)?;
-    }
-    let Some(sccache_cap) = SHARED_CACHES
+/// builds' cap for the sccache cache, from the shared caches.
+pub fn sccache_cap_kib() -> u64 {
+    SHARED_CACHES
         .iter()
         .find(|cache| cache.name == "sccache")
-        .map(|c| c.cap_kib)
-    else {
-        fail!("the shared caches list no sccache cache");
-    };
+        .map(|cache| cache.cap_kib)
+        .expect("the shared caches list the sccache cache")
+}
+
+/// Writes the sccache config with builds' cap and runs the sccache server
+/// under launchd (`SCCACHE_LABEL`) for user <uid>, whose home is <home>:
+/// `builds install` on this Mac, and `builds host setup` on each host. It
+/// restarts the server only when its settings changed or launchd does not
+/// run it, since a restart fails every compile in flight.
+pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
+    let sccache_cap = sccache_cap_kib();
     let Some(sccache) = on_path("sccache") else {
         fail!("sccache is not installed")
     };
     let config = sccache_config_path(home);
-    let config_dir = config.parent().expect("the config has a folder");
-    std::fs::create_dir_all(config_dir).context(|| format!("creating {}", config_dir.display()))?;
+    let plist_path = home.join(format!("Library/LaunchAgents/{SCCACHE_LABEL}.plist"));
+    for file in [&config, &plist_path] {
+        let dir = file.parent().expect("the file has a folder");
+        std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
+    }
     let mut restart = false;
     if write_if_changed(&config, &sccache_config(sccache_cap))? {
         note(format!(
@@ -329,18 +324,16 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
         ));
         restart = true;
     }
-    let plist_path = home.join(format!("Library/LaunchAgents/{SCCACHE_LABEL}.plist"));
     if write_if_changed(&plist_path, &plist(&sccache, home))? {
         note(format!("wrote {}", plist_path.display()));
         restart = true;
     }
-    // Restarting the server fails the compiles of every build running now,
-    // so it restarts only when its settings changed or launchd isn't running
-    // it.
-    let domain = format!("gui/{}", tool.places.uid);
+    let domain = format!("gui/{uid}");
     let service = format!("{domain}/{SCCACHE_LABEL}");
     if restart || !launchctl(&["print", &service])? {
         launchctl(&["bootout", &service])?;
+        // A server a client started holds sccache's port; launchd's server
+        // could not listen there.
         Command::new(&sccache)
             .arg("--stop-server")
             .stdout(Stdio::null())
@@ -360,6 +353,28 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     } else {
         note("the sccache server already runs under launchd with these settings");
     }
+    Ok(())
+}
+
+/// `builds install`.
+pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
+    if !args.is_empty() {
+        fail!("usage: builds install");
+    }
+    let home = &tool.places.home;
+    crate::migrate::migrate_app_files(&tool.places)?;
+    crate::migrate::migrate_stores(&tool.places)?;
+    let replaced = put_on_path(home)?;
+    tool.places.require_volume()?;
+    let caches = tool.places.caches();
+    let derived_data = tool.places.derived_data();
+    for dir in [&caches, &derived_data] {
+        std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
+    }
+    for cache in SHARED_CACHES {
+        link_cache(&caches.join(cache.name), &cache.link_path(home), home)?;
+    }
+    run_sccache_under_launchd(home, tool.places.uid)?;
     // xcodebuild runs without -derivedDataPath, and the Xcode app, write
     // here.
     let current = Command::new("defaults")
@@ -398,7 +413,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     install_on_hosts(&tool.places, &crate::host::Ssh::from_env())
 }
 
-/// Copies this build to every recorded host, as `builds host setup` does, so
+/// Copies this build to every recorded host (`host::install_program`), so
 /// each host's jobs run the builds this Mac runs. Every host gets its copy
 /// before a host that failed fails the install, naming each such host;
 /// `builds health` reports each host whose builds differs from this Mac's
@@ -406,7 +421,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
 fn install_on_hosts(places: &crate::places::Places, ssh: &crate::host::Ssh) -> Result<()> {
     let hosts = crate::host::read_remote(places)?;
     let installed =
-        crate::checkout::parallel_map(&hosts, |host| crate::host::setup_host(ssh, host));
+        crate::checkout::parallel_map(&hosts, |host| crate::host::install_program(ssh, host));
     let mut failed = Vec::new();
     for (host, result) in hosts.iter().zip(installed) {
         match result {

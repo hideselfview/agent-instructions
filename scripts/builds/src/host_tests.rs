@@ -236,7 +236,7 @@ fn an_unreachable_host_is_not_added() {
 }
 
 #[test]
-fn setup_copies_builds_to_the_host_and_makes_its_root() {
+fn install_program_copies_builds_to_the_host_and_makes_its_root() {
     let scratch = Scratch::new("host-setup");
     let home = scratch.dir.join("remote-home");
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
@@ -245,7 +245,7 @@ fn setup_copies_builds_to_the_host_and_makes_its_root() {
         target: Some("user@m1".to_string()),
         cores: 10,
     };
-    setup_host(&ssh, &host).unwrap();
+    install_program(&ssh, &host).unwrap();
     let installed = home.join(".local/bin/builds");
     assert_eq!(
         std::fs::read(&installed).unwrap(),
@@ -253,13 +253,13 @@ fn setup_copies_builds_to_the_host_and_makes_its_root() {
     );
     assert!(home.join(REMOTE_ROOT).is_dir());
     assert!(!home.join(".local/bin/builds.part").exists());
-    assert!(setup_host(&ssh, &Host::local()).is_err());
+    assert!(install_program(&ssh, &Host::local()).is_err());
     let gone = Host {
         name: "gone".to_string(),
         target: Some("unreachable".to_string()),
         cores: 1,
     };
-    let Err(Fail::Message(message)) = setup_host(&ssh, &gone) else {
+    let Err(Fail::Message(message)) = install_program(&ssh, &gone) else {
         panic!("expected a failure");
     };
     assert!(message.contains("host gone"), "{message}");
@@ -318,16 +318,21 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
 #[test]
 fn reads_what_a_host_has_installed() {
     assert_eq!(
-        parse_installed("builds=ab12\n").unwrap(),
+        parse_installed("builds=ab12\nsccache=launchd\n").unwrap(),
         Installed {
-            builds: Some("ab12".to_string())
+            builds: Some("ab12".to_string()),
+            sccache_under_launchd: true,
         }
     );
     assert_eq!(
-        parse_installed("builds=missing\n").unwrap(),
-        Installed { builds: None }
+        parse_installed("builds=missing\nsccache=not-launchd\n").unwrap(),
+        Installed {
+            builds: None,
+            sccache_under_launchd: false,
+        }
     );
-    assert!(parse_installed("builds=\n").is_err());
+    assert!(parse_installed("builds=\nsccache=launchd\n").is_err());
+    assert!(parse_installed("builds=ab12\n").is_err());
     assert!(parse_installed("").is_err());
 }
 
@@ -349,7 +354,14 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
         cores: 1,
     };
     let hosts = [Host::local(), m1.clone(), gone];
-    let findings = || installed_findings(&read_all_installed(&places, &ssh, &hosts));
+    // Neither home has builds' sccache plist, so each also has its sccache
+    // finding; this test reads the builds ones.
+    let findings = || -> Vec<crate::health::Advice> {
+        installed_findings(&read_all_installed(&places, &ssh, &hosts))
+            .into_iter()
+            .filter(|advice| !advice.text.contains("sccache"))
+            .collect()
+    };
 
     let found = findings();
     assert_eq!(found.len(), 1, "{found:?}");
@@ -359,7 +371,7 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
     );
     assert_eq!(found[0].command.as_deref(), Some("builds host setup m1"));
 
-    setup_host(&ssh, &m1).unwrap();
+    install_program(&ssh, &m1).unwrap();
     assert_eq!(findings(), [], "m1 has this Mac's builds");
 
     std::fs::write(home.join(".local/bin/builds"), "older").unwrap();
@@ -369,4 +381,45 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
         found[0].text.starts_with("host m1 runs another builds"),
         "{found:?}"
     );
+}
+
+/// A Mac whose sccache server launchd does not run is a finding: a host
+/// names `builds host setup`, this Mac `builds install`. A home without
+/// builds' plist reads as one.
+#[test]
+fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
+    let installed = |sccache_under_launchd| Installed {
+        builds: Some("ab12".to_string()),
+        sccache_under_launchd,
+    };
+    let read = |host: &str, under: bool| HostInstalled {
+        host: host.to_string(),
+        read: Ok(installed(under)),
+    };
+    assert_eq!(
+        installed_findings(&[read(LOCAL, true), read("m1", true)]),
+        []
+    );
+    let found = installed_findings(&[read(LOCAL, false), read("m1", false)]);
+    let shown: Vec<(bool, Option<&str>)> = found
+        .iter()
+        .map(|advice| (advice.text.contains("sccache"), advice.command.as_deref()))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            (true, Some("builds install")),
+            (true, Some("builds host setup m1"))
+        ]
+    );
+
+    let scratch = Scratch::new("host-sccache");
+    let places = scratch.places();
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"));
+    let reads = read_all_installed(&places, &ssh, &[Host::local(), host("m1")]);
+    let under: Vec<bool> = reads
+        .iter()
+        .map(|read| read.read.as_ref().unwrap().sccache_under_launchd)
+        .collect();
+    assert_eq!(under, [false, false]);
 }
