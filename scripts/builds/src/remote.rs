@@ -577,7 +577,7 @@ pub fn start_job<'a>(
     if host.target.is_none() {
         fail!("{said}");
     }
-    if let Err(error) = host::record_refusal(places, &host.name, &said) {
+    if let Err(error) = host::record_refusal(places, host::Refused::Jobs, &host.name, &said) {
         note(error.text());
     }
     Ok(Start::Refused(said))

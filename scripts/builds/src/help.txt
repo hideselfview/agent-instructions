@@ -382,6 +382,17 @@ takeover; its output comes back behind [<lane> <host>:<name>]. After each
 --test or --shots run there, passed or failed, the folders of the lane's
 `results` lines are copied to /Volumes/Builds/<repo>/<host>:<name>/<path> here,
 where agents read them. A mac lane checkout on a host needs Xcode there.
+
+A host whose Xcode cannot start fails every mac lane build, whatever the code:
+xcodebuild prints "A required plugin failed to load" and names the fix (as
+after an Xcode update whose system content was not installed). When a mac lane
+step fails after printing that line, builds records the host (this Mac
+included) in the folder host-xcode-failures beside the file `hosts`, and the
+lane runs again from its place in the queue in a checkout on another host.
+The mac lane passes over a recorded host's checkouts, and `builds health`
+lists the host under "needs action" with xcodebuild's fix, until `builds host
+clear-xcode <name>` removes the record. A step that fails without that line
+failed because of the code, and fails the build.
 build-app, `builds lock` and a build that runs a `here` step never take a
 checkout on a host.
 
@@ -423,8 +434,10 @@ built again.
                               fails if either lane fails, saying which. A lane takes the free lock of the checkout
                               on the less loaded host first (load average per
                               core, this Mac counted; a host that does not
-                              answer is skipped). Each lane's run goes to the
-                              project's store when it ends: the ref, the claim
+                              answer is skipped, and in the mac lane so is a
+                              host whose Xcode cannot start). Each lane's run
+                              goes to the project's store when it ends: the
+                              ref, the claim
                               of the worktree it ran from, the checkout, its
                               wait in the queue, and each step's start, wall
                               time, CPU time and result; the dashboard shows
@@ -527,12 +540,15 @@ recorded host under "needs action", and the dashboard's load card for the host
 says "refuses jobs" in place of its core count when git fails there. Fix the cause on the host; the next probe
 that finds the host answering with git running removes the record, and builds
 uses the host again. `builds host list` probes every host, and so does every
-`builds cargo` and `builds remote run` that picks one.
+`builds cargo` and `builds remote run` that picks one. A host whose Xcode
+cannot start refuses mac app builds only (APP BUILDS).
 
   builds host add <name> <ssh target>
   builds host setup <name>
   builds host list
-  builds host remove <name>   manage the hosts. `add` asks the host (over ssh,
+  builds host remove <name>
+  builds host clear-xcode <name>
+                              manage the hosts. `add` asks the host (over ssh,
                               by key, with no password) for its cores and
                               records it in the file `hosts` beside the lists
                               folder. `setup` copies this Mac's builds program
@@ -540,8 +556,12 @@ uses the host again. `builds host list` probes every host, and so does every
                               arm64 macOS) and makes its ~/builds-root. `list`
                               asks every host for its load average per core,
                               its free disk, whether it answers and whether it
-                              refuses jobs, and keeps each host's refusal
-                              record current with the answer
+                              refuses jobs, and keeps each host's record of
+                              refusing jobs current with the answer.
+                              `clear-xcode` removes the record that the host's
+                              Xcode cannot start, once the fix xcodebuild
+                              named has run there, so mac app builds use its
+                              checkouts again
   builds remote run <repo> <ref> [--host <name>] -- <command> [<args>...]
   builds remote run <repo> --staged [--host <name>] -- <command> [<args>...]
   builds remote run <repo> --working [--host <name>] -- <command> [<args>...]

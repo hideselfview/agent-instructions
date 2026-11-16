@@ -42,6 +42,15 @@ impl Lane {
         }
     }
 
+    /// Whether the lane builds with Xcode, so a host whose Xcode cannot start
+    /// (xcode.rs) cannot build it.
+    pub fn uses_xcode(self) -> bool {
+        match self {
+            Lane::Mac => true,
+            Lane::Android => false,
+        }
+    }
+
     /// What the lane's file names carry between `app` and the extension: the
     /// mac lane's carry nothing.
     fn tag(self) -> &'static str {

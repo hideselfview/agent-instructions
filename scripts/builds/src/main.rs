@@ -57,6 +57,7 @@ mod units;
 mod usage;
 mod warm;
 mod worktree;
+mod xcode;
 
 use std::process::ExitCode;
 

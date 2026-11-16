@@ -9,7 +9,7 @@ use std::process::{Command, Output};
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 
-const APP_BUILD: &str = "step android hello ./hello.sh\nstep android hang ./hang.sh\nstep android signed ./hello.sh\nhere signed\nlimit hang 1s\ntest android ./t.sh {class}\nresults android out\n";
+const APP_BUILD: &str = "step mac xcode ./xcode.sh\nstep android hello ./hello.sh\nstep android hang ./hang.sh\nstep android signed ./hello.sh\nhere signed\nlimit hang 1s\ntest android ./t.sh {class}\nresults android out\n";
 
 struct World {
     dir: PathBuf,
@@ -44,8 +44,10 @@ impl World {
         let source = dir.join("src/demo");
         let origin = dir.join("origin.git");
         let remote_home = dir.join("remote-home");
+        let second_home = dir.join("remote-home-2");
         std::fs::create_dir_all(&source).unwrap();
         std::fs::create_dir_all(remote_home.join("dev")).unwrap();
+        std::fs::create_dir_all(second_home.join("dev")).unwrap();
         std::fs::create_dir_all(remote_home.join("Library/Android/sdk")).unwrap();
         std::fs::create_dir_all(dir.join("home")).unwrap();
         std::fs::create_dir_all(dir.join("bin")).unwrap();
@@ -63,6 +65,10 @@ impl World {
         script(
             &source.join("hang.sh"),
             "#!/bin/sh\necho $$ > \"$HOME/hang.pid\"\nexec sleep 300\n",
+        );
+        script(
+            &source.join("xcode.sh"),
+            "#!/bin/sh\nif [ -e \"$HOME/xcode-broken\" ]; then echo \"A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.\" >&2; exit 70; fi\necho \"built in $(basename \"$HOME\")\"\n",
         );
         script(
             &source.join("t.sh"),
@@ -95,6 +101,15 @@ impl World {
                 remote_home.join("dev/demo").to_str().unwrap(),
             ],
         );
+        run(
+            &dir,
+            &[
+                "clone",
+                "-q",
+                origin.to_str().unwrap(),
+                second_home.join("dev/demo").to_str().unwrap(),
+            ],
+        );
         script(
             &dir.join("bin/ssh"),
             &format!(
@@ -106,10 +121,15 @@ while [ $# -gt 0 ]; do
     *) break;;
   esac
 done
+case "$1" in
+  user@m2) home='{second}';;
+  *) home='{home}';;
+esac
 shift
-cd '{home}' && HOME='{home}' exec sh -c "$*"
+cd "$home" && HOME="$home" exec sh -c "$*"
 "#,
-                home = remote_home.display()
+                home = remote_home.display(),
+                second = second_home.display()
             ),
         );
         std::fs::write(dir.join("hosts"), "m1 user@m1 10\n").unwrap();
@@ -223,5 +243,46 @@ fn a_step_the_repo_keeps_on_this_mac_never_takes_a_hosts_checkout() {
             .join("remote-home/dev/demo-worktrees/app-1")
             .exists(),
         "nothing was sent to the host"
+    );
+}
+
+/// A mac lane step that fails because the host's Xcode cannot start runs
+/// again in a checkout on another host, and the host is recorded, so the next
+/// build passes over it from the start.
+#[test]
+fn a_host_whose_xcode_cannot_start_is_passed_over_and_recorded() {
+    let world = World::new("xcode");
+    std::fs::write(world.dir.join("hosts"), "m1 user@m1 10\nm2 user@m2 10\n").unwrap();
+    std::fs::write(
+        world.dir.join("volume/demo/app-checkouts"),
+        "m1:mac-1\nm2:mac-1\n",
+    )
+    .unwrap();
+    std::fs::write(world.dir.join("remote-home/xcode-broken"), "").unwrap();
+    let output = world.app_build(&["main", "xcode"]);
+    let (out, err) = (text(&output.stdout), text(&output.stderr));
+    assert!(output.status.success(), "{out}\n{err}");
+    assert!(
+        err.contains("[mac m1:mac-1] A required plugin failed"),
+        "{err}"
+    );
+    assert!(err.contains("host m1's Xcode cannot start"), "{err}");
+    assert!(
+        out.contains("[mac m2:mac-1] built in remote-home-2"),
+        "{out}"
+    );
+    let record = world.dir.join("host-xcode-failures/m1");
+    assert!(
+        std::fs::read_to_string(&record)
+            .unwrap()
+            .contains("xcodebuild -runFirstLaunch"),
+        "the record keeps what xcodebuild said"
+    );
+    let output = world.app_build(&["main", "xcode"]);
+    let (out, err) = (text(&output.stdout), text(&output.stderr));
+    assert!(output.status.success(), "{out}\n{err}");
+    assert!(
+        !out.contains("m1:mac-1") && !err.contains("m1:mac-1"),
+        "{out}\n{err}"
     );
 }

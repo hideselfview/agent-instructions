@@ -668,15 +668,15 @@ pub fn run_command(top: &Path, command: &[String], limit: Option<Duration>) -> R
     lock::run_in_group_within(start_of(top, command)?, &command[0], limit)
 }
 
-/// `run_command`, passing the command's output on as it arrives and keeping a
-/// copy in <kept>.
-pub fn run_command_capturing(
+/// `run_command`, passing the command's output on as it arrives and keeping
+/// what <keep> asks for.
+pub fn run_command_keeping(
     top: &Path,
     command: &[String],
     limit: Option<Duration>,
-    kept: &lock::Captured,
+    keep: lock::Keep,
 ) -> Result<Within> {
-    lock::run_in_group_capturing(start_of(top, command)?, &command[0], limit, kept)
+    lock::run_in_group_keeping(start_of(top, command)?, &command[0], limit, keep)
 }
 
 /// The folder of <repo>'s app checkout <name>.

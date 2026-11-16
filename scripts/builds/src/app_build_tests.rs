@@ -95,7 +95,7 @@ fn steps_stop_at_the_first_failure() {
         step("c", &["touch", "c"]),
     ];
     assert!(matches!(
-        run_steps(&scratch.dir, &steps, &mut Vec::new(), None),
+        run_steps(&scratch.dir, &steps, &mut Vec::new(), None, false),
         Err(Fail::Exit(1))
     ));
     assert!(scratch.dir.join("a").exists());
@@ -104,9 +104,59 @@ fn steps_stop_at_the_first_failure() {
         "the step after the failure did not run"
     );
     assert_eq!(
-        run_steps(&scratch.dir, &steps[..1], &mut Vec::new(), None).unwrap(),
-        Ran::Finished
+        run_steps(&scratch.dir, &steps[..1], &mut Vec::new(), None, false).unwrap(),
+        Ended::Finished
     );
+}
+
+/// In a lane that builds with Xcode, a step that fails after xcodebuild said
+/// it cannot start ends the run with what xcodebuild said, in place of the
+/// step's failure. A step that prints the line and passes passed, and a step
+/// that fails without it failed because of the code.
+#[test]
+fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure() {
+    let scratch = crate::testing::Scratch::new("app-build-xcode");
+    let said = "A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.";
+    let step = |script: String| Step {
+        name: "xcframework".to_string(),
+        lane: Lane::Mac,
+        command: vec!["sh".to_string(), "-c".to_string(), script],
+        limit: None,
+    };
+    let broken = step(format!("echo building; echo \"{said}\" >&2; exit 70"));
+    assert_eq!(
+        run_steps(
+            &scratch.dir,
+            std::slice::from_ref(&broken),
+            &mut Vec::new(),
+            None,
+            true
+        )
+        .unwrap(),
+        Ended::XcodeCannotStart(said.to_string())
+    );
+    assert!(
+        matches!(
+            run_steps(&scratch.dir, &[broken], &mut Vec::new(), None, false),
+            Err(Fail::Exit(70))
+        ),
+        "a lane that does not watch for the line fails as the step did"
+    );
+    let passed = step(format!("echo \"{said}\"; exit 0"));
+    assert_eq!(
+        run_steps(&scratch.dir, &[passed], &mut Vec::new(), None, true).unwrap(),
+        Ended::Finished
+    );
+    assert!(matches!(
+        run_steps(
+            &scratch.dir,
+            &[step("exit 65".to_string())],
+            &mut Vec::new(),
+            None,
+            true
+        ),
+        Err(Fail::Exit(65))
+    ));
 }
 
 #[test]
@@ -128,7 +178,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
     };
     let started = std::time::Instant::now();
     let Err(Fail::Message(message)) =
-        run_steps(&scratch.dir, &[slow, after], &mut Vec::new(), None)
+        run_steps(&scratch.dir, &[slow, after], &mut Vec::new(), None, false)
     else {
         panic!("fails")
     };
@@ -364,7 +414,7 @@ fn running_fake_steps_times_each_one_with_its_kind_and_result() {
         fake("never", &["true"], None),
     ];
     let mut log = Vec::new();
-    let _ = run_steps(&scratch.dir, &steps, &mut log, None);
+    let _ = run_steps(&scratch.dir, &steps, &mut log, None, false);
     let seen: Vec<(&str, StepKind, StepResult)> = log
         .iter()
         .map(|s| (s.name.as_str(), s.kind, s.result))
@@ -391,6 +441,7 @@ fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_
         &[fake("burn", &["sh", "-c", burn], None)],
         &mut log,
         None,
+        false,
     )
     .unwrap();
     assert!(log[0].cpu_ms > 0, "{:?}", log[0]);
@@ -405,6 +456,7 @@ fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_
         )],
         &mut log,
         None,
+        false,
     );
     assert_eq!(log[0].result, StepResult::TimedOut);
 }
@@ -425,6 +477,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
         ],
         &mut timing.steps,
         None,
+        false,
     )
     .unwrap();
     timing.record(&places, "demo", Lane::Mac, "my-branch", true);
@@ -505,7 +558,7 @@ fn a_shots_run_that_printed_findings_is_kept_under_its_commit_platform_prefix_an
     let top = scratch.dir.join("repo");
     let kept = shots_store(&top, &database);
     let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
-    let result = run_steps(&top, &[step], &mut Vec::new(), Some(&kept));
+    let result = run_steps(&top, &[step], &mut Vec::new(), Some(&kept), false);
     assert!(matches!(result, Err(Fail::Exit(1))));
     let commit = resolve(&top, "HEAD").unwrap();
     let key = shot_findings::Key {
@@ -547,7 +600,7 @@ fn a_shots_run_that_died_on_an_error_keeps_nothing() {
         ],
         None,
     );
-    let _ = run_steps(&top, &[step], &mut Vec::new(), Some(&kept));
+    let _ = run_steps(&top, &[step], &mut Vec::new(), Some(&kept), false);
     let conn = db::open_reader(&database).unwrap().unwrap();
     let rows: i64 = conn
         .query_row("SELECT COUNT(*) FROM shot_findings", [], |row| row.get(0))
@@ -570,7 +623,7 @@ fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
     std::fs::create_dir_all(&marker).unwrap();
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
-    let _ = run_steps(&top, &[step], &mut Vec::new(), Some(&kept));
+    let _ = run_steps(&top, &[step], &mut Vec::new(), Some(&kept), false);
     let args = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     // Served from the store: no lane process starts (one would run this test
     // program as `builds`, and wait for a lock that does not exist).
@@ -603,7 +656,7 @@ fn a_shots_run_keeps_its_report_and_the_pictures_it_shows_under_its_key_in_the_s
     let top = scratch.dir.join("repo");
     let kept = shots_store(&top, &database);
     let step = fake("shots mac.a.", &["sh", "-c", REPORT_RUN], None);
-    run_steps(&top, &[step], &mut Vec::new(), Some(&kept)).unwrap();
+    run_steps(&top, &[step], &mut Vec::new(), Some(&kept), false).unwrap();
     let commit = resolve(&top, "HEAD").unwrap();
     let key = shot_findings::Key {
         repo: "demo".to_string(),

@@ -11,7 +11,7 @@
 //! whose worktree is gone or has no claim (lists/running.rs), a held worktree
 //! whose item waits on nothing open, commits that change design files no
 //! recorded design change covers (lists/held.rs), or a build host that refuses
-//! jobs (host.rs).
+//! jobs or whose Xcode cannot start (host.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -55,7 +55,7 @@ pub enum FindingKind {
     Claim,
     /// A process with a lot of CPU time that looks stuck.
     Busy,
-    /// A build host that refuses jobs.
+    /// A build host that refuses jobs, or whose Xcode cannot start.
     Host,
 }
 
@@ -1015,7 +1015,8 @@ pub fn lines(health: &Health) -> Vec<String> {
 }
 
 /// The findings that come from the hosts: each process that looks stuck on
-/// one (stuck.rs), and each host that refuses jobs (host.rs). `assess` judges
+/// one (stuck.rs), and each host that refuses jobs or whose Xcode cannot
+/// start (host.rs). `assess` judges
 /// only what this Mac's process reading finds, which runs no ssh, so `builds
 /// health` and the dashboard each add these findings to the ones `assess`
 /// returns.
@@ -1350,6 +1351,7 @@ mod tests {
     fn a_host_that_refuses_jobs_is_a_finding_that_names_its_command() {
         let refusal = crate::host::Refusal {
             host: "m1".to_string(),
+            refused: crate::host::Refused::Jobs,
             at: 1_800_000_000,
             said: "git failed".to_string(),
         };
@@ -1369,6 +1371,32 @@ mod tests {
                 .ends_with("to probe every host now, run `builds host list`"),
             "{}",
             found[0].advice.line()
+        );
+    }
+
+    /// A host whose Xcode cannot start is a finding that names the fix
+    /// xcodebuild named and the command that lets mac app builds use the host
+    /// again.
+    #[test]
+    fn a_host_whose_xcode_cannot_start_names_the_fix_and_how_to_use_it_again() {
+        let refusal = crate::host::Refusal {
+            host: "m1".to_string(),
+            refused: crate::host::Refused::MacBuilds,
+            at: 1_800_000_000,
+            said: "A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.".to_string(),
+        };
+        let found = host_findings(&[], &[refusal]);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].kind, FindingKind::Host);
+        assert_eq!(
+            found[0].advice.command.as_deref(),
+            Some("builds host clear-xcode m1")
+        );
+        let line = found[0].advice.line();
+        assert!(
+            line.starts_with("host m1's Xcode cannot start")
+                && line.contains("Run sudo xcodebuild -runFirstLaunch on m1"),
+            "{line}"
         );
     }
 }

@@ -46,6 +46,13 @@
 //!
 //! A takeover stops the step running; the lane's build then runs again from
 //! the checkout, behind the build that took over.
+//!
+//! A step of the mac lane that fails after xcodebuild printed that it cannot
+//! start (xcode.rs) failed because of the host, not the code: the lane records
+//! the host as refusing mac app builds (host.rs), which `builds health` lists
+//! with the fix xcodebuild named, and runs again from its place in the queue
+//! in a checkout on another host, as the lane's lock picks no checkout on a
+//! host so recorded.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
@@ -56,8 +63,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::app_config::{
-    CONFIG, Config, PickKind, Step, app_checkout_top, check_out, parse_config, run_command,
-    run_command_capturing, run_git, show_duration,
+    CONFIG, Config, PickKind, Step, app_checkout_top, check_out, parse_config, run_command_keeping,
+    run_git, show_duration,
 };
 use crate::app_remote::{RemoteApp, local_source};
 use crate::app_timing::{self, RunRecord, StepKind, StepRecord, StepResult, Timer};
@@ -67,7 +74,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::host::Ssh;
 use crate::lane::Lane;
-use crate::lock::{self, Ran, Within};
+use crate::lock::{self, Found, Keep, Ran, Within};
 use crate::places::Places;
 use crate::shot_findings;
 use crate::text::note;
@@ -312,43 +319,77 @@ fn resolve(top: &Path, rev: &str) -> Result<String> {
     .to_string())
 }
 
-/// Runs <steps> in the checkout <top> in order, stopping at the first that
-/// fails; `TakenOver` when a takeover stopped one. Each step it starts is
-/// timed into <log> (app_timing.rs).
-fn run_steps(
-    top: &Path,
-    steps: &[Step],
-    log: &mut Vec<StepRecord>,
-    shots: Option<&ShotsStore>,
-) -> Result<Ran> {
-    run_steps_with(steps, log, &mut |step, kind| {
-        run_local_step(top, step, kind, shots)
-    })
+/// How a lane's steps ended, when none failed because of the code.
+#[derive(Debug, PartialEq, Eq)]
+enum Ended {
+    Finished,
+    /// A takeover stopped a step.
+    TakenOver,
+    /// A step failed after xcodebuild printed that it cannot start on the
+    /// host; the line it printed.
+    XcodeCannotStart(String),
 }
 
-/// Runs <step> (of <kind>) in the checkout <top>; a shots run with a store
-/// keeps the findings it printed.
+/// What a step's run keeps of its output: all of it for a shots run whose
+/// findings are kept (<all>), and xcodebuild's line saying it cannot start
+/// when the lane watches for it (<xcode>).
+fn keep_for<'a>(
+    kind: StepKind,
+    shots: Option<&ShotsStore>,
+    all: &'a lock::Captured,
+    xcode: Option<&'a Found>,
+) -> Keep<'a> {
+    Keep {
+        all: (kind == StepKind::Shots && shots.is_some()).then_some(all),
+        line_with: xcode.map(|found| (crate::xcode::CANNOT_START, found)),
+    }
+}
+
+/// Runs <step> (of <kind>) in the checkout <top>, watching for xcodebuild's
+/// line in <xcode>; a shots run with a store keeps the findings it printed.
 fn run_local_step(
     top: &Path,
     step: &Step,
     kind: StepKind,
     shots: Option<&ShotsStore>,
+    xcode: Option<&Found>,
 ) -> Result<Within> {
-    let (StepKind::Shots, Some(store)) = (kind, shots) else {
-        return run_command(top, &step.command, Some(step.limit()));
-    };
     let kept = lock::Captured::default();
-    let outcome = run_command_capturing(top, &step.command, Some(step.limit()), &kept);
-    store.keep_of(&outcome, &kept, step, top, &mut LocalRun(top));
+    let keep = keep_for(kind, shots, &kept, xcode);
+    let outcome = run_command_keeping(top, &step.command, Some(step.limit()), keep);
+    if let (StepKind::Shots, Some(store)) = (kind, shots) {
+        store.keep_of(&outcome, &kept, step, top, &mut LocalRun(top));
+    }
     outcome
 }
 
-/// `run_steps`, each step run by <run>.
+/// Runs <steps> in the checkout <top>, as `run_steps_with` does with <watch>.
+fn run_steps(
+    top: &Path,
+    steps: &[Step],
+    log: &mut Vec<StepRecord>,
+    shots: Option<&ShotsStore>,
+    watch: bool,
+) -> Result<Ended> {
+    run_steps_with(steps, log, watch, &mut |step, kind, xcode| {
+        run_local_step(top, step, kind, shots, xcode)
+    })
+}
+
+/// Runs one step of a kind, watching for xcodebuild's line when given where
+/// to keep it.
+type RunStep<'a> = dyn FnMut(&Step, StepKind, Option<&Found>) -> Result<Within> + 'a;
+
+/// Runs <steps> in order, each by <run>, stopping at the first that fails.
+/// Each step it starts is timed into <log> (app_timing.rs). With <watch>, each
+/// step's run watches for xcodebuild's line saying it cannot start, and a step
+/// that fails after printing it ends the run with `XcodeCannotStart`.
 fn run_steps_with(
     steps: &[Step],
     log: &mut Vec<StepRecord>,
-    run: &mut dyn FnMut(&Step, StepKind) -> Result<Within>,
-) -> Result<Ran> {
+    watch: bool,
+    run: &mut RunStep,
+) -> Result<Ended> {
     for step in steps {
         note(format!("step {}", step.name));
         let kind = match pick_kind_of(&step.name) {
@@ -357,7 +398,8 @@ fn run_steps_with(
             None => StepKind::Step,
         };
         let timer = Timer::start();
-        let outcome = run(step, kind);
+        let found = Found::default();
+        let outcome = run(step, kind, watch.then_some(&found));
         let result = match &outcome {
             Ok(Within::Ran(Ran::Finished)) => StepResult::Passed,
             Ok(Within::Ran(Ran::TakenOver)) => StepResult::TakenOver,
@@ -367,7 +409,7 @@ fn run_steps_with(
         log.push(timer.finish(&step.name, kind, result));
         match outcome {
             Ok(Within::Ran(Ran::Finished)) => {}
-            Ok(Within::Ran(Ran::TakenOver)) => return Ok(Ran::TakenOver),
+            Ok(Within::Ran(Ran::TakenOver)) => return Ok(Ended::TakenOver),
             Ok(Within::TimedOut) => {
                 let hint = if pick_kind_of(&step.name).is_some() {
                     String::new()
@@ -385,12 +427,15 @@ fn run_steps_with(
             }
             Err(Fail::Exit(code)) => {
                 note(format!("step {} failed (exit {code})", step.name));
+                if let Some(said) = found.lock().expect("no panic holding it").take() {
+                    return Ok(Ended::XcodeCannotStart(said));
+                }
                 return Err(Fail::Exit(code));
             }
             Err(other) => return Err(other),
         }
     }
-    Ok(Ran::Finished)
+    Ok(Ended::Finished)
 }
 
 /// The repo's `.app-build` at <commit>, read without touching a checkout's
@@ -438,6 +483,14 @@ impl Site {
         }
     }
 
+    /// The name of the host the checkout is on.
+    fn host_name(&self) -> &str {
+        match self {
+            Site::Local(_) => crate::host::LOCAL,
+            Site::Remote(remote) => &remote.host.name,
+        }
+    }
+
     /// The commit the checkout is on.
     fn head(&mut self) -> Result<String> {
         match self {
@@ -461,49 +514,48 @@ impl Site {
         }
     }
 
-    /// Runs <steps> in the checkout, as `run_steps` does; after each, a
-    /// checkout on a host copies <results> back, and a shots run keeps its
-    /// findings in <shots> here.
+    /// Runs <steps> in the checkout, as `run_steps_with` does with <watch>;
+    /// after each, a checkout on a host copies <results> back, and a shots run
+    /// keeps its findings in <shots> here.
     fn run_steps(
         &mut self,
         steps: &[Step],
         results: &[String],
         shots: Option<&ShotsStore>,
+        watch: bool,
         log: &mut Vec<StepRecord>,
-    ) -> Result<Ran> {
+    ) -> Result<Ended> {
         match self {
-            Site::Local(top) => run_steps(top, steps, log, shots),
-            Site::Remote(remote) => run_steps_with(steps, log, &mut |step, kind| {
-                run_remote_step(remote, step, kind, results, shots)
+            Site::Local(top) => run_steps(top, steps, log, shots, watch),
+            Site::Remote(remote) => run_steps_with(steps, log, watch, &mut |step, kind, xcode| {
+                run_remote_step(remote, step, kind, results, shots, xcode)
             }),
         }
     }
 }
 
-/// Runs <step> (of <kind>) in the checkout on a host, keeps the findings of a
-/// shots run here, then copies <results> back, as a step that failed or ran
-/// out of time has written the reports its reader needs most. A copy that
-/// fails fails a step that passed, and is only said after one that did not.
+/// Runs <step> (of <kind>) in the checkout on a host, watching for
+/// xcodebuild's line in <xcode>, keeps the findings of a shots run here, then
+/// copies <results> back, as a step that failed or ran out of time has
+/// written the reports its reader needs most. A copy that fails fails a step
+/// that passed, and is only said after one that did not.
 fn run_remote_step(
     remote: &mut RemoteApp,
     step: &Step,
     kind: StepKind,
     results: &[String],
     shots: Option<&ShotsStore>,
+    xcode: Option<&Found>,
 ) -> Result<Within> {
     let start = remote.step_command(&step.command)?;
-    let limit = Some(step.limit());
-    let ran = match (kind, shots) {
-        (StepKind::Shots, Some(store)) => {
-            let kept = lock::Captured::default();
-            let ran = lock::run_in_group_capturing(start, &step.command[0], limit, &kept);
-            // The commit is the host's checkout's, which this Mac holds too.
-            let source = remote.source()?;
-            store.keep_of(&ran, &kept, step, &source, remote);
-            ran
-        }
-        _ => lock::run_in_group_within(start, &step.command[0], limit),
-    };
+    let kept = lock::Captured::default();
+    let keep = keep_for(kind, shots, &kept, xcode);
+    let ran = lock::run_in_group_keeping(start, &step.command[0], Some(step.limit()), keep);
+    if let (StepKind::Shots, Some(store)) = (kind, shots) {
+        // The commit is the host's checkout's, which this Mac holds too.
+        let source = remote.source()?;
+        store.keep_of(&ran, &kept, step, &source, remote);
+    }
     if results.is_empty() || matches!(ran, Ok(Within::Ran(Ran::TakenOver))) {
         return ran;
     }
@@ -818,8 +870,9 @@ fn build_lane(
             .into_iter()
             .partition(|step| pick_kind_of(&step.name).is_some());
         let shots = ShotsStore::of(places, repo, lane, &config);
-        let mut ran = site.run_steps(&builds, &[], shots.as_ref(), &mut timing.steps)?;
-        if ran == Ran::Finished && !builds.is_empty() {
+        let watch = lane.uses_xcode();
+        let mut ended = site.run_steps(&builds, &[], shots.as_ref(), watch, &mut timing.steps)?;
+        if ended == Ended::Finished && !builds.is_empty() {
             let steps = builds.iter().map(|step| step.name.clone()).collect();
             Built {
                 commit: site.head()?,
@@ -827,25 +880,33 @@ fn build_lane(
             }
             .write(&built_file)?;
         }
-        if ran == Ran::Finished {
-            ran = site.run_steps(
+        if ended == Ended::Finished {
+            ended = site.run_steps(
                 &tests,
                 &config.results_of(lane),
                 shots.as_ref(),
+                watch,
                 &mut timing.steps,
             )?;
         }
-        match ran {
-            Ran::Finished => return Ok(()),
-            Ran::TakenOver => {
+        match ended {
+            Ended::Finished => return Ok(()),
+            Ended::TakenOver => {
                 note(format!(
                     "the build was stopped for a takeover; building {commit} again after it"
                 ));
-                let waiting = Instant::now();
-                held = held.requeue()?;
-                timing.wait += waiting.elapsed();
+            }
+            Ended::XcodeCannotStart(said) => {
+                let host = site.host_name().to_string();
+                crate::host::record_refusal(places, crate::host::Refused::MacBuilds, &host, &said)?;
+                note(format!(
+                    "host {host}'s Xcode cannot start, so the build failed there whatever the code. builds health now lists {host} with the fix, mac app builds pass over its app checkouts, and {commit} builds again in another. xcodebuild said: {said}"
+                ));
             }
         }
+        let waiting = Instant::now();
+        held = held.requeue()?;
+        timing.wait += waiting.elapsed();
     }
 }
 

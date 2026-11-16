@@ -11,6 +11,13 @@
 //! first refused and what it said, and passes over a host recorded there. A
 //! probe that finds the host answering and git running removes the record, so
 //! the next pick may choose the host again.
+//!
+//! A host refuses mac app builds when its Xcode cannot start (xcode.rs): an
+//! app build that saw it records the host, this Mac included, in the folder
+//! `host-xcode-failures` the same way, and the mac lane passes over the
+//! host's app checkouts. No probe can tell that Xcode starts again, so the
+//! record stays until `builds host clear-xcode` removes it, once the fix
+//! xcodebuild named has run on the host.
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -214,41 +221,64 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
     })
 }
 
-/// Asks <host>, and keeps its refusal record current with the answer: a host
-/// whose git fails is recorded as refusing jobs, and one whose git runs loses
-/// its record. A host that does not answer keeps its record as it is.
+/// Asks <host>, and keeps its record of refusing jobs current with the
+/// answer: a host whose git fails is recorded as refusing jobs, and one whose
+/// git runs loses that record. A host that does not answer keeps its record
+/// as it is.
 pub fn probe(places: &Places, ssh: &Ssh, host: &Host) -> std::result::Result<Probe, String> {
     let Some(target) = &host.target else {
         return probe_local(places).map_err(|fail| fail.text());
     };
     let probe = probe_target(ssh, target)?;
     let kept = match &probe.git_fails {
-        Some(said) => record_refusal(places, &host.name, &format!("git fails there: {said}")),
-        None => clear_refusal(places, &host.name),
+        Some(said) => record_refusal(
+            places,
+            Refused::Jobs,
+            &host.name,
+            &format!("git fails there: {said}"),
+        ),
+        None => clear_refusal(places, Refused::Jobs, &host.name),
     };
     kept.map_err(|fail| fail.text())?;
     Ok(probe)
 }
 
-/// A host that refused a job, as `host-refusals` records it.
+/// What a host refuses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Refused {
+    /// Every job: git fails there, or a job could not start there.
+    Jobs,
+    /// Mac app builds: its Xcode cannot start.
+    MacBuilds,
+}
+
+impl Refused {
+    const ALL: [Refused; 2] = [Refused::Jobs, Refused::MacBuilds];
+
+    /// The folder of its records, beside the hosts file.
+    fn dir(self, places: &Places) -> PathBuf {
+        hosts_file(places).with_file_name(match self {
+            Refused::Jobs => "host-refusals",
+            Refused::MacBuilds => "host-xcode-failures",
+        })
+    }
+}
+
+/// A host that refused work, as its kind's folder records it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Refusal {
     pub host: String,
+    pub refused: Refused,
     /// When it first refused, seconds since 1970.
     pub at: i64,
     /// What the host said.
     pub said: String,
 }
 
-/// The folder of refusal records, beside the hosts file.
-fn refusals_dir(places: &Places) -> PathBuf {
-    hosts_file(places).with_file_name("host-refusals")
-}
-
-/// Records that host <name> refused a job, saying <said>. A host already
+/// Records that host <name> refused <refused>, saying <said>. A host already
 /// recorded keeps the time of its first refusal and what it said then.
-pub fn record_refusal(places: &Places, name: &str, said: &str) -> Result<()> {
-    let dir = refusals_dir(places);
+pub fn record_refusal(places: &Places, refused: Refused, name: &str, said: &str) -> Result<()> {
+    let dir = refused.dir(places);
     let file = dir.join(name);
     if file.exists() {
         return Ok(());
@@ -263,9 +293,9 @@ pub fn record_refusal(places: &Places, name: &str, said: &str) -> Result<()> {
     std::fs::rename(&part, &file).context(|| format!("replacing {}", file.display()))
 }
 
-/// Removes host <name>'s refusal record, when it has one.
-pub fn clear_refusal(places: &Places, name: &str) -> Result<()> {
-    let file = refusals_dir(places).join(name);
+/// Removes host <name>'s record of refusing <refused>, when it has one.
+pub fn clear_refusal(places: &Places, refused: Refused, name: &str) -> Result<()> {
+    let file = refused.dir(places).join(name);
     match std::fs::remove_file(&file) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -273,15 +303,34 @@ pub fn clear_refusal(places: &Places, name: &str) -> Result<()> {
     }
 }
 
-/// Every recorded refusal of a host still recorded, by host name.
+/// Every recorded refusal of a host still recorded (this Mac is always one),
+/// by host name, then by what it refuses.
 pub fn refusals(places: &Places) -> Result<Vec<Refusal>> {
-    let dir = refusals_dir(places);
+    let hosts = all(places)?;
+    let mut found = Vec::new();
+    for refused in Refused::ALL {
+        found.extend(refusals_of(places, refused, &hosts)?);
+    }
+    found.sort_by(|a, b| (&a.host, a.refused).cmp(&(&b.host, b.refused)));
+    Ok(found)
+}
+
+/// The names of the hosts recorded as refusing <refused>.
+pub fn refusing(places: &Places, refused: Refused) -> Result<Vec<String>> {
+    Ok(refusals_of(places, refused, &all(places)?)?
+        .into_iter()
+        .map(|refusal| refusal.host)
+        .collect())
+}
+
+/// The records of hosts among <hosts> that refuse <refused>.
+fn refusals_of(places: &Places, refused: Refused, hosts: &[Host]) -> Result<Vec<Refusal>> {
+    let dir = refused.dir(places);
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => fail!("listing {}: {error}", dir.display()),
     };
-    let hosts = read_remote(places)?;
     let mut found = Vec::new();
     for entry in entries {
         let path = entry
@@ -297,6 +346,7 @@ pub fn refusals(places: &Places) -> Result<Vec<Refusal>> {
         let (at, said) = text.split_once('\n').unwrap_or((&text, ""));
         found.push(Refusal {
             host: name,
+            refused,
             at: at
                 .trim()
                 .parse()
@@ -311,6 +361,20 @@ pub fn refusals(places: &Places) -> Result<Vec<Refusal>> {
 /// The line `builds health` prints under "needs action" for <refusal>.
 pub fn refusal_finding(refusal: &Refusal) -> crate::health::Advice {
     let name = &refusal.host;
+    if refusal.refused == Refused::MacBuilds {
+        let fix = match crate::xcode::fix_named_in(&refusal.said) {
+            Some(fix) => format!("Run sudo {fix} on {name}"),
+            None => format!("Fix what xcodebuild said on {name}"),
+        };
+        return crate::health::Advice::run(
+            format!(
+                "host {name}'s Xcode cannot start (since {}), so mac app builds pass over its app checkouts. xcodebuild said: {}. {fix}, then tell builds to use {name} again with",
+                local_minute(refusal.at),
+                refusal.said.trim_end_matches('.')
+            ),
+            format!("builds host clear-xcode {name}"),
+        );
+    }
     crate::health::Advice::run(
         format!(
             "host {name} refuses jobs (since {}), so builds runs its jobs on this Mac. {name} said: {}. Fix what {name} said on {name}. builds uses {name} again once a probe finds it answering with git running. Each builds cargo that may leave this Mac probes it; to probe every host now, run",
@@ -456,7 +520,10 @@ pub fn remove(places: &Places, name: &str) -> Result<()> {
     };
     hosts.remove(at);
     write_remote(places, &hosts)?;
-    clear_refusal(places, name)
+    for refused in Refused::ALL {
+        clear_refusal(places, refused, name)?;
+    }
+    Ok(())
 }
 
 /// One line of `builds host list`.
@@ -570,8 +637,7 @@ pub fn probe_all(
     hosts.into_iter().zip(probes).collect()
 }
 
-const USAGE: &str =
-    "usage: builds host add <name> <ssh target> | setup <name> | list | remove <name>";
+const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | list | remove <name> | clear-xcode <name>";
 
 /// The build volume, where a host that has one keeps its builds root, as this
 /// Mac does.
@@ -639,6 +705,14 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             };
             let root = setup_host(ssh, &host)?;
             println!("installed builds on host {name}, with its builds root in {root}");
+            Ok(())
+        }
+        [word, name] if word == "clear-xcode" => {
+            if !all(&tool.places)?.iter().any(|host| host.name == *name) {
+                fail!("no host named {name} (`builds host list`)");
+            }
+            clear_refusal(&tool.places, Refused::MacBuilds, name)?;
+            println!("mac app builds use the app checkouts on host {name} again");
             Ok(())
         }
         [word, name] if word == "remove" => {

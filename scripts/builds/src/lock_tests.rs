@@ -123,11 +123,51 @@ fn a_capturing_run_keeps_what_the_command_printed_on_both_streams() {
     start.args(["-c", "echo out; echo err >&2; exit 4"]);
     let kept = Captured::default();
     assert!(matches!(
-        run_in_group_capturing(start, "sh", None, &kept),
+        run_in_group_keeping(
+            start,
+            "sh",
+            None,
+            Keep {
+                all: Some(&kept),
+                line_with: None,
+            }
+        ),
         Err(Fail::Exit(4))
     ));
     let text = String::from_utf8(kept.lock().unwrap().clone()).unwrap();
     assert!(text.contains("out\n") && text.contains("err\n"), "{text:?}");
+}
+
+/// A watch keeps the first whole line that holds its text, from either
+/// stream, and a last line with no newline counts.
+#[test]
+fn a_watching_run_keeps_the_first_line_that_holds_the_text() {
+    let run = |script: &str| {
+        let mut start = Command::new("sh");
+        start.args(["-c", script]);
+        let found = Found::default();
+        let _ = run_in_group_keeping(
+            start,
+            "sh",
+            None,
+            Keep {
+                all: None,
+                line_with: Some(("plugin failed", &found)),
+            },
+        );
+        found.lock().unwrap().clone()
+    };
+    assert_eq!(
+        run(
+            "echo one; printf 'A required ' >&2; sleep 0.1; echo 'plugin failed to load' >&2; echo 'plugin failed again' >&2; exit 1"
+        ),
+        Some("A required plugin failed to load".to_string())
+    );
+    assert_eq!(
+        run("printf 'the plugin failed'"),
+        Some("the plugin failed".to_string())
+    );
+    assert_eq!(run("echo fine"), None);
 }
 
 /// A program in place of ssh that answers a host probe with <load> on one

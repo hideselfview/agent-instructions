@@ -151,9 +151,9 @@ impl Held {
         }
     }
 
-    /// After a takeover: gives the lock and the place up, takes a new place
-    /// where the old one stood, and waits for a lock again (the one just
-    /// freed, or another's).
+    /// After a takeover, or a build the host's Xcode could not start: gives
+    /// the lock and the place up, takes a new place where the old one stood,
+    /// and waits for a lock again (the one just freed, or another's).
     pub fn requeue(self) -> Result<Held> {
         TAKEN_OVER.store(false, Ordering::SeqCst);
         let ticket = self.queue.reissue(&self.ticket)?;
@@ -206,6 +206,11 @@ impl Loads<'_> {
     }
 }
 
+/// The host the app checkout <entry> is on.
+fn host_of(entry: &str) -> &str {
+    crate::app_remote::split(entry).map_or(host::LOCAL, |(host, _)| host)
+}
+
 /// <entries> in the order a build tries their locks: the checkouts on the
 /// less loaded host first (load average per core; the order recorded breaks
 /// a tie), with no asking when every entry is on this Mac. An entry whose host
@@ -220,9 +225,7 @@ fn by_load(loads: &mut Loads, entries: Vec<String>) -> (Vec<String>, Vec<String>
     let mut ranked = Vec::new();
     let mut skipped = Vec::new();
     for entry in entries {
-        let host = crate::app_remote::split(&entry)
-            .map_or(host::LOCAL, |(host, _)| host)
-            .to_string();
+        let host = host_of(&entry).to_string();
         match loads.of(&host) {
             Ok(load) => ranked.push((load, entry)),
             Err(error) => skipped.push(format!("{entry} (host {host}: {error})")),
@@ -236,7 +239,8 @@ fn by_load(loads: &mut Loads, entries: Vec<String>) -> (Vec<String>, Vec<String>
 }
 
 /// Takes the first free lock among the lane's app checkouts <allowed> lets in,
-/// the less loaded host's first, waiting for one to free when the builds ahead
+/// the less loaded host's first and none on a host whose Xcode cannot start
+/// when the lane builds with Xcode, waiting for one to free when the builds ahead
 /// have not yet taken theirs or a stopped build is still going down; returns
 /// it with the checkout's name. The lane's queue lets in as many as there are
 /// locks, so a lock is free within moments.
@@ -271,10 +275,24 @@ fn take_free_lock(
                 }
             );
         }
-        let (ordered, skipped) = by_load(&mut loads, checkouts);
+        let broken = if lane.uses_xcode() {
+            host::refusing(places, host::Refused::MacBuilds)?
+        } else {
+            Vec::new()
+        };
+        let (on_broken, checkouts): (Vec<String>, Vec<String>) = checkouts
+            .into_iter()
+            .partition(|entry| broken.iter().any(|name| name == host_of(entry)));
+        let (ordered, mut skipped) = by_load(&mut loads, checkouts);
+        skipped.extend(on_broken.iter().map(|entry| {
+            format!(
+                "{entry} (host {}'s Xcode cannot start; `builds health` says what fixes it)",
+                host_of(entry)
+            )
+        }));
         if ordered.is_empty() {
             fail!(
-                "no app checkout of {repo}'s {} lane is on a host that answers: {}",
+                "no app checkout of {repo}'s {} lane can take the build: {}",
                 lane.word(),
                 skipped.join("; ")
             );
@@ -448,21 +466,82 @@ pub fn run_in_group_within(
     command: &str,
     limit: Option<Duration>,
 ) -> Result<Within> {
-    run_group(start, command, limit, None)
+    run_group(start, command, limit, Keep::default())
 }
 
 /// What a command printed, kept as it arrived on both streams.
 pub type Captured = Arc<Mutex<Vec<u8>>>;
 
+/// The first line a command printed that holds the text a run watches for,
+/// once one has come.
+pub type Found = Arc<Mutex<Option<String>>>;
+
+/// What a run keeps of the command's output, which it passes on to this
+/// process's own output either way. With nothing to keep, the command writes
+/// to this process's output itself.
+#[derive(Default)]
+pub struct Keep<'a> {
+    /// All of it.
+    pub all: Option<&'a Captured>,
+    /// The first line that holds the text.
+    pub line_with: Option<(&'static str, &'a Found)>,
+}
+
+impl Keep<'_> {
+    fn anything(&self) -> bool {
+        self.all.is_some() || self.line_with.is_some()
+    }
+}
+
 /// How long to wait, after the command ends, for the end of its output: it
 /// may leave a process behind that holds the pipe open.
 const OUTPUT_GRACE: Duration = Duration::from_secs(2);
 
-/// Copies <from> to <to> and into <kept>; sends on <done> at the end.
+/// How much of a line with no end yet a watch holds. A line this long is not
+/// one a watch looks for, so the watch keeps only its last `LINE_TAIL` bytes.
+const LINE_LIMIT: usize = 64 * 1024;
+const LINE_TAIL: usize = 1024;
+
+/// One stream's watch for the first line that holds <needle>.
+struct LineWatch {
+    needle: &'static str,
+    found: Found,
+    /// The stream's line so far.
+    line: Vec<u8>,
+}
+
+impl LineWatch {
+    fn feed(&mut self, chunk: &[u8]) {
+        for part in chunk.split_inclusive(|byte| *byte == b'\n') {
+            self.line.extend_from_slice(part);
+            if part.ends_with(b"\n") {
+                self.end_line();
+            } else if self.line.len() > LINE_LIMIT {
+                self.line.drain(..self.line.len() - LINE_TAIL);
+            }
+        }
+    }
+
+    /// Looks at the line so far as a whole line and starts the next.
+    fn end_line(&mut self) {
+        let text = String::from_utf8_lossy(&self.line);
+        if text.contains(self.needle) {
+            let mut found = self.found.lock().expect("no panic holding it");
+            if found.is_none() {
+                *found = Some(text.trim_end().to_string());
+            }
+        }
+        self.line.clear();
+    }
+}
+
+/// Copies <from> to <to>, keeping what <all> and <watch> ask for; sends on
+/// <done> at the end.
 fn copy_and_keep(
     mut from: impl std::io::Read,
     mut to: impl std::io::Write,
-    kept: Captured,
+    all: Option<Captured>,
+    mut watch: Option<LineWatch>,
     done: std::sync::mpsc::Sender<()>,
 ) {
     let mut chunk = [0u8; 8192];
@@ -471,31 +550,39 @@ fn copy_and_keep(
             break;
         }
         let _ = to.write_all(&chunk[..read]);
-        kept.lock()
-            .expect("no panic holding it")
-            .extend_from_slice(&chunk[..read]);
+        if let Some(all) = &all {
+            all.lock()
+                .expect("no panic holding it")
+                .extend_from_slice(&chunk[..read]);
+        }
+        if let Some(watch) = &mut watch {
+            watch.feed(&chunk[..read]);
+        }
+    }
+    if let Some(watch) = &mut watch {
+        watch.end_line();
     }
     let _ = done.send(());
 }
 
 /// `run_in_group_within`, passing what the command prints on to this
-/// process's own output as it arrives and keeping a copy in <kept>.
-pub fn run_in_group_capturing(
+/// process's own output as it arrives and keeping what <keep> asks for.
+pub fn run_in_group_keeping(
     start: Command,
     command: &str,
     limit: Option<Duration>,
-    kept: &Captured,
+    keep: Keep,
 ) -> Result<Within> {
-    run_group(start, command, limit, Some(kept))
+    run_group(start, command, limit, keep)
 }
 
 fn run_group(
     mut start: Command,
     command: &str,
     limit: Option<Duration>,
-    kept: Option<&Captured>,
+    keep: Keep,
 ) -> Result<Within> {
-    if kept.is_some() {
+    if keep.anything() {
         start.stdout(std::process::Stdio::piped());
         start.stderr(std::process::Stdio::piped());
     }
@@ -538,17 +625,23 @@ fn run_group(
     GROUP.store(group, Ordering::SeqCst);
     let (output_done, output_ended) = channel::<()>();
     let mut copies = 0;
-    if let Some(kept) = kept {
-        if let Some(stdout) = child.stdout.take() {
-            let (kept, done) = (kept.clone(), output_done.clone());
-            std::thread::spawn(move || copy_and_keep(stdout, std::io::stdout(), kept, done));
-            copies += 1;
-        }
-        if let Some(stderr) = child.stderr.take() {
-            let (kept, done) = (kept.clone(), output_done.clone());
-            std::thread::spawn(move || copy_and_keep(stderr, std::io::stderr(), kept, done));
-            copies += 1;
-        }
+    let all = || keep.all.cloned();
+    let watch = || {
+        keep.line_with.map(|(needle, found)| LineWatch {
+            needle,
+            found: found.clone(),
+            line: Vec::new(),
+        })
+    };
+    if let Some(stdout) = child.stdout.take() {
+        let (all, watch, done) = (all(), watch(), output_done.clone());
+        std::thread::spawn(move || copy_and_keep(stdout, std::io::stdout(), all, watch, done));
+        copies += 1;
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let (all, watch, done) = (all(), watch(), output_done.clone());
+        std::thread::spawn(move || copy_and_keep(stderr, std::io::stderr(), all, watch, done));
+        copies += 1;
     }
     drop(output_done);
     // A takeover that came before the group was known stops it now.
