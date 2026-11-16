@@ -449,6 +449,13 @@ fn a_landing_that_leaves_commits_on_the_branch_goes_back_on_it_and_keeps_the_cla
     assert_eq!(head_of(&one), later);
     assert!(out.contains("1 commit(s) there wait to land"), "{out}");
     assert!(!calls.iter().any(|c| c.starts_with("release")), "{calls:?}");
+    let dir = one.display();
+    assert!(
+        calls.contains(&format!(
+            "review landed {dir} --project bae {a} --more-to-land --by agent A"
+        )),
+        "the review's landing stays open for the commit that waits: {calls:?}"
+    );
 }
 
 #[test]

@@ -195,7 +195,7 @@ fn a_commit_added_after_the_review_lands_as_a_change_of_its_own() {
         Verdict::Takes(_)
     ));
     let reviewed = asked(&demo, &fake, &side, &[a, b]);
-    assert!(record_landed(&reviewed, &stamp()).unwrap().is_some());
+    assert!(record_landed(&reviewed, &stamp(), false).unwrap().is_some());
     // The new commit is a change of its own: the branch's key opens a new
     // landing, and its review reads only the new commit.
     fake.prompts();
@@ -264,10 +264,10 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
         Verdict::Takes(_)
     ));
     drop(conn);
-    let landing = record_landed(&asked_picked, &stamp()).unwrap();
+    let landing = record_landed(&asked_picked, &stamp(), false).unwrap();
     assert!(landing.is_some());
     // Recording again finds the landed run and records nothing more.
-    assert_eq!(record_landed(&asked_picked, &stamp()).unwrap(), None);
+    assert_eq!(record_landed(&asked_picked, &stamp(), false).unwrap(), None);
     let conn = demo.store.open_existing().unwrap();
     assert!(
         record::landing(&conn, landing.unwrap())
@@ -424,10 +424,82 @@ fn a_branch_lands_in_two_parts_each_with_the_fixes_of_its_own_findings() {
     let verdict = judge(&conn, "demo", &side, &first.needs).unwrap();
     drop(conn);
     assert!(matches!(verdict, Verdict::Takes(_)), "{verdict:?}");
-    assert!(record_landed(&first, &stamp()).unwrap().is_some());
+    assert_eq!(
+        record_landed(&first, &stamp(), true).unwrap(),
+        None,
+        "b waits to land, so the landing stays open"
+    );
     // Part two: the finding on a.rs belongs to part one.
-    let second = verdict_of(&demo, &fake, &side, &[b]);
+    let second = verdict_of(&demo, &fake, &side, std::slice::from_ref(&b));
     assert!(matches!(second.0, Verdict::Takes(_)), "{second:?}");
+    let second = asked(&demo, &fake, &side, &[b]);
+    assert!(record_landed(&second, &stamp(), false).unwrap().is_some());
+}
+
+/// Names <sha> as the fix of <finding>, and returns why the store refused.
+fn fix_refused(demo: &Demo, side: &Path, finding: i64, sha: &str) -> String {
+    let commit = fix_commit(side, sha).unwrap();
+    let stamp = stamp();
+    demo.store
+        .write(&stamp, "fixed", |db| {
+            record::record_fix(db, finding, &commit, stamp.at, "tester")
+        })
+        .unwrap_err()
+        .text()
+}
+
+fn head(side: &Path) -> String {
+    crate::checkout::git_text(
+        crate::checkout::git(side).args(["rev-parse", "HEAD"]),
+        "read HEAD",
+    )
+    .unwrap()
+    .trim()
+    .to_string()
+}
+
+#[test]
+fn a_finding_on_a_commit_a_part_landing_left_takes_its_fix_after_the_part_lands() {
+    let demo = demo("landing-part-fix");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let a = commit_with(&side, "a.rs", "Add a");
+    let b = commit_with(&side, "b.rs", "Add b");
+    alpha_finds(&fake, &[("a.rs", "a.rs"), ("b.rs", "b.rs")]);
+    review_of(&demo, &fake, &side);
+    let found = findings(&demo);
+    assert_eq!(found.len(), 2, "{found:?}");
+    for finding in &found {
+        settle(&demo, finding.id, "confirmed");
+    }
+    let (on_a, on_b) = if found[0].file == "a.rs" {
+        (found[0].id, found[1].id)
+    } else {
+        (found[1].id, found[0].id)
+    };
+    std::fs::write(side.join("a.rs"), "fixed\n").unwrap();
+    crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Fix a"]);
+    let fa = head(&side);
+    fix(&demo, &side, on_a, &fa);
+    let first = asked(&demo, &fake, &side, &[a, fa]);
+    assert_eq!(record_landed(&first, &stamp(), true).unwrap(), None);
+    // The finding on b, which the part left, takes its fix now.
+    std::fs::write(side.join("b.rs"), "fixed\n").unwrap();
+    crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Fix b"]);
+    let fb = head(&side);
+    fix(&demo, &side, on_b, &fb);
+    // The fix that landed stays.
+    let refused = fix_refused(&demo, &side, on_a, &fb);
+    assert!(refused.contains("which landed already"), "{refused}");
+    let second = verdict_of(&demo, &fake, &side, &[b.clone(), fb.clone()]);
+    assert!(matches!(second.0, Verdict::Takes(_)), "{second:?}");
+    let second = asked(&demo, &fake, &side, &[b, fb.clone()]);
+    assert!(record_landed(&second, &stamp(), false).unwrap().is_some());
+    let refused = fix_refused(&demo, &side, on_b, &fb);
+    assert!(
+        refused.contains("belongs to a change that landed already"),
+        "{refused}"
+    );
 }
 
 #[test]
@@ -438,7 +510,7 @@ fn a_finding_on_the_message_of_a_commit_an_earlier_landing_pushed_needs_no_fix_h
     let a = commit_with(&side, "a.rs", "Add a with a vague line");
     review_of(&demo, &fake, &side);
     let first = asked(&demo, &fake, &side, std::slice::from_ref(&a));
-    assert!(record_landed(&first, &stamp()).unwrap().is_some());
+    assert!(record_landed(&first, &stamp(), false).unwrap().is_some());
     // A cherry-pick put a on main, so a later review of the branch reads it
     // again beside the new commit.
     let b = commit_with(&side, "b.rs", "Add b");

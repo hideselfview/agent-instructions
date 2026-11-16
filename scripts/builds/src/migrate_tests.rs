@@ -1709,7 +1709,7 @@ fn without_design_drop(schema: String) -> String {
 
 /// The schema text before a design change could close as dropped.
 fn schema_before_design_drop() -> String {
-    without_design_drop(db::schema())
+    without_design_drop(schema_before_pushed())
 }
 
 #[test]
@@ -1854,7 +1854,7 @@ fn without_canvas(schema: String) -> String {
 
 /// The schema text before a project said whether it publishes a canvas.
 fn schema_before_canvas() -> String {
-    without_canvas(db::schema())
+    without_canvas(schema_before_pushed())
 }
 
 #[test]
@@ -1980,6 +1980,66 @@ fn a_store_from_before_check_starts_keeps_its_runs_and_gains_the_tables() {
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(&schema_before_check_starts()).unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CHECK_STARTS_STAMP)
+            .unwrap();
+        plant_run(&conn);
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the move keeps the old run");
+}
+
+/// The schema text before builds recorded each commit a landing pushed:
+/// without the `review_pushed` table, and with `review_landing`'s comment as
+/// it read then.
+fn schema_before_pushed() -> String {
+    let schema = db::schema();
+    let table = db::statement(
+        &schema,
+        "\n-- Each commit of a landing that",
+        "WITHOUT ROWID;\n",
+    );
+    let schema = schema.replacen(table, "", 1);
+    let now = "landed_at is when `builds land` pushed the
+-- commits that left its branch nothing to land, and landed_run the run that
+-- covered them.";
+    let then = "landed_at is when `builds land` pushed it, and
+-- landed_run the run that covered the commits it pushed.";
+    assert_eq!(
+        schema.matches(now).count(),
+        1,
+        "the schema has the comment once"
+    );
+    schema.replacen(now, then, 1)
+}
+
+#[test]
+fn the_pushed_stamp_is_the_schema_before_pushed_commits() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_pushed()),
+        BEFORE_PUSHED_STAMP
+    );
+}
+
+/// A store from before `review_pushed` keeps its runs, gains the empty table
+/// and equals a fresh schema.
+#[test]
+fn a_store_from_before_pushed_commits_keeps_its_runs_and_gains_the_table() {
+    let scratch = Scratch::new("move-pushed");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_pushed()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_PUSHED_STAMP)
             .unwrap();
         plant_run(&conn);
     }

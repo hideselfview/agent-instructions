@@ -1120,8 +1120,10 @@ named as the fix of one of the review's confirmed findings; every finding is
 settled; and every confirmed finding on the commits landed names a fix among
 them. A finding is on each commit that changes its file, and a finding on the
 commit messages is on the commit whose message holds its quote. A landing may
-hold some of the reviewed commits and leave the rest for later: a finding on a
-commit that an earlier landing pushed belongs to that landing. A landing
+hold some of the reviewed commits and leave the rest for later: while commits
+of the branch wait to land, the change stays under review, a finding whose fix
+an earlier landing pushed needs no fix again, and a finding on a commit not
+yet landed still takes a fix. A landing
 whose changed paths no group covers needs no review, and neither does a
 landing in a repo of no project with lists: there is nothing to record. A
 design-only landing (`--design N` alone) follows the same rule.
@@ -1174,8 +1176,9 @@ directory; `review replay` of cases writes each case's project's store. When
 that project has no store, the command fails with "there is no store for
 project P" and asks no reviewer.
 
-After the push, land records the change's landing as landed, with its review
-run. A sample of landed reviews is audited for findings they
+After the push, land records the commits it pushed, and, once the branch has
+nothing left to land, the change's landing as landed, with its review run. A
+sample of landed reviews is audited for findings they
 missed. The person curates a confirmed miss into a case: a recorded change in
 the review/cases folder of an agent-instructions worktree, with the findings
 it must produce, which `review replay` runs a grouping over.
@@ -1266,7 +1269,9 @@ agent-instructions and run `review replay --rules-root` on it.
                               land runs `review check-landing` before it
                               fetches anything, and a refusal ends the landing;
                               it runs `review landed` after the push, beside
-                              the records of the items and the design change.
+                              the records of the items and the design change,
+                              with --more-to-land when commits on the branch
+                              still wait to land.
                               Each record names the worktree, and land reads
                               who landed from the worktree's claim and passes
                               it to each record as --by, so in a repo of a
@@ -1332,8 +1337,9 @@ agent-instructions and run `review replay --rules-root` on it.
                               fix: the coordinator reads it against the
                               finding before it names it, and land takes it
                               with the reviewed commits. Refused for a finding
-                              that is not confirmed, that an audit raised, or
-                              whose change landed already
+                              that is not confirmed, that an audit raised,
+                              whose change landed already, or whose fix
+                              landed with a part of the change
   builds review show <landing>
                               the review of a landing under review: the
                               commits it read, groups, findings, how each was
@@ -1348,14 +1354,18 @@ agent-instructions and run `review replay --rules-root` on it.
                               reviewed nor a named fix, an unsettled finding,
                               a confirmed finding on the commits with no fix
                               or with a fix outside them
-  builds review landed <worktree> --project P <sha>... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]
+  builds review landed <worktree> --project P <sha>... [--more-to-land] [--rules-root DIR] [--roll N] [--reviewer PROGRAM]
                               what `builds land` records after the push: the
-                              landing under review whose review takes the
-                              commits landed, with its review run, written by
-                              --by, else the worktree's claim. `review landed`
+                              commits pushed of the landing under review whose
+                              review takes them, and that landing as landed,
+                              with its review run, unless --more-to-land says
+                              commits of the branch still wait to land, which
+                              keeps it under review; written by --by, else the
+                              worktree's claim. `review landed`
                               leaves a change it recorded already as it is, so
-                              the rerun that land prints is safe. Then it
-                              decides whether to audit the landing and, when it
+                              the rerun that land prints is safe. Once it
+                              records the landing as landed, it decides
+                              whether to audit the landing and, when it
                               does, starts `builds review audit` in the
                               background, which never fails a landing. It
                               audits about 5% of landings; 25% when a group the

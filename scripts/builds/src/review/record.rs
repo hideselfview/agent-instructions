@@ -186,6 +186,30 @@ pub fn record_landed(db: &Connection, landing: i64, run: i64, now: i64) -> Resul
     Ok(())
 }
 
+/// Records <patch_ids>, the commits a push of <landing> put on origin/main.
+/// A commit recorded already keeps its first record.
+pub fn record_pushed(db: &Connection, landing: i64, patch_ids: &[&str], now: i64) -> Result<()> {
+    for patch_id in patch_ids {
+        db.execute(
+            "INSERT OR IGNORE INTO review_pushed (landing_id, patch_id, at) VALUES (?1, ?2, ?3)",
+            params![landing, patch_id, now],
+        )
+        .sql()?;
+    }
+    Ok(())
+}
+
+/// The patch ids of <landing>'s commits that a push put on origin/main.
+pub fn pushed_of_landing(db: &Connection, landing: i64) -> Result<Vec<String>> {
+    let mut statement = db
+        .prepare("SELECT patch_id FROM review_pushed WHERE landing_id = ?1 ORDER BY patch_id")
+        .sql()?;
+    let rows = statement
+        .query_map(params![landing], |row| row.get(0))
+        .sql()?;
+    rows.collect::<rusqlite::Result<Vec<String>>>().sql()
+}
+
 /// A run over a diff, as it goes into the store.
 pub struct NewRun<'a> {
     pub landing: Option<i64>,
@@ -319,7 +343,7 @@ pub fn settle(db: &Connection, id: i64, how: &str, why: &str, now: i64, by: &str
 
 /// Names commit <sha> as the fix of confirmed finding <id>, replacing the
 /// one named before. Only a confirmed finding of a review whose change has not
-/// landed takes a fix.
+/// landed takes a fix, and a fix that a push landed stays.
 pub fn record_fix(db: &Connection, id: i64, fix: &Commit, now: i64, by: &str) -> Result<()> {
     let finding = finding_of(db, id)?;
     if finding.kind != "review" {
@@ -342,6 +366,14 @@ pub fn record_fix(db: &Connection, id: i64, fix: &Commit, now: i64, by: &str) ->
         .sql()?;
     if landed {
         fail!("finding {id} belongs to a change that landed already");
+    }
+    if let (Some(fixed), Some(landing)) = (&finding.fix, finding.landing_id)
+        && pushed_of_landing(db, landing)?.contains(&fixed.patch_id)
+    {
+        fail!(
+            "finding {id} is fixed by {}, which landed already",
+            fixed.sha
+        );
     }
     db.execute(
         "INSERT OR REPLACE INTO review_fix (finding_id, sha, patch_id, at, by) VALUES (?1, ?2, ?3, ?4, ?5)",

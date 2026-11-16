@@ -25,10 +25,16 @@
 //! as a new run of the review. A landing whose changed paths no group covers
 //! needs no review.
 //!
-//! `landed` records the landing as landed with the change's review run, then
-//! decides whether to audit it (`audit.rs`) and, when it is sampled, starts
-//! `builds review audit` in the background. A landing whose change landed
-//! already is matched by its landed review, so both commands can run again.
+//! `landed` records the commits pushed. A branch lands in parts: while its
+//! commits still wait to land (`--more-to-land`), its landing stays open, so
+//! a later review of the branch reads only the commits no run read and a
+//! finding on a commit not yet landed still takes a fix. A finding whose fix a
+//! push landed needs no fix in a later part. The push that leaves the branch
+//! nothing to land records the landing as landed with the change's review
+//! run, then decides whether to audit it (`audit.rs`) and, when it is
+//! sampled, starts `builds review audit` in the background. A landing whose
+//! change landed already is matched by its landed review, so both commands
+//! can run again.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -49,7 +55,8 @@ use crate::review::render;
 use crate::review::run::Material;
 use crate::tool::Tool;
 
-const USAGE: &str = "builds review check-landing|landed DIR --project P SHA... [--rules-root DIR]";
+const USAGE: &str =
+    "builds review check-landing|landed DIR --project P SHA... [--rules-root DIR] [--more-to-land]";
 
 /// What every refusal and every refused run says first.
 pub const ONE_REVIEW: &str = "No diff is reviewed more than once. Each change gets one review; the coordinator reads the fixes for its confirmed findings.";
@@ -226,10 +233,19 @@ fn assess(
     let fixes: Vec<&str> = confirmed()
         .filter_map(|f| f.fix.as_ref().map(|fix| fix.patch_id.as_str()))
         .collect();
-    // The confirmed findings this landing must fix: those on its commits.
+    let pushed = record::pushed_of_landing(db, landing.id)?;
+    // The confirmed findings this landing must fix: those on its commits
+    // whose fix no earlier push of the branch landed.
     let mut owed: Vec<&record::Finding> = Vec::new();
     let mut messages = HashMap::new();
     for finding in confirmed() {
+        if finding
+            .fix
+            .as_ref()
+            .is_some_and(|fix| pushed.contains(&fix.patch_id))
+        {
+            continue;
+        }
         let read = runs
             .iter()
             .find(|(run, _)| run.id == finding.run_id)
@@ -457,9 +473,11 @@ pub fn taken(verdict: &Verdict) -> String {
     }
 }
 
-/// Records the change of <asked> as landed; returns the landing when this
-/// recorded it, None when it needed no review or was recorded already.
-fn record_landed(asked: &Asked, stamp: &Stamp) -> Result<Option<i64>> {
+/// Records the commits of <asked> as pushed, and the change as landed unless
+/// <more>: commits of its branch still wait to land. Returns the landing when
+/// this recorded it as landed; None when it needed no review, was recorded
+/// already, or lands in parts and has more to land.
+fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>> {
     let verdict = judge(&asked.conn, &asked.repo, &asked.dir, &asked.needs)?;
     if let Some(why) = refusal(&asked.commits(), &verdict) {
         fail!("the review does not take these commits:\n{why}")
@@ -471,12 +489,21 @@ fn record_landed(asked: &Asked, stamp: &Stamp) -> Result<Option<i64>> {
         return Ok(None);
     }
     let landing = covered.landing.id;
+    let pushed: Vec<&str> = asked
+        .needs
+        .iter()
+        .map(|n| n.commit.patch_id.as_str())
+        .collect();
     asked
         .store
         .write(stamp, &format!("review landed {landing}"), |db| {
+            record::record_pushed(db, landing, &pushed, stamp.at)?;
+            if more {
+                return Ok(());
+            }
             record::record_landed(db, landing, covered.run, stamp.at)
         })?;
-    Ok(Some(landing))
+    Ok((!more).then_some(landing))
 }
 
 /// Records the landing that `builds review landed` names, written by `--by`,
@@ -489,13 +516,16 @@ fn record_landing(tool: &Tool, args: &Args) -> Result<Option<(Asked, i64)>> {
         at: tool.now,
         by: resolve_by(args, &asked.dir)?,
     };
-    Ok(record_landed(&asked, &stamp)?.map(|landing| (asked, landing)))
+    let more = args.switch("more-to-land");
+    Ok(record_landed(&asked, &stamp, more)?.map(|landing| (asked, landing)))
 }
 
-/// `builds review landed DIR --project P SHA...`: records the landing, then
-/// starts the audit of a sampled one. The audit never fails the landing.
+/// `builds review landed DIR --project P SHA... [--more-to-land]`: records
+/// the commits pushed and, unless commits of the branch still wait to land,
+/// the landing as landed, then starts the audit of a sampled one. The audit
+/// never fails the landing.
 pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["rules-root", "roll", "reviewer"], &[])?;
+    let args = Args::parse(args, &["rules-root", "roll", "reviewer"], &["more-to-land"])?;
     let Some((asked, landing)) = record_landing(tool, &args)? else {
         return Ok(());
     };

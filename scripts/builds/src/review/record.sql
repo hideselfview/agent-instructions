@@ -5,8 +5,9 @@
 -- only code that writes them.
 
 -- A change under review: every review of it shares this landing, found by its
--- key, until the change lands. landed_at is when `builds land` pushed it, and
--- landed_run the run that covered the commits it pushed.
+-- key, until the change lands. landed_at is when `builds land` pushed the
+-- commits that left its branch nothing to land, and landed_run the run that
+-- covered them.
 CREATE TABLE review_landing (
     id INTEGER PRIMARY KEY,
     key TEXT NOT NULL CONSTRAINT review_landing_key_says_something CHECK (trim(key) <> ''),
@@ -151,3 +152,14 @@ CREATE TABLE review_fix (
     at INTEGER NOT NULL,
     by TEXT NOT NULL CONSTRAINT review_fix_by_says_something CHECK (trim(by) <> '')
 ) STRICT;
+
+-- Each commit of a landing that `builds land` pushed, by the patch id of its
+-- added and removed lines. A branch lands in parts: until a push leaves its
+-- branch nothing to land, its landing stays open and counts as landed only for
+-- these commits.
+CREATE TABLE review_pushed (
+    landing_id INTEGER NOT NULL REFERENCES review_landing (id),
+    patch_id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (landing_id, patch_id)
+) STRICT, WITHOUT ROWID;

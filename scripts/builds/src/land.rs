@@ -75,9 +75,11 @@
 //! covers a changed path of a reviewed commit has answered, the coordinator has
 //! settled every finding, and each confirmed finding on the commits has its
 //! fix among them. Commits whose paths no group covers need no review. After
-//! the push, `builds review landed` records the review's landing as landed
-//! beside the items and the design change, and starts the audit of a sampled
-//! one, which never fails the landing.
+//! the push, `builds review landed` records the commits pushed beside the
+//! items and the design change. When commits of the branch still wait to land,
+//! it passes `--more-to-land` and the review's landing stays open for them;
+//! otherwise the landing is recorded as landed, and a sampled one is audited,
+//! which never fails the landing.
 //!
 //! A repo whose landed tree holds a `.land-live` file has a main checkout that
 //! is the live copy (agent-instructions, whose main checkout install.sh links
@@ -548,9 +550,10 @@ impl Landing<'_> {
 
     /// Records what landed, as `builds item landed` and `builds design landed`
     /// with the commits now on origin/main, and `builds review landed` with
-    /// the commits as given. Each is idempotent, so a failure prints the
-    /// rerun. Says whether every record was written.
-    fn record(&self, on_main: &[String], out: &mut dyn Write) -> bool {
+    /// the commits as given and, when commits of the branch still wait to land
+    /// (<waiting>), `--more-to-land`. Each is idempotent, so a failure prints
+    /// the rerun. Says whether every record was written.
+    fn record(&self, on_main: &[String], waiting: bool, out: &mut dyn Write) -> bool {
         let Some(Recording { project, by }) = &self.recording else {
             return true;
         };
@@ -565,7 +568,11 @@ impl Landing<'_> {
             line.extend(on_main.iter().cloned());
             lines.push(line);
         }
-        lines.push(self.review_line("landed", project));
+        let mut review = self.review_line("landed", project);
+        if waiting {
+            review.push("--more-to-land".to_string());
+        }
+        lines.push(review);
         for mut line in lines {
             line.push("--by".to_string());
             line.push(by.clone());
@@ -950,7 +957,7 @@ impl Landing<'_> {
     /// builds, and the records run as this program.
     fn finish(&self, on_main: &[String], out: &mut dyn Write) -> Result<()> {
         let waiting = self.leave(out);
-        let recorded = self.record(on_main, out);
+        let recorded = self.record(on_main, waiting, out);
         if recorded && !waiting && !self.request.has_part() {
             self.release(out);
         }
