@@ -16,8 +16,9 @@
 <script>
 // A board is a tree of elements with {{name}} values, <sc-if>, <sc-for>,
 // <dc-import> (another board, mounted here) and <x-import> (a design-system
-// component from window.Bae). Each board's own script is a class whose
-// renderVals() gives the values its template reads.
+// component, named with the namespace its bundle sets on window:
+// Bae.MacButton is window.Bae.MacButton). Each board's own script is a class
+// whose renderVals() gives the values its template reads.
 class DCLogic { constructor(p) { this.props = p || {}; this.state = {}; } setState() {} }
 var C = {};
 @@CLASSES@@
@@ -74,8 +75,11 @@ function conv(n, key, sc) {
       if (a.name === 'component-from-global-scope') return;
       props[camel(a.name)] = val(a.value, sc);
     });
-    var Cm = window.Bae[n.getAttribute('component-from-global-scope').replace('Bae.', '')];
-    if (!Cm) throw new Error('no ' + n.getAttribute('component-from-global-scope'));
+    var ref = n.getAttribute('component-from-global-scope');
+    var dot = ref.indexOf('.');
+    var ns = dot > 0 ? window[ref.slice(0, dot)] : undefined;
+    var Cm = ns && ns[ref.slice(dot + 1)];
+    if (!Cm) throw new Error('no ' + ref);
     var ck = props.key;
     delete props.key;
     return h('div', { key: ck, className: 'sc-host-x', style: { display: 'contents' } }, h.apply(null, [Cm, props].concat(kids())));

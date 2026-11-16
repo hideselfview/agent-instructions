@@ -438,9 +438,10 @@ sent again.
       the board mounts (dc-import), applies each board's own values
       (renderVals), sc-if and sc-for, and uses DIR's built design system
       (design/system/components/bundle.js and bundle.css,
-      design/system/tokens.css). Redirect it to a file and open that; it loads
-      React and Roboto from the net. The review page's frames load this page.
-      Reads no store.
+      design/system/tokens.css). A component is named with its bundle's
+      namespace (Bae.MacButton is window.Bae's MacButton). Redirect it to a
+      file and open that; it loads React and Roboto from the net. The review
+      page's frames load this page. Reads no store.
 
 
 PROJECTS
