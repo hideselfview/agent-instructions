@@ -502,7 +502,7 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
             "Unreviewed commits",
             pill(
                 "2 commits",
-                "The review did not read 2 commits, and no finding names them as fixes: they land as a change of their own."
+                "The review did not read 2 commits, and no finding names them as fixes: builds review reads them as a new run of the review."
             )
         )
     );

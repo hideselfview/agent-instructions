@@ -45,7 +45,7 @@ pub enum ReviewWait {
     /// This many confirmed findings wait on a commit that fixes them.
     Unfixed(usize),
     /// This many commits are neither ones the review read nor named fixes:
-    /// they land as a change of their own.
+    /// `builds review` reads them as a new run of the review.
     Unreviewed(usize),
 }
 
@@ -96,9 +96,9 @@ impl ReviewWait {
                 findings(n, "confirmed review"),
                 if n == 1 { "it" } else { "them" }
             ),
-            ReviewWait::Unreviewed(1) => "The review did not read 1 commit, and no finding names it as a fix: it lands as a change of its own.".to_string(),
+            ReviewWait::Unreviewed(1) => "The review did not read 1 commit, and no finding names it as a fix: builds review reads it as a new run of the review.".to_string(),
             ReviewWait::Unreviewed(n) => format!(
-                "The review did not read {n} commits, and no finding names them as fixes: they land as a change of their own."
+                "The review did not read {n} commits, and no finding names them as fixes: builds review reads them as a new run of the review."
             ),
         }
     }

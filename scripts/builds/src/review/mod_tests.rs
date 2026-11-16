@@ -167,16 +167,8 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
             && !again.contains("did not read"),
         "{again}"
     );
-    // A fix commit is not reviewed either: the refusal names it as a commit
-    // the review did not read, for the coordinator to read and name.
+    // A fix commit named as the fix of a confirmed finding needs no review.
     let fix = demo.commit(&side, "fix.rs");
-    let again = try_review(&demo, &fake, &side, "k").unwrap_err().text();
-    assert!(fake.prompts().is_empty());
-    assert!(
-        again.contains(&format!("Commits the review did not read: {}", &fix[..10]))
-            && again.contains("builds review fixed <finding> <sha>"),
-        "{again}"
-    );
     let commit = landing::fix_commit(&side, &fix).unwrap();
     let stamp = stamp();
     demo.store
@@ -184,6 +176,9 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
             record::record_fix(db, finding, &commit, stamp.at, "tester")
         })
         .unwrap();
+    let again = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(fake.prompts().is_empty());
+    assert!(again.contains(landing::ONE_REVIEW), "{again}");
     // The record holds the one review run.
     let conn = demo.store.open_existing().unwrap();
     assert_eq!(
@@ -192,6 +187,68 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
             .len(),
         1
     );
+}
+
+#[test]
+fn commits_no_run_read_are_read_as_a_new_run_of_the_review_and_nothing_else_is() {
+    let demo = demo("review-unread");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.rs");
+    demo.commit(&side, "c.rs");
+    let first = run_review(&demo, &fake, &side, "k");
+    assert_eq!(fake.prompts().len(), 1);
+    // A rebase that resolves conflicts changes the lines a and c add, and
+    // keeps b's.
+    let b = crate::checkout::git_text(
+        crate::checkout::git(&side).args(["rev-parse", "HEAD~1"]),
+        "read b",
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    crate::testing::git(&side, &["reset", "-q", "--hard", "main"]);
+    std::fs::write(side.join("a.rs"), "resolved a\n").unwrap();
+    crate::testing::git(&side, &["add", "a.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "a.rs"]);
+    crate::testing::git(&side, &["cherry-pick", &b]);
+    std::fs::write(side.join("c.rs"), "resolved c\n").unwrap();
+    crate::testing::git(&side, &["add", "c.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "c.rs"]);
+    let second = run_review(&demo, &fake, &side, "k");
+    assert_eq!(second.landing, first.landing);
+    // Each of the two commits is a run of its own, since b lies between them.
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 2, "{prompts:?}");
+    let read: Vec<&str> = prompts.iter().map(|(_, text)| text.as_str()).collect();
+    assert!(
+        read.iter()
+            .any(|t| t.contains("+resolved a") && !t.contains("b.rs"))
+            && read
+                .iter()
+                .any(|t| t.contains("+resolved c") && !t.contains("b.rs")),
+        "{read:?}"
+    );
+    assert!(
+        second
+            .text
+            .contains("read the commits no run of this review read"),
+        "{}",
+        second.text
+    );
+    assert!(second.refusal.is_none(), "{:?}", second.refusal);
+    let conn = demo.store.open_existing().unwrap();
+    assert_eq!(
+        landing::review_runs(&conn, first.landing.unwrap())
+            .unwrap()
+            .len(),
+        3
+    );
+    drop(conn);
+    let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(fake.prompts().is_empty());
+    assert!(refused.contains(landing::ONE_REVIEW), "{refused}");
 }
 
 #[test]

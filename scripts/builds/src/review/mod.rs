@@ -23,9 +23,12 @@
 //! records the commits it read with their patch ids under the change's KEY,
 //! then says what `builds land` would say of the branch's commits
 //! (`landing.rs`), and exits 1 unless land would take them. A KEY reviewed
-//! already gets no second review: the run asks only the groups that gave that
-//! review no answer, over the same diff, and refuses when every group
-//! answered.
+//! already gets no second review of a diff: the run asks only the groups that
+//! gave the review no answer, over the diff they did not answer, and reads as
+//! a new run of the review the commits that no run read and no confirmed
+//! finding names as its fix (a commit added after the review, or one whose
+//! added or removed lines a rebase changed). It refuses when the review covers
+//! every commit.
 //!
 //! Every call records its setup (its group's model and prompt), its tokens and
 //! its cost. `scores` counts how each setup did from the settled findings, and
@@ -175,9 +178,8 @@ pub struct Reported {
 }
 
 /// Reviews the worktree's change past the base and records it. A change gets
-/// one review: when its key has one already, this asks only the groups that
-/// gave that review no answer, over the same diff, and refuses when there are
-/// none.
+/// one review: when its key has one already, this asks only what the review
+/// lacks (`later_asks`), and refuses when it lacks nothing.
 pub fn review(inputs: &Inputs) -> Result<Reported> {
     let conn = inputs.store.open_existing()?;
     let diff = match inputs.head {
@@ -209,58 +211,55 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             refusal: None,
         });
     }
-    let prior = match record::open_landing(&conn, inputs.key)? {
-        None => None,
-        Some(landing) => Some(unanswered(&conn, inputs, &material, &commits, landing)?),
-    };
-    // The diff the reviewers read, the commits it holds, and the groups asked:
-    // each group that covers a path one of those commits changes, so that
-    // builds land finds an answer for every commit it lands.
-    let (asked_diff, asked_commits, asked_groups) = match &prior {
-        None => (
+    let open = record::open_landing(&conn, inputs.key)?;
+    let asks = match open {
+        None => vec![Ask {
+            groups: material.group_names(&commit_paths(inputs.worktree, &commits)?),
             diff,
-            commits.clone(),
-            material.group_names(&commit_paths(inputs.worktree, &commits)?),
-        ),
-        Some(prior) => (
-            run::diff_between(inputs.worktree, &prior.run.base, &prior.run.head).map(|mut d| {
-                if let Some(source) = &mut d.source {
-                    source.in_place = false;
-                }
-                d
-            })?,
-            prior.read.clone(),
-            prior.missing.clone(),
-        ),
+            commits: commits.clone(),
+            note: None,
+        }],
+        Some(landing) => later_asks(&conn, inputs, &material, &commits, landing)?,
     };
-    let picked: Vec<_> = material
-        .groups
-        .pick(
-            &material.rules,
-            &commit_paths(inputs.worktree, &asked_commits)?,
-        )
-        .into_iter()
-        .filter(|(group, _)| asked_groups.contains(&group.name))
-        .collect();
-    let running = Running::start(running_file(&inputs.store.dir, &asked_diff.head))?;
-    let calls = run::ask_groups(
-        &material,
-        inputs.reviewer,
-        &picked,
-        &asked_diff,
-        inputs.brief.as_ref(),
-    )
-    .calls;
+    let mut running = Vec::new();
+    let mut answers = Vec::new();
+    for ask in &asks {
+        running.push(Running::start(running_file(
+            &inputs.store.dir,
+            &ask.diff.head,
+        ))?);
+        // Each group that covers a path one of the ask's commits changes, so
+        // that builds land finds an answer for every commit it lands.
+        let picked: Vec<_> = material
+            .groups
+            .pick(
+                &material.rules,
+                &commit_paths(inputs.worktree, &ask.commits)?,
+            )
+            .into_iter()
+            .filter(|(group, _)| ask.groups.contains(&group.name))
+            .collect();
+        answers.push(
+            run::ask_groups(
+                &material,
+                inputs.reviewer,
+                &picked,
+                &ask.diff,
+                inputs.brief.as_ref(),
+            )
+            .calls,
+        );
+    }
     let stamp = inputs.stamp;
-    let prior_landing = prior.as_ref().map(|p| p.landing);
-    let (landing, run_id, stored_calls, findings) =
-        inputs
-            .store
-            .write(stamp, &format!("review {}", inputs.key), |db| {
-                let landing = match prior_landing {
-                    Some(id) => id,
-                    None => record::add_landing(db, inputs.key, inputs.repo, stamp.at)?,
-                };
+    let (landing, runs) = inputs
+        .store
+        .write(stamp, &format!("review {}", inputs.key), |db| {
+            let landing = match open {
+                Some(id) => id,
+                None => record::add_landing(db, inputs.key, inputs.repo, stamp.at)?,
+            };
+            let mut runs = Vec::new();
+            for (ask, calls) in asks.iter().zip(&answers) {
                 let (run_id, _) = record::add_run(
                     db,
                     &record::NewRun {
@@ -268,33 +267,36 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                         kind: Kind::Review,
                         label: None,
                         at: stamp.at,
-                        base: &asked_diff.base,
-                        head: &asked_diff.head,
-                        commits: &asked_commits,
+                        base: &ask.diff.base,
+                        head: &ask.diff.head,
+                        commits: &ask.commits,
                         grouping: &material.grouping,
                         rules_version: &run::rules_version(inputs.root),
                     },
-                    &calls,
+                    calls,
                 )?;
-                let stored = record::calls_of_run(db, run_id)?;
-                let findings = record::findings_of_run(db, run_id)?;
-                Ok((landing, run_id, stored, findings))
-            })?;
+                runs.push((
+                    run_id,
+                    record::calls_of_run(db, run_id)?,
+                    record::findings_of_run(db, run_id)?,
+                ));
+            }
+            Ok((landing, runs))
+        })?;
     drop(running);
-    let mut text = format!(
-        "review of {} (landing {landing}, run {run_id}) over {}...{}\n",
-        inputs.key,
-        short(&asked_diff.base),
-        short(&asked_diff.head)
-    );
-    if let Some(prior) = &prior {
+    let mut text = String::new();
+    for (ask, (run_id, calls, findings)) in asks.iter().zip(&runs) {
         text.push_str(&format!(
-            "asked only the groups that gave run {} no answer, over the diff it read: {}\n",
-            prior.run.id,
-            prior.missing.join(", ")
+            "review of {} (landing {landing}, run {run_id}) over {}...{}\n",
+            inputs.key,
+            short(&ask.diff.base),
+            short(&ask.diff.head)
         ));
+        if let Some(note) = &ask.note {
+            text.push_str(note);
+        }
+        text.push_str(&render::run_report(calls, findings));
     }
-    text.push_str(&render::run_report(&stored_calls, &findings));
     // What builds land would say of the branch's commits now.
     let needs = landing::needs(inputs.worktree, commits.clone(), |paths| {
         material.group_names(paths)
@@ -317,53 +319,125 @@ fn commit_paths(dir: &Path, commits: &[commits::Commit]) -> Result<Vec<String>> 
     commits::paths(dir, &shas)
 }
 
-/// The review a change has already, and the groups that gave it no answer.
-struct Prior {
-    landing: i64,
-    /// The newest review run, whose diff the groups with no answer read.
-    run: record::RunRow,
-    read: Vec<commits::Commit>,
-    missing: Vec<String>,
+/// One run of a review: the diff its reviewers read, the commits that diff
+/// holds, and the groups it asks.
+struct Ask {
+    diff: run::Diff,
+    commits: Vec<commits::Commit>,
+    groups: Vec<String>,
+    /// What the run asked, for a run of a change that has a review already.
+    note: Option<String>,
 }
 
-/// The review <landing> holds for <inputs>' key, with the groups that cover a
-/// path its diff changes and gave no answer over it. Fails with why builds
-/// review reviews no change twice when every group answered.
-fn unanswered(
+/// The change past <base> up to <head> in the repo at <worktree>, read from a
+/// copy of <head>'s files: the worktree's HEAD may hold other commits.
+fn copy_diff(worktree: &Path, base: &str, head: &str) -> Result<run::Diff> {
+    let mut diff = run::diff_between(worktree, base, head)?;
+    if let Some(source) = &mut diff.source {
+        source.in_place = false;
+    }
+    Ok(diff)
+}
+
+/// The runs a change whose review <landing> holds gets now, so that the
+/// review covers every one of <commits>: for each change a run read, the
+/// groups that cover a path it changes and gave no answer over it, asked over
+/// that run's diff; and for each stretch of adjacent commits that no run read
+/// and no confirmed finding names as its fix, the groups that cover a path
+/// they change, asked over their diff. No diff is read twice. Fails with why
+/// builds review reviews no change twice when the review covers every commit.
+fn later_asks(
     conn: &rusqlite::Connection,
     inputs: &Inputs,
     material: &run::Material,
     commits: &[commits::Commit],
     landing: i64,
-) -> Result<Prior> {
+) -> Result<Vec<Ask>> {
     let runs = landing::review_runs(conn, landing)?;
-    let (run, read) = runs
-        .last()
-        .cloned()
-        .expect("a landing is opened with its review run");
-    let needed = material.group_names(&commit_paths(inputs.worktree, &read)?);
-    let answered: Vec<String> = record::calls_of_landing(conn, landing)?
-        .into_iter()
-        .filter(|c| {
-            c.failure.is_none()
-                && runs
-                    .iter()
-                    .any(|(r, over)| r.id == c.run_id && commits::same_change(over, &read))
-        })
-        .map(|c| c.group)
-        .collect();
-    let missing: Vec<String> = needed
-        .into_iter()
-        .filter(|g| !answered.contains(g))
-        .collect();
-    if missing.is_empty() {
-        let read_patches: Vec<&str> = read.iter().map(|c| c.patch_id.as_str()).collect();
-        let since: Vec<&commits::Commit> = commits
+    let calls = record::calls_of_landing(conn, landing)?;
+    let mut asks = Vec::new();
+    let mut changes: Vec<&[commits::Commit]> = Vec::new();
+    for (run, read) in &runs {
+        if changes.iter().any(|seen| commits::same_change(seen, read)) {
+            continue;
+        }
+        changes.push(read);
+        let answered: Vec<&str> = calls
             .iter()
-            .filter(|c| !read_patches.contains(&c.patch_id.as_str()))
+            .filter(|c| {
+                c.failure.is_none()
+                    && runs
+                        .iter()
+                        .any(|(r, over)| r.id == c.run_id && commits::same_change(over, read))
+            })
+            .map(|c| c.group.as_str())
             .collect();
-        let mut why = format!(
-            "{}\nrun {} of review landing {landing} ({}) reviewed this change over {}, so builds review does not review it again.\n",
+        let missing: Vec<String> = material
+            .group_names(&commit_paths(inputs.worktree, read)?)
+            .into_iter()
+            .filter(|g| !answered.contains(&g.as_str()))
+            .collect();
+        if !missing.is_empty() {
+            asks.push(Ask {
+                diff: copy_diff(inputs.worktree, &run.base, &run.head)?,
+                commits: read.clone(),
+                note: Some(format!(
+                    "asked only the groups that gave run {} no answer, over the diff it read: {}\n",
+                    run.id,
+                    missing.join(", ")
+                )),
+                groups: missing,
+            });
+        }
+    }
+    let read: Vec<&str> = runs
+        .iter()
+        .flat_map(|(_, read)| read.iter().map(|c| c.patch_id.as_str()))
+        .collect();
+    let fixes: Vec<String> = record::findings_of_landing(conn, landing)?
+        .into_iter()
+        .filter(|f| f.kind == "review" && f.settled_as("confirmed"))
+        .filter_map(|f| f.fix.map(|fix| fix.patch_id))
+        .collect();
+    let mut stretches: Vec<Vec<commits::Commit>> = Vec::new();
+    let mut previous: Option<usize> = None;
+    for (at, commit) in commits.iter().enumerate() {
+        if read.contains(&commit.patch_id.as_str()) || fixes.contains(&commit.patch_id) {
+            continue;
+        }
+        match stretches.last_mut() {
+            Some(stretch) if previous.is_some_and(|p| p + 1 == at) => stretch.push(commit.clone()),
+            _ => stretches.push(vec![commit.clone()]),
+        }
+        previous = Some(at);
+    }
+    for stretch in stretches {
+        let groups = material.group_names(&commit_paths(inputs.worktree, &stretch)?);
+        if groups.is_empty() {
+            continue;
+        }
+        let first = &stretch[0].sha;
+        let last = &stretch[stretch.len() - 1].sha;
+        asks.push(Ask {
+            diff: copy_diff(inputs.worktree, &format!("{first}^"), last)?,
+            note: Some(format!(
+                "read the commits no run of this review read and no confirmed finding names as its fix: {}\n",
+                stretch
+                    .iter()
+                    .map(|c| short(&c.sha))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )),
+            commits: stretch,
+            groups,
+        });
+    }
+    if asks.is_empty() {
+        let (run, read) = runs
+            .last()
+            .expect("a landing is opened with its review run");
+        fail!(
+            "{}\nrun {} of review landing {landing} ({}) reviewed this change over {}, every group answered, and every commit past the base is one a run read or the named fix of a confirmed finding, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
             landing::ONE_REVIEW,
             run.id,
             inputs.key,
@@ -372,23 +446,8 @@ fn unanswered(
                 .collect::<Vec<_>>()
                 .join(" ")
         );
-        if !since.is_empty() {
-            why.push_str(&format!(
-                "Commits the review did not read: {}. Read each that fixes a confirmed finding against it and name it with builds review fixed <finding> <sha>. A commit that fixes no finding is new work, which lands as a change of its own after this one.\n",
-                since.iter().map(|c| short(&c.sha)).collect::<Vec<_>>().join(" ")
-            ));
-        }
-        why.push_str(&format!(
-            "builds review show {landing} lists the review and its findings."
-        ));
-        fail!("{why}");
     }
-    Ok(Prior {
-        landing,
-        run,
-        read,
-        missing,
-    })
+    Ok(asks)
 }
 
 fn short(rev: &str) -> &str {

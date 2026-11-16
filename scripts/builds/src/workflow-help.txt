@@ -215,11 +215,13 @@ names it as the fix of one of its confirmed findings.
     coordinator reads the fixes for its confirmed findings. Land the
     reviewed commits with their named fixes. A rebase or cherry-pick that
     keeps each commit's added and removed lines keeps its review, even when
-    the lines around them changed. A commit added after the review, a
-    squash, or a commit whose added or removed lines a rebase changed is new
-    work: land the reviewed commits without it, then review it as a change
-    of its own. When the reviewed commits can't land without it, ask the
-    person how to land them.
+    the lines around them changed. No run of the review read a commit added
+    after the review, a squash, or a commit whose added or removed lines a
+    rebase changed: run `builds review` in the branch's worktree again, and
+    it reads those commits, and only those, as a new run of the review.
+    Name the fixes of confirmed findings before that run: it also reads a
+    commit that no finding names as its fix. Settle the new run's findings
+    and name their fixes as for the first run.
   - A CI run on main that fails or stalls is the coordinator's to run down.
   - Commits landed in agent-instructions go live when the main checkout's
     main moves to them: `builds land` fast-forwards it after the landing,

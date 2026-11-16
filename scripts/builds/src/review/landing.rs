@@ -21,9 +21,9 @@
 //! on the commit messages is on the commit whose message holds its quote. A
 //! finding on a commit that an earlier landing pushed belongs to that landing,
 //! so a branch can land in parts. A commit that the review did not read and
-//! that no finding names as its fix is new work, which builds land takes only
-//! as a separate change. A landing whose changed paths no group covers needs
-//! no review.
+//! that no finding names as its fix waits for `builds review`, which reads it
+//! as a new run of the review. A landing whose changed paths no group covers
+//! needs no review.
 //!
 //! `landed` records the landing as landed with the change's review run, then
 //! decides whether to audit it (`audit.rs`) and, when it is sampled, starts
@@ -352,7 +352,7 @@ pub fn refusal(commits: &[Commit], verdict: &Verdict) -> Option<String> {
             ));
         }
         text.push_str(&format!(
-            "{ONE_REVIEW} A commit added after the review, or one whose added or removed lines a rebase changed, is new work: land the reviewed commits and their fixes without it, then review it as a change of its own. When later commits need it, ask the person how to land them.\n"
+            "{ONE_REVIEW} No run of the review read a commit added after the review, or one whose added or removed lines a rebase changed. Run builds review in the branch's worktree: it reads those commits as a new run of the review. A commit that fixes a confirmed finding needs no review: read it against the finding and name it with builds review fixed <finding> <sha>.\n"
         ));
     }
     if !unfinished.unsettled.is_empty() {

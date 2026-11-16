@@ -186,7 +186,7 @@ fn a_commit_added_after_the_review_lands_as_a_change_of_its_own() {
     assert!(
         words.contains(&format!("commit {} is not one the review read", &c[..10]))
             && words.contains(ONE_REVIEW)
-            && words.contains("review it as a change of its own"),
+            && words.contains("Run builds review in the branch's worktree"),
         "{words}"
     );
     // The reviewed commits land without it, every one of them or a part.

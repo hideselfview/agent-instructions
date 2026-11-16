@@ -177,8 +177,8 @@ these commits, or a group still has to answer: the coordinator runs `builds
 review`), Reviewing (a review of the branch's newest commit runs), Findings to
 settle (with the count), Waiting on fixes (confirmed findings with no fixing
 commit among them) or Unreviewed commits (commits the review did not read that
-no finding names as its fix, which `builds land` takes only as a separate
-change). A commit waits to land while origin/main has no commit with the same
+no finding names as its fix, which `builds review` reads as a new run of the
+review). A commit waits to land while origin/main has no commit with the same
 change (`git log --cherry-pick --right-only origin/main...HEAD`), because
 landing rebases or cherry-picks it.
 
@@ -1105,10 +1105,13 @@ review; the coordinator reads the fixes for its confirmed findings:
      names it (`builds review fixed`).
   4. It lands the reviewed commits with their fixes.
 
-`builds review` refuses a second run of a change (one key), naming the run
-that reviewed it. The one exception is a review in which a group gave no
-answer (its reviewer failed): a later run asks only the groups that gave no
-answer, over the diff the review read, and refuses once every group answered.
+`builds review` reads no diff twice. A later run of a change (one key) asks
+only what its review lacks: the groups that gave no answer (their reviewer
+failed), over the diff they did not answer, and, as a new run of the review,
+the commits no run read and no confirmed finding names as its fix (a commit
+added after the review, or one whose added or removed lines a rebase
+changed), from the groups that cover the paths they change. It refuses when
+the review lacks nothing, naming the run that reviewed the change.
 
 `builds land` refuses commits that lack this step. It takes them when one
 change's review covers them: each commit whose paths a group covers is either
@@ -1137,12 +1140,12 @@ commit.
 A commit that is neither one the review read nor a named fix is new work: a
 commit added after the review, a squash, or a commit whose added or removed
 lines a rebase changed (a conflict's resolution). Land refuses it and names
-it.
-Land the reviewed commits and their fixes without it, then review it as a
-change of its own: once the first change has landed, `builds review` on the
-branch opens a new change under the same key, and reads only the commits past
-origin/main. When the commits after it need it, so the reviewed commits can't
-land without it, the coordinator asks the person how to land them.
+it. `builds review` on the branch reads it, and only it, as a new run of the
+change's review; land then takes it once its findings are settled and fixed
+like the rest. Name the fixes of confirmed findings first: that run also
+reads a commit that no finding names as its fix. Once a change has landed,
+`builds review` on the branch opens a new change under the same key, and
+reads only the commits past origin/main.
 
 The rules are grouped in folders, and each group that covers a changed path
 gets one reviewer, a `claude -p` run in a checkout of the reviewed commit with
@@ -1300,10 +1303,12 @@ agent-instructions and run `review replay --rules-root` on it.
                               No diff is reviewed more than once. Each change
                               gets one review; the coordinator reads the fixes
                               for its confirmed findings. A run on a key
-                              reviewed already is refused, naming the review
-                              and the commits it did not read, unless a group
-                              gave that review no answer: then it asks only
-                              those groups, over the diff the review read.
+                              reviewed already asks only what the review
+                              lacks: the groups that gave no answer, over the
+                              diff they did not answer, and, as a new run, the
+                              commits no run read and no confirmed finding
+                              names as its fix; builds refuses the run when
+                              the review lacks nothing.
                               --head SHA reviews the commits up to SHA from a
                               copy of their files, not the worktree. Prints
                               the findings by group and a total line, then
