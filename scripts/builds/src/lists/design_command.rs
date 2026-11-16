@@ -460,7 +460,7 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
     for design in design::open_named(&scope.lists, &ids, &scope.checkout.repo())? {
         designs.push(design::DrawnChange {
             design,
-            drawing: design_paths::drawn_by(top, design, drawn.iter().copied())?,
+            drawing: design::drawn_by(top, design, drawn.iter().copied())?,
         });
     }
     let now = design_paths::drawing_at(top, &scope.tip, drawn.iter().copied())?;

@@ -1,6 +1,6 @@
 //! Which worktrees hold a design branch and where its design change stands:
 //! each commit of a worktree that changes design files is covered by an
-//! open design change or not, as `design_paths::design_commits` decides it
+//! open design change or not, as `design::design_commits` decides it
 //! for health and land. A worktree with a commit whose covering change waits
 //! on the person's review waits on that review; one with a commit no change
 //! covers waits on the design session to record it.
@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use super::cards::ItemWait;
-use crate::lists::design_paths::{Globs, design_commits, open_designs};
+use crate::lists::design::{design_commits, open_designs};
+use crate::lists::design_paths::Globs;
 use crate::lists::{Id, Lists};
 use crate::side_git::Commit;
 
