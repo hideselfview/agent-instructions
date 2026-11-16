@@ -99,6 +99,9 @@ pub struct ItemView {
     pub waits: Vec<WaitView>,
     /// One per repo the item runs in; empty when it is not running.
     pub running: Vec<RunningView>,
+    /// One per repo the item is parked in: its work waits there with no
+    /// agent. Empty when it is not parked.
+    pub parked: Vec<crate::lists::parked::Parked>,
     pub landed: Vec<LandedPart>,
     pub notes: Vec<Note>,
     pub opened: Stamp,
@@ -284,6 +287,7 @@ fn item_view(lists: &Lists, item: &Item) -> Result<ItemView> {
                 }
             })
             .collect(),
+        parked: item.parked.clone(),
         landed: item.landed.clone(),
         notes: item.notes.clone(),
         opened: item.opened.clone(),

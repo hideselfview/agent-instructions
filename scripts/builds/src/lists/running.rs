@@ -185,7 +185,7 @@ pub fn agent_of(running: &Running) -> Result<Agent> {
 /// The worktree at <path> when git says <path> is the top of a checkout; None
 /// when the folder is gone, is not a checkout, or is only inside one. Liveness
 /// is git's word, whatever builds output the repo has.
-fn live_worktree(path: &str) -> Result<Option<Checkout>> {
+pub fn live_worktree(path: &str) -> Result<Option<Checkout>> {
     let path = Path::new(path);
     let Ok(wanted) = path.canonicalize() else {
         return Ok(None);

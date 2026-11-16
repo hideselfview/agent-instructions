@@ -188,12 +188,13 @@ A note set without --state has no state, so writing the next note clears the
 state. Claiming the worktree again for the same <who> renews the claim's date
 and keeps the note.
 
-The dashboard gives each side worktree the first state that matches: Waiting on
-you (the claim's note says so, a running item waits on a question or on a
-design change the person has not approved, or the worktree's commits are a
-design change the person has not approved), Held, Ready to land (commits
-waiting to land, claimed or not: an unclaimed worktree with such commits holds
-work an agent left behind), Winding down,
+The dashboard gives each side worktree the first state that matches: Parked
+(no claim, and an open item is parked there with its work: `builds item park`,
+`builds help lists`), Waiting on you (the claim's note says so, a running item
+waits on a question or on a design change the person has not approved, or the
+worktree's commits are a design change the person has not approved), Held,
+Ready to land (commits waiting to land, claimed or not: an unclaimed worktree
+with such commits holds work an agent left behind), Winding down,
 Working (claimed) and Free. Commits waiting to land show as Ready to land only
 when `builds land` would take them as far as the rules review goes; until then
 the card shows the review's progress instead: Needs review (no review read

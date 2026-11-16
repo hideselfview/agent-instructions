@@ -67,13 +67,17 @@ pub const HOOK_CHECK_STARTS_PART: &str = include_str!("hook_check_starts.sql");
 /// the last part of the schema.
 pub const CARGO_RUNS_PART: &str = include_str!("cargo_run.sql");
 
+/// Where open items hold a worktree with no agent (lists/parked.sql), the
+/// last part of the schema.
+pub const PARKED_PART: &str = include_str!("lists/parked.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
-/// loads, then the cargo runs'.
+/// loads, then the cargo runs', then the parked items'.
 pub fn schema() -> String {
     format!(
-        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}",
+        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{PARKED_PART}",
         schema_before_review()
     )
 }

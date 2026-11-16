@@ -676,8 +676,17 @@ impl Model {
             disk,
         } = sample;
         let (mut claimed, held) = claimed_of(&self.places, &state.roots, &state.facts, &places)?;
-        let unclaimed = unclaimed_of(&self.places, &state.roots, &state.facts, &places)?;
         let (_, loaded) = self.lists.current();
+        let unclaimed = unclaimed_of(
+            &self.places,
+            &state.roots,
+            &state.facts,
+            &places,
+            // A store that does not load is a finding of its own; until it
+            // loads, health names an unclaimed worktree with commits even
+            // when an item is parked there.
+            &crate::lists::parked::parked_worktrees(&loaded).unwrap_or_default(),
+        )?;
         let lists =
             crate::health::lists_findings(&self.places, &loaded, &places, &mut claimed, &held)?;
         let mut health = assess(now, disk, machine, &places, claimed, unclaimed, lists);
@@ -1157,6 +1166,21 @@ impl Model {
                     {
                         checkout.state = Some("waiting-on-you");
                     }
+                    // A worktree an item is parked in, with no agent, holds that
+                    // item's work: its card shows it parked with the item.
+                    let parked = project
+                        .and_then(|lists| crate::lists::parked::parked_in(lists, &checkout.path))
+                        .filter(|_| checkout.claim.is_none());
+                    let items = match parked {
+                        Some(item) => {
+                            checkout.state = Some("parked");
+                            vec![super::cards::RunningItem {
+                                id: item.id.0,
+                                title: item.title.clone(),
+                            }]
+                        }
+                        None => items,
+                    };
                     checkout.words = super::cards::words(checkout, &items, wait.as_ref());
                 }
             }
@@ -1267,16 +1291,22 @@ fn claimed_of(
     Ok((claimed, held))
 }
 
+/// The unclaimed side worktrees of <roots>, leaving out the app checkouts
+/// and the worktrees in <parked>, where open items are parked.
 fn unclaimed_of(
     tool_places: &Places,
     roots: &[Root],
     facts: &HashMap<PathBuf, Facts>,
     places: &[Place],
+    parked: &[String],
 ) -> crate::fail::Result<Vec<Unclaimed>> {
     let mut unclaimed = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
-        if checkout.is_main() || root.is_app_checkout(tool_places)? {
+        if checkout.is_main()
+            || root.is_app_checkout(tool_places)?
+            || parked.contains(&checkout.top.display().to_string())
+        {
             continue;
         }
         let Some(git) = facts.get(&root.path).and_then(|facts| facts.git.as_ref()) else {
@@ -1310,6 +1340,9 @@ fn unclaimed_of(
 ///                     handoff
 ///     working         claimed, none of the above
 ///     free            unclaimed, nothing waiting to land
+///
+/// The page then turns an unclaimed worktree an open item is parked in into
+/// parked, whatever it holds (lists/parked.rs).
 pub fn worktree_state(claim: Option<&Claim>, git: Option<&SideGit>) -> &'static str {
     let ahead = git.is_some_and(|g| !g.ahead.is_empty());
     let Some(claim) = claim else {

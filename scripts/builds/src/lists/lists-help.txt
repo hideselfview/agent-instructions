@@ -210,6 +210,17 @@ runs in (plans are in no commit); an absolute path is itself.
       condition (and only such an item), and notes each worktree held with WHY
       in the same write: work kept for an answer, with no agent running.
 
+  builds item park N --worktree W --branch B [--worktree W2 --branch B2]
+      The item keeps its work in W on B with no agent, and waits in the queue
+      until an agent takes it there. A running item parks where it runs and
+      stops running. park removes W's claim, since no agent works there, and
+      keeps its project. A parked worktree belongs to its item: take refuses
+      another item there and refuses the parked item anywhere else, and
+      `builds new`, `prune` and `retire` never hand it out or remove it.
+      Refused for an item parked already, a worktree another item runs or is
+      parked in, and a worktree on another branch of work. `item take` in W
+      moves the item from parked to running; claim W for the agent first.
+
   builds item handoff N --brief P
       Sets a running item's brief for its next agent, in every worktree it
       runs in.
@@ -221,11 +232,12 @@ runs in (plans are in no commit); an absolute path is itself.
   builds item finished N --made WHAT
       Closes an open item whose work made no commits (an audit, research) as
       finished, with what it made (items, stack entries, notes), and removes
-      it from every worktree it runs in. A finished item frees the items that
+      it from every worktree it runs in. Refused for a parked item, whose
+      work waits in its worktree. A finished item frees the items that
       wait on it, as a landed item does.
 
   builds item drop N --why WHY | builds item defer N --issue URL
-      Refused while the item runs, while an open item waits on it (the message
+      Refused while the item runs or is parked, while an open item waits on it (the message
       names them and the `item wait --off` that frees each), or when it is the
       last item an open question blocks. defer needs an open GitHub issue.
 
@@ -258,7 +270,8 @@ runs in (plans are in no commit); an absolute path is itself.
   builds next
       The ready coordinator items in dispatch order: items placed first
       (oldest first), then by area order and age, and items placed last once
-      nothing else is open. The design session's items never appear.
+      nothing else is open. The design session's items never appear. A parked
+      item names the worktree and branch its work waits in.
 
   builds area add NAME [--after AREA] | rename OLD NEW | move NAME --after AREA
               | remove NAME

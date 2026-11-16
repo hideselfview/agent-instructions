@@ -29,7 +29,7 @@ use crate::lists::{
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF)\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n(REF is item:N, question:N, design:N or condition:TEXT)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF)\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item park N --worktree W --branch B\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n(REF is item:N, question:N, design:N or condition:TEXT)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -42,6 +42,7 @@ pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
         "note" => note_item(tool, rest, &cwd),
         "wait" => wait(tool, rest, &cwd),
         "take" => take::take(tool, rest, &cwd),
+        "park" => take::park(tool, rest, &cwd),
         "handoff" => handoff(tool, rest, &cwd),
         "stop" => stop(tool, rest, &cwd),
         "finished" => finished(tool, rest, &cwd),
@@ -360,6 +361,13 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str) -> Result<()> {
             id.0
         );
     }
+    if !item.parked.is_empty() {
+        let worktrees: Vec<&str> = item.parked.iter().map(|p| p.worktree.as_str()).collect();
+        fail!(
+            "{id} is parked in {}, where its work waits; take it there and land the work before you {how} it",
+            worktrees.join(" and ")
+        );
+    }
     lists.require_none_waits_on(RecordWait::Item(id), how)?;
     for question in &lists.questions {
         let asked = Wait::Question(question.id);
@@ -388,6 +396,16 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, &format!("item finished {id}"), |db| {
+        let lists = store::read(db)?;
+        if let Some(item) = lists.item(id)
+            && !item.parked.is_empty()
+        {
+            let worktrees: Vec<&str> = item.parked.iter().map(|p| p.worktree.as_str()).collect();
+            fail!(
+                "{id} is parked in {}, where its work waits; take it there and land the work",
+                worktrees.join(" and ")
+            );
+        }
         running::end(db, id)?;
         close(db, id, How::Finished(made.clone()), &stamp)
     })?;

@@ -11,7 +11,7 @@ use crate::lists::args::Args;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::item::open_item;
 use crate::lists::running::marker;
-use crate::lists::show::{item_line, wait_words};
+use crate::lists::show::{item_line, parked_words, wait_words};
 use crate::lists::store::Store;
 use crate::lists::trail::{trail_line, trail_wanted};
 use crate::lists::{Audience, How, Id, Item, Kind, Level, Lists, Located, Standing, Wait};
@@ -112,6 +112,10 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
             local_minute(running.since.at),
             running.since.by
         );
+    }
+    let parked = if open { item.parked.as_slice() } else { &[] };
+    for parked in parked {
+        let _ = writeln!(out, "{}", parked_words(parked));
     }
     for part in &item.landed {
         let _ = writeln!(
@@ -233,10 +237,17 @@ pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
     args.exactly(0, "builds next")?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
-    let lists = store.load()?;
-    let ready = derive::dispatch_order(&lists);
+    print!("{}", next_text(&store.load()?));
+    Ok(())
+}
+
+/// What `builds next` prints for <lists>: each ready coordinator item, its
+/// brief, and the worktree it is parked in, where its work waits.
+pub fn next_text(lists: &Lists) -> String {
+    let ready = derive::dispatch_order(lists);
+    let mut out = String::new();
     if ready.is_empty() {
-        println!("nothing is ready to dispatch");
+        out.push_str("nothing is ready to dispatch\n");
     }
     for (number, item) in ready.iter().enumerate() {
         let priority = match &item.priority {
@@ -244,7 +255,8 @@ pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             Some(_) => " [last]",
             None => "",
         };
-        println!(
+        let _ = writeln!(
+            out,
             "{:>3}. {} {}{priority} ({})",
             number + 1,
             item.id,
@@ -252,10 +264,13 @@ pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             item.area
         );
         if let Some(brief) = &item.brief {
-            println!("       brief {brief}");
+            let _ = writeln!(out, "       brief {brief}");
+        }
+        for parked in &item.parked {
+            let _ = writeln!(out, "       {}", parked_words(parked));
         }
     }
-    Ok(())
+    out
 }
 
 #[cfg(test)]

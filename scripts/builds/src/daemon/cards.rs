@@ -239,7 +239,7 @@ pub struct Words {
     pub chip: Option<&'static str>,
     /// What the worktree waits on, at the right of the top bar.
     pub pill: Option<Pill>,
-    /// The items running here, in list order.
+    /// The items running here, in list order, or the item parked here.
     pub items: Vec<RunningItem>,
     /// Only when no item runs: the claim note, unless the pill's title holds
     /// it; with no claim note and no pill, what the worktree waits on or what
@@ -326,6 +326,7 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemW
             }
             _ => (Some("Needs review"), None, String::new()),
         },
+        Some("parked") => (Some("Parked"), None, String::new()),
         Some("free") => (
             None,
             None,

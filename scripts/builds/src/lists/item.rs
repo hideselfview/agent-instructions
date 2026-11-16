@@ -2,7 +2,8 @@
 //! waits on records or conditions, may carry a priority, a brief and notes,
 //! and is made by a draft, and may name the record it came from (trail.rs),
 //! such as the decision or design change that made it. Where it runs
-//! is `running`, what already landed of it is `landing`; `item_command` is
+//! is `running`, the worktree it holds with no agent is `parked`, what
+//! already landed of it is `landing`; `item_command` is
 //! the commands around these operations.
 
 use std::collections::BTreeMap;
@@ -14,8 +15,10 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::check::item_title_fault;
+use crate::lists::parked::Parked;
 use crate::lists::{
-    Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, area, landing, record, running,
+    Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, area, landing, parked, record,
+    running,
 };
 use crate::lists::{tag, trail};
 
@@ -114,6 +117,10 @@ pub struct Item {
     /// Where an agent works on it: one worktree per repo the work spans, none
     /// when it is not running.
     pub running: Vec<Running>,
+    /// Where it holds a worktree with no agent while it waits in the queue:
+    /// one worktree per repo the work spans, none when it is not parked. An
+    /// item is never both running and parked.
+    pub parked: Vec<Parked>,
     pub landed: Vec<LandedPart>,
     /// Newest last.
     pub notes: Vec<Note>,
@@ -579,6 +586,7 @@ pub fn read(
         notes.entry(item).or_default().push(note);
     }
     let mut running = running::read(db)?;
+    let mut parked = parked::read(db)?;
     let mut landed = landing::read(db)?;
     let mut statement = db
         .prepare("SELECT id, title, area, details, audience, brief, origin FROM item ORDER BY id")
@@ -613,6 +621,7 @@ pub fn read(
             priority: priorities.remove(&id),
             brief,
             running: running.remove(&id).unwrap_or_default(),
+            parked: parked.remove(&id).unwrap_or_default(),
             landed: landed.remove(&id).unwrap_or_default(),
             notes: notes.remove(&id).unwrap_or_default(),
             origin,

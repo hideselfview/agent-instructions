@@ -2,8 +2,8 @@
 //! hands one out before adding another, and `builds prune` retires the ones
 //! nothing has used for a day, so they don't pile up.
 //!
-//! A side worktree is free when it has no claim, a clean tree, and no commit
-//! missing from origin/main. Landing rebases, so "missing" is judged by patch
+//! A side worktree is free when it has no claim, no item parked in it, a
+//! clean tree, and no commit missing from origin/main. Landing rebases, so "missing" is judged by patch
 //! (`side_git`, `git cherry`), not by hash. main and the repo's app checkout
 //! are never free: the person's builds and the agents' app builds stay warm in
 //! them.
@@ -23,9 +23,11 @@ use crate::text::note;
 use crate::tool::Tool;
 use crate::worktree::retire_checkout;
 
-/// Is the side worktree <checkout> free, given what git says about it?
-fn is_free(checkout: &Checkout, git: &SideGit) -> Result<bool> {
+/// Is the side worktree <checkout> free, given what git says about it and
+/// the worktrees items are parked in (<parked>)?
+fn is_free(checkout: &Checkout, git: &SideGit, parked: &[String]) -> Result<bool> {
     Ok(Claim::read(&checkout.claim_file())?.is_none()
+        && !parked.contains(&checkout.top.display().to_string())
         && git.error.is_none()
         && git.uncommitted == Some(0)
         && git.ahead.is_empty())
@@ -34,6 +36,7 @@ fn is_free(checkout: &Checkout, git: &SideGit) -> Result<bool> {
 /// The first free side worktree of <main>'s repo, by path; origin/main must be
 /// fetched.
 pub fn find_free(tool: &Tool, main: &Path) -> Result<Option<Checkout>> {
+    let parked = crate::lists::parked::parked_worktrees_now(&tool.places)?;
     let mut tops = crate::checkout::worktrees_of(main)?;
     tops.sort();
     for top in tops {
@@ -50,7 +53,7 @@ pub fn find_free(tool: &Tool, main: &Path) -> Result<Option<Checkout>> {
         {
             continue;
         }
-        if is_free(&checkout, &side_git::read(&checkout.top))? {
+        if is_free(&checkout, &side_git::read(&checkout.top), &parked)? {
             return Ok(Some(checkout));
         }
     }
@@ -80,6 +83,7 @@ fn git_dir_written(checkout: &Checkout) -> i64 {
 /// origin/main (health lists them).
 pub fn retire_idle(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     let places = places_of(roots);
+    let parked = crate::lists::parked::parked_worktrees_now(&tool.places)?;
     let processes = Processes::read();
     let builds = build_processes(&processes, &places, &BUILD_NAMES);
     for root in roots {
@@ -87,7 +91,7 @@ pub fn retire_idle(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
         if !checkout.is_side() || root.keeps_warm(&tool.places)? {
             continue;
         }
-        if !is_free(checkout, &side_git::read(&checkout.top))? {
+        if !is_free(checkout, &side_git::read(&checkout.top), &parked)? {
             continue;
         }
         // Each repo's long-lived side worktree stays, free or not.

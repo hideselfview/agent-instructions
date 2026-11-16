@@ -172,6 +172,61 @@ fn a_worktree_that_holds_two_branches_of_work_is_a_fault_and_one_branch_for_two_
     );
 }
 
+fn parked(worktree: &str, branch: &str) -> crate::lists::parked::Parked {
+    crate::lists::parked::Parked {
+        worktree: worktree.into(),
+        branch: branch.into(),
+        since: stamp(NOON),
+    }
+}
+
+/// A parked item holds its worktree alone and is never running or closed.
+#[test]
+fn a_parked_item_that_shares_its_worktree_runs_or_is_closed_is_a_fault() {
+    use crate::lists::parked::park;
+    let db = db();
+    let a = item(&db, vec![]);
+    let b = item(&db, vec![]);
+    park(&db, a, &[parked("/d/bae-worktrees/side-1", "work")]).unwrap();
+    assert_eq!(faults_of(&db), Vec::<String>::new());
+    start(&db, &[b], &[running("/d/bae-worktrees/side-1", "work")]).unwrap();
+    assert_eq!(
+        faults_of(&db),
+        [format!(
+            "worktree /d/bae-worktrees/side-1 holds parked item {a} and item {b}"
+        )]
+    );
+    crate::lists::running::end(&db, b).unwrap();
+    start(&db, &[a], &[running("/d/bae-worktrees/side-1", "work")]).unwrap();
+    assert_eq!(
+        faults_of(&db),
+        [format!("item {a} is both running and parked")]
+    );
+    crate::lists::running::end(&db, a).unwrap();
+    close(&db, a, How::Landed(vec![sha('a')]), &stamp(NOON)).unwrap();
+    assert_eq!(
+        faults_of(&db),
+        [format!("item {a} is closed and still parked somewhere")]
+    );
+}
+
+/// A parked branch counts as the worktree's one branch of work.
+#[test]
+fn a_parked_branch_and_a_running_branch_in_one_worktree_are_a_fault() {
+    let db = db();
+    let a = item(&db, vec![]);
+    let b = item(&db, vec![]);
+    crate::lists::parked::park(&db, a, &[parked("/d/bae-worktrees/side-1", "work")]).unwrap();
+    start(&db, &[b], &[running("/d/bae-worktrees/side-1", "other")]).unwrap();
+    let found = faults_of(&db);
+    assert!(
+        found
+            .iter()
+            .any(|fault| fault.contains("/d/bae-worktrees/side-1 holds two branches of work")),
+        "{found:?}"
+    );
+}
+
 #[test]
 fn a_landed_closing_or_a_landed_part_with_no_commit_is_a_fault() {
     let db = db();

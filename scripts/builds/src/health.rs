@@ -10,7 +10,8 @@
 //! app-build` of its branch, or one it holds the app lock for), the volume
 //! under its
 //! free-space floor, a lists store that fails its check, a running item
-//! whose worktree is gone or has no claim (lists/running.rs), a held worktree
+//! whose worktree is gone or has no claim (lists/running.rs), a parked item
+//! whose worktree is gone (lists/parked.rs), a held worktree
 //! whose item waits on nothing open, commits that change design files no
 //! recorded design change covers (lists/held.rs), a repo with a design folder
 //! and no design globs (lists/project.rs), or a build host that refuses
@@ -658,7 +659,9 @@ pub struct Claimed {
 
 /// A side worktree with no claim that holds commits missing from origin/main:
 /// work an agent left behind. Never the app checkout, which no one claims:
-/// what it has checked out is the branch an app build is building.
+/// what it has checked out is the branch an app build is building, and never
+/// a worktree an open item is parked in, whose work waits there for the item
+/// (lists/parked.rs).
 pub struct Unclaimed {
     pub place: usize,
     pub git: SideGit,
@@ -903,7 +906,7 @@ fn held_for(holder: &Holder) -> String {
 
 /// What the lists say, one line each: the running-item and held-work
 /// findings about the claimed worktrees (lists/running.rs, lists/held.rs),
-/// and each repo with a design folder and no design globs
+/// each parked item whose worktree is gone (lists/parked.rs), and each repo with a design folder and no design globs
 /// (lists/project.rs). Also
 /// marks the worktrees whose design change waits on the person's review, so
 /// <claimed> is judged with that known.
@@ -919,6 +922,7 @@ pub fn lists_findings(
         one.awaiting_review = reviewing.contains(&places[one.place].label);
     }
     let mut lists = crate::lists::running::findings(places_in, loaded)?;
+    lists.extend(crate::lists::parked::findings(loaded)?);
     lists.extend(crate::lists::held::findings(loaded, worktrees));
     lists.extend(crate::lists::project::missing_globs_findings(
         &places_in.home,
@@ -946,6 +950,11 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let mut claimed = Vec::new();
     let mut unclaimed = Vec::new();
     let mut unreadable = Vec::new();
+    let loaded = crate::lists::store::load_all(&tool.places);
+    // A store that does not load is a finding of its own; until it loads,
+    // health names an unclaimed worktree with commits even when an item is
+    // parked there.
+    let parked = crate::lists::parked::parked_worktrees(&loaded).unwrap_or_default();
     for (at, root) in live.iter().enumerate() {
         let checkout = root.live.as_ref().expect("live");
         if !checkout.is_side() {
@@ -954,6 +963,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         match Claim::read(&checkout.claim_file()) {
             Ok(Some(claim)) => claimed.push((at, checkout, claim)),
             Ok(None) if root.is_app_checkout(&tool.places)? => {}
+            Ok(None) if parked.contains(&checkout.top.display().to_string()) => {}
             Ok(None) => unclaimed.push((at, checkout)),
             Err(damaged) => unreadable.push(Finding::new(
                 FindingKind::Claim,
@@ -974,7 +984,6 @@ pub fn health(tool: &Tool) -> Result<Health> {
     });
     let mut judged = Vec::new();
     let mut held_worktrees = Vec::new();
-    let loaded = crate::lists::store::load_all(&tool.places);
     for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
         held_worktrees.push(crate::lists::held::Worktree {
             label: places[place].label.clone(),

@@ -95,7 +95,7 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
         )),
         _ => {}
     }
-    let queries: [(&str, String); 9] = [
+    let queries: [(&str, String); 10] = [
         // 1. A project has at least one repo: a parent that needs a child.
         ("repos", "SELECT 'the project has no repos' WHERE NOT EXISTS (SELECT 1 FROM repo)".to_string()),
         // 2. A question that says nothing of why it blocks nothing has an open item waiting on it.
@@ -146,11 +146,28 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
              JOIN closing c ON c.record_id = r.item_id ORDER BY r.item_id"
                 .to_string(),
         ),
-        // 6. A worktree holds one branch of work.
+        // 6. A worktree holds one branch of work, running or parked.
         (
             "worktrees",
             "SELECT 'worktree ' || worktree || ' holds two branches of work: ' || group_concat(DISTINCT branch) \
-             FROM running_place GROUP BY worktree HAVING COUNT(DISTINCT branch) > 1 ORDER BY worktree"
+             FROM (SELECT worktree, branch FROM running_place UNION ALL SELECT worktree, branch FROM parked_place) \
+             GROUP BY worktree HAVING COUNT(DISTINCT branch) > 1 ORDER BY worktree"
+                .to_string(),
+        ),
+        // 6a. A closed item is parked nowhere, an item is never both running
+        // and parked, and a worktree with a parked item holds no other item.
+        (
+            "parked",
+            "SELECT 'item #' || k.item_id || ' is closed and still parked somewhere' FROM parked k \
+             JOIN closing c ON c.record_id = k.item_id \
+             UNION ALL \
+             SELECT 'item #' || k.item_id || ' is both running and parked' FROM parked k \
+             JOIN running r ON r.item_id = k.item_id \
+             UNION ALL \
+             SELECT 'worktree ' || p.worktree || ' holds parked item #' || p.item_id || ' and item #' || o.item_id \
+             FROM parked_place p JOIN (SELECT item_id, worktree FROM running_place \
+                 UNION ALL SELECT item_id, worktree FROM parked_place) o \
+             ON o.worktree = p.worktree AND o.item_id <> p.item_id"
                 .to_string(),
         ),
         // 7. Every landed closing and every landed part has a commit: a parent that needs a child.

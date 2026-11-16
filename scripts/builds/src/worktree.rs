@@ -265,7 +265,8 @@ pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
     retire_checkout(tool, &checkout)
 }
 
-/// Removes the clean, unclaimed side worktree <checkout> and its build root.
+/// Removes the clean, unclaimed side worktree <checkout> that no item is
+/// parked in, and its build root.
 pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
     let top = checkout.top.display();
     let root = checkout.build_root(&tool.places);
@@ -273,6 +274,13 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
         fail!(
             "{top} is claimed by {}; builds release it first",
             claim.text()
+        );
+    }
+    if crate::lists::parked::parked_worktrees_now(&tool.places)?
+        .contains(&checkout.top.display().to_string())
+    {
+        fail!(
+            "{top} holds a parked item's work; take the item there (`builds item take`) to work on it"
         );
     }
     let dirty = git_text(

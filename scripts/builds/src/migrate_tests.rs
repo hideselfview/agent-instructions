@@ -1997,11 +1997,105 @@ fn a_store_from_before_check_starts_keeps_its_runs_and_gains_the_tables() {
     assert_eq!(stats.runs, 1, "the move keeps the old run");
 }
 
+/// The schema text before an item could hold a worktree parked: without the
+/// parked items' tables.
+fn schema_before_parked() -> String {
+    let schema = db::schema();
+    let part = format!("\n{}", db::PARKED_PART);
+    assert_eq!(
+        schema.matches(&part).count(),
+        1,
+        "the schema has the part once"
+    );
+    schema.replacen(&part, "", 1)
+}
+
+#[test]
+fn the_parked_stamp_is_the_schema_before_parked_items() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_parked()),
+        BEFORE_PARKED_STAMP
+    );
+}
+
+/// A store from before parked items keeps its items, gains the empty tables,
+/// equals a fresh schema, and then takes a parked item.
+#[test]
+fn a_store_from_before_parked_items_gains_the_tables_and_parks_an_item() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-parked");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_parked()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_PARKED_STAMP)
+            .unwrap();
+        crate::lists::project::plant(
+            &conn,
+            "project",
+            &[("singleton", v(1)), ("name", v("bae")), ("canvas", v(1))],
+        )
+        .unwrap();
+        crate::lists::project::plant(&conn, "repo", &[("name", v("bae"))]).unwrap();
+        crate::lists::area::plant(&conn, &[("name", v("Alpha")), ("position", v(0))]).unwrap();
+        crate::lists::record::plant(
+            &conn,
+            "record",
+            &[
+                ("id", v(1)),
+                ("kind", v("item")),
+                ("opened_at", v(5)),
+                ("opened_by", v("tester")),
+            ],
+        )
+        .unwrap();
+        crate::lists::item::plant(
+            &conn,
+            "item",
+            &[
+                ("id", v(1)),
+                ("title", v("Do the first thing now")),
+                ("area", v("Alpha")),
+                ("details", v("d")),
+                ("audience", v("coordinator")),
+            ],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    drop(conn);
+    let conn = Connection::open(&path).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    crate::lists::parked::park(
+        &conn,
+        crate::lists::Id(1),
+        &[crate::lists::parked::Parked {
+            worktree: "/d/bae-worktrees/side-2".to_string(),
+            branch: "work".to_string(),
+            since: crate::lists::Stamp {
+                at: 7,
+                by: "tester".to_string(),
+            },
+        }],
+    )
+    .unwrap();
+}
+
 /// The schema text before builds recorded each commit a landing pushed:
 /// without the `review_pushed` table, and with `review_landing`'s comment as
 /// it read then.
 fn schema_before_pushed() -> String {
-    let schema = db::schema();
+    let schema = schema_before_parked();
     let table = db::statement(
         &schema,
         "\n-- Each commit of a landing that",
@@ -2086,7 +2180,7 @@ fn without_ranks(schema: String) -> String {
 
 /// The schema text before each question placed first had a rank.
 fn schema_before_ranks() -> String {
-    without_ranks(db::schema())
+    without_ranks(schema_before_parked())
 }
 
 #[test]

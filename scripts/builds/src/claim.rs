@@ -304,6 +304,16 @@ pub fn release(checkout: &Checkout) -> Result<Option<Claim>> {
     Ok(claim)
 }
 
+/// Removes <checkout>'s claim and keeps its project file, and returns the
+/// claim, or None when there was none: an item parked there (lists/parked.rs)
+/// keeps the worktree in its project for the agent that takes it next.
+pub fn unclaim(checkout: &Checkout) -> Result<Option<Claim>> {
+    let file = checkout.claim_file();
+    let claim = Claim::read(&file)?;
+    remove_if_present(&file)?;
+    Ok(claim)
+}
+
 /// Removes the file at <path>; a file that is already gone is no error.
 fn remove_if_present(path: &Path) -> Result<()> {
     match std::fs::remove_file(path) {
