@@ -138,8 +138,10 @@ builds app-build bae <branch> [--test <Class>]... [--shots <prefix>]...
 ```
 
 `--shots <prefix>` runs the shots (pictures of app views, each checked against
-its board) whose names start with the prefix (`mac.` or `android.`).
-`builds help` (APP BUILDS) says how builds picks what to build and where.
+its board) whose names start with the prefix. Name the screens the change
+touches, such as `mac.welcome.`: builds refuses `mac.` and `android.`, which
+select every shot of a lane, and CI runs every shot. `builds help` (APP BUILDS)
+says how builds picks what to build and where.
 
 Never run the `macos-tests-run`, `macos-tests-all` or `android-tests` steps as a
 check: they run every test and put windows on the person's screen, and CI runs
