@@ -44,8 +44,8 @@ pub enum ReviewWait {
     ToSettle(usize),
     /// This many confirmed findings wait on a commit that fixes them.
     Unfixed(usize),
-    /// This many commits are neither ones the review read nor named fixes:
-    /// `builds review` reviews them in a new run.
+    /// This many commits are neither ones the review read nor named fixes of
+    /// findings on a changed file: `builds review` reviews them in a new run.
     Unreviewed(usize),
 }
 

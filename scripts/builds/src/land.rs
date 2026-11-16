@@ -71,10 +71,10 @@
 //! before anything is fetched, refuses unless each commit is one a change's
 //! review read (by the patch id of its added and removed lines, so a rebase or
 //! cherry-pick that keeps those lines counts) or the named fix of one of that
-//! review's confirmed findings, and the review is finished: every group that
-//! covers a changed path of a reviewed commit has answered, the coordinator has
-//! settled every finding, and each confirmed finding on the commits has its
-//! fix among them. Commits whose paths no group covers need no review. After
+//! review's confirmed findings on a changed file, and the review is finished:
+//! every group that covers a changed path of a reviewed commit has answered,
+//! the coordinator has settled every finding, and each confirmed finding on
+//! the commits has its fix among them. Commits whose paths no group covers need no review. After
 //! the push, `builds review landed` records the commits pushed beside the
 //! items and the design change. When commits of the branch still wait to land,
 //! land passes `--more-to-land` to it and the review's landing stays open for

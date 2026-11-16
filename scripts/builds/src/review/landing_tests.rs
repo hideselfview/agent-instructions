@@ -406,6 +406,76 @@ fn a_branch_lands_in_two_parts_each_with_the_fixes_of_its_own_findings() {
     assert!(record_landed(&second, &stamp(), false).unwrap().is_some());
 }
 
+/// bae's landing 87: the coordinator named the reviewed commit, reworded, as
+/// the fix of the findings on its message, and a rebase then changed the
+/// lines it adds.
+#[test]
+fn a_rebased_fix_of_a_message_finding_whose_added_lines_changed_needs_a_review() {
+    let demo = demo("landing-rebased-reword");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    commit_with(&side, "a.rs", "Add a with a vague line");
+    alpha_finds(
+        &fake,
+        &[("a.rs", "a.rs"), (files::COMMIT_MESSAGE, "a vague line")],
+    );
+    review_of(&demo, &fake, &side);
+    let found = findings(&demo);
+    assert_eq!(found.len(), 2, "{found:?}");
+    for finding in &found {
+        settle(&demo, finding.id, "confirmed");
+    }
+    let (on_code, on_message) = if found[0].file == "a.rs" {
+        (found[0].id, found[1].id)
+    } else {
+        (found[1].id, found[0].id)
+    };
+    // The rebase onto a moved main resolves a conflict in a.rs, and the
+    // reword fixes the message.
+    crate::testing::git(&side, &["reset", "-q", "--hard", "main"]);
+    std::fs::write(side.join("a.rs"), "resolved\n").unwrap();
+    crate::testing::git(&side, &["add", "a.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "Add a"]);
+    let reworded = head(&side);
+    fix(&demo, &side, on_message, &reworded);
+    std::fs::write(side.join("a.rs"), "fixed\n").unwrap();
+    crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Fix a"]);
+    let fixed = head(&side);
+    fix(&demo, &side, on_code, &fixed);
+    // Land and the review agree: the reworded commit needs a review, and the
+    // fix of the finding on a.rs does not.
+    let said = verdict_of(&demo, &fake, &side, &[reworded.clone(), fixed.clone()]);
+    let Verdict::Unfinished(_, unfinished) = &said.0 else {
+        panic!("{said:?}")
+    };
+    let unreviewed: Vec<&str> = unfinished
+        .unreviewed
+        .iter()
+        .map(|c| c.sha.as_str())
+        .collect();
+    assert_eq!(unreviewed, [reworded.as_str()]);
+    assert!(
+        refused(&said).contains(&format!(
+            "commit {} is not one the review read",
+            &reworded[..10]
+        )),
+        "{said:?}"
+    );
+    fake.prompts();
+    fake.answer("alpha", &[("rule-a", None)]);
+    let reported = review_of(&demo, &fake, &side);
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", reported.text);
+    assert!(
+        prompts[0].1.contains("+resolved") && !prompts[0].1.contains("+fixed"),
+        "{}",
+        prompts[0].1
+    );
+    assert!(reported.refusal.is_none(), "{:?}", reported.refusal);
+    let said = verdict_of(&demo, &fake, &side, &[reworded, fixed]);
+    assert!(matches!(said.0, Verdict::Takes(_)), "{said:?}");
+}
+
 /// Names <sha> as the fix of <finding>, and returns why the store refused.
 fn fix_refused(demo: &Demo, side: &Path, finding: i64, sha: &str) -> String {
     let commit = fix_commit(side, sha).unwrap();

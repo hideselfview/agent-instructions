@@ -25,10 +25,12 @@
 //! (`landing.rs`), and exits 1 unless land would take them. A KEY reviewed
 //! already gets no second review of a diff: the run asks only the groups that
 //! gave the review no answer, over the diff they did not answer, and reviews
-//! in a new run the commits that no run read and that no confirmed finding
-//! names as its fix (a commit added after the review, or one whose added or
-//! removed lines a rebase changed). The run refuses when the review covers
-//! every commit.
+//! in a new run the commits that no run read and that no confirmed finding on
+//! a changed file names as its fix (a commit added after the review, or one
+//! whose added or removed lines a rebase changed, even when it is the named
+//! fix of a finding on its message). `landing::Coverage` decides which commits
+//! those are, for this run and for `builds land`. The run refuses when the
+//! review covers every commit.
 //!
 //! Every call records its setup (its group's model and prompt), its tokens and
 //! its cost. `scores` counts how each setup did from the settled findings, and
@@ -342,8 +344,8 @@ fn copy_diff(worktree: &Path, base: &str, head: &str) -> Result<run::Diff> {
 /// The runs a change whose review <landing> holds gets now, so that the
 /// review covers every one of <commits>: for each change a run read, the
 /// groups that cover a path it changes and gave no answer over it, asked over
-/// that run's diff; and for each stretch of adjacent commits that no run read
-/// and no confirmed finding names as its fix, the groups that cover a path
+/// that run's diff; and for each stretch of adjacent commits that need a new
+/// run (`landing::Coverage::needs_review`), the groups that cover a path
 /// they change, asked over their diff. No reviewer reads a diff twice. Fails
 /// with why builds review reviews no change twice when the review covers
 /// every commit.
@@ -354,11 +356,12 @@ fn later_asks(
     commits: &[commits::Commit],
     landing: i64,
 ) -> Result<Vec<Ask>> {
-    let runs = landing::review_runs(conn, landing)?;
+    let coverage = landing::Coverage::of(conn, landing)?;
+    let runs = &coverage.runs;
     let calls = record::calls_of_landing(conn, landing)?;
     let mut asks = Vec::new();
     let mut changes: Vec<&[commits::Commit]> = Vec::new();
-    for (run, read) in &runs {
+    for (run, read) in runs {
         if changes.iter().any(|seen| commits::same_change(seen, read)) {
             continue;
         }
@@ -391,19 +394,10 @@ fn later_asks(
             });
         }
     }
-    let read: Vec<&str> = runs
-        .iter()
-        .flat_map(|(_, read)| read.iter().map(|c| c.patch_id.as_str()))
-        .collect();
-    let fixes: Vec<String> = record::findings_of_landing(conn, landing)?
-        .into_iter()
-        .filter(|f| f.kind == "review" && f.settled_as("confirmed"))
-        .filter_map(|f| f.fix.map(|fix| fix.patch_id))
-        .collect();
     let mut stretches: Vec<Vec<commits::Commit>> = Vec::new();
     let mut previous: Option<usize> = None;
     for (at, commit) in commits.iter().enumerate() {
-        if read.contains(&commit.patch_id.as_str()) || fixes.contains(&commit.patch_id) {
+        if !coverage.needs_review(commit) {
             continue;
         }
         match stretches.last_mut() {
@@ -422,7 +416,7 @@ fn later_asks(
         asks.push(Ask {
             diff: copy_diff(inputs.worktree, &format!("{first}^"), last)?,
             note: Some(format!(
-                "read the commits no run of this review read and no confirmed finding names as its fix: {}\n",
+                "read the commits no run of this review read and no confirmed finding on a changed file names as its fix: {}\n",
                 stretch
                     .iter()
                     .map(|c| short(&c.sha))
@@ -438,7 +432,7 @@ fn later_asks(
             .last()
             .expect("builds review opens every landing with its review run");
         fail!(
-            "{}\nrun {} of review landing {landing} ({}) reviewed this change over {}, every group answered, and every commit past the base is one a run read or the named fix of a confirmed finding, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
+            "{}\nrun {} of review landing {landing} ({}) reviewed this change over {}, every group answered, and every commit past the base is one a run read or the named fix of a confirmed finding on a changed file, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
             landing::ONE_REVIEW,
             run.id,
             inputs.key,

@@ -9,9 +9,9 @@ No diff is reviewed more than once. Each change gets one review; the coordinator
 reads the fixes for its confirmed findings.
 
 `builds land` refuses commits in a repo of a project with lists unless each is
-one a finished review read or the named fix of one of its confirmed findings.
-Commits whose changed paths no rule group covers need no review. Review each
-branch this way:
+one a finished review read or the named fix of one of its confirmed findings on
+a changed file. Commits whose changed paths no rule group covers need no review.
+Review each branch this way:
 
 - Run `builds review <worktree> [<base>] --item N` once, when the branch's work
   is done, to review the worktree's commits past `<base>` (default
@@ -46,9 +46,11 @@ branch this way:
     so a rebase or cherry-pick that keeps those lines still counts, even when
     the lines around them changed.
   - A commit added after the review, a squash, or a commit whose added or
-    removed lines a rebase changed is new work, which land refuses. Land the
-    reviewed commits and their fixes without it, then review it as a change of
-    its own. When the reviewed commits can't land without it, ask the person.
+    removed lines a rebase changed is new work, which land refuses, even when a
+    finding on its message names it as its fix. Run `builds review` in the
+    branch's worktree again: it reads those commits, and only those, as a new
+    run of the review. Settle that run's findings and name their fixes as for
+    the first run.
 - Run `builds review show <landing>` to list a change's review, the commits it
   read, its findings, and how each was settled and fixed.
   - A review's key defaults to the worktree's branch, such as `branch:work`.
