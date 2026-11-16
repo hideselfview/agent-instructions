@@ -79,10 +79,16 @@ Never mention a reset to the person, even when a change that needs one lands.
 
 Rust turns the rows of a screen's SQL query into bridge types, and the app draws
 them, with no cache, enrichment or other step between the query and the screen.
-The exceptions are values that change many times a second, which travel on keyed
-latest-value streams, and state that exists only on screen (hover, focus, an
-open popover or menu, a drag in progress, the text typed in an input field),
-which the view that controls it keeps.
+There are two exceptions:
+
+- A value that lives in Rust's memory and changes many times a second, such as
+  playback position or a transfer's bytes, travels on a keyed latest-value
+  stream, as a channel would carry it inside Rust. Live queries and fast streams
+  never meet: core never writes such a value to a table for a query to read, and
+  never puts a query's result on a fast stream.
+- State that exists only on screen (hover, focus, an open popover or menu, a
+  drag in progress, the text typed in an input field) stays in the view that
+  controls it.
 
 The full rules are
 `projects/bae-rules/screen-reads/reactive-screens-read-plain-live-queries.md`

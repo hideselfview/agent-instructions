@@ -22,10 +22,14 @@ def parse(path):
     if not m:
         raise SystemExit(f"{path.name}: missing frontmatter")
     front, body = m.group(1), m.group(2).strip()
-    dm = re.search(r"^digest:\s*(.+)$", front, re.MULTILINE)
+    # A digest is one line, or a folded block (`digest: >-`) of indented lines.
+    dm = re.search(r"^digest:[ \t]*(?:>-?[ \t]*\n((?:[ \t]+.*\n?)+)|(.+))$", front, re.MULTILINE)
     if not dm:
         raise SystemExit(f"{path.name}: missing digest")
-    digest = dm.group(1).strip()
+    if dm.group(1) is not None:
+        digest = " ".join(line.strip() for line in dm.group(1).splitlines() if line.strip())
+    else:
+        digest = dm.group(2).strip()
     first = next((ln for ln in body.splitlines() if ln.strip()), "")
     nm = re.match(r"^\*\*(.+?)\.?\*\*", first) or re.match(r"^#+\s*(.+)$", first)
     name = nm.group(1).strip() if nm else path.stem

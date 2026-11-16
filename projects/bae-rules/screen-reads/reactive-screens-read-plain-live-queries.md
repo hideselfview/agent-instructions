@@ -1,5 +1,19 @@
 ---
-digest: A bae screen shows the rows of its SQL query, with no cache, enrichment or other step between the query and the screen, except values that change many times a second (keyed latest-value streams), state that exists only on screen (kept by the view), and a pure Rust function of one live query result that only shapes how its rows display (coven's `process`). A read that follows changes is one coven live query; any other read is a plain SQL read. Each window of a long list is its own live query bounded by a key at both ends. SQL decides which rows a screen gets, reads every row a value needs in one statement, and counts across windows. Rust and the apps never keep memory between reads (incremental or lazy computation included), run a side pass, force a rerun, pick a read path by size, or filter, sort or join rows outside SQL, and nothing answers from the rows a screen has loaded. The apps draw the rows Rust hands them and never filter, sort, group or count them.
+digest: >-
+  A bae screen shows the rows of its SQL query, with no cache, enrichment or
+  other step between the query and the screen, except values that live in Rust's
+  memory and change many times a second (keyed latest-value streams, which never
+  carry anything read from SQL), state that exists only on screen (kept by the
+  view), and a pure Rust function of one live query result that only shapes how
+  its rows display (coven's `process`). A read that follows changes is one coven
+  live query; any other read is a plain SQL read. Each window of a long list is
+  its own live query bounded by a key at both ends. SQL decides which rows a
+  screen gets, reads every row a value needs in one statement, and counts across
+  windows. Rust and the apps never keep memory between reads (incremental or
+  lazy computation included), run a side pass, force a rerun, pick a read path
+  by size, or filter, sort or join rows outside SQL, and nothing answers from
+  the rows a screen has loaded. The apps draw the rows Rust hands them and never
+  filter, sort, group or count them.
 paths:
   - bae-*/src/**/*.rs
   - '**/*.sql'
@@ -20,9 +34,13 @@ time, and each window is its own live query.
 
 Two things a screen shows don't come from SQL:
 
-- A value that changes many times a second (playback position, transfer bytes,
-  rates, levels) travels on a keyed latest-value stream
-  (`native-views-draw-fast-changing-values.md`).
+- A value that lives in Rust's memory and changes many times a second (playback
+  position, transfer bytes, rates, levels) travels on a keyed latest-value
+  stream, as a channel would carry it inside Rust
+  (`native-views-draw-fast-changing-values.md`). Live queries and fast streams
+  never meet: core never writes such a value to a table for a query to read, and
+  never puts a query's result on a fast stream. A value SQL can read reaches the
+  screen through the screen's live query, however often it changes.
 - State that exists only on screen (hover, focus, an open popover or menu, a
   drag in progress, the text typed in a search or input field) stays in the view
   that controls it and never goes into SQL. A query that depends on it, such as
