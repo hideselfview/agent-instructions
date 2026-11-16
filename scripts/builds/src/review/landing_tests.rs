@@ -2,6 +2,7 @@ use super::*;
 use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::{Demo, demo};
 use crate::review::fakes::{Fake, Raised, fake};
+use crate::review::files;
 use crate::review::{Inputs, review};
 
 const BAD: Raised = (
@@ -44,7 +45,7 @@ fn review_past(demo: &Demo, fake: &Fake, side: &Path, base: &str) -> super::supe
 /// words.
 fn verdict_of(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> (Verdict, Option<String>) {
     let asked = asked(demo, fake, side, shas);
-    let verdict = judge(&asked.conn, "demo", &asked.needs).unwrap();
+    let verdict = judge(&asked.conn, "demo", side, &asked.needs).unwrap();
     let words = refusal(&asked.commits(), &verdict);
     (verdict, words)
 }
@@ -259,7 +260,7 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
     let asked_picked = asked(&demo, &fake, &other, std::slice::from_ref(&picked));
     let conn = demo.store.open_existing().unwrap();
     assert!(matches!(
-        judge(&conn, "demo", &asked_picked.needs).unwrap(),
+        judge(&conn, "demo", &other, &asked_picked.needs).unwrap(),
         Verdict::Takes(_)
     ));
     drop(conn);
@@ -348,4 +349,112 @@ fn a_rename_out_of_a_covered_folder_is_reviewed_by_the_group_of_its_old_path() {
     assert!(reported.refusal.is_none(), "{:?}", reported.refusal);
     let asked = verdict_of(&demo, &fake, &side, &[moved]);
     assert!(matches!(asked.0, Verdict::Takes(_)), "{asked:?}");
+}
+
+/// Commits <file>, holding <file>'s name, in <top> with <message>, and returns
+/// the commit.
+fn commit_with(top: &Path, file: &str, message: &str) -> String {
+    std::fs::write(top.join(file), file).unwrap();
+    crate::testing::git(top, &["add", file]);
+    crate::testing::git(top, &["commit", "-q", "-m", message]);
+    crate::checkout::git_text(
+        crate::checkout::git(top).args(["rev-parse", "HEAD"]),
+        "read HEAD",
+    )
+    .unwrap()
+    .trim()
+    .to_string()
+}
+
+/// What the reviewer of group alpha answers: rule-a's findings, each as
+/// (file, code).
+fn alpha_finds(fake: &Fake, found: &[(&str, &str)]) {
+    let findings: Vec<serde_json::Value> = found
+        .iter()
+        .map(|(file, code)| {
+            serde_json::json!({"clause": BAD.0, "file": file, "line": 1, "code": code, "problem": "bad"})
+        })
+        .collect();
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({"rules": [{"rule": "rule-a", "verdict": "finding", "findings": findings}]}),
+    );
+}
+
+#[test]
+fn a_branch_lands_in_two_parts_each_with_the_fixes_of_its_own_findings() {
+    let demo = demo("landing-parts");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let a = commit_with(&side, "a.rs", "Add a");
+    let b = commit_with(&side, "b.rs", "Add b with a vague line");
+    alpha_finds(
+        &fake,
+        &[("a.rs", "a.rs"), (files::COMMIT_MESSAGE, "a vague line")],
+    );
+    review_of(&demo, &fake, &side);
+    let found = findings(&demo);
+    assert_eq!(found.len(), 2, "{found:?}");
+    for finding in &found {
+        settle(&demo, finding.id, "confirmed");
+    }
+    // The fix of the finding on a.rs changes a.rs.
+    std::fs::write(side.join("a.rs"), "fixed\n").unwrap();
+    crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Fix a"]);
+    let fa = crate::checkout::git_text(
+        crate::checkout::git(&side).args(["rev-parse", "HEAD"]),
+        "read HEAD",
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    fix(&demo, &side, found[0].id, &fa);
+    // A reworded commit keeps its patch id, so it names the fix of a finding
+    // on its message.
+    fix(&demo, &side, found[1].id, &b);
+    // a without its fix waits on it.
+    let alone = verdict_of(&demo, &fake, &side, &[a.clone(), b.clone()]);
+    assert!(
+        refused(&alone).contains("not among the commits this lands"),
+        "{alone:?}"
+    );
+    // Part one: the finding on b's message is not on these commits.
+    let first = asked(&demo, &fake, &side, &[a, fa]);
+    let conn = demo.store.open_existing().unwrap();
+    let verdict = judge(&conn, "demo", &side, &first.needs).unwrap();
+    drop(conn);
+    assert!(matches!(verdict, Verdict::Takes(_)), "{verdict:?}");
+    assert!(record_landed(&first, &stamp()).unwrap().is_some());
+    // Part two: the finding on a.rs belongs to part one.
+    let second = verdict_of(&demo, &fake, &side, &[b]);
+    assert!(matches!(second.0, Verdict::Takes(_)), "{second:?}");
+}
+
+#[test]
+fn a_finding_on_the_message_of_a_commit_an_earlier_landing_pushed_needs_no_fix_here() {
+    let demo = demo("landing-pushed-message");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let a = commit_with(&side, "a.rs", "Add a with a vague line");
+    review_of(&demo, &fake, &side);
+    let first = asked(&demo, &fake, &side, std::slice::from_ref(&a));
+    assert!(record_landed(&first, &stamp()).unwrap().is_some());
+    // A cherry-pick put a on main, so a later review of the branch reads it
+    // again beside the new commit.
+    let b = commit_with(&side, "b.rs", "Add b");
+    alpha_finds(&fake, &[(files::COMMIT_MESSAGE, "a vague line")]);
+    review_of(&demo, &fake, &side);
+    let found = findings(&demo);
+    assert_eq!(found.len(), 1, "{found:?}");
+    settle(&demo, found[0].id, "confirmed");
+    let asked = verdict_of(&demo, &fake, &side, std::slice::from_ref(&b));
+    assert!(matches!(asked.0, Verdict::Takes(_)), "{asked:?}");
+    let both = verdict_of(&demo, &fake, &side, &[a, b]);
+    assert!(
+        refused(&both).contains(&format!(
+            "finding {} is confirmed and names no fix",
+            found[0].id
+        )),
+        "{both:?}"
+    );
 }

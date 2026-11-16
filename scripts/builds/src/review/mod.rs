@@ -299,7 +299,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     let needs = landing::needs(inputs.worktree, commits.clone(), |paths| {
         material.group_names(paths)
     })?;
-    let verdict = landing::judge(&conn, inputs.repo, &needs)?;
+    let verdict = landing::judge(&conn, inputs.repo, inputs.worktree, &needs)?;
     let refusal = landing::refusal(&commits, &verdict);
     if refusal.is_none() {
         text.push_str(&format!("builds land: {}\n", landing::taken(&verdict)));

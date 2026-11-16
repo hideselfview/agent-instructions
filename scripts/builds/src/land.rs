@@ -73,11 +73,11 @@
 //! cherry-pick that keeps those lines counts) or the named fix of one of that
 //! review's confirmed findings, and the review is finished: every group that
 //! covers a changed path of a reviewed commit has answered, the coordinator has
-//! settled every finding, and one of the commits fixes each confirmed one.
-//! Commits whose paths no group covers need no review. After the push,
-//! `builds review landed` records the review's landing as landed beside the
-//! items and the design change, and starts the audit of a sampled one, which
-//! never fails the landing.
+//! settled every finding, and each confirmed finding on the commits has its
+//! fix among them. Commits whose paths no group covers need no review. After
+//! the push, `builds review landed` records the review's landing as landed
+//! beside the items and the design change, and starts the audit of a sampled
+//! one, which never fails the landing.
 //!
 //! A repo whose landed tree holds a `.land-live` file has a main checkout that
 //! is the live copy (agent-instructions, whose main checkout install.sh links

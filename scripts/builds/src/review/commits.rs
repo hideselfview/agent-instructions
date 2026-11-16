@@ -58,6 +58,11 @@ fn full_shas(repo: &Path, revs: &[String]) -> Result<Vec<String>> {
         .collect()
 }
 
+/// The message of commit <sha>.
+pub fn message(repo: &Path, sha: &str) -> Result<String> {
+    git_text(repo, &["show", "-s", "--format=%B", sha])
+}
+
 /// The commits past <base> up to <head>, oldest first.
 pub fn in_range(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
     Ok(

@@ -16,16 +16,21 @@
 //! keeps its review, or the fix the coordinator named for one of the review's
 //! confirmed findings. Every group that covers a path a reviewed commit
 //! changes must have answered over it, the coordinator must have settled every
-//! finding, and every confirmed finding must name a fix among the commits
-//! landed. A commit that the review did not read and that no finding names as
-//! its fix is new work, which builds land takes only as a separate change. A
-//! landing whose changed paths no group covers needs no review.
+//! finding, and every confirmed finding on the commits landed must name a fix
+//! among them. A finding is on a commit that changes its file, and a finding
+//! on the commit messages is on the commit whose message holds its quote. A
+//! finding on a commit that an earlier landing pushed belongs to that landing,
+//! so a branch can land in parts. A commit that the review did not read and
+//! that no finding names as its fix is new work, which builds land takes only
+//! as a separate change. A landing whose changed paths no group covers needs
+//! no review.
 //!
 //! `landed` records the landing as landed with the change's review run, then
 //! decides whether to audit it (`audit.rs`) and, when it is sampled, starts
 //! `builds review audit` in the background. A landing whose change landed
 //! already is matched by its landed review, so both commands can run again.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
@@ -36,7 +41,9 @@ use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::args::Args;
 use crate::lists::store::{Store, resolve_by};
+use crate::review::check;
 use crate::review::commits::{self, Commit};
+use crate::review::files;
 use crate::review::record::{self, LandingRow};
 use crate::review::render;
 use crate::review::run::Material;
@@ -47,10 +54,12 @@ const USAGE: &str = "builds review check-landing|landed DIR --project P SHA... [
 /// What every refusal and every refused run says first.
 pub const ONE_REVIEW: &str = "No diff is reviewed more than once. Each change gets one review; the coordinator reads the fixes for its confirmed findings.";
 
-/// A commit to land and the groups whose rules cover a path it changes.
+/// A commit to land, the paths it changes, and the groups whose rules cover
+/// one of them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Need {
     pub commit: Commit,
+    pub paths: Vec<String>,
     pub groups: Vec<String>,
 }
 
@@ -67,6 +76,7 @@ pub fn needs(
         .zip(touched)
         .map(|(commit, paths)| Need {
             groups: groups_for(&paths),
+            paths,
             commit,
         })
         .collect())
@@ -90,9 +100,10 @@ pub struct Unfinished {
     pub unreviewed: Vec<Commit>,
     /// Findings nobody settled.
     pub unsettled: Vec<record::Finding>,
-    /// Confirmed findings that name no fix.
+    /// Confirmed findings on the commits that name no fix.
     pub unfixed: Vec<i64>,
-    /// Confirmed findings whose fix is not among the commits, with the fix.
+    /// Confirmed findings on the commits whose fix is not among them, with
+    /// the fix.
     pub fixed_elsewhere: Vec<(i64, String)>,
 }
 
@@ -145,10 +156,47 @@ pub fn review_runs(db: &Connection, landing: i64) -> Result<Vec<(record::RunRow,
     Ok(runs)
 }
 
-/// What <landing>'s review says of <needs>; None when its review read none of
-/// the commits that need one.
+/// Whether <finding> is on one of the commits of <needs>, in the repo at
+/// <dir>, where <read> is what its run read: a finding on the commit messages
+/// is on each read commit whose message holds its quote (on every read commit
+/// when no one message holds it), and any other finding is on each commit
+/// that changes its file. <messages> keeps each commit message read, by SHA.
+fn on_commits(
+    dir: &Path,
+    finding: &record::Finding,
+    read: &[Commit],
+    needs: &[Need],
+    messages: &mut HashMap<String, String>,
+) -> Result<bool> {
+    if finding.file != files::COMMIT_MESSAGE {
+        let named =
+            |path: &String| path == &finding.file || path.ends_with(&format!("/{}", finding.file));
+        return Ok(needs.iter().any(|n| n.paths.iter().any(named)));
+    }
+    let quote = check::squash(&finding.code);
+    let mut holders: Vec<&Commit> = Vec::new();
+    for commit in read {
+        if !messages.contains_key(&commit.sha) {
+            let message = check::squash(&commits::message(dir, &commit.sha)?);
+            messages.insert(commit.sha.clone(), message);
+        }
+        if messages[&commit.sha].contains(&quote) {
+            holders.push(commit);
+        }
+    }
+    if holders.is_empty() {
+        holders = read.iter().collect();
+    }
+    Ok(holders
+        .iter()
+        .any(|held| needs.iter().any(|n| n.commit.patch_id == held.patch_id)))
+}
+
+/// What <landing>'s review says of <needs>, commits of the repo at <dir>; None
+/// when its review read none of the commits that need one.
 fn assess(
     db: &Connection,
+    dir: &Path,
     landing: &LandingRow,
     needs: &[Need],
 ) -> Result<Option<(Covered, Unfinished)>> {
@@ -178,6 +226,19 @@ fn assess(
     let fixes: Vec<&str> = confirmed()
         .filter_map(|f| f.fix.as_ref().map(|fix| fix.patch_id.as_str()))
         .collect();
+    // The confirmed findings this landing must fix: those on its commits.
+    let mut owed: Vec<&record::Finding> = Vec::new();
+    let mut messages = HashMap::new();
+    for finding in confirmed() {
+        let read = runs
+            .iter()
+            .find(|(run, _)| run.id == finding.run_id)
+            .map(|(_, read)| read.as_slice())
+            .unwrap_or_default();
+        if on_commits(dir, finding, read, needs, &mut messages)? {
+            owed.push(finding);
+        }
+    }
     let mut unfinished = Unfinished::default();
     for need in covered_paths() {
         let runs = read_by(&need.commit);
@@ -202,11 +263,13 @@ fn assess(
         .filter(|f| f.settled.is_none())
         .cloned()
         .collect();
-    unfinished.unfixed = confirmed()
+    unfinished.unfixed = owed
+        .iter()
         .filter(|f| f.fix.is_none())
         .map(|f| f.id)
         .collect();
-    unfinished.fixed_elsewhere = confirmed()
+    unfinished.fixed_elsewhere = owed
+        .iter()
         .filter_map(|f| {
             let fix = f.fix.as_ref()?;
             (!patches.contains(&fix.patch_id.as_str())).then(|| (f.id, fix.sha.clone()))
@@ -219,19 +282,20 @@ fn assess(
     Ok(Some((covered, unfinished)))
 }
 
-/// Whether the review lets the commits of <needs> land in <repo>.
+/// Whether the review lets the commits of <needs>, read from the checkout at
+/// <dir>, land in <repo>.
 ///
 /// The newest open change whose review takes them covers them; failing that,
 /// the newest open change whose review read one of them says what it lacks.
 /// A change that landed already covers them only when its review takes them
 /// all, so `landed` can run again after the push.
-pub fn judge(db: &Connection, repo: &str, needs: &[Need]) -> Result<Verdict> {
+pub fn judge(db: &Connection, repo: &str, dir: &Path, needs: &[Need]) -> Result<Verdict> {
     if needs.iter().all(|n| n.groups.is_empty()) {
         return Ok(Verdict::NotNeeded);
     }
     let mut lacking: Option<(Covered, Unfinished)> = None;
     for landing in record::landings_of_repo(db, repo, false)? {
-        if let Some((covered, unfinished)) = assess(db, &landing, needs)? {
+        if let Some((covered, unfinished)) = assess(db, dir, &landing, needs)? {
             if unfinished.is_empty() {
                 return Ok(Verdict::Takes(covered));
             }
@@ -242,7 +306,7 @@ pub fn judge(db: &Connection, repo: &str, needs: &[Need]) -> Result<Verdict> {
         return Ok(Verdict::Unfinished(covered, unfinished));
     }
     for landing in record::landings_of_repo(db, repo, true)? {
-        if let Some((covered, unfinished)) = assess(db, &landing, needs)?
+        if let Some((covered, unfinished)) = assess(db, dir, &landing, needs)?
             && unfinished.is_empty()
         {
             return Ok(Verdict::Takes(covered));
@@ -369,7 +433,7 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
 pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root"], &[])?;
     let asked = ask(tool, &args)?;
-    let verdict = judge(&asked.conn, &asked.repo, &asked.needs)?;
+    let verdict = judge(&asked.conn, &asked.repo, &asked.dir, &asked.needs)?;
     match refusal(&asked.commits(), &verdict) {
         Some(why) => {
             print!("{why}");
@@ -396,7 +460,7 @@ pub fn taken(verdict: &Verdict) -> String {
 /// Records the change of <asked> as landed; returns the landing when this
 /// recorded it, None when it needed no review or was recorded already.
 fn record_landed(asked: &Asked, stamp: &Stamp) -> Result<Option<i64>> {
-    let verdict = judge(&asked.conn, &asked.repo, &asked.needs)?;
+    let verdict = judge(&asked.conn, &asked.repo, &asked.dir, &asked.needs)?;
     if let Some(why) = refusal(&asked.commits(), &verdict) {
         fail!("the review does not take these commits:\n{why}")
     }

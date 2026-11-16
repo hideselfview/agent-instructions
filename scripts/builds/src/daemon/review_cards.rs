@@ -95,6 +95,7 @@ impl Reads {
                 .zip(paths)
                 .map(|(commit, paths)| Need {
                     commit: commit.clone(),
+                    paths: paths.clone(),
                     groups: material.group_names(paths),
                 })
                 .collect(),
@@ -130,7 +131,7 @@ impl Reads {
             return Ok(Some(ItemWait::RulesReview(ReviewWait::Running)));
         }
         let conn = store.open_existing().map_err(Fail::text)?;
-        let wait = match landing::judge(&conn, repo, &needs).map_err(Fail::text)? {
+        let wait = match landing::judge(&conn, repo, top, &needs).map_err(Fail::text)? {
             Verdict::NotNeeded | Verdict::Takes(_) => return Ok(None),
             Verdict::NoRun => ReviewWait::NotRun,
             Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {

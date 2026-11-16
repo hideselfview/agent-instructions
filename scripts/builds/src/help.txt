@@ -1114,10 +1114,13 @@ answer, over the diff the review read, and refuses once every group answered.
 change's review covers them: each commit whose paths a group covers is either
 one the review read, and every such group answered over it, or the commit
 named as the fix of one of the review's confirmed findings; every finding is
-settled; and every confirmed finding names a fix among the commits landed. A
-landing may hold some of the reviewed commits and leave the rest for later. A
-landing whose changed paths no group covers needs no review, and neither does
-a landing in a repo of no project with lists: there is nothing to record. A
+settled; and every confirmed finding on the commits landed names a fix among
+them. A finding is on each commit that changes its file, and a finding on the
+commit messages is on the commit whose message holds its quote. A landing may
+hold some of the reviewed commits and leave the rest for later: a finding on a
+commit that an earlier landing pushed belongs to that landing. A landing
+whose changed paths no group covers needs no review, and neither does a
+landing in a repo of no project with lists: there is nothing to record. A
 design-only landing (`--design N` alone) follows the same rule.
 
 A review matches a landing's commits by their changes, not by their SHAs. A
@@ -1335,8 +1338,8 @@ agent-instructions and run `review replay --rules-root` on it.
                               any of them, a group with no answer over a
                               reviewed commit, a commit that is neither
                               reviewed nor a named fix, an unsettled finding,
-                              a confirmed finding with no fix or with a fix
-                              outside the commits
+                              a confirmed finding on the commits with no fix
+                              or with a fix outside them
   builds review landed <worktree> --project P <sha>... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]
                               what `builds land` records after the push: the
                               landing under review whose review takes the
