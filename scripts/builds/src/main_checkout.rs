@@ -13,10 +13,9 @@
 //! This module reads the checkout's refs as they are and fetches nothing.
 
 use std::path::Path;
-use std::process::Stdio;
 
-use crate::checkout::git;
 use crate::health::{Advice, Finding, FindingKind};
+use crate::side_git::run;
 
 /// Where a main checkout stands against origin/main.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,8 +33,8 @@ impl Standing {
     /// said when it cannot, such as when the checkout has no main branch or
     /// no origin/main.
     pub fn read(main: &Path) -> Result<Standing, String> {
-        let on = read_git(main, &["branch", "--show-current"])?;
-        let counts = read_git(
+        let on = run(main, &["branch", "--show-current"])?.trim().to_string();
+        let counts = run(
             main,
             &[
                 "rev-list",
@@ -97,26 +96,6 @@ pub fn forward_command(main: &Path) -> String {
         "git -C {} merge --ff-only origin/main",
         crate::text::shell_word(&main.display().to_string())
     )
-}
-
-/// What git printed, trimmed, or what it said when it failed. Reads with
-/// git's optional locks off, so a read never blocks the person's git.
-fn read_git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let output = git(dir)
-        .arg("--no-optional-locks")
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| format!("running git in {}: {error}", dir.display()))?;
-    if !output.status.success() {
-        return Err(format!(
-            "git -C {} {} failed: {}",
-            dir.display(),
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// The finding for each main checkout of a project's repo on this Mac

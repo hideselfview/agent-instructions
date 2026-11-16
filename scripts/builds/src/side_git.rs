@@ -1,7 +1,7 @@
 //! What git says about a side worktree: HEAD, the commits waiting to land,
 //! and its uncommitted files. Read-only, with git's optional locks off, and
-//! nothing fetched. Main checkouts are the person's; nothing asks git about
-//! them here.
+//! nothing fetched. Main checkouts are the person's; nothing here asks git
+//! about them, and main_checkout.rs reads their refs through `run`.
 
 use std::collections::HashSet;
 use std::os::unix::fs::MetadataExt;
@@ -47,7 +47,9 @@ impl SideGit {
     }
 }
 
-fn run(top: &Path, args: &[&str]) -> Result<String, String> {
+/// What git printed in <top>, run read-only with its optional locks off, or
+/// what it said when it failed.
+pub fn run(top: &Path, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .arg("--no-optional-locks")
         .arg("-C")
