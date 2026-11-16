@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::text::minutes_since;
 
 /// The record a lock's holder keeps of its run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,20 +54,16 @@ pub struct StepTime {
     pub minutes: i64,
 }
 
-fn minutes(seconds: i64) -> i64 {
-    seconds.max(0) / 60
-}
-
 impl HolderRun {
     /// Its times at <now>, seconds since 1970.
     pub fn times(&self, now: i64) -> RunTimes {
         let waited = (self.waited_ms / 1000) as i64;
         RunTimes {
-            waited_minutes: minutes(waited),
-            building_minutes: minutes(now - self.joined_at - waited),
+            waited_minutes: waited / 60,
+            building_minutes: minutes_since(now, self.joined_at + waited),
             step: self.step.as_ref().map(|step| StepTime {
                 name: step.name.clone(),
-                minutes: minutes(now - step.started_at),
+                minutes: minutes_since(now, step.started_at),
             }),
         }
     }

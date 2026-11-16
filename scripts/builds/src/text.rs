@@ -57,6 +57,12 @@ pub fn human_bytes(bytes: u64) -> String {
     }
 }
 
+/// The whole minutes from <then> to <now>, both in seconds since 1970; zero
+/// when <then> is later.
+pub fn minutes_since(now: i64, then: i64) -> i64 {
+    (now - then).max(0) / 60
+}
+
 /// `1 build copy`, `3 build copies`.
 pub fn counted(count: usize, one: &str, many: &str) -> String {
     format!("{count} {}", if count == 1 { one } else { many })

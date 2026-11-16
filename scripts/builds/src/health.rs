@@ -38,7 +38,7 @@ use crate::procs::{
 };
 use crate::shells::Shells;
 use crate::side_git::SideGit;
-use crate::text::{human, local_minute};
+use crate::text::{human, local_minute, minutes_since};
 use crate::tool::Tool;
 
 /// An sccache client waiting this long is worth a look.
@@ -326,10 +326,6 @@ fn write_readings(file: &Path, readings: &[Reading]) -> Result<()> {
     )
     .context(|| format!("writing {}", staged.display()))?;
     std::fs::rename(&staged, file).context(|| format!("writing {}", file.display()))
-}
-
-fn minutes_since(now: i64, then: i64) -> i64 {
-    (now - then).max(0) / 60
 }
 
 fn command_line(pid: i32) -> String {

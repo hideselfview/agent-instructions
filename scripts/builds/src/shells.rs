@@ -643,7 +643,7 @@ pub fn judge(
             c.junk.map(|reason| Junk {
                 pid: c.pid,
                 parent: c.parent,
-                minutes: (now - c.started).max(0) / 60,
+                minutes: crate::text::minutes_since(now, c.started),
                 worktree: c.worktree,
                 reason,
                 command: shown(&c.command),
