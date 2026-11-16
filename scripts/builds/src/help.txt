@@ -206,7 +206,8 @@ new run of the review). A commit waits to land while origin/main has no commit
 with the same change (`git log --cherry-pick --right-only origin/main...HEAD`),
 because landing rebases or cherry-picks it.
 
-  builds new [<repo>] [-b <branch>] [--for <who>] [--project P]
+  builds new [<repo>] [-b <branch> | --resume <branch>] [--for <who>]
+             [--project P]
                               hand out a free side worktree (no claim, a clean
                               tree, every commit on origin/main by patch, not
                               an app checkout) with a fresh branch from
@@ -225,7 +226,11 @@ because landing rebases or cherry-picks it.
                               (agent-instructions is in bae and builds)
                               requires it: every lists command run in the
                               worktree, `release`, `health` and the dashboard
-                              then use P's lists
+                              then use P's lists. --resume checks out an
+                              existing branch that no worktree checks out,
+                              instead of a fresh one from origin/main: work
+                              left on a branch goes back into a worktree this
+                              way
   builds claim <checkout> <who> [--project P]
                               record that <who> works in the side worktree
                               (--project as for `new`; a claim renewed without

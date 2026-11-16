@@ -342,3 +342,71 @@ fn health_does_not_list_a_harness_worktree() {
         "health listed a harness worktree"
     );
 }
+
+/// Makes branch <branch> in <main> with one commit of its own, and leaves
+/// <main> on main, so no worktree checks the branch out.
+fn branch_with_a_commit(main: &Path, branch: &str) {
+    git(main, &["switch", "-q", "-c", branch, "origin/main"]);
+    commit(main, branch);
+    git(main, &["switch", "-q", "main"]);
+}
+
+/// `new --resume` checks an existing branch out in the free worktree it hands
+/// out, and in the one it adds when none is free, and claims it.
+#[test]
+fn new_resumes_an_existing_branch_in_a_free_worktree_or_a_new_one() {
+    let scratch = Scratch::new("free-resume");
+    let (tool, main) = demo(&scratch);
+    new(&tool, &main, &["--for", "first"]);
+    release(&scratch, 1);
+    branch_with_a_commit(&main, "left");
+    branch_with_a_commit(&main, "also-left");
+
+    new(&tool, &main, &["--resume", "left", "--for", "agent A"]);
+    new(&tool, &main, &["--resume", "also-left", "--for", "agent B"]);
+    for (n, branch, who) in [(1, "left", "agent A"), (2, "also-left", "agent B")] {
+        let checkout = Checkout::find(&side(&scratch, n).display().to_string()).unwrap();
+        assert_eq!(checkout.branch().unwrap().as_deref(), Some(branch));
+        assert!(
+            side(&scratch, n).join(branch).is_file(),
+            "side-{n} is not at the branch's commit"
+        );
+        assert_eq!(
+            Claim::read(&checkout.claim_file()).unwrap().unwrap().who,
+            who
+        );
+    }
+}
+
+/// `new --resume` refuses a branch that does not exist, one another worktree
+/// checks out, and a fresh branch named beside it, and claims nothing.
+#[test]
+fn new_refuses_to_resume_a_missing_or_checked_out_branch() {
+    let scratch = Scratch::new("free-resume-refused");
+    let (tool, main) = demo(&scratch);
+    branch_with_a_commit(&main, "left");
+    let refused = |extra: &[&str]| {
+        let mut args = vec![main.display().to_string()];
+        args.extend(extra.iter().map(|arg| arg.to_string()));
+        match cmd_new(&tool, &args) {
+            Err(crate::fail::Fail::Message(message)) => message,
+            other => panic!("new {extra:?} was not refused: {other:?}"),
+        }
+    };
+    assert!(
+        refused(&["--resume", "gone"]).contains("no branch gone"),
+        "{}",
+        refused(&["--resume", "gone"])
+    );
+    let said = refused(&["--resume", "main"]);
+    assert!(
+        said.contains(&format!("{} checks out main", main.display())),
+        "{said}"
+    );
+    let said = refused(&["--resume", "left", "-b", "fresh"]);
+    assert!(said.contains("-b or --resume"), "{said}");
+    assert!(
+        !side(&scratch, 1).exists(),
+        "a refused new added a worktree"
+    );
+}

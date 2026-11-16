@@ -34,21 +34,25 @@ fn run_checked(command: &mut std::process::Command, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// `builds new [<repo>] [-b <branch>] [--for <who>] [--project P]`: claims for
-/// <who> (default "builds new"), records the project P the work is in (which
-/// a repo two projects hold requires) and hands out a free side
-/// worktree (`find_free`) checked out afresh from origin/main, or adds the next
-/// side-N when none is free; links it, runs its post-checkout, and prints its
-/// path.
+/// `builds new [<repo>] [-b <branch> | --resume <branch>] [--for <who>]
+/// [--project P]`: claims for <who> (default "builds new"), records the
+/// project P the work is in (which a repo two projects hold requires) and
+/// hands out a free side worktree (`find_free`) checked out afresh from
+/// origin/main, or adds the next side-N when none is free; links it, runs its
+/// post-checkout, and prints its path. --resume checks out the existing
+/// branch instead, one no worktree checks out: work left on a branch goes
+/// back into a worktree this way.
 pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     let mut repo_path = ".".to_string();
     let mut branch = None;
+    let mut resume = None;
     let mut who = None;
     let mut project = None;
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
             "-b" | "--branch" => branch = rest.next().cloned(),
+            "--resume" => resume = rest.next().cloned(),
             "--for" => who = rest.next().cloned(),
             "--project" => project = rest.next().cloned(),
             other if other.starts_with('-') => fail!("new: unknown option {other}"),
@@ -58,8 +62,17 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     if let Some(who) = &who {
         require_one_line("--for <who>", who)?;
     }
+    let start = match (branch, resume) {
+        (Some(_), Some(_)) => fail!("new: name one branch, with -b or --resume"),
+        (Some(branch), None) => Start::Fresh(Some(branch)),
+        (None, Some(branch)) => Start::Resume(branch),
+        (None, None) => Start::Fresh(None),
+    };
     tool.places.require_volume()?;
     let main = Checkout::find(&repo_path)?.main;
+    if let Start::Resume(branch) = &start {
+        require_resumable(&main, branch)?;
+    }
     // Held from picking a worktree to claiming it, so two calls never get the
     // same one; released when the call ends.
     let _picking = lock_picking(&main)?;
@@ -76,8 +89,7 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
         Some(free) => {
             write_claim(&free, &who, tool.now, None, None)?;
             set_project(&tool.places, &free, project.as_deref())?;
-            if let Err(error) = reuse(&free, branch.as_deref()).and_then(|()| prepare(tool, &free))
-            {
+            if let Err(error) = reuse(&free, &start).and_then(|()| prepare(tool, &free)) {
                 let _ = std::fs::remove_file(free.claim_file());
                 let _ = std::fs::remove_file(free.project_file());
                 return Err(error);
@@ -85,7 +97,7 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
             free
         }
         None => {
-            let dir = add_new(tool, &main, branch.as_deref())?;
+            let dir = add_new(tool, &main, &start)?;
             let checkout = Checkout::find(&dir.display().to_string())?;
             write_claim(&checkout, &who, tool.now, None, None)?;
             set_project(&tool.places, &checkout, project.as_deref())?;
@@ -98,6 +110,48 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// What a handed-out worktree checks out.
+enum Start {
+    /// origin/main, on a new branch of this name or detached.
+    Fresh(Option<String>),
+    /// An existing branch no worktree checks out.
+    Resume(String),
+}
+
+/// Refuses to resume <branch> in <main>'s repo when it does not exist or a
+/// worktree checks it out: git would refuse the checkout after the worktree
+/// was claimed.
+fn require_resumable(main: &Path, branch: &str) -> Result<()> {
+    let exists = git(main)
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .status()
+        .context(|| format!("running git in {}", main.display()))?
+        .success();
+    if !exists {
+        fail!(
+            "new: {} has no branch {branch} to resume",
+            crate::checkout::file_name(main)
+        );
+    }
+    if let Some(holder) = crate::checkout::worktree_list(main)?
+        .into_iter()
+        .find(|worktree| worktree.branch.as_deref() == Some(branch))
+    {
+        fail!(
+            "new: {} checks out {branch}; work on it there",
+            holder.top.display()
+        );
+    }
+    Ok(())
+}
+
 /// An exclusive lock on <main>'s repo for picking a worktree (flock on a file
 /// in the common git dir), held until the returned file is dropped.
 fn lock_picking(main: &Path) -> Result<std::fs::File> {
@@ -107,8 +161,8 @@ fn lock_picking(main: &Path) -> Result<std::fs::File> {
     Ok(file)
 }
 
-/// Adds the next side-N worktree of <main>'s repo, from origin/main.
-fn add_new(tool: &Tool, main: &Path, branch: Option<&str>) -> Result<std::path::PathBuf> {
+/// Adds the next side-N worktree of <main>'s repo, at <start>.
+fn add_new(tool: &Tool, main: &Path, start: &Start) -> Result<std::path::PathBuf> {
     let repo = crate::checkout::file_name(main);
     let parent = main
         .parent()
@@ -132,26 +186,27 @@ fn add_new(tool: &Tool, main: &Path, branch: Option<&str>) -> Result<std::path::
     // are linked.
     let mut add = git(main);
     add.args(["-c", "core.hooksPath=/dev/null", "worktree", "add", "-q"]);
-    match branch {
-        Some(branch) => add.arg("-b").arg(branch),
-        None => add.arg("--detach"),
+    match start {
+        Start::Fresh(Some(branch)) => add.arg("-b").arg(branch).arg(&dir).arg("origin/main"),
+        Start::Fresh(None) => add.arg("--detach").arg(&dir).arg("origin/main"),
+        Start::Resume(branch) => add.arg(&dir).arg(branch),
     };
-    add.arg(&dir).arg("origin/main");
     run_checked(&mut add, "git worktree add")?;
     Ok(dir)
 }
 
-/// Checks a fresh branch out of origin/main in the free worktree <free>, or
-/// detaches HEAD there when no branch is named. Nothing in it is lost: a free
-/// worktree is clean and holds no commit missing from origin/main.
-fn reuse(free: &Checkout, branch: Option<&str>) -> Result<()> {
+/// Checks <start> out in the free worktree <free>: a fresh branch out of
+/// origin/main, HEAD detached there when no branch is named, or the branch
+/// resumed. Nothing in it is lost: a free worktree is clean and holds no
+/// commit missing from origin/main.
+fn reuse(free: &Checkout, start: &Start) -> Result<()> {
     let mut checkout = git(&free.top);
     checkout.args(["-c", "core.hooksPath=/dev/null", "checkout", "-q"]);
-    match branch {
-        Some(branch) => checkout.arg("-b").arg(branch),
-        None => checkout.arg("--detach"),
+    match start {
+        Start::Fresh(Some(branch)) => checkout.arg("-b").arg(branch).arg("origin/main"),
+        Start::Fresh(None) => checkout.arg("--detach").arg("origin/main"),
+        Start::Resume(branch) => checkout.arg(branch).arg("--"),
     };
-    checkout.arg("origin/main");
     run_checked(&mut checkout, "git checkout")
 }
 

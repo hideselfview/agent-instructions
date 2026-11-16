@@ -398,13 +398,38 @@ pub fn absolute_link_target(link: &Path) -> Result<PathBuf> {
 
 /// The worktrees of <top>'s repo, as `git worktree list` gives them.
 pub fn worktrees_of(top: &Path) -> Result<Vec<PathBuf>> {
+    Ok(worktree_list(top)?
+        .into_iter()
+        .map(|worktree| worktree.top)
+        .collect())
+}
+
+/// One worktree of a repo and the branch it checks out.
+pub struct Listed {
+    pub top: PathBuf,
+    /// None when HEAD is detached.
+    pub branch: Option<String>,
+}
+
+/// The worktrees of <top>'s repo, each with the branch it checks out, as
+/// `git worktree list` gives them.
+pub fn worktree_list(top: &Path) -> Result<Vec<Listed>> {
     let text = git_text(
         git(top).args(["worktree", "list", "--porcelain"]),
         "list worktrees",
     )?;
-    Ok(text
-        .lines()
-        .filter_map(|line| line.strip_prefix("worktree "))
-        .map(PathBuf::from)
-        .collect())
+    let mut listed: Vec<Listed> = Vec::new();
+    for line in text.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            listed.push(Listed {
+                top: PathBuf::from(path),
+                branch: None,
+            });
+        } else if let Some(branch) = line.strip_prefix("branch refs/heads/")
+            && let Some(last) = listed.last_mut()
+        {
+            last.branch = Some(branch.to_string());
+        }
+    }
+    Ok(listed)
 }
