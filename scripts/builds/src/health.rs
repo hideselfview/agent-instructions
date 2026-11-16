@@ -1045,20 +1045,14 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let mut judged = Vec::new();
     let mut held_worktrees = Vec::new();
     for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
-        held_worktrees.push(crate::lists::held::Worktree {
-            label: places[place].label.clone(),
-            top: checkout.top.clone(),
-            repo: checkout.repo(),
-            claim: claim.clone(),
-            project: checkout.claimed_project()?,
-            app_checkout: tool
-                .places
-                .app_lane_of(&checkout.repo(), &checkout.name())?
-                .is_some(),
-            ahead: git.ahead.iter().rev().map(|c| c.full.clone()).collect(),
-            uncommitted: git.uncommitted,
-            committing: crate::procs::commits_in(&machine.commits, &checkout.top),
-        });
+        held_worktrees.push(crate::lists::held::Worktree::read(
+            &tool.places,
+            places[place].label.clone(),
+            checkout,
+            &claim,
+            &git,
+            &machine.commits,
+        )?);
         judged.push(Claimed {
             place,
             claim,

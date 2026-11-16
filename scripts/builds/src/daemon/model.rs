@@ -1351,19 +1351,14 @@ fn claimed_of(
         let Some(place) = places.iter().position(|p| p.root == root.path) else {
             continue;
         };
-        held.push(crate::lists::held::Worktree {
-            label: places[place].label.clone(),
-            top: checkout.top.clone(),
-            repo: checkout.repo(),
-            claim: claim.clone(),
-            project: checkout.claimed_project()?,
-            app_checkout: tool_places
-                .app_lane_of(&checkout.repo(), &checkout.name())?
-                .is_some(),
-            ahead: git.ahead.iter().rev().map(|c| c.full.clone()).collect(),
-            uncommitted: git.uncommitted,
-            committing: crate::procs::commits_in(commits, &checkout.top),
-        });
+        held.push(crate::lists::held::Worktree::read(
+            tool_places,
+            places[place].label.clone(),
+            checkout,
+            claim,
+            git,
+            commits,
+        )?);
         claimed.push(Claimed {
             place,
             claim: claim.clone(),

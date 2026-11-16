@@ -107,6 +107,32 @@ pub struct Worktree {
 }
 
 impl Worktree {
+    /// The claimed worktree <checkout>, labelled <label>, with its <claim>,
+    /// what git says of it (<git>) and the `git commit`s that run
+    /// (<commits>).
+    pub fn read(
+        places: &Places,
+        label: String,
+        checkout: &Checkout,
+        claim: &Claim,
+        git: &crate::side_git::SideGit,
+        commits: &crate::procs::GitCommits,
+    ) -> Result<Worktree> {
+        Ok(Worktree {
+            label,
+            top: checkout.top.clone(),
+            repo: checkout.repo(),
+            claim: claim.clone(),
+            project: checkout.claimed_project()?,
+            app_checkout: places
+                .app_lane_of(&checkout.repo(), &checkout.name())?
+                .is_some(),
+            ahead: git.ahead.iter().rev().map(|c| c.full.clone()).collect(),
+            uncommitted: git.uncommitted,
+            committing: crate::procs::commits_in(commits, &checkout.top),
+        })
+    }
+
     /// The lists of the project its work is in (`store::lists_of`).
     fn lists<'a>(
         &self,
