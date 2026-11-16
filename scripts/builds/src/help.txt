@@ -802,7 +802,7 @@ STATUS, HEALTH AND THE DASHBOARD
                               These are findings, each with what to run: an
                               unclaimed worktree with commits waiting to land;
                               a claimed worktree with no change and no build
-                              for an hour; a lists store that fails its check;
+                              for an hour (counted from its claim, if later); a lists store that fails its check;
                               a running item whose worktree is gone or has no
                               claim; a held worktree whose wait closed;
                               commits that change design files that no open

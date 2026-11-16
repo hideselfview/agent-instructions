@@ -19,7 +19,7 @@ use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::Result;
 use crate::places::Places;
-use crate::text::{local_minute, note};
+use crate::text::{local_minute, local_minute_epoch, note};
 
 /// The states a note may carry.
 pub const NOTE_STATES: [&str; 3] = ["waiting-on-you", "winding-down", "held"];
@@ -62,6 +62,11 @@ impl Claim {
         line.push('\n');
         std::fs::write(file, line)
             .map_err(|error| fail::Fail::Message(format!("writing {}: {error}", file.display())))
+    }
+
+    /// When the claim began, to the minute; None when the date is unreadable.
+    pub fn started_at(&self) -> Option<i64> {
+        local_minute_epoch(&self.since)
     }
 
     /// `<who> since <since>`.

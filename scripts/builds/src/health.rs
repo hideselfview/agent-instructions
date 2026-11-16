@@ -643,6 +643,12 @@ pub fn assess(
             .cloned()
             .collect();
         let quiet_minutes = git.activity().map(|when| minutes_since(now, when));
+        // A claim just begun is not idle, however old the files it was
+        // handed are.
+        let idle_minutes = git
+            .activity()
+            .max(claim.started_at())
+            .map(|when| minutes_since(now, when));
         let label = places[place].label.clone();
         let app_build = machine
             .locks
@@ -657,14 +663,14 @@ pub fn assess(
             && !awaiting_review
             && building.is_empty()
             && app_build.is_none()
-            && quiet_minutes.is_none_or(|m| m >= QUIET_MINUTES)
+            && idle_minutes.is_none_or(|m| m >= QUIET_MINUTES)
         {
             findings.push(Finding::new(
                 FindingKind::Quiet,
                 Advice::said(format!(
                     "worktree: {label} ({}) has had no change for {} and no build runs there",
                     claim.who,
-                    quiet_minutes
+                    idle_minutes
                         .map(|m| format!("{m}m"))
                         .unwrap_or_else(|| "as long as git can tell".to_string())
                 )),
@@ -1180,6 +1186,80 @@ mod tests {
             health.findings
         );
         assert_eq!(health.worktrees.len(), 3);
+    }
+
+    /// The findings for one claimed worktree whose files last changed
+    /// <changed_ago> seconds before now and whose claim began <claimed_ago>
+    /// seconds before now.
+    fn findings_for(claimed_ago: i64, changed_ago: i64) -> Vec<Finding> {
+        let now = 1_800_000_000;
+        let machine = Machine {
+            at: now,
+            load: [1.0; 3],
+            cores: 8,
+            builds: Vec::new(),
+            sccache: SccacheHealth {
+                listening: true,
+                executed: Some(1),
+                compared: None,
+                waiting: Vec::new(),
+            },
+            shells: Shells::default(),
+            locks: Vec::new(),
+            queues: Vec::new(),
+        };
+        let place = Place {
+            label: "demo/side-1".to_string(),
+            top: PathBuf::from("/demo-worktrees/side-1"),
+            root: PathBuf::from("/volume/demo/side-1"),
+        };
+        let claimed = Claimed {
+            place: 0,
+            claim: Claim {
+                who: "agent 1".to_string(),
+                since: local_minute(now - claimed_ago),
+                note: None,
+                note_state: None,
+            },
+            branch: Some("work".to_string()),
+            git: SideGit {
+                head: None,
+                ahead: Vec::new(),
+                uncommitted: Some(3),
+                last_write: Some(now - changed_ago),
+                error: None,
+            },
+            awaiting_review: false,
+        };
+        assess(
+            now,
+            DiskSpace {
+                free_kib: 100 << 20,
+                floor_kib: 30 << 20,
+                hard_floor_kib: 10 << 20,
+            },
+            machine,
+            &[place],
+            vec![claimed],
+            Vec::new(),
+            Vec::new(),
+        )
+        .findings
+    }
+
+    /// Old files do not make a claim of the last few minutes quiet.
+    #[test]
+    fn a_worktree_claimed_less_than_an_hour_ago_is_not_quiet() {
+        let findings = findings_for(10 * 60, 4 * 3600);
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    /// A claim older than the quiet limit still counts files unchanged for
+    /// that long.
+    #[test]
+    fn a_worktree_claimed_long_ago_with_no_change_for_an_hour_is_quiet() {
+        let findings = findings_for(5 * 3600, 2 * 3600);
+        assert_eq!(findings.len(), 1, "{findings:?}");
     }
 
     /// An unclaimed worktree holding commits missing from origin/main is
