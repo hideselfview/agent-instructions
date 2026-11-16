@@ -494,7 +494,7 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
     let by_person = args.switch("by-person");
     if spot.is_none() && by_person {
         fail!(
-            "--by-person goes with first, last, --above or --below; auto gives the place back to the order of what it unblocks"
+            "--by-person goes with first, last, --above or --below; with auto, the stack orders the question by what it unblocks"
         );
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;

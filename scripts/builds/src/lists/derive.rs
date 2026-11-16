@@ -168,11 +168,11 @@ fn blocked_through_chains(lists: &Lists, question: &Question) -> (Vec<Id>, BTree
     (direct, all)
 }
 
-/// The stack in the order it is asked: the entries placed first in the
-/// person's ranked order, highest rank on top; then by how many open items
-/// wait on each directly or through a chain of open items, most first, ties
-/// oldest first; then `placed last` (by the same count and age). The first
-/// is the question being asked now.
+/// The stack in the order in which builds asks the person its questions: the
+/// entries placed first in the person's ranked order, highest rank on top;
+/// then by how many open items wait on each directly or through a chain of
+/// open items, most first, ties oldest first; then `placed last` (by the same
+/// count and age). The first entry is the question builds asks now.
 pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
     let mut entries: Vec<StackEntry<'_>> = lists
         .questions

@@ -224,8 +224,9 @@ fn placements_sit_outside_the_count() {
         .iter()
         .map(|e| e.question.id)
         .collect();
-    // First: the newest placement on top, whatever they block and whenever
-    // they were asked; then by count; last at the end.
+    // The stack puts the questions placed first on top, newest placement
+    // first, whatever they block and whenever someone asked them. Then it
+    // orders the rest by count and puts the questions placed last at the end.
     assert_eq!(ids, vec![first_old, first_new, big, small, last]);
 }
 

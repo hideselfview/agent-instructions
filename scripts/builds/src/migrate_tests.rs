@@ -2109,7 +2109,8 @@ fn a_store_from_before_ranks_ranks_the_questions_placed_first_newest_asked_on_to
         conn.execute_batch(&schema_before_ranks()).unwrap();
         conn.pragma_update(None, "user_version", BEFORE_RANKS_STAMP)
             .unwrap();
-        // Question n is asked at the time given and placed as given.
+        // The test asks each question at the given time and places it as
+        // given.
         for (id, asked, at) in [
             (1, 30, Some("first")),
             (2, 10, Some("first")),
