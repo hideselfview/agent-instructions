@@ -37,10 +37,10 @@ Two things a screen shows don't come from SQL:
 - A value that lives in Rust's memory and changes many times a second (playback
   position, transfer bytes, rates, levels) travels on a keyed latest-value
   stream, as a channel would carry it inside Rust
-  (`native-views-draw-fast-changing-values.md`). Live queries and fast streams
-  never meet: core never writes such a value to a table for a query to read, and
-  never puts a query's result on a fast stream. A value SQL can read reaches the
-  screen through the screen's live query, however often it changes.
+  (`native-views-draw-fast-changing-values.md`). Core never writes such a value
+  to a table for a query to read, and never puts a query's result on a fast
+  stream. A value SQL can read reaches the screen through the screen's live
+  query, however often it changes.
 - State that exists only on screen (hover, focus, an open popover or menu, a
   drag in progress, the text typed in a search or input field) stays in the view
   that controls it and never goes into SQL. A query that depends on it, such as

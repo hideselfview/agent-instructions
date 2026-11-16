@@ -30,10 +30,11 @@ latest one, the way a watch channel carries it from one part of Rust to another.
 Core sends each value straight from where it has it, such as the audio output's
 position or a transfer's byte count, to the view that draws it.
 
-Live queries and fast streams never meet:
+Core never passes a value between a live query and a fast stream:
 
-- Core never writes a fast value to a table so a live query can read it. That
-  makes coven rerun screen queries many times a second to deliver one number.
+- Core never writes a fast value to a table so a live query can read it. Each
+  such write makes coven rerun screen queries many times a second to deliver one
+  number.
 - Core never puts a live query's result, or anything else read from SQL, on a
   fast stream. A value that SQL can read reaches the screen through the screen's
   live query, however often it changes. When that query reruns too often, the
@@ -50,8 +51,8 @@ the two apart, and the view puts them together without arithmetic:
 - The fast stream carries, under each file's key, only what changes many times a
   second: how far that file has gone, as a fraction, and its speed.
 - The view draws the stored part from the row, and for each file being sent a
-  segment as wide as its share, filled to the stream's fraction. It adds nothing
-  up.
+  segment as wide as its share, filled to the stream's fraction. The view adds
+  nothing up.
 
 Observed state (SwiftUI `@Observable` or `@State`, Compose state read in
 composition, an Avalonia view-model property behind a binding) reruns the
