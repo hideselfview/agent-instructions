@@ -88,7 +88,9 @@ There are two exceptions:
   fast stream.
 - State that exists only on screen (hover, focus, an open popover or menu, a
   drag in progress, the text typed in an input field) stays in the view that
-  controls it.
+  controls it. A drag or click that writes stays in progress until its write
+  returns, so the view draws the moved row or new value until then and the
+  screen never jumps back.
 
 The full rules are
 `projects/bae-rules/screen-reads/reactive-screens-read-plain-live-queries.md`

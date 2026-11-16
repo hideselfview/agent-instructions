@@ -45,6 +45,12 @@ Two things a screen shows don't come from SQL:
   drag in progress, the text typed in a search or input field) stays in the view
   that controls it and never goes into SQL. A query that depends on it, such as
   a search, gets it in the request.
+- A drag or a click that writes stays in progress until its write returns. The
+  view keeps drawing the moved row or the new value until then, and then draws
+  the query's rows, so the screen never jumps back to the old order or value.
+  When the write fails, the view draws the query's rows, which show what is
+  stored. The view keeps nothing past the write's return, and never waits for a
+  later query result to match what it drew.
 
 ### Why nothing goes between the query and the screen
 
