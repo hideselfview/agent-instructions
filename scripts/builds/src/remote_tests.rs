@@ -42,6 +42,7 @@ fn setup(name: &str) -> Setup {
             &home.join("dev/demo").display().to_string(),
         ],
     );
+    fake_builds(&home);
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
     let host = Host {
         name: "m1".to_string(),
@@ -56,6 +57,25 @@ fn setup(name: &str) -> Setup {
         ssh,
         host,
     }
+}
+
+/// Puts a `builds` where host setup installs it in <home>, which writes each
+/// run's arguments to <home>/builds-runs.txt and exits with status 0.
+fn fake_builds(home: &Path) {
+    write_builds(home, "echo \"builds $*\" >> \"$HOME/builds-runs.txt\"");
+}
+
+/// Writes a `builds` with the shell lines <body> into <home>'s ~/.local/bin.
+fn write_builds(home: &Path, body: &str) {
+    let bin = home.join(".local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let program = bin.join("builds");
+    std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
+    std::fs::set_permissions(
+        &program,
+        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+    )
+    .unwrap();
 }
 
 fn request(what: What, command: &[&str]) -> Request {
@@ -259,6 +279,7 @@ fn this_mac_runs_a_job_without_pushing() {
     let mut places = s.scratch.places();
     places.home = s.scratch.dir.join("mac-home");
     std::fs::create_dir_all(places.home.join("dev")).unwrap();
+    fake_builds(&places.home);
     std::os::unix::fs::symlink(&s.source, places.home.join("dev/demo")).unwrap();
     let job = request(
         What::Ref("main".to_string()),
@@ -364,6 +385,51 @@ fn a_failing_post_checkout_fails_the_job_and_releases_the_claim() {
     };
     assert!(message.contains("post-checkout failed"), "{message}");
     assert!(message.contains("broken"), "{message}");
+    assert!(!s.home.join("dev/demo-worktrees/remote-demo.job").exists());
+    assert_eq!(refs(&s.home.join("dev/demo")), "");
+}
+
+#[test]
+fn every_job_runs_the_hosts_builds_setup_in_its_worktree_before_the_hook() {
+    let s = setup("remote-setup");
+    add_hook(&s, r#"echo "hook $(pwd)" >> "$HOME/builds-runs.txt""#);
+    let places = s.scratch.places();
+    let job = request(
+        What::Ref("main".to_string()),
+        &[
+            "sh",
+            "-c",
+            "echo \"command $(pwd)\" >> \"$HOME/builds-runs.txt\"",
+        ],
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            run_job(&places, &s.ssh, &s.host, &s.source, &job).unwrap(),
+            0
+        );
+    }
+    let wt = s.home.join("dev/demo-worktrees/remote-demo");
+    let wt = wt.display();
+    // A worktree an earlier job left gets its build folders linked again,
+    // since a repo without a post-checkout has nothing else to link them.
+    let one = format!("builds setup {wt}\nhook {wt}\ncommand {wt}\n");
+    assert_eq!(
+        std::fs::read_to_string(s.home.join("builds-runs.txt")).unwrap(),
+        one.repeat(2)
+    );
+}
+
+#[test]
+fn a_failing_builds_setup_fails_the_job_and_releases_the_claim() {
+    let s = setup("remote-setup-fails");
+    write_builds(&s.home, "echo 'build volume gone' >&2; exit 4");
+    let places = s.scratch.places();
+    let job = request(What::Ref("main".to_string()), &["true"]);
+    let Err(Fail::Message(message)) = run_job(&places, &s.ssh, &s.host, &s.source, &job) else {
+        panic!("expected a failure");
+    };
+    assert!(message.contains("builds setup failed"), "{message}");
+    assert!(message.contains("build volume gone"), "{message}");
     assert!(!s.home.join("dev/demo-worktrees/remote-demo.job").exists());
     assert_eq!(refs(&s.home.join("dev/demo")), "");
 }

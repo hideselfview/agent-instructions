@@ -198,16 +198,26 @@ fn remote(name: &str, clone: bool, builds_script: &str) -> (Remote, Checkout, Ch
             ],
         );
     }
-    let bin = home.join(".local/bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    std::fs::write(bin.join("builds"), builds_script).unwrap();
-    std::fs::set_permissions(bin.join("builds"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    host_builds(&home, builds_script);
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
     (Remote { scratch, home, ssh }, main, side)
 }
 
-const RECORDING_BUILDS: &str = r#"#!/bin/sh
-echo "host=$BUILDS_CARGO_HOST args=$* flags=$RUSTFLAGS" > ../ran.txt
+/// Writes the host's `builds` into <home>: `builds setup`, which each job's
+/// claim runs, does nothing, and every other command runs the shell lines
+/// <body>.
+fn host_builds(home: &Path, body: &str) {
+    let bin = home.join(".local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(
+        bin.join("builds"),
+        format!("#!/bin/sh\n[ \"$1\" = setup ] && exit 0\n{body}"),
+    )
+    .unwrap();
+    std::fs::set_permissions(bin.join("builds"), std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+const RECORDING_BUILDS: &str = r#"echo "host=$BUILDS_CARGO_HOST args=$* flags=$RUSTFLAGS" > ../ran.txt
 pwd >> ../ran.txt
 cat marker.txt >> ../ran.txt 2>/dev/null
 exit ${EXIT:-0}
@@ -323,7 +333,7 @@ fn a_host_builds_the_working_tree_and_its_exit_status_comes_back() {
     assert!(ran.ends_with("an untracked edit\n"), "{ran}");
 
     // A failing command fails the same way.
-    std::fs::write(r.home.join(".local/bin/builds"), "#!/bin/sh\nexit 101\n").unwrap();
+    host_builds(&r.home, "exit 101\n");
     assert_eq!(
         run_on(&places, &r.ssh, &m1, &side, &args(&["test"]), &no_env).unwrap(),
         101
@@ -332,7 +342,7 @@ fn a_host_builds_the_working_tree_and_its_exit_status_comes_back() {
 
 #[test]
 fn a_host_that_drops_fails_loudly_naming_it() {
-    let (r, _main, side) = remote("place-drop", true, "#!/bin/sh\nexit 255\n");
+    let (r, _main, side) = remote("place-drop", true, "exit 255\n");
     let places = r.scratch.places();
     let m1 = host("m1", Some("user@m1"));
     let Err(crate::fail::Fail::Message(message)) =
@@ -373,11 +383,10 @@ fn a_wrapper_and_a_before_program_inside_the_checkout_run_from_the_hosts_worktre
     // The fake `builds` writes down the wrapper it got; the before program
     // (a file of the checkout, so also in the host's clone) writes its own
     // arguments and the folder it ran in, before cargo.
-    std::fs::write(
-        r.home.join(".local/bin/builds"),
-        "#!/bin/sh\necho \"$RUSTC_WRAPPER\" > ../wrapper.txt\ncat ../before.txt > ../seen-before.txt\n",
-    )
-    .unwrap();
+    host_builds(
+        &r.home,
+        "echo \"$RUSTC_WRAPPER\" > ../wrapper.txt\ncat ../before.txt > ../seen-before.txt\n",
+    );
     let script = side.top.join("scripts/before.sh");
     std::fs::create_dir_all(script.parent().unwrap()).unwrap();
     std::fs::write(

@@ -380,9 +380,14 @@ pub fn pinned_name(source: &Path) -> Result<String> {
 /// Finds the repo's clone and claims worktree <pinned> for job <id>, or the
 /// first free `<pinned>.<n>` while another job holds it, with <sha> checked
 /// out in it, then sets the worktree up as `builds new` sets up a side
-/// worktree: the repo's `scripts/hooks/post-checkout` runs in it as git runs
-/// it for a new worktree (build folders linked into the builds root, shared
-/// files linked from the main checkout). Prints `worktree=<path>`.
+/// worktree: the host's `builds setup` links the build folders into the
+/// host's builds root, and then the repo's `scripts/hooks/post-checkout` runs
+/// in it as git runs it for a new worktree (shared files linked from the main
+/// checkout). Both run for every job, so a worktree that an earlier job left
+/// without its links gets them. builds runs setup itself because a repo with
+/// no post-checkout, such as coven, would otherwise build into a real
+/// `target` folder in the worktree, outside the build volume and every cap.
+/// Prints `worktree=<path>`.
 fn claim_script(host: &Host, repo: &str, pinned: &str, sha: &str, id: &str) -> String {
     format!(
         r#"{root}set -e
@@ -400,6 +405,11 @@ if [ -e "$wt/.git" ]; then
 else
   git -C "$clone" worktree add -q --detach "$wt" {sha}
 fi || {{ rm -rf "$wt.job"; exit 91; }}
+if ! said=$("$HOME/.local/bin/builds" setup "$wt" 2>&1); then
+  echo "builds setup failed in $wt: $said" >&2
+  rm -rf "$wt.job"
+  exit 94
+fi
 if [ -x "$wt/scripts/hooks/post-checkout" ]; then
   if ! said=$(cd "$wt" && "$wt/scripts/hooks/post-checkout" 0000000000000000000000000000000000000000 {sha} 1 2>&1); then
     echo "post-checkout failed in $wt: $said" >&2
