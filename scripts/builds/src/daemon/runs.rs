@@ -16,7 +16,6 @@
 //! `Detached` run takes no second start, as with a run the daemon holds.
 
 use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
@@ -413,29 +412,8 @@ impl Runs {
 /// The end of the log at <path>, and whether more came before it. A log that
 /// can't be read is said in its place.
 fn tail(path: &Path) -> (String, bool) {
-    let read = (|| -> std::io::Result<(Vec<u8>, bool)> {
-        let mut file = std::fs::File::open(path)?;
-        let length = file.metadata()?.len();
-        let cut = length > TAIL;
-        if cut {
-            file.seek(SeekFrom::Start(length - TAIL))?;
-        }
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
-        Ok((bytes, cut))
-    })();
-    match read {
-        Ok((bytes, cut)) => {
-            let text = String::from_utf8_lossy(&bytes).into_owned();
-            // A cut inside a line leaves its end: drop it.
-            let text = match (cut, text.split_once('\n')) {
-                (true, Some((_, rest))) => rest.to_string(),
-                _ => text,
-            };
-            (text, cut)
-        }
-        Err(error) => (format!("reading {}: {error}", path.display()), false),
-    }
+    crate::text::file_end(path, TAIL)
+        .unwrap_or_else(|error| (format!("reading {}: {error}", path.display()), false))
 }
 
 #[cfg(test)]

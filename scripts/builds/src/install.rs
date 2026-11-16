@@ -340,17 +340,8 @@ pub fn sccache_cap_kib() -> u64 {
 /// The last five lines of the file at <path> that hold text, read from its
 /// last 16 KiB, or what kept builds from reading it.
 fn last_lines(path: &Path) -> String {
-    use std::io::{Read, Seek, SeekFrom};
-    let read = || -> std::io::Result<String> {
-        let mut file = std::fs::File::open(path)?;
-        let length = file.metadata()?.len();
-        file.seek(SeekFrom::Start(length.saturating_sub(16 * 1024)))?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
-        Ok(String::from_utf8_lossy(&bytes).into_owned())
-    };
-    match read() {
-        Ok(text) => {
+    match crate::text::file_end(path, 16 * 1024) {
+        Ok((text, _)) => {
             let lines: Vec<&str> = text
                 .lines()
                 .filter(|line| !line.trim().is_empty())

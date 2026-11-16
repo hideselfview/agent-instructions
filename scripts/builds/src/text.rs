@@ -180,6 +180,27 @@ pub fn staged_suffix() -> String {
     )
 }
 
+/// The end of the file at <path>: its last <cap> bytes as text, and whether
+/// the file holds more before them. When the file holds more, the text starts
+/// after the first line break, since the cut falls inside a line.
+pub fn file_end(path: &Path, cap: u64) -> std::io::Result<(String, bool)> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path)?;
+    let length = file.metadata()?.len();
+    let cut = length > cap;
+    if cut {
+        file.seek(SeekFrom::Start(length - cap))?;
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    let text = match (cut, text.split_once('\n')) {
+        (true, Some((_, rest))) => rest.to_string(),
+        _ => text,
+    };
+    Ok((text, cut))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
