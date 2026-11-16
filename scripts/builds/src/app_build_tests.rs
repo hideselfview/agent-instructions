@@ -67,6 +67,25 @@ fn a_step_the_config_lacks_is_refused_with_the_ones_it_has() {
 }
 
 #[test]
+fn a_ci_only_step_named_is_refused_naming_the_rule_and_left_out_of_every_step() {
+    let config =
+        parse_config("step mac one ./one\nstep mac suite ./suite\nci-only suite\n").unwrap();
+    let refused = chosen(
+        &config,
+        Lane::Mac,
+        &["one".to_string(), "suite".to_string()],
+    )
+    .unwrap_err()
+    .text();
+    assert!(refused.contains("suite"), "{refused}");
+    assert!(refused.contains(ONLY_WHAT_A_CHANGE_TOUCHES), "{refused}");
+    assert_eq!(
+        names(&chosen(&config, Lane::Mac, &[]).unwrap()),
+        vec!["one"]
+    );
+}
+
+#[test]
 fn a_marker_line_names_the_checkout_in_the_prefix_and_other_lines_do_not() {
     let marker = format!("{CHECKOUT_MARKER}side-9\n");
     assert_eq!(

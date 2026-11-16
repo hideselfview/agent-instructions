@@ -45,6 +45,7 @@ fn a_config_names_each_platforms_build() {
             rules: Vec::new(),
             needs: Vec::new(),
             sources: Vec::new(),
+            ci_only: Vec::new(),
         }
     );
 }
@@ -393,6 +394,30 @@ fn a_here_line_names_steps_that_stay_on_this_mac() {
     assert_eq!(places, vec![Where::Here, Where::Here, Where::Anywhere]);
     assert!(parse_config("here a").is_err(), "a step it does not name");
     assert!(parse_config("step mac a ./a\nhere").is_err());
+}
+
+#[test]
+fn a_ci_only_line_names_steps_that_only_ci_runs() {
+    let config = parse_config(
+        "step mac a ./a\nstep mac b ./b\nstep android c ./c\nci-only a\nci-only c a\n",
+    )
+    .unwrap();
+    assert!(config.is_ci_only("a") && config.is_ci_only("c"));
+    assert!(!config.is_ci_only("b"));
+    assert!(
+        parse_config("ci-only a\n").is_err(),
+        "a step it does not name"
+    );
+    assert!(
+        parse_config("step mac a ./a\nci-only\n").is_err(),
+        "no step"
+    );
+}
+
+#[test]
+fn an_on_or_needs_line_naming_a_ci_only_step_is_refused() {
+    assert!(parse_config("step mac a ./a\nci-only a\non app/ a\n").is_err());
+    assert!(parse_config("step mac a ./a\nci-only a\nneeds mac a\n").is_err());
 }
 
 #[test]

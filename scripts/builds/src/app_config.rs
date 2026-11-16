@@ -46,6 +46,11 @@
 //! person's screen. A lane's build takes a checkout where all its steps may
 //! run.
 //!
+//! A `ci-only <step>...` line names steps that only CI runs, such as a whole
+//! test suite or a lane's shots: `builds app-build` refuses such a step when a
+//! caller names it, leaves it out when it runs every step of a lane, and
+//! refuses an `on` or `needs` line that names it.
+//!
 //! Three kinds of line let `builds app-build` with no step named (derive.rs) choose the steps of a
 //! branch, so no caller names one:
 //!
@@ -117,6 +122,9 @@ pub struct Config {
     pub needs: Vec<(Lane, Vec<String>)>,
     /// The `sources` lines: the folders that declare the lane's tests.
     pub sources: Vec<Source>,
+    /// The steps the `ci-only` lines name, which `builds app-build` never
+    /// runs.
+    pub ci_only: Vec<String>,
 }
 
 /// An `on <pattern> <step>...` line.
@@ -137,6 +145,11 @@ impl Rule {
 }
 
 impl Config {
+    /// Does a `ci-only` line name the step <name>?
+    pub fn is_ci_only(&self, name: &str) -> bool {
+        self.ci_only.iter().any(|step| step == name)
+    }
+
     /// The folders of <lane>'s checkout that its picks write.
     pub fn results_of(&self, lane: Lane) -> Vec<String> {
         self.results
@@ -369,6 +382,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let mut shots_source: Option<String> = None;
     let mut results: Vec<(Lane, String)> = Vec::new();
     let mut here: Vec<String> = Vec::new();
+    let mut ci_only: Vec<String> = Vec::new();
     let mut windowed: Vec<(Lane, Option<String>)> = Vec::new();
     let mut rules: Vec<Rule> = Vec::new();
     let mut needs: Vec<(Lane, Vec<String>)> = Vec::new();
@@ -516,6 +530,13 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 }
                 here.extend(named);
             }
+            ("ci-only", _) => {
+                let named = words(field);
+                if named.is_empty() {
+                    fail!("{CONFIG}: a ci-only line names no step");
+                }
+                ci_only.extend(named);
+            }
             ("opens-windows", _) => {
                 let named = words(field);
                 if named.is_empty() {
@@ -573,6 +594,11 @@ pub fn parse_config(text: &str) -> Result<Config> {
             None => fail!("{CONFIG}: here names step {name}, which {CONFIG} does not name"),
         }
     }
+    for name in &ci_only {
+        if !steps.iter().any(|step| step.name == *name) {
+            fail!("{CONFIG}: ci-only names step {name}, which {CONFIG} does not name");
+        }
+    }
     for (lane, program) in windowed {
         let named = lane_and_program_word(lane, program.as_deref());
         match pickers
@@ -592,6 +618,11 @@ pub fn parse_config(text: &str) -> Result<Config> {
     {
         if !steps.iter().any(|known| known.name == *step) {
             fail!("{CONFIG}: a rule names step {step}, which {CONFIG} does not name");
+        }
+        if ci_only.contains(step) {
+            fail!(
+                "{CONFIG}: a rule names step {step}, which a ci-only line names, so no app build may run it"
+            );
         }
     }
     for (lane, named) in &needs {
@@ -632,6 +663,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
         rules,
         needs,
         sources,
+        ci_only,
     })
 }
 

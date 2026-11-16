@@ -31,7 +31,8 @@
 //! in it, one run per flag, each with the kind's limit. With such flags and
 //! no step named in the `--lane` form, only those runs happen. An app build
 //! runs only what a change touches, so every form refuses a `--shots` prefix
-//! that selects every shot of its lane (`mac.`); CI runs the full suites.
+//! that selects every shot of its lane (`mac.`) and a step that a `ci-only`
+//! line names (app_config.rs); CI runs the full suites.
 //!
 //! A run of picks with no step named tests what the checkout holds, so it
 //! refuses unless the checkout's last build (`Built`, kept beside the lock's
@@ -106,34 +107,46 @@ fn prefix_from_marker(lane: &str, line: &[u8]) -> Option<String> {
 /// the pipe open.
 const OUTPUT_GRACE: Duration = Duration::from_secs(2);
 
+/// The step a caller named <name>: refused when <config> has no such step
+/// or a `ci-only` line names it.
+fn step_named<'a>(config: &'a Config, name: &str) -> Result<&'a Step> {
+    let Some(step) = config.steps.iter().find(|step| step.name == name) else {
+        let known: Vec<&str> = config.steps.iter().map(|step| step.name.as_str()).collect();
+        fail!("{CONFIG} has no step {name} (it has: {})", known.join(", "));
+    };
+    if config.is_ci_only(name) {
+        fail!(
+            "step {name} is CI-only in {CONFIG}, and builds refuses it: {ONLY_WHAT_A_CHANGE_TOUCHES}. Name the change's test classes with --test and its screens' shots with --shots"
+        );
+    }
+    Ok(step)
+}
+
 /// The steps of <lane> to run: those named that are in it, in the order
-/// named, or all of the lane's in the order written when none is named.
+/// named, or all of the lane's that are not CI-only, in the order written,
+/// when none is named.
 fn chosen(config: &Config, lane: Lane, names: &[String]) -> Result<Vec<Step>> {
     if names.is_empty() {
         return Ok(config
             .steps
             .iter()
-            .filter(|step| step.lane == lane)
+            .filter(|step| step.lane == lane && !config.is_ci_only(&step.name))
             .cloned()
             .collect());
     }
     names
         .iter()
-        .map(
-            |name| match config.steps.iter().find(|step| step.name == *name) {
-                Some(step) if step.lane == lane => Ok(step.clone()),
-                Some(step) => fail!(
+        .map(|name| {
+            let step = step_named(config, name)?;
+            if step.lane != lane {
+                fail!(
                     "step {name} is in the {} lane, not the {} lane",
                     step.lane.word(),
                     lane.word()
-                ),
-                None => {
-                    let known: Vec<&str> =
-                        config.steps.iter().map(|step| step.name.as_str()).collect();
-                    fail!("{CONFIG} has no step {name} (it has: {})", known.join(", "))
-                }
-            },
-        )
+                );
+            }
+            Ok(step.clone())
+        })
         .collect()
 }
 
@@ -141,7 +154,8 @@ fn chosen(config: &Config, lane: Lane, names: &[String]) -> Result<Vec<Step>> {
 pub type Pick = (Lane, PickKind, String);
 
 /// The rule that app-build names when it refuses a `--test` argument that is
-/// no type name or a `--shots` prefix that selects every shot of its lane.
+/// no type name, a `--shots` prefix that selects every shot of its lane, or a
+/// step that a `ci-only` line names.
 pub const ONLY_WHAT_A_CHANGE_TOUCHES: &str = "an app build runs only the test classes and shots of the screens a change touches, and CI runs the full suites";
 
 /// Refuses a shots <prefix> in <lane> that selects every shot of the lane:
@@ -1272,8 +1286,13 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
             std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
         let config = parse_config(&text)?;
         for step in &config.steps {
+            let ci_only = if config.is_ci_only(&step.name) {
+                " (CI only)"
+            } else {
+                ""
+            };
             println!(
-                "{} {} {}",
+                "{} {} {}{ci_only}",
                 step.lane.word(),
                 step.name,
                 step.command.join(" ")
@@ -1334,10 +1353,7 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
     let names = &names[..];
     let config = config_at(places, repo, commit)?;
     for name in names {
-        if !config.steps.iter().any(|step| step.name == *name) {
-            let known: Vec<&str> = config.steps.iter().map(|step| step.name.as_str()).collect();
-            fail!("{CONFIG} has no step {name} (it has: {})", known.join(", "));
-        }
+        step_named(&config, name)?;
     }
     for (lane, kind, arg) in &picks {
         if config.picker(*lane, *kind).is_none() {

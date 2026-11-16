@@ -344,7 +344,7 @@ An app build runs only the test classes and the shots of the screens a change
 touches: name each class with --test, and each screen's shots with --shots and
 a prefix (mac.welcome. for the Mac welcome screens). CI runs the full suites.
 `builds app-build` refuses a --shots prefix that selects every shot of a lane
-(mac. or android.) and says why.
+(mac. or android.) and a step that a `ci-only` line names, and says why.
 
 App builds (an Xcode app, a Gradle app, a bridge cross-compiled for a platform)
 take 10-20 GB per platform per checkout, so a repo keeps them built only in
@@ -416,6 +416,12 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
                     for its UI tests); a --test run of such a line never runs
                     on this Mac, where the windows would cover the person's
                     screen, only on a host
+  ci-only <step>...
+                    steps that only CI runs, such as a whole test suite or a
+                    lane's shots (bae's macos-tests-all, mac-shots);
+                    app-build refuses such a step when a caller names it,
+                    leaves it out when it runs every step of a lane, and
+                    refuses an `on` or `needs` line that names it
   limit <step> <time>
                     the step's time limit (90s, 30m, 2h), in place of 45
                     minutes
@@ -496,7 +502,8 @@ built again.
                               the steps; the lane must have the line). A class
                               or prefix is one argument, never read by a
                               shell. app-build refuses a prefix that selects
-                              every shot of the lane. The lanes build at the
+                              every shot of the lane, and a step that a
+                              `ci-only` line names. The lanes build at the
                               same time, each line of output behind [<lane>
                               <checkout>]
                               ([<lane>] until it holds a lock), and the build
@@ -520,8 +527,9 @@ built again.
                               last build finished and is of <ref>; otherwise it
                               refuses, naming what was built
   builds app-build <repo> --list
-                              print the steps (lane, name, command) and each
-                              lane's test and shots lines
+                              print the steps (lane, name, command, and "(CI
+                              only)" for a step a `ci-only` line names) and
+                              each lane's test and shots lines
   builds shots findings <repo> <ref> mac|android <prefix>
                               print the findings stored for <ref>'s commit,
                               the lane and the prefix, with a line on stderr

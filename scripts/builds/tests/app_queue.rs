@@ -650,6 +650,31 @@ fn app_build_runs_the_steps_named_and_lists_them() {
 }
 
 #[test]
+fn app_build_refuses_a_ci_only_step_in_each_form_and_lists_it_as_ci_only() {
+    let volume = Volume::new("app-build-ci-only");
+    volume.app_repo_with("step mac one ./one.sh\nstep mac two ./two.sh\nci-only two\n");
+    let listed = volume.run(&["app-build", "demo", "--list"]);
+    assert_eq!(
+        String::from_utf8_lossy(&listed.stdout),
+        "mac one ./one.sh\nmac two ./two.sh (CI only)\n"
+    );
+    std::fs::write(volume.dir.join("go-two"), "").unwrap();
+    for form in [
+        &["app-build", "demo", "main", "two"][..],
+        &["app-build", "demo", "--lane", "mac", "main", "two"][..],
+    ] {
+        let refused = volume.run(form);
+        assert!(!refused.status.success(), "{form:?} ran");
+        let said = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            said.contains("step two") && said.contains("CI runs the full suites"),
+            "{said}"
+        );
+    }
+    assert!(volume.log().is_empty(), "{:?}", volume.log());
+}
+
+#[test]
 fn a_step_past_its_limit_fails_the_build_and_the_lock_goes_to_the_next_in_line() {
     let mut volume = Volume::new("limit");
     volume.app_repo_with("step mac one ./one.sh\nlimit one 1s\n");

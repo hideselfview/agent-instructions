@@ -115,12 +115,12 @@ WHAT AN IMPLEMENTING AGENT DOES
      the tests of the changed code. An app build runs only the test classes
      and the shots of the screens the change touches (--test <Class>,
      --shots mac.welcome.); CI runs the full suites, and builds refuses a
-     whole lane's shots (mac. or android.). Never a whole app test suite (it
-     opens the app on the person's screen) or the full CI script. A shots
-     check compares against the findings of the commit the branch started
-     from: read them with `builds shots findings`, never by building that
-     commit, and open the report path it prints, never a checkout's shots/
-     folder.
+     whole lane's shots (mac. or android.) and the steps a `ci-only` line of
+     `.app-build` names. Never a whole app test suite (it opens the app on
+     the person's screen) or the full CI script. A shots check compares
+     against the findings of the commit the branch started from: read them
+     with `builds shots findings`, never by building that commit, and open
+     the report path it prints, never a checkout's shots/ folder.
   6. Before every commit, fix commits included, reread every comment, doc,
      spec line and commit message it adds against
      rules/text-people-read/write-plain-literal-active-sentences.md, and
