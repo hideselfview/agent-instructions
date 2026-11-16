@@ -17,14 +17,14 @@ use crate::lists::derive::{item_state, unmet_waits, waits_for_others};
 use crate::lists::draft::{require_brief_from, require_draft_briefs};
 use crate::lists::item::{
     Audience, Item, ItemDraft, ItemEdit, Level, Note, Priority, Wait, add_item, add_note, add_wait,
-    open_item, remove_wait, require_open_wait, set_origin, set_priority,
+    open_item, remove_wait, require_open_wait, set_priority,
 };
 use crate::lists::project;
 use crate::lists::record::close;
 use crate::lists::show::wait_words;
 use crate::lists::store::{self, Store};
 use crate::lists::{
-    How, Id, Kind, Lists, Located, Stamp, issue, item_show, landing, running, tag, take,
+    How, Id, Kind, Lists, Located, Stamp, issue, item_show, landing, running, tag, take, trail,
 };
 use crate::text::note;
 use crate::tool::Tool;
@@ -200,7 +200,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             open_item(&lists, id)?;
         }
         if let Some(origin) = origin {
-            set_origin(db, id, origin)?;
+            trail::set_origin(db, trail::Entry::Item, id, origin)?;
         }
         tag::remove_tags(db, id, &untags)?;
         tag::add_tags(db, id, &tags)

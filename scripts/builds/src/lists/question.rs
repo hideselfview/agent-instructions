@@ -14,7 +14,7 @@ use crate::fail::Result;
 use crate::lists::item::ItemEdit;
 use crate::lists::record::{self, close};
 use crate::lists::{How, Id, Kind, Lists, Stamp, Wait};
-use crate::lists::{store, tag, trail};
+use crate::lists::{store, trail};
 
 impl Lists {
     pub fn question(&self, id: Id) -> Option<&Question> {
@@ -134,7 +134,7 @@ fn insert_placement(db: &Connection, id: Id, placed: &Placement) -> Result<()> {
 pub fn ask(db: &Connection, new: NewQuestion, stamp: &Stamp) -> Result<Id> {
     let id = record::open(db, Kind::Question, stamp)?;
     if let Some(origin) = new.origin {
-        trail::require_origin(db, id, origin)?;
+        trail::require_record(db, origin)?;
     }
     insert(db, id, &new)?;
     Ok(id)
@@ -210,20 +210,15 @@ pub fn edit(
     Ok(())
 }
 
-/// Makes question <id>, open or closed, come from record <origin>, and takes
-/// off it and the records after it the tags their new trails already show.
-pub fn set_origin(db: &Connection, id: Id, origin: Id) -> Result<()> {
-    match record::standing(db, id)? {
-        Some((Kind::Question, _)) => {}
-        _ => fail!("{id} is not a question"),
-    }
-    trail::require_origin(db, id, origin)?;
+/// Writes record <origin> as question <id>'s origin, for
+/// `trail::set_origin`, which checks it.
+pub(super) fn write_origin(db: &Connection, id: Id, origin: Id) -> Result<()> {
     db.execute(
         "UPDATE question SET origin = ?2 WHERE id = ?1",
         params![id, origin],
     )
     .sql()?;
-    tag::drop_shown(db)
+    Ok(())
 }
 
 /// Every question, open and closed, as the rows hold it. <opened> is every

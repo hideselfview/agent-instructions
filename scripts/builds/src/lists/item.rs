@@ -232,7 +232,7 @@ pub fn add_item(
     draft.validate(db)?;
     let id = record::open(db, Kind::Item, stamp)?;
     if let Some(origin) = origin {
-        trail::require_origin(db, id, origin)?;
+        trail::require_record(db, origin)?;
     }
     insert(db, id, draft, origin)?;
     for wait in &draft.waits {
@@ -349,20 +349,15 @@ impl ItemEdit {
     }
 }
 
-/// Makes item <id>, open or closed, come from record <origin>, and takes off
-/// it and the records after it the tags their new trails already show.
-pub fn set_origin(db: &Connection, id: Id, origin: Id) -> Result<()> {
-    match record::standing(db, id)? {
-        Some((Kind::Item, _)) => {}
-        _ => fail!("{id} is not an item"),
-    }
-    trail::require_origin(db, id, origin)?;
+/// Writes record <origin> as item <id>'s origin, for `trail::set_origin`,
+/// which checks it.
+pub(super) fn write_origin(db: &Connection, id: Id, origin: Id) -> Result<()> {
     db.execute(
         "UPDATE item SET origin = ?2 WHERE id = ?1",
         params![id, origin],
     )
     .sql()?;
-    tag::drop_shown(db)
+    Ok(())
 }
 
 /// Appends <note> to open item <id>.

@@ -20,7 +20,7 @@ use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, apply_block
 use crate::lists::record::close;
 use crate::lists::show::{blocks_text, kind_words, stack_entry};
 use crate::lists::store::{self, Store};
-use crate::lists::trail::{trail_line, trail_wanted};
+use crate::lists::trail::{self, trail_line, trail_wanted};
 use crate::lists::{
     How, Id, Kind, Lists, Located, Placement, PlanRef, Position, Question, QuestionKind, Stamp,
     Standing, Wait, tag,
@@ -593,7 +593,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
             open_question(lists, id)?;
         }
         if let Some(origin) = origin {
-            question::set_origin(db, id, origin)?;
+            trail::set_origin(db, trail::Entry::Question, id, origin)?;
         }
         tag::remove_tags(db, id, &untags)?;
         tag::add_tags(db, id, &tags)

@@ -221,9 +221,10 @@ fn each_question_and_item_carries_its_trail() {
     let first = crate::lists::fixtures::question(&db);
     crate::lists::tag::add_tags(&db, first, &["screen-reads audit".into()]).unwrap();
     let work = item(&db, vec![]);
-    crate::lists::item::set_origin(&db, work, first).unwrap();
+    crate::lists::trail::set_origin(&db, crate::lists::trail::Entry::Item, work, first).unwrap();
     let asked = crate::lists::fixtures::question(&db);
-    crate::lists::question::set_origin(&db, asked, work).unwrap();
+    crate::lists::trail::set_origin(&db, crate::lists::trail::Entry::Question, asked, work)
+        .unwrap();
     let lists = read(&db);
     let json = view_json(&lists);
     let question = |id: Id| {

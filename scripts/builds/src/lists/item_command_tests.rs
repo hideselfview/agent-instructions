@@ -547,6 +547,10 @@ fn origins_go_on_with_add_and_edit_open_or_closed_and_the_trail_keeps_the_tags()
     .unwrap();
     assert_eq!(open(&demo).items[1].origin, Some(Id(1)));
     assert!(
+        refusal(add(&demo, "Do the fourth thing now", &["--origin", "99"]))
+            .contains("the origin #99 is not a record")
+    );
+    assert!(
         refusal(add(
             &demo,
             "Do the fourth thing now",

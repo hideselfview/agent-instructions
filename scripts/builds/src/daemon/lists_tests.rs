@@ -42,7 +42,7 @@ fn a_trail_that_fails_is_served_as_the_error() {
     let missing =
         crate::lists::record::open(&db, crate::lists::Kind::Decision, &stamp(NOON)).unwrap();
     let work = item(&db, vec![]);
-    crate::lists::item::set_origin(&db, work, missing).unwrap();
+    crate::lists::trail::set_origin(&db, crate::lists::trail::Entry::Item, work, missing).unwrap();
     let fault = error_of(Ok(vec![loaded("demo", Ok(read(&db)))]));
     assert_eq!(
         fault,

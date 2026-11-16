@@ -5,7 +5,8 @@
 //! record of a trail carries a tag: tag.rs refuses a tag that a record's trail
 //! already shows, and takes off the tags that a new origin's trail shows. A
 //! record can't be its own origin, and a chain of origins can't loop.
-//! item.rs and question.rs write the origins; this module reads them.
+//! `set_origin` holds the rule for a record's new origin; item.rs and
+//! question.rs write the column.
 
 use std::fmt::Write;
 
@@ -15,8 +16,8 @@ use serde::Serialize;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::Lists;
 use crate::lists::record::{self, Id, Record};
+use crate::lists::{Lists, item, question, tag};
 
 /// The SQL that names every pair of a record and an earlier record of its
 /// trail as `earlier (record, earlier)`, for a statement to follow. Its UNION
@@ -28,12 +29,29 @@ pub const EARLIER: &str = "WITH RECURSIVE origin (record, earlier) AS ( \
          SELECT record, earlier FROM origin \
          UNION SELECT e.record, o.earlier FROM earlier e JOIN origin o ON o.record = e.earlier)";
 
-/// Refuses <origin> as the origin of record <id>: it must be another record,
-/// and one whose trail does not go through <id>.
-pub fn require_origin(db: &Connection, id: Id, origin: Id) -> Result<()> {
+/// Refuses <origin> when no record has it: what a new record's origin needs,
+/// since nothing can come from a record not yet made.
+pub fn require_record(db: &Connection, origin: Id) -> Result<()> {
     if record::standing(db, origin)?.is_none() {
         fail!("the origin {origin} is not a record");
     }
+    Ok(())
+}
+
+/// The two kinds of record that take an origin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Entry {
+    Question,
+    Item,
+}
+
+/// Makes <entry> <id>, open or closed, which the caller found as that kind,
+/// come from record <origin>. Refuses an origin that is no record, <id>
+/// itself, or a record whose trail goes through <id>. Then removes from <id>
+/// and from every record after it each tag that an earlier record of its new
+/// trail carries.
+pub fn set_origin(db: &Connection, entry: Entry, id: Id, origin: Id) -> Result<()> {
+    require_record(db, origin)?;
     if origin == id {
         fail!("{id} cannot come from itself");
     }
@@ -48,7 +66,11 @@ pub fn require_origin(db: &Connection, id: Id, origin: Id) -> Result<()> {
     if through.is_some() {
         fail!("{id} cannot come from {origin}: {origin} already comes from {id}");
     }
-    Ok(())
+    match entry {
+        Entry::Question => question::write_origin(db, id, origin)?,
+        Entry::Item => item::write_origin(db, id, origin)?,
+    }
+    tag::drop_shown(db)
 }
 
 /// The record whose trail already shows tag <tag> to record <id>: the earlier
@@ -100,7 +122,7 @@ fn origin_and_tags(lists: &Lists, id: Id) -> (Option<Id>, &[String]) {
 }
 
 /// The trail of record <id> in <lists>. Fails on a chain of origins that
-/// loops or names a record <lists> does not hold: `require_origin`, the
+/// loops or names a record <lists> does not hold: `set_origin`, the
 /// foreign keys and the check refuse both, so either one is a bug.
 pub fn trail(lists: &Lists, id: Id) -> Result<Trail> {
     let mut chain = vec![id];
