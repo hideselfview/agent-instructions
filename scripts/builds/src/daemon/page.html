@@ -167,7 +167,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .items details[open] { display: flex; flex-direction: column; }
 .items details[open] > summary { order: 2; margin-top: 3px; }
 .items details .list { display: flex; flex-direction: column; gap: 3px; }
-/* With no running item, the claim note on one line where the items would be. */
+/* When the card has no running item, the claim note takes one line where the items would be. */
 .wt-card .note { margin-block: 8px 12px; padding-left: 10px; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wt-card summary { cursor: pointer; font-size: 12px; color: var(--muted); list-style: none; }
 .wt-card summary::-webkit-details-marker { display: none; }
@@ -1166,9 +1166,9 @@ function waitDetails() {
 
 // What `builds health` lists under "needs action", each finding's text
 // followed by the command it suggests. The disk figure already shows the free
-// space in red under its floor, so the box leaves out the disk finding. It
-// keeps the finding for a worktree with no change, which that worktree's card
-// also marks stalled.
+// space in red under its floor, so the box leaves out the disk finding. The
+// box keeps the finding for a worktree with no change, which that worktree's
+// card also marks stalled.
 const SHOWN_ELSEWHERE = new Set(["disk"]);
 function findingsView(health) {
   const box = document.getElementById("findings");

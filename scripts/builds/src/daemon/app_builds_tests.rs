@@ -433,7 +433,10 @@ fn a_queued_build_knows_its_place_the_queues_length_and_what_it_asked() {
         panic!("not a queued build");
     };
     assert_eq!((queued.place, queued.of), (2, 3));
-    assert_eq!(queued.line, "Asked 8m ago to run macos macos-tests.");
+    assert_eq!(
+        queued.line,
+        "Its agent asked 8m ago to run macos macos-tests."
+    );
     assert_eq!(queued.steps.as_deref(), Some("macos macos-tests"));
     let Some(ItemWait::AppBuild {
         queued: Some(every),
@@ -442,7 +445,7 @@ fn a_queued_build_knows_its_place_the_queues_length_and_what_it_asked() {
     else {
         panic!("not a queued build");
     };
-    assert_eq!(every.line, "Asked 1m ago to run every step.");
+    assert_eq!(every.line, "Its agent asked 1m ago to run every step.");
     assert_eq!(every.steps, None);
 }
 

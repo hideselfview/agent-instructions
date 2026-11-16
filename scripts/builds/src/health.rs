@@ -1185,9 +1185,9 @@ mod tests {
         }
     }
 
-    /// A claim with no change for hours and no build is idle (stalled),
-    /// unless its note says it is held or its design change waits on the
-    /// person's review (the third claim).
+    /// A claim with no change for hours and no build is stalled, unless its
+    /// note says its agent holds the worktree or its design change waits on
+    /// the person's review (the third claim).
     #[test]
     fn a_held_claim_is_not_idle() {
         let now = 1_800_000_000;

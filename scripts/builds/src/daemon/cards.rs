@@ -61,7 +61,7 @@ impl ReviewWait {
         }
     }
 
-    /// The pill in the card's bar; None when the chip says it all.
+    /// The pill in the card's bar; None when the chip already names the wait.
     fn pill(self) -> Option<Pill> {
         let text = match self {
             ReviewWait::NotRun | ReviewWait::Running => return None,
@@ -111,7 +111,7 @@ pub struct QueuedBuild {
     pub place: usize,
     /// How many builds wait in the lane.
     pub of: usize,
-    /// "Asked 8m ago to run macos macos-tests."
+    /// "Its agent asked 8m ago to run macos macos-tests."
     pub line: String,
     /// The steps in `line`, which the page draws in the mono face.
     pub steps: Option<String>,
@@ -239,8 +239,8 @@ pub struct Words {
     /// it; with no claim note and no pill, what the worktree waits on or what
     /// its state means.
     pub note: Option<String>,
-    /// The uncommitted files; None for a clean tree, or when git was not
-    /// read here.
+    /// The uncommitted files; None for a clean tree, or when the daemon did
+    /// not read git here.
     pub uncommitted: Option<Uncommitted>,
     /// The place in a lane's queue of a worktree that waits for its app
     /// build to start.
@@ -323,7 +323,7 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemW
         Some("free") => (
             None,
             None,
-            "Free: no claim, every commit landed.".to_string(),
+            "No agent claims this worktree and every commit has landed.".to_string(),
         ),
         Some("ready-to-land") if checkout.claim.is_none() => (
             Some("Ready to land"),
@@ -333,13 +333,13 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemW
         Some("ready-to-land") => (
             Some("Ready to land"),
             None,
-            "Waits to be landed by the coordinator.".to_string(),
+            "Waits for the coordinator to land it.".to_string(),
         ),
         Some("waiting-on-you") => (Some("Waiting on you"), None, "Waits on you.".to_string()),
         Some("held") => {
-            let why = claim_note
-                .clone()
-                .unwrap_or_else(|| "Held on purpose with no work running.".to_string());
+            let why = claim_note.clone().unwrap_or_else(|| {
+                "Its agent holds this worktree on purpose and runs no work.".to_string()
+            });
             (
                 Some("Working"),
                 Some(Pill {

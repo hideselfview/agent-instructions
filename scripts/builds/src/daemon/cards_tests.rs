@@ -71,7 +71,7 @@ fn with_no_running_item_the_card_shows_the_agents_note_or_what_the_state_means()
     );
     assert_eq!(
         note("ready-to-land", None).as_deref(),
-        Some("Waits to be landed by the coordinator.")
+        Some("Waits for the coordinator to land it.")
     );
     assert_eq!(
         note("ready-to-land", Some("Done.")).as_deref(),
@@ -79,7 +79,7 @@ fn with_no_running_item_the_card_shows_the_agents_note_or_what_the_state_means()
     );
     assert_eq!(
         note("free", None).as_deref(),
-        Some("Free: no claim, every commit landed.")
+        Some("No agent claims this worktree and every commit has landed.")
     );
     assert_eq!(
         words(&card(Some("ready-to-land"), None, Some(0)), &[], None)
@@ -339,7 +339,10 @@ fn a_held_worktree_says_held_in_the_pill_with_its_note_and_shows_no_note() {
     let unnoted = listed("held", None, &[]);
     assert_eq!(
         unnoted.pill,
-        pill("Held", "Held on purpose with no work running.")
+        pill(
+            "Held",
+            "Its agent holds this worktree on purpose and runs no work."
+        )
     );
     assert_eq!(unnoted.note, None);
 }
@@ -416,7 +419,7 @@ fn queued_wait(running: bool) -> ItemWait {
         queued: (!running).then(|| QueuedBuild {
             place: 1,
             of: 4,
-            line: "Asked 8m ago to run macos macos-tests.".into(),
+            line: "Its agent asked 8m ago to run macos macos-tests.".into(),
             steps: Some("macos macos-tests".into()),
         }),
     }
@@ -444,7 +447,7 @@ fn a_queued_card_names_the_lane_and_carries_its_place_and_what_it_asked() {
     assert_eq!(card.pill, None, "the chip says it");
     assert_eq!(
         card.note.as_deref(),
-        Some("Asked 8m ago to run macos macos-tests.")
+        Some("Its agent asked 8m ago to run macos macos-tests.")
     );
     let queued = card.queued.unwrap();
     assert_eq!((queued.place, queued.of), (1, 4));

@@ -208,7 +208,11 @@ pub fn build_for(repo: &RepoPage, branch: &str) -> Option<ItemWait> {
                     queued: Some(QueuedBuild {
                         place: at + 1,
                         of: queue.queue.len(),
-                        line: format!("Asked {} ago {}.", short_age(waiting.minutes), sentence),
+                        line: format!(
+                            "Its agent asked {} ago {}.",
+                            short_age(waiting.minutes),
+                            sentence
+                        ),
                         steps,
                     }),
                 });
