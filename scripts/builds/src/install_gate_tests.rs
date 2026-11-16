@@ -192,6 +192,20 @@ fn a_second_install_waits_for_the_first() {
     drop(install.join().unwrap());
 }
 
+/// Waits until process <pid> holds no use of <kind>. A process that another
+/// test forks meanwhile holds a copy of every open file until it calls exec,
+/// and with it the use's lock, for a moment after the use ended.
+fn until_ended(places: &Places, kind: Kind, pid: u32) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while holds_use(places, kind, pid) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "process {pid} still holds its use"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 #[test]
 fn the_file_of_a_use_whose_process_died_holds_no_install() {
     let scratch = Scratch::new("install-gate-dead");
@@ -228,7 +242,7 @@ fn a_lane_holds_a_use_once_it_holds_its_lock_and_sees_an_install_that_ran_while_
     };
     let waiting = lane(21);
     let building = lane(22);
-    let held = building.hold_from_now().unwrap();
+    let held = building.hold().unwrap();
     assert!(holds_use(&places, Kind::Command, 22));
     assert!(
         building.take().unwrap().is_none(),
@@ -243,7 +257,7 @@ fn a_lane_holds_a_use_once_it_holds_its_lock_and_sees_an_install_that_ran_while_
             .close(&mut |_| {})
             .unwrap(),
     );
-    let held = waiting.hold_from_now().unwrap();
+    let held = waiting.hold().unwrap();
     assert!(
         waiting.install_ran().unwrap(),
         "the lane runs the installed builds in its place"
@@ -251,4 +265,46 @@ fn a_lane_holds_a_use_once_it_holds_its_lock_and_sees_an_install_that_ran_while_
     drop(held);
     // The installed builds, run again, finds no install since it started.
     assert!(!lane(21).install_ran().unwrap());
+}
+
+/// A lane that a takeover or a host fault sends back to the queue ends its
+/// use while it waits there, so an install waits for no queued build, and
+/// the lane takes its use again once it holds a lock, seeing the install.
+#[test]
+fn a_lane_that_queues_again_holds_no_use_while_it_waits() {
+    let scratch = Scratch::new("install-gate-requeue");
+    let places = scratch.places();
+    let building = PerConnection::new(
+        places.clone(),
+        23,
+        "app-build demo --lane mac main",
+        "10:00:00",
+    )
+    .unwrap();
+    let held = building.hold().unwrap();
+    assert!(holds_use(&places, Kind::Command, 23));
+    // The lane goes back to the queue.
+    drop(held);
+    until_ended(&places, Kind::Command, 23);
+    let connection = building
+        .take()
+        .unwrap()
+        .expect("a connection of a lane that holds no use takes its own");
+    assert!(holds_use(&places, Kind::Connection, 23));
+    drop(connection);
+    let mut said = Vec::new();
+    let say = &mut |line| said.push(line);
+    drop(begin(&places, say).unwrap().close(say).unwrap());
+    assert!(
+        said.is_empty(),
+        "install waited for the queued lane: {said:?}"
+    );
+    // The lane holds a lock again.
+    let held = building.hold().unwrap();
+    assert!(holds_use(&places, Kind::Command, 23));
+    assert!(
+        building.install_ran().unwrap(),
+        "the lane runs the installed builds in its place"
+    );
+    drop(held);
 }

@@ -814,9 +814,10 @@ struct Timing {
     /// one.
     held: Option<HeldTimes>,
     steps: Vec<StepRecord>,
-    /// The use of the stores the lane takes once it holds the lane's lock
-    /// (`hold_stores`), held until `record` has written the run.
-    stores: Option<install_gate::Use>,
+    /// The use of the stores the lane takes each time it holds the lane's
+    /// lock (`hold_stores`), held until `record` has written the run or the
+    /// lane goes back to the queue.
+    stores: Option<install_gate::Holding<'static>>,
 }
 
 /// When a run joined the lane's queue, how long it waited there in all, and
@@ -903,12 +904,15 @@ fn run_lane(
     result
 }
 
-/// Takes the use of the stores a lane holds from the moment it holds the
-/// lane's lock <held> (install_gate.rs), into <stores>. When install ran while
-/// the lane waited, the lane's program writes a store of another schema, so
-/// the lane leaves the queue and runs the installed builds in its place.
-fn hold_stores(held: lock::Held, stores: &mut Option<install_gate::Use>) -> Result<lock::Held> {
-    *stores = install_gate::hold_from_now()?;
+/// Takes the use of the stores a lane holds while it holds the lane's lock
+/// <held> (install_gate.rs), into <stores>. When install ran while the lane
+/// waited, the lane's program writes a store of another schema, so the lane
+/// leaves the queue and runs the installed builds in its place.
+fn hold_stores(
+    held: lock::Held,
+    stores: &mut Option<install_gate::Holding<'static>>,
+) -> Result<lock::Held> {
+    *stores = install_gate::hold()?;
     if install_gate::install_ran()? {
         note(
             "builds install ran while this build waited for the lane, so this build leaves the queue and runs the installed builds program, which joins the queue again",
@@ -1042,7 +1046,11 @@ fn build_lane(
                 ));
             }
         }
-        held = held.requeue()?;
+        // A build that waits in the queue writes nothing, so the lane ends its
+        // use until it holds a lock again, and an install that runs meanwhile
+        // waits for no queued build.
+        timing.stores = None;
+        held = hold_stores(held.requeue()?, &mut timing.stores)?;
     }
 }
 

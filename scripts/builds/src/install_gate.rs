@@ -14,11 +14,12 @@
 //! - A command that writes a store after long work, with what it measured
 //!   since it started (main.rs's `holds_for_life` names them: a hook run and
 //!   a review that asks reviewers), holds a command use for its life.
-//! - An app build's lane holds a command use from the moment it holds the
-//!   lane's lock until it ends (`hold_from_now`): before that it has done no
-//!   work and written nothing, so a build waiting for the lane holds no use.
-//!   When install ran while the lane waited, the lane leaves the queue and
-//!   runs the installed builds in its place.
+//! - An app build's lane holds a command use while it holds the lane's lock
+//!   (`hold`): from the moment it takes the lock until it ends, or until a
+//!   takeover or a host fault sends it back to the queue. A build waiting in
+//!   the queue builds nothing and writes nothing, so it holds no use. When
+//!   install ran while the lane waited, the lane leaves the queue and runs
+//!   the installed builds in its place.
 //! - Every other command takes a connection use while each store connection
 //!   it opens is open. Its writes are each one short transaction, so a
 //!   command such as `builds cargo test` holds no use while it builds.
@@ -74,9 +75,9 @@ pub fn run_again() -> Fail {
         Ok(program) => program,
         Err(error) => return Fail::Message(format!("finding this program: {error}")),
     };
-    // The program takes its own use. A process that took a use for the rest
-    // of its life (`hold_from_now`) names itself in VARIABLE, and the exec
-    // closes the use's file, which ends that use.
+    // The program takes its own use. A process that holds a use (`hold`)
+    // names itself in VARIABLE, and the exec closes the use's file, which
+    // ends that use.
     let error = std::process::Command::new(&program)
         .args(std::env::args_os().skip(1))
         .env_remove(VARIABLE)
@@ -224,8 +225,8 @@ pub fn may_start(places: &Places, say: &mut dyn FnMut(&str)) -> Result<bool> {
 }
 
 /// The connection uses of one process: the first open connection takes the
-/// process's use, and the last one to close ends it, until the process holds
-/// a use for the rest of its life (`hold_from_now`).
+/// process's use, and the last one to close ends it, except while the process
+/// holds a command use (`hold`).
 pub struct PerConnection {
     places: Places,
     pid: u32,
@@ -240,7 +241,8 @@ pub struct PerConnection {
     /// The use that the process's open connections share. It ends when the
     /// last of them closes and drops it.
     shared: Mutex<Weak<Use>>,
-    held_for_life: AtomicBool,
+    /// Whether the process holds a command use (`hold`) now.
+    holding: AtomicBool,
 }
 
 impl PerConnection {
@@ -252,14 +254,15 @@ impl PerConnection {
             what: what.to_string(),
             since: since.to_string(),
             shared: Mutex::new(Weak::new()),
-            held_for_life: AtomicBool::new(false),
+            holding: AtomicBool::new(false),
         })
     }
 
-    /// Takes a use for the rest of the process's life, waiting at the gate
-    /// while an install runs. No connection of the process may be open:
-    /// install waits for it before it opens the gate.
-    pub fn hold_from_now(&self) -> Result<Use> {
+    /// Takes a command use that the process holds until it drops the value
+    /// returned, waiting at the gate while an install runs. No connection of
+    /// the process may be open: install waits for it before it opens the
+    /// gate.
+    pub fn hold(&self) -> Result<Holding<'_>> {
         let (gate, _) = pass(
             &self.places,
             Kind::Command,
@@ -274,19 +277,23 @@ impl PerConnection {
             &self.what,
             &self.since,
         )?;
-        self.held_for_life.store(true, Ordering::SeqCst);
-        Ok(taken)
+        self.holding.store(true, Ordering::SeqCst);
+        Ok(Holding {
+            per_connection: self,
+            named: false,
+            _use: taken,
+        })
     }
 
     /// A use for one connection, waiting at the gate while an install runs;
-    /// none once the process holds a use for its life.
+    /// none while the process holds a command use.
     pub fn take(&self) -> Result<Option<ConnectionUse>> {
         self.take_saying(&mut |line| crate::text::note(line))
     }
 
     /// `take`, giving <say> the line that says it waits at the closed gate.
     fn take_saying(&self, say: &mut dyn FnMut(&str)) -> Result<Option<ConnectionUse>> {
-        if self.held_for_life.load(Ordering::SeqCst) {
+        if self.holding.load(Ordering::SeqCst) {
             return Ok(None);
         }
         let mut shared = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
@@ -318,6 +325,30 @@ impl PerConnection {
     }
 }
 
+/// A command use that a process holds for a stretch of its life
+/// (`PerConnection::hold`). While it lasts, the process's connections take no
+/// use of their own; once it ends, they take theirs again.
+pub struct Holding<'a> {
+    per_connection: &'a PerConnection,
+    /// Whether `hold` named this process in VARIABLE, which the end of the
+    /// use removes.
+    named: bool,
+    _use: Use,
+}
+
+impl Drop for Holding<'_> {
+    // Rust drops the fields after this runs, so the use ends after the
+    // connections may take theirs again.
+    fn drop(&mut self) {
+        self.per_connection.holding.store(false, Ordering::SeqCst);
+        if self.named {
+            // SAFETY: as in `hold`: the other threads an app build's lane runs
+            // here read no environment.
+            unsafe { std::env::remove_var(VARIABLE) };
+        }
+    }
+}
+
 /// One connection's share of its process's use.
 pub struct ConnectionUse {
     _use: Arc<Use>,
@@ -339,7 +370,7 @@ pub fn use_per_connection(per_connection: PerConnection) {
 }
 
 /// The use of the stores that a store connection this process opens takes:
-/// None when the process holds a use for its life, a holder's use covers it,
+/// None while the process holds a command use, a holder's use covers it,
 /// or it takes none (install, the dashboard, tests).
 pub fn for_connection() -> Result<Option<ConnectionUse>> {
     match PER_CONNECTION.get() {
@@ -348,20 +379,22 @@ pub fn for_connection() -> Result<Option<ConnectionUse>> {
     }
 }
 
-/// Takes a use of the stores for the rest of this process's life, for a
-/// command that holds none at start (`PerConnection::hold_from_now`). Every
-/// builds command the process starts from then on runs under it. None for a
-/// process that takes no use per connection: a holder's use covers it, or it
-/// runs in a test.
-pub fn hold_from_now() -> Result<Option<Use>> {
+/// Takes a command use of the stores that this process holds until it drops
+/// the value returned, for a command that holds none at start
+/// (`PerConnection::hold`). Every builds command the process starts while it
+/// holds the use runs under it. None for a process that takes no use per
+/// connection: a holder's use covers it, or it runs in a test.
+pub fn hold() -> Result<Option<Holding<'static>>> {
     let Some(per_connection) = PER_CONNECTION.get() else {
         return Ok(None);
     };
-    let taken = per_connection.hold_from_now()?;
-    // SAFETY: the only other threads an app build's lane runs here wait in
-    // `open` on the queue's tickets and read no environment.
+    let mut holding = per_connection.hold()?;
+    // SAFETY: the other threads an app build's lane runs here wait in `open`
+    // on the queue's tickets, or copy a finished step's output, and read no
+    // environment.
     unsafe { std::env::set_var(VARIABLE, per_connection.pid.to_string()) };
-    Ok(Some(taken))
+    holding.named = true;
+    Ok(Some(holding))
 }
 
 /// Whether an install that closed the gates ran since this process started;
