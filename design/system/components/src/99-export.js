@@ -1,2 +1,2 @@
-// The dashboard's boards draw with this system's stylesheet alone: it has no components yet.
+// The dashboard boards use only this design system's stylesheet, because the system has no components.
 window.Builds = Object.assign(window.Builds || {}, {});

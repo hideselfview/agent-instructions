@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Build components/bundle.js from components/src/*.js, and components/bundle.css from components/src/*.css.
 
-The design system's format takes one classic script, components/bundle.js. Its
+The claude.ai design tool loads one classic script, components/bundle.js. Its
 sources are in components/src/, read in file-name order; the last
 (99-export.js) registers every component on window.Builds. Line 1 of the
-result is the header the format reads: the namespace and the components. The
-style sheet's parts are joined in file-name order, which is the order of the
-cascade.
+result is the header that the design tool reads: the namespace and the
+components. The script joins the style sheet's parts in file-name order, which
+is the order of the cascade.
 
 Usage: build-bundle.py [components-dir]   (default: components beside this file)
 """

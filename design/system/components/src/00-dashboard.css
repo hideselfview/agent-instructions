@@ -285,7 +285,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .lane-wait .qb { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lane-wait .br, .lane-wait .qt { font: 12px var(--font-mono); color: color-mix(in srgb, var(--working) 80%, transparent); }
 
-/* A lane's wait figure and the times it opens: its steps, costliest first. */
+/* The panel that opens from a lane's wait figure: the time of each step, longest first. */
 .wait-open .wp-steps { width: 100%; }
 .wait-open .wp-steps .wp-kind { color: var(--muted); font-size: 12px; width: 60px; }
 .wait-open .wp-steps .wp-name { font: 12px var(--font-mono); color: var(--text-2); }
@@ -293,5 +293,5 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .wait-open .wp-bar { display: inline-block; height: 8px; border-radius: 2px; background: var(--accent); opacity: .55; vertical-align: middle; margin-right: 8px; }
 .wait-open .wp-tv { font: 500 12px var(--font-mono); color: var(--text); vertical-align: middle; }
 .wait-open .wp-steps .wp-more td { color: var(--muted); font-size: 12px; border-top: 1px solid var(--line-soft); padding-top: 6px; }
-/* The board's note: what the code holds, below the page. */
+/* The board's note under the page, which says what the code already does. */
 .left > .note { font-size: 13px; line-height: 1.5; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 14px; max-width: 1100px; }
