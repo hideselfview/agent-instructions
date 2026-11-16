@@ -1,5 +1,5 @@
 ---
-digest: Every sentence a person reads is plain, literal and active - who does what, in the words for what it does, starting with the verb for a title or task; no figures of speech, borrowed metaphors, coinages, headline grammar, passive voice or marketing adjectives (public website pages that aren't docs are exempt from the last).
+digest: Every sentence a person reads is plain, literal and active: who does what, in the words for what it does, starting with the verb for a title or task; no figures of speech, borrowed metaphors, coinages, headline grammar, passive voice, dashes as punctuation or marketing adjectives (public website pages that aren't docs are exempt from the last).
 paths:
   - '**/*'
 blocking: true
@@ -47,6 +47,15 @@ pointing back at the last one ("This Mac is offline. It holds your changes…")
 looks machine-written. Name the thing, or start from what the reader cares
 about: "This Mac is offline. Your changes stay here until it reconnects." The
 same goes for "This" and "That" standing alone as a subject.
+
+**No dash as sentence punctuation.** No em dash (—), and no en dash or hyphen
+with spaces around it ( – ), anywhere: app text, commit messages, docs and code
+comments. Write what the dash stood for: a pause or an aside is a comma, a
+second thought is a new sentence, and a definition or a list that follows takes
+a colon.
+
+- ✗ "Fix the queue – it dropped held items" → ✓ "Fix the queue, which dropped
+  held items"
 
 **No marketing language.** Don't praise what you describe: no "improves user
 experience", "seamless", "powerful", "elegant", "robust", "intuitive" or

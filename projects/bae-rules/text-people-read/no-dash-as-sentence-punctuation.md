@@ -32,5 +32,6 @@ language's own form, not a dash. The one exception is a dash a language's
 grammar requires, such as the dash Ukrainian writes for an omitted "is" ("Тека —
 це рип із CD"); that dash is the grammar, not an aside.
 
-The rule doesn't cover text no person reads in the app, such as code comments,
-docs, test and shot scene names, and fixture data.
+The general rule
+(`rules/text-people-read/write-plain-literal-active-sentences.md`) bans the same
+dashes in all other text, such as code comments, docs and commit messages.
