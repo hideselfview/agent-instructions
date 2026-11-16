@@ -159,7 +159,7 @@ fn a_watching_run_keeps_the_first_line_that_holds_the_text() {
     };
     assert_eq!(
         run(
-            "echo one; printf 'A required ' >&2; sleep 0.1; echo 'plugin failed to load' >&2; echo 'plugin failed again' >&2; exit 1"
+            "echo one; echo 'A required plugin failed to load' >&2; echo 'plugin failed again' >&2; exit 1"
         ),
         Some("A required plugin failed to load".to_string())
     );
@@ -168,6 +168,25 @@ fn a_watching_run_keeps_the_first_line_that_holds_the_text() {
         Some("the plugin failed".to_string())
     );
     assert_eq!(run("echo fine"), None);
+}
+
+/// A watch joins a line that arrives in two reads before it looks for the
+/// text in it.
+#[test]
+fn a_watch_joins_a_line_split_across_two_reads() {
+    let found = Found::default();
+    let mut watch = LineWatch {
+        needle: "plugin failed",
+        found: found.clone(),
+        line: Vec::new(),
+    };
+    watch.feed(b"one\nA required plu");
+    assert_eq!(*found.lock().unwrap(), None);
+    watch.feed(b"gin failed to load\nmore\n");
+    assert_eq!(
+        *found.lock().unwrap(),
+        Some("A required plugin failed to load".to_string())
+    );
 }
 
 /// A program in place of ssh that answers a host probe with <load> on one
