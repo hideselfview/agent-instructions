@@ -200,3 +200,31 @@ fn an_installed_version_goes_once_no_checkout_names_it() {
         "with no file to read, a version was deleted"
     );
 }
+
+/// Pruning that can't list a tool's folder deletes nothing in it and lets the
+/// build go on.
+#[test]
+fn pruning_deletes_nothing_in_a_folder_it_cannot_list() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("prune-installed-unlisted");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    crate::testing::repo(&main, "target 1G\ninstalled checker scripts/checker.sh\n");
+    crate::setup::setup(&tool, &Checkout::find(&main.display().to_string()).unwrap()).unwrap();
+    std::fs::create_dir_all(main.join("scripts")).unwrap();
+    std::fs::write(
+        main.join("scripts/checker.sh"),
+        "checker_revision=\"aaa111\"\n",
+    )
+    .unwrap();
+    let folder = tool.places.cache_home.join("checker");
+    fill(&folder.join("ccc333"), 1);
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let pruned = prune_installed(&tool, &tool.roots().unwrap(), Run::Real);
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    pruned.unwrap();
+    assert!(
+        folder.join("ccc333").exists(),
+        "pruning deleted a version in a folder it could not list"
+    );
+}

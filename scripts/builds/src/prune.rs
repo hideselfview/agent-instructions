@@ -646,21 +646,34 @@ pub fn prune_installed(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     }
     for (folder, files) in files_of {
         let dir = tool.places.cache_home.join(&folder);
-        // Listed before the files are read: a script names a version before
-        // it installs it, so every version listed here that a checkout runs
-        // is in that checkout's file by the time it is read.
-        let versions = visible_names(&dir);
-        if versions.is_empty() {
-            continue;
-        }
         let what = format!(
             "installed versions in {} that no checkout's {} names",
             dir.display(),
             files.join(" or ")
         );
+        // Pruning lists the versions before it reads the files. A script
+        // writes a version into its file before it installs that version, so
+        // when pruning reads the files, the file of each checkout that runs a
+        // listed version already names it.
+        let versions = match version_names(&dir) {
+            Ok(Some(versions)) if !versions.is_empty() => versions,
+            Ok(_) => continue,
+            Err(error) => {
+                prune_listed(run, &what, Err(error));
+                continue;
+            }
+        };
         let listing = match naming_texts(&tops, &files) {
-            // With no file to read, every version would read as unnamed.
-            Ok(texts) if texts.is_empty() => continue,
+            // With no text to search, no file names any version, and pruning
+            // would delete every version.
+            Ok(texts) if texts.is_empty() => {
+                note(format!(
+                    "pruning deleted nothing in {}: no live checkout has {}",
+                    dir.display(),
+                    files.join(" or ")
+                ));
+                continue;
+            }
             Ok(texts) => Ok(versions
                 .into_iter()
                 .filter(|version| {
@@ -674,6 +687,27 @@ pub fn prune_installed(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
         prune_listed(run, &what, listing);
     }
     Ok(())
+}
+
+/// The names in <dir> that don't start with a dot, which are the versions
+/// installed there; None when <dir> doesn't exist, since then no script has
+/// installed a version yet.
+fn version_names(dir: &Path) -> std::result::Result<Option<Vec<std::ffi::OsString>>, String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("{}: {error}", dir.display())),
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        let name = entry
+            .map_err(|error| format!("{}: {error}", dir.display()))?
+            .file_name();
+        if name.as_encoded_bytes().first() != Some(&b'.') {
+            names.push(name);
+        }
+    }
+    Ok(Some(names))
 }
 
 /// The text of each of <files> in each checkout of <tops> that has it.
