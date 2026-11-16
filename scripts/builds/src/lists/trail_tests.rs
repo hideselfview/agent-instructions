@@ -36,25 +36,35 @@ fn a_trail_runs_from_the_first_record_and_shows_its_tags_on_every_later_one() {
     question::set_origin(&db, asked, work).unwrap();
     let lists = read(&db);
     assert_eq!(
-        trail(&lists, asked),
+        trail(&lists, asked).unwrap(),
         Trail {
             tags: tags(&["screen-reads audit"]),
-            earlier: vec![first, work],
+            earlier: vec![
+                Earlier {
+                    id: first,
+                    title: lists.question(first).unwrap().title.clone(),
+                },
+                Earlier {
+                    id: work,
+                    title: "Do the work numbered 2".into(),
+                },
+            ],
         }
     );
     assert_eq!(
-        trail_line(&lists, asked).unwrap(),
+        trail_line(&lists, asked).unwrap().unwrap(),
         format!("trail: screen-reads audit → {first} → {work} Do the work numbered 2 → {asked}")
     );
-    assert!(trail(&lists, work).wanted(Some("screen-reads audit")));
-    assert!(!trail(&lists, work).wanted(Some("other audit")));
+    assert!(trail_wanted(&lists, work, Some("screen-reads audit")).unwrap());
+    assert!(!trail_wanted(&lists, work, Some("other audit")).unwrap());
+    assert!(trail_wanted(&lists, work, None).unwrap());
     assert_eq!(
-        trail_line(&lists, first).unwrap(),
+        trail_line(&lists, first).unwrap().unwrap(),
         format!("trail: screen-reads audit → {first}")
     );
     // A record with no origin and no tag has no trail to show.
     let alone = item(&db, vec![]);
-    assert_eq!(trail_line(&read(&db), alone), None);
+    assert_eq!(trail_line(&read(&db), alone).unwrap(), None);
 }
 
 #[test]
@@ -75,7 +85,7 @@ fn an_item_a_design_change_made_comes_from_it() {
     let lists = read(&db);
     assert_eq!(lists.item(made).unwrap().origin, Some(change));
     assert_eq!(
-        trail_line(&lists, made).unwrap(),
+        trail_line(&lists, made).unwrap().unwrap(),
         format!("trail: {change} Design change {} → {made}", change.0)
     );
 }
@@ -117,7 +127,10 @@ fn a_tag_the_trail_already_shows_is_refused_and_a_tag_on_an_earlier_record_leave
     add_tags(&db, first, &tags(&["b audit"])).unwrap();
     assert_eq!(own_tags(&db, work), Vec::<String>::new());
     assert_eq!(own_tags(&db, first), tags(&["a audit", "b audit"]));
-    assert_eq!(trail(&read(&db), work).tags, tags(&["a audit", "b audit"]));
+    assert_eq!(
+        trail(&read(&db), work).unwrap().tags,
+        tags(&["a audit", "b audit"])
+    );
 }
 
 #[test]
@@ -134,7 +147,7 @@ fn a_new_origin_takes_off_the_tags_its_trail_shows_from_the_record_and_the_ones_
     assert_eq!(own_tags(&db, work), tags(&["b audit"]));
     assert_eq!(own_tags(&db, later), Vec::<String>::new());
     assert_eq!(
-        trail(&read(&db), later).tags,
+        trail(&read(&db), later).unwrap().tags,
         tags(&["a audit", "c audit", "b audit"])
     );
     assert_eq!(faults(&db, "demo").unwrap(), Vec::<String>::new());
@@ -195,6 +208,24 @@ fn the_check_names_a_loop_of_origins_and_a_tag_the_trail_already_shows() {
             ),
         ]
     );
-    // The loop's trail stops at the first record seen twice.
-    assert_eq!(trail(&read(&db), Id(10)).earlier, vec![Id(11)]);
+    // A trail read on a loop fails and names the record it came back to.
+    assert_eq!(
+        refusal(trail(&read(&db), Id(10))),
+        "the trail of #10 comes back to #10: its chain of origins loops"
+    );
+}
+
+#[test]
+fn a_trail_that_names_a_record_the_lists_do_not_hold_fails() {
+    let db = db();
+    // A decision record with no decision row: the lists read no such decision.
+    let missing = crate::lists::record::open(&db, Kind::Decision, &stamp(NOON)).unwrap();
+    let work = item(&db, vec![]);
+    set_origin(&db, work, missing).unwrap();
+    let lists = read(&db);
+    assert_eq!(
+        refusal(trail(&lists, work)),
+        format!("the trail of {work} names {missing}, which is not a record")
+    );
+    assert!(trail_line(&lists, work).is_err());
 }

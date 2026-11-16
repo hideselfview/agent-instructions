@@ -4,8 +4,9 @@
 
 use serde::Serialize;
 
+use crate::fail::Result;
 use crate::lists::derive::{self, FLOW_DAYS, FlowDay};
-use crate::lists::trail::trail;
+use crate::lists::trail::{Trail, trail};
 use crate::lists::{
     Audience, DesignChange, Id, Item, LandedPart, Lists, Located, Note, Placement, PlanRef,
     Priority, QuestionKind, Resolution, Stamp, Standing, Wait, side_worktree_parts,
@@ -45,7 +46,7 @@ pub struct StackView {
     pub plan: Option<PlanRef>,
     pub opened: Stamp,
     /// Where it came from (trail.rs).
-    pub trail: TrailView,
+    pub trail: Trail,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -100,7 +101,7 @@ pub struct ItemView {
     pub notes: Vec<Note>,
     pub opened: Stamp,
     /// Where it came from (trail.rs).
-    pub trail: TrailView,
+    pub trail: Trail,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -177,72 +178,48 @@ impl View {
         }
     }
 
-    /// The view of <lists> at <now>.
-    pub fn build(lists: &Lists, now: i64) -> View {
-        View {
+    /// The view of <lists> at <now>; fails when a record's trail does
+    /// (`trail::trail`).
+    pub fn build(lists: &Lists, now: i64) -> Result<View> {
+        Ok(View {
             project: lists.project.clone(),
             version: lists.version,
             error: None,
             stack: derive::stack_order(lists)
                 .into_iter()
-                .map(|entry| StackView {
-                    id: entry.question.id,
-                    title: entry.question.title.clone(),
-                    kind: entry.question.kind,
-                    details: entry.question.details.clone(),
-                    blocks: entry
-                        .blocks
-                        .iter()
-                        .map(|i| Named {
-                            id: i.id,
-                            title: i.title.clone(),
-                        })
-                        .collect(),
-                    blocked_count: entry.blocked_count,
-                    blocks_nothing: entry.question.blocks_nothing.clone(),
-                    placed: entry.question.placed.clone(),
-                    plan: entry.question.plan.clone(),
-                    opened: entry.question.opened.clone(),
-                    trail: trail_view(lists, entry.question.id),
+                .map(|entry| {
+                    Ok(StackView {
+                        id: entry.question.id,
+                        title: entry.question.title.clone(),
+                        kind: entry.question.kind,
+                        details: entry.question.details.clone(),
+                        blocks: entry
+                            .blocks
+                            .iter()
+                            .map(|i| Named {
+                                id: i.id,
+                                title: i.title.clone(),
+                            })
+                            .collect(),
+                        blocked_count: entry.blocked_count,
+                        blocks_nothing: entry.question.blocks_nothing.clone(),
+                        placed: entry.question.placed.clone(),
+                        plan: entry.question.plan.clone(),
+                        opened: entry.question.opened.clone(),
+                        trail: trail(lists, entry.question.id)?,
+                    })
                 })
-                .collect(),
+                .collect::<Result<_>>()?,
             areas: lists.areas.clone(),
             items: lists
                 .items
                 .iter()
                 .map(|item| item_view(lists, item))
-                .collect(),
+                .collect::<Result<_>>()?,
             designs: designs(lists, now),
             decisions: decisions(lists),
             flow: derive::flow(lists, now),
-        }
-    }
-}
-
-/// A trail as the page reads it: the tags it shows and the earlier records,
-/// each with its title.
-#[derive(Clone, Debug, Serialize)]
-pub struct TrailView {
-    pub tags: Vec<String>,
-    pub earlier: Vec<Named>,
-}
-
-/// The trail of record <id> as the page reads it.
-fn trail_view(lists: &Lists, id: Id) -> TrailView {
-    let trail = trail(lists, id);
-    TrailView {
-        tags: trail.tags,
-        earlier: trail
-            .earlier
-            .into_iter()
-            .map(|earlier| Named {
-                id: earlier,
-                title: lists
-                    .locate(earlier)
-                    .map(|found| found.title.to_string())
-                    .unwrap_or_default(),
-            })
-            .collect(),
+        })
     }
 }
 
@@ -271,8 +248,8 @@ fn wait_view(lists: &Lists, wait: &Wait) -> WaitView {
     }
 }
 
-fn item_view(lists: &Lists, item: &Item) -> ItemView {
-    ItemView {
+fn item_view(lists: &Lists, item: &Item) -> Result<ItemView> {
+    Ok(ItemView {
         id: item.id,
         title: item.title.clone(),
         area: item.area.clone(),
@@ -306,8 +283,8 @@ fn item_view(lists: &Lists, item: &Item) -> ItemView {
         landed: item.landed.clone(),
         notes: item.notes.clone(),
         opened: item.opened.clone(),
-        trail: trail_view(lists, item.id),
-    }
+        trail: trail(lists, item.id)?,
+    })
 }
 
 fn place_item(lists: &Lists, id: Id) -> PlaceItem {

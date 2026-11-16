@@ -36,6 +36,21 @@ fn a_store_that_fails_its_check_is_served_as_the_error() {
 }
 
 #[test]
+fn a_trail_that_fails_is_served_as_the_error() {
+    let db = db();
+    // A decision record with no decision row: the lists read no such decision.
+    let missing =
+        crate::lists::record::open(&db, crate::lists::Kind::Decision, &stamp(NOON)).unwrap();
+    let work = item(&db, vec![]);
+    crate::lists::item::set_origin(&db, work, missing).unwrap();
+    let fault = error_of(Ok(vec![loaded("demo", Ok(read(&db)))]));
+    assert_eq!(
+        fault,
+        format!("the trail of {work} names {missing}, which is not a record")
+    );
+}
+
+#[test]
 fn no_project_is_an_error_and_a_failing_store_is_only_its_own_projects() {
     assert!(error_of(Ok(vec![])).contains("no lists"));
     let several = compose(

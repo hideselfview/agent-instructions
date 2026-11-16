@@ -287,7 +287,10 @@ fn compose_view(loaded: &Loaded, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) 
     match &loaded.lists {
         Err(fault) => View::failed(&loaded.project, 0, fault.clone()),
         Ok(lists) => {
-            let mut view = View::build(lists, now);
+            let mut view = match View::build(lists, now) {
+                Ok(view) => view,
+                Err(fault) => return View::failed(&loaded.project, lists.version, fault.text()),
+            };
             for item in &mut view.items {
                 for running in &mut item.running {
                     running.claim = Some(claims(&running.worktree));

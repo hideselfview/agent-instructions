@@ -2,8 +2,9 @@
 
 use std::fmt::Write;
 
+use crate::fail::Result;
 use crate::lists::derive::{self, ItemState, StackEntry};
-use crate::lists::trail::{trail, trail_line};
+use crate::lists::trail::{trail_line, trail_wanted};
 use crate::lists::{Audience, Item, Level, Lists, Position, QuestionKind, Wait};
 use crate::text::local_minute;
 
@@ -28,13 +29,14 @@ pub fn wait_words(lists: &Lists, wait: &Wait) -> String {
     }
 }
 
-pub fn item_line(lists: &Lists, item: &Item) -> String {
+/// An item as lines; fails when its trail does (`trail::trail`).
+pub fn item_line(lists: &Lists, item: &Item) -> Result<String> {
     let state = derive::item_state(lists, item);
     let mut line = format!("  {} [{}] {}", item.id, state.label(), item.title);
     if item.r#for == Audience::DesignSession && state != ItemState::Running {
         line.push_str(" (design session's)");
     }
-    if let Some(trail) = trail_line(lists, item.id) {
+    if let Some(trail) = trail_line(lists, item.id)? {
         let _ = write!(line, "\n      {trail}");
     }
     let unmet: Vec<String> = derive::unmet_waits(lists, item)
@@ -54,7 +56,7 @@ pub fn item_line(lists: &Lists, item: &Item) -> String {
             running.worktree, running.branch, running.brief
         );
     }
-    line
+    Ok(line)
 }
 
 /// What an entry of the stack blocks, or why it is asked though it blocks
@@ -80,7 +82,7 @@ pub fn blocks_text(entry: &StackEntry<'_>) -> String {
 
 /// An entry of the stack as lines: its place in the order, its title, who
 /// placed it where, its trail, what it blocks.
-pub fn stack_entry(lists: &Lists, number: usize, entry: &StackEntry<'_>) -> String {
+pub fn stack_entry(lists: &Lists, number: usize, entry: &StackEntry<'_>) -> Result<String> {
     let q = entry.question;
     let mut out = format!(
         "{number:>3}. {} {} [{}] opened {} by {}\n",
@@ -99,36 +101,38 @@ pub fn stack_entry(lists: &Lists, number: usize, entry: &StackEntry<'_>) -> Stri
         let by = if placed.by_person { " by you" } else { "" };
         let _ = writeln!(out, "       placed {at}{by}: {}", placed.why);
     }
-    if let Some(trail) = trail_line(lists, q.id) {
+    if let Some(trail) = trail_line(lists, q.id)? {
         let _ = writeln!(out, "       {trail}");
     }
     let _ = writeln!(out, "       {}", blocks_text(entry));
-    out
+    Ok(out)
 }
 
 /// The stack and the queue as text; with <wanted>, only the questions and
 /// items whose trail shows that tag, each question keeping its place in the
 /// stack.
-pub fn render(lists: &Lists, wanted: Option<&str>) -> String {
+pub fn render(lists: &Lists, wanted: Option<&str>) -> Result<String> {
     let mut out = String::new();
     let _ = writeln!(out, "{} lists, version {}", lists.project, lists.version);
     if let Some(wanted) = wanted {
         let _ = writeln!(out, "tagged {wanted}");
     }
-    let stack: Vec<(usize, StackEntry<'_>)> = derive::stack_order(lists)
-        .into_iter()
-        .enumerate()
-        .filter(|(_, entry)| trail(lists, entry.question.id).wanted(wanted))
-        .collect();
+    let mut stack: Vec<(usize, StackEntry<'_>)> = Vec::new();
+    for (at, entry) in derive::stack_order(lists).into_iter().enumerate() {
+        if trail_wanted(lists, entry.question.id, wanted)? {
+            stack.push((at, entry));
+        }
+    }
     let _ = writeln!(out, "\nWaiting on you ({})", stack.len());
     for (at, entry) in &stack {
-        out.push_str(&stack_entry(lists, at + 1, entry));
+        out.push_str(&stack_entry(lists, at + 1, entry)?);
     }
-    let items: Vec<&Item> = lists
-        .items
-        .iter()
-        .filter(|i| trail(lists, i.id).wanted(wanted))
-        .collect();
+    let mut items: Vec<&Item> = Vec::new();
+    for item in &lists.items {
+        if trail_wanted(lists, item.id, wanted)? {
+            items.push(item);
+        }
+    }
     let state = |wanted: ItemState| {
         items
             .iter()
@@ -149,7 +153,7 @@ pub fn render(lists: &Lists, wanted: Option<&str>) -> String {
     if !running.is_empty() {
         let _ = writeln!(out, "Running");
         for item in running {
-            let _ = writeln!(out, "{}", item_line(lists, item));
+            let _ = writeln!(out, "{}", item_line(lists, item)?);
         }
     }
     let first: Vec<&Item> = items
@@ -162,7 +166,7 @@ pub fn render(lists: &Lists, wanted: Option<&str>) -> String {
     if !first.is_empty() {
         let _ = writeln!(out, "First");
         for item in first {
-            let _ = writeln!(out, "{}", item_line(lists, item));
+            let _ = writeln!(out, "{}", item_line(lists, item)?);
         }
     }
     for area in &lists.areas {
@@ -180,7 +184,7 @@ pub fn render(lists: &Lists, wanted: Option<&str>) -> String {
         }
         let _ = writeln!(out, "{area}");
         for item in in_area {
-            let _ = writeln!(out, "{}", item_line(lists, item));
+            let _ = writeln!(out, "{}", item_line(lists, item)?);
         }
     }
     let _ = writeln!(
@@ -190,7 +194,7 @@ pub fn render(lists: &Lists, wanted: Option<&str>) -> String {
         lists.decisions.len(),
         lists.closed.len()
     );
-    out
+    Ok(out)
 }
 
 #[cfg(test)]

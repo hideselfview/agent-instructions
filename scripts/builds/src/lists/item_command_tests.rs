@@ -517,17 +517,21 @@ fn tags_go_on_with_add_and_edit_open_or_closed_and_list_chooses_by_them() {
         .contains("closed")
     );
 
-    let line = crate::lists::show::item_line(&open(&demo), &open(&demo).items[0]);
+    let line = crate::lists::show::item_line(&open(&demo), &open(&demo).items[0]).unwrap();
     assert!(
         line.contains("\n      trail: screen-reads audit → #1"),
         "{line}"
     );
-    let text = crate::lists::show::render(&open(&demo), Some("coven-trust audit"));
+    let text = crate::lists::show::render(&open(&demo), Some("coven-trust audit")).unwrap();
     assert!(
         text.contains("tagged coven-trust audit") && !text.contains(FIVE),
         "{text}"
     );
-    assert!(crate::lists::show::render(&open(&demo), Some("screen-reads audit")).contains(FIVE));
+    assert!(
+        crate::lists::show::render(&open(&demo), Some("screen-reads audit"))
+            .unwrap()
+            .contains(FIVE)
+    );
 }
 
 #[test]
@@ -561,13 +565,14 @@ fn origins_go_on_with_add_and_edit_open_or_closed_and_the_trail_keeps_the_tags()
         shown.contains("trail: screen-reads audit; mac → #1 → #2 Do the second thing now → #3"),
         "{shown}"
     );
-    let line = crate::lists::show::item_line(&lists, &lists.items[1]);
+    let line = crate::lists::show::item_line(&lists, &lists.items[1]).unwrap();
     assert!(
         line.contains("\n      trail: screen-reads audit → #1 Do the first thing now → #2"),
         "{line}"
     );
     assert!(
         crate::lists::show::render(&lists, Some("screen-reads audit"))
+            .unwrap()
             .contains("Do the third thing now")
     );
     assert!(

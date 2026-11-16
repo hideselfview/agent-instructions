@@ -13,7 +13,7 @@ use crate::lists::item::open_item;
 use crate::lists::running::marker;
 use crate::lists::show::{item_line, wait_words};
 use crate::lists::store::Store;
-use crate::lists::trail::{trail, trail_line};
+use crate::lists::trail::{trail_line, trail_wanted};
 use crate::lists::{Audience, How, Id, Item, Kind, Level, Lists, Located, Standing, Wait};
 use crate::text::local_minute;
 use crate::tool::Tool;
@@ -121,7 +121,7 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
             local_minute(part.at)
         );
     }
-    if let Some(trail) = trail_line(lists, id) {
+    if let Some(trail) = trail_line(lists, id)? {
         let _ = writeln!(out, "{trail}");
     }
     let _ = writeln!(
@@ -166,20 +166,24 @@ struct Choice<'a> {
 /// (in the queue's order, which the dashboard's Queue tab shows; the rest of
 /// the list stays in id order), in the area, for the audience and whose trail
 /// shows the tag when given.
-fn chosen<'a>(lists: &'a Lists, choice: &Choice) -> Vec<&'a Item> {
-    let mut chosen: Vec<&Item> = lists
+fn chosen<'a>(lists: &'a Lists, choice: &Choice) -> Result<Vec<&'a Item>> {
+    let mut chosen: Vec<&Item> = Vec::new();
+    for item in lists
         .items
         .iter()
         .filter(|item| !choice.running || !item.running.is_empty())
         .filter(|item| !choice.ready || derive::item_state(lists, item) == ItemState::Ready)
         .filter(|item| choice.area.is_none_or(|a| item.area == a))
         .filter(|item| choice.audience.is_none_or(|f| item.r#for == f))
-        .filter(|item| trail(lists, item.id).wanted(choice.tag))
-        .collect();
+    {
+        if trail_wanted(lists, item.id, choice.tag)? {
+            chosen.push(item);
+        }
+    }
     if choice.ready {
         derive::queue_order(lists, &mut chosen);
     }
-    chosen
+    Ok(chosen)
 }
 
 pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
@@ -209,7 +213,7 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             audience,
             tag: args.value("tag")?,
         },
-    );
+    )?;
     for item in chosen {
         if args.switch("running") && !item.running.is_empty() {
             println!("{} {}", item.id, item.title);
@@ -217,7 +221,7 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 println!("  {}", marker(running)?);
             }
         } else {
-            println!("{}", item_line(&lists, item));
+            println!("{}", item_line(&lists, item)?);
         }
     }
     Ok(())

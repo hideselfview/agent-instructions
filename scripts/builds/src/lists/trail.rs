@@ -10,6 +10,7 @@
 use std::fmt::Write;
 
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::Serialize;
 
 use crate::db::Sql;
 use crate::fail;
@@ -65,14 +66,21 @@ pub fn earlier_with_tag(db: &Connection, id: Id, tag: &str) -> Result<Option<Id>
     .sql()
 }
 
-/// A record's trail: the tags it shows, and the records before it from the
-/// first to the one it came from.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A record's trail: the tags of the records on it, and the records before it
+/// from the first to the one it came from. The page reads it as it is.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Trail {
     /// The tags of the records on the trail, the first record's first.
     pub tags: Vec<String>,
     /// The earlier records, the first record first.
-    pub earlier: Vec<Id>,
+    pub earlier: Vec<Earlier>,
+}
+
+/// An earlier record of a trail, with its title.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Earlier {
+    pub id: Id,
+    pub title: String,
 }
 
 /// The origin and tags of record <id>, open or closed; a decision or a design
@@ -91,15 +99,15 @@ fn origin_and_tags(lists: &Lists, id: Id) -> (Option<Id>, &[String]) {
     }
 }
 
-/// The trail of record <id> in <lists>.
-pub fn trail(lists: &Lists, id: Id) -> Trail {
+/// The trail of record <id> in <lists>. Fails on a chain of origins that
+/// loops or names a record <lists> does not hold: `require_origin`, the
+/// foreign keys and the check refuse both, so either one is a bug.
+pub fn trail(lists: &Lists, id: Id) -> Result<Trail> {
     let mut chain = vec![id];
     let mut at = id;
-    // The check refuses a loop; a store read inside a write, before the
-    // check, still stops at the first record seen twice.
     while let (Some(origin), _) = origin_and_tags(lists, at) {
         if chain.contains(&origin) {
-            break;
+            fail!("the trail of {id} comes back to {origin}: its chain of origins loops");
         }
         chain.push(origin);
         at = origin;
@@ -110,23 +118,30 @@ pub fn trail(lists: &Lists, id: Id) -> Trail {
         .flat_map(|record| origin_and_tags(lists, *record).1.iter().cloned())
         .collect();
     chain.pop();
-    Trail {
-        tags,
-        earlier: chain,
-    }
+    let earlier = chain
+        .into_iter()
+        .map(|earlier| match lists.locate(earlier) {
+            Some(found) => Ok(Earlier {
+                id: earlier,
+                title: found.title.to_string(),
+            }),
+            None => fail!("the trail of {id} names {earlier}, which is not a record"),
+        })
+        .collect::<Result<_>>()?;
+    Ok(Trail { tags, earlier })
 }
 
 impl Trail {
-    /// Whether the trail shows tag <wanted>, or nothing is asked: what
-    /// `--tag T` chooses records by.
+    /// Whether the trail has tag <wanted>, or <wanted> is None because the
+    /// caller asks for no tag: what `--tag T` chooses records by.
     pub fn wanted(&self, wanted: Option<&str>) -> bool {
         wanted.is_none_or(|wanted| self.tags.iter().any(|tag| tag == wanted))
     }
 
     /// The trail of record <id> as one line, with the title of the record it
     /// came from only: `screen-reads audit → #3 → #50 Read each chained screen
-    /// value at once → #51`. None when it shows no tag and no earlier record.
-    pub fn line(&self, lists: &Lists, id: Id) -> Option<String> {
+    /// value at once → #51`. None when it has no tag and no earlier record.
+    pub fn line(&self, id: Id) -> Option<String> {
         if self.tags.is_empty() && self.earlier.is_empty() {
             return None;
         }
@@ -135,11 +150,9 @@ impl Trail {
             if !line.is_empty() {
                 line.push_str(" → ");
             }
-            let _ = write!(line, "{earlier}");
-            if at + 1 == self.earlier.len()
-                && let Some(found) = lists.locate(*earlier)
-            {
-                let _ = write!(line, " {}", found.title);
+            let _ = write!(line, "{}", earlier.id);
+            if at + 1 == self.earlier.len() {
+                let _ = write!(line, " {}", earlier.title);
             }
         }
         if !line.is_empty() {
@@ -151,10 +164,15 @@ impl Trail {
 }
 
 /// The trail of record <id> as one line (`Trail::line`), after `trail: `.
-pub fn trail_line(lists: &Lists, id: Id) -> Option<String> {
-    trail(lists, id)
-        .line(lists, id)
-        .map(|line| format!("trail: {line}"))
+pub fn trail_line(lists: &Lists, id: Id) -> Result<Option<String>> {
+    Ok(trail(lists, id)?
+        .line(id)
+        .map(|line| format!("trail: {line}")))
+}
+
+/// Whether the trail of record <id> has tag <wanted> (`Trail::wanted`).
+pub fn trail_wanted(lists: &Lists, id: Id, wanted: Option<&str>) -> Result<bool> {
+    Ok(trail(lists, id)?.wanted(wanted))
 }
 
 #[cfg(test)]

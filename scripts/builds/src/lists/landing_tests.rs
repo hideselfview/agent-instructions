@@ -353,17 +353,16 @@ fn an_item_in_two_repos_is_taken_in_both_and_shown_in_both() {
         shown.contains("Running: agent A, other side-1 work-other"),
         "{shown}"
     );
-    let line = crate::lists::show::item_line(&lists, lists.item(Id(1)).unwrap());
+    let line = crate::lists::show::item_line(&lists, lists.item(Id(1)).unwrap()).unwrap();
     assert!(
         line.contains(&t.demo_agent.display().to_string())
             && line.contains(&t.other_agent.display().to_string()),
         "{line}"
     );
     // The view the dashboard reads lists both.
-    let view = serde_json::to_value(crate::lists::view::View::build(
-        &lists,
-        crate::lists::fixtures::NOON,
-    ))
+    let view = serde_json::to_value(
+        crate::lists::view::View::build(&lists, crate::lists::fixtures::NOON).unwrap(),
+    )
     .unwrap();
     let repos: Vec<&str> = view["items"][0]["running"]
         .as_array()

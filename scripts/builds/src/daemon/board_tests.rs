@@ -24,7 +24,7 @@ fn a_worktree_with_two_items_is_one_work() {
     let second = item(&db, vec![]);
     start(&db, first, "side-3");
     start(&db, second, "side-3");
-    let works = works(&View::build(&read(&db), NOON));
+    let works = works(&View::build(&read(&db), NOON).unwrap());
     assert_eq!(works.len(), 1);
     assert_eq!(
         works[0].items.iter().map(|i| i.id).collect::<Vec<_>>(),
@@ -54,7 +54,7 @@ fn a_work_says_what_it_is() {
     start(&db, working, "side-2");
     let held = item(&db, vec![]);
     start(&db, held, "side-3");
-    let mut view = View::build(&read(&db), NOON);
+    let mut view = View::build(&read(&db), NOON).unwrap();
     for item in &mut view.items {
         for running in &mut item.running {
             running.claim = Some(ClaimFacts {
@@ -88,7 +88,7 @@ fn facts_of(note_state: Option<&str>) -> ClaimFacts {
 }
 
 fn board_of(db: &rusqlite::Connection, claims: &[(&str, Option<&str>)]) -> Board {
-    let mut view = View::build(&read(db), NOON);
+    let mut view = View::build(&read(db), NOON).unwrap();
     for item in &mut view.items {
         for running in &mut item.running {
             let state = claims

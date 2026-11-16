@@ -20,7 +20,7 @@ use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, apply_block
 use crate::lists::record::close;
 use crate::lists::show::{blocks_text, kind_words, stack_entry};
 use crate::lists::store::{self, Store};
-use crate::lists::trail::{trail, trail_line};
+use crate::lists::trail::{trail_line, trail_wanted};
 use crate::lists::{
     How, Id, Kind, Lists, Located, Placement, PlanRef, Position, Question, QuestionKind, Stamp,
     Standing, Wait, tag,
@@ -609,7 +609,7 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let stack = derive::stack_order(&lists);
     if let Some(at) = stack.iter().position(|entry| entry.question.id == id) {
         let entry = &stack[at];
-        let mut out = stack_entry(&lists, at + 1, entry);
+        let mut out = stack_entry(&lists, at + 1, entry)?;
         if let Some(plan) = &entry.question.plan {
             out.push_str(&format!("       plan {} {}\n", plan.path, plan.number));
         }
@@ -622,7 +622,7 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
             standing: Standing::Closed(closed),
             title,
         }) => {
-            let trail = trail_line(&lists, id)
+            let trail = trail_line(&lists, id)?
                 .map(|line| format!("{line}\n"))
                 .unwrap_or_default();
             Ok(format!(
@@ -648,12 +648,12 @@ fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     if stack.is_empty() {
         return Ok("the stack is empty\n".to_string());
     }
-    let shown: String = stack
-        .iter()
-        .enumerate()
-        .filter(|(_, entry)| trail(&lists, entry.question.id).wanted(wanted))
-        .map(|(n, entry)| stack_entry(&lists, n + 1, entry))
-        .collect();
+    let mut shown = String::new();
+    for (n, entry) in stack.iter().enumerate() {
+        if trail_wanted(&lists, entry.question.id, wanted)? {
+            shown.push_str(&stack_entry(&lists, n + 1, entry)?);
+        }
+    }
     if shown.is_empty()
         && let Some(wanted) = wanted
     {

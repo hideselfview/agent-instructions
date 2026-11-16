@@ -105,6 +105,7 @@ fn list_ready_comes_in_the_queue_order_not_in_id_order() {
                 tag: None,
             },
         )
+        .unwrap()
         .iter()
         .map(|i| i.id.0)
         .collect()

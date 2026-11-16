@@ -8,7 +8,7 @@ use crate::lists::{How, Resolution, Running, Wait};
 use serde_json::{Value, json};
 
 fn view_json(lists: &Lists) -> Value {
-    serde_json::to_value(View::build(lists, NOON)).unwrap()
+    serde_json::to_value(View::build(lists, NOON).unwrap()).unwrap()
 }
 
 #[test]

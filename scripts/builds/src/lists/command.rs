@@ -99,12 +99,12 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 "--tag chooses what the text shows; --json prints the whole state, with each record's tags"
             );
         }
-        let view = View::build(&lists, tool.now);
+        let view = View::build(&lists, tool.now)?;
         let text =
             serde_json::to_string_pretty(&view).context(|| "writing the lists JSON".to_string())?;
         println!("{text}");
     } else {
-        print!("{}", show::render(&lists, wanted));
+        print!("{}", show::render(&lists, wanted)?);
     }
     Ok(())
 }
