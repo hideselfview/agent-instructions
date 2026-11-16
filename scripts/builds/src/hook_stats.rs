@@ -33,6 +33,7 @@ use rusqlite::{Connection, params};
 use crate::checks::Kind;
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::host::Load;
 
 pub use crate::db::DATABASE;
 
@@ -108,28 +109,6 @@ impl Outcome {
         [Outcome::Passed, Outcome::Failed, Outcome::Skipped]
             .into_iter()
             .find(|o| o.word() == word)
-    }
-}
-
-/// A host's cores and its one-minute load average at one moment.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Load {
-    pub cores: u32,
-    pub one_minute: f64,
-}
-
-impl Load {
-    /// This Mac's cores and load now.
-    pub fn here() -> Load {
-        Load {
-            cores: crate::procs::cores() as u32,
-            one_minute: crate::procs::load_average()[0],
-        }
-    }
-
-    /// `load 21/14`: the load average, rounded, over the cores.
-    pub fn text(&self) -> String {
-        format!("load {:.0}/{}", self.one_minute, self.cores)
     }
 }
 

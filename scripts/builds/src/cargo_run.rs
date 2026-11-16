@@ -21,7 +21,7 @@ use crate::cargo_place::{self, Choice};
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::hook_stats::Load;
+use crate::host::Load;
 use crate::host::{LOCAL, Ssh};
 use crate::places::{Places, Rules};
 use crate::units::GUARD;
@@ -278,13 +278,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     };
     let picked = match &choice {
         Choice::Here(_) => None,
-        Choice::On(host, probe, _) => Some((
-            host.name.clone(),
-            Load {
-                cores: probe.cores,
-                one_minute: probe.load[0],
-            },
-        )),
+        Choice::On(host, probe, _) => Some((host.name.clone(), probe.load())),
     };
     let job = match checkout.as_ref() {
         Some(checkout) => cargo_place::start(&places, &ssh, choice, checkout, args, &env)?,

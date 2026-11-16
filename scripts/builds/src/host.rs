@@ -129,7 +129,37 @@ pub struct Probe {
     pub git_fails: Option<String>,
 }
 
+/// A host's cores and its one-minute load average at one moment.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Load {
+    pub cores: u32,
+    pub one_minute: f64,
+}
+
+impl Load {
+    /// This Mac's cores and load now.
+    pub fn here() -> Load {
+        Load {
+            cores: crate::procs::cores() as u32,
+            one_minute: crate::procs::load_average()[0],
+        }
+    }
+
+    /// `load 21/14`: the load average, rounded, over the cores.
+    pub fn text(&self) -> String {
+        format!("load {:.0}/{}", self.one_minute, self.cores)
+    }
+}
+
 impl Probe {
+    /// The host's cores and one-minute load when it answered.
+    pub fn load(&self) -> Load {
+        Load {
+            cores: self.cores,
+            one_minute: self.load[0],
+        }
+    }
+
     pub fn load_per_core(&self) -> f64 {
         self.load[0] / f64::from(self.cores.max(1))
     }
