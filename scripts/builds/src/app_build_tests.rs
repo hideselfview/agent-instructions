@@ -272,6 +272,28 @@ fn a_flag_needs_a_lane_and_an_argument_that_is_one_plain_word() {
 }
 
 #[test]
+fn a_shots_prefix_that_selects_every_shot_of_its_lane_is_refused_naming_the_rule() {
+    for (lane, prefix) in [
+        ("mac", "mac."),
+        ("android", "android."),
+        ("mac", "mac"),
+        ("mac", "m"),
+    ] {
+        let refused = split_picks(&args(&["one", "--shots", lane, prefix]))
+            .unwrap_err()
+            .text();
+        assert!(refused.contains(prefix), "{refused}");
+        assert!(refused.contains(ONLY_WHAT_A_CHANGE_TOUCHES), "{refused}");
+    }
+    assert_eq!(
+        split_picks(&args(&["one", "--shots", "mac", "mac.import"]))
+            .unwrap()
+            .1,
+        vec![(Lane::Mac, PickKind::Shots, "mac.import".to_string())]
+    );
+}
+
+#[test]
 fn a_lane_runs_its_steps_then_its_picks_and_only_the_picks_when_no_step_is_named() {
     let config = parse_config(
         "step mac one ./one\ntest mac ./t {class}\ntest android ./g {class}\nshots mac ./s --select {select}\n",

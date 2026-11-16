@@ -29,7 +29,9 @@
 //! in any order, after the steps) add, to the end of that lane's steps, the
 //! lane's `test` or `shots` line (app_config.rs) with the class or the prefix
 //! in it, one run per flag, each with the kind's limit. With such flags and
-//! no step named in the `--lane` form, only those runs happen.
+//! no step named in the `--lane` form, only those runs happen. An app build
+//! runs only what a change touches, so every form refuses a `--shots` prefix
+//! that selects every shot of its lane (`mac.`); CI runs the full suites.
 //!
 //! A run of picks with no step named tests what the checkout holds, so it
 //! refuses unless the checkout's last build (`Built`, kept beside the lock's
@@ -138,6 +140,23 @@ fn chosen(config: &Config, lane: Lane, names: &[String]) -> Result<Vec<Step>> {
 /// A `--test <lane> <Class>` or `--shots <lane> <prefix>` flag.
 pub type Pick = (Lane, PickKind, String);
 
+/// The rule that app-build names when it refuses a `--test` argument that is
+/// no type name or a `--shots` prefix that selects every shot of its lane.
+pub const ONLY_WHAT_A_CHANGE_TOUCHES: &str = "an app build runs only the test classes and shots of the screens a change touches, and CI runs the full suites";
+
+/// Refuses a shots <prefix> in <lane> that selects every shot of the lane:
+/// one that `<lane>.` starts with (`mac.`, `mac`), since every shot name of
+/// the lane starts with `<lane>.`.
+pub fn refuse_whole_lane(lane: Lane, prefix: &str) -> Result<()> {
+    let word = lane.word();
+    if format!("{word}.").starts_with(prefix) {
+        fail!(
+            "the shots prefix {prefix} selects every shot of the {word} lane, and builds refuses a whole lane's shots: {ONLY_WHAT_A_CHANGE_TOUCHES}. Give a prefix that names the screens the change touches, such as {word}.welcome. for the welcome screens"
+        );
+    }
+    Ok(())
+}
+
 /// The kind of step <name> is, when it is the run of a pick.
 fn pick_kind_of(name: &str) -> Option<PickKind> {
     PickKind::ALL
@@ -170,7 +189,11 @@ fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
                 kind.what()
             );
         }
-        picks.push((Lane::parse_or_fail(lane)?, kind, arg.clone()));
+        let lane = Lane::parse_or_fail(lane)?;
+        if kind == PickKind::Shots {
+            refuse_whole_lane(lane, arg)?;
+        }
+        picks.push((lane, kind, arg.clone()));
         flags = after;
     }
     Ok((names, picks))

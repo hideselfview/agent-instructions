@@ -122,6 +122,36 @@ fn the_flags_take_a_name_without_a_lane_and_fresh_anywhere() {
     assert!(parse_picks(&["mac".to_string()], |_, _| Ok(Lane::Mac)).is_err());
 }
 
+fn picks_of(words: &[&str]) -> Result<Vec<Pick>> {
+    let args: Vec<String> = words.iter().map(|word| word.to_string()).collect();
+    parse_picks(&args, |_, arg| lane_of_prefix(arg)).map(|(picks, _)| picks)
+}
+
+#[test]
+fn a_shots_prefix_that_selects_every_shot_of_its_lane_is_refused_naming_the_rule() {
+    for prefix in ["mac.", "android.", "mac", "android"] {
+        let refused = picks_of(&["--shots", prefix]).unwrap_err().text();
+        assert!(refused.contains(prefix), "{refused}");
+        assert!(
+            refused.contains(app_build::ONLY_WHAT_A_CHANGE_TOUCHES),
+            "{refused}"
+        );
+    }
+    assert_eq!(
+        picks_of(&["--shots", "mac.import"]).unwrap(),
+        vec![(Lane::Mac, PickKind::Shots, "mac.import".to_string())]
+    );
+}
+
+#[test]
+fn a_test_that_names_no_type_is_refused_naming_the_same_rule() {
+    let refused = picks_of(&["--test", "Foo*"]).unwrap_err().text();
+    assert!(
+        refused.contains(app_build::ONLY_WHAT_A_CHANGE_TOUCHES),
+        "{refused}"
+    );
+}
+
 #[test]
 fn the_changed_paths_are_those_after_the_merge_base_with_origin_main_and_a_class_is_found_in_its_lane()
  {

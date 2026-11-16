@@ -340,6 +340,12 @@ restart the server.
 
 APP BUILDS
 
+An app build runs only the test classes and the shots of the screens a change
+touches: name each class with --test, and each screen's shots with --shots and
+a prefix (mac.welcome. for the Mac welcome screens). CI runs the full suites.
+`builds app-build` refuses a --shots prefix that selects every shot of a lane
+(mac. or android.) and says why.
+
 App builds (an Xcode app, a Gradle app, a bridge cross-compiled for a platform)
 take 10-20 GB per platform per checkout, so a repo keeps them built only in
 main, for the person's installs and releases, and in its app checkouts:
@@ -471,7 +477,9 @@ built again.
                               lines (a branch that changes only Rust builds
                               nothing); a --test class goes to the lane whose
                               `sources` folders hold it and a --shots prefix to
-                              the lane it starts with (mac. or android.); a
+                              the lane it starts with (mac.welcome. goes to the
+                              mac lane, and app-build refuses mac. alone, which
+                              selects every shot of the lane); a
                               lane with runs and no step builds its `needs`
                               steps; each lane takes the free app checkout on
                               the less loaded host (only a host's for a test
@@ -487,8 +495,10 @@ built again.
                               line once per --shots prefix (in any order, after
                               the steps; the lane must have the line). A class
                               or prefix is one argument, never read by a
-                              shell. The lanes build at the same time, each
-                              line of output behind [<lane> <checkout>]
+                              shell. app-build refuses a prefix that selects
+                              every shot of the lane. The lanes build at the
+                              same time, each line of output behind [<lane>
+                              <checkout>]
                               ([<lane>] until it holds a lock), and the build
                               fails if either lane fails, saying which. A lane takes the free lock of the checkout
                               on the less loaded host first (load average per

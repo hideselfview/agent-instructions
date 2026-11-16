@@ -10,8 +10,9 @@
 //!
 //! A `--test <Class>` run goes to the lane whose `sources` folders declare the
 //! class at <ref>; a `--shots <prefix>` run goes to the lane its prefix starts
-//! with (`mac.welcome.`). A lane with such a run builds what its changed paths
-//! need, or, when they need nothing in that lane, what its `needs` line
+//! with (`mac.welcome.`), and app-build refuses a prefix that selects every
+//! shot of the lane (`mac.`). A lane with such a run builds what its changed
+//! paths need, or, when they need nothing in that lane, what its `needs` line
 //! names, so the run has a build of <ref> to run against. A `--shots` run
 //! whose findings for <ref> are already stored prints them instead of running,
 //! unless `--fresh`.
@@ -227,9 +228,16 @@ fn parse_picks(
             );
         }
         if kind == PickKind::Class && !arg.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            fail!("--test takes a type name (letters, digits, underscores), not {arg:?}");
+            fail!(
+                "--test takes one test class's type name (letters, digits, underscores), not {arg:?}: {}",
+                app_build::ONLY_WHAT_A_CHANGE_TOUCHES
+            );
         }
-        picks.push((lane_of(kind, arg)?, kind, arg.clone()));
+        let lane = lane_of(kind, arg)?;
+        if kind == PickKind::Shots {
+            app_build::refuse_whole_lane(lane, arg)?;
+        }
+        picks.push((lane, kind, arg.clone()));
         rest = after;
     }
     Ok((picks, fresh))
