@@ -481,7 +481,7 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
 /// person.
 fn replace_program(
     places: &crate::places::Places,
-    holder: Option<String>,
+    holder: Option<std::ffi::OsString>,
     put: impl FnOnce() -> Result<bool>,
     say: &mut dyn FnMut(String),
 ) -> Result<bool> {
@@ -503,7 +503,8 @@ fn replace_program(
     // forever for the builds command that started it.
     if let Some(holder) = holder {
         fail!(
-            "builds install is running inside builds process {holder}, and install would wait forever for that process to end; run install from a shell outside it"
+            "builds install is running inside builds process {}, and install would wait forever for that process to end; run install from a shell outside it",
+            holder.to_string_lossy()
         );
     }
     // No builds command uses the stores from closing the gates until the new
@@ -524,7 +525,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     let home = &tool.places.home;
     let replaced = replace_program(
         &tool.places,
-        std::env::var(crate::install_gate::VARIABLE).ok(),
+        std::env::var_os(crate::install_gate::VARIABLE),
         || put_on_path(home),
         &mut |line| note(line),
     )?;
