@@ -325,9 +325,10 @@ design-globs`:
 
 Other changed files under design/ are shared design files. Commands that read
 git take a worktree DIR and find the project from its repo (or --project).
-Commits may be rebased: builds compares a design change with commits by the
-paths they change and by the bytes of the boards, components and sources at
-the change's last commit and at the commits' last one, never by commit hash.
+You may rebase the commits: builds compares a design change with commits by
+the paths they change and by the bytes of the boards, components and sources
+at the change's last commit and at the commits' last one, never by commit
+hash.
 
 The review page shows the change's words under their headings, with every board
 of the change drawn twice, side by side, in frames the person can zoom (never
@@ -433,13 +434,14 @@ sent again.
       does change needs an answer. `title` and `details` are optional;
       `worktree` replaces the one stored; `review`, when given, replaces the
       whole page (left out, the page stays, and must still hold every board
-      of the change). It stores the new last commit and clears what the
-      recording session was told. It keeps the person's approval when the
-      change keeps its places, deleted boards and review page, and the new
-      last commit holds every board, component and changed source byte for
-      byte as the commit they approved did, as after a rebase onto a moved
-      main that changed none of them. Otherwise it clears the approval, since
-      the person approved what was drawn before; an amend of a fix without
+      of the change). The amend stores the new last commit and clears the
+      record that builds sent the recording session the approval message.
+      The amend keeps the person's approval when the change keeps its
+      places, deleted boards and review page, and the new last commit holds
+      every board, component and changed source byte for byte as the commit
+      they approved did, as after a rebase onto a moved main that changed
+      none of them. Otherwise the amend clears the approval, since the person
+      approved the boards the session drew before; an amend of a fix without
       `fix` clears it too.
 
   builds design approve N --by-person

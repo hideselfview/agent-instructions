@@ -251,9 +251,11 @@ fn require_briefs(scope: &Scope, request: &DesignRequest) -> Result<()> {
 
 /// Where a recorded or amended change stands with the person's review.
 enum Review {
-    /// A fix that changes no design, approved when recorded.
+    /// A fix that changes no design, which builds approves when it records
+    /// the fix.
     Fix,
-    /// The person's approval stays: every board is drawn as they approved it.
+    /// The person's approval stays: the range's last commit draws every
+    /// board as they approved it.
     Kept,
     /// The amend cleared the person's approval.
     Cleared,
@@ -266,7 +268,9 @@ enum Review {
 fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, review: Review) -> String {
     let id = recorded.design;
     let mut out = format!("{verb} design change {id} \"{title}\"\n");
-    let waits = "it waits on the person's review (the Waiting on you tab); builds land --design refuses it until `builds design approve --by-person`\n";
+    let waits = format!(
+        "design change {id} waits on the person's review (the Waiting on you tab); builds land --design refuses it until `builds design approve --by-person`\n"
+    );
     match review {
         Review::Fix => out.push_str(&format!(
             "it is a fix that changes no design, so it needs no review; builds land --design {} can land it\n",
@@ -280,9 +284,9 @@ fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, review: 
             out.push_str(
                 "the person's approval is cleared: they approved what was drawn before this\n",
             );
-            out.push_str(waits);
+            out.push_str(&waits);
         }
-        Review::Waits => out.push_str(waits),
+        Review::Waits => out.push_str(&waits),
     }
     if !recorded.new_items.is_empty() {
         let ids: Vec<String> = recorded.new_items.iter().map(|id| id.to_string()).collect();
@@ -386,8 +390,8 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) 
 /// The last commit of open change <id> of the scope's repo, when the range's
 /// last commit draws every board and component place of the change, and
 /// every path the range changes that a drawing shows (`Changes::drawn`),
-/// byte for byte as that commit does; None when one is drawn differently, or
-/// the change keeps no last commit. An amend keeps the person's approval
+/// byte for byte as that commit does; None when the range's last commit
+/// draws one of these paths differently, or the change keeps no last commit. An amend keeps the person's approval
 /// only then (`design::amend`).
 fn drawn_the_same(scope: &Scope, id: Id) -> Result<Option<String>> {
     let Some(design) = scope.lists.design(id) else {

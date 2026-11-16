@@ -1,7 +1,7 @@
 //! Which worktrees hold a design branch and where its design change stands:
-//! each commit of a worktree that changes design files is covered by an
-//! open design change or not, as `design::design_commits` decides it
-//! for health and land. A worktree with a commit whose covering change waits
+//! for each commit of a worktree that changes design files, an open design
+//! change covers it or none does, as `design::design_commits` decides for
+//! health and land. A worktree with a commit whose covering change waits
 //! on the person's review waits on that review; one with a commit no change
 //! covers waits on the design session to record it.
 

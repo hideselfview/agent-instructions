@@ -579,7 +579,7 @@ pub struct Drawn<'a> {
     pub tip: &'a str,
     /// For an amend, the change's last commit before it, when `tip` draws
     /// every place of the change byte for byte as that commit does; None
-    /// when a place is drawn differently, and for a record.
+    /// when `tip` draws a place differently, and for a record.
     pub same_as: Option<&'a str>,
 }
 
@@ -777,7 +777,7 @@ pub fn open_named<'a>(lists: &'a Lists, ids: &[Id], repo: &str) -> Result<Vec<&'
 }
 
 /// A design change and how its last commit draws the paths of the commits
-/// it is checked against (`Changes::drawn`, `drawn_by`).
+/// that `covers` checks it against (`Changes::drawn`, `drawn_by`).
 pub struct DrawnChange<'a> {
     pub design: &'a DesignChange,
     pub drawing: Drawing,
@@ -822,7 +822,8 @@ impl<'a> Drawings<'a> {
 /// changes answers for the shared files and sources (`needs_answer`), and
 /// each change resolves or answers for something the commits change: landing
 /// closes every change it names, so one that takes no part would close with
-/// commits that are not its own. Names each path left over. `builds design
+/// commits that are not its own. The error names each path that no change
+/// covers. `builds design
 /// check`, which land runs, and health's search for design commits that no
 /// change covers both decide coverage here.
 pub fn covers(designs: &[DrawnChange], changes: &Changes, now: &Drawing) -> Result<()> {
@@ -882,8 +883,8 @@ pub fn covers(designs: &[DrawnChange], changes: &Changes, now: &Drawing) -> Resu
 }
 
 /// Do the open design changes <designs> cover <changes> (`covers`), and has
-/// the person approved each? What `builds design check` decides, and builds
-/// land with it.
+/// the person approved each? `builds design check` runs this check, and
+/// builds land runs that command before it lands design changes.
 pub fn check_changes(designs: &[DrawnChange], changes: &Changes, now: &Drawing) -> Result<()> {
     if !changes.is_design_change() {
         let ids: Vec<Id> = designs.iter().map(|d| d.design.id).collect();
@@ -906,7 +907,8 @@ pub fn check_changes(designs: &[DrawnChange], changes: &Changes, now: &Drawing) 
 }
 
 /// How design change <design> draws <paths>: as its last commit has them,
-/// or not at all for a change recorded before its last commit was kept.
+/// or not at all for a change that builds recorded before it began to keep
+/// a change's last commit.
 fn drawn_by<'a>(
     top: &Path,
     design: &DesignChange,
@@ -933,7 +935,7 @@ pub struct DesignCommit<'a> {
 /// for `builds design check`, which land runs: it holds every place the
 /// commit changes, and draws each changed path a drawing shows byte for byte
 /// as the last of <ahead> does. The comparison reads files, so a change
-/// still covers its commits after they are rebased onto a moved main.
+/// still covers its commits after an agent rebases them onto a moved main.
 /// Health and the dashboard's design card both read coverage here. Empty
 /// when the lists name no design globs for the repo.
 pub fn design_commits<'a>(

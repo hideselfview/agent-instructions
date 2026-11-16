@@ -248,9 +248,9 @@ fn record_and_amend_keep_the_recording_sessions_inbox() {
         SessionState::Waiting
     );
 
-    // Approved and told, then amended over new tokens from outside a
-    // session: the person's approval is cleared and the session still waits
-    // to be told.
+    // The person approves and builds tells the session. A commit then
+    // changes tokens.css, and an amend from outside a session clears the
+    // approval and leaves the session waiting to be told again.
     let inbox = FakeInbox::listen(&socket);
     approve_and_tell(&store, Id(1), &stamp(NOON)).unwrap();
     inbox.received();

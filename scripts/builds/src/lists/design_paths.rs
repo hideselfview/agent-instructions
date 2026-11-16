@@ -488,7 +488,7 @@ pub fn drawing_at<'a>(
     let answers: Vec<&str> = answers.lines().collect();
     if answers.len() != paths.len() {
         fail!(
-            "git answered {} of the {} design paths it was asked to read at {rev}",
+            "git answered {} of the {} design paths builds asked it to read at {rev}",
             answers.len(),
             paths.len()
         );

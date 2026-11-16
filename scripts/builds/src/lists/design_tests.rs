@@ -603,8 +603,8 @@ fn check_compares_by_path_so_a_rebased_commit_still_checks() {
 }
 
 /// Moves main past `base` with a commit of a file outside the design files,
-/// then rebases the branch's commits onto it, as a branch is rebased before
-/// it lands. The moved main is the branch `moved`.
+/// then rebases the branch's commits onto it, as an agent rebases a branch
+/// before it lands. The moved main is the branch `moved`.
 fn rebase_onto_moved_main(w: &World) {
     git(&w.dir, &["checkout", "-q", "-b", "moved", "base"]);
     w.commit(&["src/moved.rs"]);
@@ -662,7 +662,8 @@ fn card_of(w: &World, range: &str) -> Option<crate::daemon::cards::ItemWait> {
 
 /// The dashboard's design card and health decide coverage the same way: on
 /// a branch rebased onto a moved main, both count the recorded change as
-/// covering its commits, and both stop once a board is drawn again.
+/// covering its commits, and both stop once a later commit draws a board
+/// again.
 #[test]
 fn the_design_card_and_health_agree_on_a_rebased_branch() {
     use crate::daemon::cards::ItemWait;
@@ -687,10 +688,10 @@ fn the_design_card_and_health_agree_on_a_rebased_branch() {
     assert_eq!(health_of(&w, "moved..HEAD").len(), 1);
 }
 
-/// A design change recorded on commits covers them after the branch is
-/// rebased onto a main that moved: the rebased commits draw the boards the
-/// same, so health raises nothing and land's check passes. A board drawn
-/// again after that is no longer what the change drew.
+/// A design change recorded on commits covers them after the agent rebases
+/// the branch onto a main that moved: the rebased commits draw the boards
+/// the same, so health raises nothing and land's check passes. Once a later
+/// commit draws a board again, the change no longer covers it.
 #[test]
 fn a_design_branch_rebased_onto_a_moved_main_stays_covered() {
     let w = world("design-rebased");
@@ -721,8 +722,9 @@ fn a_design_branch_rebased_onto_a_moved_main_stays_covered() {
     );
 }
 
-/// A shared design-system source changes how boards draw, so a source the
-/// commits change after the change drew it is no longer covered either.
+/// A shared design-system source changes how boards draw, so once a later
+/// commit edits a source that the design change drew, the change no longer
+/// covers it.
 #[test]
 fn a_source_changed_after_the_change_drew_it_is_not_covered() {
     let w = world("design-source-redrawn");
@@ -1193,7 +1195,7 @@ fn an_amend_clears_the_approval_and_says_so() {
     ))
     .unwrap();
     w.approve(1);
-    // The board is drawn again, so the approval no longer holds.
+    // A new commit draws the board again, so the approval no longer holds.
     w.commit(&["design/mocks/A.dc.html"]);
     let amended = w
         .amend(
