@@ -303,3 +303,49 @@ fn landed_records_the_worktrees_claim_wherever_it_runs() {
     assert!(words.starts_with("review landed"), "{words}");
     assert_eq!(by, "agent");
 }
+
+#[test]
+fn a_rename_out_of_a_covered_folder_is_reviewed_by_the_group_of_its_old_path() {
+    let demo = demo("landing-rename");
+    let fake = fake(&demo.scratch.dir);
+    // Group gamma covers only src/, and its reviewer reads one file per call.
+    std::fs::create_dir_all(fake.root.join("rules/gamma")).unwrap();
+    std::fs::write(
+        fake.root.join("rules/gamma/rule-g.md"),
+        "---\ndigest: d\npaths:\n  - 'src/**'\nblocking: false\n---\n\n**Rule G.** Never do it in src.\n",
+    )
+    .unwrap();
+    crate::review::fakes::group_file(
+        &fake.root,
+        "gamma",
+        "gamma",
+        "sonnet",
+        "enumerate = true\nsites = \"handles rows\"\n",
+    );
+    fake.answer_task("gamma", serde_json::json!({"summary": "s", "sites": []}));
+    std::fs::create_dir_all(demo.main.join("src")).unwrap();
+    demo.commit(&demo.main, "src/a.kt");
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::create_dir_all(side.join("tool")).unwrap();
+    crate::testing::git(&side, &["mv", "src/a.kt", "tool/a.kt"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "move a.kt out of src"]);
+    let moved = crate::checkout::git_text(
+        crate::checkout::git(&side).args(["rev-parse", "HEAD"]),
+        "read HEAD",
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    let reported = review_of(&demo, &fake, &side);
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", reported.text);
+    assert_eq!(prompts[0].0, "gamma");
+    assert!(
+        prompts[0].1.contains("rename from src/a.kt"),
+        "the reviewer reads the rename: {}",
+        prompts[0].1
+    );
+    assert!(reported.refusal.is_none(), "{:?}", reported.refusal);
+    let asked = verdict_of(&demo, &fake, &side, &[moved]);
+    assert!(matches!(asked.0, Verdict::Takes(_)), "{asked:?}");
+}

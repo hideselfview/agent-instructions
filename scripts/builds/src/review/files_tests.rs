@@ -57,3 +57,12 @@ fn commit_messages_become_one_added_file_with_quotes_to_check_against() {
     assert_eq!(quotes.lines, vec!["First line", "", "Body line"]);
     assert!(commit_message_file("  \n").is_none());
 }
+
+#[test]
+fn a_renamed_file_changes_its_old_and_its_new_path() {
+    let diff = "diff --git a/src/a.rs b/tool/a.rs\nsimilarity index 90%\nrename from src/a.rs\nrename to tool/a.rs\n--- a/src/a.rs\n+++ b/tool/a.rs\n@@ -1 +1 @@\n-rename from x\n+y\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n+rename from z\n";
+    let files = split(diff);
+    assert_eq!(files[0].paths(), ["tool/a.rs", "src/a.rs"]);
+    assert_eq!(files[1].paths(), ["b.rs"], "a hunk line names no rename");
+    assert_eq!(paths(diff), ["tool/a.rs", "src/a.rs", "b.rs"]);
+}

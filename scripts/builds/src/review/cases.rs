@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::review::check::{parse_diff, squash};
-use crate::review::files::Source;
+use crate::review::files::{self, Source};
 use crate::review::record::{Kind, NewCall, NewRun};
 use crate::review::run::{Diff, Material, Tokens, ask_groups};
 
@@ -306,7 +306,6 @@ pub fn replay_case(
     case: &Case,
     source_repo: Option<&Path>,
 ) -> CaseResult {
-    let files = parse_diff(&case.patch);
     let diff = Diff {
         messages: messages_of_patch(&case.patch),
         source: source_repo.and_then(|repo| {
@@ -319,7 +318,7 @@ pub fn replay_case(
         base: String::new(),
         head: String::new(),
         text: case.patch.clone(),
-        changed: files.iter().map(|f| f.path.clone()).collect(),
+        changed: files::paths(&case.patch),
     };
     let picked = material.groups.pick(&material.rules, &diff.changed);
     let asked = ask_groups(material, reviewer, &picked, &diff, None);

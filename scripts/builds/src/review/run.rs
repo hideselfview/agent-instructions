@@ -12,6 +12,7 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::review::call;
 use crate::review::check::{DiffFile, clause_in, code_in, parse_diff};
+use crate::review::commits;
 use crate::review::files::{self, FileDiff, Source};
 use crate::review::groups::{Group, Groups};
 use crate::review::prompt::{self, PROJECT_FACTS};
@@ -85,6 +86,8 @@ pub struct Diff {
     pub base: String,
     pub head: String,
     pub text: String,
+    /// Every path a commit of the change changes (`commits::paths`), the
+    /// paths `builds land` picks groups by.
     pub changed: Vec<String>,
 }
 
@@ -115,7 +118,6 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
     let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
     let range = format!("{merge_base}...{head}");
     let text = text_of(&["diff", "--no-color", "--no-ext-diff", &range])?;
-    let names = text_of(&["diff", "--no-color", "--name-only", &range])?;
     let messages = text_of(&[
         "log",
         "--reverse",
@@ -123,6 +125,7 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
         &format!("{merge_base}..{head}"),
     ])?;
     let head = text_of(&["rev-parse", head])?.trim().to_string();
+    let changed = commits::paths(worktree, &commits::in_range(worktree, &merge_base, &head)?)?;
     Ok(Diff {
         messages,
         source: Some(Source {
@@ -133,7 +136,7 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
         base: merge_base,
         head,
         text,
-        changed: names.lines().map(str::to_string).collect(),
+        changed,
     })
 }
 
@@ -147,8 +150,9 @@ struct Unit<'a> {
 
 /// Asks the reviewers of <picked> and checks what comes back: one per group,
 /// except that a group that lists sites gets one per changed file its rule
-/// covers, each given that file's diff and its new text around the hunks. The
-/// calls of a group come back as one call with the findings of all.
+/// covers by either path of a rename, each given that file's diff and its new
+/// text around the hunks. The calls of a group come back as one call with the
+/// findings of all.
 pub fn ask_groups(
     material: &Material,
     reviewer: &Path,
@@ -177,8 +181,8 @@ pub fn ask_groups(
     for (group, members) in picked {
         if group.enumerate {
             for file in &by_file {
-                let path = std::slice::from_ref(&file.path);
-                if members.iter().any(|rule| rule.matches(path)) {
+                let paths = file.paths();
+                if members.iter().any(|rule| rule.matches(&paths)) {
                     units.push(Unit {
                         group,
                         members,

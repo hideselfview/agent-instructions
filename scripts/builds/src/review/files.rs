@@ -80,11 +80,23 @@ impl Source {
     }
 }
 
-/// One file's part of a diff: its path in the new tree and its diff text.
+/// One file's part of a diff: its path in the new tree, its path in the old
+/// tree when the diff renames it, and its diff text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileDiff {
     pub path: String,
+    pub renamed_from: Option<String>,
     pub text: String,
+}
+
+impl FileDiff {
+    /// The paths this part changes: both paths of a rename, as
+    /// `commits::paths` names them.
+    pub fn paths(&self) -> Vec<String> {
+        let mut paths = vec![self.path.clone()];
+        paths.extend(self.renamed_from.clone());
+        paths
+    }
 }
 
 /// <diff> cut at each `diff --git` line, in order. Text before the first
@@ -97,14 +109,32 @@ pub fn split(diff: &str) -> Vec<FileDiff> {
             let path = rest.rsplit_once(" b/").map(|(_, new)| new).unwrap_or(rest);
             files.push(FileDiff {
                 path: path.to_string(),
+                renamed_from: None,
                 text: String::new(),
             });
         }
         if let Some(file) = files.last_mut() {
+            // Only a header line starts with `rename from `: each hunk line
+            // starts with its `+`, `-` or space mark.
+            if let Some(old) = line.strip_prefix("rename from ") {
+                file.renamed_from = Some(old.trim_end().to_string());
+            }
             file.text.push_str(line);
         }
     }
     files
+}
+
+/// Every path the files of <diff> change, each once, in order: both paths of
+/// a rename.
+pub fn paths(diff: &str) -> Vec<String> {
+    let mut all: Vec<String> = Vec::new();
+    for path in split(diff).iter().flat_map(FileDiff::paths) {
+        if !all.contains(&path) {
+            all.push(path);
+        }
+    }
+    all
 }
 
 /// The path the commit messages go by in a review: the reviewer reads them as
@@ -130,6 +160,7 @@ pub fn commit_message_file(messages: &str) -> Option<(FileDiff, crate::review::c
     Some((
         FileDiff {
             path: COMMIT_MESSAGE.to_string(),
+            renamed_from: None,
             text,
         },
         crate::review::check::DiffFile {
