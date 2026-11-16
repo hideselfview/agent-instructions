@@ -161,7 +161,12 @@ impl Drop for Use {
     fn drop(&mut self) {
         // The use holds the lock, so the path names its file. A file that
         // stays is one that install removes later, since its lock is free.
-        let _ = std::fs::remove_file(&self.path);
+        if let Err(error) = std::fs::remove_file(&self.path) {
+            crate::text::note(format!(
+                "removing {}: {error}; the next builds install removes it",
+                self.path.display()
+            ));
+        }
     }
 }
 
