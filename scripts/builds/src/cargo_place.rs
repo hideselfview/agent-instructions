@@ -32,7 +32,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::host::{self, Host, Ssh};
 use crate::places::Places;
-use crate::procs::{Place, Processes, cwd, live_args, place_of};
+use crate::procs::{Place, Processes, live_args, place_of_process};
 use crate::remote::{self, Job, Request, Start, Transport, What};
 use crate::text::note;
 
@@ -509,7 +509,7 @@ pub fn remote_runs(
         if argv.get(1).map(String::as_str) != Some("cargo") {
             continue;
         }
-        let Some(place) = cwd(process.pid).and_then(|dir| place_of(places, &dir)) else {
+        let Some(place) = place_of_process(places, process.pid) else {
             continue;
         };
         for child in processes.children(process.pid) {

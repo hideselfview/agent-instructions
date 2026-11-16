@@ -29,8 +29,8 @@ use crate::host::Host;
 use crate::lane::Lane;
 use crate::places::DiskSpace;
 use crate::procs::{
-    BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, cwd,
-    live_args, load_average, open_files, place_of, usage,
+    BUILD_NAMES, BuildProcess, Place, Process, Processes, args, build_processes, cores, live_args,
+    load_average, open_files, place_of_process, usage,
 };
 use crate::shells::Shells;
 use crate::side_git::SideGit;
@@ -411,9 +411,7 @@ pub fn sample(
                 pid: process.pid,
                 repo: repo.to_string(),
                 reference: reference.to_string(),
-                started_from: cwd(process.pid)
-                    .and_then(|dir| place_of(places, &dir))
-                    .map(|at| places[at].label.clone()),
+                started_from: started_from(places, process.pid),
             })
         })
         .collect();
@@ -485,9 +483,7 @@ pub fn sample(
                 .children(process.pid)
                 .map(|child| command_line(child.pid))
                 .collect(),
-            started_from: cwd(process.pid)
-                .and_then(|dir| place_of(places, &dir))
-                .map(|at| places[at].label.clone()),
+            started_from: started_from(places, process.pid),
             app_head: app_top.as_deref().and_then(head_of),
             driver_running,
         });
@@ -528,9 +524,7 @@ pub fn sample(
                 pid: process.pid,
                 minutes: minutes_since(now, process.started),
                 command: command_line(process.pid),
-                started_from: cwd(process.pid)
-                    .and_then(|dir| place_of(places, &dir))
-                    .map(|at| places[at].label.clone()),
+                started_from: started_from(places, process.pid),
             })
             .collect();
         queues.push(LaneQueue {
@@ -568,6 +562,11 @@ pub fn sample(
         locks: held,
         queues,
     }
+}
+
+/// The label of the checkout the working directory of process <pid> is in.
+fn started_from(places: &[Place], pid: i32) -> Option<String> {
+    place_of_process(places, pid).map(|at| places[at].label.clone())
 }
 
 /// Is the lock at <path> taken? Asked by taking it without waiting and

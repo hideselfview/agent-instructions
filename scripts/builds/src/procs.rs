@@ -392,6 +392,12 @@ pub fn place_of(places: &[Place], dir: &Path) -> Option<usize> {
         .max_by_key(|at| places[*at].top.as_os_str().len())
 }
 
+/// The place the working directory of process <pid> is in; None when it is
+/// in none, or the process has exited.
+pub fn place_of_process(places: &[Place], pid: i32) -> Option<usize> {
+    cwd(pid).and_then(|dir| place_of(places, &dir))
+}
+
 /// A build process at work in a checkout.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BuildProcess {
