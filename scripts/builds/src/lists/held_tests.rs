@@ -354,7 +354,10 @@ fn an_item_waiting_on_the_persons_question_is_taken_held_and_health_leaves_it() 
         Some("waits on the answer to question 1")
     );
     let lists = demo.store.load().unwrap();
-    assert_eq!(running_in(&lists, &top.display().to_string()).len(), 1);
+    assert_eq!(
+        crate::lists::running::running_in(&lists, &top.display().to_string()).len(),
+        1
+    );
     let mut tree = worktree(&top, "agent", Some("held"), Vec::new());
     tree.repo = "demo".into();
     assert!(findings(&loaded(lists), &[tree]).is_empty());
@@ -423,7 +426,7 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
 }
 
 #[test]
-fn health_reads_the_lists_of_the_project_a_claim_names_in_a_repo_two_projects_hold() {
+fn health_sees_an_item_of_either_project_in_a_repo_two_projects_hold() {
     // Both projects hold the fixture's repo bae; the item runs in the second's lists.
     let named = |project: &str, db: &rusqlite::Connection| {
         let mut lists = read(db);
@@ -440,12 +443,10 @@ fn health_reads_the_lists_of_the_project_a_claim_names_in_a_repo_two_projects_ho
     let mut tree = bae_worktree(None);
     tree.project = Some("second".into());
     assert!(findings(&loaded, std::slice::from_ref(&tree)).is_empty());
+    // The item of the second project holds the worktree whatever project
+    // the claim names.
     tree.project = Some("first".into());
-    let found = findings(&loaded, std::slice::from_ref(&tree));
-    assert!(
-        found.len() == 1 && found[0].text.contains("no item runs there"),
-        "{found:?}"
-    );
+    assert!(findings(&loaded, std::slice::from_ref(&tree)).is_empty());
     // A claim that names no project, or one that does not hold the repo, is a
     // finding of its own.
     for (named, fault) in [

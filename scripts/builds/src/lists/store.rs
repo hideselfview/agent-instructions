@@ -371,6 +371,25 @@ pub fn stores(places: &Places) -> Result<Vec<Store>> {
         .collect()
 }
 
+/// Every store's lists, for a command that must know every project's items
+/// before it acts: a repo two projects hold (agent-instructions is in bae and
+/// builds) has worktrees where either project's items run. Fails naming a
+/// store that does not load, whose items are unknown.
+pub fn every_lists(places: &Places) -> Result<Vec<Lists>> {
+    let loaded = load_all(places).map_err(Fail::Message)?;
+    loaded
+        .into_iter()
+        .map(|project| {
+            project.lists.map_err(|fault| {
+                Fail::Message(format!(
+                    "the lists of project {} fail their check, so builds cannot tell what its items hold: {fault}",
+                    project.project
+                ))
+            })
+        })
+        .collect()
+}
+
 /// One project's store as read: its lists, or what is wrong with them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Loaded {

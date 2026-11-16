@@ -16,7 +16,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
 use crate::lists::item::{self, Item};
-use crate::lists::store::{Loaded, Store, project_of};
+use crate::lists::store::Loaded;
 use crate::lists::{Id, Lists, Stamp};
 use crate::places::Places;
 
@@ -226,16 +226,31 @@ pub fn running_in<'a>(lists: &'a Lists, worktree: &str) -> Vec<&'a Item> {
         .collect()
 }
 
-/// `builds release` is refused while an item runs in the worktree: the claim
-/// is what names the agent, so releasing it under a running item would leave
-/// the marker with no one behind it.
+/// The open items of every one of <lists> (each project's) that run in
+/// <worktree>, each with its lists: in a repo two projects hold, an item of
+/// either project may run in any of its worktrees, whatever project the
+/// worktree's claim names.
+pub fn running_in_any<'a>(lists: &'a [Lists], worktree: &str) -> Vec<(&'a Lists, &'a Item)> {
+    lists
+        .iter()
+        .flat_map(|lists| {
+            running_in(lists, worktree)
+                .into_iter()
+                .map(move |item| (lists, item))
+        })
+        .collect()
+}
+
+/// `builds release` is refused while an item of any project runs in the
+/// worktree: the claim is what names the agent, so releasing it under a
+/// running item would leave the marker with no one behind it.
 pub fn require_release_allowed(places: &Places, checkout: &Checkout) -> Result<()> {
-    let Some(project) = project_of(places, checkout)? else {
-        return Ok(());
-    };
-    let lists = Store::named(places, &project)?.load()?;
+    let every = crate::lists::store::every_lists(places)?;
     let top = checkout.top.display().to_string();
-    let running = running_in(&lists, &top);
+    let running: Vec<&Item> = running_in_any(&every, &top)
+        .into_iter()
+        .map(|(_, item)| item)
+        .collect();
     if running.is_empty() {
         return Ok(());
     }

@@ -401,16 +401,16 @@ pub fn landed(tool: &Tool, args: &[String]) -> Result<()> {
     for line in did {
         note(line);
     }
-    release_finished(&store, &ran_in)
+    release_finished(&tool.places, &ran_in)
 }
 
-/// Releases each worktree of <ran_in> that nothing runs in any more and
-/// that has nothing past origin/main: its agent has no work left there, so
-/// its claim and its note would only mislead. A worktree that is gone, has
-/// no claim, still runs an item or still has commits waiting to land keeps
-/// its claim.
-fn release_finished(store: &Store, ran_in: &[String]) -> Result<()> {
-    let lists = store.load()?;
+/// Releases each worktree of <ran_in> that no item of any project runs in
+/// any more and that has nothing past origin/main: its agent has no work
+/// left there, so its claim and its note would only mislead. A worktree that
+/// is gone, has no claim, still runs an item or still has commits waiting to
+/// land keeps its claim.
+fn release_finished(places: &crate::places::Places, ran_in: &[String]) -> Result<()> {
+    let every = crate::lists::store::every_lists(places)?;
     let mut done: Vec<&String> = Vec::new();
     for worktree in ran_in {
         if !done.contains(&worktree) {
@@ -419,7 +419,7 @@ fn release_finished(store: &Store, ran_in: &[String]) -> Result<()> {
     }
     for worktree in done {
         if !Path::new(worktree).is_dir()
-            || !crate::lists::running::running_in(&lists, worktree).is_empty()
+            || !crate::lists::running::running_in_any(&every, worktree).is_empty()
         {
             continue;
         }

@@ -13,8 +13,8 @@ use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
 use crate::lists::design::{DesignChange, DesignCommit, design_commits};
-use crate::lists::running::running_in;
-use crate::lists::store::{Loaded, Store, lists_of, project_of};
+use crate::lists::running::running_in_any;
+use crate::lists::store::{Loaded, lists_of};
 use crate::lists::{Item, Lists, Located, Standing, Wait};
 use crate::places::Places;
 
@@ -39,10 +39,10 @@ pub fn waits_on_open(lists: &Lists, item: &Item) -> bool {
     item.waits.iter().any(|wait| wait_open(lists, wait))
 }
 
-/// Why <worktree> may not be held in <lists>: no item runs there, or a
-/// running item waits on nothing open. None when it may.
-fn hold_fault(lists: &Lists, worktree: &str) -> Option<String> {
-    let running = running_in(lists, worktree);
+/// Why <worktree> may not be held, given the items of every project that run
+/// there (<running>, each with its lists): no item runs there, or a running
+/// item waits on nothing open. None when it may.
+fn hold_fault(running: &[(&Lists, &Item)], worktree: &str) -> Option<String> {
     if running.is_empty() {
         return Some(format!(
             "{worktree} runs no item, so nothing says what it waits on"
@@ -50,8 +50,8 @@ fn hold_fault(lists: &Lists, worktree: &str) -> Option<String> {
     }
     let idle: Vec<String> = running
         .iter()
-        .filter(|item| !waits_on_open(lists, item))
-        .map(|item| format!("{} \"{}\"", item.id.0, item.title))
+        .filter(|(lists, item)| !waits_on_open(lists, item))
+        .map(|(_, item)| format!("{} \"{}\"", item.id.0, item.title))
         .collect();
     if idle.is_empty() {
         None
@@ -76,13 +76,8 @@ pub fn require_hold_allowed(places: &Places, checkout: &Checkout) -> Result<()> 
     {
         return Ok(());
     }
-    let Some(project) = project_of(places, checkout)? else {
-        fail!(
-            "{top} can't be held: no lists project holds its repo, so no item there waits on anything"
-        );
-    };
-    let lists = Store::named(places, &project)?.load()?;
-    match hold_fault(&lists, &top) {
+    let every = crate::lists::store::every_lists(places)?;
+    match hold_fault(&running_in_any(&every, &top), &top) {
         None => Ok(()),
         Some(fault) => fail!(
             "{fault}; a held worktree waits on an open record. Make the running item wait on one with `builds item wait N --on REF` (REF is question:N, item:N, design:N or condition:TEXT), then note it held"
@@ -158,29 +153,26 @@ pub fn findings(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
 ) -> Vec<Advice> {
-    if loaded.is_err() {
+    let Ok(every) = loaded else {
         return Vec::new();
-    }
+    };
+    // Every project's items, whatever project a claim names: in a repo two
+    // projects hold, either project's items run in its worktrees. A store
+    // that fails its check is `running::findings`'s to name.
+    let every: Vec<Lists> = every
+        .iter()
+        .filter_map(|project| project.lists.clone().ok())
+        .collect();
     let mut found = Vec::new();
     for worktree in worktrees {
-        let lists = match worktree.lists(loaded) {
-            Ok(Some(lists)) => lists,
-            Ok(None) => continue,
-            Err(fault) => {
-                found.push(Advice::said(format!(
-                    "lists: health can't choose the lists of {}: {fault}",
-                    worktree.label
-                )));
-                continue;
-            }
-        };
         let top = worktree.top.display().to_string();
+        let running = running_in_any(&every, &top);
         // An app checkout runs no item, so health reports neither a hold nor
         // a claim on it for that.
         let standing = worktree.app_checkout;
         if !standing
             && worktree.claim.note_state.as_deref() == Some("held")
-            && let Some(fault) = hold_fault(lists, &top)
+            && let Some(fault) = hold_fault(&running, &top)
         {
             found.push(Advice::run(
                 format!(
@@ -193,7 +185,7 @@ pub fn findings(
         if !standing
             && worktree.claim.note_state.as_deref() != Some("held")
             && worktree.ahead.is_empty()
-            && running_in(lists, &top).is_empty()
+            && running.is_empty()
         {
             found.push(Advice::run(
                 format!(
@@ -203,6 +195,17 @@ pub fn findings(
                 format!("builds release {top}"),
             ));
         }
+        let lists = match worktree.lists(loaded) {
+            Ok(Some(lists)) => lists,
+            Ok(None) => continue,
+            Err(fault) => {
+                found.push(Advice::said(format!(
+                    "lists: health can't choose the lists of {}: {fault}",
+                    worktree.label
+                )));
+                continue;
+            }
+        };
         let uncovered: Vec<DesignCommit> =
             match design_commits(lists, &worktree.repo, &worktree.top, &worktree.ahead) {
                 Err(error) => {

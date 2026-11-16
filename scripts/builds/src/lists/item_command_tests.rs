@@ -746,3 +746,46 @@ fn park_and_take_refuse_what_would_split_an_item_from_its_work() {
         assert!(said.contains("is parked in"), "{leave:?}: {said}");
     }
 }
+
+/// In a repo two projects hold, an item of the project the claim does not
+/// name still holds the worktree: release refuses, and health does not say
+/// to release it.
+#[test]
+fn release_and_health_see_an_item_of_another_project_in_the_worktree() {
+    let demo = demo("release-other-project");
+    let other = crate::lists::fixtures::make_store_named(&demo.tool.places, "other", &["demo"]);
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let checkout = Checkout::find(&side_arg).unwrap();
+    std::fs::write(checkout.project_file(), "demo\n").unwrap();
+    crate::setup::setup(&demo.tool, &checkout).unwrap();
+    other
+        .write(&crate::lists::fixtures::stamp(NOON), "start", |db| {
+            let id = crate::lists::fixtures::item(db, vec![]);
+            crate::lists::running::start(
+                db,
+                &[id],
+                &[crate::lists::Running {
+                    worktree: side_arg.clone(),
+                    branch: "work".into(),
+                    brief: "b.md".into(),
+                    since: crate::lists::fixtures::stamp(NOON),
+                }],
+            )
+        })
+        .unwrap();
+    let refused = refusal(cmd_release(
+        &demo.tool.places,
+        std::slice::from_ref(&side_arg),
+    ));
+    assert!(refused.contains("still runs #1"), "{refused}");
+    let health = crate::health::health(&demo.tool).unwrap();
+    assert!(
+        health
+            .findings
+            .iter()
+            .all(|finding| !finding.advice.text.contains("no item runs there")),
+        "{:?}",
+        health.findings
+    );
+}

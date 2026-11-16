@@ -244,8 +244,8 @@ because landing rebases or cherry-picks it.
                               change or condition (`builds item wait N --on
                               REF`); note never refuses it for an app
                               checkout, which runs no item
-  builds release <checkout>   remove its claim; refused while an item runs in
-                              the worktree
+  builds release <checkout>   remove its claim; refused while an item of any
+                              project runs in the worktree
   builds retire <checkout>    remove a clean, unclaimed side worktree and its
                               build root; refuses an app checkout
 

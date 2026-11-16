@@ -233,16 +233,23 @@ pub fn design_tipped(db: &Connection, id: Id, tip: &str) {
 /// The store of project `demo` over <places>, made as `lists init` and
 /// `area add` make one: areas Alpha and Beta, over repos <repos>.
 pub fn make_store(places: &crate::places::Places, repos: &[&str]) -> Store {
-    let store = Store::named(places, "demo").unwrap();
+    make_store_named(places, "demo", repos)
+}
+
+/// `make_store` for a project named <name>.
+pub fn make_store_named(places: &crate::places::Places, name: &str, repos: &[&str]) -> Store {
+    let store = Store::named(places, name).unwrap();
     let new = NewProject {
-        name: "demo".into(),
+        name: name.into(),
         canvas: true,
         repos: repos.iter().map(|r| r.to_string()).collect(),
         places: BTreeMap::new(),
         sources: BTreeMap::new(),
         specs: BTreeMap::new(),
     };
-    store.create(&new, &stamp(NOON), "lists init demo").unwrap();
+    store
+        .create(&new, &stamp(NOON), &format!("lists init {name}"))
+        .unwrap();
     store
         .write(&stamp(NOON), "area add Alpha", |db| {
             add_area(db, "Alpha", None)
