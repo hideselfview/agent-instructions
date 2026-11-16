@@ -416,18 +416,34 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 /// `item drop N --why WHY`: closes the item as dropped. When it runs or is
-/// parked, the drop throws its work away in the same step: it records each
-/// worktree's branch, the commits origin/main lacks and the files not
-/// committed on the closed item, then detaches the worktree at origin/main,
-/// discards its changes, deletes the branch and removes its claim
-/// (lists/dropped.rs). Git runs inside the store's write, after the whole
-/// state passes its check, so a git failure leaves the item open.
+/// parked, the drop throws its work away: one store write closes the item
+/// and records each worktree's branch, the commits origin/main lacks and the
+/// files not committed, and then the drop detaches each worktree at
+/// origin/main, discards its changes, deletes the branch and removes its
+/// claim (lists/dropped.rs). The record comes first because a rollback
+/// can't undo git: when git fails, the drop names the failure and the
+/// command to run again, and a drop of an item closed as dropped throws away
+/// what is left of its recorded work, since each git step does nothing to
+/// work already thrown away.
 fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["why"], &[])?;
     let id = one_id(&args, "builds item drop N --why WHY")?;
     let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    if let Some(crate::lists::Closed {
+        record: crate::lists::Record::Item(item),
+        how: How::Dropped(_),
+        ..
+    }) = store.load()?.closed_record(id)
+        && !item.dropped.is_empty()
+    {
+        discard_all(id, &item.dropped)?;
+        note(format!(
+            "{id} is closed as dropped already; threw away the rest of the work it held"
+        ));
+        return Ok(());
+    }
     let works = store.write(&stamp, &format!("item drop {id}"), |db| {
         let lists = store::read(db)?;
         require_can_leave(&lists, id, "drop", true)?;
@@ -444,12 +460,9 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         parked::end(db, id)?;
         close(db, id, How::Dropped(why.clone()), &stamp)?;
         dropped::record(db, id, &works)?;
-        crate::lists::store::require_no_faults(db, &store.project)?;
-        for work in &works {
-            dropped::discard(work)?;
-        }
         Ok(works)
     })?;
+    discard_all(id, &works)?;
     for work in &works {
         note(format!(
             "threw away the work in {} on {}: {} and {}",
@@ -464,6 +477,22 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         ));
     }
     note(format!("dropped {id}"));
+    Ok(())
+}
+
+/// Throws away <works>, the recorded work of dropped item <id>; a failure
+/// names the drop to run again.
+fn discard_all(id: Id, works: &[dropped::DroppedWork]) -> Result<()> {
+    for work in works {
+        if let Err(error) = dropped::discard(work) {
+            fail!(
+                "{id} is dropped and its work recorded, but throwing away the work in {} failed: {}; run `builds item drop {} --why WHY` again once that is fixed",
+                work.worktree,
+                error.text(),
+                id.0
+            );
+        }
+    }
     Ok(())
 }
 

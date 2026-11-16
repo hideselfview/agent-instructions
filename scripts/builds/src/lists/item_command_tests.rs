@@ -862,6 +862,57 @@ fn drop_throws_away_a_parked_items_work() {
     );
 }
 
+/// When git fails to throw the work away, the drop has already closed the
+/// item and recorded the work, keeps the worktree's claim, and says to run
+/// the drop again; the second drop throws away the rest.
+#[test]
+fn a_drop_that_git_fails_keeps_its_record_and_finishes_when_run_again() {
+    let demo = demo("item-drop-again");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let brief = demo.brief("b.md");
+    add(&demo, FIVE, &[]).unwrap();
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+    let sha = demo.commit(&side, "unlanded");
+    let checkout = Checkout::find(&side_arg).unwrap();
+    // git refuses to check anything out while another command holds the
+    // worktree's index.
+    let lock = checkout.git_dir.join("index.lock");
+    std::fs::write(&lock, "").unwrap();
+    let said = refusal(item(&demo, &["drop", "1", "--why", "not wanted"]));
+    assert!(
+        said.contains("#1 is dropped and its work recorded")
+            && said.contains("builds item drop 1 --why WHY"),
+        "{said}"
+    );
+    let lists = open(&demo);
+    assert!(lists.items.is_empty(), "the drop left the item open");
+    let Closed {
+        record: Record::Item(dropped),
+        ..
+    } = &lists.closed[0]
+    else {
+        panic!("{:?}", lists.closed)
+    };
+    assert_eq!(dropped.dropped[0].commits[0].sha, sha);
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_some(),
+        "the worktree lost its claim before its work was thrown away"
+    );
+
+    std::fs::remove_file(&lock).unwrap();
+    item(&demo, &["drop", "1", "--why", "not wanted"]).unwrap();
+    assert_eq!(checkout.branch().unwrap(), None);
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(open(&demo).closed.len(), 1);
+}
+
 /// A drop refused for another reason changes nothing in git: the branch and
 /// the files stay.
 #[test]

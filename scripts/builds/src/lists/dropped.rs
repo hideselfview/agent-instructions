@@ -1,10 +1,11 @@
 //! The work an item held when the person dropped it. Dropping an item that
 //! runs or is parked throws its work away (`builds item drop`): the drop
 //! records each worktree's branch, the commits on it and on HEAD that
-//! origin/main lacks and the files that were not committed, then detaches the
-//! worktree at origin/main, discards its changes, deletes the branch and
-//! removes the worktree's claim, all inside the store's write, so a git
-//! failure leaves the item open and the record unwritten.
+//! origin/main lacks and the files that were not committed, and after the
+//! store's write commits, it detaches the worktree at origin/main, discards
+//! its changes, deletes the branch and removes the worktree's claim. Each
+//! git step does nothing to work already thrown away, so the person can run
+//! a drop that git failed again.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -228,10 +229,12 @@ pub fn read_all(db: &Connection) -> Result<BTreeMap<Id, Vec<DroppedWork>>> {
 /// Throws <work> away: detaches its worktree at origin/main, discarding the
 /// files not committed (ignored files, such as the build links, stay),
 /// deletes its branch and removes the worktree's claim. The worktree is then
-/// free.
+/// free. The claim goes last, so no one takes the worktree before the rest
+/// is done; a second run after a failure does again only what is left.
 pub fn discard(work: &DroppedWork) -> Result<()> {
     let (_, main) = main_of(&work.worktree)?;
-    if let Some(checkout) = crate::lists::running::live_worktree(&work.worktree)? {
+    let live = crate::lists::running::live_worktree(&work.worktree)?;
+    if let Some(checkout) = &live {
         git_text(
             git(&checkout.top).args([
                 "-c",
@@ -248,13 +251,15 @@ pub fn discard(work: &DroppedWork) -> Result<()> {
             git(&checkout.top).args(["clean", "-f", "-d", "-q"]),
             "remove the files not committed",
         )?;
-        forget_claim(&checkout)?;
     }
     if branch_exists(&main, &work.branch)? {
         git_text(
             git(&main).args(["branch", "-q", "-D", &work.branch]),
             "delete the branch",
         )?;
+    }
+    if let Some(checkout) = &live {
+        forget_claim(checkout)?;
     }
     Ok(())
 }

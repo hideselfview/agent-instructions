@@ -209,13 +209,6 @@ fn commit<T>(
     Ok(result)
 }
 
-/// Refuses the state of <db> when it fails the whole-state check, as a
-/// write's end does: for a write that must know the state holds before it
-/// does something that its rollback can't undo.
-pub fn require_no_faults(db: &Connection, project: &str) -> Result<()> {
-    refuse_faults(project, &faults(db, project)?)
-}
-
 fn refuse_faults(project: &str, found: &[String]) -> Result<()> {
     if found.is_empty() {
         return Ok(());

@@ -237,18 +237,20 @@ runs in (plans are in no commit); an absolute path is itself.
       wait on it, as a landed item does.
 
   builds item drop N --why WHY | builds item defer N --issue URL
-      Refused while an open item waits on the item (the message names them
-      and the `item wait --off` that frees each), or when it is the last item
-      an open question blocks. defer is also refused while the item runs or
-      is parked, and needs an open GitHub issue. Dropping an item is the
-      person throwing its work away: for each worktree the item runs or is
-      parked in, drop records on the closed item the branch, the commits on it
-      and on HEAD that origin/main lacks and the files not committed, then
+      drop and defer refuse an item while an open item waits on it (the
+      message names them and the `item wait --off` that frees each), or when
+      it is the last item an open question blocks. defer also refuses an item
+      that runs or is parked, and needs an open GitHub issue. Dropping an item
+      is the person throwing its work away. For each worktree the item runs or
+      is parked in, drop first closes the item and records on it the branch,
+      the commits on it and on HEAD that origin/main lacks and the files not
+      committed, in one store write that saves all of it or none. Then drop
       detaches the worktree at origin/main, discards those files (ignored ones
-      stay), deletes the branch and removes the worktree's claim, all in one
-      step that either commits whole or fails. `item show` prints what a
-      dropped item held, and git keeps the commits until it removes
-      unreachable objects.
+      stay), deletes the branch and, last, removes the worktree's claim. When
+      git fails, drop says what failed; running the same drop again throws
+      away the rest of the recorded work. `item show` prints what a dropped
+      item held, and git keeps the commits until it removes unreachable
+      objects.
 
   builds item place N first|last|none --why WHY
       Sets an open item's priority as `item add --priority` does: first goes
