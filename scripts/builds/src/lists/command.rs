@@ -14,7 +14,7 @@ use crate::lists::{Stamp, show};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists add-repo PROJECT REPO [--by WHO]\n       builds lists design-globs PROJECT [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists show [--json | --tag T] [--project P]\n       builds lists project-of DIR";
+const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--canvas yes|no] [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists add-repo PROJECT REPO [--by WHO]\n       builds lists design-globs PROJECT [--canvas yes|no] [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists show [--json | --tag T] [--project P]\n       builds lists project-of DIR";
 
 pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
@@ -34,7 +34,13 @@ pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
 fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(
         args,
-        &["repos", "design-places", "design-sources", "spec-files"],
+        &[
+            "repos",
+            "canvas",
+            "design-places",
+            "design-sources",
+            "spec-files",
+        ],
         &[],
     )?;
     let [project] = args.exactly(1, USAGE)? else {
@@ -52,6 +58,7 @@ fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     };
     let new = NewProject {
         name: project.to_string(),
+        canvas: canvas(&args)?.unwrap_or(false),
         repos,
         places: globs("design-places")?.unwrap_or_default(),
         sources: globs("design-sources")?.unwrap_or_default(),
@@ -88,12 +95,24 @@ fn add_repo(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
+/// `--canvas yes|no`: whether the project publishes its boards as a
+/// claude.ai canvas; None when the flag is not given.
+fn canvas(args: &Args) -> Result<Option<bool>> {
+    match args.value("canvas")? {
+        None => Ok(None),
+        Some("yes") => Ok(Some(true)),
+        Some("no") => Ok(Some(false)),
+        Some(other) => fail!("--canvas is yes or no, not {other:?}"),
+    }
+}
+
 /// `lists design-globs PROJECT`: sets the design globs of each kind given,
-/// for each repo that kind names, in a store that exists.
+/// for each repo that kind names, and whether the project publishes its
+/// boards as a canvas, in a store that exists.
 fn design_globs(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(
         args,
-        &["design-places", "design-sources", "spec-files"],
+        &["canvas", "design-places", "design-sources", "spec-files"],
         &[],
     )?;
     let [project] = args.exactly(1, USAGE)? else {
@@ -109,12 +128,18 @@ fn design_globs(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             given.push((kind, parse_globs(flag, text)?));
         }
     }
-    if given.is_empty() {
-        fail!("design-globs needs --design-places, --design-sources or --spec-files\n{USAGE}");
+    let canvas = canvas(&args)?;
+    if given.is_empty() && canvas.is_none() {
+        fail!(
+            "design-globs needs --canvas, --design-places, --design-sources or --spec-files\n{USAGE}"
+        );
     }
     let store = Store::named(&tool.places, project)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, &format!("lists design-globs {project}"), |db| {
+        if let Some(canvas) = canvas {
+            project::set_canvas(db, canvas)?;
+        }
         given
             .iter()
             .try_for_each(|(kind, globs)| project::set_design_globs(db, *kind, globs))

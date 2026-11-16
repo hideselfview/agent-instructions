@@ -4,12 +4,16 @@ use crate::lists::fixtures::{Refusals, row, v};
 #[test]
 fn every_named_constraint_of_the_projects_tables_refuses_its_row() {
     let db = crate::db::memory();
-    let project = [("singleton", v(1)), ("name", v("demo"))];
+    let project = [("singleton", v(1)), ("name", v("demo")), ("canvas", v(0))];
     plant(&db, "project", &project).unwrap();
     let mut refused = Refusals::new(include_str!("project.sql"));
     refused.check(
         "project_is_single",
         plant(&db, "project", &row(&project, &[("singleton", v(2))])),
+    );
+    refused.check(
+        "project_canvas_is_yes_or_no",
+        plant(&db, "project", &row(&project, &[("canvas", v(2))])),
     );
     for name in ["", ".hidden", "a/b", "a b", "é"] {
         refused.check(
@@ -48,6 +52,7 @@ fn a_glob_is_a_set_and_names_a_repo_of_the_project() {
         &db,
         &NewProject {
             name: "demo".into(),
+            canvas: false,
             repos: vec!["bae".into()],
             places: parse_globs("design-places", "bae:a,bae:a,bae:b").unwrap(),
             sources: Globs::new(),

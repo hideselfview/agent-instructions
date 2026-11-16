@@ -287,6 +287,7 @@ pub fn read(db: &Connection) -> Result<Lists> {
     let areas = area::areas(db)?;
     let mut lists = Lists {
         project: project.name,
+        canvas: project.canvas,
         repos: project.repos,
         design_places: project.places,
         design_sources: project.sources,

@@ -280,7 +280,41 @@ fn design_globs_sets_the_globs_of_an_existing_store() {
         ))
         .contains("repo forage, which is not one of the project's")
     );
-    assert!(refusal(run(&tool, "design-globs bae")).contains("needs --design-places"));
+    assert!(refusal(run(&tool, "design-globs bae")).contains("needs --canvas, --design-places"));
+
+    // A project publishes no canvas until it says so, and --canvas alone
+    // changes only that.
+    let canvas = || {
+        Store::named(&tool.places, "bae")
+            .unwrap()
+            .load()
+            .unwrap()
+            .canvas
+    };
+    assert!(!canvas());
+    run(&tool, "design-globs bae --canvas yes --by tester").unwrap();
+    assert!(canvas());
+    assert_eq!(
+        Store::named(&tool.places, "bae")
+            .unwrap()
+            .load()
+            .unwrap()
+            .design_places["bae"],
+        ["design/mocks/*.html"]
+    );
+    run(&tool, "design-globs bae --canvas no --by tester").unwrap();
+    assert!(!canvas());
+    assert!(
+        refusal(run(&tool, "design-globs bae --canvas maybe")).contains("--canvas is yes or no")
+    );
+    run(&tool, "init drawn --repos web --canvas yes --by tester").unwrap();
+    assert!(
+        Store::named(&tool.places, "drawn")
+            .unwrap()
+            .load()
+            .unwrap()
+            .canvas
+    );
     assert!(
         refusal(run(&tool, "design-globs nobody --spec-files bae:spec/*.md")).contains("nobody")
     );

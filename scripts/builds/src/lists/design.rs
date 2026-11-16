@@ -106,7 +106,8 @@ pub struct DesignChange {
     /// Each design place the change touches, or a component a shared source
     /// changes the drawing of, and how it is resolved.
     pub places: BTreeMap<String, Resolution>,
-    /// Each board place's canvas link, by the board's path.
+    /// Each board place's canvas link, by the board's path; none in a
+    /// project that publishes no canvas.
     pub boards: BTreeMap<String, Board>,
     /// The board files the change deletes: they need no answer or link, and
     /// the review page names them without a drawing.
@@ -161,7 +162,8 @@ pub struct DesignRequest {
     /// changed shared source changes the drawing of.
     #[serde(default)]
     pub places: BTreeMap<String, PlaceAnswer>,
-    /// Each board place's canvas link.
+    /// Each board place's canvas link, which a project that publishes a
+    /// canvas gives for every board and any other project leaves out.
     #[serde(default)]
     pub boards: BTreeMap<String, Board>,
     /// How the review page reads: headings, the words under each, and its
@@ -281,6 +283,13 @@ fn resolve(
         };
         resolutions.insert(path.clone(), resolution);
     }
+    let mut held = store::read(db)?;
+    if !held.canvas && !request.boards.is_empty() {
+        fail!(
+            "project {} publishes no canvas, so its design changes take no canvas links; leave out `boards`",
+            held.project
+        );
+    }
     for (path, board) in &request.boards {
         if PlaceKind::of(path) != PlaceKind::Board {
             fail!("`boards` names {path}, which is no board file");
@@ -292,7 +301,7 @@ fn resolve(
     if let Some(review) = &request.review {
         check_review(review)?;
     }
-    let mut held = store::read(db)?;
+    let canvas = held.canvas;
     let Some(at) = held.designs.iter().position(|d| d.id == id) else {
         fail!("{id} is not an open design change")
     };
@@ -336,7 +345,7 @@ fn resolve(
         .filter(|p| PlaceKind::of(p) == PlaceKind::Board && !design.boards.contains_key(*p))
         .map(String::as_str)
         .collect();
-    if !unlinked.is_empty() {
+    if canvas && !unlinked.is_empty() {
         fail!(
             "boards without a canvas link: {}; give each under `boards` as {{\"link\": CANVAS_URL}}",
             unlinked.join(", ")

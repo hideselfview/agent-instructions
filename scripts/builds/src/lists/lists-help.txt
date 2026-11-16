@@ -369,7 +369,9 @@ sent again.
       refused beside a listed component or a changed board or component.
       Shared files that are no source (a README, a build script) change no
       drawing: only `no_app_place`, unless a place is resolved.
-      `boards` gives every board place its canvas link.
+      `boards` gives every board place its canvas link in a project that
+      publishes a canvas (`lists design-globs --canvas yes`); a request of
+      any other project has no `boards`, and its change holds no links.
       `fix` says what a change that changes no design fixes: boards made to
       follow the design system's measures, or a drawing mistake corrected.
       Such a change needs no `review` and is approved when recorded. An amend
@@ -393,7 +395,9 @@ sent again.
       size in design/mocks/canvas.json.
       Refused, naming each, when a changed place is left unresolved, an
       answer names a place the range does not change, `matches` has no how,
-      an item is closed or missing, a board has no link, `review` is missing,
+      an item is closed or missing, a board of a project that publishes a
+      canvas has no link, a project that publishes none gives `boards`,
+      `review` is missing,
       empty or has a heading with no text, a board of it is no file, no board
       place or has no caption, a board of the change is not on it, or the
       range changes no design files.
@@ -458,20 +462,25 @@ sent again.
 
 PROJECTS
 
-  builds lists init PROJECT --repos R,R [--design-places R:GLOB,...]
-                    [--design-sources R:GLOB,...] [--spec-files R:GLOB,...]
-                    [--by WHO]
+  builds lists init PROJECT --repos R,R [--canvas yes|no]
+                    [--design-places R:GLOB,...] [--design-sources R:GLOB,...]
+                    [--spec-files R:GLOB,...] [--by WHO]
       Makes the project's store. --repos names the repo folders the project
-      covers, as their main checkouts' folders. --design-places,
-      --design-sources and --spec-files give each repo's design files, one
-      REPO:GLOB each (DESIGN CHANGES, above). Refused when the store exists.
+      covers, as their main checkouts' folders. --canvas yes says the
+      project publishes its boards as a claude.ai canvas, so its design
+      changes give each board's canvas link; without it the project
+      publishes none. --design-places, --design-sources and --spec-files
+      give each repo's design files, one REPO:GLOB each (DESIGN CHANGES,
+      above). Refused when the store exists.
 
-  builds lists design-globs PROJECT [--design-places R:GLOB,...]
-                    [--design-sources R:GLOB,...] [--spec-files R:GLOB,...]
-                    [--by WHO]
+  builds lists design-globs PROJECT [--canvas yes|no]
+                    [--design-places R:GLOB,...] [--design-sources R:GLOB,...]
+                    [--spec-files R:GLOB,...] [--by WHO]
       Sets the design files of a project whose store exists, with the same
-      REPO:GLOB entries as init. Each flag given replaces that kind's globs
-      for each repo it names; the other kinds and repos keep theirs. `builds
+      REPO:GLOB entries as init, and with --canvas whether the project
+      publishes its boards as a canvas (bae does; builds does not). Each
+      glob flag given replaces that kind's globs for each repo it names; the
+      other kinds and repos keep theirs. `builds
       health` names a repo whose main checkout has a design folder and that
       no project gives --design-places globs, since the design session cannot
       record a design change in that repo. A repo two projects hold needs

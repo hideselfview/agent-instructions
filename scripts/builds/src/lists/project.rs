@@ -1,7 +1,8 @@
-//! The project: its name, the repos its lists cover, and each repo's globs
-//! for design places, design-system sources and spec files. These are the
-//! writes of the tables in project.sql; `command` is `lists init`,
-//! `lists add-repo` and `lists design-globs` around them.
+//! The project: its name, whether it publishes its boards as a canvas, the
+//! repos its lists cover, and each repo's globs for design places,
+//! design-system sources and spec files. These are the writes of the tables
+//! in project.sql; `command` is `lists init`, `lists add-repo` and
+//! `lists design-globs` around them.
 
 use std::collections::BTreeMap;
 
@@ -17,6 +18,8 @@ pub type Globs = BTreeMap<String, Vec<String>>;
 /// What a project is made of when it is made.
 pub struct NewProject {
     pub name: String,
+    /// Does the project publish its boards as a claude.ai canvas?
+    pub canvas: bool,
     pub repos: Vec<String>,
     pub places: Globs,
     pub sources: Globs,
@@ -106,8 +109,8 @@ pub fn init(db: &Connection, new: &NewProject) -> Result<()> {
         );
     }
     db.execute(
-        "INSERT INTO project (singleton, name) VALUES (1, ?1)",
-        [&new.name],
+        "INSERT INTO project (singleton, name, canvas) VALUES (1, ?1, ?2)",
+        params![new.name, new.canvas],
     )
     .sql()?;
     for repo in &new.repos {
@@ -240,9 +243,38 @@ pub fn name(db: &Connection) -> Result<String> {
     }
 }
 
+/// Sets whether the project publishes its boards as a claude.ai canvas.
+pub fn set_canvas(db: &Connection, canvas: bool) -> Result<()> {
+    name(db)?;
+    db.execute("UPDATE project SET canvas = ?1", [canvas])
+        .sql()?;
+    Ok(())
+}
+
+/// Makes the `project` table again as project.sql writes it today, with
+/// `canvas`, and copies the project's row into it. A project publishes a
+/// canvas when one of its design changes holds a canvas link: bae's do, and
+/// no other project's. The statement comes from project.sql, so the table
+/// equals a fresh database's. migrate.rs runs this with the foreign keys off.
+pub fn move_to_canvas(db: &Connection) -> Result<()> {
+    const SQL: &str = include_str!("project.sql");
+    db.execute_batch(&format!(
+        "PRAGMA legacy_alter_table = ON;
+ALTER TABLE project RENAME TO project_old;
+{}
+INSERT INTO project (singleton, name, canvas)
+    SELECT singleton, name, EXISTS (SELECT 1 FROM design_board) FROM project_old;
+DROP TABLE project_old;
+PRAGMA legacy_alter_table = OFF;",
+        crate::db::statement(SQL, "CREATE TABLE project (", "STRICT;"),
+    ))
+    .sql()
+}
+
 /// What the project's tables hold.
 pub struct Read {
     pub name: String,
+    pub canvas: bool,
     pub repos: Vec<String>,
     pub places: Globs,
     pub sources: Globs,
@@ -251,6 +283,9 @@ pub struct Read {
 
 pub fn read(db: &Connection) -> Result<Read> {
     let name = name(db)?;
+    let canvas = db
+        .query_row("SELECT canvas FROM project", [], |row| row.get(0))
+        .sql()?;
     let mut statement = db.prepare("SELECT name FROM repo ORDER BY name").sql()?;
     let repos: Vec<String> = statement
         .query_map([], |row| row.get(0))
@@ -286,6 +321,7 @@ pub fn read(db: &Connection) -> Result<Read> {
     }
     Ok(Read {
         name,
+        canvas,
         repos,
         places: globs.remove("place").unwrap_or_default(),
         sources: globs.remove("source").unwrap_or_default(),

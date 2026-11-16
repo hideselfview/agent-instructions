@@ -201,6 +201,7 @@ fn record_and_amend_keep_the_recording_sessions_inbox() {
         .create(
             &NewProject {
                 name: "demo".into(),
+                canvas: true,
                 repos: vec!["bae".into(), "coven".into()],
                 places: globs(&["design/mocks/*.dc.html"]),
                 sources: globs(&["design/system/tokens.css"]),

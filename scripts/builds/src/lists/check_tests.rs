@@ -37,6 +37,7 @@ fn a_project_without_repos_is_a_fault() {
         &db,
         &crate::lists::project::NewProject {
             name: "demo".into(),
+            canvas: false,
             repos: vec![],
             places: Default::default(),
             sources: Default::default(),

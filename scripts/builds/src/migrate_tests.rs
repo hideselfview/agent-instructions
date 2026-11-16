@@ -142,7 +142,7 @@ fn plant_run(conn: &Connection) {
 /// The schema's text before `design_tip`: today's without that table and the
 /// comment above it.
 fn schema_before_design_tip() -> String {
-    let schema = without_design_fix(db::schema_before_app_timing());
+    let schema = without_design_fix(without_canvas(db::schema_before_app_timing()));
     let from = schema
         .find("\n-- The last commit of the range")
         .expect("the table's comment");
@@ -386,8 +386,10 @@ fn store_before_app_timing(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&without_design_fix(db::schema_before_app_timing()))
-        .unwrap();
+    conn.execute_batch(&without_design_fix(without_canvas(
+        db::schema_before_app_timing(),
+    )))
+    .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_APP_TIMING_STAMP)
         .unwrap();
     plant_run(&conn);
@@ -414,7 +416,9 @@ fn a_store_from_before_app_timings_gains_their_tables_keeps_its_runs_and_equals_
 #[test]
 fn the_app_timing_stamp_is_the_schema_before_app_timings() {
     assert_eq!(
-        db::stamp_of_text(&without_design_fix(db::schema_before_app_timing())),
+        db::stamp_of_text(&without_design_fix(without_canvas(
+            db::schema_before_app_timing()
+        ))),
         BEFORE_APP_TIMING_STAMP
     );
 }
@@ -425,8 +429,10 @@ fn store_before_design_session(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&without_design_fix(db::schema_before_design_session()))
-        .unwrap();
+    conn.execute_batch(&without_design_fix(without_canvas(
+        db::schema_before_design_session(),
+    )))
+    .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_DESIGN_SESSION_STAMP)
         .unwrap();
     plant_run(&conn);
@@ -454,7 +460,9 @@ fn a_store_from_before_design_sessions_gains_their_table_keeps_its_runs_and_equa
 #[test]
 fn the_design_session_stamp_is_the_schema_before_design_sessions() {
     assert_eq!(
-        db::stamp_of_text(&without_design_fix(db::schema_before_design_session())),
+        db::stamp_of_text(&without_design_fix(without_canvas(
+            db::schema_before_design_session()
+        ))),
         BEFORE_DESIGN_SESSION_STAMP
     );
 }
@@ -465,8 +473,10 @@ fn store_before_shot_findings(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&without_design_fix(db::schema_before_shot_findings()))
-        .unwrap();
+    conn.execute_batch(&without_design_fix(without_canvas(
+        db::schema_before_shot_findings(),
+    )))
+    .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_SHOT_FINDINGS_STAMP)
         .unwrap();
     plant_run(&conn);
@@ -493,7 +503,9 @@ fn a_store_from_before_shot_findings_gains_their_table_keeps_its_runs_and_equals
 #[test]
 fn the_shot_findings_stamp_is_the_schema_before_shot_findings() {
     assert_eq!(
-        db::stamp_of_text(&without_design_fix(db::schema_before_shot_findings())),
+        db::stamp_of_text(&without_design_fix(without_canvas(
+            db::schema_before_shot_findings()
+        ))),
         BEFORE_SHOT_FINDINGS_STAMP
     );
 }
@@ -504,8 +516,10 @@ fn store_before_review(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&without_design_fix(db::schema_before_review()))
-        .unwrap();
+    conn.execute_batch(&without_design_fix(without_canvas(
+        db::schema_before_review(),
+    )))
+    .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_REVIEW_STAMP)
         .unwrap();
     plant_run(&conn);
@@ -540,7 +554,9 @@ fn a_store_from_before_the_review_gains_its_tables_keeps_its_runs_and_equals_a_f
 #[test]
 fn the_review_stamp_is_the_schema_before_the_review() {
     assert_eq!(
-        db::stamp_of_text(&without_design_fix(db::schema_before_review())),
+        db::stamp_of_text(&without_design_fix(without_canvas(
+            db::schema_before_review()
+        ))),
         BEFORE_REVIEW_STAMP
     );
 }
@@ -1677,7 +1693,147 @@ fn without_check_starts(schema: String) -> String {
 /// recorded cargo runs. Each test helper for an older schema starts from this
 /// text.
 fn schema_before_check_starts() -> String {
-    without_check_starts(db::schema())
+    without_check_starts(schema_before_canvas())
+}
+
+/// <schema> as its text read before a project said whether it publishes its
+/// boards as a canvas: project.sql without `canvas`.
+fn without_canvas(schema: String) -> String {
+    let mut old = schema;
+    for (now, then) in [
+        (
+            "-- The project: its name, whether it publishes its boards as a canvas, the
+-- repos its lists cover, and each repo's globs for design places,
+-- design-system sources and spec files. project.rs owns these tables and is
+-- the only code that writes them.
+",
+            "-- The project: its name, the repos its lists cover, and each repo's globs for
+-- design places, design-system sources and spec files. project.rs owns these
+-- tables and is the only code that writes them.
+",
+        ),
+        (
+            "    ),
+    -- 1 when the project publishes its boards as a claude.ai canvas: each of
+    -- its design changes gives every board's canvas link, and landing one
+    -- ends with publishing the canvas. 0 when its boards stay in the repo.
+    canvas INTEGER NOT NULL CONSTRAINT project_canvas_is_yes_or_no CHECK (canvas IN (0, 1))
+) STRICT;",
+            "    )
+) STRICT;",
+        ),
+    ] {
+        assert_eq!(old.matches(now).count(), 1, "{now}");
+        old = old.replace(now, then);
+    }
+    old
+}
+
+/// The schema text before a project said whether it publishes a canvas.
+fn schema_before_canvas() -> String {
+    without_canvas(db::schema())
+}
+
+#[test]
+fn the_canvas_stamp_is_the_schema_before_canvas() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_canvas()),
+        BEFORE_CANVAS_STAMP
+    );
+}
+
+/// Makes a store of project <name> in <places> with the schema from before
+/// a project said whether it publishes a canvas, holding one design change
+/// with a canvas link when <linked>.
+fn store_before_canvas(places: &Places, name: &str, linked: bool) -> std::path::PathBuf {
+    let dir = places.lists.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&schema_before_canvas()).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_CANVAS_STAMP)
+        .unwrap();
+    let text = |t: &str| rusqlite::types::Value::Text(t.to_string());
+    crate::lists::project::plant(
+        &conn,
+        "project",
+        &[("singleton", 1.into()), ("name", text(name))],
+    )
+    .unwrap();
+    if linked {
+        crate::lists::project::plant(&conn, "repo", &[("name", text(name))]).unwrap();
+        crate::lists::record::plant(
+            &conn,
+            "record",
+            &[
+                ("id", 1.into()),
+                ("kind", text("design")),
+                ("opened_at", 1.into()),
+                ("opened_by", text("tester")),
+            ],
+        )
+        .unwrap();
+        crate::lists::design::plant(
+            &conn,
+            "design",
+            &[
+                ("id", 1.into()),
+                ("title", text("A design change")),
+                ("details", text("d")),
+                ("repo", text(name)),
+                ("worktree", text("/d/wt")),
+            ],
+        )
+        .unwrap();
+        crate::lists::design::plant(
+            &conn,
+            "design_place",
+            &[
+                ("design_id", 1.into()),
+                ("path", text("design/mocks/A.dc.html")),
+                ("matches", text("the app draws it")),
+            ],
+        )
+        .unwrap();
+        crate::lists::design::plant(
+            &conn,
+            "design_board",
+            &[
+                ("design_id", 1.into()),
+                ("path", text("design/mocks/A.dc.html")),
+                ("link", text("https://canvas.example/#A")),
+            ],
+        )
+        .unwrap();
+    }
+    path
+}
+
+/// A store from before a project said whether it publishes a canvas gets
+/// `canvas`: set when one of its design changes holds a canvas link, clear
+/// otherwise, and the store equals a fresh schema.
+#[test]
+fn a_store_from_before_canvas_publishes_one_only_when_its_changes_hold_a_link() {
+    let scratch = Scratch::new("move-canvas");
+    let places = scratch.places();
+    let linked = store_before_canvas(&places, "bae", true);
+    let unlinked = store_before_canvas(&places, "builds", false);
+    migrate_stores(&places).unwrap();
+    for (path, canvas) in [(linked, true), (unlinked, false)] {
+        let conn = db::open_reader(&path)
+            .unwrap()
+            .expect("opens under today's stamp");
+        assert_eq!(
+            db::schema_rows(&conn).unwrap(),
+            db::schema_rows(&db::memory()).unwrap()
+        );
+        assert_eq!(
+            crate::lists::project::read(&conn).unwrap().canvas,
+            canvas,
+            "{}",
+            path.display()
+        );
+    }
 }
 
 #[test]

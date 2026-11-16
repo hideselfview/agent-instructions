@@ -32,6 +32,7 @@ pub fn db() -> Connection {
         &db,
         &NewProject {
             name: "demo".into(),
+            canvas: true,
             repos: vec!["bae".into(), "coven".into()],
             places: BTreeMap::new(),
             sources: BTreeMap::new(),
@@ -235,6 +236,7 @@ pub fn make_store(places: &crate::places::Places, repos: &[&str]) -> Store {
     let store = Store::named(places, "demo").unwrap();
     let new = NewProject {
         name: "demo".into(),
+        canvas: true,
         repos: repos.iter().map(|r| r.to_string()).collect(),
         places: BTreeMap::new(),
         sources: BTreeMap::new(),

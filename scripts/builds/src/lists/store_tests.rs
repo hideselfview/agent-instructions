@@ -34,6 +34,7 @@ fn held(store: &Store) -> String {
 fn new_project(repos: &[&str]) -> NewProject {
     NewProject {
         name: "demo".into(),
+        canvas: false,
         repos: repos.iter().map(|r| r.to_string()).collect(),
         places: Default::default(),
         sources: Default::default(),

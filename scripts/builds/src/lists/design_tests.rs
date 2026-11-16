@@ -39,6 +39,7 @@ fn world(name: &str) -> World {
     };
     let new = NewProject {
         name: "demo".into(),
+        canvas: true,
         repos: vec!["bae".into(), "coven".into()],
         places: globs(&["design/mocks/*.dc.html", "design/system/components/*/"]),
         sources: globs(&[
@@ -874,6 +875,40 @@ fn an_amend_clears_the_approval_and_says_so() {
         )
         .unwrap();
     assert!(!again.contains("approval is cleared"), "{again}");
+}
+
+/// A project that publishes no canvas records a change with no canvas
+/// links, refuses one that gives a link, and lands it.
+#[test]
+fn a_project_with_no_canvas_records_and_lands_a_change_with_no_links() {
+    let w = world("design-no-canvas");
+    w.store
+        .write(&stamp(NOON), "lists design-globs demo", |db| {
+            crate::lists::project::set_canvas(db, false)
+        })
+        .unwrap();
+    let sha = w.commit(&["design/mocks/A.dc.html"]);
+    let board = "design/mocks/A.dc.html";
+    let linked = base_request(&w, json!({ board: { "matches": "x" } }));
+    let before = w.bytes();
+    let refused = message(w.request(linked.clone()));
+    assert!(
+        refused.contains("project demo publishes no canvas") && refused.contains("`boards`"),
+        "{refused}"
+    );
+    assert_eq!(w.bytes(), before, "a refused record writes nothing");
+    let mut request = linked;
+    request.as_object_mut().unwrap().remove("boards");
+    w.request(request).unwrap();
+    let state = w.state();
+    assert!(state.designs[0].boards.is_empty());
+    assert_eq!(state.designs[0].review[0].boards[0].board, board);
+    w.approve(1);
+    let wt = w.worktree();
+    w.run(&format!("check 1 {wt} {sha}")).unwrap();
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let out = w.run(&format!("landed 1 {wt} {sha}")).unwrap();
+    assert!(out.contains("design change #1 landed"), "{out}");
 }
 
 #[test]

@@ -188,6 +188,10 @@ const BEFORE_CHANGED_LINES_STAMP: i64 = 640_728_139;
 /// check started and recorded each `builds cargo` run.
 const BEFORE_CHECK_STARTS_STAMP: i64 = 1_449_009_981;
 
+/// The stamp of the schema before a project said whether it publishes its
+/// boards as a canvas.
+const BEFORE_CANVAS_STAMP: i64 = 865_754_034;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -223,7 +227,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// which it reads from the clone `~/dev/<repo>` of the repo its landing names,
 /// and every store gets the empty `hook_check_starts` and `builds_cargo_runs`
 /// tables (no check of an older run has its starting load, and builds has
-/// recorded no cargo run yet).
+/// recorded no cargo run yet), and every store gets `project` with `canvas`,
+/// set for a project whose design changes hold a canvas link (bae's) and
+/// clear for the rest.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -316,11 +322,12 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_FINISHED_STAMP,
         BEFORE_CHANGED_LINES_STAMP,
         BEFORE_CHECK_STARTS_STAMP,
+        BEFORE_CANVAS_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP} and {BEFORE_CHECK_STARTS_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP}, {BEFORE_CHECK_STARTS_STAMP} and {BEFORE_CANVAS_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -342,6 +349,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_FINISHED_STAMP,
         BEFORE_CHANGED_LINES_STAMP,
         BEFORE_CHECK_STARTS_STAMP,
+        BEFORE_CANVAS_STAMP,
     ]
     .contains(&found)
     {
@@ -415,6 +423,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_FINISHED_STAMP,
         BEFORE_CHANGED_LINES_STAMP,
         BEFORE_CHECK_STARTS_STAMP,
+        BEFORE_CANVAS_STAMP,
     ]
     .contains(&found)
     {
@@ -429,6 +438,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_FINISHED_STAMP,
         BEFORE_CHANGED_LINES_STAMP,
         BEFORE_CHECK_STARTS_STAMP,
+        BEFORE_CANVAS_STAMP,
     ]
     .contains(&found)
     {
@@ -437,13 +447,19 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     }
     // Only a store from before a review's patch ids left out context lines,
     // or after, has today's `closing`.
-    if ![BEFORE_CHANGED_LINES_STAMP, BEFORE_CHECK_STARTS_STAMP].contains(&found) {
+    if ![
+        BEFORE_CHANGED_LINES_STAMP,
+        BEFORE_CHECK_STARTS_STAMP,
+        BEFORE_CANVAS_STAMP,
+    ]
+    .contains(&found)
+    {
         crate::lists::record::move_to_finished(&tx)?;
     }
     // Every store this moves from before a review's patch ids left out
     // context lines holds patch ids taken with them; the move takes each
     // again without them. A store from after has today's patch ids.
-    if found != BEFORE_CHECK_STARTS_STAMP {
+    if ![BEFORE_CHECK_STARTS_STAMP, BEFORE_CANVAS_STAMP].contains(&found) {
         crate::review::record::move_to_changed_lines(&tx, |repo, shas| {
             let clone = places.home.join(crate::host::clone_path(repo));
             crate::review::commits::with_patch_ids(&clone, shas).map_err(|why| {
@@ -462,10 +478,15 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             ))
         })?;
     }
-    // No store this moves has the `hook_check_starts` or `builds_cargo_runs`
-    // tables.
-    tx.execute_batch(db::HOOK_CHECK_STARTS_PART).sql()?;
-    tx.execute_batch(db::CARGO_RUNS_PART).sql()?;
+    // A store stamped just before a project said whether it publishes a
+    // canvas already has the `hook_check_starts` and `builds_cargo_runs`
+    // tables; no older store has them.
+    if found != BEFORE_CANVAS_STAMP {
+        tx.execute_batch(db::HOOK_CHECK_STARTS_PART).sql()?;
+        tx.execute_batch(db::CARGO_RUNS_PART).sql()?;
+    }
+    // No store this moves has `canvas` on its project.
+    crate::lists::project::move_to_canvas(&tx)?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))

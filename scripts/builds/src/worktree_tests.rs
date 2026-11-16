@@ -310,6 +310,7 @@ fn a_repo_two_projects_hold_gets_no_worktree_or_claim_without_a_project() {
         .create(
             &NewProject {
                 name: "second".into(),
+                canvas: false,
                 repos: vec!["demo".into()],
                 places: Default::default(),
                 sources: Default::default(),

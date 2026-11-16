@@ -72,6 +72,9 @@ use serde::Serialize;
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Lists {
     pub project: String,
+    /// Does the project publish its boards as a claude.ai canvas? Its design
+    /// changes then give each board's canvas link.
+    pub canvas: bool,
     /// Repo directory names, as `Checkout::repo` gives them.
     pub repos: Vec<String>,
     /// Per repo, the globs of its design places: a path a commit changes

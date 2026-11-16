@@ -234,7 +234,12 @@ DESIGN CHANGES
 
 The design session lands its boards through a design change, which the person
 reviews and approves first (`builds help lists` has the record and its
-commands). A fix that changes no design (boards made to follow the design
+commands). Only bae publishes its boards as a claude.ai canvas: its design
+changes give each board's canvas link, and landing one ends with publishing
+the canvas. builds keeps its boards in the repo and publishes nothing, so its
+design changes take no canvas links and landing one has no publish step. A
+project's setting says which it does (`builds lists design-globs PROJECT
+--canvas yes|no`). A fix that changes no design (boards made to follow the design
 system's measures, a drawing mistake corrected) is recorded with `fix` instead:
 it needs no review page or approval, and lands with `--design N` like any
 other.
@@ -242,8 +247,8 @@ other.
   1. While drawing, look at a board with `builds design render`, which draws
      it from the worktree as one page of HTML without publishing the canvas.
   2. When the boards are drawn, record the change (`builds design record`):
-     what changed, each board's canvas link, and the review page's headings,
-     words and boards. The change shows in the dashboard's Waiting on you tab
+     what changed, in a project that publishes a canvas each board's canvas
+     link, and the review page's headings, words and boards. The change shows in the dashboard's Waiting on you tab
      as a card, and its Details opens the review page, which shows each board
      now and proposed side by side and draws it again on each load. To change
      the boards again, commit and run `builds design amend`, which clears an
@@ -257,8 +262,9 @@ other.
      the change. That message is the cue to land: run `builds land <worktree>
      --design N <sha>...` with the worktree where the design session drew the
      boards (the Approve button recorded the approval; never run `builds design
-     approve` for it), then publish the canvas, which only a Claude session can
-     do. When that session has ended, the next design session runs `builds
+     approve` for it), then, in a project that publishes a canvas, publish
+     the canvas, which only a Claude session can do. When that session has
+     ended, the next design session runs `builds
      land` for the change. `builds design approve N --by-person` is for an
      approval the person gives in words.
      When a rule group covers a path the commits change, `builds land`
@@ -267,9 +273,9 @@ other.
      settle each finding, fix each confirmed one in a new commit, read that
      commit against its finding, and name it with `builds review fixed`.
 
-The boards and design/mocks/canvas.json in the repo are the canvas's source.
-The published canvas and design system are copies that let anyone look at the
-landed boards. An edit made on the canvas page on claude.ai is an accident:
+In a project that publishes a canvas, the boards and design/mocks/canvas.json
+in the repo are the canvas's source. The published canvas and design system
+are copies that let anyone look at the landed boards. An edit made on the canvas page on claude.ai is an accident:
 publish the repo's version over it and merge nothing from it.
 
 
