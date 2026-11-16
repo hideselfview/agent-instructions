@@ -152,26 +152,6 @@ fn holds_use(places: &Places, kind: Kind, pid: u32) -> bool {
     !lock(&file, libc::LOCK_EX, false, &path).unwrap()
 }
 
-/// Whether the use of process <pid> has ended: its file is gone, or an
-/// exclusive lock on the file comes within `PATIENCE`. A process that a test
-/// running beside this one starts keeps the file locked for a moment after
-/// the use dropped it, until that process runs its own program.
-fn use_ended(places: &Places, kind: Kind, pid: u32) -> bool {
-    let path = kind.uses(places).join(pid.to_string());
-    let file = match File::open(&path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return true,
-        Err(error) => panic!("opening {}: {error}", path.display()),
-    };
-    let (locked, locks) = channel();
-    std::thread::spawn(move || {
-        locked
-            .send(lock(&file, libc::LOCK_EX, true, &path).unwrap())
-            .unwrap()
-    });
-    locks.recv_timeout(PATIENCE).is_ok()
-}
-
 /// A command that passes the gate holds it shared, and install waits for it
 /// without saying another install runs; a closed gate is another install's.
 #[test]
@@ -215,7 +195,7 @@ fn the_file_of_a_use_whose_process_died_holds_no_install() {
 }
 
 #[test]
-fn a_lane_holds_a_use_once_it_holds_its_lock_unless_an_install_ran_while_it_waited() {
+fn a_lane_holds_a_use_once_it_holds_its_lock_and_sees_an_install_that_ran_while_it_waited() {
     let scratch = Scratch::new("install-gate-lane");
     let places = scratch.places();
     let lane = |pid: u32| {
@@ -229,29 +209,22 @@ fn a_lane_holds_a_use_once_it_holds_its_lock_unless_an_install_ran_while_it_wait
     };
     let waiting = lane(21);
     let building = lane(22);
-    match building.hold_from_now().unwrap() {
-        FromNow::Holds(held) => {
-            assert!(
-                building.take().unwrap().is_none(),
-                "its connections take no use of their own"
-            );
-            drop(held);
-        }
-        _ => panic!("no install ran, so the lane holds its use"),
-    }
+    let held = building.hold_from_now().unwrap();
+    assert!(holds_use(&places, Kind::Command, 22));
+    assert!(
+        building.take().unwrap().is_none(),
+        "its connections take no use of their own"
+    );
+    assert!(!building.install_ran().unwrap());
+    drop(held);
     // An install runs while the other lane waits for its lock.
     drop(close(&places, &mut |_| {}).unwrap());
-    assert!(matches!(
-        waiting.hold_from_now().unwrap(),
-        FromNow::InstallRan
-    ));
+    let held = waiting.hold_from_now().unwrap();
     assert!(
-        use_ended(&places, Kind::Command, 21),
-        "the lane that runs again holds no use"
+        waiting.install_ran().unwrap(),
+        "the lane runs the installed builds in its place"
     );
-    // The installed builds, run again, holds its use.
-    assert!(matches!(
-        lane(21).hold_from_now().unwrap(),
-        FromNow::Holds(_)
-    ));
+    drop(held);
+    // The installed builds, run again, finds no install since it started.
+    assert!(!lane(21).install_ran().unwrap());
 }

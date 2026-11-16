@@ -821,16 +821,13 @@ fn run_lane(
 /// the lane waited, the lane's program writes a store of another schema, so
 /// the lane leaves the queue and runs the installed builds in its place.
 fn hold_stores(held: lock::Held, stores: &mut Option<install_gate::Use>) -> Result<lock::Held> {
-    match install_gate::hold_from_now()? {
-        install_gate::FromNow::Holds(taken) => *stores = Some(taken),
-        install_gate::FromNow::Covered => {}
-        install_gate::FromNow::InstallRan => {
-            note(
-                "builds install ran while this build waited for the lane, so this build leaves the queue and runs the installed builds program, which joins the queue again",
-            );
-            held.leave()?;
-            return Err(install_gate::run_again());
-        }
+    *stores = install_gate::hold_from_now()?;
+    if install_gate::install_ran()? {
+        note(
+            "builds install ran while this build waited for the lane, so this build leaves the queue and runs the installed builds program, which joins the queue again",
+        );
+        held.leave()?;
+        return Err(install_gate::run_again());
     }
     Ok(held)
 }

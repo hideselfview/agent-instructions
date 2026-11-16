@@ -64,8 +64,12 @@ pub fn run_again() -> Fail {
         Ok(program) => program,
         Err(error) => return Fail::Message(format!("finding this program: {error}")),
     };
+    // The program takes its own use. A process that took a use for the rest
+    // of its life (`hold_from_now`) names itself in VARIABLE, and the exec
+    // closes the use's file, which ends that use.
     let error = std::process::Command::new(&program)
         .args(std::env::args_os().skip(1))
+        .env_remove(VARIABLE)
         .exec();
     Fail::Message(format!("running {} again: {error}", program.display()))
 }
@@ -232,17 +236,6 @@ pub struct PerConnection {
     held_for_life: AtomicBool,
 }
 
-/// What `hold_from_now` found.
-pub enum FromNow {
-    /// The process holds this use for the rest of its life.
-    Holds(Use),
-    /// It takes no use: a holder's use covers it, or it is in a test.
-    Covered,
-    /// An install ran since the process started: it must run the installed
-    /// program in its place.
-    InstallRan,
-}
-
 impl PerConnection {
     pub fn new(places: Places, pid: u32, what: &str, since: &str) -> Result<PerConnection> {
         Ok(PerConnection {
@@ -257,10 +250,9 @@ impl PerConnection {
     }
 
     /// Takes a use for the rest of the process's life, waiting at the gate
-    /// while an install runs, unless an install ran since the process
-    /// started. No connection of the process may be open: install waits for
-    /// it before it opens the gate.
-    pub fn hold_from_now(&self) -> Result<FromNow> {
+    /// while an install runs. No connection of the process may be open:
+    /// install waits for it before it opens the gate.
+    pub fn hold_from_now(&self) -> Result<Use> {
         let (gate, _) = pass(
             &self.places,
             Kind::Command,
@@ -275,11 +267,8 @@ impl PerConnection {
             &self.what,
             &self.since,
         )?;
-        if self.install_ran()? {
-            return Ok(FromNow::InstallRan);
-        }
         self.held_for_life.store(true, Ordering::SeqCst);
-        Ok(FromNow::Holds(taken))
+        Ok(taken)
     }
 
     /// A use for one connection, waiting at the gate while an install runs;
@@ -370,18 +359,18 @@ pub fn for_connection() -> Result<Option<ConnectionUse<'static>>> {
 
 /// Takes a use of the stores for the rest of this process's life, for a
 /// command that holds none at start (`PerConnection::hold_from_now`). Every
-/// builds command the process starts from then on runs under it.
-pub fn hold_from_now() -> Result<FromNow> {
+/// builds command the process starts from then on runs under it. None for a
+/// process that takes no use per connection: a holder's use covers it, or it
+/// runs in a test.
+pub fn hold_from_now() -> Result<Option<Use>> {
     let Some(per_connection) = PER_CONNECTION.get() else {
-        return Ok(FromNow::Covered);
+        return Ok(None);
     };
-    let found = per_connection.hold_from_now()?;
-    if matches!(found, FromNow::Holds(_)) {
-        // SAFETY: the only other threads an app build's lane runs here wait
-        // in `open` on the queue's tickets and read no environment.
-        unsafe { std::env::set_var(VARIABLE, per_connection.pid.to_string()) };
-    }
-    Ok(found)
+    let taken = per_connection.hold_from_now()?;
+    // SAFETY: the only other threads an app build's lane runs here wait in
+    // `open` on the queue's tickets and read no environment.
+    unsafe { std::env::set_var(VARIABLE, per_connection.pid.to_string()) };
+    Ok(Some(taken))
 }
 
 /// Whether an install ran since this process started; false for a process
