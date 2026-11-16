@@ -41,10 +41,11 @@ Two things a screen shows don't come from SQL:
   to a table for a query to read, and never puts a query's result on a fast
   stream. A value SQL can read reaches the screen through the screen's live
   query, however often it changes.
-- State that exists only on screen (hover, focus, an open popover or menu, a
-  drag in progress, the text typed in a search or input field) stays in the view
-  that controls it and never goes into SQL. A query that depends on it, such as
-  a search, gets it in the request.
+- State that exists only on screen (hover, focus, the selected rows, an open
+  popover or menu, a drag in progress, the text typed in a search or input
+  field) stays in the view that controls it and never goes into SQL. A query
+  that depends on it, such as a search, gets it in the request, and an action on
+  the selected rows gets their ids in the request.
 - A drag or a click that writes stays in progress until its write returns. The
   view keeps drawing the moved row or the new value until then, and then draws
   the query's rows, so the screen never jumps back to the old order or value.
