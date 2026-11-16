@@ -399,14 +399,33 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
         "-c",
         "echo \"$BUILDS_ROOT\" > env.txt; echo \"$PATH\" >> env.txt",
     ]);
-    let code = run_command(
+    let ran = run_command(
         &transport,
         &AtomicBool::new(false),
         &wt.display().to_string(),
         &command,
+        false,
+    )
+    .unwrap();
+    assert_eq!(ran, (0, None));
+    // A cargo command's messages pass through builds, which times the
+    // waits for cargo's file locks there.
+    let cargo = args(&[
+        "sh",
+        "-c",
+        "echo '    Blocking waiting for file lock on build directory' >&2; sleep 0.3; echo '   Compiling demo' >&2",
+    ]);
+    let (code, waited) = run_command(
+        &transport,
+        &AtomicBool::new(false),
+        &wt.display().to_string(),
+        &cargo,
+        true,
     )
     .unwrap();
     assert_eq!(code, 0);
+    let waited = waited.expect("the messages were read");
+    assert!(waited >= Duration::from_millis(300), "{waited:?}");
     let seen = std::fs::read_to_string(wt.join("env.txt")).unwrap();
     let mut lines = seen.lines();
     assert_eq!(

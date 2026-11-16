@@ -212,6 +212,36 @@ fn recorded_runs(log: &Path) -> Vec<Run> {
     crate::hook_stats::recorded_runs(log, "repo")
 }
 
+/// Each check of a recorded run names itself to the programs it runs, so the
+/// `builds cargo` it runs records which check started it; an unrecorded run
+/// names none.
+#[test]
+fn a_recorded_runs_check_names_itself_to_the_programs_it_runs() {
+    let scratch = Scratch::new("run-hook-check");
+    let top = repo(
+        &scratch,
+        "check first *.sh tools/ok.sh\ncheck named *.sh tools/named.sh\n",
+    );
+    stub(
+        &top,
+        "named.sh",
+        "echo \"named $BUILDS_HOOK_CHECK\" >> \"$(git rev-parse --show-toplevel)/log\"\n",
+    );
+    stage(&top, "a.sh", "x\n");
+    git(&top, &["add", "tools/named.sh"]);
+    let log_path = recorded(&scratch);
+    run_staged(&top, Some(&log_path)).unwrap();
+    let at = recorded_runs(&log_path)[0].at;
+    assert!(
+        log(&top).contains(&format!("named {at}:1\n")),
+        "{}",
+        log(&top)
+    );
+    std::fs::remove_file(top.join("log")).unwrap();
+    run_staged(&top, None).unwrap();
+    assert!(log(&top).contains("named \n"), "{}", log(&top));
+}
+
 #[test]
 fn a_recorded_run_holds_the_files_each_check_with_its_time_and_what_was_skipped() {
     let scratch = Scratch::new("run-record");
@@ -283,6 +313,9 @@ fn a_recorded_run_holds_the_files_each_check_with_its_time_and_what_was_skipped(
     let slow_ms = run.checks[0].ms.unwrap();
     assert!(slow_ms >= 300, "{slow_ms}");
     assert_eq!(run.checks[2].ms, None);
+    // Each check that ran keeps this Mac's load when it started.
+    let started: Vec<bool> = run.checks.iter().map(|c| c.started.is_some()).collect();
+    assert_eq!(started, [true, true, false]);
     assert!(
         run.total_ms >= run.plan_ms + slow_ms,
         "{} {} {slow_ms}",

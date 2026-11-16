@@ -21,6 +21,8 @@ fn run(at: i64, base: Option<&str>, total_ms: u64, clippy_ms: u64, crates: u32) 
                 outcome: Outcome::Passed,
                 handed: Some((1, crates)),
                 ms: Some(clippy_ms),
+                started: None,
+                cargo: None,
             },
             CheckRecord {
                 name: "fmt".into(),
@@ -28,6 +30,8 @@ fn run(at: i64, base: Option<&str>, total_ms: u64, clippy_ms: u64, crates: u32) 
                 outcome: Outcome::Skipped,
                 handed: None,
                 ms: None,
+                started: None,
+                cargo: None,
             },
         ],
     }

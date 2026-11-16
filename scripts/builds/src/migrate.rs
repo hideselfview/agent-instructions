@@ -184,6 +184,10 @@ const BEFORE_FINISHED_STAMP: i64 = 1_574_915_211;
 /// The stamp of the schema before a review's patch ids left out context lines.
 const BEFORE_CHANGED_LINES_STAMP: i64 = 640_728_139;
 
+/// The stamp of the schema before builds kept this Mac's load when each hook
+/// check started and recorded each `builds cargo` run.
+const BEFORE_CHECK_PLACES_STAMP: i64 = 1_449_009_981;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -216,7 +220,10 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// `closing` where an item may close as finished, and the move copies every
 /// closing into the new table, and the move gives every commit that a review
 /// read, and every fix, the patch id of only its added and removed lines,
-/// which it reads from the clone `~/dev/<repo>` of the repo its landing names.
+/// which it reads from the clone `~/dev/<repo>` of the repo its landing names,
+/// and every store gets the empty `hook_check_starts` and `builds_cargo_runs`
+/// tables (no check of an older run has its starting load, and builds has
+/// recorded no cargo run yet).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -308,11 +315,12 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_ORIGINS_STAMP,
         BEFORE_FINISHED_STAMP,
         BEFORE_CHANGED_LINES_STAMP,
+        BEFORE_CHECK_PLACES_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP} and {BEFORE_CHANGED_LINES_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP} and {BEFORE_CHECK_PLACES_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -333,6 +341,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_ORIGINS_STAMP,
         BEFORE_FINISHED_STAMP,
         BEFORE_CHANGED_LINES_STAMP,
+        BEFORE_CHECK_PLACES_STAMP,
     ]
     .contains(&found)
     {
@@ -405,6 +414,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_ORIGINS_STAMP,
         BEFORE_FINISHED_STAMP,
         BEFORE_CHANGED_LINES_STAMP,
+        BEFORE_CHECK_PLACES_STAMP,
     ]
     .contains(&found)
     {
@@ -415,34 +425,46 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     tx.execute_batch("DROP TABLE IF EXISTS cargo_runs;").sql()?;
     // Only a store from before an item could close as finished, or after, has
     // today's `item` and `question`.
-    if ![BEFORE_FINISHED_STAMP, BEFORE_CHANGED_LINES_STAMP].contains(&found) {
+    if ![
+        BEFORE_FINISHED_STAMP,
+        BEFORE_CHANGED_LINES_STAMP,
+        BEFORE_CHECK_PLACES_STAMP,
+    ]
+    .contains(&found)
+    {
         crate::lists::item::move_to_origins(&tx)?;
         crate::lists::question::move_to_origins(&tx)?;
     }
-    // Only a store from before a review's patch ids left out context lines
-    // has today's `closing`.
-    if found != BEFORE_CHANGED_LINES_STAMP {
+    // Only a store from before a review's patch ids left out context lines,
+    // or after, has today's `closing`.
+    if ![BEFORE_CHANGED_LINES_STAMP, BEFORE_CHECK_PLACES_STAMP].contains(&found) {
         crate::lists::record::move_to_finished(&tx)?;
     }
-    // Every store this moves holds patch ids taken with the context lines; the
-    // move takes each again without them.
-    crate::review::record::move_to_changed_lines(&tx, |repo, shas| {
-        let clone = places.home.join(crate::host::clone_path(repo));
-        crate::review::commits::with_patch_ids(&clone, shas).map_err(|why| {
+    // Every store this moves from before a review's patch ids left out
+    // context lines holds patch ids taken with them; the move takes each
+    // again without them. A store from after has today's patch ids.
+    if found != BEFORE_CHECK_PLACES_STAMP {
+        crate::review::record::move_to_changed_lines(&tx, |repo, shas| {
+            let clone = places.home.join(crate::host::clone_path(repo));
+            crate::review::commits::with_patch_ids(&clone, shas).map_err(|why| {
+                Fail::Message(format!(
+                    "reading the commits of {repo} from {}: {}",
+                    clone.display(),
+                    why.text()
+                ))
+            })
+        })
+        .map_err(|why| {
             Fail::Message(format!(
-                "reading the commits of {repo} from {}: {}",
-                clone.display(),
+                "{} keeps patch ids this move could not read again, so the move leaves it as it was: {}",
+                path.display(),
                 why.text()
             ))
-        })
-    })
-    .map_err(|why| {
-        Fail::Message(format!(
-            "{} keeps patch ids this move could not read again, so the move leaves it as it was: {}",
-            path.display(),
-            why.text()
-        ))
-    })?;
+        })?;
+    }
+    // No store this moves has the checks' starting loads or the cargo runs.
+    tx.execute_batch(db::HOOK_CHECK_STARTS_PART).sql()?;
+    tx.execute_batch(db::CARGO_RUNS_PART).sql()?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))

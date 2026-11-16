@@ -236,6 +236,8 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
             outcome: Outcome::Passed,
             handed: Some((0, 0)),
             ms: Some(3),
+            started: None,
+            cargo: None,
         }],
     };
     record(&store.dir.join(DATABASE), &run).unwrap();

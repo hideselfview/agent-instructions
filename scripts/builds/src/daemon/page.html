@@ -974,7 +974,7 @@ function overRun(run, limit) {
     h("summary", {}, h("span", {class: "t"}, secs(run.total_ms)), h("span", {}, run.worktree.split("/").pop()),
       h("span", {class: "mono"}, run.branch || "detached"), h("span", {class: "when"}, when(new Date(run.at * 1000))),
       h("span", {class: "slow"}, ran.slice(0, 2).map(c => c.name + " " + secs(c.ms)).join(", "))),
-    h("div", {class: "checks"}, run.checks.map(c => h("span", {}, c.name + " " + (c.ms == null ? "skipped" : secs(c.ms))))));
+    h("div", {class: "checks"}, run.checks.map(c => h("span", {}, c.name + " " + (c.ms == null ? "skipped" : secs(c.ms)) + (c.place ? " " + c.place : "")))));
   el.open = openRuns.has(key);
   el.addEventListener("toggle", () => { if (el.open) openRuns.add(key); else openRuns.delete(key); });
   return el;

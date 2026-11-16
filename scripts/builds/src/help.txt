@@ -297,8 +297,18 @@ workflow` says when to restart the server.
                               failure stops the command with its status.
                               BUILDS_CARGO_HOST=<name> picks the host for one
                               command (local is this Mac); a command that must
-                              stay here runs here, with a note on stderr. Each
-                              run's host and time go to the project's store.
+                              stay here runs here, with a note on stderr.
+                              When cargo exits, the run goes to the project's
+                              store: its start, worktree, the host it ran on
+                              with that host's cores and one-minute load when
+                              builds picked it, how long cargo waited for its
+                              file locks (from each "Blocking waiting for file
+                              lock" line it printed to the next; not measured
+                              when cargo prints to a terminal, which builds
+                              leaves to cargo), its time, and the hook check
+                              that started it, which `builds checks run` names
+                              in BUILDS_HOOK_CHECK. A repo in no project
+                              records nothing.
 
 
 APP BUILDS
@@ -941,8 +951,14 @@ matching file is staged.
                               repo, worktree, branch, the commit HEAD pointed
                               at when it started (its base), each staged file
                               (its change and lines added and removed), each
-                              line (run with its time and result, or skipped),
-                              the planning time and the total. A run it can't
+                              line (run with its time, its result and this
+                              Mac's cores and one-minute load when it started,
+                              or skipped), the planning time and the total. A
+                              check that runs `builds cargo` names itself to it
+                              (CARGO), so the figures show where it ran: on the
+                              host of that cargo run with that host's load,
+                              else on this Mac (`122.8s on local, load
+                              21/14`). A run it can't
                               record says so on stderr and ends as the checks
                               decided; a repo in no project records nothing
   builds checks whole [<worktree>]
@@ -962,7 +978,10 @@ matching file is staged.
                               with their diffs; and each set of checks whose
                               newest passing run took over 45 seconds, the
                               hook's limit (until a newer run of that set
-                              takes less). Nothing counts failures. --since
+                              takes less), with where its slowest checks ran
+                              and how loaded that host was, as the dashboard
+                              shows beside each check's time in the runs over
+                              the limit. Nothing counts failures. --since
                               counts runs from that local day on. --change
                               <rev> instead splits the runs of the repo that
                               has <rev> (refused when no repo has it or more

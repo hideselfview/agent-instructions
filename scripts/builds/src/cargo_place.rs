@@ -56,12 +56,12 @@ const FORWARDED: [&str; 5] = [
 const SSH_FAILED: i32 = 255;
 
 /// Where one `builds cargo` command runs.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub enum Choice {
     /// This Mac, and why.
     Here(String),
-    /// A host, and why.
-    On(Host, String),
+    /// A host, what it said when asked for its load, and why.
+    On(Host, host::Probe, String),
 }
 
 /// Why this command must run on this Mac, or None when a host may run it.
@@ -316,7 +316,7 @@ pub fn choose(
     let choice = pick(places, ssh, floor_kib, repo, named, &starts.recent)?;
     let host = match &choice {
         Choice::Here(_) => host::LOCAL,
-        Choice::On(host, _) => host.name.as_str(),
+        Choice::On(host, _, _) => host.name.as_str(),
     };
     starts.record(std::process::id(), host, now)?;
     Ok(choice)
@@ -340,13 +340,18 @@ fn pick(
         if found.target.is_none() {
             return Ok(Choice::Here(format!("{HOST_VARIABLE} names this Mac")));
         }
-        if let Err(error) = host::probe(places, ssh, &found) {
-            fail!("host {name} is not reachable: {error}");
-        }
+        let probe = match host::probe(places, ssh, &found) {
+            Ok(probe) => probe,
+            Err(error) => fail!("host {name} is not reachable: {error}"),
+        };
         if let Err(error) = has_clone(places, ssh, &found, repo) {
             fail!("host {name} cannot build {repo}: {error}");
         }
-        return Ok(Choice::On(found, format!("named by {HOST_VARIABLE}")));
+        return Ok(Choice::On(
+            found,
+            probe,
+            format!("named by {HOST_VARIABLE}"),
+        ));
     }
     if hosts.len() == 1 {
         return Ok(Choice::Here("no other host is recorded".to_string()));
@@ -379,7 +384,15 @@ fn pick_ranked(
             return Ok(Choice::Here(join(why, passed_over)));
         }
         match has_clone(places, ssh, &host, repo) {
-            Ok(()) => return Ok(Choice::On(host, join(why, passed_over))),
+            Ok(()) => {
+                let probe = probes
+                    .iter()
+                    .find_map(|(known, probe)| (known.name == host.name).then_some(probe))
+                    .and_then(|probe| probe.as_ref().ok())
+                    .expect("a ranked host answered its probe")
+                    .clone();
+                return Ok(Choice::On(host, probe, join(why, passed_over)));
+            }
             Err(error) => passed_over.push(format!("{} cannot build {repo} ({error})", host.name)),
         }
     }
@@ -408,7 +421,7 @@ pub fn start<'a>(
     args: &[String],
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Result<Option<Job<'a>>> {
-    let Choice::On(host, why) = choice else {
+    let Choice::On(host, _, why) = choice else {
         return Ok(None);
     };
     note(format!("builds cargo runs on host {}: {why}", host.name));
@@ -434,17 +447,20 @@ pub fn start<'a>(
 }
 
 /// Runs the started cargo job, passing the output through, and returns
-/// cargo's exit status. A host that stops answering fails the command,
-/// naming it.
-pub fn finish(job: Job) -> Result<i32> {
+/// cargo's exit status with how long cargo waited for its file locks there. A
+/// host that stops answering fails the command, naming it.
+pub fn finish(job: Job) -> Result<crate::cargo_run::Exited> {
     let host = job.host_name().to_string();
-    let code = job.run(remote::stop_on_signals())?;
+    let (code, lock_wait) = job.run_timing_locks(remote::stop_on_signals())?;
     if code == SSH_FAILED {
         fail!(
             "host {host} stopped answering while cargo ran (ssh exited {SSH_FAILED}); nothing ran the command again"
         );
     }
-    Ok(code)
+    Ok(crate::cargo_run::Exited {
+        code,
+        lock_wait: Some(lock_wait),
+    })
 }
 
 #[cfg(test)]

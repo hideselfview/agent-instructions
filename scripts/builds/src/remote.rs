@@ -433,22 +433,35 @@ pub fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
 }
 
 /// Runs the job's command on the host, passing its output through, and
-/// returns its exit status. A stop signal stops the command on the host.
+/// returns its exit status. A stop signal stops the command on the host. With
+/// <time_locks> (a cargo command), its stderr passes through builds, which
+/// also returns how long cargo waited for its file locks (lock_wait.rs).
 pub fn run_command(
     transport: &Transport,
     stop: &AtomicBool,
     worktree: &str,
     command: &[String],
-) -> Result<i32> {
+    time_locks: bool,
+) -> Result<(i32, Option<Duration>)> {
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     let mut child = transport
         .command(&run_script(transport.host, worktree, command))
         .stdin(Stdio::null())
+        .stderr(if time_locks {
+            Stdio::piped()
+        } else {
+            Stdio::inherit()
+        })
         // Its own process group: a Ctrl-C reaches builds, which stops the
         // command on the host itself.
         .process_group(0)
         .spawn()
         .context(|| format!("running the command on host {}", transport.host.name))?;
+    let relay = child
+        .stderr
+        .take()
+        .map(|stderr| crate::lock_wait::relay(stderr, std::io::stderr()));
+    let waited = || relay.map(|relay| relay.join().expect("the relay does not panic"));
     let mut stopped = false;
     let status = loop {
         if let Some(status) = child
@@ -465,12 +478,16 @@ pub fn run_command(
         }
         std::thread::sleep(Duration::from_millis(50));
     };
+    let waited = waited();
     if stopped {
-        return Ok(STOPPED_EXIT);
+        return Ok((STOPPED_EXIT, waited));
     }
-    Ok(status
-        .code()
-        .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)))
+    Ok((
+        status
+            .code()
+            .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)),
+        waited,
+    ))
 }
 
 /// The worktree path the claim script printed.
@@ -592,18 +609,29 @@ impl Job<'_> {
     /// Runs the job's command on its host, passing its output through,
     /// removes the job's ref and claim, and returns the command's exit status.
     pub fn run(self, stop: &AtomicBool) -> Result<i32> {
+        Ok(self.run_with(stop, false)?.0)
+    }
+
+    /// `run` for a cargo command: also returns how long cargo waited for its
+    /// file locks on the host, read from the messages it passes through.
+    pub fn run_timing_locks(self, stop: &AtomicBool) -> Result<(i32, Duration)> {
+        let (code, waited) = self.run_with(stop, true)?;
+        Ok((code, waited.expect("the messages were read")))
+    }
+
+    fn run_with(self, stop: &AtomicBool, time_locks: bool) -> Result<(i32, Option<Duration>)> {
         let transport = Transport {
             places: self.places,
             ssh: self.ssh,
             host: &self.host,
         };
-        let code = run_command(&transport, stop, &self.worktree, &self.command);
+        let ran = run_command(&transport, stop, &self.worktree, &self.command, time_locks);
         let released = transport.capture(
             &release_script(&self.repo, Some(&self.worktree), &self.id),
             "removing the job's ref and claim",
         );
-        let code = match code {
-            Ok(code) => code,
+        let ran = match ran {
+            Ok(ran) => ran,
             Err(error) => {
                 if let Err(release) = released {
                     note(release.text());
@@ -612,12 +640,12 @@ impl Job<'_> {
             }
         };
         if let Err(error) = released {
-            if code == 0 {
+            if ran.0 == 0 {
                 return Err(error);
             }
             note(error.text());
         }
-        Ok(code)
+        Ok(ran)
     }
 }
 
@@ -688,7 +716,7 @@ fn cmd_step(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         ssh,
         host: &host,
     };
-    match run_command(&transport, stop_on_signals(), worktree, command)? {
+    match run_command(&transport, stop_on_signals(), worktree, command, false)?.0 {
         0 => Ok(()),
         code => Err(Fail::Exit(code)),
     }

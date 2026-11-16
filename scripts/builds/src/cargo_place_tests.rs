@@ -163,12 +163,12 @@ fn run_on(
     match start(
         places,
         ssh,
-        Choice::On(host.clone(), "named".to_string()),
+        Choice::On(host.clone(), probe(1.0).unwrap(), "named".to_string()),
         checkout,
         args,
         env,
     )? {
-        Some(job) => finish(job),
+        Some(job) => finish(job).map(|exited| exited.code),
         None => panic!("host {} refused the job", host.name),
     }
 }
@@ -222,7 +222,7 @@ fn the_first_host_by_room_that_has_the_clone_runs_it_and_this_mac_is_the_fallbac
 
     // m1 ranks first and has the clone.
     let probes = vec![(local.clone(), probe(9.0)), (m1.clone(), probe(1.0))];
-    let Choice::On(picked, why) =
+    let Choice::On(picked, _, why) =
         pick_ranked(&places, &r.ssh, "demo", &probes, 0, &Default::default()).unwrap()
     else {
         panic!("expected a host");
@@ -509,7 +509,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     let job = start(
         &places,
         &ssh,
-        Choice::On(m1.clone(), "most room".to_string()),
+        Choice::On(m1.clone(), probe(1.0).unwrap(), "most room".to_string()),
         &side,
         &args(&["test"]),
         &no_env,
@@ -577,7 +577,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     let job = start(
         &places,
         &ssh,
-        Choice::On(gone, "most room".to_string()),
+        Choice::On(gone, probe(1.0).unwrap(), "most room".to_string()),
         &side,
         &args(&["test"]),
         &no_env,

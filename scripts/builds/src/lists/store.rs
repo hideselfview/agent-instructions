@@ -496,6 +496,13 @@ pub fn projects_holding(places: &Places, repo: &str) -> Result<Vec<String>> {
     Ok(found)
 }
 
+/// The database of the project <checkout>'s work is in (`project_of`), where
+/// its hook runs and cargo runs are recorded; None for a repo in no project,
+/// which has nowhere to record.
+pub fn database_of(places: &Places, checkout: &Checkout) -> Result<Option<std::path::PathBuf>> {
+    Ok(project_of(places, checkout)?.map(|project| places.lists.join(project).join(DATABASE)))
+}
+
 /// The project <checkout>'s work is in, or None when its repo is in none:
 /// the project its worktree's claim names (`builds claim --project`), else
 /// the one project that holds the repo. A repo two projects hold, in a

@@ -16,6 +16,8 @@ fn check(name: &str, outcome: Outcome, ms: Option<u64>) -> CheckRecord {
         outcome,
         handed: ms.map(|_| (1, 0)),
         ms,
+        started: None,
+        cargo: None,
     }
 }
 
@@ -705,4 +707,56 @@ fn the_dashboard_counts_only_runs_of_the_last_12_hours() {
     let later: serde_json::Value =
         serde_json::from_str(&dashboard_json_at(&places, now + 11 * 3600)).unwrap();
     assert_eq!(later["projects"][0]["repos"][0]["runs"], 0);
+}
+
+/// A check comes back with this Mac's load when it started, or with the host
+/// and load of the `builds cargo` run it started, found by the run's worktree
+/// and start and the check's position.
+#[test]
+fn a_check_comes_back_with_where_it_ran_and_how_loaded_that_host_was() {
+    let scratch = Scratch::new("hook-db-places");
+    let path = database(&scratch);
+    let here = Load {
+        cores: 14,
+        one_minute: 21.2,
+    };
+    let mut fmt = check("fmt", Outcome::Passed, Some(40));
+    fmt.started = Some(here);
+    let mut clippy = check("clippy", Outcome::Passed, Some(122_800));
+    clippy.started = Some(here);
+    let written = run(7, 123_000, true, vec![fmt, clippy]);
+    record(&path, &written).unwrap();
+    let cargo = |position: u32, lock_wait: Option<u64>| crate::cargo_run::CargoRun {
+        started_at: 8,
+        repo: "bae".into(),
+        worktree: "/d/bae".into(),
+        host: "m1".into(),
+        load: Load {
+            cores: 10,
+            one_minute: 3.4,
+        },
+        lock_wait: lock_wait.map(std::time::Duration::from_millis),
+        took: std::time::Duration::from_secs(120),
+        hook_check: Some((7, position)),
+    };
+    crate::cargo_run::record_run(&path, &cargo(1, Some(12_000))).unwrap();
+    // A cargo run of another hook run names no check of this one.
+    let mut other = cargo(0, None);
+    other.hook_check = Some((6, 0));
+    crate::cargo_run::record_run(&path, &other).unwrap();
+    let read = recorded_runs(&path, "bae");
+    let places: Vec<Option<String>> = read[0].checks.iter().map(CheckRecord::place_text).collect();
+    assert_eq!(
+        places,
+        [
+            Some("on local, load 21/14".to_string()),
+            Some("on m1, load 3/10, 12.0s waiting for cargo's locks".to_string()),
+        ]
+    );
+    assert!(
+        handed_text(&read[0])
+            .contains("clippy 122.8s (on m1, load 3/10, 12.0s waiting for cargo's locks)"),
+        "{}",
+        handed_text(&read[0])
+    );
 }

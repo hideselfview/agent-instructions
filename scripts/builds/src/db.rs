@@ -1,7 +1,9 @@
 //! `builds.sqlite`, the one database in each project's store folder: the
-//! lists (every table of `lists/*.sql`), the hook-run stats (`hook_stats.sql`),
-//! the app-build timings (`app_timing.sql`) and the design changes' recording
-//! sessions (`lists/design_session.sql`). This module does all opening:
+//! lists (every table of `lists/*.sql`), the hook-run stats (`hook_stats.sql`
+//! and `hook_check_starts.sql`), the app-build timings (`app_timing.sql`), the
+//! design changes' recording sessions (`lists/design_session.sql`), the shot
+//! findings, the review's tables and the `builds cargo` runs
+//! (`cargo_run.sql`). This module does all opening:
 //! the pragmas, the schema made whole in the first transaction of a new file,
 //! and the stamp.
 //!
@@ -55,14 +57,25 @@ const BUSY: Duration = Duration::from_millis(i32::MAX as u64);
 /// the schema.
 pub const SHOT_FINDINGS_PART: &str = include_str!("shot_findings.sql");
 
-/// The review's tables (review/record.sql), the last part of the schema.
+/// The review's tables (review/record.sql).
 pub const REVIEW_PART: &str = include_str!("review/record.sql");
+
+/// This Mac's load when each hook check started (hook_check_starts.sql).
+pub const HOOK_CHECK_STARTS_PART: &str = include_str!("hook_check_starts.sql");
+
+/// The record of `builds cargo` runs (cargo_run.sql), the last part of the
+/// schema.
+pub const CARGO_RUNS_PART: &str = include_str!("cargo_run.sql");
 
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
-/// stored shot findings, then the review's.
+/// stored shot findings, then the review's, then the hook checks' starting
+/// loads, then the cargo runs'.
 pub fn schema() -> String {
-    format!("{}\n{REVIEW_PART}", schema_before_review())
+    format!(
+        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}",
+        schema_before_review()
+    )
 }
 
 /// The schema as it was before the review's tables joined it.

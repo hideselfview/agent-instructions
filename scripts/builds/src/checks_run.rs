@@ -30,9 +30,9 @@ use crate::checks::{CONFIG, Kind, Line, Planned, parse, plan};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::hook_impact;
-use crate::hook_stats::{self, Change, CheckRecord, Outcome, Run, StagedFile};
+use crate::hook_stats::{self, Change, CheckRecord, Load, Outcome, Run, StagedFile};
 use crate::lists::args::Args;
-use crate::lists::store::{Store, project_of};
+use crate::lists::store::{Store, database_of};
 use crate::places::Places;
 use crate::text::note;
 
@@ -110,8 +110,7 @@ fn hook_database(top: &Path) -> Result<Option<PathBuf>> {
     let Some(checkout) = Checkout::at_keeping_env(top)? else {
         return Ok(None);
     };
-    Ok(project_of(&places, &checkout)?
-        .map(|project| places.lists.join(project).join(hook_stats::DATABASE)))
+    database_of(&places, &checkout)
 }
 
 /// `builds checks stats [--project P] [--repo R] [--since DATE] [--change REV]`.
@@ -223,8 +222,10 @@ struct Ran {
     output: String,
 }
 
-/// Runs <planned> in <top>, keeping its output unless <stream>.
-fn execute(top: &Path, planned: &Planned, stream: bool) -> Result<Ran> {
+/// Runs <planned> in <top>, keeping its output unless <stream>. A check of a
+/// recorded hook run gets <hook_check>, which names it to the `builds cargo`
+/// it runs (`cargo_run::HOOK_CHECK_VARIABLE`).
+fn execute(top: &Path, planned: &Planned, stream: bool, hook_check: Option<&str>) -> Result<Ran> {
     let (program, args) = planned.argv.split_first().expect("a line has a program");
     let path = if program.contains('/') {
         top.join(program)
@@ -235,6 +236,9 @@ fn execute(top: &Path, planned: &Planned, stream: bool) -> Result<Ran> {
     command.args(args).current_dir(top).stdin(Stdio::null());
     for name in git_local_env_vars()? {
         command.env_remove(name);
+    }
+    if let Some(check) = hook_check {
+        command.env(crate::cargo_run::HOOK_CHECK_VARIABLE, check);
     }
     let started = Instant::now();
     if stream {
@@ -405,6 +409,8 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
                 outcome: Outcome::Skipped,
                 handed: None,
                 ms: None,
+                started: None,
+                cargo: None,
             })
             .collect();
     }
@@ -422,7 +428,16 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
                 .collect(),
             _ => Vec::new(),
         };
-        let ran = execute(top, planned, false)?;
+        let load = Load::here();
+        let hook_check = run.as_deref().map(|run| {
+            let position = run
+                .checks
+                .iter()
+                .position(|c| c.name == name)
+                .expect("every picked line is recorded");
+            crate::cargo_run::hook_check_value(run.at, position as u32)
+        });
+        let ran = execute(top, planned, false, hook_check.as_deref())?;
         let problem = (!ran.ok).then(|| ran.output.clone());
         if ran.ok && planned.line.kind == Kind::Fix {
             let changed: Vec<String> = before
@@ -461,6 +476,7 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
                 },
             ));
             record.ms = Some(millis(ran.took));
+            record.started = Some(load);
         }
         match problem {
             None => note(format!(
@@ -516,7 +532,7 @@ pub fn run_whole(top: &Path, out: &mut dyn std::io::Write) -> Result<Vec<WholeFa
     let ran_all: Vec<Result<Ran>> = std::thread::scope(|scope| {
         let handles: Vec<_> = picked
             .iter()
-            .map(|planned| scope.spawn(move || execute(top, planned, false)))
+            .map(|planned| scope.spawn(move || execute(top, planned, false, None)))
             .collect();
         handles
             .into_iter()
@@ -627,7 +643,7 @@ fn tests(top: &Path, since: &str, run: bool) -> Result<()> {
     let mut failed: Vec<&str> = Vec::new();
     for p in &picked {
         note(format!("test {}: {}", p.line.name, p.argv.join(" ")));
-        let ran = execute(top, p, true)?;
+        let ran = execute(top, p, true, None)?;
         note(format!(
             "test {}: {}, {}",
             p.line.name,

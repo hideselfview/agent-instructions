@@ -551,7 +551,7 @@ fn store_before_cargo_runs(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&without_design_fix(db::schema()))
+    conn.execute_batch(&without_design_fix(schema_before_check_places()))
         .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_CARGO_RUNS_STAMP)
         .unwrap();
@@ -579,7 +579,7 @@ fn a_store_from_before_cargo_runs_keeps_its_runs_and_equals_a_fresh_schema() {
 #[test]
 fn the_cargo_runs_stamp_is_the_schema_before_cargo_runs() {
     assert_eq!(
-        db::stamp_of_text(&without_design_fix(db::schema())),
+        db::stamp_of_text(&without_design_fix(schema_before_check_places())),
         BEFORE_CARGO_RUNS_STAMP
     );
 }
@@ -1137,10 +1137,10 @@ CREATE TABLE IF NOT EXISTS cargo_runs (
 CREATE INDEX IF NOT EXISTS idx_cargo_runs_started ON cargo_runs (started_at);
 "#;
 
-/// The schema text before builds dropped the cargo runs' table: today's, with
-/// that table's part last.
+/// The schema text before builds dropped the cargo runs' table: the one before
+/// the checks' places, with that table's part last.
 fn schema_with_cargo_runs() -> String {
-    format!("{}\n{CARGO_RUNS_PART}", db::schema())
+    format!("{}\n{CARGO_RUNS_PART}", schema_before_check_places())
 }
 
 #[test]
@@ -1233,7 +1233,7 @@ CREATE INDEX question_origin ON question (origin);
 #[test]
 fn the_origins_stamp_is_the_schema_before_origins() {
     assert_eq!(
-        db::stamp_of_text(&without_origins(db::schema())),
+        db::stamp_of_text(&without_origins(schema_before_check_places())),
         BEFORE_ORIGINS_STAMP
     );
 }
@@ -1248,7 +1248,8 @@ fn a_store_from_before_origins_keeps_each_item_its_origin_and_equals_a_fresh_sch
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&without_origins(db::schema())).unwrap();
+        conn.execute_batch(&without_origins(schema_before_check_places()))
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_ORIGINS_STAMP)
             .unwrap();
         crate::lists::area::plant(&conn, &[("name", v("Alpha")), ("position", v(0))]).unwrap();
@@ -1369,7 +1370,7 @@ fn without_finished(schema: String) -> String {
 #[test]
 fn the_finished_stamp_is_the_schema_before_finished() {
     assert_eq!(
-        db::stamp_of_text(&without_finished(db::schema())),
+        db::stamp_of_text(&without_finished(schema_before_check_places())),
         BEFORE_FINISHED_STAMP
     );
 }
@@ -1386,7 +1387,8 @@ fn a_store_from_before_finished_keeps_its_closings_and_takes_a_finished_item() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&without_finished(db::schema())).unwrap();
+        conn.execute_batch(&without_finished(schema_before_check_places()))
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_FINISHED_STAMP)
             .unwrap();
         crate::lists::area::plant(&conn, &[("name", v("Alpha")), ("position", v(0))]).unwrap();
@@ -1484,7 +1486,7 @@ fn without_changed_lines(schema: String) -> String {
 #[test]
 fn the_changed_lines_stamp_is_the_schema_before_changed_lines() {
     assert_eq!(
-        db::stamp_of_text(&without_changed_lines(db::schema())),
+        db::stamp_of_text(&without_changed_lines(schema_before_check_places())),
         BEFORE_CHANGED_LINES_STAMP
     );
 }
@@ -1498,7 +1500,7 @@ fn store_before_changed_lines(dir: &std::path::Path, read: &str, fix: &str) -> s
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&without_changed_lines(db::schema()))
+    conn.execute_batch(&without_changed_lines(schema_before_check_places()))
         .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_CHANGED_LINES_STAMP)
         .unwrap();
@@ -1655,4 +1657,59 @@ fn a_store_whose_reviewed_commit_the_clone_lacks_is_left_as_it_was() {
         .query_row("SELECT patch_id FROM review_fix", [], |row| row.get(0))
         .unwrap();
     assert_eq!(kept, "stale");
+}
+
+/// <schema> as its text read before builds kept this Mac's load when each
+/// hook check started and recorded each `builds cargo` run: without those two
+/// parts, the last of the schema.
+fn without_check_places(schema: String) -> String {
+    let parts = format!("\n{}\n{}", db::HOOK_CHECK_STARTS_PART, db::CARGO_RUNS_PART);
+    assert_eq!(
+        schema.matches(&parts).count(),
+        1,
+        "the schema has the two parts once"
+    );
+    schema.replacen(&parts, "", 1)
+}
+
+/// The schema text before builds kept the checks' starting loads and the
+/// cargo runs: the text every older schema the moves know is made from.
+fn schema_before_check_places() -> String {
+    without_check_places(db::schema())
+}
+
+#[test]
+fn the_check_places_stamp_is_the_schema_before_check_places() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_check_places()),
+        BEFORE_CHECK_PLACES_STAMP
+    );
+}
+
+/// A store from before the checks' places keeps its runs, gains the two empty
+/// tables and equals a fresh schema.
+#[test]
+fn a_store_from_before_check_places_keeps_its_runs_and_gains_the_tables() {
+    let scratch = Scratch::new("move-check-places");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_check_places()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_CHECK_PLACES_STAMP)
+            .unwrap();
+        plant_run(&conn);
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the move keeps the old run");
 }

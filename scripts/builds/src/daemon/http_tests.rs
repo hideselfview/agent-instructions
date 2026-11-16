@@ -435,6 +435,8 @@ fn hook_store(_scratch: &Scratch, places: &crate::places::Places) {
             outcome: Outcome::Passed,
             handed: Some((1, 4)),
             ms: Some(clippy_ms),
+            started: None,
+            cargo: None,
         }],
     };
     let now = std::time::SystemTime::now()

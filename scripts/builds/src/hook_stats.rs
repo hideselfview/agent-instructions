@@ -1,8 +1,10 @@
 //! The record of every pre-commit hook run: `builds checks run` writes one
 //! run, with its staged files and every check, to `builds.sqlite` in the
-//! project's store folder (the schema is hook_stats.sql). `builds checks
-//! stats` and the dashboard read it back; the figures are SQL queries over the
-//! rows, never stored.
+//! project's store folder (the schema is hook_stats.sql), and this Mac's load
+//! when each check started (hook_check_starts.sql). `builds checks stats` and
+//! the dashboard read it back, each check with where it ran: on the host of
+//! the `builds cargo` run it started (cargo_run.rs), else on this Mac; the
+//! figures are SQL queries over the rows, never stored.
 //!
 //! Writing is best effort for the commit and loud for the person: the caller
 //! prints a warning when a record fails and the hook's result is the checks'
@@ -109,8 +111,30 @@ impl Outcome {
     }
 }
 
+/// A host's cores and its one-minute load average at one moment.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Load {
+    pub cores: u32,
+    pub one_minute: f64,
+}
+
+impl Load {
+    /// This Mac's cores and load now.
+    pub fn here() -> Load {
+        Load {
+            cores: crate::procs::cores() as u32,
+            one_minute: crate::procs::load_average()[0],
+        }
+    }
+
+    /// `load 21/14`: the load average, rounded, over the cores.
+    pub fn text(&self) -> String {
+        format!("load {:.0}/{}", self.one_minute, self.cores)
+    }
+}
+
 /// What a check or fix of `.checks` did in one run.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CheckRecord {
     pub name: String,
     /// `Kind::Check` or `Kind::Fix`.
@@ -122,10 +146,38 @@ pub struct CheckRecord {
     /// Its time. `record` keeps it only for a passed check: a failed check's
     /// time says nothing about how long the check takes.
     pub ms: Option<u64>,
+    /// This Mac's load when it started; None for a skipped check and for a
+    /// check recorded before builds kept the load.
+    pub started: Option<Load>,
+    /// The `builds cargo` run it started, when it started one: the host cargo
+    /// ran on, with that host's load. `record` writes none: `builds cargo`
+    /// records its own run (cargo_run.rs), and reading a run finds it.
+    pub cargo: Option<crate::cargo_run::HookCargoRun>,
+}
+
+impl CheckRecord {
+    /// Where it ran and how loaded that host was: `on m1, load 3/10`, with the
+    /// time cargo waited for its file locks when it waited; None when nothing
+    /// says.
+    pub fn place_text(&self) -> Option<String> {
+        match (&self.cargo, &self.started) {
+            (Some(cargo), _) => Some(format!(
+                "on {}, {}{}",
+                cargo.host,
+                cargo.load.text(),
+                match cargo.lock_wait_ms {
+                    Some(ms) if ms > 0 => format!(", {} waiting for cargo's locks", seconds(ms)),
+                    _ => String::new(),
+                }
+            )),
+            (None, Some(started)) => Some(format!("on {}, {}", crate::host::LOCAL, started.text())),
+            (None, None) => None,
+        }
+    }
 }
 
 /// One hook run.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Run {
     /// Seconds since 1970 when it started.
     pub at: i64,
@@ -223,6 +275,7 @@ pub fn record(path: &Path, run: &Run) -> Result<()> {
                 .context(what)?;
         }
     }
+    crate::hook_check_starts::record(&tx, id, &run.checks)?;
     tx.commit().context(what)
 }
 
@@ -606,22 +659,31 @@ fn runs_where(
             });
         }
         let mut checks = conn
-            .prepare("SELECT name, kind, outcome, files, crates, ms FROM hook_run_checks WHERE run_id = ?1 ORDER BY position")
+            .prepare(
+                "SELECT c.position, c.name, c.kind, c.outcome, c.files, c.crates, c.ms, s.cores, s.load
+                 FROM hook_run_checks c LEFT JOIN hook_check_starts s ON s.run_id = c.run_id AND s.position = c.position
+                 WHERE c.run_id = ?1 ORDER BY c.position",
+            )
             .context(what)?;
         let rows = checks
             .query_map([id], |row| {
                 Ok((
-                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, String>(3)?,
                     row.get::<_, Option<i64>>(4)?,
                     row.get::<_, Option<i64>>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
+                    row.get::<_, Option<f64>>(8)?,
                 ))
             })
             .context(what)?;
+        let mut cargo = crate::cargo_run::hook_runs(conn, &run.worktree, run.at, path)?;
         for row in rows {
-            let (name, kind, outcome, files, crates, ms) = row.context(what)?;
+            let (position, name, kind, outcome, files, crates, ms, cores, load) =
+                row.context(what)?;
             let Some(outcome) = Outcome::from_word(&outcome) else {
                 fail!("the database holds a check outcome {outcome:?}")
             };
@@ -631,6 +693,11 @@ fn runs_where(
                 outcome,
                 handed: files.zip(crates).map(|(f, k)| (f as u32, k as u32)),
                 ms: ms.map(|ms| ms as u64),
+                started: cores.zip(load).map(|(cores, load)| Load {
+                    cores: cores as u32,
+                    one_minute: load,
+                }),
+                cargo: cargo.remove(&(position as u32)),
             });
         }
         runs.push(run);
@@ -729,7 +796,8 @@ pub fn report(project: &str, repo: &str, since: Option<&str>, stats: Option<&Sta
 }
 
 /// What a run was handed and where its time went: `12 files, 3 crates;
-/// slowest clippy 38.1s, ownership 10.4s`.
+/// slowest clippy 38.1s (on m1, load 3/10), ownership 10.4s (on local, load
+/// 21/14)`.
 pub fn handed_text(run: &Run) -> String {
     let (files, crates) = handed_of(run);
     let mut ran: Vec<&CheckRecord> = run.checks.iter().filter(|c| c.ms.is_some()).collect();
@@ -737,7 +805,12 @@ pub fn handed_text(run: &Run) -> String {
     let slowest: Vec<String> = ran
         .iter()
         .take(3)
-        .map(|c| format!("{} {}", c.name, seconds(c.ms.unwrap_or(0))))
+        .map(|c| {
+            let place = c
+                .place_text()
+                .map_or(String::new(), |place| format!(" ({place})"));
+            format!("{} {}{place}", c.name, seconds(c.ms.unwrap_or(0)))
+        })
         .collect();
     format!(
         "{}, {}; slowest {}",
@@ -777,6 +850,7 @@ pub(crate) fn run_json(run: &Run) -> serde_json::Value {
         "crates": handed_of(run).1,
         "checks": run.checks.iter().map(|c| serde_json::json!({
             "name": c.name, "kind": c.kind.word(), "outcome": c.outcome.word(), "ms": c.ms, "crates": c.handed.map(|(_, k)| k),
+            "place": c.place_text(),
         })).collect::<Vec<_>>(),
     })
 }
