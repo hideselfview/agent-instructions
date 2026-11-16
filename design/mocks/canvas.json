@@ -1,0 +1,33 @@
+{
+ "v": 3,
+ "title": "builds boards",
+ "attachments": {},
+ "pages": [
+  {
+   "id": "dashboard",
+   "name": "Dashboard"
+  }
+ ],
+ "launch": {
+  "page": "dashboard",
+  "view": "canvas"
+ },
+ "boards": {
+  "dashboard.page.dc.html": {
+   "page": "dashboard",
+   "title": "Dashboard",
+   "x": 0,
+   "y": 0,
+   "w": 1800,
+   "h": 3100
+  },
+  "dashboard.lists-queue.dc.html": {
+   "page": "dashboard",
+   "title": "Queue tab",
+   "x": 2000,
+   "y": 0,
+   "w": 760,
+   "h": 1000
+  }
+ }
+}
