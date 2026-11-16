@@ -1152,10 +1152,10 @@ pub fn run_lanes(
     }
 }
 
-/// The repo and the ref that the command line <argv> of a running `builds
-/// app-build` request names: `builds app-build <repo> <ref> ...`. None for
-/// any other command, for `--list`, and for a lane's process (`--lane`),
-/// which the request starts and waits for.
+/// Returns the repo and the ref (the branch or commit to build) from the
+/// command line <argv> of a running `builds app-build <repo> <ref> ...`
+/// request. Returns None for any other command, for `--list`, and for a
+/// lane's process (`--lane`), which the request starts and waits for.
 pub fn requested(argv: &[String]) -> Option<(&str, &str)> {
     match argv {
         [_, command, repo, reference, ..]

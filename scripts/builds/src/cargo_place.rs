@@ -463,7 +463,8 @@ pub fn finish(job: Job) -> Result<crate::cargo_run::Exited> {
 pub struct RemoteRun {
     /// The `builds cargo` process on this Mac.
     pub pid: i32,
-    /// Index into the places it was placed among.
+    /// The index in <places> of the place that holds the working directory
+    /// of the `builds cargo` process.
     #[serde(skip)]
     pub place: usize,
     /// The name of the host.

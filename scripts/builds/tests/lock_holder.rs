@@ -5,7 +5,7 @@
 //! the worktree it is for, and finds the holder by the lock file's open
 //! descriptor once `builds lock` itself is gone; and health counts a `builds
 //! cargo` run whose cargo runs on another host as a build of the worktree it
-//! was run in.
+//! starts in.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -15,8 +15,8 @@ const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
 
 /// A repo `demo` with origin/main, its app checkout side-1, and side-2,
-/// claimed three hours ago, whose one commit of its own was made then and
-/// nothing since; on a build volume of its own.
+/// claimed three hours ago, where agent B made one commit three hours ago and
+/// none since. The demo has a build volume of its own.
 struct Demo {
     dir: PathBuf,
     side: PathBuf,
@@ -137,8 +137,9 @@ impl Demo {
         std::fs::write(&file, format!("{who}\t{}\n", date.trim())).unwrap();
     }
 
-    /// builds on the demo's volume, with its lists and hosts beside it and
-    /// the fake ssh `host_m1` writes, so nothing reaches a real host.
+    /// Returns a `builds` command that uses the demo's volume, lists and
+    /// hosts, and the fake ssh that `host_m1` writes, so it never reaches a
+    /// real host.
     fn builds(&self) -> Command {
         let mut command = Command::new(BUILDS);
         command

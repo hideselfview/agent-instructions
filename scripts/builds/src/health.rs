@@ -233,14 +233,16 @@ pub struct Holder {
     pub driver_running: bool,
 }
 
-/// A `builds app-build` request that runs: the process that the command
-/// started, which waits while each lane's process waits in its queue and
-/// builds in an app checkout here or on another host.
+/// A `builds app-build` request that runs: the process that the person or
+/// agent started. Each lane's process waits in that lane's queue and then
+/// builds in an app checkout here or on another host, and the request waits
+/// until every lane's process ends.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AppBuildRun {
     pub pid: i32,
     pub repo: String,
-    /// The ref it builds: the branch, as `builds app-build` is run.
+    /// The ref the request builds: the branch (or commit) that whoever ran
+    /// `builds app-build` gave it.
     pub reference: String,
     /// The checkout its working directory is in.
     pub started_from: Option<String>,

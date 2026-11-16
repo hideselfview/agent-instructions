@@ -87,10 +87,10 @@ pub struct FolderFacts {
     pub link: &'static str,
 }
 
-/// One reading of the processes: what they said, the places the reading
-/// placed their builds among, and the volume's free space read with them.
-/// The daemon judges health from it with each claim as its file says at the
-/// time it judges.
+/// What the daemon learned the last time it listed the processes: what they
+/// do, the list of places that each build's place index points into, and
+/// the volume's free space. Each time the daemon works out health from it,
+/// the daemon reads every claim from its file at that moment.
 #[derive(Clone)]
 struct Sample {
     machine: Machine,
@@ -945,8 +945,8 @@ impl Model {
                 });
             }
             let facts = state.facts.get(&root.path).cloned().unwrap_or_default();
-            // The builds' places are indexes into the places the reading
-            // placed them among.
+            // Each build's place is an index into the sample's list of
+            // places, so the page looks this root up in that list.
             let place = state
                 .sample
                 .as_ref()

@@ -468,9 +468,11 @@ fn sizes_count_each_block_once_in_one_call_for_every_path() {
     );
 }
 
-/// A side worktree's build folder over its cap is kept whole while the
-/// worktree is claimed, and deleted whole once it isn't. (A dry run: a real
-/// prune also deletes build output in the machine's real temporary folders.)
+/// Prune keeps a side worktree's build folder whole while an agent claims
+/// the worktree, even when the folder is over its cap, and deletes it whole
+/// once the agent releases it. The test runs prune with --dry-run, because a
+/// real prune also deletes build output in the machine's real temporary
+/// folders.
 #[test]
 fn prune_keeps_a_claimed_folder_over_its_cap_and_deletes_it_once_released() {
     let demo = Demo::new("prune");
