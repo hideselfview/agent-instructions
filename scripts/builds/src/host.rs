@@ -20,7 +20,7 @@
 //! once someone has run the fix xcodebuild named on the host. An app build
 //! whose step timed out turning on automation mode for UI tests records the
 //! host in the folder `host-ui-automation-failures`, with the same effect,
-//! until `builds host setup` finds the settings UI tests need in place there
+//! until `builds host setup` finds the settings that UI tests need in place there
 //! (ui_test_settings.rs).
 //!
 //! host_installed.rs checks what each host has set up for builds' jobs, and
@@ -435,8 +435,9 @@ fn refusals_of(places: &Places, refused: Refused, hosts: &[Host]) -> Result<Vec<
 }
 
 /// The line for <refusal> under "needs action". For a host whose UI tests
-/// timed out, `builds health` prints the line `ui_test_settings::findings`
-/// writes with the host's settings in place of this one, which knows none.
+/// timed out, this line says nothing about the host's settings, so `builds
+/// health` prints the line that `ui_test_settings::findings` writes with
+/// them instead.
 pub fn refusal_finding(refusal: &Refusal) -> crate::health::Advice {
     let name = &refusal.host;
     let at = local_minute(refusal.at);

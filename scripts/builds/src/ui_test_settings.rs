@@ -26,7 +26,7 @@ use crate::text::{local_minute, note};
 /// mode for a UI test because the host asked for a password.
 pub const AUTOMATION_TIMED_OUT: &str = "Timed out while enabling automation mode";
 
-/// One setting UI tests need on a host.
+/// One setting that UI tests need on a host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Setting {
     /// Automation Mode turns on without asking for a password.
@@ -91,7 +91,8 @@ impl Setting {
 /// What a host said about its settings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UiTestSettings {
-    /// The user that runs builds there, whom the _developer group needs.
+    /// The user that runs builds there, which setup adds to the _developer
+    /// group.
     pub user: String,
     /// The settings that are off, in `Setting::ALL`'s order.
     pub missing: Vec<Setting>,
@@ -167,7 +168,7 @@ pub fn parse(text: &str) -> Result<UiTestSettings> {
 /// Asks <host> for its settings.
 pub fn read(places: &Places, ssh: &Ssh, host: &Host) -> Result<UiTestSettings> {
     let transport = crate::remote::Transport { places, ssh, host };
-    parse(&transport.capture(SCRIPT, "checking the settings UI tests need")?)
+    parse(&transport.capture(SCRIPT, "checking the settings that UI tests need")?)
 }
 
 /// `host m1`, or `this Mac` for this Mac.
@@ -232,11 +233,11 @@ fn set_up_with(
     let place = place(name);
     let before = read()?;
     let said = if before.missing.is_empty() {
-        "has the settings UI tests need".to_string()
+        "has the settings that UI tests need".to_string()
     } else {
         if !at_terminal {
             fail!(
-                "{place} lacks settings UI tests need ({}), and no one is at this terminal to type the sudo password. Run these on {place}: {}. Then `builds host setup {name}` checks them again",
+                "{place} lacks settings that UI tests need ({}), and no one is at this terminal to type the sudo password. Run these on {place}: {}. Then `builds host setup {name}` checks them again",
                 before.whats(),
                 before.quoted_commands()
             );
@@ -255,7 +256,7 @@ fn set_up_with(
                 _ => String::new(),
             };
             fail!(
-                "{place} still lacks settings UI tests need ({}){why}. Run these on {place}: {}. Then `builds host setup {name}` checks them again",
+                "{place} still lacks settings that UI tests need ({}){why}. Run these on {place}: {}. Then `builds host setup {name}` checks them again",
                 after.whats(),
                 after.quoted_commands()
             );
@@ -267,7 +268,7 @@ fn set_up_with(
 }
 
 /// The "needs action" lines about UI tests: one for each host, this Mac
-/// included, that lacks a setting UI tests need (as <reads> say) or that
+/// included, that lacks a setting that UI tests need (as <reads> say) or that
 /// builds recorded as timing out turning on automation mode (<refusals>,
 /// which may hold other kinds). Each names the commands to run on the host
 /// when <reads> know them, and `builds host setup`, which runs them through
@@ -307,10 +308,11 @@ pub fn finding(name: &str, refusal: Option<&Refusal>, settings: Option<&UiTestSe
     let setup = format!("builds host setup {name}");
     let lacking = settings.filter(|settings| !settings.missing.is_empty());
     let Some(refusal) = refusal else {
-        let settings = lacking.expect("a host with no record is listed for a setting that is off");
+        let settings =
+            lacking.expect("findings lists a host with no record only when a setting there is off");
         return Advice::run(
             format!(
-                "{place} lacks {}, so XCTest asks for a password on its screen or times out turning on automation mode, and its UI tests run nothing. Run {} on {place}, or run this from a terminal, which runs them there through sudo:",
+                "{place} lacks {}, so XCTest asks for a password on its screen or times out turning on automation mode, and its UI tests run nothing. Run {} on {place}, or, to run them there through sudo, run this from a terminal:",
                 settings.whats(),
                 settings.quoted_commands()
             ),
@@ -324,17 +326,17 @@ pub fn finding(name: &str, refusal: Option<&Refusal>, settings: Option<&UiTestSe
     );
     let next = match (lacking, settings) {
         (Some(settings), _) => format!(
-            "{} lacks {}. From a terminal, run this: it runs {} there through sudo, then lets mac app builds use {place} again:",
+            "{} lacks {}. To run {} there through sudo and then let mac app builds use {place} again, run this from a terminal:",
             capitalized(&place),
             settings.whats(),
             settings.quoted_commands()
         ),
         (None, Some(_)) => format!(
-            "{} has the settings UI tests need now. Let mac app builds use it again with",
+            "{} has the settings that UI tests need now. Let mac app builds use it again with",
             capitalized(&place)
         ),
         (None, None) => format!(
-            "From a terminal, run this: it checks the settings UI tests need on {place}, runs the sudo command for each one that is off, then lets mac app builds use {place} again:"
+            "To check the settings that UI tests need on {place}, turn on the ones that are off through sudo and then let mac app builds use {place} again, run this from a terminal:"
         ),
     };
     Advice::run(format!("{timed_out} {next}"), setup)

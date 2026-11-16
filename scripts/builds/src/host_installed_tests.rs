@@ -12,7 +12,7 @@ fn host(name: &str) -> Host {
 }
 
 /// What `installed_script` prints for a host with builds' plist, the pid
-/// <listener> on sccache's port, the settings UI tests need all on, and
+/// <listener> on sccache's port, the settings that UI tests need all on, and
 /// launchd's job as `launchctl print` printed <job>, or no job.
 fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> String {
     let job = match job {
@@ -32,7 +32,7 @@ ui_developer_mode=Developer mode is currently enabled.
 ui_developer_group=yes u is a member of _developer
 ";
 
-/// The settings UI tests need, all on, for user u.
+/// The settings that UI tests need, all on, for user u.
 fn all_on() -> crate::ui_test_settings::UiTestSettings {
     crate::ui_test_settings::UiTestSettings {
         user: "u".to_string(),

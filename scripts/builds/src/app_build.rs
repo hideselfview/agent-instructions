@@ -52,7 +52,7 @@
 //! automation mode (ui_test_settings.rs), the host caused the failure, not
 //! the code. The lane then records the host as refusing mac app builds
 //! (host.rs), and `builds health` lists the host with what fixes it: the fix
-//! xcodebuild named, or the commands that turn on the settings UI tests need.
+//! xcodebuild named, or the commands that turn on the settings that UI tests need.
 //! The lane runs again from its place in the queue, in a checkout on another
 //! host, because the lane's lock skips checkouts on hosts recorded this way.
 
@@ -970,7 +970,7 @@ fn build_lane(
                     "on host {host}, {}, so the build failed there and the code did not cause it. builds health now lists {host} with what fixes it, mac app builds skip its app checkouts, and {commit} builds again in a checkout on another host. The step printed: {said}",
                     refused
                         .mac_builds_cause()
-                        .expect("every host fault refuses mac app builds")
+                        .expect("after every host fault, the host refuses mac app builds")
                 ));
             }
         }

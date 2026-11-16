@@ -16,7 +16,7 @@
 //! and no design globs (lists/project.rs), or a build host that refuses
 //! jobs, whose Xcode cannot start, whose installed `builds` differs from this
 //! Mac's or whose sccache server launchd does not run (host_installed.rs), or
-//! that lacks a setting UI tests need or whose UI tests timed out turning on
+//! that lacks a setting that UI tests need or whose UI tests timed out turning on
 //! automation mode (ui_test_settings.rs).
 
 use std::path::{Path, PathBuf};
@@ -1156,7 +1156,7 @@ pub fn lines(health: &Health) -> Vec<String> {
 /// what `host_installed::installed_findings` reports: each host whose installed
 /// `builds` differs from this Mac's or that builds could not ask, and each
 /// Mac whose sccache server launchd does not run (host_installed.rs), and
-/// each Mac that lacks a setting UI tests need or whose UI tests timed out
+/// each Mac that lacks a setting that UI tests need or whose UI tests timed out
 /// (ui_test_settings.rs). `assess` judges
 /// only what this Mac's process reading finds, which runs no ssh, so `builds
 /// health` and the dashboard each add these findings to the ones `assess`

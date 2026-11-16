@@ -170,7 +170,7 @@ fn setup_of_a_host_with_every_setting_runs_nothing_and_clears_its_record() {
         panic!("nothing to run")
     })
     .unwrap();
-    assert_eq!(said, "has the settings UI tests need");
+    assert_eq!(said, "has the settings that UI tests need");
     assert_eq!(recorded(&places), []);
 }
 
@@ -195,7 +195,7 @@ fn setup_with_no_one_at_the_terminal_fails_naming_the_commands() {
         panic!("expected a failure");
     };
     assert!(
-        message.starts_with("host m1 lacks settings UI tests need (Automation Mode without a password, dmitry in the _developer group)")
+        message.starts_with("host m1 lacks settings that UI tests need (Automation Mode without a password, dmitry in the _developer group)")
             && message.contains("Run these on host m1: `sudo automationmodetool enable-automationmode-without-authentication`; `sudo dseditgroup -o edit -a dmitry -t user _developer`")
             && !message.contains("DevToolsSecurity"),
         "{message}"
@@ -253,7 +253,7 @@ fn setup_fails_when_a_setting_is_still_off_after_sudo() {
         panic!("expected a failure");
     };
     assert!(
-        message.starts_with("host m1 still lacks settings UI tests need (Automation Mode without a password, developer mode) (sudo on host m1 failed")
+        message.starts_with("host m1 still lacks settings that UI tests need (Automation Mode without a password, developer mode) (sudo on host m1 failed")
             && message.contains("`sudo DevToolsSecurity -enable`"),
         "{message}"
     );
@@ -334,13 +334,13 @@ fn a_host_whose_ui_tests_timed_out_is_one_finding_with_its_settings() {
     };
     let lacking = line(&[installed("m1", settings(&[Setting::AutomationMode]))]);
     assert!(
-        lacking.contains("Host m1 lacks Automation Mode without a password. From a terminal, run this: it runs `sudo automationmodetool enable-automationmode-without-authentication` there through sudo"),
+        lacking.contains("Host m1 lacks Automation Mode without a password. To run `sudo automationmodetool enable-automationmode-without-authentication` there through sudo and then let mac app builds use host m1 again, run this from a terminal:"),
         "{lacking}"
     );
     let all_on = line(&[installed("m1", settings(&[]))]);
     assert!(
         all_on.ends_with(
-            "Host m1 has the settings UI tests need now. Let mac app builds use it again with"
+            "Host m1 has the settings that UI tests need now. Let mac app builds use it again with"
         ),
         "{all_on}"
     );
@@ -349,7 +349,9 @@ fn a_host_whose_ui_tests_timed_out_is_one_finding_with_its_settings() {
         read: Err("ssh failed".to_string()),
     }]);
     assert!(
-        unread.contains("it checks the settings UI tests need on host m1"),
+        unread.contains(
+            "To check the settings that UI tests need on host m1, turn on the ones that are off"
+        ),
         "{unread}"
     );
 }

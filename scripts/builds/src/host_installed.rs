@@ -1,6 +1,6 @@
 //! What each host, this Mac included, has set up for builds' jobs: the
 //! `builds` program its jobs run, whether launchd runs its sccache server,
-//! and the settings UI tests need there (ui_test_settings.rs). `builds
+//! and the settings that UI tests need on the host (ui_test_settings.rs). `builds
 //! health` and the dashboard compare each host with this Mac and say what to
 //! run for each one that differs; `ui_test_settings::findings` says what to
 //! run for the settings.
@@ -24,13 +24,14 @@ pub struct Installed {
     /// launchd's job (`sccache::launchd_serves`, the same check that setup
     /// uses).
     pub sccache_under_launchd: bool,
-    /// The settings UI tests need there, which `builds host setup` turns on.
+    /// The settings that UI tests need on this host, which `builds host
+    /// setup` turns on.
     pub ui_tests: crate::ui_test_settings::UiTestSettings,
 }
 
 /// Runs on a host, and on this Mac, to print what `parse_installed` reads:
 /// the builds digest, whether builds' plist is there, the pid listening on
-/// sccache's port, the settings UI tests need, and last, after `job=loaded`,
+/// sccache's port, the settings that UI tests need, and last, after `job=loaded`,
 /// what `launchctl print` says about launchd's job.
 fn installed_script() -> String {
     let label = crate::install::SCCACHE_LABEL;

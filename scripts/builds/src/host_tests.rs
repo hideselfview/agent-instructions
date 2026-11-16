@@ -138,7 +138,7 @@ fn refusals_keep_the_first_time_and_go_with_their_host() {
             ("m1".to_string(), Refused::Xcode),
             ("m1".to_string(), Refused::UiAutomation),
         ],
-        "both kinds that refuse mac app builds, and not jobs"
+        "refusing_mac_builds lists Xcode and UI automation records but not job records"
     );
     clear_refusal(&places, Refused::Jobs, "m1").unwrap();
     assert_eq!(mac(&places).len(), 3, "clearing one kind leaves the others");

@@ -1,7 +1,7 @@
 //! Setting a host up to take jobs (`builds host setup`): copying this Mac's
 //! `builds` program there, running the host's sccache server under launchd,
 //! measuring the speed of its cores against this Mac's, and turning on the
-//! settings UI tests need there (ui_test_settings.rs).
+//! settings that UI tests need there (ui_test_settings.rs).
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -114,10 +114,11 @@ pub fn install_program(ssh: &Ssh, host: &Host) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// `builds host setup <name>`: `setup_host`, then the settings UI tests
-/// need (`ui_test_settings::set_up`), whose sudo commands run only when a
-/// person is at this terminal. For this Mac (`local`), whose rest `builds
-/// install` sets up, only the settings.
+/// `builds host setup <name>`: runs `setup_host`, then turns on the settings
+/// that UI tests need (`ui_test_settings::set_up`), whose sudo commands run
+/// only when a person is at this terminal. For this Mac (`local`), the
+/// command only turns on the settings, because `builds install` sets up
+/// everything else.
 pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
     use std::io::IsTerminal;
     let Some(host) = host::all(&tool.places)?
