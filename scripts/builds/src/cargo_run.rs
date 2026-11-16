@@ -370,6 +370,7 @@ fn run_here(
     args: &[String],
 ) -> Result<Exited> {
     let config = role_config(checkout);
+    let linker = crate::linker::cargo_config(&places.home);
     // Held until cargo has exited and the recorder has read its last line.
     let root = checkout
         .map(|checkout| checkout.build_root(places))
@@ -384,6 +385,7 @@ fn run_here(
         .args(subcommand)
         .arg(format)
         .args(config)
+        .args(linker)
         .args(&args[subcommand.len()..])
         .env_remove(HOOK_CHECK_VARIABLE)
         .stdout(Stdio::piped())

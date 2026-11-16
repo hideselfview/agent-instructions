@@ -853,7 +853,8 @@ pub fn install_program(ssh: &Ssh, host: &Host) -> Result<String> {
     let exe = std::env::current_exe().context(|| "finding this program".to_string())?;
     let program = std::fs::read(&exe).context(|| format!("reading {}", exe.display()))?;
     let script = format!(
-        "{root}mkdir -p \"$HOME/.local/bin\" \"$BUILDS_ROOT\" && cat > \"$HOME/.local/bin/builds.part\" && chmod 755 \"$HOME/.local/bin/builds.part\" && mv \"$HOME/.local/bin/builds.part\" \"$HOME/.local/bin/builds\" && echo \"$BUILDS_ROOT\"",
+        "{root}mkdir -p \"$HOME/.local/bin\" \"$BUILDS_ROOT\" && cat > \"$HOME/.local/bin/builds.part\" && chmod 755 \"$HOME/.local/bin/builds.part\" && mv \"$HOME/.local/bin/builds.part\" \"$HOME/.local/bin/builds\" && ln -sfn builds \"$HOME/.local/bin/{linker}\" && echo \"$BUILDS_ROOT\"",
+        linker = crate::linker::NAME,
         root = crate::remote::root_script(host)
     );
     let mut child = ssh

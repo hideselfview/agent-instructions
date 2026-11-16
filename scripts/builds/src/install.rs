@@ -1,9 +1,9 @@
-//! `builds install`: puts `builds` on PATH, creates the shared caches and the
-//! links to them, writes the sccache config, runs the sccache server under
-//! launchd, points Xcode's default DerivedData at the volume, and copies the
-//! same builds to every recorded host. It runs from
-//! a fresh build, never from the installed binary (that fails: it would copy
-//! itself onto itself); it changes only what differs.
+//! `builds install`: puts `builds` on PATH (and `builds-linker`, `linker`),
+//! creates the shared caches and the links to them, writes the sccache
+//! config, runs the sccache server under launchd, points Xcode's default
+//! DerivedData at the volume, and copies the same builds to every recorded
+//! host. It runs from a fresh build, never from the installed binary (that
+//! fails: it would copy itself onto itself); it changes only what differs.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -215,7 +215,29 @@ fn put_on_path(home: &Path) -> Result<bool> {
         .context(|| format!("copying {} to {}", me.display(), staged.display()))?;
     std::fs::rename(&staged, &dest).context(|| format!("replacing {}", dest.display()))?;
     note(format!("copied {} to ~/.local/bin/builds", me.display()));
+    link_linker(home)?;
     Ok(true)
+}
+
+/// Makes ~/.local/bin/builds-linker a symlink to builds, which runs as the
+/// linker by that name (`linker`).
+fn link_linker(home: &Path) -> Result<()> {
+    let link = crate::linker::path(home);
+    if std::fs::read_link(&link).is_ok_and(|target| target == Path::new("builds")) {
+        return Ok(());
+    }
+    match std::fs::remove_file(&link) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => fail!("removing {}: {error}", link.display()),
+    }
+    std::os::unix::fs::symlink("builds", &link)
+        .context(|| format!("linking {} to builds", link.display()))?;
+    note(format!(
+        "linked ~/.local/bin/{} to builds",
+        crate::linker::NAME
+    ));
+    Ok(())
 }
 
 /// The dashboard daemons running now: the pid and the arguments after

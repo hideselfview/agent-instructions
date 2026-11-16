@@ -31,6 +31,7 @@ mod install;
 mod install_hook;
 mod land;
 mod lane;
+mod linker;
 mod lists;
 mod lock;
 mod lock_wait;
@@ -74,6 +75,14 @@ const WORKFLOW_HELP: &str = include_str!("workflow-help.txt");
 const BRIEFS_HELP: &str = include_str!("briefs-help.txt");
 
 fn main() -> ExitCode {
+    let mut argv = std::env::args_os();
+    let program = argv.next().unwrap_or_default();
+    if std::path::Path::new(&program).file_name() == Some(std::ffi::OsStr::new(linker::NAME)) {
+        let args: Vec<std::ffi::OsString> = argv.collect();
+        let Err(fail) = linker::run(&args);
+        text::note(fail.text());
+        return ExitCode::from(1);
+    }
     let args: Vec<String> = match std::env::args_os()
         .skip(1)
         .map(|arg| arg.into_string())

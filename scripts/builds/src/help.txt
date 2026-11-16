@@ -281,10 +281,16 @@ launchd does not run.
 Never start a server any other way: a server inherits the TMPDIR of the client
 that starts it and fails every compile once that folder is deleted, and the
 Unix-socket mode (SCCACHE_SERVER_UDS) races when clients start at once and
-leaves orphaned servers. sccache never caches build scripts, proc-macros, an
-incremental compile or a crate clippy lints, and a crate that reads OUT_DIR or
-depends on a proc-macro crate misses in each new checkout. `builds help
-workflow` says when to restart the server.
+leaves orphaned servers. sccache never caches build scripts, an incremental
+compile or a crate clippy lints, and a crate that reads OUT_DIR misses in each
+new checkout. sccache hashes each proc-macro a crate names, and ld names a
+dylib by its path, so `builds cargo` links this Mac's own target with
+~/.local/bin/builds-linker (a symlink to builds that `builds install` and
+`builds host setup` make): it runs cc and names each proc-macro dylib
+@rpath/<its file name>, so one proc-macro built in any checkout is the same
+bytes and the crates above it come from the cache. A cdylib, such as
+bae-bridge's, keeps the name ld gives it. `builds help workflow` says when to
+restart the server.
 
   builds cargo <subcommand> [<args>...]
                               run cargo (build, check, clippy, doc, rustc,
@@ -573,7 +579,8 @@ cannot start refuses mac app builds only (APP BUILDS).
                               records it in the file `hosts` beside the lists
                               folder. `setup` copies this Mac's builds program
                               to ~/.local/bin/builds on the host (both are
-                              arm64 macOS), makes its ~/builds-root, and has
+                              arm64 macOS), links builds-linker to it there,
+                              makes its ~/builds-root, and has
                               that copy run `builds host setup-here` there,
                               which writes the host's sccache config with
                               builds' cap and runs its sccache server under
@@ -1372,7 +1379,8 @@ agent-instructions and run `review replay --rules-root` on it.
 INSTALLING
 
   builds install              copy builds onto PATH in one rename (a failed
-                              build leaves the installed one), create the
+                              build leaves the installed one) and link
+                              ~/.local/bin/builds-linker to it, create the
                               shared caches and their links (moving a real
                               folder already there onto the volume), write the
                               sccache config, run the sccache server under

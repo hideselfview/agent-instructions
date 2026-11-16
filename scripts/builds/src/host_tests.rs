@@ -253,6 +253,17 @@ fn install_program_copies_builds_to_the_host_and_makes_its_root() {
     );
     assert!(home.join(REMOTE_ROOT).is_dir());
     assert!(!home.join(".local/bin/builds.part").exists());
+    assert_eq!(
+        std::fs::read_link(crate::linker::path(&home)).unwrap(),
+        Path::new("builds"),
+        "builds-linker runs the host's builds"
+    );
+    // A second install leaves the link as it is.
+    install_program(&ssh, &host).unwrap();
+    assert_eq!(
+        std::fs::read_link(crate::linker::path(&home)).unwrap(),
+        Path::new("builds")
+    );
     assert!(install_program(&ssh, &Host::local()).is_err());
     let gone = Host {
         name: "gone".to_string(),
