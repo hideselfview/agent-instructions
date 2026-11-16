@@ -64,20 +64,8 @@ impl Standing {
     /// it. None when the checkout is on main and its main has no commit that
     /// origin/main lacks.
     pub fn obstacle(&self) -> Option<(String, &'static str)> {
-        match &self.on {
-            Some(branch) if branch == "main" => {}
-            Some(branch) => {
-                return Some((
-                    format!("is on branch {branch}, not main"),
-                    "checks out main there",
-                ));
-            }
-            None => {
-                return Some((
-                    "is on a detached HEAD, not main".to_string(),
-                    "checks out main there",
-                ));
-            }
+        if let Some(why) = off_main(self.on.as_deref()) {
+            return Some((why, "checks out main there"));
         }
         (self.ahead > 0).then(|| {
             (
@@ -88,6 +76,17 @@ impl Standing {
                 "pushes or removes those commits",
             )
         })
+    }
+}
+
+/// Why a main checkout with <on> checked out (None for a detached HEAD) is
+/// not on main, as a clause about the checkout; None when it is on main.
+/// A merge there would move that branch, not main.
+pub fn off_main(on: Option<&str>) -> Option<String> {
+    match on {
+        Some("main") => None,
+        Some(branch) => Some(format!("is on branch {branch}, not main")),
+        None => Some("is on a detached HEAD, not main".to_string()),
     }
 }
 

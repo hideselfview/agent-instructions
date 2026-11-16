@@ -1194,7 +1194,7 @@ fn a_main_checkout_that_cannot_fast_forward_leaves_the_landing_landed_and_says_h
     assert!(
         code == 0
             && out.contains(&format!(
-                "MAIN CHECKOUT BEHIND: the landing is on origin/main, but the main checkout {} has 1 commit on main that origin/main lacks",
+                "MAIN CHECKOUT BEHIND: the landing is on origin/main, but git did not fast-forward the main checkout {}",
                 f.main.display()
             ))
             && out.contains(&command),

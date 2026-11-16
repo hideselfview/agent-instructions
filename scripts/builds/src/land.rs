@@ -892,8 +892,8 @@ impl Landing<'_> {
 
     /// Fast-forwards the repo's main checkout to origin/main, and prints a
     /// MAIN CHECKOUT BEHIND line, which says why and gives the command to
-    /// run, when the checkout is not on main, its main has commits
-    /// origin/main lacks, or git refuses the fast-forward.
+    /// run, when the checkout is not on main or git refuses the fast-forward
+    /// (the person's commits or uncommitted edits there stop it).
     fn forward_main_checkout(&self, out: &mut dyn Write) {
         let behind = |out: &mut dyn Write, what: String| {
             let _ = writeln!(
@@ -919,32 +919,22 @@ impl Landing<'_> {
             }
         };
         let command = crate::main_checkout::forward_command(&main);
-        let standing = match crate::main_checkout::Standing::read(&main) {
-            Ok(standing) => standing,
-            Err(error) => {
-                behind(
-                    out,
-                    format!(
-                        "land could not read the main checkout {}: {error}",
-                        main.display()
-                    ),
-                );
-                return;
-            }
-        };
-        if standing.behind == 0 {
-            let _ = writeln!(
-                out,
-                "the main checkout {} already holds origin/main",
-                main.display()
-            );
-            return;
-        }
-        if let Some((why, remedy)) = standing.obstacle() {
+        let Some(on) = git_text(&main, &["branch", "--show-current"]) else {
             behind(
                 out,
                 format!(
-                    "the main checkout {} {why}, so land left it as it is; once the person {remedy}, run: {command}",
+                    "git could not say which branch the main checkout {} is on",
+                    main.display()
+                ),
+            );
+            return;
+        };
+        let on = (!on.is_empty()).then_some(on);
+        if let Some(why) = crate::main_checkout::off_main(on.as_deref()) {
+            behind(
+                out,
+                format!(
+                    "the main checkout {} {why}, so land left it as it is; once the person checks out main there, run: {command}",
                     main.display()
                 ),
             );
@@ -966,7 +956,7 @@ impl Landing<'_> {
             behind(
                 out,
                 format!(
-                    "git did not fast-forward the main checkout {}:\n{said}\nThe person's uncommitted edits there, or what git names above, stop the fast-forward; once the person commits or removes them, run: {command}",
+                    "git did not fast-forward the main checkout {}:\n{said}\nThe person's commits or uncommitted edits there stop the fast-forward; once the person pushes, commits or removes them, run: {command}",
                     main.display()
                 ),
             );
