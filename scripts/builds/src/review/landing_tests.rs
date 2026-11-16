@@ -379,8 +379,8 @@ fn a_branch_lands_in_two_parts_each_with_the_fixes_of_its_own_findings() {
     crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Fix a"]);
     let fa = head(&side);
     fix(&demo, &side, found[0].id, &fa);
-    // A reworded commit keeps its patch id, so it names the fix of a finding
-    // on its message.
+    // A reworded commit keeps its patch id, so the test names b itself as the
+    // fix of the finding on b's message.
     fix(&demo, &side, found[1].id, &b);
     // a without its fix waits on it.
     let alone = verdict_of(&demo, &fake, &side, &[a.clone(), b.clone()]);

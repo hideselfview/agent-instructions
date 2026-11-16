@@ -177,10 +177,10 @@ const RUNS_AGAIN: &str =
 
 /// How a command that holds a use for its life enters.
 pub enum Entered {
-    /// It holds this use for its life.
+    /// The command holds this use for its life.
     Holds(Use),
-    /// It waited while an install ran, and must run the installed program in
-    /// its place.
+    /// The command waited while an install ran, and must run the installed
+    /// program in its place.
     RunAgain,
 }
 
@@ -311,7 +311,8 @@ pub struct ConnectionUse {
     _use: Arc<Use>,
 }
 
-/// This process's connection uses, when it takes them; set once at start.
+/// This process's connection uses, when it takes them. `use_per_connection`
+/// sets it once, when the process starts.
 static PER_CONNECTION: OnceLock<PerConnection> = OnceLock::new();
 
 /// Has this process take a use for each store connection it opens.
@@ -319,7 +320,7 @@ pub fn use_per_connection(per_connection: PerConnection) {
     if let Err(second) = PER_CONNECTION.set(per_connection) {
         let first = PER_CONNECTION.get().expect("set returned the second");
         panic!(
-            "this process's use of the stores was set twice: for process {}, builds {}, then for process {}, builds {}",
+            "use_per_connection ran twice in this process: for process {}, builds {}, then for process {}, builds {}",
             first.pid, first.what, second.pid, second.what
         );
     }
@@ -379,12 +380,12 @@ fn close_gate(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Resul
     Ok(gate)
 }
 
-/// Whether another install holds the gate at <path>, which <gate> opens,
-/// closed. Only an install locks a gate exclusively. A command that passes
-/// the gate holds a shared lock on it for a moment, and so does a process
-/// that another thread of that command starts, until the process runs its
-/// own program and closes the gate's file. When no install holds the gate,
-/// <gate> holds a shared lock on return.
+/// Whether another install keeps the gate at <path> closed; <gate> is that
+/// gate's open file. Only an install locks a gate exclusively. A command that
+/// passes the gate holds a shared lock on it for a moment. A child process
+/// that another thread of the command starts holds the same lock until the
+/// child calls exec, which closes the gate's file in the child. When no
+/// install holds the gate, <gate> holds a shared lock on return.
 fn closed_by_install(gate: &File, path: &Path) -> Result<bool> {
     Ok(!try_lock(gate, libc::LOCK_SH, path)?)
 }

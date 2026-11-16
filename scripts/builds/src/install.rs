@@ -480,8 +480,8 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("usage: builds install");
     }
     let home = &tool.places.home;
-    // Install waits for every use of the stores, and so forever for the use
-    // of a command it runs under.
+    // Install waits for every command that uses the stores, so it would wait
+    // forever for the builds command that started it.
     if let Ok(holder) = std::env::var(crate::install_gate::VARIABLE) {
         fail!(
             "builds install is running inside builds process {holder}, and install would wait forever for that process to end; run install from a shell outside it"

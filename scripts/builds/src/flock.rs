@@ -43,12 +43,13 @@ pub fn try_lock(file: &File, how: libc::c_int, path: &Path) -> Result<bool> {
     flock(file, how | libc::LOCK_NB).map_err(|error| failed(path, error))
 }
 
+/// The error that says locking the file at <path> failed with <error>.
 fn failed(path: &Path, error: std::io::Error) -> Fail {
     Fail::Message(format!("locking {}: {error}", path.display()))
 }
 
-/// The lock file at <path>, for reading and writing, made when it is missing
-/// and never emptied.
+/// Opens the lock file at <path> for reading and writing, creates it when it
+/// is missing, and never empties it.
 pub fn open_creating(path: &Path) -> Result<File> {
     std::fs::OpenOptions::new()
         .read(true)

@@ -167,10 +167,10 @@ fn holds_for_life(command: &str, rest: &[String]) -> bool {
     }
 }
 
-/// Takes the use of the stores that command <command>, run with <args> (the
-/// command first), takes before it runs: returns the use it holds for its
-/// life, or None when it takes a use
-/// per store connection, takes none, or runs under a holder's use. A command
+/// Takes the use of the stores that <command> needs before it runs. <args>
+/// starts with the command. Returns the use the command holds for its life,
+/// or None when the command takes a use per store connection, takes none, or
+/// runs under a holder's use. A command
 /// that waited at a closed gate while an install ran runs the program at this
 /// program's path in its place, with the same arguments: install replaced the
 /// program it started from.

@@ -343,8 +343,8 @@ pub fn settle(db: &Connection, id: i64, how: &str, why: &str, now: i64, by: &str
 
 /// Names commit <sha> as the fix of confirmed finding <id>, replacing the
 /// one named before. Only a confirmed finding of a review whose change has not
-/// landed takes a fix, and a fix that a push put on origin/main cannot be
-/// replaced.
+/// landed takes a fix, and record_fix refuses to replace a fix that a push
+/// put on origin/main.
 pub fn record_fix(db: &Connection, id: i64, fix: &Commit, now: i64, by: &str) -> Result<()> {
     let finding = finding_of(db, id)?;
     if finding.kind != "review" {
@@ -372,7 +372,7 @@ pub fn record_fix(db: &Connection, id: i64, fix: &Commit, now: i64, by: &str) ->
         && pushed_of_landing(db, landing)?.contains(&fixed.patch_id)
     {
         fail!(
-            "commit {} fixes finding {id}, and a push put it on origin/main already, so the fix cannot be replaced",
+            "commit {} fixes finding {id}, and a push put it on origin/main already, so builds keeps it as the fix",
             fixed.sha
         );
     }
