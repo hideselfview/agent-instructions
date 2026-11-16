@@ -611,6 +611,10 @@ fn finished_closes_a_running_item_with_what_it_made() {
     )
     .unwrap();
     assert!(refusal(item(&demo, &["finished", "1"])).contains("--made"));
+    assert!(
+        refusal(item(&demo, &["finished", "1", "--made", " "]))
+            .contains("closing_reason_says_something")
+    );
     item(&demo, &["finished", "1", "--made", "items 3 and 4"]).unwrap();
     let lists = open(&demo);
     assert!(
@@ -623,5 +627,6 @@ fn finished_closes_a_running_item_with_what_it_made() {
             .iter()
             .all(|wait| crate::lists::derive::wait_met(&lists, wait))
     );
-    assert!(refusal(item(&demo, &["finished", "1", "--made", "again"])).contains("1"));
+    assert!(refusal(item(&demo, &["finished", "1", "--made", "again"])).contains("already closed"));
+    assert!(refusal(item(&demo, &["finished", "9", "--made", "nothing"])).contains("not a record"));
 }

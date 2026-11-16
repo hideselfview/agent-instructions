@@ -402,13 +402,9 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["made"], &[])?;
     let id = one_id(&args, "builds item finished N --made WHAT")?;
     let made = args.require("made")?.to_string();
-    if made.trim().is_empty() {
-        fail!("--made says what the item made: the items, stack entries or notes");
-    }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, &format!("item finished {id}"), |db| {
-        open_item(&store::read(db)?, id)?;
         running::end(db, id)?;
         close(db, id, How::Finished(made.clone()), &stamp)
     })?;
