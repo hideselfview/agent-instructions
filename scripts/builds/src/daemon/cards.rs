@@ -65,9 +65,18 @@ impl ReviewWait {
     fn pill(self) -> Option<Pill> {
         let (kind, text) = match self {
             ReviewWait::NotRun | ReviewWait::Running => return None,
-            ReviewWait::ToSettle(n) => (PillKind::Settle, count(n, "finding", "findings")),
-            ReviewWait::Unfixed(n) => (PillKind::Fixes, count(n, "finding", "findings")),
-            ReviewWait::Unreviewed(n) => (PillKind::Unreviewed, count(n, "commit", "commits")),
+            ReviewWait::ToSettle(n) => (
+                PillKind::Settle,
+                crate::text::counted(n, "finding", "findings"),
+            ),
+            ReviewWait::Unfixed(n) => (
+                PillKind::Fixes,
+                crate::text::counted(n, "finding", "findings"),
+            ),
+            ReviewWait::Unreviewed(n) => (
+                PillKind::Unreviewed,
+                crate::text::counted(n, "commit", "commits"),
+            ),
         };
         Some(Pill {
             kind,
@@ -115,14 +124,6 @@ pub struct QueuedBuild {
     pub line: String,
     /// The steps in `line`, which the page draws in the mono face.
     pub steps: Option<String>,
-}
-
-/// <n> things, in the singular for one.
-fn count(n: usize, one: &str, many: &str) -> String {
-    match n {
-        1 => format!("1 {one}"),
-        n => format!("{n} {many}"),
-    }
 }
 
 impl ItemWait {
@@ -292,7 +293,7 @@ fn uncommitted(checkout: &CheckoutPage) -> Option<Uncommitted> {
     let git = checkout.git.as_ref().filter(|git| git.error.is_none())?;
     let files = match git.uncommitted? {
         0 => return None,
-        n => count(n, "file", "files"),
+        n => crate::text::counted(n, "file", "files"),
     };
     Some(Uncommitted {
         title: format!("{files} changed, not committed"),

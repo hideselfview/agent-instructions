@@ -425,9 +425,10 @@ function h(tag, attrs, ...kids) {
   }
   return el;
 }
-function size(kib) {
+// <kib> in gigabytes or megabytes, with <giga> or <mega> after the number.
+function size(kib, giga = "G", mega = "M") {
   if (kib === null || kib === undefined) return "-";
-  return kib >= 1048576 ? (kib / 1048576).toFixed(1) + "G" : Math.floor(kib / 1024) + "M";
+  return kib >= 1048576 ? (kib / 1048576).toFixed(1) + giga : Math.floor(kib / 1024) + mega;
 }
 function bytes(n) { return size(Math.floor(n / 1024)); }
 function wholeSize(kib) { return size(kib).replace(".0G", "G"); }
@@ -654,11 +655,6 @@ function icon(name, epoch, text) {
   el.prepend(svgEl);
   return el;
 }
-// A worktree's build output on the volume, as its card's footer shows it.
-function diskText(kib) {
-  if (kib === null || kib === undefined) return "…";
-  return kib >= 1048576 ? (kib / 1048576).toFixed(1) + " GB" : Math.floor(kib / 1024) + " MB";
-}
 function programs(names) {
   return names.map(p => p.count > 1 ? p.name + " ×" + p.count : p.name).join(", ");
 }
@@ -693,7 +689,7 @@ function cardFoot(c) {
         b && b.over.length ? h("span", {class: "bad", title: b.over.join("; ")}, "build over cap") : null,
         b && b.links.length ? h("span", {class: "bad", title: b.links.join("; ")}, plural(b.links.length, "build folder", "build folders") + " not linked here") : null,
         files ? h("span", {title: files.title}, files.text) : null,
-        h("span", {title: "Disk: the build output this worktree holds on the build volume."}, diskText(c.total_kib)))));
+        h("span", {title: "Disk: the build output this worktree holds on the build volume."}, c.total_kib === null ? "…" : size(c.total_kib, " GB", " MB")))));
 }
 // The icon of each thing a card can wait on (PillKind in cards.rs).
 const PILL_ICONS = {
@@ -716,10 +712,15 @@ function pillSpan(p) {
   el.firstChild.innerHTML = PILL_ICONS[p.kind];
   return el;
 }
-// The line that opens a list's hidden rest; it reads "Show fewer" while open
-// and moves below the list's last row.
+// What a line that opens a list's hidden rest reads: <more> while the rest
+// is hidden, "Show fewer" while it shows.
+function moreOrFewer(more) {
+  return [h("span", {class: "more"}, more), h("span", {class: "less"}, "Show fewer")];
+}
+// The line that opens a list's hidden rest; it moves below the list's last
+// row while the rest shows.
 function moreSummary(n) {
-  return h("summary", {}, h("span", {class: "more"}, n + " more"), h("span", {class: "less"}, "Show fewer"));
+  return h("summary", {}, moreOrFewer(n + " more"));
 }
 const ITEMS_SHOWN = 3;
 function itemRows(items) {
@@ -740,7 +741,7 @@ function commitBox(ahead) {
   if (ahead.length === 1) return h("div", {class: "land"}, h("div", {class: "c"}, commitCells(ahead[0])));
   return h("div", {class: "land"}, h("details", {},
     h("summary", {class: "c"}, commitCells(ahead[0]),
-      h("span", {class: "tog"}, h("span", {class: "more"}, "+" + (ahead.length - 1)), h("span", {class: "less"}, "Show fewer"))),
+      h("span", {class: "tog"}, moreOrFewer("+" + (ahead.length - 1)))),
     ahead.slice(1).map(x => h("div", {class: "c"}, commitCells(x)))));
 }
 // The note, with the steps a queued build asked for in the mono face.
