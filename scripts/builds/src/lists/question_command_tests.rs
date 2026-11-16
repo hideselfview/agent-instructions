@@ -276,6 +276,8 @@ fn ask_from_an_item_moves_it_to_the_stack_and_its_waiters_follow() {
         "{out}"
     );
     assert!(lists.item(mine).is_none());
+    // The question comes from the item whose place it takes.
+    assert_eq!(lists.questions[0].origin, Some(mine));
 }
 
 #[test]
@@ -386,7 +388,7 @@ fn answer_writes_the_decision_the_work_the_fates_and_the_close_in_one_step() {
     assert_eq!(decision.work.len(), 1);
     let made = lists.item(decision.work[0]).unwrap();
     assert_eq!(
-        (made.from, made.area.as_str(), made.title.as_str()),
+        (made.origin, made.area.as_str(), made.title.as_str()),
         (Some(decision.id), "Beta", "Build the plain way now")
     );
     assert_eq!(closed_as(&lists, q), &How::Answered(decision.id));
@@ -669,7 +671,7 @@ fn settle_records_no_decision_and_needs_a_rule() {
         &How::Settled("rules/x.md says so".into())
     );
     assert!(lists.decisions.is_empty());
-    assert_eq!(lists.items.last().unwrap().from, None);
+    assert_eq!(lists.items.last().unwrap().origin, None);
     assert!(
         out.contains("settled question") && out.contains("no decision recorded"),
         "{out}"
@@ -1105,6 +1107,7 @@ fn blocking_with_plan(db: &Connection, plan: PlanRef) -> Id {
             blocks_nothing: None,
             placed: None,
             plan: Some(plan),
+            origin: None,
         },
         &stamp(NOON + i64::from(id.0)),
     )
@@ -1164,7 +1167,7 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
     assert!(
         listed.contains("Which way does the second go?")
             && !listed.contains("Which way does the first go?")
-            && listed.contains("tags: coven-trust audit"),
+            && listed.contains(&format!("trail: coven-trust audit → {second}")),
         "{listed}"
     );
     assert!(
@@ -1175,7 +1178,7 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
             &no_gh
         )
         .unwrap()
-        .contains("no question on the stack carries the tag nothing")
+        .contains("no question on the stack shows the tag nothing")
     );
 
     run(
@@ -1204,7 +1207,10 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
     )
     .unwrap();
     let shown = go(&scratch, &tool, &format!("show {second}")).unwrap();
-    assert!(shown.contains("tags: coven-trust audit; later"), "{shown}");
+    assert!(
+        shown.contains(&format!("trail: coven-trust audit; later → {second}")),
+        "{shown}"
+    );
     refuses(
         &scratch,
         &tool,
@@ -1218,5 +1224,54 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
         &store,
         &format!("edit {first}"),
         "changes nothing",
+    );
+}
+
+#[test]
+fn ask_and_edit_give_a_question_its_origin_and_the_trail_shows_it() {
+    let (scratch, tool, store, (work, other)) = setup("question-origins", |db| {
+        let work = item(db, Vec::new());
+        crate::lists::tag::add_tags(db, work, &["audit".into()]).unwrap();
+        (work, item(db, Vec::new()))
+    });
+    let d = details(&scratch);
+    let base = format!(
+        "ask --title Sort_records --kind question --details-file {d} --blocks-nothing asked"
+    );
+    go(&scratch, &tool, &format!("{base} --origin {work}")).unwrap();
+    let lists = store.load().unwrap();
+    let asked = lists.questions[0].id;
+    assert_eq!(lists.questions[0].origin, Some(work));
+    // The question shows the item's tag, which it does not carry itself.
+    assert!(lists.questions[0].tags.is_empty());
+    assert!(
+        go(&scratch, &tool, "list --tag audit")
+            .unwrap()
+            .contains("Sort_records")
+    );
+    let shown = go(&scratch, &tool, &format!("show {asked}")).unwrap();
+    assert!(
+        shown.contains(&format!(
+            "trail: audit → {work} Do the work numbered 1 → {asked}"
+        )),
+        "{shown}"
+    );
+    refuses(
+        &scratch,
+        &tool,
+        &store,
+        &format!("{base} --from-item {other} --origin {work}"),
+        "--from-item and --origin contradict each other",
+    );
+    go(&scratch, &tool, &format!("edit {asked} --origin {other}")).unwrap();
+    assert_eq!(store.load().unwrap().questions[0].origin, Some(other));
+    go(&scratch, &tool, &format!("drop {asked} --why not-asked")).unwrap();
+    go(&scratch, &tool, &format!("edit {asked} --origin {work}")).unwrap();
+    let shown = go(&scratch, &tool, &format!("show {asked}")).unwrap();
+    assert!(
+        shown.contains(&format!(
+            "trail: audit → {work} Do the work numbered 1 → {asked}"
+        )),
+        "{shown}"
     );
 }

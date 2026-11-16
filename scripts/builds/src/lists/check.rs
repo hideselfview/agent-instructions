@@ -15,6 +15,7 @@ use rusqlite::Connection;
 
 use crate::db::Sql;
 use crate::fail::Result;
+use crate::lists::trail::EARLIER;
 
 /// The most words an item's title has, and the fewest.
 pub const TITLE_WORDS: std::ops::RangeInclusive<usize> = 5..=7;
@@ -93,7 +94,7 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
         )),
         _ => {}
     }
-    let queries: [(&str, String); 7] = [
+    let queries: [(&str, String); 9] = [
         // 1. A project has at least one repo: a parent that needs a child.
         ("repos", "SELECT 'the project has no repos' WHERE NOT EXISTS (SELECT 1 FROM repo)".to_string()),
         // 2. A question that says nothing of why it blocks nothing has an open item waiting on it.
@@ -160,6 +161,25 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
              SELECT 'item #' || item_id || ' has a landed part of repo ' || repo || ' with no commits' FROM item_landing l \
              WHERE NOT EXISTS (SELECT 1 FROM item_landing_commit k WHERE k.landing_id = l.id)"
                 .to_string(),
+        ),
+        // 8. No chain of origins loops.
+        (
+            "origins",
+            format!(
+                "{EARLIER} SELECT 'record #' || record || ' comes from itself through its chain of origins' \
+                 FROM earlier WHERE record = earlier ORDER BY record"
+            ),
+        ),
+        // 9. A record carries no tag its trail already shows.
+        (
+            "tags",
+            format!(
+                "{EARLIER} SELECT 'record #' || t.record_id || ' carries the tag ' || t.tag || \
+                 ', which #' || e.earlier || ' earlier in its trail carries' \
+                 FROM earlier e JOIN record_tag t ON t.record_id = e.record \
+                 JOIN record_tag s ON s.record_id = e.earlier AND s.tag = t.tag \
+                 ORDER BY t.record_id, t.tag, e.earlier"
+            ),
         ),
     ];
     for (_, sql) in &queries {

@@ -278,7 +278,7 @@ fn item_view(lists: &Lists, item: &Item) -> ItemView {
             .collect(),
         landed: item.landed.clone(),
         notes: item.notes.clone(),
-        from: item.from,
+        from: item.origin,
         opened: item.opened.clone(),
         tags: item.tags.clone(),
     }

@@ -105,7 +105,7 @@ fn add_makes_its_work_from_the_decision() {
     let after = state(&tool);
     let decision = &after.decisions[0];
     assert_eq!(decision.work, [after.items[0].id]);
-    assert_eq!(after.items[0].from, Some(decision.id));
+    assert_eq!(after.items[0].origin, Some(decision.id));
     assert_eq!(
         after.items[0].waits,
         [Wait::Condition("a quiet machine".into())]

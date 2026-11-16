@@ -17,7 +17,7 @@ use crate::lists::derive::{item_state, unmet_waits, waits_for_others};
 use crate::lists::draft::{require_brief_from, require_draft_briefs};
 use crate::lists::item::{
     Audience, Item, ItemDraft, ItemEdit, Level, Note, Priority, Wait, add_item, add_note, add_wait,
-    open_item, remove_wait, require_open_wait, set_priority,
+    open_item, remove_wait, require_open_wait, set_origin, set_priority,
 };
 use crate::lists::project;
 use crate::lists::record::close;
@@ -29,7 +29,7 @@ use crate::lists::{
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF)\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n(REF is item:N, question:N, design:N or condition:TEXT)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF)\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n(REF is item:N, question:N, design:N or condition:TEXT)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -93,11 +93,13 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             "brief",
             "priority",
             "why",
+            "origin",
             "tag",
         ],
         &[],
     )?;
     args.exactly(0, USAGE)?;
+    let origin = args.id("origin")?;
     let priority = match (args.choice::<Level>("priority")?, args.value("why")?) {
         (Some(level), Some(why)) => Some(Priority {
             level,
@@ -128,7 +130,7 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let (id, state) = store.write(&stamp, &format!("item add {}", draft.title), |db| {
-        let id = add_item(db, &draft, None, &stamp)?;
+        let id = add_item(db, &draft, origin, &stamp)?;
         let lists = store::read(db)?;
         Ok((id, item_state(&lists, lists.item(id).expect("just added"))))
     })?;
@@ -141,9 +143,10 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 /// `item edit N`: changes an open item's fields, and gives any item, open or
-/// closed, the tags `--tag` names and takes off those `--untag` names.
+/// closed, the origin `--origin` names and the tags `--tag` names, and takes
+/// off those `--untag` names.
 fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    const EDIT_USAGE: &str = "builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--tag T]... [--untag T]...";
+    const EDIT_USAGE: &str = "builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...";
     let args = Args::parse(
         args,
         &[
@@ -152,12 +155,14 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             "details-file",
             "brief",
             "for",
+            "origin",
             "tag",
             "untag",
         ],
         &[],
     )?;
     let id = one_id(&args, EDIT_USAGE)?;
+    let origin = args.id("origin")?;
     let edit = ItemEdit {
         title: args.value("title")?.map(str::to_string),
         area: args.value("area")?.map(str::to_string),
@@ -168,8 +173,10 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let tags = tag::parse_tags(args.values("tag"))?;
     let untags = tag::parse_tags(args.values("untag"))?;
     let fields = !edit.is_empty();
-    if !fields && tags.is_empty() && untags.is_empty() {
-        fail!("the edit of {id} changes nothing: it names no field and no tag\n{EDIT_USAGE}");
+    if !fields && origin.is_none() && tags.is_empty() && untags.is_empty() {
+        fail!(
+            "the edit of {id} changes nothing: it names no field, no origin and no tag\n{EDIT_USAGE}"
+        );
     }
     if let Some(brief) = &edit.brief {
         require_brief_from(cwd, brief)?;
@@ -188,9 +195,12 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 ..
             })
         ) {
-            // An item's tags change open or closed; anything else is refused
-            // as an item would be.
+            // An item's origin and tags change open or closed; anything else
+            // is refused as an item would be.
             open_item(&lists, id)?;
+        }
+        if let Some(origin) = origin {
+            set_origin(db, id, origin)?;
         }
         tag::remove_tags(db, id, &untags)?;
         tag::add_tags(db, id, &tags)

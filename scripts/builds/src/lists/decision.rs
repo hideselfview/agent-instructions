@@ -12,7 +12,7 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::check::title_fault;
-use crate::lists::item::{ItemDraft, Origin, add_item};
+use crate::lists::item::{ItemDraft, add_item};
 use crate::lists::record;
 use crate::lists::{How, Id, Item, Kind, Lists, PlanRef, Question, Stamp};
 use crate::text::local_day;
@@ -94,12 +94,7 @@ pub fn add_decision(
     let decision = record::open(db, Kind::Decision, stamp)?;
     let mut items = Vec::new();
     for draft in work {
-        items.push(add_item(
-            db,
-            draft,
-            Some(Origin::Decision(decision)),
-            stamp,
-        )?);
+        items.push(add_item(db, draft, Some(decision), stamp)?);
     }
     insert(
         db,
@@ -223,7 +218,7 @@ pub fn read(
             question,
             work: items
                 .iter()
-                .filter(|item| item.from == Some(id))
+                .filter(|item| item.origin == Some(id))
                 .map(|item| item.id)
                 .collect(),
             replaces,

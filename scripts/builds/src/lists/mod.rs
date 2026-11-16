@@ -7,7 +7,8 @@
 //! it) and every write to them: `record` (ids, stamps, closing), `project`,
 //! `area`, `item` with `running` and `landing`, `question`, `decision`,
 //! `design`, `tag` (the tags of questions and items), `store` (the write
-//! log). Their commands are `command`,
+//! log). `trail` reads where each question and item came from. Their commands
+//! are `command`,
 //! `item_command`, `question_command`, `decision_command` and
 //! `design_command`. `store` also holds the database's opening, the write
 //! transaction and the snapshot read, `check` the checks the tables cannot
@@ -47,6 +48,7 @@ pub mod show;
 pub mod store;
 pub mod tag;
 mod take;
+pub mod trail;
 pub mod view;
 
 pub use area::cmd_area;

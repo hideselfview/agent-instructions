@@ -11,9 +11,10 @@ use crate::lists::args::Args;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::item::open_item;
 use crate::lists::running::marker;
-use crate::lists::show::{item_line, tags_line, wait_words};
+use crate::lists::show::{item_line, wait_words};
 use crate::lists::store::Store;
-use crate::lists::{Audience, How, Id, Item, Kind, Level, Lists, Located, Standing, Wait, tag};
+use crate::lists::trail::{trail, trail_line};
+use crate::lists::{Audience, How, Id, Item, Kind, Level, Lists, Located, Standing, Wait};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
@@ -120,11 +121,8 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
             local_minute(part.at)
         );
     }
-    if let Some(from) = item.from {
-        let _ = writeln!(out, "made by {from}");
-    }
-    if !item.tags.is_empty() {
-        let _ = writeln!(out, "{}", tags_line(&item.tags));
+    if let Some(trail) = trail_line(lists, id) {
+        let _ = writeln!(out, "{trail}");
     }
     let _ = writeln!(
         out,
@@ -166,8 +164,8 @@ struct Choice<'a> {
 
 /// The items `list` prints: those running when asked, those ready when asked
 /// (in the queue's order, which the dashboard's Queue tab shows; the rest of
-/// the list stays in id order), in the area, for the audience and with the
-/// tag when given.
+/// the list stays in id order), in the area, for the audience and whose trail
+/// shows the tag when given.
 fn chosen<'a>(lists: &'a Lists, choice: &Choice) -> Vec<&'a Item> {
     let mut chosen: Vec<&Item> = lists
         .items
@@ -176,7 +174,7 @@ fn chosen<'a>(lists: &'a Lists, choice: &Choice) -> Vec<&'a Item> {
         .filter(|item| !choice.ready || derive::item_state(lists, item) == ItemState::Ready)
         .filter(|item| choice.area.is_none_or(|a| item.area == a))
         .filter(|item| choice.audience.is_none_or(|f| item.r#for == f))
-        .filter(|item| tag::wanted(&item.tags, choice.tag))
+        .filter(|item| trail(lists, item.id).wanted(choice.tag))
         .collect();
     if choice.ready {
         derive::queue_order(lists, &mut chosen);

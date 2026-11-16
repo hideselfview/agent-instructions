@@ -156,6 +156,15 @@ fn every_named_constraint_of_the_question_tables_refuses_its_row() {
         "FOREIGN KEY",
         plant(&db, "question", &row(&question, &[("id", v(900))])),
     );
+    refused.check(
+        "question_origin_not_itself",
+        plant(&db, "question", &spare_row(&[("origin", v(spare.0))])),
+    );
+    refused.check_as(
+        "question_origin_is_a_record",
+        "FOREIGN KEY",
+        plant(&db, "question", &spare_row(&[("origin", v(900))])),
+    );
     let placement = [
         ("question_id", v(good.0)),
         ("at", v("first")),

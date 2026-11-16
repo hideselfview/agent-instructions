@@ -17,7 +17,7 @@ use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::design_paths::{Changes, PlaceKind};
 use crate::lists::design_session::{self, SessionState};
-use crate::lists::item::{ItemDraft, Origin, add_item};
+use crate::lists::item::{ItemDraft, add_item};
 use crate::lists::record;
 use crate::lists::store;
 use crate::lists::{How, Id, Kind, Lists, Located, Record, Stamp, Standing, Wait};
@@ -270,7 +270,7 @@ fn resolve(
                 if !draft.waits.contains(&Wait::Design(id)) {
                     draft.waits.push(Wait::Design(id));
                 }
-                let item = add_item(db, &draft, Some(Origin::Design(id)), stamp)?;
+                let item = add_item(db, &draft, Some(id), stamp)?;
                 new_items.push(item);
                 Resolution::Item(item)
             }

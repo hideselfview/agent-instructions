@@ -2,7 +2,9 @@
 //! as "screen-reads audit", so the person can see one group's records
 //! together (tag.sql). A record has any number of tags, kept in the order of
 //! their text, and keeps them when it closes, so a closed record can still be
-//! tagged or untagged.
+//! tagged or untagged. Only the first record of a trail carries a tag
+//! (trail.rs): every later record shows it, so a record never carries a tag
+//! its trail already shows.
 
 use std::collections::BTreeMap;
 
@@ -12,6 +14,7 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::record::{self, Id, Kind};
+use crate::lists::trail;
 
 /// Why <tag> is not a tag: a tag is one line with no spaces at its ends.
 pub fn tag_fault(tag: &str) -> Option<String> {
@@ -53,19 +56,41 @@ fn taggable(db: &Connection, id: Id) -> Result<Kind> {
     }
 }
 
-/// Gives record <id> each of <tags> it does not have yet.
+/// Gives record <id> each of <tags> it does not have yet. Refuses a tag its
+/// trail already shows, naming the record that carries it; the later records
+/// whose trail now shows a tag lose their own copy of it.
 pub fn add_tags(db: &Connection, id: Id, tags: &[String]) -> Result<()> {
     if tags.is_empty() {
         return Ok(());
     }
     let kind = taggable(db, id)?;
     for tag in tags {
+        if let Some(on) = trail::earlier_with_tag(db, id, tag)? {
+            fail!("{id}'s trail already shows the tag '{tag}': {on} carries it");
+        }
         db.execute(
             "INSERT OR IGNORE INTO record_tag (record_id, kind, tag) VALUES (?1, ?2, ?3)",
             params![id, kind.word(), tag],
         )
         .sql()?;
     }
+    drop_shown(db)
+}
+
+/// Takes off each record every tag that an earlier record of its trail
+/// carries. A new origin, or a tag on an earlier record, can make a record
+/// repeat such a tag.
+pub fn drop_shown(db: &Connection) -> Result<()> {
+    db.execute(
+        &format!(
+            "{} DELETE FROM record_tag WHERE EXISTS (SELECT 1 FROM earlier e \
+             JOIN record_tag t ON t.record_id = e.earlier AND t.tag = record_tag.tag \
+             WHERE e.record = record_tag.record_id)",
+            trail::EARLIER
+        ),
+        [],
+    )
+    .sql()?;
     Ok(())
 }
 
@@ -105,12 +130,6 @@ pub fn read(db: &Connection) -> Result<BTreeMap<Id, Vec<String>>> {
         tags.entry(id).or_default().push(tag);
     }
     Ok(tags)
-}
-
-/// Whether a record with <tags> is one `--tag <wanted>` asks for: every
-/// record when nothing is asked.
-pub fn wanted(tags: &[String], wanted: Option<&str>) -> bool {
-    wanted.is_none_or(|wanted| tags.iter().any(|tag| tag == wanted))
 }
 
 /// The tables tag.rs owns.

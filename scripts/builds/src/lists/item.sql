@@ -14,12 +14,11 @@ CREATE TABLE item (
     details TEXT NOT NULL CONSTRAINT item_details_say_something CHECK (trim(details) <> ''),
     audience TEXT NOT NULL CONSTRAINT item_audience_known CHECK (audience IN ('coordinator', 'design-session')),
     brief TEXT CONSTRAINT item_brief_says_something CHECK (brief IS NULL OR trim(brief) <> ''),
-    -- The decision or design change that made it.
+    -- The record it came from, of any kind (trail.rs).
     origin INTEGER,
-    origin_kind TEXT CONSTRAINT item_origin_kind_known CHECK (origin_kind IN ('decision', 'design')),
-    CONSTRAINT item_origin_is_whole CHECK ((origin IS NULL) = (origin_kind IS NULL)),
+    CONSTRAINT item_origin_not_itself CHECK (origin <> id),
     CONSTRAINT item_is_a_record FOREIGN KEY (id, record_kind) REFERENCES record (id, kind),
-    CONSTRAINT item_origin_is_a_record FOREIGN KEY (origin, origin_kind) REFERENCES record (id, kind)
+    CONSTRAINT item_origin_is_a_record FOREIGN KEY (origin) REFERENCES record (id)
 ) STRICT;
 
 CREATE INDEX item_origin ON item (origin);

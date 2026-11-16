@@ -347,7 +347,7 @@ fn record_resolves_places_by_item_new_item_and_matches() {
         .find(|i| i.title == "Build the grid the board shows")
         .unwrap();
     assert_eq!(new.waits, [Wait::Design(design.id)]);
-    assert_eq!(new.from, Some(design.id));
+    assert_eq!(new.origin, Some(design.id));
     assert_eq!(
         design.places["design/mocks/B.dc.html"],
         Resolution::Item(new.id)

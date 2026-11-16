@@ -52,6 +52,9 @@ the builds store (`builds help lists`). The stack holds what waits on the
 person, asked one at a time from the top; a plan's open questions go there. The
 queue holds only what agents can do, and `builds next` lists what is ready. The
 log holds each answer, and each standing choice about how work runs, with why.
+An entry made from another record names it as its origin (`--origin N`), so its
+trail shows where it came from; an audit's tag goes on the first entry of a
+trail, and every later entry shows it.
 
 
 PLAN, BRIEF, EXECUTE, REVIEW

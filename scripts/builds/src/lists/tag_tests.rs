@@ -97,7 +97,4 @@ fn a_tag_is_one_line_with_no_spaces_at_its_ends() {
     for bad in ["", " ", " x", "x ", "a\nb", "a\tb"] {
         assert!(parse_tags(vec![bad]).is_err(), "{bad:?}");
     }
-    assert!(wanted(&["a".into(), "b".into()], Some("b")));
-    assert!(!wanted(&["a".into()], Some("b")));
-    assert!(wanted(&[], None));
 }

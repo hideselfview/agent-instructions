@@ -1,6 +1,7 @@
 //! The decision stack's questions: what a question is, where it sits, and
 //! every write to one, with the fates an answer gives the items that waited
-//! on it. `question_command` is the commands around these operations.
+//! on it. A question may name the record it came from (trail.rs).
+//! `question_command` is the commands around these operations.
 
 use std::collections::BTreeMap;
 
@@ -12,8 +13,8 @@ use crate::fail;
 use crate::fail::Result;
 use crate::lists::item::ItemEdit;
 use crate::lists::record::{self, close};
-use crate::lists::store;
 use crate::lists::{How, Id, Kind, Lists, Stamp, Wait};
+use crate::lists::{store, tag, trail};
 
 impl Lists {
     pub fn question(&self, id: Id) -> Option<&Question> {
@@ -70,6 +71,8 @@ pub struct Question {
     pub blocks_nothing: Option<String>,
     pub placed: Option<Placement>,
     pub plan: Option<PlanRef>,
+    /// The record it came from (trail.rs).
+    pub origin: Option<Id>,
     pub opened: Stamp,
     /// The audits or groups it came from (tag.rs), in the order of their text.
     pub tags: Vec<String>,
@@ -97,6 +100,8 @@ pub struct NewQuestion {
     pub blocks_nothing: Option<String>,
     pub placed: Option<Placement>,
     pub plan: Option<PlanRef>,
+    /// The record it came from.
+    pub origin: Option<Id>,
 }
 
 fn kind_word(kind: QuestionKind) -> &'static str {
@@ -128,6 +133,9 @@ fn insert_placement(db: &Connection, id: Id, placed: &Placement) -> Result<()> {
 /// Asks <new> on the stack, opened by <stamp>; returns its id.
 pub fn ask(db: &Connection, new: NewQuestion, stamp: &Stamp) -> Result<Id> {
     let id = record::open(db, Kind::Question, stamp)?;
+    if let Some(origin) = new.origin {
+        trail::require_origin(db, id, origin)?;
+    }
     insert(db, id, &new)?;
     Ok(id)
 }
@@ -135,8 +143,8 @@ pub fn ask(db: &Connection, new: NewQuestion, stamp: &Stamp) -> Result<Id> {
 /// The question's own rows, for the record <id> already opened.
 fn insert(db: &Connection, id: Id, new: &NewQuestion) -> Result<()> {
     db.execute(
-        "INSERT INTO question (id, title, details, kind, blocks_nothing) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, new.title, new.details, kind_word(new.kind), new.blocks_nothing],
+        "INSERT INTO question (id, title, details, kind, blocks_nothing, origin) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, new.title, new.details, kind_word(new.kind), new.blocks_nothing, new.origin],
     )
     .sql()?;
     if let Some(placed) = &new.placed {
@@ -202,6 +210,22 @@ pub fn edit(
     Ok(())
 }
 
+/// Makes question <id>, open or closed, come from record <origin>, and takes
+/// off it and the records after it the tags their new trails already show.
+pub fn set_origin(db: &Connection, id: Id, origin: Id) -> Result<()> {
+    match record::standing(db, id)? {
+        Some((Kind::Question, _)) => {}
+        _ => fail!("{id} is not a question"),
+    }
+    trail::require_origin(db, id, origin)?;
+    db.execute(
+        "UPDATE question SET origin = ?2 WHERE id = ?1",
+        params![id, origin],
+    )
+    .sql()?;
+    tag::drop_shown(db)
+}
+
 /// Every question, open and closed, as the rows hold it. <opened> is every
 /// record's stamp.
 pub fn read(
@@ -256,7 +280,9 @@ pub fn read(
         plans.insert(id, PlanRef { path, number });
     }
     let mut statement = db
-        .prepare("SELECT id, title, details, kind, blocks_nothing FROM question ORDER BY id")
+        .prepare(
+            "SELECT id, title, details, kind, blocks_nothing, origin FROM question ORDER BY id",
+        )
         .sql()?;
     let rows = statement
         .query_map([], |row| {
@@ -266,12 +292,13 @@ pub fn read(
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<Id>>(5)?,
             ))
         })
         .sql()?;
     let mut questions = Vec::new();
     for row in rows {
-        let (id, title, details, kind, blocks_nothing) = row.sql()?;
+        let (id, title, details, kind, blocks_nothing, origin) = row.sql()?;
         questions.push(Question {
             id,
             title,
@@ -284,6 +311,7 @@ pub fn read(
             blocks_nothing,
             placed: placements.remove(&id),
             plan: plans.remove(&id),
+            origin,
             opened: opened[&id].clone(),
             tags: tags.get(&id).cloned().unwrap_or_default(),
         });
@@ -361,6 +389,36 @@ pub fn apply_blocked(
         }
     }
     Ok(())
+}
+
+/// The statement of question.sql that starts with <from> and ends with the
+/// first <end> after it.
+fn statement(from: &str, end: &str) -> &'static str {
+    let schema = include_str!("question.sql");
+    let start = schema.find(from).expect("question.sql has it");
+    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
+    &schema[start..stop]
+}
+
+/// Moves a store's `question` table from before questions named an origin to
+/// today's, with the statements taken from question.sql so the result equals a
+/// fresh database's: no question has an origin yet. migrate.rs runs it with
+/// the foreign keys off, and the rename runs under `legacy_alter_table`, so
+/// the tables that point at `question` keep naming it.
+pub fn move_to_origins(db: &Connection) -> Result<()> {
+    db.execute_batch(&format!(
+        "PRAGMA legacy_alter_table = ON;
+ALTER TABLE question RENAME TO question_old;
+{}
+INSERT INTO question (id, record_kind, title, details, kind, blocks_nothing)
+    SELECT id, record_kind, title, details, kind, blocks_nothing FROM question_old;
+DROP TABLE question_old;
+{}
+PRAGMA legacy_alter_table = OFF;",
+        statement("CREATE TABLE question (", "STRICT;"),
+        statement("CREATE INDEX question_origin", ";"),
+    ))
+    .sql()
 }
 
 /// The tables question.rs owns.

@@ -1,6 +1,7 @@
 //! The work queue's items: what an item is, and every write to one. An item
 //! waits on records or conditions, may carry a priority, a brief and notes,
-//! and is made by a draft or by a decision or design change. Where it runs
+//! and is made by a draft, and may name the record it came from (trail.rs),
+//! such as the decision or design change that made it. Where it runs
 //! is `running`, what already landed of it is `landing`; `item_command` is
 //! the commands around these operations.
 
@@ -13,10 +14,10 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::check::item_title_fault;
-use crate::lists::tag;
 use crate::lists::{
     Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, area, landing, record, running,
 };
+use crate::lists::{tag, trail};
 
 /// Whose work an item is. The coordinator dispatches `Coordinator` items;
 /// `DesignSession` items are shown apart and never listed as dispatchable.
@@ -81,8 +82,8 @@ pub struct Item {
     pub landed: Vec<LandedPart>,
     /// Newest last.
     pub notes: Vec<Note>,
-    /// The decision or design change that made it.
-    pub from: Option<Id>,
+    /// The record it came from (trail.rs).
+    pub origin: Option<Id>,
     pub opened: Stamp,
     /// The audits or groups it came from (tag.rs), in the order of their text.
     pub tags: Vec<String>,
@@ -117,28 +118,6 @@ pub struct ItemEdit {
     #[serde(rename = "for")]
     pub r#for: Option<Audience>,
 }
-/// What made an item: a decision or a design change.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Origin {
-    Decision(Id),
-    Design(Id),
-}
-
-impl Origin {
-    fn id(self) -> Id {
-        match self {
-            Origin::Decision(id) | Origin::Design(id) => id,
-        }
-    }
-
-    fn word(self) -> &'static str {
-        match self {
-            Origin::Decision(_) => "decision",
-            Origin::Design(_) => "design",
-        }
-    }
-}
-
 fn require_area(db: &Connection, area: &str) -> Result<()> {
     let areas = area::areas(db)?;
     if areas.iter().any(|known| known == area) {
@@ -241,17 +220,21 @@ impl ItemDraft {
     }
 }
 
-/// Adds the item <draft> describes, made by <from> (a decision or a design
-/// change) when it was; returns its id.
+/// Adds the item <draft> describes, which came from record <origin> when
+/// given (such as the decision or design change that made it); returns its
+/// id.
 pub fn add_item(
     db: &Connection,
     draft: &ItemDraft,
-    from: Option<Origin>,
+    origin: Option<Id>,
     stamp: &Stamp,
 ) -> Result<Id> {
     draft.validate(db)?;
     let id = record::open(db, Kind::Item, stamp)?;
-    insert(db, id, draft, from)?;
+    if let Some(origin) = origin {
+        trail::require_origin(db, id, origin)?;
+    }
+    insert(db, id, draft, origin)?;
     for wait in &draft.waits {
         insert_wait(db, id, wait)?;
     }
@@ -263,9 +246,9 @@ pub fn add_item(
 }
 
 /// The item's own row, for the record <id> already opened.
-fn insert(db: &Connection, id: Id, draft: &ItemDraft, from: Option<Origin>) -> Result<()> {
+fn insert(db: &Connection, id: Id, draft: &ItemDraft, origin: Option<Id>) -> Result<()> {
     db.execute(
-        "INSERT INTO item (id, title, area, details, audience, brief, origin, origin_kind) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO item (id, title, area, details, audience, brief, origin) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             id,
             draft.title,
@@ -273,8 +256,7 @@ fn insert(db: &Connection, id: Id, draft: &ItemDraft, from: Option<Origin>) -> R
             draft.details,
             audience_word(draft.r#for),
             draft.brief,
-            from.map(Origin::id),
-            from.map(Origin::word)
+            origin
         ],
     )
     .sql()?;
@@ -365,6 +347,22 @@ impl ItemEdit {
         .sql()?;
         Ok(())
     }
+}
+
+/// Makes item <id>, open or closed, come from record <origin>, and takes off
+/// it and the records after it the tags their new trails already show.
+pub fn set_origin(db: &Connection, id: Id, origin: Id) -> Result<()> {
+    match record::standing(db, id)? {
+        Some((Kind::Item, _)) => {}
+        _ => fail!("{id} is not an item"),
+    }
+    trail::require_origin(db, id, origin)?;
+    db.execute(
+        "UPDATE item SET origin = ?2 WHERE id = ?1",
+        params![id, origin],
+    )
+    .sql()?;
+    tag::drop_shown(db)
 }
 
 /// Appends <note> to open item <id>.
@@ -570,7 +568,7 @@ pub fn read(
         .sql()?;
     let mut items = Vec::new();
     for row in rows {
-        let (id, title, area, details, audience, brief, from) = row.sql()?;
+        let (id, title, area, details, audience, brief, origin) = row.sql()?;
         items.push(Item {
             id,
             title,
@@ -587,7 +585,7 @@ pub fn read(
             running: running.remove(&id).unwrap_or_default(),
             landed: landed.remove(&id).unwrap_or_default(),
             notes: notes.remove(&id).unwrap_or_default(),
-            from,
+            origin,
             opened: opened[&id].clone(),
             tags: tags.get(&id).cloned().unwrap_or_default(),
         });
@@ -609,6 +607,39 @@ impl Lists {
             .iter()
             .filter(move |item| item.waits.contains(wait))
     }
+}
+
+/// The statement of item.sql that starts with <from> and ends with the first
+/// <end> after it.
+fn statement(from: &str, end: &str) -> &'static str {
+    let schema = include_str!("item.sql");
+    let start = schema.find(from).expect("item.sql has it");
+    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
+    &schema[start..stop]
+}
+
+/// Moves a store's `item` table from before an origin could be a record of any
+/// kind to today's, with the statements taken from item.sql so the result
+/// equals a fresh database's: each item keeps the decision or design change
+/// that made it as its origin. migrate.rs runs it with the foreign keys off,
+/// and the rename runs under `legacy_alter_table`, so the tables that point at
+/// `item` keep naming it.
+pub fn move_to_origins(db: &Connection) -> Result<()> {
+    db.execute_batch(&format!(
+        "PRAGMA legacy_alter_table = ON;
+ALTER TABLE item RENAME TO item_old;
+{}
+INSERT INTO item (id, record_kind, title, area, details, audience, brief, origin)
+    SELECT id, record_kind, title, area, details, audience, brief, origin FROM item_old;
+DROP TABLE item_old;
+{}
+{}
+PRAGMA legacy_alter_table = OFF;",
+        statement("CREATE TABLE item (", "STRICT;"),
+        statement("CREATE INDEX item_origin", ";"),
+        statement("CREATE INDEX item_area", ";"),
+    ))
+    .sql()
 }
 
 /// The tables item.rs owns.

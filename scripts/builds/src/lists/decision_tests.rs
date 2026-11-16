@@ -45,7 +45,7 @@ fn a_decision_records_its_items_and_dates_itself() {
     assert_eq!(decision.date, crate::text::local_day(NOON));
     assert_eq!(decision.question, Some(q));
     for id in &added.items {
-        assert_eq!(lists.item(*id).unwrap().from, Some(added.decision));
+        assert_eq!(lists.item(*id).unwrap().origin, Some(added.decision));
     }
 }
 

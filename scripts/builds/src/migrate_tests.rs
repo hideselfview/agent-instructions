@@ -1097,6 +1097,7 @@ fn the_scored_calls_stamp_is_the_schema_before_scored_calls() {
 /// <schema> as the text read before questions and items took tags: without
 /// the tags' part.
 fn without_tags(schema: String) -> String {
+    let schema = without_origins(schema);
     let part = format!("{}\n", db::TAG_PART);
     assert_eq!(
         schema.matches(&part).count(),
@@ -1211,7 +1212,7 @@ fn schema_with_cargo_runs() -> String {
 #[test]
 fn the_cargo_runs_removed_stamp_is_the_schema_with_cargo_runs() {
     let mut hash: u32 = 0x811c_9dc5;
-    for byte in schema_with_cargo_runs().bytes() {
+    for byte in without_origins(schema_with_cargo_runs()).bytes() {
         hash ^= u32::from(byte);
         hash = hash.wrapping_mul(0x0100_0193);
     }
@@ -1230,7 +1231,8 @@ fn a_store_with_cargo_runs_loses_the_table_and_its_rows_keeps_the_rest_and_equal
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&schema_with_cargo_runs()).unwrap();
+        conn.execute_batch(&without_origins(schema_with_cargo_runs()))
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CARGO_RUNS_REMOVED_STAMP)
             .unwrap();
         plant_run(&conn);
@@ -1250,4 +1252,164 @@ fn a_store_with_cargo_runs_loses_the_table_and_its_rows_keeps_the_rest_and_equal
     );
     let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
     assert_eq!(stats.runs, 1, "the move keeps the old run");
+}
+
+/// <schema> as the text read before questions named an origin and an origin
+/// could be a record of any kind: `item` with an origin of a decision or a
+/// design change and the kind beside it, and `question` without an origin.
+fn without_origins(schema: String) -> String {
+    let mut old = schema;
+    for (now, then) in [
+        (
+            "    -- The record it came from, of any kind (trail.rs).
+    origin INTEGER,
+    CONSTRAINT item_origin_not_itself CHECK (origin <> id),
+    CONSTRAINT item_is_a_record FOREIGN KEY (id, record_kind) REFERENCES record (id, kind),
+    CONSTRAINT item_origin_is_a_record FOREIGN KEY (origin) REFERENCES record (id)
+",
+            "    -- The decision or design change that made it.
+    origin INTEGER,
+    origin_kind TEXT CONSTRAINT item_origin_kind_known CHECK (origin_kind IN ('decision', 'design')),
+    CONSTRAINT item_origin_is_whole CHECK ((origin IS NULL) = (origin_kind IS NULL)),
+    CONSTRAINT item_is_a_record FOREIGN KEY (id, record_kind) REFERENCES record (id, kind),
+    CONSTRAINT item_origin_is_a_record FOREIGN KEY (origin, origin_kind) REFERENCES record (id, kind)
+",
+        ),
+        (
+            "    CONSTRAINT question_is_a_record FOREIGN KEY (id, record_kind) REFERENCES record (id, kind),
+    CONSTRAINT question_origin_is_a_record FOREIGN KEY (origin) REFERENCES record (id)
+) STRICT;
+
+CREATE INDEX question_origin ON question (origin);
+",
+            "    CONSTRAINT question_is_a_record FOREIGN KEY (id, record_kind) REFERENCES record (id, kind)
+) STRICT;
+",
+        ),
+        (
+            "    -- The record it came from, of any kind (trail.rs).
+    origin INTEGER,
+    CONSTRAINT question_origin_not_itself CHECK (origin <> id),
+",
+            "",
+        ),
+    ] {
+        assert_eq!(old.matches(now).count(), 1, "{now}");
+        old = old.replace(now, then);
+    }
+    old
+}
+
+#[test]
+fn the_origins_stamp_is_the_schema_before_origins() {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in without_origins(db::schema()).bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    assert_eq!(
+        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        BEFORE_ORIGINS_STAMP
+    );
+}
+
+#[test]
+fn a_store_from_before_origins_keeps_each_item_its_origin_and_equals_a_fresh_schema() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-origins");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&without_origins(db::schema())).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_ORIGINS_STAMP)
+            .unwrap();
+        crate::lists::area::plant(&conn, &[("name", v("Alpha")), ("position", v(0))]).unwrap();
+        for (id, kind) in [(1, "decision"), (2, "item"), (3, "question")] {
+            crate::lists::record::plant(
+                &conn,
+                "record",
+                &[
+                    ("id", v(id)),
+                    ("kind", v(kind)),
+                    ("opened_at", v(5)),
+                    ("opened_by", v("coordinator")),
+                ],
+            )
+            .unwrap();
+        }
+        crate::lists::item::plant(
+            &conn,
+            "item",
+            &[
+                ("id", v(2)),
+                ("title", v("Do the work the decision made")),
+                ("area", v("Alpha")),
+                ("details", v("d")),
+                ("audience", v("coordinator")),
+                ("origin", v(1)),
+                ("origin_kind", v("decision")),
+            ],
+        )
+        .unwrap();
+        crate::lists::item::plant(
+            &conn,
+            "item_priority",
+            &[("item_id", v(2)), ("level", v("first")), ("why", v("w"))],
+        )
+        .unwrap();
+        crate::lists::question::plant(
+            &conn,
+            "question",
+            &[
+                ("id", v(3)),
+                ("title", v("Which way?")),
+                ("details", v("d")),
+                ("kind", v("question")),
+                ("blocks_nothing", v("asked to know")),
+            ],
+        )
+        .unwrap();
+        crate::lists::item::plant(
+            &conn,
+            "item_wait_question",
+            &[("item_id", v(2)), ("on_question", v(3))],
+        )
+        .unwrap();
+        plant_run(&conn);
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open(&path, db::Make::Never).expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let origins: Vec<(i64, Option<i64>)> = conn
+        .prepare(
+            "SELECT id, origin FROM item UNION ALL SELECT id, origin FROM question ORDER BY id",
+        )
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(|row| row.unwrap())
+        .collect();
+    assert_eq!(origins, [(2, Some(1)), (3, None)]);
+    // The tables that point at `item` and `question` still name them.
+    let priorities: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM item_priority JOIN item ON item.id = item_id",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(priorities, 1);
+    let broken: Option<String> = conn
+        .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))
+        .optional()
+        .unwrap();
+    assert_eq!(broken, None);
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the old run is kept");
 }

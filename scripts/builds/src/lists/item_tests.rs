@@ -71,11 +71,11 @@ fn add_item_makes_a_stamped_item_with_the_next_id() {
         level: Level::First,
         why: "why".into(),
     });
-    let id = add_item(&db, &d, Some(Origin::Decision(decision)), &stamp(NOON)).unwrap();
+    let id = add_item(&db, &d, Some(decision), &stamp(NOON)).unwrap();
     let lists = read(&db);
     let made = lists.item(id).unwrap();
     assert_eq!(
-        (made.id, made.from, made.opened.clone()),
+        (made.id, made.origin, made.opened.clone()),
         (Id(2), Some(Id(1)), stamp(NOON))
     );
     assert_eq!(made.priority, d.priority);
@@ -144,7 +144,6 @@ fn every_named_constraint_of_the_item_tables_refuses_its_row() {
     let db = db();
     let good = record::open(&db, Kind::Item, &stamp(1)).unwrap();
     let spare = record::open(&db, Kind::Item, &stamp(1)).unwrap();
-    let decision = record::open(&db, Kind::Decision, &stamp(1)).unwrap();
     let question = question(&db);
     let item = [
         ("id", v(good.0)),
@@ -186,20 +185,8 @@ fn every_named_constraint_of_the_item_tables_refuses_its_row() {
         plant(&db, "item", &spare_row(&[("brief", v(" "))])),
     );
     refused.check(
-        "item_origin_kind_known",
-        plant(
-            &db,
-            "item",
-            &spare_row(&[("origin", v(decision.0)), ("origin_kind", v("item"))]),
-        ),
-    );
-    refused.check(
-        "item_origin_is_whole",
-        plant(&db, "item", &spare_row(&[("origin", v(decision.0))])),
-    );
-    refused.check(
-        "item_origin_is_whole",
-        plant(&db, "item", &spare_row(&[("origin_kind", v("decision"))])),
+        "item_origin_not_itself",
+        plant(&db, "item", &spare_row(&[("origin", v(spare.0))])),
     );
     refused.check_as(
         "item_is_a_record",
@@ -209,11 +196,7 @@ fn every_named_constraint_of_the_item_tables_refuses_its_row() {
     refused.check_as(
         "item_origin_is_a_record",
         "FOREIGN KEY",
-        plant(
-            &db,
-            "item",
-            &spare_row(&[("origin", v(good.0)), ("origin_kind", v("decision"))]),
-        ),
+        plant(&db, "item", &spare_row(&[("origin", v(900))])),
     );
     let priority = [
         ("item_id", v(good.0)),

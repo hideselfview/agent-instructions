@@ -506,7 +506,7 @@ fn tags_go_on_with_add_and_edit_open_or_closed_and_list_chooses_by_them() {
     item(&demo, &["edit", "2", "--tag", "coven-trust audit"]).unwrap();
     let shown = crate::lists::item_show::render_item(&open(&demo), Id(2)).unwrap();
     assert!(
-        shown.contains("tags: coven-trust audit; screen-reads audit"),
+        shown.contains("trail: coven-trust audit; screen-reads audit → #2"),
         "{shown}"
     );
     assert!(
@@ -518,11 +518,70 @@ fn tags_go_on_with_add_and_edit_open_or_closed_and_list_chooses_by_them() {
     );
 
     let line = crate::lists::show::item_line(&open(&demo), &open(&demo).items[0]);
-    assert!(line.contains("\n      tags: screen-reads audit"), "{line}");
+    assert!(
+        line.contains("\n      trail: screen-reads audit → #1"),
+        "{line}"
+    );
     let text = crate::lists::show::render(&open(&demo), Some("coven-trust audit"));
     assert!(
         text.contains("tagged coven-trust audit") && !text.contains(FIVE),
         "{text}"
     );
     assert!(crate::lists::show::render(&open(&demo), Some("screen-reads audit")).contains(FIVE));
+}
+
+#[test]
+fn origins_go_on_with_add_and_edit_open_or_closed_and_the_trail_keeps_the_tags() {
+    let demo = demo("item-origins");
+    add(&demo, FIVE, &["--tag", "screen-reads audit"]).unwrap();
+    add(&demo, "Do the second thing now", &["--origin", "1"]).unwrap();
+    add(
+        &demo,
+        "Do the third thing now",
+        &["--tag", "screen-reads audit", "--tag", "mac"],
+    )
+    .unwrap();
+    assert_eq!(open(&demo).items[1].origin, Some(Id(1)));
+    assert!(
+        refusal(add(
+            &demo,
+            "Do the fourth thing now",
+            &["--origin", "1", "--tag", "screen-reads audit"]
+        ))
+        .contains("#4's trail already shows the tag 'screen-reads audit': #1 carries it")
+    );
+
+    // The new origin's trail shows the audit, so #3 no longer carries it.
+    item(&demo, &["edit", "3", "--origin", "2"]).unwrap();
+    let lists = open(&demo);
+    assert_eq!(lists.items[2].origin, Some(Id(2)));
+    assert_eq!(lists.items[2].tags, ["mac"]);
+    let shown = crate::lists::item_show::render_item(&lists, Id(3)).unwrap();
+    assert!(
+        shown.contains("trail: screen-reads audit; mac → #1 → #2 Do the second thing now → #3"),
+        "{shown}"
+    );
+    let line = crate::lists::show::item_line(&lists, &lists.items[1]);
+    assert!(
+        line.contains("\n      trail: screen-reads audit → #1 Do the first thing now → #2"),
+        "{line}"
+    );
+    assert!(
+        crate::lists::show::render(&lists, Some("screen-reads audit"))
+            .contains("Do the third thing now")
+    );
+    assert!(
+        refusal(item(&demo, &["edit", "1", "--origin", "3"]))
+            .contains("#1 cannot come from #3: #3 already comes from #1")
+    );
+    assert!(refusal(item(&demo, &["edit", "1", "--origin", "99"])).contains("is not a record"));
+
+    // A closed item still takes an origin.
+    item(&demo, &["drop", "3", "--why", "not needed"]).unwrap();
+    item(&demo, &["edit", "3", "--origin", "1"]).unwrap();
+    let shown = crate::lists::item_show::render_item(&open(&demo), Id(3)).unwrap();
+    assert!(
+        shown.contains("trail: screen-reads audit; mac → #1 Do the first thing now → #3"),
+        "{shown}"
+    );
 }

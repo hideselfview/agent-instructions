@@ -3,7 +3,8 @@
 use std::fmt::Write;
 
 use crate::lists::derive::{self, ItemState, StackEntry};
-use crate::lists::{Audience, Item, Level, Lists, Position, QuestionKind, Wait, tag};
+use crate::lists::trail::{trail, trail_line};
+use crate::lists::{Audience, Item, Level, Lists, Position, QuestionKind, Wait};
 use crate::text::local_minute;
 
 pub fn kind_words(kind: QuestionKind) -> &'static str {
@@ -27,19 +28,14 @@ pub fn wait_words(lists: &Lists, wait: &Wait) -> String {
     }
 }
 
-/// A record's tags as one line: `tags: screen-reads audit; other`.
-pub fn tags_line(tags: &[String]) -> String {
-    format!("tags: {}", tags.join("; "))
-}
-
 pub fn item_line(lists: &Lists, item: &Item) -> String {
     let state = derive::item_state(lists, item);
     let mut line = format!("  {} [{}] {}", item.id, state.label(), item.title);
     if item.r#for == Audience::DesignSession && state != ItemState::Running {
         line.push_str(" (design session's)");
     }
-    if !item.tags.is_empty() {
-        let _ = write!(line, "\n      {}", tags_line(&item.tags));
+    if let Some(trail) = trail_line(lists, item.id) {
+        let _ = write!(line, "\n      {trail}");
     }
     let unmet: Vec<String> = derive::unmet_waits(lists, item)
         .iter()
@@ -83,8 +79,8 @@ pub fn blocks_text(entry: &StackEntry<'_>) -> String {
 }
 
 /// An entry of the stack as lines: its place in the order, its title, who
-/// placed it where, what it blocks.
-pub fn stack_entry(number: usize, entry: &StackEntry<'_>) -> String {
+/// placed it where, its trail, what it blocks.
+pub fn stack_entry(lists: &Lists, number: usize, entry: &StackEntry<'_>) -> String {
     let q = entry.question;
     let mut out = format!(
         "{number:>3}. {} {} [{}] opened {} by {}\n",
@@ -103,15 +99,16 @@ pub fn stack_entry(number: usize, entry: &StackEntry<'_>) -> String {
         let by = if placed.by_person { " by you" } else { "" };
         let _ = writeln!(out, "       placed {at}{by}: {}", placed.why);
     }
-    if !q.tags.is_empty() {
-        let _ = writeln!(out, "       {}", tags_line(&q.tags));
+    if let Some(trail) = trail_line(lists, q.id) {
+        let _ = writeln!(out, "       {trail}");
     }
     let _ = writeln!(out, "       {}", blocks_text(entry));
     out
 }
 
 /// The stack and the queue as text; with <wanted>, only the questions and
-/// items that carry that tag, each question keeping its place in the stack.
+/// items whose trail shows that tag, each question keeping its place in the
+/// stack.
 pub fn render(lists: &Lists, wanted: Option<&str>) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "{} lists, version {}", lists.project, lists.version);
@@ -121,16 +118,16 @@ pub fn render(lists: &Lists, wanted: Option<&str>) -> String {
     let stack: Vec<(usize, StackEntry<'_>)> = derive::stack_order(lists)
         .into_iter()
         .enumerate()
-        .filter(|(_, entry)| tag::wanted(&entry.question.tags, wanted))
+        .filter(|(_, entry)| trail(lists, entry.question.id).wanted(wanted))
         .collect();
     let _ = writeln!(out, "\nWaiting on you ({})", stack.len());
     for (at, entry) in &stack {
-        out.push_str(&stack_entry(at + 1, entry));
+        out.push_str(&stack_entry(lists, at + 1, entry));
     }
     let items: Vec<&Item> = lists
         .items
         .iter()
-        .filter(|i| tag::wanted(&i.tags, wanted))
+        .filter(|i| trail(lists, i.id).wanted(wanted))
         .collect();
     let state = |wanted: ItemState| {
         items

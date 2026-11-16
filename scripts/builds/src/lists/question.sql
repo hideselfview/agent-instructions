@@ -13,8 +13,14 @@ CREATE TABLE question (
     kind TEXT NOT NULL CONSTRAINT question_kind_known CHECK (kind IN ('question', 'your-step', 'held')),
     -- Why it is asked though nothing waits on it.
     blocks_nothing TEXT CONSTRAINT question_blocks_nothing_says_something CHECK (blocks_nothing IS NULL OR trim(blocks_nothing) <> ''),
-    CONSTRAINT question_is_a_record FOREIGN KEY (id, record_kind) REFERENCES record (id, kind)
+    -- The record it came from, of any kind (trail.rs).
+    origin INTEGER,
+    CONSTRAINT question_origin_not_itself CHECK (origin <> id),
+    CONSTRAINT question_is_a_record FOREIGN KEY (id, record_kind) REFERENCES record (id, kind),
+    CONSTRAINT question_origin_is_a_record FOREIGN KEY (origin) REFERENCES record (id)
 ) STRICT;
+
+CREATE INDEX question_origin ON question (origin);
 
 -- Where a question sits in the stack when not by how much it unblocks.
 CREATE TABLE question_placement (

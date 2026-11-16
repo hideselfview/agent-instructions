@@ -122,6 +122,7 @@ pub fn question(db: &Connection) -> Id {
         blocks_nothing: Some("nothing waits".into()),
         placed: None,
         plan: None,
+        origin: None,
     };
     ask(db, new, &stamp(NOON + i64::from(id.0))).unwrap()
 }
@@ -136,6 +137,7 @@ pub fn question_kind(db: &Connection, kind: QuestionKind) -> Id {
         blocks_nothing: Some("nothing waits".into()),
         placed: None,
         plan: None,
+        origin: None,
     };
     ask(db, new, &stamp(NOON + i64::from(id.0))).unwrap()
 }

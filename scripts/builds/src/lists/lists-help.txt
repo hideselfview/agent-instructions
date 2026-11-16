@@ -36,15 +36,28 @@ not take, and names the field that is wrong. Each write prints what it did and
 what follows, such as the stack's new top and what it blocks, or the items an
 answer made ready.
 
+A question or an item may name its origin (`--origin N`), the record it came
+from: a question, an item, a decision or a design change. An item that a
+decision or a design change makes comes from it, and a question that `question
+ask --from-item N` asks comes from item N. A record can't come from itself, and
+a chain of origins can't loop. A record's trail is that chain from the first
+record to it: the tags of the records on it, then each record, with the title
+of the one it came from, such as `screen-reads audit → #3 → #50 Read each
+chained screen value at once → #51`.
+
 A question or an item may carry tags (`--tag T`, repeatable), each naming the
 audit or group it came from, such as "screen-reads audit". A tag is one line
-with no spaces at its ends. `question list`, `item list` and `lists show` print
-each record's tags and take `--tag T` to show only the records that carry T,
-each question keeping its place in the stack; the dashboard shows the tags on
-each row and a bar of every tag that shows one tag's entries together. A record
-keeps its tags when it closes, and `edit --tag T` and `edit --untag T` change
-the tags of an open or a closed record; an edit of any other field needs an
-open one.
+with no spaces at its ends. A tag goes on the first record of a trail, and
+every later record's trail shows it: a command refuses a tag that a record's
+trail already shows, naming the record that carries it, and setting an origin
+or tagging an earlier record takes off each later record the tags its trail now
+shows. `question show`, `item show`, `question list`, `item list` and `lists
+show` print each record's trail, and the list commands take `--tag T` to show
+only the records whose trail shows T, each question keeping its place in the
+stack; the dashboard shows each row's tags and a bar of every tag that shows
+one tag's entries together. A record keeps its origin and its tags when it
+closes, and `edit --origin N`, `edit --tag T` and `edit --untag T` change those
+of an open or a closed record; an edit of any other field needs an open one.
 
 Every write is one SQLite transaction, taken as the write lock: the command's
 own changes, the line of the write log, and the check below, then commit. A
@@ -53,9 +66,10 @@ the version as they were. Two commands at once both land, one after the other,
 and a reader sees the last committed state while a write runs.
 
 The tables hold most of what must always be true: ids are unique across the
-four kinds of record; a reference (a wait, an item's origin, a closing's
-decision or question, a decision's replaced decision, a design change's places)
-names an existing record of the right kind, open or closed; titles are one
+four kinds of record; a reference (a wait, a closing's decision or question, a
+decision's replaced decision, a design change's places) names an existing
+record of the right kind, open or closed; an origin names an existing record of
+any kind other than the record itself; titles are one
 line; every item's area exists; a running item's worktrees are side worktrees
 (<parent>/<repo>-worktrees/side-N) of project repos, one per repo; a record
 leaves only the ways its kind can; and a decision has a YYYY-MM-DD date, a
@@ -65,7 +79,8 @@ question has an open item waiting on it or says why it is asked anyway; no open
 item waits on a record that closed in a way that never meets a wait (dropped,
 deferred, moved to the stack); no open items wait on each other in a circle; a
 closed item runs nowhere; a worktree holds one branch of work; a landed closing
-or part has a commit; and the project row names the folder's project. A store
+or part has a commit; no chain of origins loops; no record carries a tag its
+trail already shows; and the project row names the folder's project. A store
 that fails the check makes every command fail, naming each fault, and nothing
 repairs it. The command that writes them checks the rest: item titles of five
 to seven words, and git, files and GitHub.
@@ -80,17 +95,18 @@ placed last.
 
   builds question ask --title T --kind question|your-step|held
                       --details-file F (--blocks N[,N] | --blocks-nothing WHY)
-                      [--from-item N] [--first WHY] [--plan PATH --plan-number Qn]
-                      [--tag T]...
+                      [--from-item N | --origin N] [--first WHY]
+                      [--plan PATH --plan-number Qn] [--tag T]...
       Puts an entry on the stack: a question, work only the person can do
       (your-step), or work held until they start it (held). It needs what the
       entry blocks, open items that gain a wait on it (a running item may be
       blocked: its agent is held on the answer), or why it is asked though
       nothing waits; a --blocks item that is unknown or closed is refused.
       --first puts it on top, with why. --from-item N closes item N as moved
-      to the stack (it was the person's work), and every item that waited on N
-      waits on the new entry instead, and the entry gets N's tags; refused for
-      a running item. --plan and --plan-number tie it to a plan's open
+      to the stack (it was the person's work), every item that waited on N
+      waits on the new entry instead, and the entry comes from N, so its trail
+      shows N's tags; refused for a running item. --origin N names the record
+      it came from otherwise. --plan and --plan-number tie it to a plan's open
       question, and its answer carries the link.
 
   builds question answer N --request F
@@ -124,13 +140,13 @@ placed last.
 
   builds question edit N [--title T] [--details-file F]
                          [--blocks-nothing WHY | --blocks-something]
-                         [--tag T]... [--untag T]...
+                         [--origin N] [--tag T]... [--untag T]...
       --blocks-something is refused when no open item waits on the entry: an
       entry that blocks nothing needs a why. --untag refuses a tag the entry
       does not carry.
 
   builds question show N | builds question list [--tag T]
-      One entry with its details and tags (a closed one shows how it left), or
+      One entry with its details and trail (a closed one shows how it left), or
       the stack in the order it is asked.
 
 
@@ -147,13 +163,13 @@ no commit); an absolute path is itself.
 
   builds item add --title T --area A --details-file F [--for design-session]
                   [--wait REF]... [--brief P] [--priority first|last --why WHY]
-                  [--tag T]...
+                  [--origin N] [--tag T]...
       Needs a title of five to seven words, a known area (otherwise refused,
       naming the areas and `area add`), details, waits on open records, and a
       brief that exists.
 
   builds item edit N [--title T] [--area A] [--details-file F] [--brief P]
-                     [--for F] [--tag T]... [--untag T]...
+                     [--for F] [--origin N] [--tag T]... [--untag T]...
       An item draft in a request (an answer's `work`) may carry "tags" too.
 
   builds item note N TEXT
@@ -436,8 +452,8 @@ PROJECTS
 
   builds lists show [--json | --tag T] [--project P]
       The stack in the order it is asked, then the queue, as text, each record
-      with its tags; with --tag T only the records that carry T; with --json
-      the whole state with its derived fields (each item's state, what
+      with its trail; with --tag T only the records whose trail shows T; with
+      --json the whole state with its derived fields (each item's state, what
       each question blocks, the flow of the last 14 days), the JSON the
       dashboard reads. The dashboard adds, to each worktree a running item
       runs in, the agent, note, note state and commits waiting to land of its
