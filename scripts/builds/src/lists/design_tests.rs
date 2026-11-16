@@ -174,8 +174,9 @@ fn delete_boards(w: &World, gone: &[&str]) -> String {
     w.sha("HEAD")
 }
 
-/// `places` reads a range as the commits it holds, as it reads their SHAs,
-/// and refuses a name that is no commit rather than call every board deleted.
+/// `places` gives the same output for a range as for the SHAs of its
+/// commits, and it fails on a name that is not a commit instead of reporting
+/// every board as deleted.
 #[test]
 fn places_reads_a_range_as_its_commits() {
     let w = world("design-places-range");

@@ -111,9 +111,9 @@ fn scope(tool: &Tool, args: &Args, checkout: Checkout, shas: Vec<String>) -> Res
 }
 
 /// The scope of the commits <revs> name in worktree <dir>: each is a commit,
-/// or a range (`A~1..A`) that stands for its commits, oldest first. A name
-/// that is no commit is refused: git would find no board in it and call
-/// every board deleted.
+/// or a range (`A~1..A`) that stands for its commits, oldest first.
+/// `named_scope` fails on a name that is not a commit, because otherwise the
+/// design paths would find no boards in it and count every board as deleted.
 fn named_scope(tool: &Tool, args: &Args, dir: &str, revs: &[String]) -> Result<Scope> {
     let checkout = Checkout::find(dir)?;
     let mut shas = Vec::new();
@@ -396,7 +396,7 @@ fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     ))
 }
 
-/// `check N DIR REV...`: the store is read, not written.
+/// `check N DIR REV...` reads the store and never writes to it.
 fn check(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let [id, dir, shas @ ..] = args.positional() else {

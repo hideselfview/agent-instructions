@@ -186,7 +186,7 @@ const BEFORE_CHANGED_LINES_STAMP: i64 = 640_728_139;
 
 /// The stamp of the schema before builds kept this Mac's load when each hook
 /// check started and recorded each `builds cargo` run.
-const BEFORE_CHECK_PLACES_STAMP: i64 = 1_449_009_981;
+const BEFORE_CHECK_STARTS_STAMP: i64 = 1_449_009_981;
 
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
@@ -315,12 +315,12 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_ORIGINS_STAMP,
         BEFORE_FINISHED_STAMP,
         BEFORE_CHANGED_LINES_STAMP,
-        BEFORE_CHECK_PLACES_STAMP,
+        BEFORE_CHECK_STARTS_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP} and {BEFORE_CHECK_PLACES_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP} and {BEFORE_CHECK_STARTS_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -341,7 +341,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_ORIGINS_STAMP,
         BEFORE_FINISHED_STAMP,
         BEFORE_CHANGED_LINES_STAMP,
-        BEFORE_CHECK_PLACES_STAMP,
+        BEFORE_CHECK_STARTS_STAMP,
     ]
     .contains(&found)
     {
@@ -414,7 +414,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_ORIGINS_STAMP,
         BEFORE_FINISHED_STAMP,
         BEFORE_CHANGED_LINES_STAMP,
-        BEFORE_CHECK_PLACES_STAMP,
+        BEFORE_CHECK_STARTS_STAMP,
     ]
     .contains(&found)
     {
@@ -428,7 +428,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     if ![
         BEFORE_FINISHED_STAMP,
         BEFORE_CHANGED_LINES_STAMP,
-        BEFORE_CHECK_PLACES_STAMP,
+        BEFORE_CHECK_STARTS_STAMP,
     ]
     .contains(&found)
     {
@@ -437,13 +437,13 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     }
     // Only a store from before a review's patch ids left out context lines,
     // or after, has today's `closing`.
-    if ![BEFORE_CHANGED_LINES_STAMP, BEFORE_CHECK_PLACES_STAMP].contains(&found) {
+    if ![BEFORE_CHANGED_LINES_STAMP, BEFORE_CHECK_STARTS_STAMP].contains(&found) {
         crate::lists::record::move_to_finished(&tx)?;
     }
     // Every store this moves from before a review's patch ids left out
     // context lines holds patch ids taken with them; the move takes each
     // again without them. A store from after has today's patch ids.
-    if found != BEFORE_CHECK_PLACES_STAMP {
+    if found != BEFORE_CHECK_STARTS_STAMP {
         crate::review::record::move_to_changed_lines(&tx, |repo, shas| {
             let clone = places.home.join(crate::host::clone_path(repo));
             crate::review::commits::with_patch_ids(&clone, shas).map_err(|why| {
@@ -462,7 +462,8 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             ))
         })?;
     }
-    // No store this moves has the checks' starting loads or the cargo runs.
+    // No store this moves has the `hook_check_starts` or `builds_cargo_runs`
+    // tables.
     tx.execute_batch(db::HOOK_CHECK_STARTS_PART).sql()?;
     tx.execute_batch(db::CARGO_RUNS_PART).sql()?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;

@@ -247,9 +247,10 @@ floor, refuses jobs (HOSTS), has no measured core speed (`builds host setup`)
 or has no clone of the repo. A host's free cores are its cores minus its
 one-minute load, less the host's cores again for each `builds cargo` run that
 started there in the last minute and still runs: cargo runs a compile job per
-core, and the load average shows a run only after a while. Its core speed is
-this Mac's time over the host's for one fixed compile on one core, which
-`builds host setup` times on both, so a job goes where it finishes first.
+core, and the load average shows a run only after a while. A host's core
+speed is this Mac's time divided by the host's time for one fixed compile on
+one core, which `builds host setup` times on both, so a job goes where it
+finishes first.
 This Mac wins a tie. When several runs start at
 the same time, builds picks a host for one run at a time, so the runs go to
 different hosts. builds sends the checkout's HEAD plus its working tree (staged and unstaged edits, deletions,
@@ -625,9 +626,10 @@ cannot start refuses mac app builds only (APP BUILDS).
                               from: ~/dev/<repo>-worktrees/remote-<the
                               checkout's folder name> (remote-side-2 for
                               side-2), or remote-<name>.2 and on while another
-                              job from that checkout holds it. It is kept
-                              between jobs, so a checkout's job finds the files
-                              and build output its last job left; the repo's
+                              job from that checkout holds it. builds keeps the
+                              remote worktree between jobs, so a checkout's job
+                              finds the files and build output its last job
+                              left; the repo's
                               scripts/hooks/post-checkout runs in it with
                               BUILDS_ROOT set to ~/builds-root (the command
                               gets the same). When the job ends, builds deletes
@@ -983,11 +985,12 @@ whenever a matching file is staged.
                               lines the staged files match, from the repo root:
                               the fix lines first, one at a time in file order,
                               then every check line at the same time, since
-                              the checks only read the tree the fixes left. It
-                              prints each one's name, time and result (with a
-                              failing one's output) in that order, and the
-                              total time. Every line runs even after one fails,
-                              and the exit status is non-zero if any did. It
+                              the checks only read the tree the fixes left.
+                              `builds checks run` prints each line's name, time
+                              and result (with a failing line's output) in
+                              that order, and the total time. Every line runs
+                              even after one fails, and the exit status is
+                              non-zero if any did. It
                               refuses before any line runs, naming each file,
                               when a staged file also has unstaged changes,
                               since the checks read the working tree;
@@ -999,12 +1002,16 @@ whenever a matching file is staged.
                               (its change and lines added and removed), each
                               line (run with its time, its result and this
                               Mac's cores and one-minute load when it started,
-                              or skipped), the planning time and the total. A
-                              check that runs `builds cargo` names itself to it
-                              (CARGO), so the figures show where it ran: on the
-                              host of that cargo run with that host's load,
-                              else on this Mac (`122.8s on local, load
-                              21/14`). A run it can't
+                              or skipped), the planning time and the total. For
+                              each check it sets BUILDS_HOOK_CHECK to the run's
+                              start and the check's position, so a `builds
+                              cargo` the check runs records which check started
+                              it (CARGO), and the figures show where the check
+                              ran: on the host of that cargo run with that
+                              host's load, else on this Mac. `122.8s on local,
+                              load 21/14` means the check took 122.8 seconds on
+                              this Mac, whose one-minute load average was 21
+                              on 14 cores. A run it can't
                               record says so on stderr and ends as the checks
                               decided; a repo in no project records nothing
   builds checks whole [<worktree>]
@@ -1406,10 +1413,11 @@ INSTALLING
                               flight), point Xcode's default DerivedData at the
                               volume, restart a running dashboard so it runs
                               the new code, and copy the same builds to every
-                              recorded host (HOSTS). A host it could not reach
-                              or install on fails the install, named, once
-                              every other host has its copy, and `builds
-                              health` lists it until its builds matches this
-                              Mac's. Run it from a fresh build (install.sh
-                              does), never from the installed binary, which
-                              can't copy itself onto itself
+                              recorded host (HOSTS). When builds cannot reach a
+                              host or install on it, builds copies to every
+                              other host first, then fails the install and
+                              names that host, and `builds health` lists it
+                              until its builds matches this Mac's. Run it from
+                              a fresh build (install.sh does), never from the
+                              installed binary, which can't copy itself onto
+                              itself

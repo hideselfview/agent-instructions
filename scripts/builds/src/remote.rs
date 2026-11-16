@@ -5,9 +5,10 @@
 //! `refs/builds/jobs/<id>` (`git push <target>:dev/<repo>`, never to GitHub),
 //! claims the worktree on the host that belongs to the checkout the job comes
 //! from (`~/dev/<repo>-worktrees/remote-<checkout's folder name>`, or
-//! `remote-<name>.<n>` while another job from that checkout holds it, kept
-//! between jobs so its files and build output stay as that checkout's last
-//! job left them), checks the commit out there and runs the command. When the job ends,
+//! `remote-<name>.<n>` while another job from that checkout holds it),
+//! checks the commit out there and runs the command. builds keeps the
+//! worktree between jobs, so its files and build output stay as that
+//! checkout's last job left them. When the job ends,
 //! however it ends, builds deletes the ref and the claim. A stopped `builds
 //! remote run` (SIGTERM, SIGINT, SIGHUP) stops the command on the host.
 //!
@@ -452,9 +453,10 @@ pub fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
 }
 
 /// Runs the job's command on the host, passing its output through, and
-/// returns its exit status. A stop signal stops the command on the host. With
-/// <time_locks> (a cargo command), its stderr passes through builds, which
-/// also returns how long cargo waited for its file locks (lock_wait.rs).
+/// returns its exit status. A stop signal stops the command on the host. When
+/// <time_locks> is set (the command is cargo), builds reads the command's
+/// stderr as it passes through, and this function also returns how long
+/// cargo waited for its file locks (lock_wait.rs).
 pub fn run_command(
     transport: &Transport,
     stop: &AtomicBool,
@@ -632,11 +634,15 @@ impl Job<'_> {
         Ok(self.run_with(stop, false)?.0)
     }
 
-    /// `run` for a cargo command: also returns how long cargo waited for its
-    /// file locks on the host, read from the messages it passes through.
+    /// Runs a cargo command like `run` and also returns how long cargo waited
+    /// for its file locks on the host, which builds reads from cargo's
+    /// messages as they pass through.
     pub fn run_timing_locks(self, stop: &AtomicBool) -> Result<(i32, Duration)> {
         let (code, waited) = self.run_with(stop, true)?;
-        Ok((code, waited.expect("the messages were read")))
+        Ok((
+            code,
+            waited.expect("run_command relays the command's stderr when it times locks"),
+        ))
     }
 
     fn run_with(self, stop: &AtomicBool, time_locks: bool) -> Result<(i32, Option<Duration>)> {

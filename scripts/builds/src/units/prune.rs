@@ -54,7 +54,7 @@ impl Ages {
     /// Why an incremental folder the idle rule picks goes.
     fn idle_why(&self) -> String {
         if self.idle_hours == 0 {
-            "0 incremental hours were asked for".to_string()
+            "because the call passed 0 incremental hours".to_string()
         } else {
             format!("nothing wrote to in {} hours", self.idle_hours)
         }

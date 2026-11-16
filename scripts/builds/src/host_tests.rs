@@ -303,7 +303,7 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
     assert_eq!(names, ["m1", "local", "big"]);
     assert!(
         why.starts_with(
-            "m1 has 8.0 cores of room, 8.0 of this Mac's cores (1.00 speed); local has 2.0"
+            "m1 has 8.0 cores of room, worth 8.0 of this Mac's cores at 1.00 times its speed; local has 2.0"
         ),
         "{why}"
     );
@@ -332,8 +332,9 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
     );
 }
 
-/// A host's room counts at its core speed against this Mac's, and a host
-/// with no measured speed is left out, naming `builds host setup`.
+/// rank_by_room counts a host's room at its core speed against this Mac's,
+/// and leaves out a host with no measured speed, naming `builds host setup`
+/// for it.
 #[test]
 fn ranks_hosts_by_their_room_at_their_core_speed() {
     let at = |name: &str, speed: Option<f64>| Host {
@@ -352,15 +353,17 @@ fn ranks_hosts_by_their_room_at_their_core_speed() {
     // a quarter they are 2, a tie this Mac wins.
     assert_eq!(names, ["slow", "local", "slower"]);
     assert!(
-        why.contains("slow has 8.0 cores of room, 4.0 of this Mac's cores (0.50 speed)"),
+        why.contains(
+            "slow has 8.0 cores of room, worth 4.0 of this Mac's cores at 0.50 times its speed"
+        ),
         "{why}"
     );
     assert!(
         why.contains("new has no measured core speed (`builds host setup new`)"),
         "{why}"
     );
-    // Over its cores, a slower host ranks below a faster one with the same
-    // excess.
+    // When load is higher than the core count, a slower host ranks below a
+    // faster host with the same excess load.
     let busy = vec![
         (at("slow", Some(0.5)), probe_with(10, 14.0, 100)),
         (at("local", Some(1.0)), probe_with(10, 15.0, 100)),
@@ -466,14 +469,17 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
     let found = findings();
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
-        found[0].text.starts_with("host m1 runs another builds"),
+        found[0]
+            .text
+            .starts_with("host m1 runs a different version of builds"),
         "{found:?}"
     );
 }
 
-/// A Mac whose sccache server launchd does not run is a finding: a host
-/// names `builds host setup`, this Mac `builds install`. A home without
-/// builds' plist reads as one.
+/// A Mac whose sccache server launchd does not run is a finding: a host's
+/// finding names `builds host setup`, this Mac's `builds install`.
+/// read_all_installed reports that launchd does not run sccache when the
+/// home has no plist from builds.
 #[test]
 fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
     let installed = |sccache_under_launchd| Installed {

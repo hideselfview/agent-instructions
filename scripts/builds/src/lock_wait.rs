@@ -32,8 +32,8 @@ pub fn relay(
                     break;
                 }
             }
-            // The messages are for the person: a stderr that no longer takes
-            // them has no one left to tell.
+            // If writing to stderr fails, nobody can read the messages, so
+            // relay ignores the error.
             let _ = to.write_all(&line);
             let blocking = line
                 .windows(BLOCKING.len())

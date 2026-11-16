@@ -174,8 +174,8 @@ fn a_staged_lock_counts_as_the_crates_whose_dependencies_changed() {
         crates_argv(&top, &["Cargo.lock"]),
         files(&["cargo", "clippy", "-p", "a", "--", "-D", "warnings"])
     );
-    // The lock as HEAD has it reaches no crate, so the line has nothing to
-    // hand and is left out.
+    // When the lock matches HEAD, no crate's dependencies change, so plan
+    // leaves the line out.
     std::fs::write(top.join("Cargo.lock"), lock_with_dep("1.0.0")).unwrap();
     assert!(crates_argv(&top, &["Cargo.lock"]).is_empty());
     // The root manifest still counts as every crate.

@@ -8,7 +8,8 @@
 //! picked `fix` runs first, one at a time in file order, and then every picked
 //! `check` at the same time, since the checks only read the tree the fixes
 //! left. Every line runs even after one fails; the run fails at the end if any
-//! did. A program's output is kept and shown only when it fails. A `fix` that
+//! did. `run` keeps a program's output and shows it only when the program
+//! fails. A `fix` that
 //! changed a file has that file staged again (`run` refuses a staged file
 //! that also has unstaged changes before any line runs).
 //!
@@ -225,8 +226,9 @@ struct Ran {
 }
 
 /// Runs <planned> in <top>, keeping its output unless <stream>. A check of a
-/// recorded hook run gets <hook_check>, which names it to the `builds cargo`
-/// it runs (`cargo_run::HOOK_CHECK_VARIABLE`).
+/// recorded hook run gets <hook_check>, which this function puts in
+/// `cargo_run::HOOK_CHECK_VARIABLE`, so a `builds cargo` the check runs
+/// records which check started it.
 fn execute(top: &Path, planned: &Planned, stream: bool, hook_check: Option<&str>) -> Result<Ran> {
     let (program, args) = planned.argv.split_first().expect("a line has a program");
     let path = if program.contains('/') {
@@ -422,8 +424,8 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
     if picked.is_empty() {
         return Ok(());
     }
-    // Each line's name for the `builds cargo` it runs, by its place among
-    // the recorded checks.
+    // For each picked line, build the value `builds cargo` records: the run's
+    // start time and the line's position among the recorded checks.
     let hook_checks: Vec<Option<String>> = picked
         .iter()
         .map(|planned| {
@@ -438,8 +440,8 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
         })
         .collect();
     let mut failed: Vec<&str> = Vec::new();
-    // The formatters first, one at a time in file order: each may rewrite
-    // files, which it stages again, and the checks read what they wrote.
+    // Run the fixes first, one at a time in file order. A fix may rewrite
+    // files; this loop stages them again, and the checks then read them.
     for (planned, hook_check) in picked.iter().zip(&hook_checks) {
         if planned.line.kind != Kind::Fix {
             continue;
@@ -466,8 +468,9 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
         }
         finish_line(planned, load, ran, run.as_deref_mut(), &mut failed);
     }
-    // Then every check at the same time: they only read the tree. Each one's
-    // time is its own, and the results print in file order.
+    // Then run every check at the same time, since the checks only read the
+    // tree. Each check measures its own time, and the results print in file
+    // order.
     let checks: Vec<(&Planned, &Option<String>)> = picked
         .iter()
         .zip(&hook_checks)
@@ -504,8 +507,9 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
     }
 }
 
-/// Prints how <planned> ran (with its output when it failed, which joins
-/// <failed>) and records it in <run>, with this Mac's <load> when it started.
+/// Prints how <planned> ran, prints its output and adds its name to <failed>
+/// when it failed, and records it in <run>, with this Mac's <load> when it
+/// started.
 fn finish_line<'a>(
     planned: &'a Planned,
     load: Load,

@@ -38,26 +38,29 @@ fn lock(leaf: &str) -> String {
 }
 
 #[test]
-fn a_changed_dependency_reaches_every_crate_above_it_and_no_other() {
+fn a_changed_dependency_changes_every_crate_that_depends_on_it_and_no_other() {
     assert_eq!(
-        reached(&lock("1.0.0"), &lock("1.1.0"), &members()).unwrap(),
+        with_changed_dependencies(&lock("1.0.0"), &lock("1.1.0"), &members()).unwrap(),
         ["app", "core"]
     );
     assert_eq!(
-        reached(&lock("1.0.0"), &lock("1.0.0"), &members()).unwrap(),
+        with_changed_dependencies(&lock("1.0.0"), &lock("1.0.0"), &members()).unwrap(),
         Vec::<String>::new()
     );
 }
 
 #[test]
-fn a_crates_own_changed_dependencies_reach_it() {
+fn a_crates_own_changed_dependencies_count_for_it() {
     let old = lock("1.0.0");
     let new = old.replace(
         "name = \"tool\"\nversion = \"0.1.0\"\n",
         "name = \"tool\"\nversion = \"0.1.0\"\ndependencies = [\n \"leaf\",\n]\n",
     );
     assert_ne!(old, new);
-    assert_eq!(reached(&old, &new, &members()).unwrap(), ["tool"]);
+    assert_eq!(
+        with_changed_dependencies(&old, &new, &members()).unwrap(),
+        ["tool"]
+    );
 }
 
 #[test]
@@ -75,7 +78,10 @@ fn two_versions_of_a_package_are_told_apart_by_version() {
         "name = \"leaf\"\nversion = \"2.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"11\"",
     );
     assert_ne!(old, new);
-    assert_eq!(reached(&old, &new, &members()).unwrap(), ["tool"]);
+    assert_eq!(
+        with_changed_dependencies(&old, &new, &members()).unwrap(),
+        ["tool"]
+    );
 }
 
 #[test]
@@ -85,7 +91,7 @@ fn a_dependency_the_lock_does_not_have_is_an_error() {
         package("app", "0.1.0", false, &["gone"]),
     ]
     .concat();
-    assert!(reached(&broken, &broken, &members()).is_err());
+    assert!(with_changed_dependencies(&broken, &broken, &members()).is_err());
 }
 
 #[test]
@@ -95,7 +101,7 @@ fn an_entry_without_a_version_is_an_error() {
         "\n[[package]]\nname = \"app\"\n".to_string(),
     ]
     .concat();
-    let Err(error) = reached(&broken, &broken, &members()) else {
+    let Err(error) = with_changed_dependencies(&broken, &broken, &members()) else {
         panic!("a lock entry without a version reads");
     };
     let text = error.text();

@@ -104,11 +104,11 @@ fn a_failing_check_still_lets_the_rest_run_and_the_run_fails() {
     assert!(error.contains("bad") && !error.contains("good"), "{error}");
 }
 
-/// The formatters run first, one at a time, and then every check at the same
-/// time over what the formatters wrote: each check here waits until the other
-/// has started, which only checks that run at once both get past.
+/// The fixes run first, one at a time, and then every check at the same time
+/// over what the fixes wrote. Each check here waits until the other has
+/// started, so both checks finish only when they run at the same time.
 #[test]
-fn the_checks_run_at_the_same_time_after_the_formatters() {
+fn the_checks_run_at_the_same_time_after_the_fixes() {
     let scratch = Scratch::new("run-at-once");
     let top = repo(
         &scratch,
@@ -250,9 +250,9 @@ fn recorded_runs(log: &Path) -> Vec<Run> {
     crate::hook_stats::recorded_runs(log, "repo")
 }
 
-/// Each check of a recorded run names itself to the programs it runs, so the
-/// `builds cargo` it runs records which check started it; an unrecorded run
-/// names none.
+/// Each check of a recorded run sets BUILDS_HOOK_CHECK to its run's time and
+/// position, so the `builds cargo` it runs records which check started it,
+/// and an unrecorded run leaves the variable empty.
 #[test]
 fn a_recorded_runs_check_names_itself_to_the_programs_it_runs() {
     let scratch = Scratch::new("run-hook-check");

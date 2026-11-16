@@ -1,15 +1,16 @@
 //! `builds-linker`: the linker `builds cargo` gives rustc for this Mac's own
-//! target (`cargo_config`). It runs `cc`, rustc's default linker here, with
-//! rustc's arguments, and gives each proc-macro dylib the install name
-//! `@rpath/<its file name>`.
+//! target (`cargo_config`). builds-linker runs `cc`, rustc's default linker
+//! here, with rustc's arguments, and gives each proc-macro dylib the install
+//! name `@rpath/<its file name>`.
 //!
 //! ld names a dylib by its output path unless told otherwise, so a
 //! proc-macro built in two checkouts differs in that name, and so in its
-//! LC_UUID and signature, though nothing else differs. sccache hashes the
-//! proc-macro each crate above it names, so no crate above a proc-macro came
-//! from another checkout's compile. rustc loads a proc-macro by its path and
-//! never reads its install name. Any other dylib keeps the name ld gives it:
-//! a cdylib, such as bae-bridge's, is loaded by its name.
+//! LC_UUID and signature, though nothing else differs. sccache hashes each
+//! proc-macro a crate depends on, so sccache never reused another checkout's
+//! output for a crate that depends on a proc-macro. rustc loads a proc-macro
+//! by its path and never reads its install name. Any other dylib keeps the
+//! name ld gives it: the dynamic loader finds a cdylib, such as bae-bridge's,
+//! by its install name.
 //!
 //! `~/.local/bin/builds-linker` is a symlink to builds (`builds install`,
 //! `builds host setup`), and builds runs as the linker when started by that
@@ -33,8 +34,8 @@ pub fn path(home: &Path) -> PathBuf {
 }
 
 /// The `--config` arguments that make cargo link this Mac's own target with
-/// `builds-linker`. Every checkout gets the same path, so the setting changes
-/// no checkout's cache entries against another's.
+/// `builds-linker`. Every checkout gets the same path, so the setting gives
+/// every checkout the same sccache keys.
 pub fn cargo_config(home: &Path) -> [String; 2] {
     [
         "--config".to_string(),
@@ -102,8 +103,8 @@ pub fn added_args(args: &[OsString]) -> Result<Vec<OsString>> {
     Ok(vec![install_name])
 }
 
-/// Runs `cc` with <args> and what `added_args` adds, in this process; it
-/// returns only when it could not.
+/// Runs `cc` with <args> and what `added_args` adds, in this process. `run`
+/// returns only when it cannot start cc.
 pub fn run(args: &[OsString]) -> Result<std::convert::Infallible> {
     use std::os::unix::process::CommandExt;
     let added = added_args(args)?;

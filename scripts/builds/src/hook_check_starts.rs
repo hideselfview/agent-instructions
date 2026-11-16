@@ -1,6 +1,6 @@
-//! This Mac's cores and load when each check of a hook run started
-//! (hook_check_starts.sql). hook_stats.rs writes a run's rows here in the
-//! transaction that writes the run, and reads them back with its checks.
+//! hook_check_starts.sql stores this Mac's core count and load at the moment
+//! each check of a hook run started. hook_stats.rs calls `record` here in the
+//! transaction that writes the run, and reads the rows back with its checks.
 
 use rusqlite::{Transaction, params};
 

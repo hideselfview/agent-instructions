@@ -136,11 +136,11 @@ fn runs_a_commit_in_a_worktree_and_cleans_up() {
             .unwrap()
             .trim()
             .ends_with("demo-worktrees/remote-demo"),
-        "the worktree of the checkout the job came from"
+        "the job runs in the worktree of the checkout it came from"
     );
     assert!(
         !wts.join("remote-demo.job").exists(),
-        "the claim is released"
+        "run_job releases the claim"
     );
     assert_eq!(
         refs(&s.home.join("dev/demo")),
@@ -429,7 +429,7 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
     )
     .unwrap();
     assert_eq!(code, 0);
-    let waited = waited.expect("the messages were read");
+    let waited = waited.expect("run_command reads cargo's messages");
     assert!(waited >= Duration::from_millis(300), "{waited:?}");
     let seen = std::fs::read_to_string(wt.join("env.txt")).unwrap();
     let mut lines = seen.lines();

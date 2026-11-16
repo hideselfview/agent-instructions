@@ -127,7 +127,7 @@ fn a_side_worktree_keeps_its_incremental_folders_for_the_idle_hours() {
     prune_after_build(&tool, &checkout).unwrap();
     assert!(
         recent.exists(),
-        "an incremental folder written an hour ago went"
+        "pruning deleted an incremental folder written an hour ago"
     );
-    assert!(!idle.exists(), "an idle incremental folder stayed");
+    assert!(!idle.exists(), "pruning kept an idle incremental folder");
 }

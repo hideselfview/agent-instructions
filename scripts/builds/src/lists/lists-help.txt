@@ -335,8 +335,8 @@ sent again.
 
   builds design places DIR REV...
       Each REV is a commit, or a range (A~1..A) that stands for its commits;
-      a REV that names no commit is refused. Here and in `only` and `check`,
-      the commits are those the REVs name.
+      the command refuses a REV that names no commit. Here and in `only` and
+      `check`, the commits are those the REVs name.
       Prints every design path the commits change, one per line: `place
       PATH` (a component folder once, with a trailing /), `source PATH`,
       `deleted PATH` (a board file the commits delete), `spec PATH#HEADING` or

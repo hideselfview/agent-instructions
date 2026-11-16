@@ -107,8 +107,8 @@ pub struct CargoRun {
     pub hook_check: (i64, u32),
 }
 
-/// Writes <run> to the database at <path>, made with its schema when it is
-/// new.
+/// Writes <run> to the database at <path>, and creates the database with its
+/// schema if it does not exist.
 pub fn record_run(path: &Path, run: &CargoRun) -> Result<()> {
     let conn = crate::db::open(path, crate::db::Make::Allowed)?;
     let ms = |took: Duration| took.as_millis() as i64;

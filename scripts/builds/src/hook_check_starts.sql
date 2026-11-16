@@ -1,10 +1,10 @@
--- This Mac's cores and one-minute load average when each check of a hook run
--- started, in `builds.sqlite` in a project's store folder. hook_check_starts.rs
--- owns this table and is the only code that writes it, in the transaction
--- that writes the run (hook_stats.rs). A check that ran builds
--- cargo also has the host cargo ran on, with that host's load, in
--- `builds_cargo_runs` (cargo_run.sql), under the run's worktree and start and
--- the check's position.
+-- This table records this Mac's core count and one-minute load average when
+-- each check of a hook run started; it lives in `builds.sqlite` in a
+-- project's store folder. hook_check_starts.rs owns this table and is the
+-- only code that writes it, in the transaction that writes the run
+-- (hook_stats.rs). For a check that ran `builds cargo`, `builds_cargo_runs`
+-- (cargo_run.sql) also holds the host cargo ran on, with that host's load,
+-- keyed by the hook run's worktree, its start time and the check's position.
 
 -- One row per check that ran (passed or failed); a skipped check has none,
 -- and neither has a check of a run recorded before this table.

@@ -1,9 +1,10 @@
-//! `builds install`: puts `builds` on PATH (and `builds-linker`, `linker`),
-//! creates the shared caches and the links to them, writes the sccache
-//! config, runs the sccache server under launchd, points Xcode's default
-//! DerivedData at the volume, and copies the same builds to every recorded
-//! host. It runs from a fresh build, never from the installed binary (that
-//! fails: it would copy itself onto itself); it changes only what differs.
+//! `builds install`: puts `builds` on PATH and links `builds-linker` to it
+//! (see the `linker` module), creates the shared caches and the links to
+//! them, writes the sccache config, runs the sccache server under launchd,
+//! points Xcode's default DerivedData at the volume, and copies this builds
+//! binary to every recorded host. `builds install` runs from a fresh build,
+//! never from the installed binary (that fails: it would copy itself onto
+//! itself); it changes only what differs.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -322,10 +323,10 @@ pub fn sccache_cap_kib() -> u64 {
 }
 
 /// Writes the sccache config with builds' cap and runs the sccache server
-/// under launchd (`SCCACHE_LABEL`) for user <uid>, whose home is <home>:
-/// `builds install` on this Mac, and `builds host setup` on each host. It
-/// restarts the server only when its settings changed or launchd does not
-/// run it, since a restart fails every compile in flight.
+/// under launchd (`SCCACHE_LABEL`) for user <uid>, whose home is <home>.
+/// `builds install` calls this on this Mac, and `builds host setup` on each
+/// host. The function restarts the server only when its settings changed or
+/// launchd does not run it, since a restart fails every compile in flight.
 pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
     let sccache_cap = sccache_cap_kib();
     let Some(sccache) = on_path("sccache") else {
@@ -436,10 +437,10 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
 }
 
 /// Copies this build to every recorded host (`host::install_program`), so
-/// each host's jobs run the builds this Mac runs. Every host gets its copy
-/// before a host that failed fails the install, naming each such host;
-/// `builds health` reports each host whose builds differs from this Mac's
-/// until a later install or `builds host setup` reaches it.
+/// each host's jobs run the builds this Mac runs. The function tries every
+/// host first, then fails and names each host it could not install on.
+/// `builds health` reports a host that runs a different builds until a later
+/// install or `builds host setup` copies the new one there.
 fn install_on_hosts(places: &crate::places::Places, ssh: &crate::host::Ssh) -> Result<()> {
     let hosts = crate::host::read_remote(places)?;
     let installed =
@@ -453,7 +454,7 @@ fn install_on_hosts(places: &crate::places::Places, ssh: &crate::host::Ssh) -> R
     }
     if !failed.is_empty() {
         fail!(
-            "builds is installed on this Mac but not on every host: {}. `builds health` reports each host whose builds differs from this Mac's, and `builds host setup <name>` installs it there",
+            "builds install updated builds on this Mac but could not copy it to these hosts: {}. `builds health` reports each host whose builds differs from this Mac's, and `builds host setup <name>` installs it there",
             failed.join("; ")
         );
     }
@@ -494,8 +495,8 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// Every host that answers gets this build, and a host that does not
-    /// fails the install, named.
+    /// Every host that answers gets this build, and the install fails with an
+    /// error that names each host that does not answer.
     #[test]
     fn install_copies_this_build_to_every_host_and_names_the_ones_it_missed() {
         let scratch = crate::testing::Scratch::new("install-hosts");

@@ -129,7 +129,7 @@ struct DesignCommit<'a> {
 /// the person's review. A change covers a commit when the change's last
 /// commit is that commit or a later one, and the change's places hold every
 /// place the commit changes: the person reviews each of those places drawn at
-/// the change's last commit, which holds what the commit drew.
+/// the change's last commit, which holds the commit's changes.
 fn design_commits<'a>(
     lists: &'a Lists,
     worktree: &Worktree,

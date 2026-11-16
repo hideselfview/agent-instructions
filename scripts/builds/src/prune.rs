@@ -110,11 +110,13 @@ pub fn prune_root(
     Ok(())
 }
 
-/// The rules for a checkout's build copies. Its incremental folders go after
-/// the idle hours in every checkout: main's builds compile incrementally, and
-/// in the others a repo's lint wrapper may keep an incremental folder for
-/// the crates it lints (bae's scripts/clippy-rustc-wrapper.sh) while every
-/// other crate builds without. The build folder's cap bounds what is left.
+/// The rules for a checkout's build copies. In every checkout, `units::prune`
+/// deletes an incremental folder once nothing has written to it for the idle
+/// hours: main's builds compile incrementally, and in the other checkouts a
+/// repo's lint wrapper may keep an incremental folder for the crates it lints
+/// (bae's scripts/clippy-rustc-wrapper.sh) while every other crate builds
+/// without incremental compilation. The build folder's cap bounds what is
+/// left.
 fn cargo_ages(tool: &Tool) -> units::prune::Ages {
     units::prune::Ages::new(tool.rules.unused_days, tool.rules.incremental_hours)
 }

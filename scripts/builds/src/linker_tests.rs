@@ -5,8 +5,8 @@ fn words(args: &[&str]) -> Vec<OsString> {
     args.iter().map(OsString::from).collect()
 }
 
-/// A link of rustc's shape: a dylib (or not) whose exported symbols, listed
-/// in <list>, are <symbols>.
+/// Builds linker arguments like the ones rustc passes: an exported symbols
+/// list file holding <symbols>, followed by <extra>.
 fn link(scratch: &Scratch, symbols: &str, extra: &[&str]) -> Vec<OsString> {
     let list = scratch.dir.join("list");
     std::fs::write(&list, symbols).unwrap();
@@ -123,8 +123,8 @@ exit 1
             .unwrap()
             .lines()
             .map(|line| {
-                // The objects rustc deletes after the link are the saved
-                // copies now.
+                // rustc deletes its object files after the link, so point each
+                // .o argument at the copy the script saved.
                 let path = Path::new(line);
                 if line.ends_with(".o") {
                     saved.join(path.file_name().unwrap()).into_os_string()

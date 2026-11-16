@@ -306,12 +306,11 @@ pub struct Rules {
     /// Before it, main's target held 93 copies of bae-core, 13 GB, going back
     /// a week.
     pub unused_days: u64,
-    /// An incremental folder nothing wrote anywhere inside for this many
-    /// hours is deleted, in every checkout: main's builds compile
-    /// incrementally, and a lint wrapper may keep incremental folders for the
-    /// crates it lints in the others. Cargo never deletes a folder of an old
-    /// hash, so they
-    /// fill the cap: one coven checkout had 112 of 162 folders, most of 28 GB,
+    /// `units::prune` deletes an incremental folder nothing wrote anywhere
+    /// inside for this many hours, in every checkout: main's builds compile
+    /// incrementally, and in the other checkouts a lint wrapper may keep
+    /// incremental folders for the crates it lints. Cargo never deletes a
+    /// folder of an old hash, so they fill the cap: one coven checkout had 112 of 162 folders, most of 28 GB,
     /// unwritten for two hours. Losing one costs an incremental rebuild of its
     /// crate.
     pub incremental_hours: u64,

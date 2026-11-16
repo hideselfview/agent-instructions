@@ -497,8 +497,8 @@ pub fn projects_holding(places: &Places, repo: &str) -> Result<Vec<String>> {
 }
 
 /// The database of the project <checkout>'s work is in (`project_of`), where
-/// its hook runs and cargo runs are recorded; None for a repo in no project,
-/// which has nowhere to record.
+/// builds records the checkout's hook runs and cargo runs; None when no
+/// project holds the repo, so builds records nothing.
 pub fn database_of(places: &Places, checkout: &Checkout) -> Result<Option<std::path::PathBuf>> {
     Ok(project_of(places, checkout)?.map(|project| places.lists.join(project).join(DATABASE)))
 }

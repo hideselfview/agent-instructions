@@ -305,9 +305,9 @@ fn workspace_crates(top: &Path) -> Result<Vec<Crate>> {
 /// The root lock file.
 const LOCK: &str = "Cargo.lock";
 
-/// The crates a change to the root `Cargo.lock` since <base> reaches: those
-/// whose resolved dependencies changed, or every crate when there is no
-/// <base> or <base> had no lock.
+/// The crates whose resolved dependencies changed in the root `Cargo.lock`
+/// since <base>, or every crate when there is no <base> or <base> had no
+/// lock.
 fn lock_crates(top: &Path, crates: &[Crate], base: Option<&str>) -> Result<Vec<String>> {
     let every = || crates.iter().map(|c| c.name.clone()).collect();
     let Some(base) = base else {
@@ -319,7 +319,7 @@ fn lock_crates(top: &Path, crates: &[Crate], base: Option<&str>) -> Result<Vec<S
     let path = top.join(LOCK);
     let new = std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
     let names: Vec<String> = crates.iter().map(|c| c.name.clone()).collect();
-    crate::lock_diff::reached(&old, &new, &names)
+    crate::lock_diff::with_changed_dependencies(&old, &new, &names)
 }
 
 /// The names of the crates that hold some of <files> (the deepest crate whose

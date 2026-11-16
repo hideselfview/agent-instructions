@@ -1,10 +1,11 @@
-//! Which workspace crates a change to `Cargo.lock` reaches: those whose
-//! resolved dependencies changed. A lock entry changed when the new lock has
-//! it (by name, version and source) and the old one has it otherwise or not
-//! at all. A workspace crate is reached when its own entry changed or one of
-//! the entries it depends on, at any depth, did. A package the new lock no
-//! longer has changed the entry of each package that depended on it, so it
-//! reaches the same crates through them.
+//! This module lists the workspace crates whose resolved dependencies changed
+//! between two versions of `Cargo.lock`. A lock entry changed when the new
+//! lock has it (by name, version and source) and the old one has it otherwise
+//! or not at all. A workspace crate's dependencies changed when its own entry
+//! changed or one of the entries it depends on, at any depth, did. When the
+//! new lock no longer has a package, the entry of each package that depended
+//! on it changed too, so the module finds the same crates through those
+//! entries.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
@@ -96,9 +97,9 @@ fn resolve(entries: &HashMap<Key, toml::Value>, text: &str) -> Result<Key> {
     }
 }
 
-/// The names of <members> that the change from the lock text <old> to <new>
-/// reaches, sorted.
-pub fn reached(old: &str, new: &str, members: &[String]) -> Result<Vec<String>> {
+/// The sorted names of the <members> whose own lock entry, or an entry they
+/// depend on at any depth, differs between the lock texts <old> and <new>.
+pub fn with_changed_dependencies(old: &str, new: &str, members: &[String]) -> Result<Vec<String>> {
     let old = parse(old, "the old Cargo.lock")?;
     let new = parse(new, "the new Cargo.lock")?;
     let changed: BTreeSet<&Key> = new
@@ -107,7 +108,7 @@ pub fn reached(old: &str, new: &str, members: &[String]) -> Result<Vec<String>> 
         .filter(|(key, entry)| old.entries.get(*key) != Some(*entry))
         .map(|(key, _)| key)
         .collect();
-    let mut reached = Vec::new();
+    let mut changed_members = Vec::new();
     for member in members {
         let starts: Vec<&Key> = new
             .entries
@@ -128,11 +129,11 @@ pub fn reached(old: &str, new: &str, members: &[String]) -> Result<Vec<String>> 
             stack.extend(new.depends.get(key).into_iter().flatten());
         }
         if hit {
-            reached.push(member.clone());
+            changed_members.push(member.clone());
         }
     }
-    reached.sort();
-    Ok(reached)
+    changed_members.sort();
+    Ok(changed_members)
 }
 
 /// The `Cargo.lock` of commit <rev> in the repo at <top>; None when <rev> is

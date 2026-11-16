@@ -590,7 +590,7 @@ pub struct Installed {
     pub builds: Option<String>,
     /// Whether launchd runs the host's sccache server from the plist builds
     /// writes (`install::run_sccache_under_launchd`), so the server has
-    /// builds' cap and never idles out.
+    /// builds' cap and does not exit when idle.
     pub sccache_under_launchd: bool,
 }
 
@@ -696,7 +696,7 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
                     "host {name} has no builds at ~/.local/bin/builds, so the repos' scripts fail in its jobs. Install this Mac's builds there with"
                 ),
                 Some(_) => format!(
-                    "host {name} runs another builds than this Mac (its ~/.local/bin/builds differs), so its jobs run another version's host logic and store schema. Install this Mac's builds there with"
+                    "host {name} runs a different version of builds than this Mac (its ~/.local/bin/builds differs), so its jobs can behave differently from this Mac's. Install this Mac's builds there with"
                 ),
             };
             out.push(crate::health::Advice::run(text, setup.clone()));
@@ -814,9 +814,9 @@ pub fn rank_by_room(
     }
     let runs = |host: &Host| recent.get(&host.name).copied().unwrap_or(0);
     // A host's free cores, each counted at its speed against this Mac's: a
-    // job finishes first where this is largest. A host with more work than
-    // cores has its excess divided by its speed instead, since a slower
-    // host takes longer to work through it.
+    // job finishes first where this is largest. For a host with more work
+    // than cores, the ranking divides the excess by the host's speed
+    // instead, since a slower host takes longer to work through it.
     let weighed = |host: &Host, probe: &Probe, speed: f64| {
         let room = probe.room_after(runs(host));
         if room >= 0.0 {
@@ -833,7 +833,7 @@ pub fn rank_by_room(
         .iter()
         .map(|(host, probe, speed)| {
             let at_speed = format!(
-                "{:.1} of this Mac's cores ({:.2} speed)",
+                "worth {:.1} of this Mac's cores at {:.2} times its speed",
                 weighed(host, probe, *speed),
                 speed
             );

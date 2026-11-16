@@ -1,7 +1,7 @@
 //! How fast one core of a Mac compiles, against this Mac's: the factor
 //! `builds host setup` records for each host and `host::rank_by_room` weighs
-//! a host's free cores by. It times one fixed compile, rustc on one core
-//! over the same generated source, on the host and here, keeping the
+//! a host's free cores by. This module times one fixed compile, rustc on one
+//! core over the same generated source, on the host and here, and keeps the
 //! fastest of `TRIES` on each, since a busy Mac only ever slows a compile.
 
 use std::path::Path;

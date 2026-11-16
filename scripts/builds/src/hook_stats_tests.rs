@@ -668,8 +668,9 @@ fn the_dashboard_counts_only_runs_of_the_last_12_hours() {
 }
 
 /// A check comes back with this Mac's load when it started, or with the host
-/// and load of the `builds cargo` run it started, found by the run's worktree
-/// and start and the check's position.
+/// and load of the `builds cargo` run it started: the reader matches the
+/// cargo run to the check by the hook run's worktree, its start time and the
+/// check's position.
 #[test]
 fn a_check_comes_back_with_where_it_ran_and_how_loaded_that_host_was() {
     let scratch = Scratch::new("hook-db-places");

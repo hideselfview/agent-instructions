@@ -12,8 +12,8 @@
 //! whose item waits on nothing open, commits that change design files no
 //! recorded design change covers (lists/held.rs), a repo with a design folder
 //! and no design globs (lists/project.rs), or a build host that refuses
-//! jobs, whose Xcode cannot start, or whose builds is not this Mac's
-//! (host.rs).
+//! jobs, whose Xcode cannot start, whose installed `builds` differs from this
+//! Mac's or whose sccache server launchd does not run (host.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -1026,7 +1026,9 @@ pub fn lines(health: &Health) -> Vec<String> {
 
 /// The findings that come from the hosts: each process that looks stuck on
 /// one (stuck.rs), each host that refuses jobs or whose Xcode cannot start,
-/// and each host whose builds is not this Mac's (host.rs). `assess` judges
+/// and what `host::installed_findings` reports: each host whose installed
+/// `builds` differs from this Mac's or that builds could not ask, and each
+/// Mac whose sccache server launchd does not run (host.rs). `assess` judges
 /// only what this Mac's process reading finds, which runs no ssh, so `builds
 /// health` and the dashboard each add these findings to the ones `assess`
 /// returns.
