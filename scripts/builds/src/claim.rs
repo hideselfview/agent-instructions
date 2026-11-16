@@ -27,9 +27,27 @@ pub const NOTE_STATES: [&str; 3] = ["waiting-on-you", "winding-down", "held"];
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Claim {
     pub who: String,
-    pub since: String,
+    /// When the claim began, to the minute. In JSON it is the `YYYY-MM-DD HH:MM`
+    /// text that the claim file and `builds status` show.
+    #[serde(with = "minute_text")]
+    pub since: i64,
     pub note: Option<String>,
     pub note_state: Option<String>,
+}
+
+/// A claim's date as the text of its file in JSON.
+mod minute_text {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error};
+
+    pub fn serialize<S: Serializer>(epoch: &i64, out: S) -> Result<S::Ok, S::Error> {
+        out.serialize_str(&crate::text::local_minute(*epoch))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<i64, D::Error> {
+        let text = String::deserialize(from)?;
+        crate::text::local_minute_epoch(&text)
+            .ok_or_else(|| D::Error::custom(format!("{text:?} is not YYYY-MM-DD HH:MM")))
+    }
 }
 
 impl Claim {
@@ -43,16 +61,24 @@ impl Claim {
         let line = text.lines().next().unwrap_or("");
         let mut fields = line.split('\t').filter(|field| !field.is_empty());
         let field = |value: Option<&str>| value.map(str::to_string);
+        let who = fields.next().unwrap_or("").to_string();
+        let date = fields.next().unwrap_or("");
+        let Some(since) = local_minute_epoch(date) else {
+            fail!(
+                "{}: the claim's date is {date:?}, not YYYY-MM-DD HH:MM",
+                file.display()
+            );
+        };
         Ok(Some(Claim {
-            who: fields.next().unwrap_or("").to_string(),
-            since: fields.next().unwrap_or("").to_string(),
+            who,
+            since,
             note: field(fields.next()),
             note_state: field(fields.next()),
         }))
     }
 
     pub fn write(&self, file: &Path) -> Result<()> {
-        let mut line = format!("{}\t{}", self.who, self.since);
+        let mut line = format!("{}\t{}", self.who, local_minute(self.since));
         match (&self.note, &self.note_state) {
             (Some(text), Some(state)) => line += &format!("\t{text}\t{state}"),
             (Some(text), None) => line += &format!("\t{text}"),
@@ -64,14 +90,9 @@ impl Claim {
             .map_err(|error| fail::Fail::Message(format!("writing {}: {error}", file.display())))
     }
 
-    /// When the claim began, to the minute; None when the date is unreadable.
-    pub fn started_at(&self) -> Option<i64> {
-        local_minute_epoch(&self.since)
-    }
-
     /// `<who> since <since>`.
     pub fn text(&self) -> String {
-        format!("{} since {}", self.who, self.since)
+        format!("{} since {}", self.who, local_minute(self.since))
     }
 }
 
@@ -94,7 +115,7 @@ pub fn write_claim(
 ) -> Result<()> {
     Claim {
         who: who.to_string(),
-        since: local_minute(now),
+        since: now,
         note,
         note_state: state,
     }

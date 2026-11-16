@@ -530,7 +530,7 @@ fn who_wrote_is_by_else_the_claim_else_refused() {
     let checkout = Checkout::at(&repo_dir).unwrap().unwrap();
     Claim {
         who: "import-tags".into(),
-        since: "2026-11-13 10:00".into(),
+        since: 1_790_000_000,
         note: None,
         note_state: None,
     }

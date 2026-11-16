@@ -207,7 +207,11 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
     }
     let claim = Claim::read(&checkout.claim_file())?;
     if let Some(claim) = &claim {
-        state += &format!(", claimed by {} since {}", claim.who, claim.since);
+        state += &format!(
+            ", claimed by {} since {}",
+            claim.who,
+            crate::text::local_minute(claim.since)
+        );
     }
     out.push(format!(
         "{}  {}  [{state}]",

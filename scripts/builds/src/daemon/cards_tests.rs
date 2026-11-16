@@ -37,7 +37,7 @@ fn card(
 fn claim(note: Option<&str>) -> Option<Claim> {
     Some(Claim {
         who: "agent".into(),
-        since: "2026-11-14 07:00".into(),
+        since: 1_790_000_000,
         note: note.map(str::to_string),
         note_state: None,
     })

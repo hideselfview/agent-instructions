@@ -26,7 +26,7 @@ fn live_worktree(scratch: &Scratch, claimed: bool) -> PathBuf {
         let checkout = Checkout::at(&top).unwrap().unwrap();
         Claim {
             who: "agent".into(),
-            since: "2026-11-13 10:00".into(),
+            since: 1_790_000_000,
             note: None,
             note_state: None,
         }

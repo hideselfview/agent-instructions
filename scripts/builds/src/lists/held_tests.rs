@@ -128,7 +128,7 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
         repo: "demo".into(),
         claim: Claim {
             who: who.into(),
-            since: "2026-11-14 08:00".into(),
+            since: 1_790_000_000,
             note: Some("kept".into()),
             note_state: state.map(str::to_string),
         },

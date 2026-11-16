@@ -685,7 +685,7 @@ fn landed_records_the_worktrees_claim_wherever_it_runs() {
     let checkout = crate::checkout::Checkout::at(&w.dir).unwrap().unwrap();
     crate::claim::Claim {
         who: "design session".into(),
-        since: "2026-11-15 10:00".into(),
+        since: 1_790_000_000,
         note: None,
         note_state: None,
     }

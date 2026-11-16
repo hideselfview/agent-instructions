@@ -51,6 +51,8 @@ pub enum FindingKind {
     /// A claimed worktree with no change and no build for a while.
     Quiet,
     Lists,
+    /// A worktree whose claim file cannot be read.
+    Claim,
     /// A process with a lot of CPU time that looks stuck.
     Busy,
     /// A build host that refuses jobs.
@@ -647,7 +649,7 @@ pub fn assess(
         // handed are.
         let idle_minutes = git
             .activity()
-            .max(claim.started_at())
+            .max(Some(claim.since))
             .map(|when| minutes_since(now, when));
         let label = places[place].label.clone();
         let app_build = machine
@@ -788,15 +790,20 @@ pub fn health(tool: &Tool) -> Result<Health> {
     );
     let mut claimed = Vec::new();
     let mut unclaimed = Vec::new();
+    let mut unreadable = Vec::new();
     for (at, root) in live.iter().enumerate() {
         let checkout = root.live.as_ref().expect("live");
         if !checkout.is_side() {
             continue;
         }
-        match Claim::read(&checkout.claim_file())? {
-            Some(claim) => claimed.push((at, checkout, claim)),
-            None if root.is_app_checkout(&tool.places)? => {}
-            None => unclaimed.push((at, checkout)),
+        match Claim::read(&checkout.claim_file()) {
+            Ok(Some(claim)) => claimed.push((at, checkout, claim)),
+            Ok(None) if root.is_app_checkout(&tool.places)? => {}
+            Ok(None) => unclaimed.push((at, checkout)),
+            Err(damaged) => unreadable.push(Finding::new(
+                FindingKind::Claim,
+                Advice::said(format!("worktree: {}", damaged.text())),
+            )),
         }
     }
     let unclaimed_gits = parallel_map(&unclaimed, |(_, checkout)| {
@@ -835,7 +842,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         });
     }
     let lists = lists_findings(&tool.places, &loaded, &places, &mut judged, &held_worktrees)?;
-    Ok(assess(
+    let mut health = assess(
         now,
         tool.disk_space()?,
         machine,
@@ -843,7 +850,9 @@ pub fn health(tool: &Tool) -> Result<Health> {
         judged,
         unclaimed,
         lists,
-    ))
+    );
+    health.findings.extend(unreadable);
+    Ok(health)
 }
 
 fn root_repo(root: &Root) -> String {
@@ -937,7 +946,7 @@ pub fn lines(health: &Health) -> Vec<String> {
             w.checkout,
             w.branch.as_deref().unwrap_or("detached"),
             w.claim.who,
-            w.claim.since,
+            local_minute(w.claim.since),
             match (&w.claim.note_state, &w.claim.note) {
                 (Some(state), note) => format!(
                     " ({}): {}",
@@ -1149,7 +1158,7 @@ mod tests {
             place: n - 1,
             claim: Claim {
                 who: format!("agent {n}"),
-                since: "2026-11-05 08:00".to_string(),
+                since: now - 70 * 24 * 3600,
                 note: Some("kept for later".to_string()),
                 note_state: state.map(str::to_string),
             },
@@ -1217,7 +1226,7 @@ mod tests {
             place: 0,
             claim: Claim {
                 who: "agent 1".to_string(),
-                since: local_minute(now - claimed_ago),
+                since: now - claimed_ago,
                 note: None,
                 note_state: None,
             },

@@ -116,7 +116,7 @@ fn claim(dir: &Path) {
     let checkout = crate::checkout::Checkout::at(dir).unwrap().unwrap();
     crate::claim::Claim {
         who: "agent A".into(),
-        since: "2026-11-15 10:00".into(),
+        since: 1_790_000_000,
         note: None,
         note_state: None,
     }

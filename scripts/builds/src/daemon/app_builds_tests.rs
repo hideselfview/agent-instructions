@@ -40,7 +40,7 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
 fn claimed(who: &str) -> Claim {
     Claim {
         who: who.into(),
-        since: "2026-11-14 07:00".into(),
+        since: 1_790_000_000,
         note: None,
         note_state: None,
     }
