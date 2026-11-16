@@ -337,9 +337,9 @@ pub fn sccache_cap_kib() -> u64 {
         .expect("the shared caches list the sccache cache")
 }
 
-/// The last <count> lines of the file at <path> that hold text, read from its
+/// The last five lines of the file at <path> that hold text, read from its
 /// last 16 KiB, or what kept builds from reading it.
-fn last_lines(path: &Path, count: usize) -> String {
+fn last_lines(path: &Path) -> String {
     use std::io::{Read, Seek, SeekFrom};
     let read = || -> std::io::Result<String> {
         let mut file = std::fs::File::open(path)?;
@@ -358,7 +358,7 @@ fn last_lines(path: &Path, count: usize) -> String {
             if lines.is_empty() {
                 return "nothing".to_string();
             }
-            lines[lines.len().saturating_sub(count)..].join(" | ")
+            lines[lines.len().saturating_sub(5)..].join(" | ")
         }
         Err(error) => format!("nothing builds could read ({error})"),
     }
@@ -366,21 +366,16 @@ fn last_lines(path: &Path, count: usize) -> String {
 
 /// Why launchd's job does not serve sccache's port, from what launchd says
 /// about the job, the pid listening on the port, and the end of the server's
-/// log.
+/// log. `confirm_serving` calls it only once `launchd_serves` said no, so a
+/// pid listening on the port is never the job's.
 fn not_serving(job: Option<&Job>, listener: Option<u32>, log: &str, log_end: &str) -> String {
     let launchd = match job {
         Some(job) => format!("launchctl print says {}", job.text()),
         None => "launchd has not loaded the job".to_string(),
     };
-    let port = match (listener, job.and_then(Job::running_pid)) {
-        (None, _) => format!("no process listens on port {}", crate::sccache::PORT),
-        (Some(pid), Some(running)) if pid == running => {
-            format!(
-                "the job (pid {pid}) listens on port {}",
-                crate::sccache::PORT
-            )
-        }
-        (Some(pid), _) => format!(
+    let port = match listener {
+        None => format!("no process listens on port {}", crate::sccache::PORT),
+        Some(pid) => format!(
             "pid {pid}, which launchd does not run, listens on port {}",
             crate::sccache::PORT
         ),
@@ -408,7 +403,7 @@ fn confirm_serving(
             fail!(
                 "launchd's sccache server does not serve sccache's port {} seconds after launchctl bootstrap: {}",
                 limit.as_secs(),
-                not_serving(job.as_ref(), listener, shown_log, &last_lines(log, 5))
+                not_serving(job.as_ref(), listener, shown_log, &last_lines(log))
             );
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -417,10 +412,6 @@ fn confirm_serving(
 
 /// How long builds waits for the compiles of a server it is about to stop.
 const COMPILES_LIMIT: Duration = Duration::from_secs(10 * 60);
-
-/// How long a stopped server may hold sccache's port: sccache waits up to 10
-/// seconds for the requests in progress.
-const STOP_LIMIT: Duration = Duration::from_secs(20);
 
 /// How long launchd's server may take to listen after launchctl bootstrap.
 const START_LIMIT: Duration = Duration::from_secs(10);
@@ -475,7 +466,7 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
     // A server that a client started holds sccache's port, and launchd's
     // server could not listen there.
     if crate::sccache::listening()? {
-        crate::sccache::stop(&sccache, STOP_LIMIT)?;
+        crate::sccache::stop(&sccache)?;
     }
     launchctl(&["bootstrap", &domain, &plist_path.to_string_lossy()])?;
     let log = sccache_log_path(home);
@@ -665,8 +656,7 @@ mod tests {
                 .starts_with("launchd has not loaded the job; no process listens on port 4226")
         );
         assert!(
-            last_lines(&scratch.dir.join("missing.log"), 5)
-                .starts_with("nothing builds could read")
+            last_lines(&scratch.dir.join("missing.log")).starts_with("nothing builds could read")
         );
     }
 

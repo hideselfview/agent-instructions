@@ -221,21 +221,25 @@ pub fn wait_for_compiles(pid: u32, limit: Duration) -> Result<()> {
     }
 }
 
+/// How long a stopped server may hold sccache's port: sccache waits up to 10
+/// seconds for the requests in progress.
+const STOP_LIMIT: Duration = Duration::from_secs(20);
+
 /// Stops the server listening on sccache's port with <sccache>
 /// `--stop-server`, which lets the requests in progress finish for up to 10
 /// seconds, and waits until no process listens there. Fails, with what
-/// sccache said, when the port is still held after <limit>.
-pub fn stop(sccache: &Path, limit: Duration) -> Result<()> {
+/// sccache said, when the port is still held after STOP_LIMIT.
+pub fn stop(sccache: &Path) -> Result<()> {
     let output = Command::new(sccache)
         .arg("--stop-server")
         .output()
         .context(|| "stopping the sccache server".to_string())?;
     let start = Instant::now();
     while let Some(pid) = listener()? {
-        if start.elapsed() >= limit {
+        if start.elapsed() >= STOP_LIMIT {
             fail!(
                 "the sccache server (pid {pid}) still listens on port {PORT} {} seconds after sccache --stop-server, which said: {}",
-                limit.as_secs(),
+                STOP_LIMIT.as_secs(),
                 String::from_utf8_lossy(&[output.stdout, output.stderr].concat()).trim()
             );
         }
