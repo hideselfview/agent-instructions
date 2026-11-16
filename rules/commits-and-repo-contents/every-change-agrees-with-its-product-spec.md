@@ -1,5 +1,5 @@
 ---
-digest: Read the product spec's text on a behavior before you plan, brief, build or review a change to it. A change agrees with the spec, or changes the spec in the same commit because the person decided so; a behavior the spec doesn't state is added to it in the same commit.
+digest: Read the product spec's text on a behavior before you plan, brief, build or review a change to it. A change agrees with the spec, or changes the spec in the same commit because the person decided so, and adds any behavior the spec doesn't state to the spec in the same commit.
 paths:
   - '**/*'
 blocking: true
