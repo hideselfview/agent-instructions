@@ -288,7 +288,9 @@ DESIGN CHANGES
 The design session records a design change when its boards are drawn, and the
 change waits on the person's review until they approve it; `builds help
 workflow` says how the session and the person work through one. builds land
---design N refuses the change before approval, and landing closes it.
+--design N refuses the change before approval, and landing closes it. When the
+commits hold several changes, builds land takes --design once for each and
+closes each one.
 
 A repo's design files are the globs given to `lists init` or `lists
 design-globs`:
@@ -341,14 +343,15 @@ sent again.
       PATH` (a component folder once, with a trailing /), `source PATH`,
       `deleted PATH` (a board file the commits delete), `spec PATH#HEADING` or
       `shared PATH`; nothing when there is none. builds land requires
-      --design N whenever this prints anything.
+      --design N whenever this prints anything, once for each design change
+      that resolves some of it.
 
   builds design only DIR REV...
       Prints nothing and succeeds when the commits are a design change and
       every path they change is a design file (boards, the design system,
       spec sections); otherwise names the paths that are not. Only then does
-      builds land take --design N alone, with no --done or --part: the design
-      change holds the app work.
+      builds land take --design N alone, given once or more, with no --done
+      or --part: the design changes hold the app work.
 
   builds design record --request FILE       (`-` for standard input)
       FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
@@ -422,10 +425,12 @@ sent again.
       same approval again writes nothing, and the command sends nothing to
       any session.
 
-  builds design check N DIR REV...
-      Every place the commits change is resolved in open change N, shared
-      files and sources are answered for, and the person has approved it;
-      names what is not.
+  builds design check N[,N...] DIR REV...
+      Every place the commits change is resolved in one of the open changes
+      N, one of them answers for the shared files and sources, each change
+      resolves or answers for something the commits change, and the person
+      has approved each; names what is not. builds land runs it once with
+      every change its --design flags name.
 
   builds design landed N DIR SHA...
       What builds land runs after the push, with SHAs on origin/main: records

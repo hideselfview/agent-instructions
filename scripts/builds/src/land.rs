@@ -1,4 +1,4 @@
-//! `builds land WORKTREE [--done N]... [--part N]... [--design N] SHA...`: puts
+//! `builds land WORKTREE [--done N]... [--part N]... [--design N]... SHA...`: puts
 //! the commits on origin/main from the worktree whose branch holds them (a
 //! fast-forward when they sit on origin/main, else a cherry-pick). When origin
 //! refuses the push, land fetches again and repeats the whole step.
@@ -36,18 +36,20 @@
 //!
 //! A repo that belongs to a project of the lists (`builds lists project-of`)
 //! names the work items a landing finishes (`--done N`) or advances (`--part
-//! N`) and, when the commits change design places, the design change (`--design
-//! N`), which the person must have approved (`builds design check` says so).
-//! Land checks each before it fetches or cherry-picks anything, and records
-//! each after the push. `builds item check-landing` refuses an item that runs
-//! in another worktree of the repo, since landing it here would check out other
-//! commits in the worktree that item's agent works in. `builds design places`
+//! N`) and, when the commits change design places, the design changes
+//! (`--design N`, once per change), which the person must have approved and
+//! which together must resolve every design place the commits change (`builds
+//! design check` says so for all of them at once). Land checks each before it
+//! fetches or cherry-picks anything, and records each after the push. `builds
+//! item check-landing` refuses an item that runs in another worktree of the
+//! repo, since landing it here would check out other commits in the worktree
+//! that item's agent works in. `builds design places`
 //! prints one line per changed design path (`place`, `source`, `spec` or
 //! `shared`, then the path), nothing when none;
 //! any line, shared-only included, requires `--design`. When every commit's
 //! paths are design files (`builds design only`: boards, the design system,
-//! spec lines), `--design N` alone satisfies the `--done`/`--part`
-//! requirement: the design change holds the app work. A repo in no project
+//! spec lines), `--design` alone satisfies the `--done`/`--part`
+//! requirement: the design changes hold the app work. A repo in no project
 //! takes none of these flags and lands as before.
 //!
 //! A cherry-picked result is a tree no hook has seen, so before it is pushed
@@ -102,8 +104,9 @@ use std::process::{Command, Stdio};
 use crate::checkout::git;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+use crate::lists::Id;
 
-const USAGE: &str = "usage: builds land <worktree> [--done N]... [--part N]... [--design N] <sha>... (run it in the worktree whose branch holds the commits, with nothing uncommitted there, and in a repo of a project with a claim on it; land requires --design exactly when the commits change a design place or shared design file, and takes --design alone for commits that are all design files)";
+const USAGE: &str = "usage: builds land <worktree> [--done N]... [--part N]... [--design N]... <sha>... (run it in the worktree whose branch holds the commits, with nothing uncommitted there, and in a repo of a project with a claim on it; land requires --design exactly when the commits change a design place or shared design file, once for each design change that resolves some of them, and takes --design alone for commits that are all design files)";
 
 /// How many times a refused push is tried again from a fresh fetch.
 const ATTEMPTS: usize = 5;
@@ -234,7 +237,8 @@ fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Resul
 struct Request {
     /// `--done N` and `--part N`, as given.
     items: Vec<String>,
-    design: Option<String>,
+    /// Each `--design N`, in the order given.
+    designs: Vec<Id>,
     shas: Vec<String>,
 }
 
@@ -242,6 +246,16 @@ impl Request {
     /// Does the landing advance an item without finishing it?
     fn has_part(&self) -> bool {
         self.items.iter().any(|word| word == "--part")
+    }
+
+    /// The design changes as the landing was given them, for what it says.
+    fn design_flags(&self) -> String {
+        let flags: Vec<String> = self
+            .designs
+            .iter()
+            .map(|id| format!("--design {}", id.0))
+            .collect();
+        flags.join(" ")
     }
 }
 
@@ -337,7 +351,7 @@ fn require_on_head(dir: &Path, start: &Start, shas: &[String], out: &mut dyn Wri
 
 fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
     let mut items = Vec::new();
-    let mut design: Option<String> = None;
+    let mut designs: Vec<Id> = Vec::new();
     let mut rest = args;
     while let Some(arg) = rest.first() {
         match arg.as_str() {
@@ -356,10 +370,19 @@ fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
                         "refusing: --design needs a design change number",
                     ));
                 }
-                if design.is_some() {
-                    return Err(refuse(out, "refusing: --design given twice"));
+                let id = match Id::parse(&rest[1]) {
+                    Ok(id) => id,
+                    Err(error) => {
+                        return Err(refuse(out, format!("refusing: --design: {}", error.text())));
+                    }
+                };
+                if designs.contains(&id) {
+                    return Err(refuse(
+                        out,
+                        format!("refusing: --design {} given twice", id.0),
+                    ));
                 }
-                design = Some(rest[1].clone());
+                designs.push(id);
                 rest = &rest[2..];
             }
             "--" => {
@@ -377,7 +400,7 @@ fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
     }
     Ok(Request {
         items,
-        design,
+        designs,
         shas: rest.to_vec(),
     })
 }
@@ -428,7 +451,7 @@ impl Landing<'_> {
         let request = &self.request;
         let workdir = self.workdir.display();
         let Some(Recording { project, .. }) = &self.recording else {
-            if !request.items.is_empty() || request.design.is_some() {
+            if !request.items.is_empty() || !request.designs.is_empty() {
                 return Err(refuse(
                     out,
                     format!(
@@ -446,20 +469,21 @@ impl Landing<'_> {
                 format!("refusing: builds design places failed: {places}"),
             ));
         }
+        let designs = request.design_flags();
         if request.items.is_empty() {
-            let Some(design) = &request.design else {
+            if request.designs.is_empty() {
                 return Err(refuse(
                     out,
                     format!(
                         "refusing: {workdir} is in the project {project}; name the work item this lands with --done N or --part N (commits that are all design files take --design N alone)"
                     ),
                 ));
-            };
+            }
             if places.is_empty() {
                 return Err(refuse(
                     out,
                     format!(
-                        "refusing: --design {design} given, but the commits change no design place; name the work item with --done N or --part N"
+                        "refusing: {designs} given, but the commits change no design place; name the work item with --done N or --part N"
                     ),
                 ));
             }
@@ -480,25 +504,24 @@ impl Landing<'_> {
                 return Err(refuse(out, said));
             }
         }
-        if !places.is_empty() && request.design.is_none() {
+        if !places.is_empty() && request.designs.is_empty() {
             let _ = writeln!(
                 out,
-                "LANDING REFUSED, nothing fetched or pushed: the commits change design places; name the design change with --design N"
+                "LANDING REFUSED, nothing fetched or pushed: the commits change design places; name each design change that resolves them with --design N"
             );
             return Err(refuse(out, places));
         }
-        if places.is_empty()
-            && let Some(design) = &request.design
-        {
+        if places.is_empty() && !request.designs.is_empty() {
             return Err(refuse(
                 out,
-                format!(
-                    "refusing: --design {design} given, but the commits change no design place"
-                ),
+                format!("refusing: {designs} given, but the commits change no design place"),
             ));
         }
-        if let Some(design) = &request.design {
-            let mut line = vec!["design".to_string(), "check".to_string(), design.clone()];
+        if !request.designs.is_empty() {
+            // One check of all the changes at once: together they must
+            // resolve every place the commits change.
+            let ids: Vec<String> = request.designs.iter().map(|id| id.0.to_string()).collect();
+            let mut line = vec!["design".to_string(), "check".to_string(), ids.join(",")];
             line.push(workdir.to_string());
             line.extend(request.shas.iter().cloned());
             let (ok, said) = self.run_line(&line);
@@ -529,10 +552,10 @@ impl Landing<'_> {
         line
     }
 
-    /// Records what landed, as `builds item landed` and `builds design landed`
-    /// with the commits now on origin/main, and `builds review landed` with
-    /// the commits as given and, when commits of the branch still wait to land
-    /// (<waiting>), `--more-to-land`. Each is idempotent, so a failure prints
+    /// Records what landed, as `builds item landed` and one `builds design
+    /// landed` for each design change, with the commits now on origin/main,
+    /// and `builds review landed` with the commits as given and, when commits
+    /// of the branch still wait to land (<waiting>), `--more-to-land`. Each is idempotent, so a failure prints
     /// the rerun. Says whether every record was written.
     fn record(&self, on_main: &[String], waiting: bool, out: &mut dyn Write) -> bool {
         let Some(Recording { project, by }) = &self.recording else {
@@ -543,8 +566,12 @@ impl Landing<'_> {
         if !self.request.items.is_empty() {
             lines.push(self.with_items(&["item", "landed"], true, on_main));
         }
-        if let Some(design) = &self.request.design {
-            let mut line = vec!["design".to_string(), "landed".to_string(), design.clone()];
+        for design in &self.request.designs {
+            let mut line = vec![
+                "design".to_string(),
+                "landed".to_string(),
+                design.0.to_string(),
+            ];
             line.push(self.workdir.display().to_string());
             line.extend(on_main.iter().cloned());
             lines.push(line);

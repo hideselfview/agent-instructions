@@ -679,6 +679,54 @@ fn a_design_change_alone_lands_commits_that_are_all_design_files() {
 }
 
 #[test]
+fn several_design_changes_land_in_one_call_and_each_is_recorded_as_landed() {
+    let f = fixture("land-designs", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let dir = one.display();
+    let places = "place design/mocks/button\nplace design/mocks/row";
+    let (code, out, calls) = run_land(
+        &f,
+        &one,
+        &["--design", "3", "--design", "4", &a],
+        Cues {
+            places,
+            refuse: "design check",
+            says: "design changes #3, #4 do not resolve design/mocks/row",
+            ..project()
+        },
+    );
+    assert!(
+        code == 1 && out.contains("do not resolve design/mocks/row") && main_of(&f) != a,
+        "{out}"
+    );
+    assert!(
+        calls.contains(&format!("design check 3,4 {dir} {a}")),
+        "one check decides whether the changes together resolve every place: {calls:?}"
+    );
+    let (code, out, calls) = run_land(
+        &f,
+        &one,
+        &["--design", "3", "--design", "4", &a],
+        Cues {
+            places,
+            ..project()
+        },
+    );
+    assert!(code == 0 && main_of(&f) == a, "{out}");
+    assert!(calls.contains(&format!("design only {dir} {a}")));
+    assert!(calls.contains(&format!("design check 3,4 {dir} {a}")));
+    assert_eq!(
+        calls[calls.len() - 4..],
+        [
+            format!("design landed 3 {dir} {a} --by agent A"),
+            format!("design landed 4 {dir} {a} --by agent A"),
+            format!("review landed {dir} --project bae {a} --by agent A"),
+            format!("release {dir}")
+        ]
+    );
+}
+
+#[test]
 fn a_failed_design_record_after_a_design_only_push_exits_with_the_rerun() {
     let f = fixture("land-design-record", "true\n", None);
     let (one, a, _two, _b) = two_branches(&f);
@@ -798,10 +846,12 @@ fn unknown_options_and_missing_numbers_are_refused() {
     let (code, out, _) = run_land(
         &f,
         &one,
-        &["--design", "1", "--design", "2", &a],
+        &["--design", "2", "--design", "2", &a],
         Cues::default(),
     );
-    assert!(code == 1 && out.contains("--design given twice"), "{out}");
+    assert!(code == 1 && out.contains("--design 2 given twice"), "{out}");
+    let (code, out, _) = run_land(&f, &one, &["--design", "2,3", &a], Cues::default());
+    assert!(code == 1 && out.contains("'2,3' is not an id"), "{out}");
     let (code, out, _) = run_land(&f, &one, &[], Cues::default());
     assert!(code == 1 && out.contains("usage: builds land"), "{out}");
 }

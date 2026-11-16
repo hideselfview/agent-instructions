@@ -384,10 +384,7 @@ fn resolve(
         // boards change with them, or when shared design files change and no
         // board does. It is invalid when the change lists or changes a
         // component, because that component's drawing changes.
-        let drawing = design
-            .places
-            .keys()
-            .any(|p| PlaceKind::of(p) == PlaceKind::Component);
+        let drawing = lists_a_component(design);
         let answers = !changes.sources.is_empty()
             || (!changes.shared.is_empty() && changes.places.is_empty());
         if !answers || drawing {
@@ -397,7 +394,7 @@ fn resolve(
         }
         design.no_app_place = Some(why.clone());
     }
-    needs_answer(design, changes, "the range")?;
+    needs_answer(&[&*design], changes, "the range")?;
     save(db, design)?;
     Ok(new_items)
 }
@@ -428,23 +425,15 @@ fn check_review(review: &[ReviewSection]) -> Result<()> {
     Ok(())
 }
 
-/// Shared design files and sources change no place by themselves: the change
-/// must list the components whose drawing changes (a source) or have a
-/// resolved place, or say with `no_app_place` that no drawing changes.
-pub(in crate::lists) fn needs_answer(
-    design: &DesignChange,
-    changes: &Changes,
-    what: &str,
-) -> Result<()> {
-    if design.no_app_place.is_some() {
+/// Shared design files and sources change no place by themselves: one of
+/// <designs> must list the components whose drawing changes (a source) or
+/// have a resolved place, or say with `no_app_place` that no drawing changes.
+fn needs_answer(designs: &[&DesignChange], changes: &Changes, what: &str) -> Result<()> {
+    if designs.iter().any(|d| d.no_app_place.is_some()) {
         return Ok(());
     }
     if !changes.sources.is_empty() {
-        if design
-            .places
-            .keys()
-            .any(|p| PlaceKind::of(p) == PlaceKind::Component)
-        {
+        if designs.iter().any(|d| lists_a_component(d)) {
             return Ok(());
         }
         fail!(
@@ -459,6 +448,14 @@ pub(in crate::lists) fn needs_answer(
         );
     }
     Ok(())
+}
+
+/// Does <design> list a component folder among its places?
+fn lists_a_component(design: &DesignChange) -> bool {
+    design
+        .places
+        .keys()
+        .any(|p| PlaceKind::of(p) == PlaceKind::Component)
 }
 
 fn join(set: &BTreeSet<String>) -> String {
@@ -709,38 +706,89 @@ pub fn amend(
     })
 }
 
-/// Is every place <changes> holds resolved in open design change <id>, and
-/// has the person approved it? Compares by path, so a rebased commit checks
-/// the same. Names each place left over.
-pub fn check_changes(lists: &Lists, id: Id, repo: &str, changes: &Changes) -> Result<()> {
-    let n = id.0;
-    let design = open_design_of(lists, id, repo)?;
+/// How a message names the design changes <ids>: "design change #3" or
+/// "design changes #3, #4".
+pub fn named(ids: &[Id]) -> String {
+    let list: Vec<String> = ids.iter().map(Id::to_string).collect();
+    match ids {
+        [_] => format!("design change {}", list[0]),
+        _ => format!("design changes {}", list.join(", ")),
+    }
+}
+
+/// The amend that adds a place to one of <ids>.
+fn amend_hint(ids: &[Id]) -> String {
+    match ids {
+        [id] => format!("`builds design amend {}`", id.0),
+        _ => "`builds design amend N` on the change that draws it".to_string(),
+    }
+}
+
+/// Does <design> resolve or answer for something <changes> holds: a changed
+/// place, a deleted board, or changed shared files and sources?
+fn takes_part(design: &DesignChange, changes: &Changes) -> bool {
+    let resolvable = changes.resolvable();
+    design.places.keys().any(|p| resolvable.contains(p))
+        || !design.deleted.is_disjoint(&changes.deleted)
+        || (!changes.sources.is_empty() && lists_a_component(design))
+        || (design.no_app_place.is_some()
+            && !(changes.sources.is_empty() && changes.shared.is_empty()))
+}
+
+/// Do the open design changes <ids> together resolve every place <changes>
+/// holds, and has the person approved each? Compares by path, so a rebased
+/// commit checks the same, and names each place left over. Landing closes
+/// every change it names, so each one must resolve or answer for something
+/// the commits change: otherwise it would close with commits that are not
+/// its own.
+pub fn check_changes(lists: &Lists, ids: &[Id], repo: &str, changes: &Changes) -> Result<()> {
+    if ids.is_empty() {
+        fail!("name a design change to check");
+    }
+    let mut designs = Vec::new();
+    for (at, id) in ids.iter().enumerate() {
+        if ids[..at].contains(id) {
+            fail!("design change {id} is named twice");
+        }
+        designs.push(open_design_of(lists, *id, repo)?);
+    }
+    let named = named(ids);
     if !changes.is_design_change() {
-        fail!("the commits change no design files, so design change {id} has nothing to check");
+        fail!("the commits change no design files, so there is nothing to check for {named}");
     }
     let unresolved: Vec<&str> = changes
         .resolvable()
         .into_iter()
-        .filter(|p| !design.places.contains_key(*p))
+        .filter(|p| !designs.iter().any(|d| d.places.contains_key(*p)))
         .map(|p| p.as_str())
         .collect();
+    let hint = amend_hint(ids);
     if !unresolved.is_empty() {
+        let verb = if ids.len() == 1 { "does" } else { "do" };
         fail!(
-            "design change {id} does not resolve {}; `builds design amend {n}` adds them",
+            "{named} {verb} not resolve {}; {hint} adds them",
             unresolved.join(", ")
         );
     }
-    needs_answer(design, changes, "the commits").map_err(|error| match error {
-        crate::fail::Fail::Message(message) => crate::fail::Fail::Message(format!(
-            "{message} (design change {id}; `builds design amend {}` adds it)",
-            id.0
-        )),
+    needs_answer(&designs, changes, "the commits").map_err(|error| match error {
+        crate::fail::Fail::Message(message) => {
+            crate::fail::Fail::Message(format!("{message} ({named}; {hint} adds it)"))
+        }
         other => other,
     })?;
-    if design.approved.is_none() {
-        fail!(
-            "design change {id} waits on the person's review; once they have said to land it, `builds design approve {n} --by-person` records that"
-        );
+    for design in &designs {
+        let id = design.id;
+        if !takes_part(design, changes) {
+            fail!(
+                "design change {id} resolves nothing the commits change, so landing them must not close it; leave it out"
+            );
+        }
+        if design.approved.is_none() {
+            fail!(
+                "design change {id} waits on the person's review; once they have said to land it, `builds design approve {} --by-person` records that",
+                id.0
+            );
+        }
     }
     Ok(())
 }

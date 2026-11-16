@@ -289,7 +289,10 @@ other.
      the canvas, which only a Claude session can do. When that session has
      ended, the next design session runs `builds
      land` for the change. `builds design approve N --by-person` is for an
-     approval the person gives in words.
+     approval the person gives in words. When a branch holds several approved
+     changes whose commits can't land apart (a review fix on one change's
+     commit is in another's), land them in one call with `--design N` once
+     for each change.
      When a rule group covers a path the commits change, `builds land`
      refuses them until the rules review is finished, as for any branch
      (PLAN, BRIEF, EXECUTE, REVIEW): run `builds review` on them once,

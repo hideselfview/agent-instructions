@@ -1297,7 +1297,7 @@ rule in the group, the project's always-loaded instructions
 every rule. To test another grouping, change the folders in a worktree of
 agent-instructions and run `review replay --rules-root` on it.
 
-  builds land <worktree> [--done N]... [--part N]... [--design N] <sha>...
+  builds land <worktree> [--done N]... [--part N]... [--design N]... <sha>...
                               put the commits on origin/main from the worktree
                               whose branch holds them: a fast-forward when
                               origin/main is their base, else a cherry-pick.
@@ -1326,15 +1326,18 @@ agent-instructions and run `review replay --rules-root` on it.
                               --part N records a landed part of it: land checks
                               both before it fetches anything and records them
                               after the push. Commits that change design places
-                              need --design N, an approved design change, and
-                              commits that are all design files take it alone
-                              (`builds help lists`). In a repo of a project,
-                              land runs `review check-landing` before it
-                              fetches anything, and a refusal ends the landing;
-                              it runs `review landed` after the push, beside
-                              the records of the items and the design change,
-                              with --more-to-land when commits on the branch
-                              still wait to land.
+                              need --design N for an approved design change,
+                              given once for each change when several resolve
+                              them; together the changes must resolve every
+                              place, and land records each one as landed.
+                              Commits that are all design files take --design
+                              alone (`builds help lists`). In a repo of a
+                              project, land runs `review check-landing` before
+                              it fetches anything, and a refusal ends the
+                              landing; it runs `review landed` after the push,
+                              beside the records of the items and the design
+                              changes, with --more-to-land when commits on the
+                              branch still wait to land.
                               Each record names the worktree, and land reads
                               who landed from the worktree's claim and passes
                               it to each record as --by, so in a repo of a

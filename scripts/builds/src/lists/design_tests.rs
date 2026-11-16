@@ -641,6 +641,56 @@ fn check_of_a_change_that_has_landed_is_refused() {
     assert!(message(w.run(&format!("check 1 {} {sha}", w.worktree()))).contains("already landed"));
 }
 
+/// Two changes, each drawn on its own commits, land together when each is
+/// approved and the two together resolve every place the commits change.
+#[test]
+fn check_of_several_changes_needs_each_approved_and_every_place_in_one_of_them() {
+    let w = world("design-check-several");
+    let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+    w.commit(&[a]);
+    w.request(base_request(&w, json!({ a: { "matches": "x" } })))
+        .unwrap();
+    w.approve(1);
+    git(&w.dir, &["tag", "drew-a"]);
+    let drew_b = w.commit(&[b]);
+    let mut second = base_request(&w, json!({ b: { "matches": "y" } }));
+    second["range"] = json!("drew-a..HEAD");
+    w.request(second).unwrap();
+    let wt = w.worktree();
+    let both = format!("{wt} base..HEAD");
+    let refused = message(w.run(&format!("check 1,2 {both}")));
+    assert!(
+        refused.contains("design change #2 waits on the person's review"),
+        "{refused}"
+    );
+    w.approve(2);
+    let alone = message(w.run(&format!("check 1 {both}")));
+    assert!(alone.contains(b) && !alone.contains(a), "{alone}");
+    let out = w.run(&format!("check 1,2 {both}")).unwrap();
+    assert!(
+        out.contains("design changes #1, #2 together resolve every place"),
+        "{out}"
+    );
+    assert!(message(w.run(&format!("check 1,1 {both}"))).contains("#1 is named twice"));
+    // A change that resolves nothing the commits change would close with
+    // commits that are not its.
+    let stray = message(w.run(&format!("check 1,2 {wt} {drew_b}")));
+    assert!(
+        stray.contains("design change #1 resolves nothing the commits change"),
+        "{stray}"
+    );
+
+    let c = "design/mocks/C.dc.html";
+    w.commit(&[c]);
+    let neither = message(w.run(&format!("check 1,2 {both}")));
+    assert!(
+        neither.contains(&format!("design changes #1, #2 do not resolve {c}"))
+            && !neither.contains(a)
+            && !neither.contains(b),
+        "{neither}"
+    );
+}
+
 #[test]
 fn landed_closes_the_change_frees_its_items_and_is_idempotent() {
     let w = world("design-landed");

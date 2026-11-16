@@ -20,7 +20,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR";
+const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -398,21 +398,27 @@ fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     ))
 }
 
-/// `check N DIR REV...` reads the store and never writes to it.
+/// `check N[,N...] DIR REV...`: the changes together resolve every place the
+/// commits change, and each is approved. It reads the store and never writes
+/// to it.
 fn check(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    let [id, dir, shas @ ..] = args.positional() else {
+    let [ids, dir, shas @ ..] = args.positional() else {
         fail!("{USAGE}")
     };
     if shas.is_empty() {
         fail!("{USAGE}");
     }
-    let id = Id::parse(id)?;
+    let ids = Id::parse_list(ids)?;
     let scope = named_scope(tool, &args, dir, shas)?;
-    design::check_changes(&scope.lists, id, &scope.checkout.repo(), &scope.changes)?;
-    Ok(format!(
-        "design change {id} resolves every place the commits change and is approved\n"
-    ))
+    design::check_changes(&scope.lists, &ids, &scope.checkout.repo(), &scope.changes)?;
+    let named = design::named(&ids);
+    Ok(match ids.as_slice() {
+        [_] => format!("{named} resolves every place the commits change and is approved\n"),
+        _ => format!(
+            "{named} together resolve every place the commits change and each is approved\n"
+        ),
+    })
 }
 
 /// `landed N DIR SHA...`: SHAs are on origin/main, as builds land calls it after
