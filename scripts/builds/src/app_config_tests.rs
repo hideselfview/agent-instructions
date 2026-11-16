@@ -416,7 +416,10 @@ fn an_opens_windows_line_keeps_its_test_lines_on_hosts() {
         "shots mac ./s {select}\nopens-windows mac",
         "test mac ./t {class}\nopens-windows ios",
     ] {
-        assert!(parse_config(refused).is_err(), "{refused} is refused");
+        assert!(
+            parse_config(refused).is_err(),
+            "parse_config accepts {refused}"
+        );
     }
 }
 

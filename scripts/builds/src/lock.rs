@@ -144,8 +144,8 @@ impl Where {
         }
     }
 
-    /// The words a message about the checkouts it allows puts after
-    /// "checkout": nothing for `Anywhere`.
+    /// The words that follow "checkout" in a message about which checkouts
+    /// this value allows; empty for `Anywhere`.
     fn checkouts(self) -> &'static str {
         match self {
             Where::Here => "on this Mac ",

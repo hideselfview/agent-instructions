@@ -422,9 +422,10 @@ build-app, `builds lock` and a build that runs a `here` step never take a
 checkout on a host. A build that runs a test class through a line an
 `opens-windows` line names takes only a checkout on a host, never one on this
 Mac, and fails when the lane has none (in bae, the M1's mac lane checkouts run
-the UI tests). A build can't run both kinds; it fails, naming one of each. A
-host runs UI tests only when its Automation Mode needs no password, since nobody
-is at its screen to type one: run `sudo automationmodetool
+the UI tests). A build cannot run both a `here` step and a test class from an
+`opens-windows` line; it fails and names one of each. A host runs UI tests only
+when its Automation Mode needs no password, since nobody is at its screen to
+type one: run `sudo automationmodetool
 enable-automationmode-without-authentication` there once (`automationmodetool`
 says the setting). Without it, xcodebuild says "Timed out while enabling
 automation mode" and the class runs no tests.
