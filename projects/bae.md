@@ -143,10 +143,11 @@ touches, such as `mac.welcome.`: builds refuses `mac.` and `android.`, which
 select every Mac shot or every Android shot, and CI runs every shot.
 `builds help` (APP BUILDS) says how builds picks what to build and where.
 
-Never run the `macos-tests-run`, `macos-tests-all` or `android-tests` steps as a
-check: they run every test and put windows on the person's screen, and CI runs
-the suites. To build something else in an app checkout, add a `step` line and an
-`on` line to `.app-build`.
+The `ci-only` line of `.app-build` names the steps that run a whole test suite
+or a fixed set of shots (`macos-tests-run`, `macos-tests-all`, `android-tests`,
+`mac-shots`, `mac-window-shots` and `android-shots`). builds refuses them, and
+CI runs them. To build something else in an app checkout, add a `step` line and
+an `on` line to `.app-build`.
 
 Notarized macOS releases come only from `main`, and `scripts/release-macos.sh`
 builds them on CI.
