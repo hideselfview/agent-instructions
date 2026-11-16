@@ -39,10 +39,10 @@ impl Drop for Checkout {
 impl Source {
     /// The checkout the reviewers read: the repo itself when it is one, else
     /// a copy of the files of <rev> (`git archive`) in a folder of its own,
-    /// removed when the checkout is dropped. Two copies of one commit get two
-    /// folders: tests in one process make commits with the same contents in
-    /// the same second, which get the same SHA, and a copy that shared its
-    /// folder with another lost it when the other was dropped.
+    /// which the checkout deletes when it is dropped. Two copies of one
+    /// commit get two folders: two commits with the same contents made in the
+    /// same second get the same SHA, and dropping one copy deletes only its
+    /// own folder.
     pub fn checkout(&self) -> Result<Checkout> {
         if self.in_place {
             return Ok(Checkout {

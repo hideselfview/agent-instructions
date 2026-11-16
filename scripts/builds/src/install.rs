@@ -484,7 +484,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     // of a command it runs under.
     if let Ok(holder) = std::env::var(crate::install_gate::VARIABLE) {
         fail!(
-            "builds install runs under builds process {holder}, which holds a use of the stores until it ends, so install would wait for it forever; run install outside it"
+            "builds install is running inside builds process {holder}, and install would wait forever for that process to end; run install from a shell outside it"
         );
     }
     // No builds command uses the stores from closing the gates until the new

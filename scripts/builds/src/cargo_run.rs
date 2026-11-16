@@ -185,8 +185,9 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
         crate::flock::lock_io(&log, libc::LOCK_EX)?;
         log.set_len(0)?;
         let mut command = Command::new(std::env::current_exe()?);
-        // The prune outlives this command, so no use this command runs under
-        // covers it.
+        // The prune keeps running after this command ends, so this command
+        // removes BUILDS_USE from the prune's environment: the prune takes
+        // its own use of the stores.
         command
             .args(["units", "after-build"])
             .arg(&checkout.top)

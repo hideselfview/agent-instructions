@@ -34,8 +34,8 @@ fn a_checkout_of_a_revision_holds_its_files_and_is_removed_when_dropped() {
     let checkout = source.checkout().unwrap();
     let path = checkout.path.clone();
     assert!(path.join("Cargo.toml").is_file());
-    // A second copy of the same commit is a folder of its own, which the
-    // first copy's removal leaves.
+    // Each checkout of the same commit gets its own folder, and dropping the
+    // first checkout does not delete the second one's folder.
     let second = source.checkout().unwrap();
     assert_ne!(second.path, path);
     drop(checkout);

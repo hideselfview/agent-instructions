@@ -1110,8 +1110,9 @@ only what its review lacks: the groups that gave no answer (their reviewer
 failed), over the diff they did not answer, and, as a new run of the review,
 the commits no run read and no confirmed finding names as its fix (a commit
 added after the review, or one whose added or removed lines a rebase
-changed), from the groups that cover the paths they change. It refuses when
-the review lacks nothing, naming the run that reviewed the change.
+changed), from the groups that cover the paths they change. `builds review`
+refuses the run when the review lacks nothing, naming the run that reviewed
+the change.
 
 `builds land` refuses commits that lack this step. It takes them when one
 change's review covers them: each commit whose paths a group covers is either
@@ -1142,9 +1143,9 @@ commit.
 A commit that is neither one the review read nor a named fix is new work: a
 commit added after the review, a squash, or a commit whose added or removed
 lines a rebase changed (a conflict's resolution). Land refuses it and names
-it. `builds review` on the branch reads it, and only it, as a new run of the
-change's review; land then takes it once its findings are settled and fixed
-like the rest. Name the fixes of confirmed findings first: that run also
+it. `builds review` on the branch reviews it, and only it, in a new run of
+the change's review; land then takes it once the coordinator settles its
+findings and names a fix for each confirmed one, as for the rest. Name the fixes of confirmed findings first: that run also
 reads a commit that no finding names as its fix. Once a change has landed,
 `builds review` on the branch opens a new change under the same key, and
 reads only the commits past origin/main.
@@ -1177,9 +1178,9 @@ that project has no store, the command fails with "there is no store for
 project P" and asks no reviewer.
 
 After the push, land records the commits it pushed, and, once the branch has
-nothing left to land, the change's landing as landed, with its review run. A
-sample of landed reviews is audited for findings they
-missed. The person curates a confirmed miss into a case: a recorded change in
+nothing left to land, the change's landing as landed, with its review run.
+`review landed` then starts an audit of a sample of the landed reviews, which
+looks for findings they missed. The person curates a confirmed miss into a case: a recorded change in
 the review/cases folder of an agent-instructions worktree, with the findings
 it must produce, which `review replay` runs a grouping over.
 

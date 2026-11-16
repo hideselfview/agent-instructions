@@ -454,14 +454,18 @@ fn a_finding_on_a_commit_a_part_landing_left_takes_its_fix_after_the_part_lands(
     fix(&demo, &side, on_a, &fa);
     let first = asked(&demo, &fake, &side, &[a, fa]);
     assert_eq!(record_landed(&first, &stamp(), true).unwrap(), None);
-    // The finding on b, which the part left, takes its fix now.
+    // The part did not land b, so the store now takes a fix for the finding
+    // on b.
     std::fs::write(side.join("b.rs"), "fixed\n").unwrap();
     crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Fix b"]);
     let fb = head(&side);
     fix(&demo, &side, on_b, &fb);
     // The fix that landed stays.
     let refused = fix_refused(&demo, &side, on_a, &fb);
-    assert!(refused.contains("which landed already"), "{refused}");
+    assert!(
+        refused.contains("a push put it on origin/main already"),
+        "{refused}"
+    );
     let second = verdict_of(&demo, &fake, &side, &[b.clone(), fb.clone()]);
     assert!(matches!(second.0, Verdict::Takes(_)), "{second:?}");
     let second = asked(&demo, &fake, &side, &[b, fb.clone()]);

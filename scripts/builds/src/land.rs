@@ -77,9 +77,9 @@
 //! fix among them. Commits whose paths no group covers need no review. After
 //! the push, `builds review landed` records the commits pushed beside the
 //! items and the design change. When commits of the branch still wait to land,
-//! it passes `--more-to-land` and the review's landing stays open for them;
-//! otherwise the landing is recorded as landed, and a sampled one is audited,
-//! which never fails the landing.
+//! land passes `--more-to-land` to it and the review's landing stays open for
+//! them; otherwise `builds review landed` records the landing as landed and
+//! starts the audit of a sampled one, which never fails the landing.
 //!
 //! A repo whose landed tree holds a `.land-live` file has a main checkout that
 //! is the live copy (agent-instructions, whose main checkout install.sh links

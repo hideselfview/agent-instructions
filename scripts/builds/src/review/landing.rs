@@ -31,10 +31,10 @@
 //! finding on a commit not yet landed still takes a fix. A finding whose fix a
 //! push landed needs no fix in a later part. The push that leaves the branch
 //! nothing to land records the landing as landed with the change's review
-//! run, then decides whether to audit it (`audit.rs`) and, when it is
-//! sampled, starts `builds review audit` in the background. A landing whose
-//! change landed already is matched by its landed review, so both commands
-//! can run again.
+//! run, then decides whether to audit it (`audit.rs`) and, when the sample
+//! picks it, starts `builds review audit` in the background. check-landing
+//! and landed find the landed review of a change that landed already, so
+//! both commands can run again.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -478,8 +478,8 @@ pub fn taken(verdict: &Verdict) -> String {
 
 /// Records the commits of <asked> as pushed, and the change as landed unless
 /// <more>: commits of its branch still wait to land. Returns the landing when
-/// this recorded it as landed; None when it needed no review, was recorded
-/// already, or lands in parts and has more to land.
+/// this recorded it as landed; None when it needed no review, an earlier run
+/// of landed recorded it already, or it lands in parts and has more to land.
 fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>> {
     let verdict = judge(&asked.conn, &asked.repo, &asked.dir, &asked.needs)?;
     if let Some(why) = refusal(&asked.commits(), &verdict) {
@@ -560,8 +560,9 @@ fn start_audit(asked: &Asked, landing: i64, roll: f64, reviewer: &str) -> Result
         return Ok(());
     }
     let program = std::env::current_exe().context(|| "finding this program".to_string())?;
-    // The audit outlives this command, so no use this command runs under
-    // covers it, and it holds one of its own.
+    // The audit keeps running after this command exits, so this command
+    // removes BUILDS_USE from the audit's environment, and the audit takes
+    // its own use of the stores.
     std::process::Command::new(program)
         .env_remove(crate::install_gate::VARIABLE)
         .args(["review", "audit", &landing.to_string()])

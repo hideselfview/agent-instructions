@@ -24,10 +24,10 @@
 //! then says what `builds land` would say of the branch's commits
 //! (`landing.rs`), and exits 1 unless land would take them. A KEY reviewed
 //! already gets no second review of a diff: the run asks only the groups that
-//! gave the review no answer, over the diff they did not answer, and reads as
-//! a new run of the review the commits that no run read and no confirmed
-//! finding names as its fix (a commit added after the review, or one whose
-//! added or removed lines a rebase changed). It refuses when the review covers
+//! gave the review no answer, over the diff they did not answer, and reviews
+//! in a new run the commits that no run read and that no confirmed finding
+//! names as its fix (a commit added after the review, or one whose added or
+//! removed lines a rebase changed). The run refuses when the review covers
 //! every commit.
 //!
 //! Every call records its setup (its group's model and prompt), its tokens and
@@ -344,8 +344,9 @@ fn copy_diff(worktree: &Path, base: &str, head: &str) -> Result<run::Diff> {
 /// groups that cover a path it changes and gave no answer over it, asked over
 /// that run's diff; and for each stretch of adjacent commits that no run read
 /// and no confirmed finding names as its fix, the groups that cover a path
-/// they change, asked over their diff. No diff is read twice. Fails with why
-/// builds review reviews no change twice when the review covers every commit.
+/// they change, asked over their diff. No reviewer reads a diff twice. Fails
+/// with why builds review reviews no change twice when the review covers
+/// every commit.
 fn later_asks(
     conn: &rusqlite::Connection,
     inputs: &Inputs,
@@ -435,7 +436,7 @@ fn later_asks(
     if asks.is_empty() {
         let (run, read) = runs
             .last()
-            .expect("a landing is opened with its review run");
+            .expect("builds review opens every landing with its review run");
         fail!(
             "{}\nrun {} of review landing {landing} ({}) reviewed this change over {}, every group answered, and every commit past the base is one a run read or the named fix of a confirmed finding, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
             landing::ONE_REVIEW,

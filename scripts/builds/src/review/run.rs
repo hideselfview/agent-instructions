@@ -314,8 +314,8 @@ pub fn ask_groups(
     }
     // A group that reads one file per call and covers a path some commit
     // changed has no file to read when a later commit changed that path back:
-    // the range diff holds none of its files. It has nothing to find there, so
-    // its answer is no findings.
+    // the range diff holds none of its files. Such a group has nothing to
+    // find, so its answer is no findings.
     let mut nothing_to_read = Vec::new();
     for (group, members) in picked {
         if !units.iter().any(|unit| unit.group.name == group.name) {

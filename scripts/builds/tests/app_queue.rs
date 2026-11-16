@@ -609,7 +609,8 @@ fn a_lane_that_waited_through_an_install_runs_the_installed_builds_and_builds_on
             || std::fs::read_dir(install.join("commands")).unwrap().count() == 0,
         "the waiting build holds no use"
     );
-    // What builds install counts when it moves the stores.
+    // builds install raises this count when it moves the stores; the test
+    // writes it to stand for an install.
     std::fs::create_dir_all(&install).unwrap();
     std::fs::write(install.join("generation"), "1\n").unwrap();
     volume.open_gate("H");

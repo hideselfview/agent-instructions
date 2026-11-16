@@ -826,7 +826,7 @@ fn hold_stores(held: lock::Held, stores: &mut Option<install_gate::Use>) -> Resu
         install_gate::FromNow::Covered => {}
         install_gate::FromNow::InstallRan => {
             note(
-                "builds install ran while this build waited for the lane: it leaves the queue and runs the installed builds, which queues again",
+                "builds install ran while this build waited for the lane, so this build leaves the queue and runs the installed builds program, which joins the queue again",
             );
             held.leave()?;
             return Err(install_gate::run_again());

@@ -167,8 +167,9 @@ fn holds_for_life(command: &str, rest: &[String]) -> bool {
     }
 }
 
-/// Enters the stores for command <command>, run with <args> (the command
-/// first): returns the use it holds for its life, or None when it takes a use
+/// Takes the use of the stores that command <command>, run with <args> (the
+/// command first), takes before it runs: returns the use it holds for its
+/// life, or None when it takes a use
 /// per store connection, takes none, or runs under a holder's use. A command
 /// that waited at a closed gate while an install ran runs the program at this
 /// program's path in its place, with the same arguments: install replaced the
@@ -192,7 +193,7 @@ fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::U
     match install_gate::enter_for_life(&places, pid, &what, &since, &mut |line| text::note(line))? {
         install_gate::Entered::Holds(held) => {
             // SAFETY: no other thread runs yet, so none reads the environment
-            // while this writes it. Every builds command this one starts runs
+            // while set_var writes it. Every builds command this one starts runs
             // under its use.
             unsafe { std::env::set_var(install_gate::VARIABLE, pid.to_string()) };
             Ok(Some(held))

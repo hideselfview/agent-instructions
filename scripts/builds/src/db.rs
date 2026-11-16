@@ -215,7 +215,8 @@ pub enum Make {
 /// A connection to a store, and the use of the stores it takes while it is
 /// open (install_gate.rs).
 pub struct Held {
-    // Declared first, so it closes before the use ends.
+    // Rust drops fields in the order they are declared, so `conn` closes
+    // before `_use` ends the use.
     conn: Connection,
     _use: Option<crate::install_gate::ConnectionUse<'static>>,
 }

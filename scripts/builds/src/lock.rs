@@ -183,9 +183,9 @@ impl Held {
     }
 
     /// Takes this build out of the queue, then frees the lock, which lets the
-    /// next in the queue go: for a build that leaves the line for good, as
-    /// one that runs the installed builds in its place does. No process this
-    /// one started may still run.
+    /// next in the queue go: for a build that will not wait for the lock
+    /// again, such as a build that runs the installed builds instead of
+    /// building. No process this one started may still run.
     pub fn leave(self) -> Result<()> {
         let left = self.queue.drop_ticket(&self.ticket.name);
         self.release();

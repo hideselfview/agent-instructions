@@ -261,7 +261,7 @@ impl Queue {
     }
 
     /// Takes <name> out of the order and removes its file: its owner is gone,
-    /// or leaves the line for good.
+    /// or leaves the queue and will not join it again.
     pub fn drop_ticket(&self, name: &str) -> Result<()> {
         let _guard = self.guard()?;
         let mut order = self.order();

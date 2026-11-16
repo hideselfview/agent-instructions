@@ -2,11 +2,13 @@
 //!
 //! `builds install` moves each store to its program's schema and puts that
 //! program on PATH. A builds program refuses a store of another schema
-//! (db.rs), so a command that started before an install and wrote a store
-//! after it lost its write: a hook run that recorded itself when its checks
-//! ended was refused that way.
+//! (db.rs), so a command that started before an install could not write a
+//! store after the install moved it. The gates make install wait for each
+//! such command first.
 //!
-//! A command uses the stores in one of two ways:
+//! A command uses the stores in one of three ways. A use is a locked file of
+//! its own in its kind's folder that says which process runs what and since
+//! when.
 //! - A command that writes a store after long work, with what it measured
 //!   since it started (main.rs's `holds_for_life` names them: a hook run and
 //!   a review that asks reviewers), holds a command use for its life.
@@ -19,15 +21,14 @@
 //!   it opens is open. Its writes are each one short transaction, so a
 //!   command such as `builds cargo test` holds no use while it builds.
 //!
-//! A use is a locked file of its own in its kind's folder that says which
-//! process runs what and since when. Each kind has a gate: a file that a use
+//! A command use and a connection use each have a gate: a file that a use
 //! holds a shared lock on while it starts and that install locks
 //! exclusively. Install closes the commands gate and waits for every command
 //! use, then closes the connections gate and waits for every connection use,
 //! then counts one more install in the generation file, moves the stores,
-//! puts its program on PATH and opens both gates. So
-//! while install waits for a long command, only a command that would hold a
-//! use for its life waits at the gate; the others keep working.
+//! puts its program on PATH and opens both gates. So while install waits for
+//! a long command, only a command that would hold a command use waits at the
+//! gate; the others keep working.
 //!
 //! A command that finds a gate closed when it starts waits until the gate
 //! opens, then runs the program at its own path in its place, since install
@@ -56,7 +57,7 @@ use crate::places::Places;
 pub const VARIABLE: &str = "BUILDS_USE";
 
 /// Runs the program at this program's path with this process's arguments in
-/// its place; returns only when it cannot, with why.
+/// its place; returns only when it cannot, with the error that says why.
 pub fn run_again() -> Fail {
     use std::os::unix::process::CommandExt;
     let program = match std::env::current_exe() {
@@ -185,9 +186,9 @@ pub enum Entered {
     RunAgain,
 }
 
-/// Enters the stores for the command <what> of process <pid>, started at the
-/// local time <since>, which holds a use for its life; gives <say> the line
-/// that says it waits at the closed gate.
+/// Passes the commands gate and takes a use for the life of the command
+/// <what> of process <pid>, started at the local time <since>; gives <say>
+/// the line that says it waits at the closed gate.
 pub fn enter_for_life(
     places: &Places,
     pid: u32,
@@ -406,7 +407,8 @@ pub fn program_replaced() -> Result<bool> {
     }
 }
 
-/// The closed gates: no use starts while they live.
+/// The closed gates: no use starts until install drops this value, which
+/// releases the gates' locks.
 pub struct Closed {
     _gates: [File; 2],
 }
