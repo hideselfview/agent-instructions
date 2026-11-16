@@ -1012,17 +1012,19 @@ fn release_and_health_wait_for_a_git_commit_that_runs_in_the_worktree() {
     assert!(
         std::process::Command::new("mkfifo")
             .arg(&gate)
+            .arg(&started)
             .status()
             .unwrap()
             .success()
     );
-    // The hook says it started, waits for the test to open the gate, and
-    // then fails, so the commit commits nothing.
+    // The hook writes to `started`, which blocks until the test reads it,
+    // waits for the test to write to `gate`, and then fails, so the commit
+    // commits nothing.
     let hook = hooks.join("pre-commit");
     std::fs::write(
         &hook,
         format!(
-            "#!/bin/sh\n: > '{}'\nread line < '{}'\nexit 1\n",
+            "#!/bin/sh\necho started > '{}'\nread line < '{}'\nexit 1\n",
             started.display(),
             gate.display()
         ),
@@ -1040,11 +1042,7 @@ fn release_and_health_wait_for_a_git_commit_that_runs_in_the_worktree() {
         .stderr(std::process::Stdio::null())
         .spawn()
         .unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while !started.exists() {
-        assert!(std::time::Instant::now() < deadline, "the hook never ran");
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    assert_eq!(std::fs::read_to_string(&started).unwrap(), "started\n");
     let releases = |health: &crate::health::Health| {
         health
             .findings
