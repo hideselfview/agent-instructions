@@ -1997,113 +1997,20 @@ fn a_store_from_before_check_starts_keeps_its_runs_and_gains_the_tables() {
     assert_eq!(stats.runs, 1, "the move keeps the old run");
 }
 
-/// The schema text before a dropped item recorded the work it held: without
-/// the dropped items' tables.
-fn schema_before_dropped() -> String {
-    let schema = db::schema();
-    let part = format!("\n{}", db::DROPPED_PART);
-    assert_eq!(
-        schema.matches(&part).count(),
-        1,
-        "the schema has the part once"
-    );
-    schema.replacen(&part, "", 1)
-}
-
-#[test]
-fn the_dropped_stamp_is_the_schema_before_dropped_work() {
-    assert_eq!(
-        db::stamp_of_text(&schema_before_dropped()),
-        BEFORE_DROPPED_STAMP
-    );
-}
-
-/// A store from before dropped items recorded their work keeps its parked
-/// item, gains the empty tables and equals a fresh schema.
-#[test]
-fn a_store_from_before_dropped_work_keeps_its_parked_item_and_gains_the_tables() {
-    use crate::lists::fixtures::v;
-    let scratch = Scratch::new("move-dropped");
-    let places = scratch.places();
-    let dir = places.lists.join("bae");
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join(DATABASE);
-    {
-        let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&schema_before_dropped()).unwrap();
-        conn.pragma_update(None, "user_version", BEFORE_DROPPED_STAMP)
-            .unwrap();
-        crate::lists::project::plant(
-            &conn,
-            "project",
-            &[("singleton", v(1)), ("name", v("bae")), ("canvas", v(1))],
-        )
-        .unwrap();
-        crate::lists::project::plant(&conn, "repo", &[("name", v("bae"))]).unwrap();
-        crate::lists::area::plant(&conn, &[("name", v("Alpha")), ("position", v(0))]).unwrap();
-        crate::lists::record::plant(
-            &conn,
-            "record",
-            &[
-                ("id", v(1)),
-                ("kind", v("item")),
-                ("opened_at", v(5)),
-                ("opened_by", v("tester")),
-            ],
-        )
-        .unwrap();
-        crate::lists::item::plant(
-            &conn,
-            "item",
-            &[
-                ("id", v(1)),
-                ("title", v("Do the first thing now")),
-                ("area", v("Alpha")),
-                ("details", v("d")),
-                ("audience", v("coordinator")),
-            ],
-        )
-        .unwrap();
-        crate::lists::parked::park(
-            &conn,
-            crate::lists::Id(1),
-            &[crate::lists::parked::Parked {
-                worktree: "/d/bae-worktrees/side-2".to_string(),
-                branch: "work".to_string(),
-                since: crate::lists::Stamp {
-                    at: 7,
-                    by: "tester".to_string(),
-                },
-            }],
-        )
-        .unwrap();
-    }
-    migrate_stores(&places).unwrap();
-    let conn = db::open_reader(&path)
-        .unwrap()
-        .expect("opens under today's stamp");
-    assert_eq!(
-        db::schema_rows(&conn).unwrap(),
-        db::schema_rows(&db::memory()).unwrap()
-    );
-    assert_eq!(
-        crate::lists::parked::read(&conn).unwrap()[&crate::lists::Id(1)].len(),
-        1,
-        "the move kept the parked item"
-    );
-}
-
-/// The schema text before an item could hold a worktree parked: without the
-/// parked items' tables.
+/// The schema text before an item could hold a worktree parked or record
+/// its dropped work: without the parked and dropped items' tables.
 fn schema_before_parked() -> String {
-    let schema = schema_before_dropped();
-    let part = format!("\n{}", db::PARKED_PART);
-    assert_eq!(
-        schema.matches(&part).count(),
-        1,
-        "the schema has the part once"
-    );
-    schema.replacen(&part, "", 1)
+    let mut schema = db::schema();
+    for part in [db::PARKED_PART, db::DROPPED_PART] {
+        let part = format!("\n{part}");
+        assert_eq!(
+            schema.matches(&part).count(),
+            1,
+            "the schema has the part once"
+        );
+        schema = schema.replacen(&part, "", 1);
+    }
+    schema
 }
 
 #[test]
