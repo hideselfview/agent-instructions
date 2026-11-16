@@ -397,8 +397,9 @@ fn every_job_runs_the_hosts_builds_setup_in_its_worktree_before_the_hook() {
     }
     let wt = s.home.join("dev/demo-worktrees/remote-demo");
     let wt = wt.display();
-    // A worktree an earlier job left gets its build folders linked again,
-    // since a repo without a post-checkout has nothing else to link them.
+    // `builds setup` links the build folders again in the worktree the
+    // earlier job left, since a repo without a post-checkout has nothing
+    // else that links them.
     let one = format!("builds setup {wt}\nhook {wt}\ncommand {wt}\n");
     assert_eq!(
         std::fs::read_to_string(s.home.join("builds-runs.txt")).unwrap(),

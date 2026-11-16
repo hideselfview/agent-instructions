@@ -152,7 +152,10 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
     }
     if !local.sccache_cap {
         out.push(crate::health::Advice::run(
-            format!("this Mac's {} Write it with", sccache_cap_differs()),
+            format!(
+                "this Mac's {} Write builds' cap into the config with",
+                sccache_cap_differs()
+            ),
             "builds install".to_string(),
         ));
     }
@@ -187,7 +190,10 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
         }
         if !installed.sccache_cap {
             out.push(crate::health::Advice::run(
-                format!("host {name}'s {} Write it with", sccache_cap_differs()),
+                format!(
+                    "host {name}'s {} Write builds' cap into the config with",
+                    sccache_cap_differs()
+                ),
                 setup,
             ));
         }

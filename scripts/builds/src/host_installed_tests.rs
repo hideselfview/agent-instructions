@@ -214,8 +214,8 @@ fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
 }
 
 /// A Mac whose sccache config does not hold builds' cap, such as a host that
-/// kept the old cap when builds raised it, gets a finding: a host's names
-/// `builds host setup`, and this Mac's names `builds install`.
+/// kept the old cap when builds raised it, gets a finding: a host's finding
+/// names `builds host setup`, and this Mac's finding names `builds install`.
 /// read_all_installed reads each home's config.
 #[test]
 fn a_host_whose_sccache_config_does_not_hold_builds_cap_is_a_finding() {

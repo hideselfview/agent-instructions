@@ -235,9 +235,9 @@ const GIB: u64 = 1024 * 1024;
 /// into its config, and sccache evicts within it itself; its own accounting
 /// reads about 0.2 GiB under the folder's size on disk, so status may show
 /// it a little over. sccache's cap leaves room for the outputs that agents
-/// in every checkout of a day of work compile. A full cache evicts the
-/// outputs it used least recently, which agents in other checkouts then
-/// compile again.
+/// in every checkout of a day of work compile. When the cache is full,
+/// sccache deletes the outputs that compiles read least recently, and agents
+/// in other checkouts then compile them again.
 ///
 /// The links for Gradle and NuGet point at their tools' whole home folders,
 /// which also hold settings the person writes (gradle.properties, init
