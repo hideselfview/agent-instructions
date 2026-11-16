@@ -63,23 +63,14 @@ impl ReviewWait {
 
     /// The pill in the card's bar; None when the chip says it all.
     fn pill(self) -> Option<Pill> {
-        let (kind, text) = match self {
+        let text = match self {
             ReviewWait::NotRun | ReviewWait::Running => return None,
-            ReviewWait::ToSettle(n) => (
-                PillKind::Settle,
-                crate::text::counted(n, "finding", "findings"),
-            ),
-            ReviewWait::Unfixed(n) => (
-                PillKind::Fixes,
-                crate::text::counted(n, "finding", "findings"),
-            ),
-            ReviewWait::Unreviewed(n) => (
-                PillKind::Unreviewed,
-                crate::text::counted(n, "commit", "commits"),
-            ),
+            ReviewWait::ToSettle(n) | ReviewWait::Unfixed(n) => {
+                crate::text::counted(n, "finding", "findings")
+            }
+            ReviewWait::Unreviewed(n) => crate::text::counted(n, "commit", "commits"),
         };
         Some(Pill {
-            kind,
             text,
             title: self.sentence(),
         })
@@ -148,21 +139,20 @@ impl ItemWait {
     /// started and a rules review that has no findings yet, which the chip
     /// names.
     fn pill(&self) -> Option<Pill> {
-        let (kind, text) = match self {
-            ItemWait::Answer { id, .. } => (PillKind::Answer, format!("Answer #{id}")),
-            ItemWait::Review { id, .. } => (PillKind::Review, format!("Review #{id}")),
+        let text = match self {
+            ItemWait::Answer { id, .. } => format!("Answer #{id}"),
+            ItemWait::Review { id, .. } => format!("Review #{id}"),
             ItemWait::AppBuild {
                 lane,
                 running: true,
                 ..
-            } => (PillKind::Build, format!("{lane} build")),
+            } => format!("{lane} build"),
             ItemWait::AppBuild { running: false, .. } => return None,
-            ItemWait::Item { id, .. } => (PillKind::After, format!("After #{id}")),
-            ItemWait::Unrecorded => (PillKind::Unrecorded, "No design change".to_string()),
+            ItemWait::Item { id, .. } => format!("After #{id}"),
+            ItemWait::Unrecorded => "No design change".to_string(),
             ItemWait::RulesReview(review) => return review.pill(),
         };
         Some(Pill {
-            kind,
             text,
             title: self.sentence(),
         })
@@ -227,35 +217,10 @@ pub struct RunningItem {
     pub title: String,
 }
 
-/// What the pill in a card's bar names: the page draws an icon for each.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PillKind {
-    /// An open question for the person.
-    Answer,
-    /// A design change that waits on the person's review.
-    Review,
-    /// Confirmed review findings that wait on a fix.
-    Fixes,
-    /// Review findings for the coordinator to settle.
-    Settle,
-    /// Commits the rules review did not read.
-    Unreviewed,
-    /// Another item.
-    After,
-    /// Design commits that no recorded design change covers.
-    Unrecorded,
-    /// An app build of the branch that runs now.
-    Build,
-    /// A worktree held on purpose.
-    Held,
-}
-
-/// What a card waits on, in an icon and one or two words; `title` is the
-/// whole sentence, which the page shows on hover.
+/// What a card waits on, in one or two words; `title` is the whole
+/// sentence, which the page shows on hover.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Pill {
-    pub kind: PillKind,
     pub text: String,
     pub title: String,
 }
@@ -376,7 +341,6 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemW
             (
                 Some("Working"),
                 Some(Pill {
-                    kind: PillKind::Held,
                     text: "Held".to_string(),
                     title: why.clone(),
                 }),

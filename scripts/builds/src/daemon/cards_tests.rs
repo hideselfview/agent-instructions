@@ -196,9 +196,8 @@ fn waiting(state: &'static str, wait: ItemWait) -> Words {
     )
 }
 
-fn pill(kind: PillKind, text: &str, title: &str) -> Option<Pill> {
+fn pill(text: &str, title: &str) -> Option<Pill> {
     Some(Pill {
-        kind,
         text: text.to_string(),
         title: title.to_string(),
     })
@@ -217,7 +216,6 @@ fn an_item_that_waits_on_a_question_names_it_in_the_pill_under_waiting_on_you() 
     assert_eq!(
         card.pill,
         pill(
-            PillKind::Answer,
             "Answer #438",
             "Waits on your answer: When to reopen a copied library"
         )
@@ -238,11 +236,7 @@ fn an_item_that_waits_on_another_item_names_it_in_the_pill_and_stays_working() {
     assert_eq!(card.chip, Some("Working"));
     assert_eq!(
         card.pill,
-        pill(
-            PillKind::After,
-            "After #1320",
-            "Waits on #1320: Store the library id"
-        )
+        pill("After #1320", "Waits on #1320: Store the library id")
     );
 }
 
@@ -258,7 +252,6 @@ fn an_item_that_waits_on_a_design_review_names_the_change_in_the_pill() {
     assert_eq!(
         card.pill,
         pill(
-            PillKind::Review,
             "Review #428",
             "Waits on your review of design change 428: Heading row"
         )
@@ -276,7 +269,6 @@ fn a_design_branch_no_recorded_change_covers_says_it_waits_on_the_design_session
     assert_eq!(
         card.pill,
         pill(
-            PillKind::Unrecorded,
             "No design change",
             "Waits on the design session to record its design change."
         )
@@ -303,7 +295,6 @@ fn a_design_branch_with_no_running_item_shows_its_note_and_the_change_in_the_pil
     assert_eq!(
         noted.pill,
         pill(
-            PillKind::Review,
             "Review #1419",
             "Waits on your review of design change 1419: AirPlay PIN sheet"
         )
@@ -323,17 +314,10 @@ fn a_design_branch_with_no_running_item_shows_its_note_and_the_change_in_the_pil
 fn a_held_worktree_says_held_in_the_pill_with_its_note() {
     let card = listed("held", Some("Until the store lands."), &[(3, "Item")]);
     assert_eq!(card.chip, Some("Working"));
-    assert_eq!(
-        card.pill,
-        pill(PillKind::Held, "Held", "Until the store lands.")
-    );
+    assert_eq!(card.pill, pill("Held", "Until the store lands."));
     assert_eq!(
         listed("held", None, &[]).pill,
-        pill(
-            PillKind::Held,
-            "Held",
-            "Held on purpose with no work running."
-        )
+        pill("Held", "Held on purpose with no work running.")
     );
 }
 
@@ -371,7 +355,6 @@ fn a_branch_whose_app_build_runs_names_the_lane_in_the_pill() {
     assert_eq!(
         card.pill,
         pill(
-            PillKind::Build,
             "Android build",
             "Android app build: builds in side-1 for 1 minute"
         )
@@ -472,7 +455,6 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
         (
             "Findings to settle",
             pill(
-                PillKind::Settle,
                 "3 findings",
                 "3 review findings wait on the coordinator to settle them."
             )
@@ -483,7 +465,6 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
         (
             "Waiting on fixes",
             pill(
-                PillKind::Fixes,
                 "1 finding",
                 "1 confirmed review finding waits on a commit that fixes it."
             )
@@ -494,7 +475,6 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
         (
             "Unreviewed commits",
             pill(
-                PillKind::Unreviewed,
                 "2 commits",
                 "The review did not read 2 commits, and no finding names them as fixes: they land as a change of their own."
             )
