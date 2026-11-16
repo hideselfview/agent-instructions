@@ -16,8 +16,8 @@ use crate::lists::check::faults;
 use crate::lists::derive::{item_state, unmet_waits, waits_for_others};
 use crate::lists::draft::{require_brief_from, require_draft_briefs};
 use crate::lists::item::{
-    Audience, Item, ItemDraft, ItemEdit, Level, Note, Priority, Wait, add_item, add_note, add_wait,
-    open_item, remove_wait, require_open_wait, set_priority,
+    Audience, Item, ItemDraft, ItemEdit, Level, Note, Priority, RecordWait, Wait, add_item,
+    add_note, add_wait, open_item, remove_wait, require_open_wait, set_priority,
 };
 use crate::lists::project;
 use crate::lists::record::close;
@@ -360,7 +360,7 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str) -> Result<()> {
             id.0
         );
     }
-    lists.require_none_waits_on(&Wait::Item(id), how)?;
+    lists.require_none_waits_on(RecordWait::Item(id), how)?;
     for question in &lists.questions {
         let asked = Wait::Question(question.id);
         let blocked: Vec<Id> = lists.open_items_waiting_on(&asked).map(|i| i.id).collect();

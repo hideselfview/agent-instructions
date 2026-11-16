@@ -38,15 +38,37 @@ pub enum Wait {
     Condition(String),
 }
 
-impl Wait {
-    /// The wait as `builds item wait` takes it: `item:N`, `question:N`,
-    /// `design:N` or `condition:TEXT`.
-    pub fn arg(&self) -> String {
+/// A wait on a record: the waits that closing an item, a question or a
+/// design change would leave unmet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecordWait {
+    Item(Id),
+    Question(Id),
+    Design(Id),
+}
+
+impl RecordWait {
+    pub fn wait(self) -> Wait {
         match self {
-            Wait::Item(id) => format!("item:{}", id.0),
-            Wait::Question(id) => format!("question:{}", id.0),
-            Wait::Design(id) => format!("design:{}", id.0),
-            Wait::Condition(text) => format!("condition:{text}"),
+            RecordWait::Item(id) => Wait::Item(id),
+            RecordWait::Question(id) => Wait::Question(id),
+            RecordWait::Design(id) => Wait::Design(id),
+        }
+    }
+
+    /// The wait as `builds item wait` takes it: `item:N`, `question:N` or
+    /// `design:N`.
+    fn arg(self) -> String {
+        match self {
+            RecordWait::Item(id) => format!("item:{}", id.0),
+            RecordWait::Question(id) => format!("question:{}", id.0),
+            RecordWait::Design(id) => format!("design:{}", id.0),
+        }
+    }
+
+    fn id(self) -> Id {
+        match self {
+            RecordWait::Item(id) | RecordWait::Question(id) | RecordWait::Design(id) => id,
         }
     }
 }
@@ -616,11 +638,13 @@ impl Lists {
             .filter(move |item| item.waits.contains(wait))
     }
 
-    /// Refuses while an open item waits on <on>, a record about to leave its
-    /// list: names each such item and the `builds item wait` command that
-    /// frees it, and says to <how> the record after.
-    pub fn require_none_waits_on(&self, on: &Wait, how: &str) -> Result<()> {
-        let waiting: Vec<&Item> = self.open_items_waiting_on(on).collect();
+    /// Refuses while an open item waits on the record <on> names, which the
+    /// caller is about to close: names each such item and the `builds item
+    /// wait` command that removes its wait on the record, and tells the
+    /// reader to <how> the record after that.
+    pub fn require_none_waits_on(&self, on: RecordWait, how: &str) -> Result<()> {
+        let wait = on.wait();
+        let waiting: Vec<&Item> = self.open_items_waiting_on(&wait).collect();
         if waiting.is_empty() {
             return Ok(());
         }
@@ -628,20 +652,17 @@ impl Lists {
             .iter()
             .map(|i| format!("{} \"{}\"", i.id, i.title))
             .collect();
-        let free: Vec<String> = waiting
+        let commands: Vec<String> = waiting
             .iter()
             .map(|i| format!("`builds item wait {} --off {}`", i.id.0, on.arg()))
             .collect();
-        let record = match on {
-            Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => id.to_string(),
-            Wait::Condition(text) => text.clone(),
-        };
+        let record = on.id();
         fail!(
-            "{} wait{} on {record}; free {} first ({}), then {how} it",
+            "{} wait{} on {record}; remove the wait{} first ({}), then {how} {record}",
             named.join("; "),
             if waiting.len() == 1 { "s" } else { "" },
-            if waiting.len() == 1 { "it" } else { "each" },
-            free.join("; ")
+            if waiting.len() == 1 { "" } else { "s" },
+            commands.join("; ")
         )
     }
 }

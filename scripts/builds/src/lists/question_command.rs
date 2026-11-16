@@ -15,7 +15,7 @@ use crate::lists::decision::{NewDecision, add_decision};
 use crate::lists::derive::{self, ItemState};
 use crate::lists::draft::{require_draft_briefs, work_or_why};
 use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
-use crate::lists::item::{ItemDraft, add_item, add_wait, move_waits_to_question};
+use crate::lists::item::{ItemDraft, RecordWait, add_item, add_wait, move_waits_to_question};
 use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, apply_blocked};
 use crate::lists::record::close;
 use crate::lists::show::{blocks_text, kind_words, stack_entry};
@@ -461,7 +461,7 @@ fn leave(
         } else {
             "defer"
         };
-        lists.require_none_waits_on(&Wait::Question(id), verb)?;
+        lists.require_none_waits_on(RecordWait::Question(id), verb)?;
         close(db, id, how, &stamp)
     })?;
     let lists = store.load()?;

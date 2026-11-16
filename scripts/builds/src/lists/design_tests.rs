@@ -741,7 +741,7 @@ fn drop_closes_an_open_change_keeps_why_and_leaves_the_open_lists() {
     .unwrap();
     let why = "design change 2 covers the whole move";
     let out = drop_change(&w, 1, why).unwrap();
-    assert_eq!(out, "design change #1 dropped\n");
+    assert_eq!(out, "closed design change #1; it will not land\n");
     let state = w.state();
     assert!(state.designs.is_empty());
     assert_eq!(
@@ -764,13 +764,13 @@ fn drop_closes_an_open_change_keeps_why_and_leaves_the_open_lists() {
     assert!(!shown.contains("waiting on the person's review"), "{shown}");
 
     let once = w.bytes();
-    assert!(message(drop_change(&w, 1, why)).contains("design change #1 was dropped"));
-    assert!(message(w.run("approve 1 --by-person")).contains("design change #1 was dropped"));
+    assert!(message(drop_change(&w, 1, why)).contains("tester dropped design change #1"));
+    assert!(message(w.run("approve 1 --by-person")).contains("tester dropped design change #1"));
     let sha = w.sha("HEAD");
     git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     assert!(
         message(w.run(&format!("landed 1 {} {sha}", w.worktree())))
-            .contains("design change #1 was dropped")
+            .contains("tester dropped design change #1")
     );
     assert_eq!(w.bytes(), once);
 }

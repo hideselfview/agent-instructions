@@ -465,7 +465,7 @@ fn landed(tool: &Tool, args: &[String]) -> Result<String> {
 }
 
 /// `drop N --why WHY`: closes design change N, which will not land, and
-/// keeps why.
+/// records the reason WHY.
 fn drop(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &["why"], &[])?;
     let [id] = args.exactly(1, USAGE)? else {
@@ -478,7 +478,7 @@ fn drop(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     store.write(&stamp, &format!("design drop {id}"), |db| {
         design::drop(db, id, why, &stamp)
     })?;
-    Ok(format!("design change {id} dropped\n"))
+    Ok(format!("closed design change {id}; it will not land\n"))
 }
 
 fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {

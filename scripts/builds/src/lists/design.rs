@@ -17,7 +17,7 @@ use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::design_paths::{Changes, PlaceKind};
 use crate::lists::design_session::{self, SessionState};
-use crate::lists::item::{ItemDraft, add_item};
+use crate::lists::item::{ItemDraft, RecordWait, add_item};
 use crate::lists::record;
 use crate::lists::store;
 use crate::lists::{Closed, How, Id, Kind, Lists, Located, Record, Stamp, Standing, Wait};
@@ -638,17 +638,18 @@ fn open_design(lists: &Lists, id: Id) -> Result<&DesignChange> {
         Some(Located {
             standing: Standing::Closed(closed),
             ..
-        }) => fail!("{}", how_it_closed(id, &closed.how)),
+        }) => fail!("{}", how_it_closed(id, closed)),
         Some(_) => lists.design(id).expect("located open"),
     })
 }
 
-/// How design change <id> closed, as <how> says: it landed or was dropped,
-/// the two ways `closing_how_fits_kind` lets a design change close.
-fn how_it_closed(id: Id, how: &How) -> String {
-    match how {
+/// How design change <id> closed, as <closed> says: it landed, or someone
+/// dropped it, the two ways `closing_how_fits_kind` lets a design change
+/// close.
+fn how_it_closed(id: Id, closed: &Closed) -> String {
+    match &closed.how {
         How::Landed(_) => format!("design change {id} has already landed"),
-        How::Dropped(why) => format!("design change {id} was dropped: {why}"),
+        How::Dropped(why) => format!("{} dropped design change {id}: {why}", closed.closed.by),
         other => unreachable!("closing_how_fits_kind holds, but {id} closed as {other:?}"),
     }
 }
@@ -775,7 +776,7 @@ pub fn already_landed(lists: &Lists, id: Id, repo: &str, commits: &[String]) -> 
         fail!("{id} is not a design change that landed");
     };
     let How::Landed(was) = &closed.how else {
-        fail!("{}", how_it_closed(id, &closed.how));
+        fail!("{}", how_it_closed(id, closed));
     };
     if design.repo != repo {
         fail!("design change {id} is of repo {}, not {repo}", design.repo);
@@ -825,14 +826,14 @@ pub fn landed(
     Ok(Landed::Closed { ready })
 }
 
-/// Closes open design change <id> without landing it, keeping <why>. A
-/// change that landed or was dropped is refused, and so is one an open item
-/// waits on: dropping it would leave that item waiting on a change that never
-/// lands.
+/// Closes open design change <id> without landing it and records <why> as
+/// the reason. drop refuses a change that is already closed, and one that an
+/// open item waits on: closing that change would leave the item waiting on a
+/// change that never lands.
 pub fn drop(db: &Connection, id: Id, why: &str, stamp: &Stamp) -> Result<()> {
     let lists = &store::read(db)?;
     open_design(lists, id)?;
-    lists.require_none_waits_on(&Wait::Design(id), "drop")?;
+    lists.require_none_waits_on(RecordWait::Design(id), "drop")?;
     record::close(db, id, How::Dropped(why.to_string()), stamp)
 }
 
