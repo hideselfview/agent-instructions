@@ -194,9 +194,9 @@ pub fn tokens_json(value: &str) -> String {
 /// A design system in the worktree at <dir> as the bae repo holds one: its
 /// sources (tokens.json, whose stylesheet holds `--tokens: <token>;`, and
 /// components/src/bundle.css and bundle.js) and the build-bundle.py that
-/// builds the bundles from them, with the bundles ignored by git. The bundles
-/// are written too, as a worktree that ran the script has them. A commit of
-/// `design` holds the sources and the script only.
+/// builds the bundles from them, with the bundles ignored by git.
+/// design_system writes the bundles too, as a worktree that ran the script
+/// has them. A commit of `design` holds the sources and the script only.
 pub fn design_system(dir: &Path, token: &str, bundle_css: &str, bundle_js: &str) {
     let system = dir.join("design/system");
     let components = system.join("components");

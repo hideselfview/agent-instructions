@@ -297,10 +297,10 @@ design-globs`:
                     is a component folder (design/system/components/*/),
                     counted once however many of its files change
   --design-sources  the shared design-system sources (the component sources,
-                    tokens.json); they win over a place glob, and
-                    a change to one can change any component's drawing, so
-                    the design change lists the components whose drawing
-                    changes
+                    tokens.json); a path that matches both counts as a
+                    source, not a place, and a change to one can change any
+                    component's drawing, so the design change lists the
+                    components whose drawing changes
   --spec-files      the spec files: each section (by heading) a design
                     change's commits touch is a place, written
                     spec/bae.md#Heading; a spec file alone is no design change
@@ -439,9 +439,9 @@ sent again.
       the board mounts (dc-import), applies each board's own values
       (renderVals), sc-if and sc-for, and uses DIR's design system: the
       bundles build-bundle.py wrote (design/system/components/bundle.js and
-      bundle.css), and the stylesheet builds writes from
-      design/system/tokens.json, as `design tokens-css` does. A component is
-      named with its bundle's namespace (Bae.MacButton is window.Bae's
+      bundle.css), and the stylesheet that the builds tool writes from
+      design/system/tokens.json, as `design tokens-css` does. A board names a
+      component with its bundle's namespace (Bae.MacButton is window.Bae's
       MacButton). Redirect it to a file and open that; it loads React and
       Roboto from the net. The review page's frames load this page. Reads no
       store.
@@ -452,8 +452,8 @@ sent again.
       :root too; one :root block of the other families' tokens and a
       --font-<key> property per stack of `type.families`; and a class per
       text style of `type.groups`. builds draws boards with the same
-      stylesheet; this command writes it for what else loads it, such as a
-      repo's shot checks. Reads no store.
+      stylesheet; this command writes it for other tools that load it, such
+      as a repo's screenshot checks. Reads no store.
 
 
 PROJECTS

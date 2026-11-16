@@ -1,8 +1,8 @@
 use super::*;
 use crate::testing::Scratch;
 
-/// Families and font stacks out of alphabetical order, so the test sees the
-/// file's order kept.
+/// The families and font stacks are out of alphabetical order, so the test
+/// can check that the stylesheet keeps the order of the file.
 const TOKENS: &str = r##"{
   "name": "demo",
   "version": 1,
