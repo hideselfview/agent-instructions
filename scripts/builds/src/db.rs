@@ -178,11 +178,7 @@ pub fn stamp_of(conn: &Connection, path: &Path) -> Result<i64> {
 /// without a use of the stores: 0 for none. `builds install` reads it to
 /// learn whether it moves the store.
 pub fn stamp_at(path: &Path) -> Result<i64> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .context(|| format!("opening {}", path.display()))?;
-    conn.busy_timeout(BUSY)
-        .context(|| format!("configuring {}", path.display()))?;
-    stamp_of(&conn, path)
+    stamp_of(&connect_read_only(path)?, path)
 }
 
 /// Refuses a stamp that is not this schema's, naming both.
@@ -306,11 +302,18 @@ pub fn open_reader(path: &Path) -> Result<Option<Held>> {
     Ok(open_read_only(path)?.map(|conn| Held { conn, _use: taken }))
 }
 
-fn open_read_only(path: &Path) -> Result<Option<Connection>> {
+/// A read-only connection to the database at <path> that waits while
+/// another connection writes, with no stamp check.
+fn connect_read_only(path: &Path) -> Result<Connection> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .context(|| format!("opening {}", path.display()))?;
     conn.busy_timeout(BUSY)
         .context(|| format!("configuring {}", path.display()))?;
+    Ok(conn)
+}
+
+fn open_read_only(path: &Path) -> Result<Option<Connection>> {
+    let conn = connect_read_only(path)?;
     let found = stamp_of(&conn, path)?;
     if found == 0 {
         return Ok(None);
