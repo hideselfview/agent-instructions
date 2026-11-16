@@ -23,12 +23,12 @@
 //! runs test classes, `{class}` in a word standing for a class:
 //! `builds app-build <repo> <ref> --test <lane> <Class>` runs it, so a class
 //! needs no step of its own. builds runs the line once for all of a build's
-//! classes that it runs: the word that holds `{class}` appears once for each
-//! class (`--tests *{class}` becomes `--tests *A *B`, so a program that needs
-//! a flag before each class gets a script that adds the flags). A `shots
-//! <lane> <command>` line is the same for a selection of
-//! screenshots, `{select}` standing for the prefix of their names: `--shots
-//! <lane> <prefix>` runs it, once for each prefix.
+//! classes that the line runs, and copies the word that holds `{class}` once
+//! for each class: `--tests *{class}` becomes `--tests *A *B`, so a repo whose
+//! program needs a flag before each class wraps the program in a script that
+//! adds the flags. A `shots <lane> <command>` line is the same for a
+//! selection of screenshots, `{select}` standing for the prefix of their
+//! names: `--shots <lane> <prefix>` runs it, once for each prefix.
 //!
 //! A `shots-source <folder>` line names the folder, relative to the repo's top,
 //! that holds the shots program's source. Its git tree at a commit is the
@@ -291,9 +291,10 @@ impl Picker {
         self.lane == lane && self.kind == kind && self.program.as_deref() == program
     }
 
-    /// The command for <args>: each word that holds the placeholder appears
-    /// once for each of <args>, in order, with that argument in place of the
-    /// placeholder. Each argument stays one argument, never read by a shell.
+    /// The command for <args>: `command_for` copies each word that holds the
+    /// placeholder once for each of <args>, in order, and puts that argument
+    /// in place of the placeholder. Each argument stays one argument, which no
+    /// shell reads.
     pub fn command_for(&self, args: &[&str]) -> Vec<String> {
         let placeholder = self.kind.placeholder();
         self.command
