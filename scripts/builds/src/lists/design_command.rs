@@ -399,8 +399,8 @@ fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 }
 
 /// `check N[,N...] DIR REV...`: the changes together resolve every place the
-/// commits change, and each is approved. It reads the store and never writes
-/// to it.
+/// commits change, and the person has approved each. `check` reads the store
+/// and never writes to it.
 fn check(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let [ids, dir, shas @ ..] = args.positional() else {

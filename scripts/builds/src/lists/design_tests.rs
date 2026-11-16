@@ -641,8 +641,9 @@ fn check_of_a_change_that_has_landed_is_refused() {
     assert!(message(w.run(&format!("check 1 {} {sha}", w.worktree()))).contains("already landed"));
 }
 
-/// Two changes, each drawn on its own commits, land together when each is
-/// approved and the two together resolve every place the commits change.
+/// Two changes, each drawn on its own commits, land together when the person
+/// has approved each and the two together resolve every place the commits
+/// change.
 #[test]
 fn check_of_several_changes_needs_each_approved_and_every_place_in_one_of_them() {
     let w = world("design-check-several");

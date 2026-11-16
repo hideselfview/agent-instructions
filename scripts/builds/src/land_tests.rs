@@ -849,7 +849,10 @@ fn unknown_options_and_missing_numbers_are_refused() {
         &["--design", "2", "--design", "2", &a],
         Cues::default(),
     );
-    assert!(code == 1 && out.contains("--design 2 given twice"), "{out}");
+    assert!(
+        code == 1 && out.contains("the landing names --design 2 twice"),
+        "{out}"
+    );
     let (code, out, _) = run_land(&f, &one, &["--design", "2,3", &a], Cues::default());
     assert!(code == 1 && out.contains("'2,3' is not an id"), "{out}");
     let (code, out, _) = run_land(&f, &one, &[], Cues::default());
@@ -951,7 +954,7 @@ fn commits_the_review_does_not_take_are_refused_before_anything_is_fetched() {
     );
     assert!(
         code == 1
-            && out.contains("LANDING REFUSED, nothing fetched or pushed:")
+            && out.contains("LANDING REFUSED, land fetched and pushed nothing:")
             && out.contains("no review run covers"),
         "{out}"
     );

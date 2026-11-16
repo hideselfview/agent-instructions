@@ -1326,12 +1326,13 @@ agent-instructions and run `review replay --rules-root` on it.
                               --part N records a landed part of it: land checks
                               both before it fetches anything and records them
                               after the push. Commits that change design places
-                              need --design N for an approved design change,
-                              given once for each change when several resolve
-                              them; together the changes must resolve every
-                              place, and land records each one as landed.
-                              Commits that are all design files take --design
-                              alone (`builds help lists`). In a repo of a
+                              need --design N for an approved design change.
+                              When several approved design changes resolve
+                              those places, pass --design once for each change:
+                              together the changes must resolve every place,
+                              and land records each one as landed. Commits
+                              that are all design files take --design alone
+                              (`builds help lists`). In a repo of a
                               project, land runs `review check-landing` before
                               it fetches anything, and a refusal ends the
                               landing; it runs `review landed` after the push,

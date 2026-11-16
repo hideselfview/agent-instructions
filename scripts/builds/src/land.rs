@@ -248,7 +248,8 @@ impl Request {
         self.items.iter().any(|word| word == "--part")
     }
 
-    /// The design changes as the landing was given them, for what it says.
+    /// The `--design N` flags the landing names, joined with spaces, for the
+    /// refusal messages.
     fn design_flags(&self) -> String {
         let flags: Vec<String> = self
             .designs
@@ -379,7 +380,7 @@ fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
                 if designs.contains(&id) {
                     return Err(refuse(
                         out,
-                        format!("refusing: --design {} given twice", id.0),
+                        format!("refusing: the landing names --design {} twice", id.0),
                     ));
                 }
                 designs.push(id);
@@ -483,7 +484,7 @@ impl Landing<'_> {
                 return Err(refuse(
                     out,
                     format!(
-                        "refusing: {designs} given, but the commits change no design place; name the work item with --done N or --part N"
+                        "refusing: the landing names {designs}, but the commits change no design place; name the work item with --done N or --part N"
                     ),
                 ));
             }
@@ -492,7 +493,7 @@ impl Landing<'_> {
             if !only {
                 let _ = writeln!(
                     out,
-                    "LANDING REFUSED, nothing fetched or pushed: --design alone lands only commits that are all design files; name the work item with --done N or --part N"
+                    "LANDING REFUSED, land fetched and pushed nothing: --design alone lands only commits that are all design files; name the work item with --done N or --part N"
                 );
                 return Err(refuse(out, said));
             }
@@ -500,39 +501,42 @@ impl Landing<'_> {
             let (ok, said) =
                 self.run_line(&self.with_items(&["item", "check-landing"], true, &request.shas));
             if !ok {
-                let _ = writeln!(out, "LANDING REFUSED, nothing fetched or pushed:");
+                let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
                 return Err(refuse(out, said));
             }
         }
         if !places.is_empty() && request.designs.is_empty() {
             let _ = writeln!(
                 out,
-                "LANDING REFUSED, nothing fetched or pushed: the commits change design places; name each design change that resolves them with --design N"
+                "LANDING REFUSED, land fetched and pushed nothing: the commits change design places; name each design change that resolves them with --design N"
             );
             return Err(refuse(out, places));
         }
         if places.is_empty() && !request.designs.is_empty() {
             return Err(refuse(
                 out,
-                format!("refusing: {designs} given, but the commits change no design place"),
+                format!(
+                    "refusing: the landing names {designs}, but the commits change no design place"
+                ),
             ));
         }
         if !request.designs.is_empty() {
-            // One check of all the changes at once: together they must
-            // resolve every place the commits change.
+            // Land checks all the design changes in one `builds design
+            // check`, since together they must resolve every place the
+            // commits change.
             let ids: Vec<String> = request.designs.iter().map(|id| id.0.to_string()).collect();
             let mut line = vec!["design".to_string(), "check".to_string(), ids.join(",")];
             line.push(workdir.to_string());
             line.extend(request.shas.iter().cloned());
             let (ok, said) = self.run_line(&line);
             if !ok {
-                let _ = writeln!(out, "LANDING REFUSED, nothing fetched or pushed:");
+                let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
                 return Err(refuse(out, said));
             }
         }
         let (ok, said) = self.run_line(&self.review_line("check-landing", project));
         if !ok {
-            let _ = writeln!(out, "LANDING REFUSED, nothing fetched or pushed:");
+            let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
             return Err(refuse(out, said));
         }
         Ok(())

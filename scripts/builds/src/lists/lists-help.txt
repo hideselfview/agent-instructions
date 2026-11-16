@@ -350,8 +350,8 @@ sent again.
       Prints nothing and succeeds when the commits are a design change and
       every path they change is a design file (boards, the design system,
       spec sections); otherwise names the paths that are not. Only then does
-      builds land take --design N alone, given once or more, with no --done
-      or --part: the design changes hold the app work.
+      builds land take --design N alone, once for each change, with no
+      --done or --part: the design changes hold the app work.
 
   builds design record --request FILE       (`-` for standard input)
       FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
@@ -426,11 +426,11 @@ sent again.
       any session.
 
   builds design check N[,N...] DIR REV...
-      Every place the commits change is resolved in one of the open changes
-      N, one of them answers for the shared files and sources, each change
-      resolves or answers for something the commits change, and the person
-      has approved each; names what is not. builds land runs it once with
-      every change its --design flags name.
+      Succeeds when one of the open changes N resolves each place the
+      commits change, one of them answers for the shared files and sources,
+      each change resolves or answers for something the commits change, and
+      the person has approved each; otherwise names what does not hold.
+      builds land runs it once with every change its --design flags name.
 
   builds design landed N DIR SHA...
       What builds land runs after the push, with SHAs on origin/main: records

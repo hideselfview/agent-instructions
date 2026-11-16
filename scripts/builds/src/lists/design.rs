@@ -716,11 +716,12 @@ pub fn named(ids: &[Id]) -> String {
     }
 }
 
-/// The amend that adds a place to one of <ids>.
-fn amend_hint(ids: &[Id]) -> String {
+/// The sentence that says how to add <what> to one of <ids>: to the one
+/// change, or, when there are several, to the change <which> describes.
+fn amend_hint(ids: &[Id], what: &str, which: &str) -> String {
     match ids {
-        [id] => format!("`builds design amend {}`", id.0),
-        _ => "`builds design amend N` on the change that draws it".to_string(),
+        [id] => format!("`builds design amend {}` adds {what}.", id.0),
+        _ => format!("`builds design amend N` adds {what}, where N is {which}."),
     }
 }
 
@@ -759,18 +760,19 @@ pub fn check_changes(lists: &Lists, ids: &[Id], repo: &str, changes: &Changes) -
         .filter(|p| !designs.iter().any(|d| d.places.contains_key(*p)))
         .map(|p| p.as_str())
         .collect();
-    let hint = amend_hint(ids);
     if !unresolved.is_empty() {
         let verb = if ids.len() == 1 { "does" } else { "do" };
         fail!(
-            "{named} {verb} not resolve {}; {hint} adds them",
-            unresolved.join(", ")
+            "{named} {verb} not resolve {}. {}",
+            unresolved.join(", "),
+            amend_hint(ids, "each place", "the change that draws the place")
         );
     }
     needs_answer(&designs, changes, "the commits").map_err(|error| match error {
-        crate::fail::Fail::Message(message) => {
-            crate::fail::Fail::Message(format!("{message} ({named}; {hint} adds it)"))
-        }
+        crate::fail::Fail::Message(message) => crate::fail::Fail::Message(format!(
+            "{message} ({named}). {}",
+            amend_hint(ids, "the answer", "one of these changes")
+        )),
         other => other,
     })?;
     for design in &designs {
