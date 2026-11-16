@@ -172,15 +172,21 @@ fn free_rank(db: &Connection, from: i64) -> Result<()> {
     Ok(())
 }
 
-/// Writes question <id>'s placement at <spot>, replacing one it has.
-fn put(db: &Connection, id: Id, spot: Spot, why: &str, by_person: bool) -> Result<()> {
-    // The question leaves its old place first, so a move within the ranked
-    // order frees its old rank.
+/// Deletes question <id>'s placement, if it has one.
+fn delete_placement(db: &Connection, id: Id) -> Result<()> {
     db.execute(
         "DELETE FROM question_placement WHERE question_id = ?1",
         [id],
     )
     .sql()?;
+    Ok(())
+}
+
+/// Writes question <id>'s placement at <spot>, replacing one it has.
+fn put(db: &Connection, id: Id, spot: Spot, why: &str, by_person: bool) -> Result<()> {
+    // The question leaves its old place first, so a move within the ranked
+    // order frees its old rank.
+    delete_placement(db, id)?;
     let at = match spot {
         Spot::Last => Position::Last,
         Spot::First => {
@@ -273,12 +279,7 @@ pub fn place(db: &Connection, id: Id, spot: Spot, why: &str, by_person: bool) ->
 /// Removes open question <id>'s placement, so what it unblocks orders it.
 pub fn unplace(db: &Connection, id: Id) -> Result<()> {
     require_open_question(db, id)?;
-    db.execute(
-        "DELETE FROM question_placement WHERE question_id = ?1",
-        [id],
-    )
-    .sql()?;
-    Ok(())
+    delete_placement(db, id)
 }
 
 /// Changes open question <id>: the title and details when given, and its
