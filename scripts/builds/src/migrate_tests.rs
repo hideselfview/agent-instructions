@@ -1458,8 +1458,8 @@ fn a_store_from_before_finished_keeps_its_closings_and_takes_a_finished_item() {
 }
 
 /// <schema> as its text read before a review's patch ids left out context
-/// lines: `review_commit`'s comment as it read then. A schema without the
-/// review's tables is left as it is.
+/// lines: `review_commit`'s comment as it read then. The function returns a
+/// schema without the review's tables unchanged.
 fn without_changed_lines(schema: String) -> String {
     if !schema.contains("CREATE TABLE review_commit") {
         return schema;
@@ -1467,9 +1467,10 @@ fn without_changed_lines(schema: String) -> String {
     let now = "-- The commits a review read, in order, each with its patch id: `git patch-id
 -- --stable` of the commit's diff without context lines, so the id covers only
 -- the lines the commit adds and removes (commits.rs). A commit that changes
--- nothing has none and is left out. `builds land` matches the commits it lands
--- to a run by these patch ids, so a rebase or a cherry-pick that keeps each
--- commit's added and removed lines keeps its review.
+-- nothing has no patch id, and the review records no row for it. `builds land`
+-- matches the commits it lands to a run by these patch ids, so a rebase or a
+-- cherry-pick that keeps each commit's added and removed lines keeps its
+-- review.
 ";
     let then = "-- The commits a review read, in order, each with its patch id (`git patch-id
 -- --stable`); a commit that changes nothing has none and is left out. `builds
@@ -1488,9 +1489,10 @@ fn the_changed_lines_stamp_is_the_schema_before_changed_lines() {
     );
 }
 
-/// A store as the schema before a review's patch ids left out context lines
-/// made it, with one landing of repo `demo` whose review read <read> and whose
-/// one confirmed finding <fix> fixes, each kept with a stale patch id.
+/// Makes a store in <dir> with the schema from before a review's patch ids left
+/// out context lines. The store holds one landing of repo `demo`: its review
+/// read <read>, <fix> fixes its one confirmed finding, and the store keeps a
+/// stale patch id for both commits.
 fn store_before_changed_lines(dir: &std::path::Path, read: &str, fix: &str) -> std::path::PathBuf {
     use crate::lists::fixtures::v;
     std::fs::create_dir_all(dir).unwrap();
@@ -1641,7 +1643,7 @@ fn a_store_whose_reviewed_commit_the_clone_lacks_is_left_as_it_was() {
     let path = store_before_changed_lines(&places.lists.join("demo"), &lost, &fix);
     let refused = migrate_stores(&places).unwrap_err().text();
     assert!(
-        refused.contains("left as it was") && refused.contains("dev/demo"),
+        refused.contains("the move leaves it as it was") && refused.contains("dev/demo"),
         "{refused}"
     );
     let conn = Connection::open(&path).unwrap();

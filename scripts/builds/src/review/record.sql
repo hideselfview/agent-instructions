@@ -130,9 +130,10 @@ CREATE INDEX review_finding_call ON review_finding (call_id);
 -- The commits a review read, in order, each with its patch id: `git patch-id
 -- --stable` of the commit's diff without context lines, so the id covers only
 -- the lines the commit adds and removes (commits.rs). A commit that changes
--- nothing has none and is left out. `builds land` matches the commits it lands
--- to a run by these patch ids, so a rebase or a cherry-pick that keeps each
--- commit's added and removed lines keeps its review.
+-- nothing has no patch id, and the review records no row for it. `builds land`
+-- matches the commits it lands to a run by these patch ids, so a rebase or a
+-- cherry-pick that keeps each commit's added and removed lines keeps its
+-- review.
 CREATE TABLE review_commit (
     run_id INTEGER NOT NULL REFERENCES review_run (id),
     position INTEGER NOT NULL CONSTRAINT review_commit_position_not_negative CHECK (position >= 0),

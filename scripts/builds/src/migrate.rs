@@ -214,9 +214,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// any kind (each item keeps the decision or design change that made it) and
 /// `question` with an origin (no question has one yet), and every store gets
 /// `closing` where an item may close as finished, and the move copies every
-/// closing into the new table, and the move gives every commit a review read
-/// and every fix the patch id of its added and removed lines alone, read from
-/// the clone `~/dev/<repo>` of the repo its landing names.
+/// closing into the new table, and the move gives every commit that a review
+/// read, and every fix, the patch id of only its added and removed lines,
+/// which it reads from the clone `~/dev/<repo>` of the repo its landing names.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -438,7 +438,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     })
     .map_err(|why| {
         Fail::Message(format!(
-            "{} keeps patch ids this move could not read again, so it is left as it was: {}",
+            "{} keeps patch ids this move could not read again, so the move leaves it as it was: {}",
             path.display(),
             why.text()
         ))

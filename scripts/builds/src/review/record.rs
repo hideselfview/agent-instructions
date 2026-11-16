@@ -758,7 +758,9 @@ pub fn move_to_changed_lines(
     let mut repos: Vec<&str> = Vec::new();
     for (_, sha, repo) in &rows {
         let Some(repo) = repo else {
-            fail!("commit {sha} is kept for a review run of no landing, so no repo names it");
+            fail!(
+                "the store keeps commit {sha} for a review run with no landing, so no repo names it"
+            );
         };
         if !repos.contains(&repo.as_str()) {
             repos.push(repo);

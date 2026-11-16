@@ -70,8 +70,8 @@ fn a_commit_rebased_over_a_changed_context_line_keeps_its_patch_id_and_a_changed
     commit(&dir, "f.txt", &lines(&[]));
     run_git(&dir, &["checkout", "-q", "-b", "work"]);
     let reviewed = commit(&dir, "f.txt", &lines(&[(5, "line five")]));
-    // Main changes line 3, one of the context lines around the change to line
-    // 5 that a diff shows, and the change is rebased onto it.
+    // Main changes line 3, which a diff shows as context around the change to
+    // line 5. The test then cherry-picks the change onto main.
     run_git(&dir, &["checkout", "-q", "main"]);
     commit(&dir, "f.txt", &lines(&[(3, "line three")]));
     run_git(&dir, &["cherry-pick", &reviewed]);

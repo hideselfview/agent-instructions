@@ -72,11 +72,12 @@
 //! review read (by the patch id of its added and removed lines, so a rebase or
 //! cherry-pick that keeps those lines counts) or the named fix of one of that
 //! review's confirmed findings, and the review is finished: every group that
-//! covers a path a reviewed commit changes answered, every finding is settled,
-//! and every confirmed one is fixed by one of the commits. Commits whose paths no group covers need no
-//! review. After the push, `builds review landed` records the review's
-//! landing as landed beside the items and the design change, and starts the
-//! audit of a sampled one, which never fails the landing.
+//! covers a changed path of a reviewed commit has answered, the coordinator has
+//! settled every finding, and one of the commits fixes each confirmed one.
+//! Commits whose paths no group covers need no review. After the push,
+//! `builds review landed` records the review's landing as landed beside the
+//! items and the design change, and starts the audit of a sampled one, which
+//! never fails the landing.
 //!
 //! A repo whose landed tree holds a `.land-live` file has a main checkout that
 //! is the live copy (agent-instructions, whose main checkout install.sh links
@@ -777,9 +778,9 @@ impl Landing<'_> {
             self.check_result(out)?;
             // Something else that moved this worktree's HEAD during the checks
             // (a checkout run by hand) leaves nothing of the landing's to push,
-            // and the push of origin/main to itself would report success. HEAD
-            // is compared with the commit the landing made, not by patch id:
-            // another commit that holds the same change has the same patch id.
+            // and the push of origin/main to itself would report success. Land
+            // compares HEAD with the commit it made, not its patch id: another
+            // commit that holds the same change has the same patch id.
             let head = git_text(dir, &["rev-parse", "HEAD"]).unwrap_or_default();
             if head != landed {
                 let name =

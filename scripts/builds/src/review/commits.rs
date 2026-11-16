@@ -3,9 +3,9 @@
 //! diff without context lines, so the id covers only the lines the commit adds
 //! and removes. A rebase or a cherry-pick that keeps those lines keeps the
 //! patch id while the SHA changes, even when the lines around them changed, so
-//! a landing is matched to the review that read the same changes, not the same
-//! SHAs. A conflict's resolution that changes an added or removed line gives
-//! the commit another patch id.
+//! `builds land` matches a landing to the review that read the same changes,
+//! not the same SHAs. A conflict's resolution that changes an added or removed
+//! line gives the commit another patch id.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -96,17 +96,17 @@ pub fn newest(repo: &Path, count: usize) -> Result<Vec<String>> {
 
 /// Each of <revs> with the patch id of its added and removed lines, in the
 /// order given. A commit that changes nothing (and a merge, whose change `git
-/// log -p` does not show) has no patch id and is left out.
+/// log -p` does not show) has no patch id, and the list leaves it out.
 pub fn with_patch_ids(repo: &Path, revs: &[String]) -> Result<Vec<Commit>> {
     if revs.is_empty() {
         return Ok(Vec::new());
     }
     let shas = full_shas(repo, revs)?;
-    // The diff options are fixed here, not left to the repo's config, so a
-    // commit's patch id is the same whenever it is read. `--unified=0` leaves
-    // out the context lines, and `git patch-id` ignores the line numbers in
-    // the hunk headers, so lines that moved or changed around the change
-    // leave its patch id as it was.
+    // This function fixes the diff options instead of taking them from the
+    // repo's config, so builds reads the same patch id for a commit every
+    // time. `--unified=0` leaves out the context lines, and `git patch-id`
+    // ignores the line numbers in the hunk headers, so lines that moved or
+    // changed around the change leave its patch id as it was.
     let mut log = git(repo);
     log.args([
         "log",
