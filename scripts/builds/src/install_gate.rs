@@ -216,13 +216,6 @@ pub fn may_start(places: &Places, say: &mut dyn FnMut(&str)) -> Result<bool> {
     Ok(pass(places, Kind::Connection, RUNS_AGAIN, say)?.1)
 }
 
-/// The identity of the file at <path>: its device and inode.
-fn identity(path: &Path) -> Result<(u64, u64)> {
-    use std::os::unix::fs::MetadataExt;
-    let meta = std::fs::metadata(path).context(|| format!("reading {}", path.display()))?;
-    Ok((meta.dev(), meta.ino()))
-}
-
 /// The connection uses of one process: the first open connection takes the
 /// process's use, and the last one to close ends it, until the process holds
 /// a use for the rest of its life (`hold_from_now`).
@@ -231,10 +224,9 @@ pub struct PerConnection {
     pid: u32,
     what: String,
     since: String,
-    /// The path of the program file this process started from, which
-    /// install replaces, and that file's identity.
-    program: (PathBuf, (u64, u64)),
-    /// The installs counted when this process started.
+    /// The installs counted when this process started. Install counts one
+    /// more before it moves the stores and replaces the program, so a count
+    /// that differs says an install ran since.
     generation: u64,
     held: Mutex<Option<(usize, Use)>>,
     held_for_life: AtomicBool,
@@ -253,16 +245,12 @@ pub enum FromNow {
 
 impl PerConnection {
     pub fn new(places: Places, pid: u32, what: &str, since: &str) -> Result<PerConnection> {
-        let exe = std::env::current_exe().context(|| "finding this program".to_string())?;
-        let started = identity(&exe)?;
-        let program = (exe, started);
         Ok(PerConnection {
             generation: generation(&places)?,
             places,
             pid,
             what: what.to_string(),
             since: since.to_string(),
-            program,
             held: Mutex::new(None),
             held_for_life: AtomicBool::new(false),
         })
@@ -287,7 +275,7 @@ impl PerConnection {
             &self.what,
             &self.since,
         )?;
-        if generation(&self.places)? != self.generation || self.program_replaced()? {
+        if self.install_ran()? {
             return Ok(FromNow::InstallRan);
         }
         self.held_for_life.store(true, Ordering::SeqCst);
@@ -329,11 +317,9 @@ impl PerConnection {
         Ok(Some(ConnectionUse { owner: self }))
     }
 
-    /// Whether install has put another program at this process's path
-    /// since it started.
-    fn program_replaced(&self) -> Result<bool> {
-        let (path, started) = &self.program;
-        Ok(identity(path)? != *started)
+    /// Whether an install ran since this process started.
+    fn install_ran(&self) -> Result<bool> {
+        Ok(generation(&self.places)? != self.generation)
     }
 }
 
@@ -398,11 +384,11 @@ pub fn hold_from_now() -> Result<FromNow> {
     Ok(found)
 }
 
-/// Whether install has put another program at this process's path since it
-/// started; false for a process that takes no use per connection.
-pub fn program_replaced() -> Result<bool> {
+/// Whether an install ran since this process started; false for a process
+/// that takes no use per connection.
+pub fn install_ran() -> Result<bool> {
     match PER_CONNECTION.get() {
-        Some(per_connection) => per_connection.program_replaced(),
+        Some(per_connection) => per_connection.install_ran(),
         None => Ok(false),
     }
 }
