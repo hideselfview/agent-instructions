@@ -277,9 +277,9 @@ fn stores(places: &Places) -> Result<Vec<PathBuf>> {
 
 /// Whether every store already has this program's schema, so `migrate_stores`
 /// moves none: true when one store at least has a schema and every store that
-/// has one has this program's. A store with no schema yet says nothing, and
-/// with no store that has one, the stores do not say which schema the
-/// installed program writes, so the answer is false.
+/// has one has this program's. The function skips a store with no schema yet.
+/// When no store has a schema, the function cannot tell which schema the
+/// installed program writes, so it returns false.
 pub fn every_store_has_this_schema(places: &Places) -> Result<bool> {
     let mut any = false;
     for store in stores(places)? {

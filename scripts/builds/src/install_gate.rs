@@ -142,9 +142,9 @@ fn open(path: &Path) -> Result<File> {
     crate::flock::open_creating(path)
 }
 
-/// A use of the stores: its file, locked until dropped, when the use
-/// removes the file. Install removes the file of a use whose process ended
-/// without dropping it.
+/// A use of the stores: its file, which the use holds locked until the
+/// process drops the use and the use removes the file. Install removes the
+/// file of a use whose process ended without dropping it.
 ///
 /// Only a process that holds a use file's lock removes the file, and only
 /// after it checks that the path still names the file it locked, since
@@ -520,8 +520,8 @@ fn close_gate(places: &Places, kind: Kind) -> Result<File> {
     Ok(gate)
 }
 
-/// The use files of <kind>, each open, in the order of their names. A file
-/// that its use removed after the listing is left out.
+/// The use files of <kind>, each open, in the order of their names. The list
+/// skips a file that its use removed after the listing.
 fn use_files(places: &Places, kind: Kind) -> Result<Vec<(File, PathBuf)>> {
     let dir = kind.uses(places);
     let entries = match std::fs::read_dir(&dir) {

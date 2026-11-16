@@ -2029,8 +2029,8 @@ fn the_pushed_stamp_is_the_schema_before_pushed_commits() {
     );
 }
 
-/// A store in <dir> as the schema before `review_pushed` made it: that
-/// schema's text, its stamp, one run. Install moves it to today's schema.
+/// Creates a store in <dir> with the schema from before `review_pushed`: that
+/// schema's text, its stamp and one run. Install moves it to today's schema.
 pub fn store_before_pushed(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
