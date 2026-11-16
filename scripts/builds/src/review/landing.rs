@@ -246,11 +246,14 @@ fn assess(
         {
             continue;
         }
-        let read = runs
-            .iter()
-            .find(|(run, _)| run.id == finding.run_id)
-            .map(|(_, read)| read.as_slice())
-            .unwrap_or_default();
+        let Some((_, read)) = runs.iter().find(|(run, _)| run.id == finding.run_id) else {
+            fail!(
+                "finding {} belongs to run {}, which is not a review run of landing {}",
+                finding.id,
+                finding.run_id,
+                landing.id
+            );
+        };
         if on_commits(dir, finding, read, needs, &mut messages)? {
             owed.push(finding);
         }
