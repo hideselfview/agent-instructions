@@ -201,12 +201,8 @@ impl Queue {
     }
 
     fn write_order(&self, order: &[String]) -> Result<()> {
-        let part = self.dir.join("order.part");
         let text: String = order.iter().map(|name| format!("{name}\n")).collect();
-        std::fs::write(&part, text).context(|| format!("writing {}", part.display()))?;
-        let order_file = self.dir.join("order");
-        std::fs::rename(&part, &order_file)
-            .context(|| format!("replacing {}", order_file.display()))
+        crate::whole_file::write(&self.dir.join("order"), text)
     }
 
     /// The pid of each ticket in line after the holders' (the first `slots`),

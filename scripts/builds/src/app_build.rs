@@ -289,13 +289,7 @@ impl Built {
 
     /// Written in one rename, so a reader never sees half of it.
     fn write(&self, file: &Path) -> Result<()> {
-        let part = file.with_extension("part");
-        std::fs::write(
-            &part,
-            format!("{}\n{}\n", self.commit, self.steps.join(" ")),
-        )
-        .context(|| format!("writing {}", part.display()))?;
-        std::fs::rename(&part, file).context(|| format!("replacing {}", file.display()))
+        crate::whole_file::write(file, format!("{}\n{}\n", self.commit, self.steps.join(" ")))
     }
 
     fn clear(file: &Path) -> Result<()> {

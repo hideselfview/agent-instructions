@@ -90,11 +90,8 @@ fn generation(places: &Places) -> Result<u64> {
 /// Counts one more install, in one rename. Only install calls it, with both
 /// gates closed.
 fn advance_generation(places: &Places) -> Result<()> {
-    let path = generation_file(places);
-    let part = path.with_extension("part");
     let next = generation(places)? + 1;
-    std::fs::write(&part, format!("{next}\n")).context(|| format!("writing {}", part.display()))?;
-    std::fs::rename(&part, &path).context(|| format!("replacing {}", path.display()))
+    crate::whole_file::write(&generation_file(places), format!("{next}\n"))
 }
 
 /// What a use spans.

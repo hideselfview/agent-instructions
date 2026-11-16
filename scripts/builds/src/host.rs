@@ -519,9 +519,7 @@ fn write_remote(places: &Places, hosts: &[Host]) -> Result<()> {
             }
         })
         .collect();
-    let part = file.with_extension("part");
-    std::fs::write(&part, text).context(|| format!("writing {}", part.display()))?;
-    std::fs::rename(&part, &file).context(|| format!("replacing {}", file.display()))
+    crate::whole_file::write(&file, text)
 }
 
 /// Records <speed> as host <name>'s core speed against this Mac's.

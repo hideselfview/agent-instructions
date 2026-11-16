@@ -68,6 +68,7 @@ mod trees;
 mod units;
 mod usage;
 mod warm;
+mod whole_file;
 mod worktree;
 mod xcode;
 

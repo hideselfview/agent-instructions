@@ -189,10 +189,8 @@ impl Places {
         }
         let dir = self.root.join(repo);
         std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
-        let part = dir.join(format!("{}.part", lane.checkouts_file_name()));
         let text: String = checkouts.iter().map(|name| format!("{name}\n")).collect();
-        std::fs::write(&part, text).context(|| format!("writing {}", part.display()))?;
-        std::fs::rename(&part, &file).context(|| format!("replacing {}", file.display()))
+        crate::whole_file::write(&file, text)
     }
 
     /// The lane <checkout> is one of <repo>'s app checkouts of, if it is one.
