@@ -134,6 +134,13 @@ impl Probe {
     pub fn room(&self) -> f64 {
         f64::from(self.cores) - self.load[0]
     }
+
+    /// `room`, less the load of <runs> cargo runs that started too recently
+    /// for the load average to show them (cargo_starts.rs): cargo runs one
+    /// compile job per core, so each counts as the host's cores.
+    pub fn room_after(&self, runs: u32) -> f64 {
+        self.room() - f64::from(runs) * f64::from(self.cores)
+    }
 }
 
 /// Runs on the host to print what `parse_probe` reads. git runs in the shell
@@ -596,15 +603,16 @@ pub fn choose(
 }
 
 /// The hosts a cargo build may run on, the one with the most room first: the
-/// reachable hosts above the free-disk floor, ordered by `Probe::room`. Hosts
-/// whose room is equal to the hundredth of a core keep the order they came in,
-/// and `all` puts this Mac first, so this Mac wins a tie. The line says why,
-/// with every host's room and each host that was left out. A host left out
-/// is not a failure: the caller runs on the next, and on this Mac when none
-/// is left.
+/// reachable hosts above the free-disk floor, ordered by `Probe::room_after`
+/// the runs <recent> counts on each. Hosts whose room is equal to the
+/// hundredth of a core keep the order they came in, and `all` puts this Mac
+/// first, so this Mac wins a tie. The line says why, with every host's room
+/// and recent runs and each host that was left out. A host left out is not a
+/// failure: the caller runs on the next, and on this Mac when none is left.
 pub fn rank_by_room(
     hosts: &[(Host, std::result::Result<Probe, String>)],
     floor_kib: u64,
+    recent: &crate::cargo_starts::Recent,
 ) -> (Vec<Host>, String) {
     let mut fits: Vec<(&Host, &Probe)> = Vec::new();
     let mut skipped = Vec::new();
@@ -614,11 +622,21 @@ pub fn rank_by_room(
             None => fits.extend(probe.as_ref().ok().map(|probe| (host, probe))),
         }
     }
-    let hundredths = |probe: &Probe| (probe.room() * 100.0).round() as i64;
-    fits.sort_by_key(|(_, probe)| std::cmp::Reverse(hundredths(probe)));
+    let runs = |host: &Host| recent.get(&host.name).copied().unwrap_or(0);
+    let hundredths =
+        |host: &Host, probe: &Probe| (probe.room_after(runs(host)) * 100.0).round() as i64;
+    fits.sort_by_key(|(host, probe)| std::cmp::Reverse(hundredths(host, probe)));
     let mut why: Vec<String> = fits
         .iter()
-        .map(|(host, probe)| format!("{} has {:.1} cores of room", host.name, probe.room()))
+        .map(|(host, probe)| match runs(host) {
+            0 => format!("{} has {:.1} cores of room", host.name, probe.room()),
+            started => format!(
+                "{} has {:.1} cores of room after {} that started in the last minute",
+                host.name,
+                probe.room_after(started),
+                crate::text::counted(started as usize, "cargo run", "cargo runs")
+            ),
+        })
         .collect();
     why.extend(skipped);
     (

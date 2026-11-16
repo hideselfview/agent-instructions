@@ -4,7 +4,8 @@
 //! The caller notices nothing: the same command prints the same output as it
 //! runs, and its exit status is cargo's. A command that only compiles and
 //! runs tests or lints goes to whichever reachable host has the most free
-//! cores (cores minus load, `Probe::room`; this Mac wins a tie). The host
+//! cores (cores minus load, less the cores of each run that started there in
+//! the last minute, `Probe::room_after`; this Mac wins a tie). The host
 //! builds what a build here would: the checkout's HEAD plus its working tree
 //! (`What::Working`), in a worktree of its own clone with a warm `target`
 //! (remote.rs). The host runs `builds cargo` itself with
@@ -25,6 +26,7 @@
 
 use std::ffi::OsString;
 
+use crate::cargo_starts;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::Result;
@@ -297,15 +299,37 @@ fn has_clone(
         .map_err(|error| error.text())
 }
 
-/// Chooses where the command runs: the named host, else the one with the most
-/// room that can take it. The caller has already found that the command may
-/// leave this Mac (`stays_here`).
+/// Chooses where the command, run by this process, runs: the named host,
+/// else the one with the most room that can take it, counting the runs that
+/// started on each host in the last minute (cargo_starts.rs). The choice
+/// joins that record at <now> before the next pick reads it. The caller has
+/// already found that the command may leave this Mac (`stays_here`).
 pub fn choose(
     places: &Places,
     ssh: &Ssh,
     floor_kib: u64,
     repo: &str,
     named: Option<&str>,
+    now: i64,
+) -> Result<Choice> {
+    let starts = cargo_starts::read(places, now)?;
+    let choice = pick(places, ssh, floor_kib, repo, named, &starts.recent)?;
+    let host = match &choice {
+        Choice::Here(_) => host::LOCAL,
+        Choice::On(host, _) => host.name.as_str(),
+    };
+    starts.record(std::process::id(), host, now)?;
+    Ok(choice)
+}
+
+/// `choose`, with the runs <recent> counts.
+fn pick(
+    places: &Places,
+    ssh: &Ssh,
+    floor_kib: u64,
+    repo: &str,
+    named: Option<&str>,
+    recent: &cargo_starts::Recent,
 ) -> Result<Choice> {
     let hosts = host::all(places)?;
     if let Some(name) = named {
@@ -332,19 +356,22 @@ pub fn choose(
         repo,
         &host::probe_all(places, ssh, hosts),
         floor_kib,
+        recent,
     )
 }
 
-/// The first host of <probes>, by room, that can build <repo>; this Mac when
-/// it ranks before any that can, or when none can.
+/// The first host of <probes>, by room after the runs <recent> counts, that
+/// can build <repo>; this Mac when it ranks before any that can, or when none
+/// can.
 fn pick_ranked(
     places: &Places,
     ssh: &Ssh,
     repo: &str,
     probes: &[(Host, std::result::Result<host::Probe, String>)],
     floor_kib: u64,
+    recent: &cargo_starts::Recent,
 ) -> Result<Choice> {
-    let (ranked, why) = host::rank_by_room(probes, floor_kib);
+    let (ranked, why) = host::rank_by_room(probes, floor_kib, recent);
     let mut passed_over = Vec::new();
     for host in ranked {
         if host.target.is_none() {

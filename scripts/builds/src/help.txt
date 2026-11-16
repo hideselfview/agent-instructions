@@ -240,8 +240,12 @@ incremental on in a profile, set profile.dev.incremental in Cargo.toml, never
 CARGO_INCREMENTAL=1, with which sccache refuses every compile.
 
 In a side worktree, `builds cargo` runs test, clippy, check, doc and nextest
-run|list on the host with the most free cores (cores minus the one-minute load;
-this Mac wins a tie), passing over a host that does not answer, is under the
+run|list on the host with the most free cores (cores minus the one-minute load,
+less the host's cores for each `builds cargo` run that started there in the
+last minute and still runs, since cargo runs a compile job per core and the
+load average shows a run only after a while; this Mac wins a tie, and picks
+made at once take turns, so a burst of runs spreads across the hosts),
+passing over a host that does not answer, is under the
 free-disk floor, refuses jobs (HOSTS) or has no clone of the repo. It sends the
 checkout's HEAD plus its working tree (staged and unstaged edits, deletions,
 and files git neither tracks nor ignores) as a commit to the host's clone only,

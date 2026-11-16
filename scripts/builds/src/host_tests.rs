@@ -81,7 +81,7 @@ fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
         (host("local"), probe_with(8, 6.0, 100)),
         (host("m1"), refusing()),
     ];
-    let (ranked, why) = rank_by_room(&hosts, 50);
+    let (ranked, why) = rank_by_room(&hosts, 50, &Default::default());
     assert_eq!(ranked, [host("local")]);
     assert!(
         why.contains("m1 refuses jobs (git fails there: no license)"),
@@ -282,7 +282,7 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
         (host("full"), probe_with(10, 0.0, 5)),
         (host("gone"), Err("refused".to_string())),
     ];
-    let (ranked, why) = rank_by_room(&hosts, 50);
+    let (ranked, why) = rank_by_room(&hosts, 50, &Default::default());
     let names: Vec<&str> = ranked.iter().map(|h| h.name.as_str()).collect();
     assert_eq!(names, ["m1", "local", "big"]);
     assert!(
@@ -296,16 +296,19 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
         (host("local"), probe_with(8, 2.0, 100)),
         (host("m1"), probe_with(8, 2.0, 100)),
     ];
-    assert_eq!(rank_by_room(&tie, 0).0[0].name, "local");
+    assert_eq!(
+        rank_by_room(&tie, 0, &Default::default()).0[0].name,
+        "local"
+    );
 
     let loaded = vec![(host("m1"), probe_with(10, 14.0, 100))];
     assert_eq!(
-        rank_by_room(&loaded, 0).0.len(),
+        rank_by_room(&loaded, 0, &Default::default()).0.len(),
         1,
         "a host with no room still ranks"
     );
     assert!(
-        rank_by_room(&[(host("m1"), Err("x".into()))], 0)
+        rank_by_room(&[(host("m1"), Err("x".into()))], 0, &Default::default())
             .0
             .is_empty()
     );

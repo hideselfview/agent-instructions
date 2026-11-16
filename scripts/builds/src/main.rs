@@ -9,6 +9,7 @@ mod app_timing;
 mod build_app;
 mod cargo_place;
 mod cargo_run;
+mod cargo_starts;
 mod checkout;
 mod checks;
 mod checks_run;

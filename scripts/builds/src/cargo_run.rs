@@ -144,6 +144,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
             Rules::from_env()?.floor_kib,
             &checkout.as_ref().expect("a checkout was found").repo(),
             named.as_deref(),
+            crate::app_timing::now(),
         )?,
     };
     let job = match checkout.as_ref() {
