@@ -1,5 +1,5 @@
 ---
-digest: Screen text says each thing once (no phrase repeated across a screen), uses the gentler verb for what people do to each other, and headlines wrap balanced so no word hangs alone.
+digest: Screen text says each thing once (no phrase repeated across a screen), uses the gentler verb for what people do to each other, says a coming action with "will" ("bae will delete 540 MB", not "bae deletes 540 MB"), and headlines wrap balanced so no word hangs alone.
 paths:
   - '**/*.swift'
   - '**/*.kt'
@@ -29,6 +29,25 @@ never with breaks placed by hand:
 - CSS: `text-wrap: balance` for headlines, `text-wrap: pretty` for body text.
 - Compose: `LineBreak.Heading` and `LineBreak.Paragraph`.
 - AppKit: `NSParagraphStyle.lineBreakStrategy` `.pushOut`.
+
+**An action that hasn't happened yet takes "will".** A confirmation describes
+what happens after the person confirms, so its line says what the app will do.
+Don't put that coming action in the simple present: "bae deletes 540 MB" reads
+as if it already happens. The slip usually comes from turning a passive sentence
+("540 MB will be removed") into an active one and dropping the "will" with the
+passive.
+
+- ✗ "bae deletes 540 MB from this phone." → ✓ "bae will delete 540 MB from this
+  phone."
+- ✗ "bae deletes this playlist from every device." → ✓ "bae will delete this
+  playlist from every device."
+- ✗ "bae removes its files from this Mac now." → ✓ "bae will remove its files
+  from this Mac now."
+- ✗ "bae deletes your saved key." → ✓ "bae will delete your saved key."
+
+The simple present stays right for what bae always does ("bae keeps tracks you
+played from the cloud here") and for what a line states as true now ("Your
+library stays as it is").
 
 **A placeholder says what a field is for, only when the label can't.** Under the
 label "Your name", "For your profile, ratings and playlists" earns its place;
