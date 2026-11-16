@@ -559,3 +559,106 @@ fn a_command_on_this_mac_runs_without_the_git_variables_of_a_hook() {
         );
     }
 }
+
+/// An ssh that, like the real one, returns only once nothing on the host
+/// holds the command's output open: it passes the output of `fake_ssh`
+/// through a pipe, which a process the command left behind keeps open.
+fn holding_ssh(dir: &Path, fake: &Ssh) -> Ssh {
+    std::fs::create_dir_all(dir).unwrap();
+    let program = dir.join("ssh");
+    std::fs::write(
+        &program,
+        format!(
+            "#!/bin/sh\n{} \"$@\" | cat\n",
+            crate::host::sh_quote(&fake.program)
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        &program,
+        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+    )
+    .unwrap();
+    Ssh {
+        program: program.display().to_string(),
+    }
+}
+
+/// An app checkout on the host, with the claim folder a step records its pid
+/// in beside it.
+fn app_checkout(s: &Setup) -> PathBuf {
+    let wt = s.home.join("dev/demo-worktrees/app-1");
+    std::fs::create_dir_all(&wt).unwrap();
+    std::fs::create_dir_all(format!("{}.job", wt.display())).unwrap();
+    wt
+}
+
+/// Checks every 100ms and gives ssh 300ms to return.
+const QUICK_WATCH: Watch = Watch {
+    every: Duration::from_millis(100),
+    grace: Duration::from_millis(300),
+};
+
+#[test]
+fn a_command_whose_process_ends_while_ssh_stays_open_fails() {
+    let s = setup("remote-lost");
+    let places = s.scratch.places();
+    let ssh = holding_ssh(&s.scratch.dir.join("holding-bin"), &s.ssh);
+    let wt = app_checkout(&s);
+    let transport = Transport {
+        places: &places,
+        ssh: &ssh,
+        host: &s.host,
+    };
+    // The command exits and leaves a process holding its output open, so
+    // ssh never returns.
+    let command = args(&["sh", "-c", "sleep 60 & echo $! > left.pid; exit 3"]);
+    let started = std::time::Instant::now();
+    let ran = run_command_watched(
+        &transport,
+        &AtomicBool::new(false),
+        &wt.display().to_string(),
+        &command,
+        false,
+        &QUICK_WATCH,
+    );
+    let took = started.elapsed();
+    let left = std::fs::read_to_string(wt.join("left.pid")).unwrap();
+    unsafe { libc::kill(left.trim().parse().unwrap(), libc::SIGKILL) };
+    let Err(Fail::Message(message)) = ran else {
+        panic!("expected a failure, got {ran:?}");
+    };
+    assert!(message.contains("without an exit status"), "{message}");
+    assert!(message.contains("host m1"), "{message}");
+    assert!(took < Duration::from_secs(5), "{took:?}");
+}
+
+#[test]
+fn a_command_that_outlasts_the_checks_runs_to_its_end() {
+    let s = setup("remote-watched");
+    let places = s.scratch.places();
+    let wt = app_checkout(&s);
+    // An earlier step's pid file names a process that has ended.
+    std::fs::write(format!("{}.job/pid", wt.display()), "999999 earlier\n").unwrap();
+    let transport = Transport {
+        places: &places,
+        ssh: &s.ssh,
+        host: &s.host,
+    };
+    assert_eq!(
+        process_of(&transport, &wt.display().to_string(), "this-run"),
+        Ok(Process::Starting),
+        "a check reads no other run's pid"
+    );
+    let command = args(&["sh", "-c", "sleep 1; exit 4"]);
+    let ran = run_command_watched(
+        &transport,
+        &AtomicBool::new(false),
+        &wt.display().to_string(),
+        &command,
+        false,
+        &QUICK_WATCH,
+    )
+    .unwrap();
+    assert_eq!(ran, (4, None));
+}

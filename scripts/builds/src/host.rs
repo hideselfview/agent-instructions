@@ -42,6 +42,12 @@ pub const LOCAL: &str = "local";
 /// How long ssh waits to connect before it counts a host as unreachable.
 const CONNECT_SECONDS: u32 = 10;
 
+/// How often ssh asks a connected host whether it still answers, and how many
+/// questions in a row may go unanswered before ssh ends the connection: a
+/// connection to a host that stopped answering ends within a minute.
+const ALIVE_SECONDS: u32 = 15;
+const ALIVE_MISSES: u32 = 4;
+
 /// The program that runs commands on another Mac: ssh, or in tests a program
 /// that runs them in a temporary folder. `BUILDS_SSH` names another.
 #[derive(Clone, Debug)]
@@ -60,13 +66,17 @@ impl Ssh {
     }
 
     /// The options every connection takes: never ask for a password, and give
-    /// up on a host that does not answer.
-    fn options() -> [String; 4] {
+    /// up on a host that does not answer, whether while connecting or later.
+    fn options() -> [String; 8] {
         [
             "-o".to_string(),
             "BatchMode=yes".to_string(),
             "-o".to_string(),
             format!("ConnectTimeout={CONNECT_SECONDS}"),
+            "-o".to_string(),
+            format!("ServerAliveInterval={ALIVE_SECONDS}"),
+            "-o".to_string(),
+            format!("ServerAliveCountMax={ALIVE_MISSES}"),
         ]
     }
 

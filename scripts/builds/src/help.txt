@@ -439,7 +439,13 @@ runs each step through `builds remote step`, with the same time limits and
 takeover; its output comes back behind [<lane> <host>:<name>]. After each
 --test or --shots run there, passed or failed, the folders of the lane's
 `results` lines are copied to /Volumes/Builds/<repo>/<host>:<name>/<path> here,
-where agents read them. A mac lane checkout on a host needs Xcode there.
+where agents read them. ssh returns only once nothing on the host holds a
+step's output open, so a process the step left behind can keep ssh waiting
+after the step has ended. builds asks the host every 30 seconds whether the
+step's process still runs, and when it is gone and ssh has not returned 10
+seconds later, builds stops ssh and fails the step, saying it ended without an
+exit status. A connection to a host that stops answering ends within a minute
+and fails the step too. A mac lane checkout on a host needs Xcode there.
 build-app, `builds lock` and a build that runs a `here` step never take a
 checkout on a host. A build that runs a test class through a line an
 `opens-windows` line names takes only a checkout on a host, never one on this
@@ -716,7 +722,10 @@ action" with the commands.
                               BUILDS_ROOT set to ~/builds-root (the command
                               gets the same). When the job ends, builds deletes
                               the ref and the worktree's claim. A stop signal
-                              stops the command on the host. Without --host,
+                              stops the command on the host. A command whose
+                              process on the host has ended while ssh has not
+                              returned fails, as an app build's step does (APP
+                              BUILDS). Without --host,
                               builds picks the host with the lowest load
                               average per core among those that answer, have
                               free disk above the floor and do not refuse
