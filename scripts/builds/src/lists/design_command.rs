@@ -455,16 +455,10 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
     let ids = Id::parse_list(ids)?;
     let scope = named_scope(tool, &args, dir, shas)?;
     let top = &scope.checkout.top;
-    let drawn: Vec<&String> = scope.changes.drawn().collect();
-    let mut designs = Vec::new();
-    for design in design::open_named(&scope.lists, &ids, &scope.checkout.repo())? {
-        designs.push(design::DrawnChange {
-            design,
-            drawing: design::drawn_by(top, design, drawn.iter().copied())?,
-        });
-    }
-    let now = design_paths::drawing_at(top, &scope.tip, drawn.iter().copied())?;
-    design::check_changes(&designs, &scope.changes, &now)?;
+    let drawn: BTreeSet<&String> = scope.changes.drawn().collect();
+    let designs = design::open_named(&scope.lists, &ids, &scope.checkout.repo())?;
+    let drawings = design::Drawings::read(top, &scope.tip, designs, &drawn)?;
+    design::check_changes(&drawings.changes, &scope.changes, &drawings.now)?;
     let named = design::named(&ids);
     Ok(match ids.as_slice() {
         [_] => format!("{named} resolves every place the commits change and is approved\n"),

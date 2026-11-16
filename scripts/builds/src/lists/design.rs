@@ -783,6 +783,34 @@ pub struct DrawnChange<'a> {
     pub drawing: Drawing,
 }
 
+/// What `covers` compares: design changes, each with how its last commit
+/// draws some paths, and how the commits' last commit draws them.
+pub struct Drawings<'a> {
+    pub changes: Vec<DrawnChange<'a>>,
+    pub now: Drawing,
+}
+
+impl<'a> Drawings<'a> {
+    /// How each of <designs> and commit <last>, in the checkout at <top>,
+    /// draw <paths>.
+    pub fn read(
+        top: &Path,
+        last: &str,
+        designs: impl IntoIterator<Item = &'a DesignChange>,
+        paths: &BTreeSet<&String>,
+    ) -> Result<Drawings<'a>> {
+        let mut changes = Vec::new();
+        for design in designs {
+            changes.push(DrawnChange {
+                design,
+                drawing: drawn_by(top, design, paths.iter().copied())?,
+            });
+        }
+        let now = drawing_at(top, last, paths.iter().copied())?;
+        Ok(Drawings { changes, now })
+    }
+}
+
 /// Do <designs> together cover <changes>, the design files of commits whose
 /// last commit draws them as <now>? Each place the commits change must be a
 /// place of one of the changes. The person reviews each board as its
@@ -879,7 +907,7 @@ pub fn check_changes(designs: &[DrawnChange], changes: &Changes, now: &Drawing) 
 
 /// How design change <design> draws <paths>: as its last commit has them,
 /// or not at all for a change recorded before its last commit was kept.
-pub fn drawn_by<'a>(
+fn drawn_by<'a>(
     top: &Path,
     design: &DesignChange,
     paths: impl IntoIterator<Item = &'a String>,
@@ -933,20 +961,14 @@ pub fn design_commits<'a>(
         .flat_map(|(_, changes)| changes.drawn())
         .collect();
     let last = ahead.last().expect("it holds the design commits");
-    let now = drawing_at(top, last, drawn.iter().copied())?;
-    let mut open = Vec::new();
-    for design in open_designs(lists, repo) {
-        open.push(DrawnChange {
-            design,
-            drawing: drawn_by(top, design, drawn.iter().copied())?,
-        });
-    }
+    let drawings = Drawings::read(top, last, open_designs(lists, repo), &drawn)?;
     Ok(commits
         .into_iter()
         .map(|(sha, changes)| {
-            let covered_by = open
+            let covered_by = drawings
+                .changes
                 .iter()
-                .find(|drawn| covers(std::slice::from_ref(*drawn), &changes, &now).is_ok())
+                .find(|drawn| covers(std::slice::from_ref(*drawn), &changes, &drawings.now).is_ok())
                 .map(|drawn| drawn.design);
             DesignCommit {
                 sha: sha.clone(),
