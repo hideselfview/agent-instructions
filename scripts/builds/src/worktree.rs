@@ -274,7 +274,8 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
     // With no claim to start from, unheld_in ignores the branches this
     // worktree left. Those branches stay, and `builds health` lists them
     // while they hold work.
-    let held = crate::unlanded::unheld_in(&tool.places, checkout, i64::MAX)?;
+    let commits = crate::procs::git_commits(&crate::procs::Processes::read());
+    let held = crate::unlanded::unheld_in(&tool.places, checkout, i64::MAX, &commits)?;
     if !held.is_empty() {
         fail!(
             "{}",

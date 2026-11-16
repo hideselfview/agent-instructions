@@ -285,7 +285,8 @@ pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
     let checkout = Checkout::find(checkout)?;
     crate::lists::running::require_release_allowed(places, &checkout)?;
     if let Some(claim) = Claim::read(&checkout.claim_file())? {
-        let held = crate::unlanded::unheld_in(places, &checkout, claim.since)?;
+        let commits = crate::procs::git_commits(&crate::procs::Processes::read());
+        let held = crate::unlanded::unheld_in(places, &checkout, claim.since, &commits)?;
         if !held.is_empty() {
             fail!(
                 "{}",

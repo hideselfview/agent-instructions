@@ -85,8 +85,14 @@ fn branches_left(top: &Path, since: i64) -> Result<Vec<String>> {
 /// HEAD's commits, the commits of each branch the worktree left since
 /// <since> (its claim's start) that no worktree checks out now and no name
 /// of <held> (the branches open items run or are parked on) covers, the
-/// files not committed, and the `git commit`s that run there.
-pub fn in_worktree(checkout: &Checkout, since: i64, held: &[String]) -> Result<Held> {
+/// files not committed, and the `git commit`s of <commits> (every one that
+/// runs) that run there.
+pub fn in_worktree(
+    checkout: &Checkout,
+    since: i64,
+    held: &[String],
+    commits: &[crate::procs::GitCommit],
+) -> Result<Held> {
     let top = &checkout.top;
     let unread = |error: String| {
         fail::Fail::Message(format!("reading the work in {}: {error}", top.display()))
@@ -119,10 +125,7 @@ pub fn in_worktree(checkout: &Checkout, since: i64, held: &[String]) -> Result<H
             .map_err(unread)?
             .into_iter()
             .collect(),
-        committing: crate::procs::commits_in(
-            &crate::procs::git_commits(&crate::procs::Processes::read()),
-            top,
-        ),
+        committing: crate::procs::commits_in(commits, top),
     })
 }
 
@@ -301,9 +304,15 @@ fn named_branches(loaded: &[crate::lists::store::Loaded]) -> BTreeSet<(String, S
 
 /// The work in <checkout> that origin/main lacks and that no open item holds,
 /// for a claim that began at <since>: none when an item is parked there,
-/// since the item holds all of it. Fails when a store does not load, since
-/// its items may hold the work.
-pub fn unheld_in(places: &crate::places::Places, checkout: &Checkout, since: i64) -> Result<Held> {
+/// since the item holds all of it. <commits> are the `git commit`s that run,
+/// which the caller reads once. Fails when a store does not load, since its
+/// items may hold the work.
+pub fn unheld_in(
+    places: &crate::places::Places,
+    checkout: &Checkout,
+    since: i64,
+    commits: &[crate::procs::GitCommit],
+) -> Result<Held> {
     let loaded = crate::lists::store::load_all(places);
     let top = checkout.top.display().to_string();
     let parked = crate::lists::parked::parked_worktrees(&loaded).map_err(|fault| {
@@ -320,5 +329,5 @@ pub fn unheld_in(places: &crate::places::Places, checkout: &Checkout, since: i64
         .filter(|(named_repo, _)| *named_repo == repo)
         .map(|(_, branch)| branch)
         .collect();
-    in_worktree(checkout, since, &held)
+    in_worktree(checkout, since, &held, commits)
 }
