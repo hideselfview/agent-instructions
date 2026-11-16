@@ -7,6 +7,7 @@ fn host(name: &str) -> Host {
         name: name.to_string(),
         target: (name != "local").then(|| format!("user@{name}")),
         cores: 0,
+        speed: Some(1.0),
     }
 }
 

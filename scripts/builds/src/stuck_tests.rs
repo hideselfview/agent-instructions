@@ -327,6 +327,7 @@ fn a_busy_fseventsd_on_another_host_is_sampled_over_ssh_there() {
         name: "m1".into(),
         target: Some("me@m1.local".into()),
         cores: 8,
+        speed: Some(1.0),
     };
     let sampling = Sampling::new(&host, 1_763_100_000);
     let rows = vec![row(40, 1, 0, 95.0, 1_000.0, 4_000, FSEVENTSD_PATH)];

@@ -85,12 +85,16 @@ pub fn sh_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Host {
     pub name: String,
     /// The ssh target (`user@machine`); None for this Mac.
     pub target: Option<String>,
     pub cores: u32,
+    /// How fast one of its cores compiles against one of this Mac's
+    /// (`core_speed`), measured by `builds host setup`: 1 for this Mac, None
+    /// for a host added and not yet set up.
+    pub speed: Option<f64>,
 }
 
 impl Host {
@@ -100,6 +104,7 @@ impl Host {
             name: LOCAL.to_string(),
             target: None,
             cores: std::thread::available_parallelism().map_or(1, |n| n.get() as u32),
+            speed: Some(1.0),
         }
     }
 
@@ -434,11 +439,23 @@ pub fn read_remote(places: &Places) -> Result<Vec<Host>> {
     let mut hosts = Vec::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        let [name, target, cores] = fields[..] else {
-            fail!(
-                "{} has a line that is not `<name> <target> <cores>`: {line}",
+        let (name, target, cores, speed) = match fields[..] {
+            [name, target, cores] => (name, target, cores, None),
+            [name, target, cores, speed] => (name, target, cores, Some(speed)),
+            _ => fail!(
+                "{} has a line that is not `<name> <target> <cores> [<speed>]`: {line}",
                 file.display()
-            );
+            ),
+        };
+        let speed = match speed {
+            None => None,
+            Some(text) => match text.parse::<f64>() {
+                Ok(speed) if speed > 0.0 && speed.is_finite() => Some(speed),
+                _ => fail!(
+                    "{} has a speed that is not a positive number: {line}",
+                    file.display()
+                ),
+            },
         };
         hosts.push(Host {
             name: name.to_string(),
@@ -446,6 +463,7 @@ pub fn read_remote(places: &Places) -> Result<Vec<Host>> {
             cores: cores
                 .parse()
                 .context(|| format!("reading the cores in {}", file.display()))?,
+            speed,
         });
     }
     Ok(hosts)
@@ -458,14 +476,14 @@ fn write_remote(places: &Places, hosts: &[Host]) -> Result<()> {
     let text: String = hosts
         .iter()
         .map(|host| {
-            format!(
-                "{} {} {}\n",
-                host.name,
-                host.target
-                    .as_deref()
-                    .expect("a recorded host has a target"),
-                host.cores
-            )
+            let target = host
+                .target
+                .as_deref()
+                .expect("a recorded host has a target");
+            match host.speed {
+                Some(speed) => format!("{} {target} {} {speed:.3}\n", host.name, host.cores),
+                None => format!("{} {target} {}\n", host.name, host.cores),
+            }
         })
         .collect();
     let part = file.with_extension("part");
@@ -511,6 +529,7 @@ pub fn add(places: &Places, ssh: &Ssh, name: &str, target: &str) -> Result<Host>
         name: name.to_string(),
         target: Some(target.to_string()),
         cores: probe.cores,
+        speed: None,
     };
     hosts.push(host.clone());
     write_remote(places, &hosts)?;
@@ -747,44 +766,76 @@ pub fn choose(
 }
 
 /// The hosts a cargo build may run on, the one with the most room first: the
-/// reachable hosts above the free-disk floor, ordered by `Probe::room_after`,
-/// given the number of runs that <recent> counts on each host. Hosts whose
-/// room is equal to the hundredth of a core keep the order they came in, and
-/// `all` puts this Mac first, so this Mac wins a tie. The line says why, with every host's room
-/// and recent runs and each host that was left out. A host left out is not a
+/// reachable hosts above the free-disk floor with a measured core speed,
+/// ordered by `Probe::room_after`, given the number of runs that <recent>
+/// counts on each host, times the host's core speed against this Mac's.
+/// Hosts whose weighed room is equal to the hundredth of a core keep the
+/// order they came in, and `all` puts this Mac first, so this Mac wins a tie.
+/// The line says why, with every host's room, recent runs and speed and each
+/// host that was left out. A host left out is not a
 /// failure: the caller runs on the next, and on this Mac when none is left.
 pub fn rank_by_room(
     hosts: &[(Host, std::result::Result<Probe, String>)],
     floor_kib: u64,
     recent: &crate::cargo_starts::Recent,
 ) -> (Vec<Host>, String) {
-    let mut fits: Vec<(&Host, &Probe)> = Vec::new();
     let mut skipped = Vec::new();
+    let mut fits: Vec<(&Host, &Probe, f64)> = Vec::new();
     for (host, probe) in hosts {
-        match passed_over(host, probe, floor_kib) {
-            Some(why) => skipped.push(why),
-            None => fits.extend(probe.as_ref().ok().map(|probe| (host, probe))),
+        match (passed_over(host, probe, floor_kib), host.speed) {
+            (Some(why), _) => skipped.push(why),
+            (None, None) => skipped.push(format!(
+                "{} has no measured core speed (`builds host setup {}`)",
+                host.name, host.name
+            )),
+            (None, Some(speed)) => {
+                fits.extend(probe.as_ref().ok().map(|probe| (host, probe, speed)));
+            }
         }
     }
     let runs = |host: &Host| recent.get(&host.name).copied().unwrap_or(0);
-    let hundredths =
-        |host: &Host, probe: &Probe| (probe.room_after(runs(host)) * 100.0).round() as i64;
-    fits.sort_by_key(|(host, probe)| std::cmp::Reverse(hundredths(host, probe)));
+    // A host's free cores, each counted at its speed against this Mac's: a
+    // job finishes first where this is largest. A host with more work than
+    // cores has its excess divided by its speed instead, since a slower
+    // host takes longer to work through it.
+    let weighed = |host: &Host, probe: &Probe, speed: f64| {
+        let room = probe.room_after(runs(host));
+        if room >= 0.0 {
+            room * speed
+        } else {
+            room / speed
+        }
+    };
+    let hundredths = |host: &Host, probe: &Probe, speed: f64| {
+        (weighed(host, probe, speed) * 100.0).round() as i64
+    };
+    fits.sort_by_key(|(host, probe, speed)| std::cmp::Reverse(hundredths(host, probe, *speed)));
     let mut why: Vec<String> = fits
         .iter()
-        .map(|(host, probe)| match runs(host) {
-            0 => format!("{} has {:.1} cores of room", host.name, probe.room()),
-            started => format!(
-                "{} has {:.1} cores of room after {} that started in the last minute",
-                host.name,
-                probe.room_after(started),
-                crate::text::counted(started as usize, "cargo run", "cargo runs")
-            ),
+        .map(|(host, probe, speed)| {
+            let at_speed = format!(
+                "{:.1} of this Mac's cores ({:.2} speed)",
+                weighed(host, probe, *speed),
+                speed
+            );
+            match runs(host) {
+                0 => format!(
+                    "{} has {:.1} cores of room, {at_speed}",
+                    host.name,
+                    probe.room()
+                ),
+                started => format!(
+                    "{} has {:.1} cores of room after {} that started in the last minute, {at_speed}",
+                    host.name,
+                    probe.room_after(started),
+                    crate::text::counted(started as usize, "cargo run", "cargo runs")
+                ),
+            }
         })
         .collect();
     why.extend(skipped);
     (
-        fits.into_iter().map(|(host, _)| host.clone()).collect(),
+        fits.into_iter().map(|(host, _, _)| host.clone()).collect(),
         why.join("; "),
     )
 }
@@ -799,7 +850,7 @@ pub fn probe_all(
     hosts.into_iter().zip(probes).collect()
 }
 
-const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | setup-here | list | remove <name> | clear-xcode <name>";
+const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | setup-here | speed-here | list | remove <name> | clear-xcode <name>";
 
 /// The build volume, where a host that has one keeps its builds root, as this
 /// Mac does.
@@ -810,18 +861,52 @@ pub const VOLUME: &str = "/Volumes/Builds";
 /// there, as a side worktree's live under /Volumes/Builds here.
 pub const REMOTE_ROOT: &str = "builds-root";
 
-/// Sets <host> up to take jobs: copies this program there (`install_program`)
-/// and has that copy run `builds host setup-here` there, which runs the
-/// host's sccache server under launchd with builds' cap, as `builds install`
-/// does on this Mac. Returns the host's builds root and what setup-here said.
-pub fn setup_host(ssh: &Ssh, host: &Host) -> Result<(String, String)> {
+/// What `setup_host` did on a host.
+pub struct SetUp {
+    /// The host's builds root.
+    pub root: String,
+    /// What `builds host setup-here` said there.
+    pub said: String,
+    /// The host's core speed against this Mac's, now in the hosts file.
+    pub speed: f64,
+}
+
+/// Sets <host> up to take jobs: copies this program there (`install_program`),
+/// has that copy run `builds host setup-here` there, which runs the host's
+/// sccache server under launchd with builds' cap as `builds install` does on
+/// this Mac, and records the host's core speed against this Mac's
+/// (`core_speed`) in the hosts file, timing the same compile there with
+/// `builds host speed-here` and here.
+pub fn setup_host(places: &Places, ssh: &Ssh, host: &Host) -> Result<SetUp> {
     let root = install_program(ssh, host)?;
-    let target = host
-        .target
-        .as_ref()
-        .expect("install_program refuses this Mac");
+    let (_, said) = run_builds_there(ssh, host, "host setup-here", "setting up")?;
+    let (printed, _) = run_builds_there(ssh, host, "host speed-here", "timing a compile on")?;
+    let there = crate::core_speed::parse_line(&printed)?;
+    let here = crate::core_speed::time_compile(&speed_folder())?;
+    let speed = crate::core_speed::factor(here, there);
+    let mut hosts = read_remote(places)?;
+    let Some(recorded) = hosts.iter_mut().find(|recorded| recorded.name == host.name) else {
+        fail!("host {} is no longer recorded", host.name);
+    };
+    recorded.speed = Some(speed);
+    write_remote(places, &hosts)?;
+    Ok(SetUp { root, said, speed })
+}
+
+/// Where `builds host speed-here` and `setup_host` time their compile.
+fn speed_folder() -> PathBuf {
+    std::env::temp_dir().join(format!("builds-speed-{}", std::process::id()))
+}
+
+/// Runs `~/.local/bin/builds <words>` on <host> with its builds root and
+/// PATH; returns what it printed and what it said on stderr. <doing> names
+/// the step in errors.
+fn run_builds_there(ssh: &Ssh, host: &Host, words: &str, doing: &str) -> Result<(String, String)> {
+    let Some(target) = &host.target else {
+        fail!("{LOCAL} is this Mac, not a host to run builds on over ssh");
+    };
     let script = format!(
-        "{root}\"$HOME/.local/bin/builds\" host setup-here",
+        "{root}\"$HOME/.local/bin/builds\" {words}",
         root = crate::remote::root_script(host)
     );
     let output = ssh
@@ -832,12 +917,12 @@ pub fn setup_host(ssh: &Ssh, host: &Host) -> Result<(String, String)> {
     let said = String::from_utf8_lossy(&output.stderr).trim().to_string();
     if !output.status.success() {
         fail!(
-            "setting up host {} ({target}) failed ({}): {said}",
+            "{doing} host {} ({target}) failed ({}): {said}",
             host.name,
             output.status
         );
     }
-    Ok((root, said))
+    Ok((String::from_utf8_lossy(&output.stdout).into_owned(), said))
 }
 
 /// Copies this Mac's `builds` program to `~/.local/bin/builds` on <host> and
@@ -896,15 +981,23 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             let Some(host) = all(&tool.places)?.into_iter().find(|h| h.name == *name) else {
                 fail!("no host named {name} (`builds host list`)");
             };
-            let (root, said) = setup_host(ssh, &host)?;
-            for line in said.lines() {
+            let set_up = setup_host(&tool.places, ssh, &host)?;
+            for line in set_up.said.lines() {
                 println!("host {name}: {line}");
             }
-            println!("installed builds on host {name}, with its builds root in {root}");
+            println!(
+                "installed builds on host {name}, with its builds root in {}; its cores compile at {:.2} of this Mac's speed",
+                set_up.root, set_up.speed
+            );
             Ok(())
         }
         [word] if word == "setup-here" => {
             crate::install::run_sccache_under_launchd(&tool.places.home, tool.places.uid)
+        }
+        [word] if word == "speed-here" => {
+            let took = crate::core_speed::time_compile(&speed_folder())?;
+            println!("{}", crate::core_speed::line(took));
+            Ok(())
         }
         [word, name] if word == "clear-xcode" => {
             if !all(&tool.places)?.iter().any(|host| host.name == *name) {

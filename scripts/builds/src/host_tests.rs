@@ -146,6 +146,7 @@ fn host(name: &str) -> Host {
         name: name.to_string(),
         target: Some(format!("u@{name}")),
         cores: 10,
+        speed: Some(1.0),
     }
 }
 
@@ -244,6 +245,7 @@ fn install_program_copies_builds_to_the_host_and_makes_its_root() {
         name: "m1".to_string(),
         target: Some("user@m1".to_string()),
         cores: 10,
+        speed: Some(1.0),
     };
     install_program(&ssh, &host).unwrap();
     let installed = home.join(".local/bin/builds");
@@ -269,6 +271,7 @@ fn install_program_copies_builds_to_the_host_and_makes_its_root() {
         name: "gone".to_string(),
         target: Some("unreachable".to_string()),
         cores: 1,
+        speed: Some(1.0),
     };
     let Err(Fail::Message(message)) = install_program(&ssh, &gone) else {
         panic!("expected a failure");
@@ -298,7 +301,9 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
     let names: Vec<&str> = ranked.iter().map(|h| h.name.as_str()).collect();
     assert_eq!(names, ["m1", "local", "big"]);
     assert!(
-        why.starts_with("m1 has 8.0 cores of room; local has 2.0"),
+        why.starts_with(
+            "m1 has 8.0 cores of room, 8.0 of this Mac's cores (1.00 speed); local has 2.0"
+        ),
         "{why}"
     );
     assert!(why.contains("full has"), "{why}");
@@ -324,6 +329,67 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
             .0
             .is_empty()
     );
+}
+
+/// A host's room counts at its core speed against this Mac's, and a host
+/// with no measured speed is left out, naming `builds host setup`.
+#[test]
+fn ranks_hosts_by_their_room_at_their_core_speed() {
+    let at = |name: &str, speed: Option<f64>| Host {
+        speed,
+        ..host(name)
+    };
+    let hosts = vec![
+        (at("local", Some(1.0)), probe_with(8, 6.0, 100)),
+        (at("slow", Some(0.5)), probe_with(10, 2.0, 100)),
+        (at("slower", Some(0.25)), probe_with(10, 2.0, 100)),
+        (at("new", None), probe_with(10, 0.0, 100)),
+    ];
+    let (ranked, why) = rank_by_room(&hosts, 50, &Default::default());
+    let names: Vec<&str> = ranked.iter().map(|h| h.name.as_str()).collect();
+    // 8 free cores at half speed are 4 of this Mac's, ahead of its own 2; at
+    // a quarter they are 2, a tie this Mac wins.
+    assert_eq!(names, ["slow", "local", "slower"]);
+    assert!(
+        why.contains("slow has 8.0 cores of room, 4.0 of this Mac's cores (0.50 speed)"),
+        "{why}"
+    );
+    assert!(
+        why.contains("new has no measured core speed (`builds host setup new`)"),
+        "{why}"
+    );
+    // Over its cores, a slower host ranks below a faster one with the same
+    // excess.
+    let busy = vec![
+        (at("slow", Some(0.5)), probe_with(10, 14.0, 100)),
+        (at("local", Some(1.0)), probe_with(10, 15.0, 100)),
+    ];
+    let (ranked, _) = rank_by_room(&busy, 50, &Default::default());
+    let names: Vec<&str> = ranked.iter().map(|h| h.name.as_str()).collect();
+    assert_eq!(names, ["local", "slow"]);
+}
+
+/// The hosts file keeps a host's speed once setup measured it, and a host
+/// added and not yet set up has none.
+#[test]
+fn the_hosts_file_keeps_each_hosts_speed() {
+    let scratch = Scratch::new("host-speeds");
+    let places = scratch.places();
+    let file = hosts_file(&places);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "m1 u@m1 10 0.712\nnew u@new 8\n").unwrap();
+    let hosts = read_remote(&places).unwrap();
+    let speeds: Vec<Option<f64>> = hosts.iter().map(|h| h.speed).collect();
+    assert_eq!(speeds, [Some(0.712), None]);
+    write_remote(&places, &hosts).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "m1 u@m1 10 0.712\nnew u@new 8\n"
+    );
+    std::fs::write(&file, "m1 u@m1 10 fast\n").unwrap();
+    assert!(read_remote(&places).is_err());
+    std::fs::write(&file, "m1 u@m1 10 0\n").unwrap();
+    assert!(read_remote(&places).is_err());
 }
 
 #[test]
@@ -363,6 +429,7 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
         name: "gone".to_string(),
         target: Some("unreachable".to_string()),
         cores: 1,
+        speed: Some(1.0),
     };
     let hosts = [Host::local(), m1.clone(), gone];
     // Neither home has builds' sccache plist, so each also has its sccache

@@ -139,6 +139,7 @@ fn host(name: &str, target: Option<&str>) -> Host {
         name: name.to_string(),
         target: target.map(str::to_string),
         cores: 10,
+        speed: Some(1.0),
     }
 }
 
@@ -229,7 +230,9 @@ fn the_first_host_by_room_that_has_the_clone_runs_it_and_this_mac_is_the_fallbac
     };
     assert_eq!(picked, m1);
     assert!(
-        why.starts_with("m1 has 9.0 cores of room; local has 1.0"),
+        why.starts_with(
+            "m1 has 9.0 cores of room, 9.0 of this Mac's cores (1.00 speed); local has 1.0"
+        ),
         "{why}"
     );
 

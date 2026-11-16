@@ -14,6 +14,7 @@ mod checkout;
 mod checks;
 mod checks_run;
 mod claim;
+mod core_speed;
 mod daemon;
 mod db;
 mod derive;

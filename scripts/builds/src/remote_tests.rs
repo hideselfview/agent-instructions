@@ -47,6 +47,7 @@ fn setup(name: &str) -> Setup {
         name: "m1".to_string(),
         target: Some("user@m1".to_string()),
         cores: 10,
+        speed: Some(1.0),
     };
     Setup {
         scratch,

@@ -241,12 +241,16 @@ incremental on in a profile, set profile.dev.incremental in Cargo.toml, never
 CARGO_INCREMENTAL=1, with which sccache refuses every compile.
 
 In a side worktree, `builds cargo` runs test, clippy, check, doc and nextest
-run|list on the host with the most free cores. builds skips a host that does
-not answer, is under the free-disk floor, refuses jobs (HOSTS) or has no clone of
-the repo. A host's free cores are its cores minus its one-minute load, less the
-host's cores again for each `builds cargo` run that started there in the last
-minute and still runs: cargo runs a compile job per core, and the load average
-shows a run only after a while. This Mac wins a tie. When several runs start at
+run|list on the host with the most free cores, each counted at the host's
+core speed. builds skips a host that does not answer, is under the free-disk
+floor, refuses jobs (HOSTS), has no measured core speed (`builds host setup`)
+or has no clone of the repo. A host's free cores are its cores minus its
+one-minute load, less the host's cores again for each `builds cargo` run that
+started there in the last minute and still runs: cargo runs a compile job per
+core, and the load average shows a run only after a while. Its core speed is
+this Mac's time over the host's for one fixed compile on one core, which
+`builds host setup` times on both, so a job goes where it finishes first.
+This Mac wins a tie. When several runs start at
 the same time, builds picks a host for one run at a time, so the runs go to
 different hosts. builds sends the checkout's HEAD plus its working tree (staged and unstaged edits, deletions,
 and files git neither tracks nor ignores) as a commit to the host's clone only,
@@ -571,13 +575,15 @@ cannot start refuses mac app builds only (APP BUILDS).
   builds host add <name> <ssh target>
   builds host setup <name>
   builds host setup-here
+  builds host speed-here
   builds host list
   builds host remove <name>
   builds host clear-xcode <name>
                               manage the hosts. `add` asks the host (over ssh,
                               by key, with no password) for its cores and
                               records it in the file `hosts` beside the lists
-                              folder. `setup` copies this Mac's builds program
+                              folder (`<name> <target> <cores> [<speed>]`).
+                              `setup` copies this Mac's builds program
                               to ~/.local/bin/builds on the host (both are
                               arm64 macOS), links builds-linker to it there,
                               makes its ~/builds-root, and has
@@ -586,9 +592,13 @@ cannot start refuses mac app builds only (APP BUILDS).
                               builds' cap and runs its sccache server under
                               launchd, as `builds install` does here (it
                               needs the host's user logged in to its desktop,
-                              where launchd runs user agents). `builds
-                              install` copies the program to every host the
-                              same way, without the sccache step. `list`
+                              where launchd runs user agents), and records the
+                              host's core speed in `hosts`: this Mac's time
+                              over the host's for the fixed compile `builds
+                              host speed-here` times on each (rustc on one
+                              core, the fastest of three). `builds install`
+                              copies the program to every host the same way,
+                              without the sccache step or the timing. `list`
                               asks every host for its load average per core,
                               its free disk, whether it answers and whether it
                               refuses jobs, and keeps each host's record of
