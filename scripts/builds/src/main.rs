@@ -19,6 +19,7 @@ mod daemon;
 mod db;
 mod derive;
 mod design_render;
+mod design_tokens;
 mod evict;
 mod fail;
 mod floor;

@@ -1145,7 +1145,7 @@ fn render_prints_a_board_of_a_worktree_as_one_page_in_the_theme_asked() {
     let system = w.dir.join("design/system");
     std::fs::create_dir_all(system.join("components")).unwrap();
     std::fs::create_dir_all(w.dir.join("design/mocks")).unwrap();
-    std::fs::write(system.join("tokens.css"), ":root{}").unwrap();
+    std::fs::write(system.join("tokens.json"), crate::testing::tokens_json("1")).unwrap();
     std::fs::write(system.join("components/bundle.css"), "").unwrap();
     std::fs::write(system.join("components/bundle.js"), "window.Bae = {};").unwrap();
     std::fs::write(
@@ -1177,9 +1177,9 @@ fn render_reads_a_board_at_origin_main_or_at_a_commit_each_with_its_design_syste
     let w = world("design-render-at");
     let write = |board: &str, bundle: &str| {
         std::fs::create_dir_all(w.dir.join("design/mocks")).unwrap();
-        crate::testing::design_system(&w.dir, ":root{}", "", bundle);
+        crate::testing::design_system(&w.dir, "1", "", bundle);
         std::fs::write(w.dir.join("design/mocks/mac.a.dc.html"), board).unwrap();
-        git(&w.dir, &["add", "design", "scripts"]);
+        git(&w.dir, &["add", "design"]);
         git(&w.dir, &["commit", "-q", "-m", "board"]);
         w.sha("HEAD")
     };

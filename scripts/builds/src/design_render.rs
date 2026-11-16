@@ -2,8 +2,9 @@
 //! `design/mocks/<name>.dc.html`; `render_board` draws one as a page of HTML
 //! the way the design canvas does: it follows the boards it mounts
 //! (`dc-import`), applies each board's own values (`renderVals`), `sc-if` and
-//! `sc-for`, and uses the worktree's design system (`bundle.js`, `bundle.css`,
-//! `tokens.css`). The page's script is `design_render/board.html`.
+//! `sc-for`, and uses the worktree's design system: `bundle.js`, `bundle.css`,
+//! and the `tokens.css` builds writes from `tokens.json` (`design_tokens`).
+//! The page's script is `design_render/board.html`.
 //!
 //! A board is drawn from a `Source`: a directory's files, or the files at a
 //! commit, which git reads without checking anything out, so two design
@@ -25,6 +26,7 @@ use std::process::{Command, Stdio};
 use serde_json::{Value, json};
 
 use crate::checkout::{git, git_text};
+use crate::design_tokens::{TOKENS_JSON, tokens_css};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::design_paths::exists_in;
@@ -169,33 +171,40 @@ impl Source<'_> {
     }
 }
 
-/// The design system's generated files, the paths each is read from.
-const GENERATED: [&str; 3] = [
-    "design/system/tokens.css",
+/// The design system's bundles, the paths each is read from.
+const BUNDLES: [&str; 2] = [
     "design/system/components/bundle.css",
     "design/system/components/bundle.js",
 ];
-/// The folders the generators read, and the scripts that run in them.
-const GENERATOR_INPUTS: [&str; 2] = ["design/system", "scripts/design"];
-const GENERATORS: [&str; 2] = [
-    "scripts/design/tokens-css.py",
-    "design/system/build-bundle.py",
-];
+/// The folder the bundles are built from, and the script that builds them.
+const BUNDLE_SOURCES: &str = "design/system";
+const BUNDLER: &str = "design/system/build-bundle.py";
 
 static WORK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 impl Source<'_> {
-    /// The design system's tokens.css, bundle.css and bundle.js. A directory
-    /// has them on disk. No commit holds them (they are generated and
-    /// ignored), so a commit's are generated from its own sources and kept in
-    /// <cache> under the hash of the folders they come from: one build per
-    /// distinct design system.
+    /// The design system's tokens.css, bundle.css and bundle.js. builds
+    /// writes tokens.css from the source's tokens.json itself.
     fn design_system(&self, cache: &Path) -> Result<[String; 3]> {
+        let tokens = self.read(TOKENS_JSON, "the design system's tokens")?;
+        let css = tokens_css(&tokens).map_err(|error| {
+            fail::Fail::Message(format!("{}: {}", self.label(TOKENS_JSON), error.text()))
+        })?;
+        let [bundle_css, bundle_js] = self.bundles(cache)?;
+        Ok([css, bundle_css, bundle_js])
+    }
+
+    /// The design system's bundle.css and bundle.js. A directory has them on
+    /// disk. No commit holds them (they are generated and ignored), so a
+    /// commit's are built by its own build-bundle.py and kept in <cache> under
+    /// the hash of the folders they come from: one build per distinct design
+    /// system.
+    fn bundles(&self, cache: &Path) -> Result<[String; 2]> {
         let Source::Commit { repo, rev } = self else {
-            let [a, b, c] = GENERATED.map(|rel| self.read(rel, "the design system's"));
-            return Ok([a?, b?, c?]);
+            let [a, b] = BUNDLES.map(|rel| self.read(rel, "the design system's"));
+            return Ok([a?, b?]);
         };
-        let inputs = generator_inputs(repo, rev).map_err(|error| {
+        let inputs = bundle_inputs(repo, rev).map_err(|error| {
             fail::Fail::Message(format!(
                 "the design system of {rev} cannot be generated: {}",
                 error.text()
@@ -219,15 +228,11 @@ impl Source<'_> {
             std::fs::read_to_string(entry.join(name))
                 .context(|| format!("reading the generated {name} of {rev}"))
         };
-        Ok([
-            read(GENERATED[0])?,
-            read(GENERATED[1])?,
-            read(GENERATED[2])?,
-        ])
+        Ok([read(BUNDLES[0])?, read(BUNDLES[1])?])
     }
 
-    /// Exports <inputs> at the revision, runs the generators in the export
-    /// and moves the three files to <entry>.
+    /// Exports <inputs> at the revision, runs build-bundle.py in the export
+    /// and moves the two bundles to <entry>.
     fn generate(&self, inputs: &[String], cache: &Path, entry: &Path) -> Result<()> {
         let Source::Commit { repo, rev } = self else {
             unreachable!("only a commit is generated")
@@ -275,28 +280,26 @@ impl Source<'_> {
                     String::from_utf8_lossy(&unpacked.stderr).trim()
                 );
             }
-            for script in GENERATORS {
-                let ran = Command::new("python3")
-                    .arg("-I")
-                    .arg(script)
-                    .current_dir(&work)
-                    .stdin(Stdio::null())
-                    .output()
-                    .context(|| format!("running python3 {script} for {rev}"))?;
-                if !ran.status.success() {
-                    fail!(
-                        "{script} failed on the design system of {rev}: {}",
-                        String::from_utf8_lossy(&ran.stderr).trim()
-                    );
-                }
+            let ran = Command::new("python3")
+                .arg("-I")
+                .arg(BUNDLER)
+                .current_dir(&work)
+                .stdin(Stdio::null())
+                .output()
+                .context(|| format!("running python3 {BUNDLER} for {rev}"))?;
+            if !ran.status.success() {
+                fail!(
+                    "{BUNDLER} failed on the design system of {rev}: {}",
+                    String::from_utf8_lossy(&ran.stderr).trim()
+                );
             }
             let out = work.join("out");
             std::fs::create_dir_all(&out).context(|| format!("making {}", out.display()))?;
-            for rel in GENERATED {
+            for rel in BUNDLES {
                 let name = rel.rsplit('/').next().expect("a path has a name");
                 let from = work.join(rel);
                 if !from.is_file() {
-                    fail!("{} did not write {rel} for {rev}", GENERATORS.join(" and "));
+                    fail!("{BUNDLER} did not write {rel} for {rev}");
                 }
                 std::fs::rename(&from, out.join(name))
                     .context(|| format!("moving {}", from.display()))?;
@@ -318,11 +321,11 @@ impl Source<'_> {
     }
 }
 
-/// The paths at <rev> the generators read: the generator folders, and what a
-/// symbolic link in them points at inside the repo (bae's sheep logo links
-/// to the repo's icon source), followed until no new path turns up.
-fn generator_inputs(repo: &Path, rev: &str) -> Result<Vec<String>> {
-    let mut inputs: Vec<String> = GENERATOR_INPUTS.iter().map(|s| s.to_string()).collect();
+/// The paths at <rev> build-bundle.py reads: the design system's folder, and
+/// what a symbolic link in it points at inside the repo (bae's sheep logo
+/// links to the repo's icon source), followed until no new path turns up.
+fn bundle_inputs(repo: &Path, rev: &str) -> Result<Vec<String>> {
+    let mut inputs = vec![BUNDLE_SOURCES.to_string()];
     let mut next = 0;
     while next < inputs.len() {
         let listing = git_text(

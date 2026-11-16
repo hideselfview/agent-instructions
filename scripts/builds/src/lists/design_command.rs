@@ -1,5 +1,5 @@
 //! `builds design places | only | record | amend | approve | check | landed |
-//! show | list | render`.
+//! show | list | render | tokens-css`.
 //!
 //! The commands that read git (`places`, `record`, `amend`, `check`,
 //! `landed`) find the project from the repo of the worktree they are given,
@@ -20,7 +20,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N DIR REV...\n       builds design landed N DIR SHA...\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]";
+const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N DIR REV...\n       builds design landed N DIR SHA...\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -55,6 +55,7 @@ pub fn run_in_session(
         "show" => show(tool, rest, &cwd),
         "list" => list(tool, rest, &cwd),
         "render" => render(tool, rest),
+        "tokens-css" => tokens_css(rest),
         other => fail!("unknown design command {other}\n{USAGE}"),
     }
 }
@@ -506,4 +507,14 @@ fn render(tool: &Tool, args: &[String]) -> Result<String> {
         (false, None) => crate::design_render::Source::Dir(dir),
     };
     crate::design_render::render_board(source, board, theme, &tool.places.design_system_cache())
+}
+
+/// `tokens-css DIR`: writes DIR's design/system/tokens.css from its
+/// tokens.json, as builds draws boards with it.
+fn tokens_css(args: &[String]) -> Result<String> {
+    let args = Args::parse(args, &[], &[])?;
+    let [dir] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
+    crate::design_tokens::write_tokens_css(Path::new(dir))
 }

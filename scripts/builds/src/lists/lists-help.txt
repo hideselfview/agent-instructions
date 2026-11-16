@@ -297,7 +297,7 @@ design-globs`:
                     is a component folder (design/system/components/*/),
                     counted once however many of its files change
   --design-sources  the shared design-system sources (the component sources,
-                    tokens.json, tokens.css); they win over a place glob, and
+                    tokens.json); they win over a place glob, and
                     a change to one can change any component's drawing, so
                     the design change lists the components whose drawing
                     changes
@@ -387,9 +387,10 @@ sent again.
       the page reads each board from that repo at that commit, so the commit
       must stay in the repo while the change is open. A change recorded
       before the last commit was kept draws nothing until it is amended. That
-      commit needs the design system's generated files
-      (design/system/tokens.css and design/system/components/bundle.css and
-      bundle.js) and each board's size in design/mocks/canvas.json.
+      commit needs the design system's sources (design/system/tokens.json,
+      and the design/system/build-bundle.py that writes
+      design/system/components/bundle.css and bundle.js) and each board's
+      size in design/mocks/canvas.json.
       Refused, naming each, when a changed place is left unresolved, an
       answer names a place the range does not change, `matches` has no how,
       an item is closed or missing, a board has no link, `review` is missing,
@@ -436,12 +437,23 @@ sent again.
       that commit. BOARD is the name (mac.welcome.open-failed) or the path
       (design/mocks/mac.welcome.open-failed.dc.html). It follows the boards
       the board mounts (dc-import), applies each board's own values
-      (renderVals), sc-if and sc-for, and uses DIR's built design system
-      (design/system/components/bundle.js and bundle.css,
-      design/system/tokens.css). A component is named with its bundle's
-      namespace (Bae.MacButton is window.Bae's MacButton). Redirect it to a
-      file and open that; it loads React and Roboto from the net. The review
-      page's frames load this page. Reads no store.
+      (renderVals), sc-if and sc-for, and uses DIR's design system: the
+      bundles build-bundle.py wrote (design/system/components/bundle.js and
+      bundle.css), and the stylesheet builds writes from
+      design/system/tokens.json, as `design tokens-css` does. A component is
+      named with its bundle's namespace (Bae.MacButton is window.Bae's
+      MacButton). Redirect it to a file and open that; it loads React and
+      Roboto from the net. The review page's frames load this page. Reads no
+      store.
+
+  builds design tokens-css DIR
+      Writes worktree DIR's design/system/tokens.css from its tokens.json: a
+      block of color properties per theme of `color.themes`, the first on
+      :root too; one :root block of the other families' tokens and a
+      --font-<key> property per stack of `type.families`; and a class per
+      text style of `type.groups`. builds draws boards with the same
+      stylesheet; this command writes it for what else loads it, such as a
+      repo's shot checks. Reads no store.
 
 
 PROJECTS

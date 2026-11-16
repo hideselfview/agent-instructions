@@ -16,9 +16,9 @@ fn cache(scratch: &Scratch) -> PathBuf {
 
 /// A worktree with a board `A` that mounts a board `B` and a value its
 /// script gives, and a design system as the bae repo holds one: its sources
-/// and the two scripts that generate tokens.css and the bundles from them,
-/// with the generated files ignored by git. The generated files are on disk
-/// too, as a worktree that ran the scripts has them. Nothing is committed.
+/// and the build-bundle.py that builds the bundles from them, with the
+/// bundles ignored by git. The bundles are on disk too, as a worktree that
+/// ran the script has them. Nothing is committed.
 fn tree(scratch: &Scratch) -> PathBuf {
     let dir = scratch.dir.join("wt");
     repo(&dir, "");
@@ -26,7 +26,7 @@ fn tree(scratch: &Scratch) -> PathBuf {
     std::fs::create_dir_all(&mocks).unwrap();
     design_system(
         &dir,
-        ":root { --tokens: 1; }",
+        "1",
         ".bundle { color: red; }",
         "window.Bae = { BUNDLE_MARK: 1 };",
     );
@@ -50,7 +50,7 @@ fn tree(scratch: &Scratch) -> PathBuf {
 /// Commits everything in <dir> that git does not ignore and returns the
 /// commit.
 fn commit(dir: &Path) -> String {
-    git(dir, &["add", "design", "scripts"]);
+    git(dir, &["add", "design"]);
     git(dir, &["commit", "-q", "-m", "boards"]);
     crate::lists::design_paths::full_sha(dir, "HEAD").unwrap()
 }
@@ -541,6 +541,7 @@ fn a_commits_design_system_is_generated_from_its_own_sources_once() {
     };
     // The commit holds no generated file; the page carries what its sources generate.
     assert!(!exists_in(&dir, &first, "design/system/tokens.css").unwrap());
+    assert!(!exists_in(&dir, &first, "design/system/components/bundle.js").unwrap());
     let page = at(&first);
     assert!(page.contains("--tokens: 1;") && page.contains(".bundle { color: red; }"));
     assert!(page.contains("BUNDLE_MARK"));
@@ -557,7 +558,7 @@ fn a_commits_design_system_is_generated_from_its_own_sources_once() {
     // A commit that changes the tokens gets its own.
     std::fs::write(
         dir.join("design/system/tokens.json"),
-        r#"{"css": ":root { --tokens: 2; }"}"#,
+        crate::testing::tokens_json("2"),
     )
     .unwrap();
     let second = commit(&dir);
@@ -582,21 +583,41 @@ fn a_commit_whose_design_system_cannot_be_generated_says_why() {
         &cache(&scratch),
     ));
     assert!(
-        error.contains("scripts/design/tokens-css.py failed"),
+        error.contains(&format!(
+            "{broken}:design/system/tokens.json: reading the tokens"
+        )),
         "{error}"
     );
-    git(&dir, &["rm", "-q", "-r", "scripts"]);
-    git(&dir, &["commit", "-q", "-m", "no generators"]);
-    let error = message(render_board(
-        Source::Commit {
-            repo: &dir,
-            rev: "HEAD",
-        },
-        "A",
-        Theme::Dark,
-        &cache(&scratch),
-    ));
-    assert!(error.contains("cannot be generated"), "{error}");
+    let draw = |rev: &str| {
+        message(render_board(
+            Source::Commit { repo: &dir, rev },
+            "A",
+            Theme::Dark,
+            &cache(&scratch),
+        ))
+    };
+    std::fs::write(
+        dir.join("design/system/tokens.json"),
+        crate::testing::tokens_json("1"),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("design/system/build-bundle.py"),
+        "raise SystemExit('no bundles')",
+    )
+    .unwrap();
+    let error = draw(&commit(&dir));
+    assert!(
+        error.contains("design/system/build-bundle.py failed") && error.contains("no bundles"),
+        "{error}"
+    );
+    // A link out of the repo is no source build-bundle.py can be given.
+    std::os::unix::fs::symlink("/etc/hosts", dir.join("design/system/outside")).unwrap();
+    let error = draw(&commit(&dir));
+    assert!(
+        error.contains("cannot be generated") && error.contains("points outside the repo"),
+        "{error}"
+    );
     assert_eq!(kept(&cache(&scratch)), 0);
 }
 
