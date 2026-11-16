@@ -380,16 +380,19 @@ fn resolve(
         if why.trim().is_empty() {
             fail!("no_app_place is empty; say why shared design files changed and no drawing did");
         }
+        // It answers the changed sources, which a changed board beside them
+        // does not, or shared files when nothing else changes. A component
+        // whose drawing changes, changed by the range or listed, says the
+        // opposite.
         let drawing = design
             .places
             .keys()
             .any(|p| PlaceKind::of(p) == PlaceKind::Component);
-        if (changes.sources.is_empty() && changes.shared.is_empty())
-            || !changes.places.is_empty()
-            || drawing
-        {
+        let answers = !changes.sources.is_empty()
+            || (!changes.shared.is_empty() && changes.places.is_empty());
+        if !answers || drawing {
             fail!(
-                "no_app_place is only for a range that changes shared design files and no board or component, and lists no component whose drawing changes"
+                "no_app_place is only for a range that changes design-system sources, or shared design files and no board, and it is refused beside a component whose drawing changes"
             );
         }
         design.no_app_place = Some(why.clone());

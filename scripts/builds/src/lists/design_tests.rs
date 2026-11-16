@@ -471,9 +471,7 @@ fn shared_files_alone_need_no_app_place_and_it_is_refused_beside_places() {
     w.commit(&["design/theme.toml", "design/mocks/A.dc.html"]);
     let mut request = base_request(&w, json!({ "design/mocks/A.dc.html": { "matches": "x" } }));
     request["no_app_place"] = json!("why");
-    assert!(
-        message(w.request(request)).contains("only for a range that changes shared design files")
-    );
+    assert!(message(w.request(request)).contains("or shared design files and no board"));
 }
 
 #[test]
@@ -1117,7 +1115,56 @@ fn no_app_place_says_a_source_changed_no_drawing_and_is_refused_beside_listed_co
     );
     request["range"] = json!("HEAD~1..HEAD");
     request["no_app_place"] = json!("none");
-    assert!(message(w.request(request)).contains("lists no component whose drawing changes"));
+    assert!(
+        message(w.request(request)).contains("refused beside a component whose drawing changes")
+    );
+}
+
+/// A range that adds a design system with no components beside boards
+/// answers the sources with no_app_place and each board with its place; a
+/// range that changes a component folder still refuses no_app_place.
+#[test]
+fn no_app_place_answers_the_sources_beside_changed_boards() {
+    let w = world("design-sources-beside-boards");
+    let sha = w.commit(&[
+        "design/system/tokens.json",
+        "design/system/components/src/00-page.css",
+        "design/system/build-bundle.py",
+        "design/mocks/A.dc.html",
+    ]);
+    let board = "design/mocks/A.dc.html";
+    let mut request = base_request(&w, json!({ board: { "matches": "the page draws it" } }));
+    let refused = message(w.request(request.clone()));
+    assert!(
+        refused.contains("shared design-system sources") && refused.contains("no_app_place"),
+        "{refused}"
+    );
+    request["no_app_place"] = json!("the design system has no components");
+    w.request(request).unwrap();
+    let state = w.state();
+    assert_eq!(
+        state.designs[0].no_app_place.as_deref(),
+        Some("the design system has no components")
+    );
+    assert!(state.designs[0].places.contains_key(board));
+    w.approve(1);
+    w.run(&format!("check 1 {} {sha}", w.worktree())).unwrap();
+
+    let w = world("design-sources-beside-component");
+    w.commit(&[
+        "design/system/tokens.json",
+        "design/system/components/MacRow/preview.html",
+        "design/mocks/A.dc.html",
+    ]);
+    let mut request = base_request(
+        &w,
+        json!({
+            "design/mocks/A.dc.html": { "matches": "x" },
+            "design/system/components/MacRow/": { "matches": "x" },
+        }),
+    );
+    request["no_app_place"] = json!("none");
+    assert!(message(w.request(request)).contains("whose drawing changes"));
 }
 
 #[test]

@@ -365,10 +365,12 @@ sent again.
       matches. When the range changes shared design-system sources, `places`
       also lists each component folder whose drawing changes, changed by the
       range or not (it must exist), answered the same way; `no_app_place`
-      says instead that no drawing changes (a comment in the source), and is
-      refused beside a listed component or a changed board or component.
-      Shared files that are no source (a README, a build script) change no
-      drawing: only `no_app_place`, unless a place is resolved.
+      says instead that no component's drawing changes (a comment in the
+      source, or a design system with no components), beside any changed
+      boards, which `places` answers, and is refused beside a listed or
+      changed component. Shared files that are no source (a README, a build
+      script) change no drawing: only `no_app_place`, unless a place is
+      resolved.
       `boards` gives every board place its canvas link in a project that
       publishes a canvas (`lists design-globs --canvas yes`); a request of
       any other project has no `boards`, and its change holds no links.
