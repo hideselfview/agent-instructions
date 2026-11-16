@@ -36,16 +36,19 @@ fn lock_exclusive(places: &Places) -> Result<File> {
     crate::evict::lock_exclusive_creating(&places.trash_lock())
 }
 
-/// <dir> opened, with its exclusive lock taken: waiting for it, or None
-/// when <wait> is false and another process holds it.
-fn lock_folder(dir: &Path, wait: bool) -> Result<Option<File>> {
+/// <dir> opened, with its exclusive lock taken, waiting while another
+/// process holds it.
+fn lock_folder(dir: &Path) -> Result<File> {
     let file = File::open(dir).context(|| format!("opening {}", dir.display()))?;
-    let operation = if wait {
-        libc::LOCK_EX
-    } else {
-        libc::LOCK_EX | libc::LOCK_NB
-    };
-    Ok(crate::flock::lock(&file, operation, dir)?.then_some(file))
+    crate::flock::lock(&file, libc::LOCK_EX, dir)?;
+    Ok(file)
+}
+
+/// <dir> opened, with its exclusive lock taken, or None when another
+/// process holds it.
+fn try_lock_folder(dir: &Path) -> Result<Option<File>> {
+    let file = File::open(dir).context(|| format!("opening {}", dir.display()))?;
+    Ok(crate::flock::try_lock(&file, libc::LOCK_EX, dir)?.then_some(file))
 }
 
 /// A slot in the trash, locked while it is removed. Made while the caller
@@ -61,7 +64,7 @@ impl Slot {
         let trash = places.trash();
         std::fs::create_dir_all(&trash).context(|| format!("creating {}", trash.display()))?;
         let path = crate::evict::make_temp_dir(&trash, "evict.")?;
-        let hold = lock_folder(&path, true)?.expect("a lock waited for is taken");
+        let hold = lock_folder(&path)?;
         Ok(Slot { path, hold })
     }
 
@@ -185,7 +188,7 @@ pub fn empty_now(places: &Places) -> Result<()> {
         for slot in entries(&folder)? {
             if slot.is_dir() {
                 // Waits for a removal already running. Its slot is then gone.
-                match lock_folder(&slot, true) {
+                match lock_folder(&slot) {
                     Ok(_held) => {
                         remove_or_warn(&slot);
                     }
@@ -225,7 +228,7 @@ pub fn empty_background(places: &Places) -> Result<()> {
         let mut holds = Vec::new();
         for slot in entries(&folder)? {
             if slot.is_dir() {
-                match lock_folder(&slot, false) {
+                match try_lock_folder(&slot) {
                     Ok(Some(hold)) => {
                         holds.push(hold);
                         paths.push(slot);

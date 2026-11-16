@@ -7,11 +7,10 @@ use std::path::Path;
 
 use crate::fail::{Context, Fail, Result};
 
-/// Takes <operation> (`LOCK_SH` or `LOCK_EX`, with `LOCK_NB` to not wait) on
-/// <file>, again when a signal interrupts the wait. Returns false when
-/// `LOCK_NB` is given and another process holds a lock that keeps this one
-/// out.
-pub fn lock_io(file: &File, operation: libc::c_int) -> std::io::Result<bool> {
+/// Calls flock(2) with <operation> on <file>, and calls it again when a
+/// signal interrupts the wait. Returns false when <operation> has `LOCK_NB`
+/// and another process holds a lock that keeps this one out.
+fn flock(file: &File, operation: libc::c_int) -> std::io::Result<bool> {
     loop {
         if unsafe { libc::flock(file.as_raw_fd(), operation) } == 0 {
             return Ok(true);
@@ -25,10 +24,27 @@ pub fn lock_io(file: &File, operation: libc::c_int) -> std::io::Result<bool> {
     }
 }
 
-/// `lock_io` on <file>, the file at <path>, failing with the path.
-pub fn lock(file: &File, operation: libc::c_int, path: &Path) -> Result<bool> {
-    lock_io(file, operation)
-        .map_err(|error| Fail::Message(format!("locking {}: {error}", path.display())))
+/// Takes <how> (`LOCK_SH` or `LOCK_EX`) on <file>, waiting while another
+/// process holds a lock that keeps this one out.
+pub fn lock_io(file: &File, how: libc::c_int) -> std::io::Result<()> {
+    flock(file, how).map(|_| ())
+}
+
+/// Takes <how> (`LOCK_SH` or `LOCK_EX`) on <file>, the file at <path>,
+/// waiting while another process holds a lock that keeps this one out.
+pub fn lock(file: &File, how: libc::c_int, path: &Path) -> Result<()> {
+    lock_io(file, how).map_err(|error| failed(path, error))
+}
+
+/// Tries to take <how> (`LOCK_SH` or `LOCK_EX`) on <file>, the file at
+/// <path>: returns false at once when another process holds a lock that
+/// keeps this one out.
+pub fn try_lock(file: &File, how: libc::c_int, path: &Path) -> Result<bool> {
+    flock(file, how | libc::LOCK_NB).map_err(|error| failed(path, error))
+}
+
+fn failed(path: &Path, error: std::io::Error) -> Fail {
+    Fail::Message(format!("locking {}: {error}", path.display()))
 }
 
 /// The lock file at <path>, for reading and writing, made when it is missing

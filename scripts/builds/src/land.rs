@@ -198,7 +198,7 @@ fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Resul
         .ok_or_else(|| Fail::Message(format!("{} is not a git worktree", worktree.display())))?;
     let path = PathBuf::from(git_dir).join("land.lock");
     let mut file = crate::flock::open_creating(&path)?;
-    if !crate::flock::lock(&file, libc::LOCK_EX | libc::LOCK_NB, &path)? {
+    if !crate::flock::try_lock(&file, libc::LOCK_EX, &path)? {
         let mut holder = String::new();
         let _ = file.read_to_string(&mut holder);
         let holder = holder.trim();

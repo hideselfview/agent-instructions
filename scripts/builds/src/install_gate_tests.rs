@@ -149,7 +149,7 @@ fn holds_use(places: &Places, kind: Kind, pid: u32) -> bool {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
         Err(error) => panic!("opening {}: {error}", path.display()),
     };
-    !lock(&file, libc::LOCK_EX, false, &path).unwrap()
+    !try_lock(&file, libc::LOCK_EX, &path).unwrap()
 }
 
 /// A command that passes the gate holds it shared, and install waits for it
@@ -160,7 +160,7 @@ fn install_says_another_install_runs_only_when_one_holds_the_gate() {
     let places = scratch.places();
     let path = Kind::Command.gate(&places);
     let passing = open(&path).unwrap();
-    assert!(lock(&passing, libc::LOCK_SH, false, &path).unwrap());
+    assert!(try_lock(&passing, libc::LOCK_SH, &path).unwrap());
     let probe = open(&path).unwrap();
     assert!(
         !closed_by_install(&probe, &path).unwrap(),

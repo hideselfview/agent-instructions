@@ -51,6 +51,7 @@ use std::sync::{Mutex, OnceLock, PoisonError};
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+use crate::flock::{lock, try_lock};
 use crate::places::Places;
 
 /// The variable that names the process whose use covers a builds command.
@@ -124,13 +125,6 @@ impl Kind {
     }
 }
 
-/// Takes <how> (`LOCK_SH` or `LOCK_EX`) on <file>, waiting for it; with
-/// <wait> false, returns false at once when another process holds a lock
-/// that keeps it out.
-fn lock(file: &File, how: libc::c_int, wait: bool, what: &Path) -> Result<bool> {
-    crate::flock::lock(file, if wait { how } else { how | libc::LOCK_NB }, what)
-}
-
 fn open(path: &Path) -> Result<File> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
@@ -155,11 +149,11 @@ fn pass(
 ) -> Result<(File, bool)> {
     let path = kind.gate(places);
     let gate = open(&path)?;
-    if lock(&gate, libc::LOCK_SH, false, &path)? {
+    if try_lock(&gate, libc::LOCK_SH, &path)? {
         return Ok((gate, true));
     }
     say(waiting);
-    lock(&gate, libc::LOCK_SH, true, &path)?;
+    lock(&gate, libc::LOCK_SH, &path)?;
     Ok((gate, false))
 }
 
@@ -168,7 +162,7 @@ fn pass(
 fn take(places: &Places, kind: Kind, gate: File, pid: u32, what: &str, since: &str) -> Result<Use> {
     let path = kind.uses(places).join(pid.to_string());
     let mut file = open(&path)?;
-    lock(&file, libc::LOCK_EX, true, &path)?;
+    lock(&file, libc::LOCK_EX, &path)?;
     file.set_len(0)
         .context(|| format!("writing {}", path.display()))?;
     file.write_all(format!("process {pid}, builds {what}, since {since}\n").as_bytes())
@@ -392,11 +386,11 @@ pub struct Closed {
 fn close_gate(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Result<File> {
     let path = kind.gate(places);
     let gate = open(&path)?;
-    if !lock(&gate, libc::LOCK_EX, false, &path)? {
+    if !try_lock(&gate, libc::LOCK_EX, &path)? {
         if closed_by_install(&gate, &path)? {
             say("another builds install runs: waiting for it".to_string());
         }
-        lock(&gate, libc::LOCK_EX, true, &path)?;
+        lock(&gate, libc::LOCK_EX, &path)?;
     }
     Ok(gate)
 }
@@ -408,7 +402,7 @@ fn close_gate(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Resul
 /// own program and closes the gate's file. When no install holds the gate,
 /// <gate> holds a shared lock on return.
 fn closed_by_install(gate: &File, path: &Path) -> Result<bool> {
-    Ok(!lock(gate, libc::LOCK_SH, false, path)?)
+    Ok(!try_lock(gate, libc::LOCK_SH, path)?)
 }
 
 /// Waits until every use of <kind> ends, telling <say> each use it waits
@@ -433,12 +427,12 @@ fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Re
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => fail!("opening {}: {error}", path.display()),
         };
-        if !lock(&file, libc::LOCK_EX, false, &path)? {
+        if !try_lock(&file, libc::LOCK_EX, &path)? {
             let mut text = String::new();
             file.read_to_string(&mut text)
                 .context(|| format!("reading which process holds {}", path.display()))?;
             say(format!("waiting for {}", text.trim()));
-            lock(&file, libc::LOCK_EX, true, &path)?;
+            lock(&file, libc::LOCK_EX, &path)?;
         }
         // The use ended, or its process died.
         match std::fs::remove_file(&path) {

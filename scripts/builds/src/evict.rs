@@ -195,7 +195,7 @@ fn lock_creating_waiting(path: &Path, operation: libc::c_int) -> Result<File> {
 }
 
 fn lock_now(file: File, path: &Path) -> Result<Option<File>> {
-    Ok(crate::flock::lock(&file, libc::LOCK_EX | libc::LOCK_NB, path)?.then_some(file))
+    Ok(crate::flock::try_lock(&file, libc::LOCK_EX, path)?.then_some(file))
 }
 
 /// Does any process but this one hold a file, a working directory or a
