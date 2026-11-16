@@ -1,5 +1,6 @@
 //! The tool's ways of saying things: notes on stderr, sizes, local times,
-//! and directory listings in the order a shell glob gives them.
+//! words of a command written for a shell, and directory listings in the
+//! order a shell glob gives them.
 
 use std::ffi::{CString, OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
@@ -10,6 +11,19 @@ use crate::fail::{Context, Result};
 /// A line on stderr, `builds: <message>`, which agents and hooks read.
 pub fn note(message: impl AsRef<str>) {
     eprintln!("builds: {}", message.as_ref());
+}
+
+/// <arg> as a shell would need it written, for a command the person reruns.
+pub fn shell_word(arg: &str) -> String {
+    let plain = !arg.is_empty()
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c));
+    if plain {
+        arg.to_string()
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
+    }
 }
 
 /// The local time as `19:20:05`, for a log line that must say when.

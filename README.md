@@ -113,14 +113,15 @@ Agents change this repo the way they change bae and coven
 checkout, which is the person's.
 
 The main checkout is also the live copy that `install.sh` links, so nothing goes
-live until it is on main there. Because the repo holds a `.land-live` file,
-`builds land` moves the main checkout's main to the landed commits after each
-landing with `git -C ~/dev/agent-instructions merge --ff-only origin/main`, and
-the checkout's post-merge hook runs `install.sh`, which installs the new
-`builds` and links the new rules and skills. When the person's commits or
-uncommitted edits stop the fast-forward, `builds land` prints a `NOT LIVE` line
-with the command that the person runs after they commit, push or discard those
-changes.
+live until it is on main there. After each landing, `builds land` moves the main
+checkout's main to the landed commits with
+`git -C ~/dev/agent-instructions merge --ff-only origin/main`, as it does for
+every repo's main checkout, and the checkout's post-merge hook runs
+`install.sh`, which installs the new `builds` and links the new rules and
+skills. When the main checkout is not on main, or the person's commits or
+uncommitted edits there stop the fast-forward, `builds land` prints a
+`MAIN CHECKOUT BEHIND` line with the command that the person runs after they
+check out main or commit, push or discard those changes.
 
 ## Per-project setup
 

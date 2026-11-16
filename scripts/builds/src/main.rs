@@ -42,6 +42,7 @@ mod lists;
 mod lock;
 mod lock_diff;
 mod lock_wait;
+mod main_checkout;
 mod manifest;
 mod migrate;
 mod places;

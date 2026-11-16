@@ -83,16 +83,16 @@
 //! them; otherwise `builds review landed` records the landing as landed and
 //! starts the audit of a sampled one, which never fails the landing.
 //!
-//! A repo whose landed tree holds a `.land-live` file has a main checkout that
-//! is the live copy (agent-instructions, whose main checkout install.sh links
-//! and builds builds from). After the records, land fast-forwards that main
-//! checkout to origin/main (`git merge --ff-only`), and the checkout's
-//! post-merge hook makes the landing live. The main checkout is the person's:
-//! when it is not on main, or the person's commits or uncommitted edits there
-//! stop the fast-forward, land leaves it as it is and prints a line that starts
-//! with NOT LIVE and gives the command to run once the person switches back to
-//! main or commits or removes those edits. The commits stay on origin/main and
-//! the records stay written.
+//! After the records, land fast-forwards the repo's main checkout to
+//! origin/main (`git merge --ff-only`), so the person and the agents who read
+//! code there see what landed (main_checkout.rs). In agent-instructions the
+//! checkout's post-merge hook then makes the landing live. The main checkout
+//! is the person's: when it is not on main, its main has commits origin/main
+//! lacks, or git refuses the fast-forward (the person's uncommitted edits
+//! there would change), land leaves it as it is and prints a line that starts
+//! with MAIN CHECKOUT BEHIND, says which checkout and why, and gives the
+//! command to run once the person clears it. The landing still succeeds: the
+//! commits stay on origin/main and the records stay written.
 //!
 //! The store's checks and records run as `builds` commands of this same
 //! program, so their output is held back and shown only when one fails.
@@ -105,6 +105,7 @@ use crate::checkout::git;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::Id;
+use crate::text::shell_word;
 
 const USAGE: &str = "usage: builds land <worktree> [--done N]... [--part N]... [--design N]... <sha>... (run it in the worktree whose branch holds the commits, with nothing uncommitted there, and in a repo of a project with a claim on it; land requires --design exactly when the commits change a design place or shared design file, once for each design change that resolves some of them, and takes --design alone for commits that are all design files)";
 
@@ -177,19 +178,6 @@ fn git_text(dir: &Path, args: &[&str]) -> Option<String> {
             .trim_end_matches('\n')
             .to_string()
     })
-}
-
-/// <arg> as a shell would need it written, for a command the person reruns.
-fn shell_word(arg: &str) -> String {
-    let plain = !arg.is_empty()
-        && arg
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c));
-    if plain {
-        arg.to_string()
-    } else {
-        format!("'{}'", arg.replace('\'', "'\\''"))
-    }
 }
 
 /// Waits for, then holds, the exclusive lock of one landing in a worktree.
@@ -902,42 +890,63 @@ impl Landing<'_> {
         }
     }
 
-    /// Fast-forwards the repo's main checkout to origin/main when the landed
-    /// tree holds `.land-live`, and prints a NOT LIVE line when the main
-    /// checkout stops the fast-forward.
-    fn make_live(&self, out: &mut dyn Write) {
-        let dir = &self.workdir;
-        if !git_ok(dir, &["cat-file", "-e", "origin/main:.land-live"]) {
-            return;
-        }
-        let main = match crate::checkout::Checkout::at(dir) {
+    /// Fast-forwards the repo's main checkout to origin/main, and prints a
+    /// MAIN CHECKOUT BEHIND line, which says why and gives the command to
+    /// run, when the checkout is not on main, its main has commits
+    /// origin/main lacks, or git refuses the fast-forward.
+    fn forward_main_checkout(&self, out: &mut dyn Write) {
+        let behind = |out: &mut dyn Write, what: String| {
+            let _ = writeln!(
+                out,
+                "MAIN CHECKOUT BEHIND: the landing is on origin/main, but {what}"
+            );
+        };
+        let main = match crate::checkout::Checkout::at(&self.workdir) {
             Ok(Some(checkout)) => checkout.main,
             found => {
                 let why = match found {
                     Err(error) => error.text(),
                     _ => "git finds no checkout there".to_string(),
                 };
-                let _ = writeln!(
+                behind(
                     out,
-                    "NOT LIVE: the landing is on origin/main, but land could not find the main checkout of {}: {why}",
-                    dir.display()
+                    format!(
+                        "land could not find the main checkout of {}: {why}",
+                        self.workdir.display()
+                    ),
                 );
                 return;
             }
         };
-        let command = format!(
-            "git -C {} merge --ff-only origin/main",
-            shell_word(&main.display().to_string())
-        );
-        let on = git_text(&main, &["symbolic-ref", "-q", "--short", "HEAD"]);
-        if on.as_deref() != Some("main") {
+        let command = crate::main_checkout::forward_command(&main);
+        let standing = match crate::main_checkout::Standing::read(&main) {
+            Ok(standing) => standing,
+            Err(error) => {
+                behind(
+                    out,
+                    format!(
+                        "land could not read the main checkout {}: {error}",
+                        main.display()
+                    ),
+                );
+                return;
+            }
+        };
+        if standing.behind == 0 {
             let _ = writeln!(
                 out,
-                "NOT LIVE: the landing is on origin/main, but the main checkout {} is on {}, not main; once the person checks out main there, run: {command}",
-                main.display(),
-                on.map_or("a detached HEAD".to_string(), |branch| format!(
-                    "branch {branch}"
-                ))
+                "the main checkout {} already holds origin/main",
+                main.display()
+            );
+            return;
+        }
+        if let Some((why, remedy)) = standing.obstacle() {
+            behind(
+                out,
+                format!(
+                    "the main checkout {} {why}, so land left it as it is; once the person {remedy}, run: {command}",
+                    main.display()
+                ),
             );
             return;
         }
@@ -947,25 +956,27 @@ impl Landing<'_> {
         if ok {
             let _ = writeln!(
                 out,
-                "made live: the main checkout {} is at origin/main",
+                "fast-forwarded the main checkout {} to origin/main",
                 main.display()
             );
             if !said.is_empty() {
                 let _ = writeln!(out, "{said}");
             }
         } else {
-            let _ = writeln!(
+            behind(
                 out,
-                "NOT LIVE: the landing is on origin/main, but git did not fast-forward the main checkout {} to it:\n{said}\nThe person's commits or uncommitted edits there stop the fast-forward; once the person commits, pushes or removes them, run: {command}",
-                main.display()
+                format!(
+                    "git did not fast-forward the main checkout {}:\n{said}\nThe person's uncommitted edits there, or what git names above, stop the fast-forward; once the person commits or removes them, run: {command}",
+                    main.display()
+                ),
             );
         }
     }
 
     /// After the push: leaves the worktree, records the landing, releases the
     /// worktree when its agent has nothing left there, and fast-forwards the
-    /// main checkout of a repo that holds `.land-live`. Land fast-forwards the
-    /// main checkout last, because its post-merge hook may install a new
+    /// repo's main checkout. Land fast-forwards the main checkout last,
+    /// because in agent-instructions its post-merge hook may install a new
     /// builds, and the records run as this program.
     fn finish(&self, on_main: &[String], out: &mut dyn Write) -> Result<()> {
         let waiting = self.leave(out);
@@ -973,7 +984,7 @@ impl Landing<'_> {
         if recorded && !waiting && !self.request.has_part() {
             self.release(out);
         }
-        self.make_live(out);
+        self.forward_main_checkout(out);
         if recorded { Ok(()) } else { Err(Fail::Exit(1)) }
     }
 }
