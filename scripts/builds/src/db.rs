@@ -102,8 +102,14 @@ pub fn statement<'a>(schema: &'a str, from: &str, end: &str) -> &'a str {
 /// positive range and kept off 0 (no schema) and 1 (which a hook-stats-only
 /// database once carried).
 pub fn stamp() -> i64 {
+    stamp_of_text(&schema())
+}
+
+/// The stamp a schema of text <text> carries (`stamp`), for the stamps of
+/// the older schemas the moves know.
+pub fn stamp_of_text(text: &str) -> i64 {
     let mut hash: u32 = 0x811c_9dc5;
-    for byte in schema().bytes() {
+    for byte in text.bytes() {
         hash ^= u32::from(byte);
         hash = hash.wrapping_mul(0x0100_0193);
     }

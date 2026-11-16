@@ -277,15 +277,7 @@ fn has_design_deleted(conn: &Connection) -> bool {
 #[test]
 fn the_previous_stamp_is_the_schema_without_the_deleted_boards_table() {
     let text = schema_before_design_deleted();
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in text.bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
-        BEFORE_DESIGN_DELETED_STAMP
-    );
+    assert_eq!(db::stamp_of_text(&text), BEFORE_DESIGN_DELETED_STAMP);
 }
 
 /// A store as the schema before check times made it: that schema's text, its stamp, one run with
@@ -340,13 +332,8 @@ fn a_store_from_before_check_times_loses_a_failed_checks_time_and_equals_a_fresh
 
 #[test]
 fn the_check_times_stamp_is_the_schema_before_check_times() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in schema_before_check_times().bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&schema_before_check_times()),
         BEFORE_CHECK_TIMES_STAMP
     );
 }
@@ -387,13 +374,8 @@ fn a_store_of_the_schema_before_design_tips_gains_the_table_keeps_its_runs_and_e
 
 #[test]
 fn the_design_tip_stamp_is_the_schema_before_design_tips() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in schema_before_design_tip().bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&schema_before_design_tip()),
         BEFORE_DESIGN_TIP_STAMP
     );
 }
@@ -431,13 +413,8 @@ fn a_store_from_before_app_timings_gains_their_tables_keeps_its_runs_and_equals_
 
 #[test]
 fn the_app_timing_stamp_is_the_schema_before_app_timings() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in without_design_fix(db::schema_before_app_timing()).bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&without_design_fix(db::schema_before_app_timing())),
         BEFORE_APP_TIMING_STAMP
     );
 }
@@ -476,13 +453,8 @@ fn a_store_from_before_design_sessions_gains_their_table_keeps_its_runs_and_equa
 
 #[test]
 fn the_design_session_stamp_is_the_schema_before_design_sessions() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in without_design_fix(db::schema_before_design_session()).bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&without_design_fix(db::schema_before_design_session())),
         BEFORE_DESIGN_SESSION_STAMP
     );
 }
@@ -520,13 +492,8 @@ fn a_store_from_before_shot_findings_gains_their_table_keeps_its_runs_and_equals
 
 #[test]
 fn the_shot_findings_stamp_is_the_schema_before_shot_findings() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in without_design_fix(db::schema_before_shot_findings()).bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&without_design_fix(db::schema_before_shot_findings())),
         BEFORE_SHOT_FINDINGS_STAMP
     );
 }
@@ -572,13 +539,8 @@ fn a_store_from_before_the_review_gains_its_tables_keeps_its_runs_and_equals_a_f
 
 #[test]
 fn the_review_stamp_is_the_schema_before_the_review() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in without_design_fix(db::schema_before_review()).bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&without_design_fix(db::schema_before_review())),
         BEFORE_REVIEW_STAMP
     );
 }
@@ -616,13 +578,8 @@ fn a_store_from_before_cargo_runs_keeps_its_runs_and_equals_a_fresh_schema() {
 
 #[test]
 fn the_cargo_runs_stamp_is_the_schema_before_cargo_runs() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in without_design_fix(db::schema()).bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&without_design_fix(db::schema())),
         BEFORE_CARGO_RUNS_STAMP
     );
 }
@@ -732,13 +689,8 @@ fn a_store_from_before_design_fixes_gains_their_table_keeps_its_runs_and_equals_
 
 #[test]
 fn the_design_fix_stamp_is_the_schema_before_design_fixes() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in schema_before_design_fix().bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&schema_before_design_fix()),
         BEFORE_DESIGN_FIX_STAMP
     );
 }
@@ -835,13 +787,8 @@ fn a_store_from_before_landing_reviews_keeps_its_landings_with_the_run_each_pass
 
 #[test]
 fn the_landing_review_stamp_is_the_schema_before_landing_reviews() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in schema_before_landing_review().bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&schema_before_landing_review()),
         BEFORE_LANDING_REVIEW_STAMP
     );
 }
@@ -1083,13 +1030,8 @@ fn a_call_with_no_exchange_to_read_its_prompt_from_leaves_the_store_as_it_was() 
 
 #[test]
 fn the_scored_calls_stamp_is_the_schema_before_scored_calls() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in schema_before_scored_calls().bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&schema_before_scored_calls()),
         BEFORE_SCORED_CALLS_STAMP
     );
 }
@@ -1114,15 +1056,7 @@ fn schema_before_tags() -> String {
 
 #[test]
 fn the_tags_stamp_is_the_schema_before_tags() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in schema_before_tags().bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
-        BEFORE_TAGS_STAMP
-    );
+    assert_eq!(db::stamp_of_text(&schema_before_tags()), BEFORE_TAGS_STAMP);
 }
 
 #[test]
@@ -1211,13 +1145,8 @@ fn schema_with_cargo_runs() -> String {
 
 #[test]
 fn the_cargo_runs_removed_stamp_is_the_schema_with_cargo_runs() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in without_origins(schema_with_cargo_runs()).bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&without_origins(schema_with_cargo_runs())),
         BEFORE_CARGO_RUNS_REMOVED_STAMP
     );
 }
@@ -1302,13 +1231,8 @@ CREATE INDEX question_origin ON question (origin);
 
 #[test]
 fn the_origins_stamp_is_the_schema_before_origins() {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in without_origins(db::schema()).bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
     assert_eq!(
-        i64::from(hash % (i32::MAX as u32 - 2)) + 2,
+        db::stamp_of_text(&without_origins(db::schema())),
         BEFORE_ORIGINS_STAMP
     );
 }
