@@ -13,6 +13,11 @@ READ FIRST
   - `builds item show N` for each of your items, and `builds decision find
     <words>` for the decisions they cite.
   - `builds help workflow`.
+  - The product spec's text on every behavior your items touch (bae:
+    spec/bae.md; coven: spec/coven.md and spec/api.md). Search it by the
+    behavior's words and read each whole section. The spec records what the
+    person decided: a brief follows it and points at it, and a choice that
+    would change it goes to the person as a question, not into the brief.
   - Every rule file the matching-rules script lists for the files your items
     touch:
       ~/.codex/agent-instructions/scripts/rules_review/matching_rules.py \
@@ -53,8 +58,9 @@ WRITE ONE BRIEF PER ITEM
     (scripts/cargo.sh), the hook, and for a Swift or Kotlin change `builds
     app-build <repo> <branch>`. Never a UI test suite, an iOS build or the
     Android emulator.
-  - Spec: the spec sections to edit in the same commit (bae: spec/bae.md;
-    coven: spec/*.md), or "none" with why.
+  - Spec: the spec text that states each behavior the change touches, with
+    file and line, and the sections to edit in the same commit, or "none"
+    with why.
   - Locales: say which new user-visible strings go into every locale.
   - Model: a faster, cheaper model executes. Only a software plan too large
     for the coordinator to hold goes to the strongest model, which writes a

@@ -67,7 +67,11 @@ PLAN, BRIEF, EXECUTE, REVIEW
   - Brief: each queued item gets a brief that states the goal, the shape, the
     facts gathered so far (measurements, logs, leads), what must hold, and the
     checks. A brief leaves the executor no design decision, but doesn't name
-    each file and line: the executor reads the code. `builds help briefs` is
+    each file and line: the executor reads the code. Before writing a brief
+    or settling a choice an agent raises, the coordinator reads the spec's
+    text on each behavior the change touches, and the brief points at it.
+    A rule never overrides the spec: a change to what the spec says is the
+    person's decision. `builds help briefs` is
     the instructions for a planner agent that writes briefs.
   - Execute: an agent that carries out a brief or a plan the strongest model
     settled runs a faster, cheaper model. Name that model on every such
@@ -105,8 +109,10 @@ PLAN, BRIEF, EXECUTE, REVIEW
 
 WHAT AN IMPLEMENTING AGENT DOES
 
-  1. Read the code paths its brief names. A choice the brief didn't settle
-     goes back to the coordinator, never into a guess.
+  1. Read the code paths its brief names, and the spec's text on each
+     behavior it changes. A choice the brief didn't settle, or a brief that
+     disagrees with the spec, goes back to the coordinator with both texts,
+     never into a guess.
   2. Branch from origin/main in its claimed worktree.
   3. Implement to the brief. A bug fix starts with its failing test.
   4. Review its own diff once, against the brief and the matching rules.

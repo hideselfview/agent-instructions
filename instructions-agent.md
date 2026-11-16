@@ -49,6 +49,13 @@ process output) instead of trusting a notification's text or a matched
 substring, and read the whole call chain. When behaviour is unclear, add logs
 and read them.
 
+**Read the product spec before you plan, brief or build.** Before you write a
+plan or a brief, settle a choice, or change a behavior, search the project's
+spec for that behavior and read the whole section. The spec records what the
+person decided, so a rule or a fact never overrides it: changing what it says is
+the person's decision
+(`rules/commits-and-repo-contents/every-change-agrees-with-its-product-spec.md`).
+
 **Read macOS's unified log with `/usr/bin/log`.** In zsh, `log` is a shell
 builtin that prints nothing:
 `/usr/bin/log show --info --debug --predicate 'subsystem == "…"'`.
