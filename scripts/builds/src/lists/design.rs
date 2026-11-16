@@ -742,9 +742,6 @@ fn takes_part(design: &DesignChange, changes: &Changes) -> bool {
 /// the commits change: otherwise it would close with commits that are not
 /// its own.
 pub fn check_changes(lists: &Lists, ids: &[Id], repo: &str, changes: &Changes) -> Result<()> {
-    if ids.is_empty() {
-        fail!("name a design change to check");
-    }
     let mut designs = Vec::new();
     for (at, id) in ids.iter().enumerate() {
         if ids[..at].contains(id) {
