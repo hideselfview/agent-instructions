@@ -406,9 +406,10 @@ fn a_branch_lands_in_two_parts_each_with_the_fixes_of_its_own_findings() {
     assert!(record_landed(&second, &stamp(), false).unwrap().is_some());
 }
 
-/// bae's landing 87: the coordinator named the reviewed commit, reworded, as
-/// the fix of the findings on its message, and a rebase then changed the
-/// lines it adds.
+/// A reviewed commit with a new message, named as the fix of a finding on its
+/// message, needs a new run of the review when a rebase changed the lines it
+/// adds. A fix of a finding on a changed file needs none. Land and `builds
+/// review` agree on both.
 #[test]
 fn a_rebased_fix_of_a_message_finding_whose_added_lines_changed_needs_a_review() {
     let demo = demo("landing-rebased-reword");

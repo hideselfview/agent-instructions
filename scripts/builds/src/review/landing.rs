@@ -526,7 +526,7 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
 pub fn taken(verdict: &Verdict) -> String {
     match verdict {
         Verdict::Takes(covered) => format!(
-            "review landing {} ({}), reviewed by run {}, takes these commits: each is reviewed or the named fix of a confirmed finding on a changed file, and every finding is settled",
+            "review landing {} ({}), reviewed by run {}, takes these commits: a run of the review read each one, or the coordinator named it as the fix of a confirmed finding on a changed file, and the coordinator settled every finding",
             covered.landing.id, covered.landing.key, covered.run
         ),
         _ => "no group's rules cover the changed paths: the landing needs no review".to_string(),
