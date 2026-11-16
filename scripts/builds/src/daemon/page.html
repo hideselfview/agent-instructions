@@ -1302,10 +1302,24 @@ function workTrail(w) {
   const it = lists.items.find(i => i.id === w.items[0].id);
   return it ? trailRow(it.id, it.trail) : null;
 }
-// Every tag on the open questions' and items' trails, with how many trails have it.
+// Does an open question or item carry <tag> on its trail?
+function tagIsOpen(tag) { return [...lists.stack, ...lists.items].some(rec => rec.trail.tags.includes(tag)); }
+// The tags of each entry the chosen tab shows when no tag is chosen.
+function tabTags() {
+  if (tab === "stack") {
+    const {own, held} = stackEntries();
+    return [...own.map(q => q.trail.tags), ...held.map(workTags)];
+  }
+  if (tab === "running") return runningWorks().map(workTags);
+  return queueEntries().map(it => it.trail.tags);
+}
+// Every tag on the chosen tab's entries, with how many of them carry it, so
+// choosing a tag shows as many entries as its count says. A chosen tag none
+// of the tab's entries carries counts 0.
 function tagCounts() {
   const counts = new Map();
-  for (const rec of [...lists.stack, ...lists.items]) for (const t of rec.trail.tags) counts.set(t, (counts.get(t) || 0) + 1);
+  for (const tags of tabTags()) for (const t of tags) counts.set(t, (counts.get(t) || 0) + 1);
+  if (tagFilter && !counts.has(tagFilter)) counts.set(tagFilter, 0);
   return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 }
 function setTag(next) {
@@ -1315,9 +1329,9 @@ function setTag(next) {
 }
 function renderTags() {
   const bar = document.getElementById("l-tags");
-  const counts = tagCounts();
   // A tag no open entry carries shows every entry.
-  if (tagFilter && !counts.some(([t]) => t === tagFilter)) tagFilter = "";
+  if (tagFilter && !tagIsOpen(tagFilter)) tagFilter = "";
+  const counts = tagCounts();
   bar.hidden = counts.length === 0;
   if (bar.hidden) return;
   bar.replaceChildren(
@@ -1346,13 +1360,16 @@ function questionRow(q) {
 // Design changes that wait on your review: recorded, not approved, not landed.
 function reviews() { return lists.designs.filter(g => !g.closed && !g.approved); }
 function heldWorks() { return lists.board.works.filter(w => w.tab === "waiting"); }
+// The questions and held work Waiting on you shows when no tag is chosen.
+function stackEntries() { return {own: lists.stack, held: heldWorks()}; }
 // With a tag chosen, only the questions and held work that carry it; design
 // changes carry no tags.
 function stackShown() {
+  const {own, held} = stackEntries();
   return {
-    own: lists.stack.filter(q => tagged(q.trail.tags)),
+    own: own.filter(q => tagged(q.trail.tags)),
     review: tagFilter ? [] : reviews(),
-    held: heldWorks().filter(w => tagged(workTags(w))),
+    held: held.filter(w => tagged(workTags(w))),
   };
 }
 function stackItems() {
@@ -1450,10 +1467,12 @@ function checkoutState(w) {
   const c = repo && repo.checkouts.find(x => x.name === w.checkout);
   return c ? c.state : null;
 }
+// The running work Running shows when no tag is chosen.
+function runningWorks() { return lists.board.works.filter(w => w.tab === "running"); }
 // With a tag chosen, only the running work whose items carry it.
 function runningShown() {
   return {
-    works: lists.board.works.filter(w => w.tab === "running" && tagged(workTags(w))),
+    works: runningWorks().filter(w => tagged(workTags(w))),
     drawn: tagFilter ? [] : lists.designs.filter(g => !g.closed && g.approved),
   };
 }
@@ -1473,8 +1492,10 @@ function runningItems() {
     h("div", {class: "l-works"}, drawn.map(designRow)))});
   return out.length ? out : [empty(tagFilter ? "Nothing tagged " + tagFilter + " is running." : "Nothing is running.")];
 }
+// The items Queue shows when no tag is chosen.
+function queueEntries() { return lists.items.filter(it => !isRunning(it)); }
 // With a tag chosen, only the items that carry it.
-function queueShown() { return lists.items.filter(it => !isRunning(it) && tagged(it.trail.tags)); }
+function queueShown() { return queueEntries().filter(it => tagged(it.trail.tags)); }
 function queueItems() {
   const all = queueShown();
   const out = [{key: "head", data: [lists.flow], make: workHead}];
