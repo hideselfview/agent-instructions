@@ -380,10 +380,10 @@ fn resolve(
         if why.trim().is_empty() {
             fail!("no_app_place is empty; say why shared design files changed and no drawing did");
         }
-        // It answers the changed sources, which a changed board beside them
-        // does not, or shared files when nothing else changes. A component
-        // whose drawing changes, changed by the range or listed, says the
-        // opposite.
+        // `no_app_place` is valid when design-system sources change, whatever
+        // boards change with them, or when shared design files change and no
+        // board does. It is invalid when the change lists or changes a
+        // component, because that component's drawing changes.
         let drawing = design
             .places
             .keys()
@@ -392,7 +392,7 @@ fn resolve(
             || (!changes.shared.is_empty() && changes.places.is_empty());
         if !answers || drawing {
             fail!(
-                "no_app_place is only for a range that changes design-system sources, or shared design files and no board, and it is refused beside a component whose drawing changes"
+                "no_app_place is only for a range that changes design-system sources, or shared design files and no board, and record rejects it when the change lists or changes a component whose drawing changes"
             );
         }
         design.no_app_place = Some(why.clone());

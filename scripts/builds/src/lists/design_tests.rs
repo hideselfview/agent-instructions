@@ -1116,7 +1116,8 @@ fn no_app_place_says_a_source_changed_no_drawing_and_is_refused_beside_listed_co
     request["range"] = json!("HEAD~1..HEAD");
     request["no_app_place"] = json!("none");
     assert!(
-        message(w.request(request)).contains("refused beside a component whose drawing changes")
+        message(w.request(request))
+            .contains("record rejects it when the change lists or changes a component")
     );
 }
 
