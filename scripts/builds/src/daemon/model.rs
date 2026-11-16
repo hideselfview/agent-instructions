@@ -677,16 +677,14 @@ impl Model {
         } = sample;
         let (mut claimed, held) = claimed_of(&self.places, &state.roots, &state.facts, &places)?;
         let unclaimed = unclaimed_of(&self.places, &state.roots, &state.facts, &places)?;
-        let lists = crate::health::lists_findings(
-            &self.places,
-            &self.lists.current().1,
-            &places,
-            &mut claimed,
-            &held,
-        )?;
-        Ok(assess(
-            now, disk, machine, &places, claimed, unclaimed, lists,
-        ))
+        let (_, loaded) = self.lists.current();
+        let lists =
+            crate::health::lists_findings(&self.places, &loaded, &places, &mut claimed, &held)?;
+        let mut health = assess(now, disk, machine, &places, claimed, unclaimed, lists);
+        health
+            .findings
+            .extend(crate::main_checkout::findings(&self.places.home, &loaded));
+        Ok(health)
     }
 
     /// Reads the processes and judges health now.

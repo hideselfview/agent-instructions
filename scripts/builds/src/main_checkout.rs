@@ -6,7 +6,9 @@
 //! touching the person's commits or uncommitted edits, and otherwise leaves
 //! the checkout as it is and prints the command to run. In agent-instructions
 //! the fast-forward also makes the landing live: the checkout's post-merge hook
-//! runs install.sh.
+//! runs install.sh. `builds health` lists each project's main checkout whose
+//! main lacks commits that origin/main has, with the command that brings it
+//! forward.
 //!
 //! This module reads the checkout's refs as they are and fetches nothing.
 
@@ -14,6 +16,7 @@ use std::path::Path;
 use std::process::Stdio;
 
 use crate::checkout::git;
+use crate::health::{Advice, Finding, FindingKind};
 
 /// Where a main checkout stands against origin/main.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,3 +119,64 @@ fn read_git(dir: &Path, args: &[&str]) -> Result<String, String> {
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
+
+/// The finding for each main checkout of a project's repo on this Mac
+/// (`<home>/dev/<repo>`) whose main lacks commits that origin/main has, or
+/// that git could not read. A repo two projects hold counts once, and a repo
+/// with no main checkout here is no finding.
+pub fn findings(
+    home: &Path,
+    loaded: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
+) -> Vec<Finding> {
+    let Ok(loaded) = loaded else {
+        return Vec::new();
+    };
+    let repos: std::collections::BTreeSet<&str> = loaded
+        .iter()
+        .filter_map(|store| store.lists.as_ref().ok())
+        .flat_map(|lists| lists.repos.iter().map(String::as_str))
+        .collect();
+    repos
+        .into_iter()
+        .map(|repo| home.join(crate::host::clone_path(repo)))
+        .filter(|main| main.is_dir())
+        .filter_map(|main| finding(&main))
+        .map(|advice| Finding::new(FindingKind::MainCheckout, advice))
+        .collect()
+}
+
+/// What health says about the main checkout at <main>, or None when its main
+/// holds origin/main.
+fn finding(main: &Path) -> Option<Advice> {
+    let standing = match Standing::read(main) {
+        Ok(standing) => standing,
+        Err(error) => {
+            return Some(Advice::said(format!(
+                "checkout: builds could not read the main checkout {}: {error}",
+                main.display()
+            )));
+        }
+    };
+    if standing.behind == 0 {
+        return None;
+    }
+    let lacks = format!(
+        "checkout: the main checkout {} lacks {} that origin/main has",
+        main.display(),
+        crate::text::counted(standing.behind, "commit", "commits")
+    );
+    let command = forward_command(main);
+    Some(match standing.obstacle() {
+        None => Advice::run(format!("{lacks}; bring it forward with"), command),
+        Some((why, remedy)) => Advice::run(
+            format!(
+                "{lacks} and {why}, so git cannot fast-forward it; once the person {remedy}, run"
+            ),
+            command,
+        ),
+    })
+}
+
+#[cfg(test)]
+#[path = "main_checkout_tests.rs"]
+mod tests;

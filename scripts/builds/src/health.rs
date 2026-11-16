@@ -17,7 +17,8 @@
 //! jobs, whose Xcode cannot start, whose installed `builds` differs from this
 //! Mac's or whose sccache server launchd does not run (host_installed.rs), or
 //! that lacks a setting that UI tests need or whose UI tests timed out turning on
-//! automation mode (ui_test_settings.rs).
+//! automation mode (ui_test_settings.rs), or a project's main checkout whose
+//! main lacks commits that origin/main has (main_checkout.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -70,6 +71,9 @@ pub enum FindingKind {
     Dashboard,
     /// A process whose arguments builds could not read.
     Processes,
+    /// A project's main checkout whose main lacks commits that origin/main
+    /// has (main_checkout.rs).
+    MainCheckout,
 }
 
 /// What a finding says, and the command it suggests running, if any. The
@@ -967,6 +971,9 @@ pub fn health(tool: &Tool) -> Result<Health> {
         lists,
     );
     health.findings.extend(unreadable);
+    health
+        .findings
+        .extend(crate::main_checkout::findings(&tool.places.home, &loaded));
     Ok(health)
 }
 

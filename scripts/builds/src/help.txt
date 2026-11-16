@@ -976,6 +976,12 @@ STATUS, HEALTH AND THE DASHBOARD
                               These are findings, each with what to run: no
                               dashboard running (`builds dashboard`); an
                               unclaimed worktree with commits waiting to land;
+                              a project's main checkout whose main lacks
+                              commits that origin/main has (`git -C
+                              <checkout> merge --ff-only origin/main`; when the
+                              checkout is not on main or has commits
+                              origin/main lacks, the finding says what the
+                              person does first);
                               a claimed worktree with no change and no build
                               for an hour (counted from its claim, if later); a lists store that fails its check;
                               a running item whose worktree is gone or has no
