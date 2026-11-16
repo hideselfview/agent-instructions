@@ -7,14 +7,14 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::Args;
 use crate::lists::check::repo_name_fault;
-use crate::lists::project::{self, NewProject, parse_globs};
+use crate::lists::project::{self, GlobKind, NewProject, parse_globs};
 use crate::lists::store::{Store, project_of};
 use crate::lists::view::View;
 use crate::lists::{Stamp, show};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists add-repo PROJECT REPO [--by WHO]\n       builds lists show [--json | --tag T] [--project P]\n       builds lists project-of DIR";
+const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists add-repo PROJECT REPO [--by WHO]\n       builds lists design-globs PROJECT [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists show [--json | --tag T] [--project P]\n       builds lists project-of DIR";
 
 pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
@@ -24,6 +24,7 @@ pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
     match command.as_str() {
         "init" => init(tool, rest, &cwd),
         "add-repo" => add_repo(tool, rest, &cwd),
+        "design-globs" => design_globs(tool, rest, &cwd),
         "show" => show(tool, rest, &cwd),
         "project-of" => project_of_command(tool, rest),
         other => fail!("unknown lists command {other}\n{USAGE}"),
@@ -84,6 +85,41 @@ fn add_repo(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         project::add_repo(db, repo)
     })?;
     note(format!("project {project} now carries repo {repo}"));
+    Ok(())
+}
+
+/// `lists design-globs PROJECT`: sets the design globs of each kind given,
+/// for each repo that kind names, in a store that exists.
+fn design_globs(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+    let args = Args::parse(
+        args,
+        &["design-places", "design-sources", "spec-files"],
+        &[],
+    )?;
+    let [project] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
+    let mut given = Vec::new();
+    for (flag, kind) in [
+        ("design-places", GlobKind::Place),
+        ("design-sources", GlobKind::Source),
+        ("spec-files", GlobKind::Spec),
+    ] {
+        if let Some(text) = args.value(flag)? {
+            given.push((kind, parse_globs(flag, text)?));
+        }
+    }
+    if given.is_empty() {
+        fail!("design-globs needs --design-places, --design-sources or --spec-files\n{USAGE}");
+    }
+    let store = Store::named(&tool.places, project)?;
+    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    store.write(&stamp, &format!("lists design-globs {project}"), |db| {
+        given
+            .iter()
+            .try_for_each(|(kind, globs)| project::set_design_globs(db, *kind, globs))
+    })?;
+    note(format!("set the design globs of project {project}"));
     Ok(())
 }
 

@@ -225,3 +225,63 @@ fn add_repo_refuses_a_repo_already_in_a_project_and_a_missing_project() {
         ["bae", "coven", "web"]
     );
 }
+
+/// A store made with no design globs gets them later: each kind given
+/// replaces that kind's globs for the repos it names, and the rest stay.
+/// Health names a repo whose main checkout has a design folder until its
+/// design places are set.
+#[test]
+fn design_globs_sets_the_globs_of_an_existing_store() {
+    let scratch = Scratch::new("lists-cmd-design-globs");
+    let tool = scratch.tool(0);
+    run(
+        &tool,
+        "init bae --repos bae,coven --spec-files coven:spec/*.md --by tester",
+    )
+    .unwrap();
+    std::fs::create_dir_all(tool.places.home.join("dev/bae/design/mocks")).unwrap();
+    let missing = || {
+        crate::lists::project::missing_globs_findings(
+            &tool.places.home,
+            &crate::lists::store::load_all(&tool.places),
+        )
+    };
+    let found = missing();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0]
+            .text
+            .starts_with("lists: repo bae has a design folder")
+    );
+    assert!(
+        found[0]
+            .command
+            .as_deref()
+            .is_some_and(|command| command.starts_with("builds lists design-globs bae ")),
+        "{found:?}"
+    );
+
+    run(&tool, "design-globs bae --design-places bae:design/mocks/*.html,bae:design/mocks/canvas.json --design-sources bae:design/system/** --by tester").unwrap();
+    run(
+        &tool,
+        "design-globs bae --design-places bae:design/mocks/*.html --by tester",
+    )
+    .unwrap();
+    let lists = Store::named(&tool.places, "bae").unwrap().load().unwrap();
+    assert_eq!(lists.design_places["bae"], ["design/mocks/*.html"]);
+    assert_eq!(lists.design_sources["bae"], ["design/system/**"]);
+    assert_eq!(lists.spec_files["coven"], ["spec/*.md"]);
+    assert!(missing().is_empty());
+
+    assert!(
+        refusal(run(
+            &tool,
+            "design-globs bae --design-places forage:design/*.html"
+        ))
+        .contains("repo forage, which is not one of the project's")
+    );
+    assert!(refusal(run(&tool, "design-globs bae")).contains("needs --design-places"));
+    assert!(
+        refusal(run(&tool, "design-globs nobody --spec-files bae:spec/*.md")).contains("nobody")
+    );
+}

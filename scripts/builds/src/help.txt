@@ -828,7 +828,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               a claimed worktree with no change and no build
                               for an hour (counted from its claim, if later); a lists store that fails its check;
                               a running item whose worktree is gone or has no
-                              claim; a held worktree whose wait closed;
+                              claim; a held worktree whose wait closed; a
+                              repo with a design folder and no design globs
+                              (`builds lists design-globs`);
                               commits that change design files that no open
                               design change covers (a worktree whose open
                               design change waits on the person's review is

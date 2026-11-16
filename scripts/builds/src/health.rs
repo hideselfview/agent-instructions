@@ -10,7 +10,8 @@
 //! free-space floor, a lists store that fails its check, a running item
 //! whose worktree is gone or has no claim (lists/running.rs), a held worktree
 //! whose item waits on nothing open, commits that change design files no
-//! recorded design change covers (lists/held.rs), or a build host that refuses
+//! recorded design change covers (lists/held.rs), a repo with a design folder
+//! and no design globs (lists/project.rs), or a build host that refuses
 //! jobs or whose Xcode cannot start (host.rs).
 
 use std::path::{Path, PathBuf};
@@ -753,8 +754,10 @@ pub fn locks_of(places: &crate::places::Places, roots: &[Root]) -> Result<Vec<Ap
     Ok(locks)
 }
 
-/// What the lists say about the claimed worktrees, one line each: the
-/// running-item and held-work findings (lists/running.rs, lists/held.rs). Also
+/// What the lists say, one line each: the running-item and held-work
+/// findings about the claimed worktrees (lists/running.rs, lists/held.rs),
+/// and each repo with a design folder and no design globs
+/// (lists/project.rs). Also
 /// marks the worktrees whose design change waits on the person's review, so
 /// <claimed> is judged with that known.
 pub fn lists_findings(
@@ -770,6 +773,10 @@ pub fn lists_findings(
     }
     let mut lists = crate::lists::running::findings(places_in, loaded)?;
     lists.extend(crate::lists::held::findings(loaded, worktrees));
+    lists.extend(crate::lists::project::missing_globs_findings(
+        &places_in.home,
+        loaded,
+    ));
     Ok(lists)
 }
 

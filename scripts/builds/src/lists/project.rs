@@ -1,7 +1,7 @@
 //! The project: its name, the repos its lists cover, and each repo's globs
 //! for design places, design-system sources and spec files. These are the
-//! writes of the tables in project.sql; `command` is `lists init` and
-//! `lists add-repo` around them.
+//! writes of the tables in project.sql; `command` is `lists init`,
+//! `lists add-repo` and `lists design-globs` around them.
 
 use std::collections::BTreeMap;
 
@@ -40,24 +40,58 @@ impl NewProject {
                 return Some(format!("repo {repo} is listed twice"));
             }
         }
-        for (what, globs) in [
-            ("design places", &self.places),
-            ("design sources", &self.sources),
-            ("spec files", &self.specs),
-        ] {
-            for (repo, globs) in globs {
-                if !self.repos.contains(repo) {
-                    return Some(format!(
-                        "{what} name repo {repo}, which is not one of the project's"
-                    ));
-                }
-                if globs.iter().any(|glob| glob.trim().is_empty()) {
-                    return Some(format!("repo {repo} has an empty glob among its {what}"));
-                }
-            }
-        }
-        None
+        [
+            (GlobKind::Place, &self.places),
+            (GlobKind::Source, &self.sources),
+            (GlobKind::Spec, &self.specs),
+        ]
+        .into_iter()
+        .find_map(|(kind, globs)| globs_fault(&self.repos, kind, globs))
     }
+}
+
+/// One kind of design file a repo's globs name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GlobKind {
+    Place,
+    Source,
+    Spec,
+}
+
+impl GlobKind {
+    /// The kind as the design_glob table writes it.
+    fn column(self) -> &'static str {
+        match self {
+            GlobKind::Place => "place",
+            GlobKind::Source => "source",
+            GlobKind::Spec => "spec",
+        }
+    }
+
+    fn what(self) -> &'static str {
+        match self {
+            GlobKind::Place => "design places",
+            GlobKind::Source => "design sources",
+            GlobKind::Spec => "spec files",
+        }
+    }
+}
+
+/// What is wrong with <globs> of <kind> for a project of <repos>: a repo not
+/// among them, or an empty glob.
+fn globs_fault(repos: &[String], kind: GlobKind, globs: &Globs) -> Option<String> {
+    let what = kind.what();
+    for (repo, globs) in globs {
+        if !repos.contains(repo) {
+            return Some(format!(
+                "{what} name repo {repo}, which is not one of the project's"
+            ));
+        }
+        if globs.iter().any(|glob| glob.trim().is_empty()) {
+            return Some(format!("repo {repo} has an empty glob among its {what}"));
+        }
+    }
+    None
 }
 
 /// The project's row, its repos and every repo's globs.
@@ -81,21 +115,76 @@ pub fn init(db: &Connection, new: &NewProject) -> Result<()> {
             .sql()?;
     }
     for (kind, globs) in [
-        ("place", &new.places),
-        ("source", &new.sources),
-        ("spec", &new.specs),
+        (GlobKind::Place, &new.places),
+        (GlobKind::Source, &new.sources),
+        (GlobKind::Spec, &new.specs),
     ] {
-        for (repo, globs) in globs {
-            for glob in globs {
-                db.execute(
-                    "INSERT OR IGNORE INTO design_glob (repo, kind, glob) VALUES (?1, ?2, ?3)",
-                    params![repo, kind, glob],
-                )
-                .sql()?;
-            }
+        insert_globs(db, kind, globs)?;
+    }
+    Ok(())
+}
+
+fn insert_globs(db: &Connection, kind: GlobKind, globs: &Globs) -> Result<()> {
+    for (repo, globs) in globs {
+        for glob in globs {
+            db.execute(
+                "INSERT OR IGNORE INTO design_glob (repo, kind, glob) VALUES (?1, ?2, ?3)",
+                params![repo, kind.column(), glob],
+            )
+            .sql()?;
         }
     }
     Ok(())
+}
+
+/// Sets the globs of <kind> of each repo <globs> names to the ones it gives,
+/// in place of what the repo had; other repos and kinds keep theirs.
+pub fn set_design_globs(db: &Connection, kind: GlobKind, globs: &Globs) -> Result<()> {
+    let project = read(db)?;
+    if let Some(fault) = globs_fault(&project.repos, kind, globs) {
+        fail!("project {}: {fault}", project.name);
+    }
+    for repo in globs.keys() {
+        db.execute(
+            "DELETE FROM design_glob WHERE repo = ?1 AND kind = ?2",
+            params![repo, kind.column()],
+        )
+        .sql()?;
+    }
+    insert_globs(db, kind, globs)
+}
+
+/// The health finding for each repo of a loaded store whose main checkout
+/// (`<home>/dev/<repo>`) has a design folder and that has no design place
+/// globs: no design change can be recorded in it, and `land` never asks for
+/// one.
+pub fn missing_globs_findings(
+    home: &std::path::Path,
+    loaded: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
+) -> Vec<crate::health::Advice> {
+    let Ok(loaded) = loaded else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for lists in loaded.iter().filter_map(|store| store.lists.as_ref().ok()) {
+        for repo in &lists.repos {
+            let design = home.join(crate::host::clone_path(repo)).join("design");
+            if design.is_dir() && !lists.design_places.contains_key(repo) {
+                found.push(crate::health::Advice::run(
+                    format!(
+                        "lists: repo {repo} has a design folder ({}), and project {}'s store names none of its design places, so no design change can be recorded there and landing never asks for one; set its globs with",
+                        design.display(),
+                        lists.project
+                    ),
+                    format!(
+                        "builds lists design-globs {} --design-places {repo}:GLOB,... [--design-sources {repo}:GLOB,...] [--spec-files {repo}:GLOB,...]",
+                        lists.project
+                    ),
+                ));
+            }
+        }
+    }
+    found
 }
 
 /// `R:GLOB,R:GLOB` as each repo's globs, for the flag <flag>.

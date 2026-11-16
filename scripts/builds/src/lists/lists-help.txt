@@ -284,7 +284,8 @@ change waits on the person's review until they approve it; `builds help
 workflow` says how the session and the person work through one. builds land
 --design N refuses the change before approval, and landing closes it.
 
-A repo's design files are the globs given to `lists init`:
+A repo's design files are the globs given to `lists init` or `lists
+design-globs`:
 
   --design-places   a board file (design/mocks/*.dc.html) is a place, and so
                     is a component folder (design/system/components/*/),
@@ -442,6 +443,16 @@ PROJECTS
       covers, as their main checkouts' folders. --design-places,
       --design-sources and --spec-files give each repo's design files, one
       REPO:GLOB each (DESIGN CHANGES, above). Refused when the store exists.
+
+  builds lists design-globs PROJECT [--design-places R:GLOB,...]
+                    [--design-sources R:GLOB,...] [--spec-files R:GLOB,...]
+                    [--by WHO]
+      Sets the design files of a project whose store exists, with the same
+      REPO:GLOB entries as init. Each flag given replaces that kind's globs
+      for each repo it names; the other kinds and repos keep theirs. `builds
+      health` names a repo whose main checkout has a design folder and that
+      has no --design-places globs, since no design change can be recorded
+      there.
 
   builds lists add-repo PROJECT REPO [--by WHO]
       Adds a repo to the project, so its worktrees run items, land commits
