@@ -9,8 +9,6 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
 use crate::checkout::{Checkout, git, git_text};
 use crate::fail;
 use crate::fail::Result;
@@ -203,7 +201,7 @@ pub fn refusal(what: &str, top: &Path, held: &Held) -> String {
 
 /// A local branch that holds commits origin/main lacks while no worktree
 /// checks it out: work nothing in builds shows unless an open item names it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LooseBranch {
     pub repo: String,
     /// The repo's main checkout.
