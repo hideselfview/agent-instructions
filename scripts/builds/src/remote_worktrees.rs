@@ -14,8 +14,9 @@
 //! job's id, `<pid>-<nanoseconds>`, whose pid is the `builds` process on this
 //! Mac that runs the job and releases the claim when it ends. prune keeps a
 //! claimed worktree while that process runs, and removes the worktree of a
-//! claim whose process is gone, since nothing releases that claim. It takes
-//! the claim itself while it removes the worktree, so no job starts there.
+//! claim whose process is gone, since nothing releases that claim. prune
+//! takes the claim itself while it removes the worktree, so no job starts
+//! there.
 
 use crate::checkout::{file_name, worktrees_of};
 use crate::fail::Result;
@@ -199,8 +200,9 @@ fn app_checkout(places: &Places, repo: &str, host: &str, name: &str) -> Result<b
 }
 
 /// Removes the job worktrees on every recorded host that no checkout's jobs
-/// use (or with <run> dry, says which it would remove). A host that does not
-/// answer, or a removal that fails there, is noted and passed over.
+/// use (or with <run> dry, says which it would remove). When a host does not
+/// answer or a removal fails there, prune notes it and moves on to the next
+/// one.
 pub fn prune(places: &Places, ssh: &Ssh, run: Run) -> Result<()> {
     for host in host::read_remote(places)? {
         prune_host(places, ssh, &host, run)?;

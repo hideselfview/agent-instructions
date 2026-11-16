@@ -23,8 +23,8 @@ pub struct SetUp {
 
 /// Sets <host> up to take jobs: copies this program there (`install_program`),
 /// has that copy run `builds host setup-here` there, which runs the host's
-/// sccache server under launchd with builds' cap as `builds install` does on
-/// this Mac, and records the host's core speed against this Mac's
+/// sccache server under launchd with the cache size limit that builds sets,
+/// as `builds install` does on this Mac, and records the host's core speed against this Mac's
 /// (`core_speed`) in the hosts file, timing the same compile there with
 /// `builds host speed-here` and here.
 pub fn setup_host(places: &Places, ssh: &Ssh, host: &Host) -> Result<SetUp> {
@@ -88,7 +88,10 @@ pub fn install_program(ssh: &Ssh, host: &Host) -> Result<String> {
         .stderr(Stdio::piped())
         .spawn()
         .context(|| format!("running {} to {}", ssh.program, host.name))?;
-    let mut stdin = child.stdin.take().expect("stdin was piped");
+    let mut stdin = child
+        .stdin
+        .take()
+        .expect("the command pipes the child's stdin");
     let sent = stdin.write_all(&program);
     drop(stdin);
     let output = child

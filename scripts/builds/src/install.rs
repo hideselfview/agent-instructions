@@ -357,8 +357,8 @@ fn last_lines(path: &Path) -> String {
 
 /// Why launchd's job does not serve sccache's port, from what launchd says
 /// about the job, the pid listening on the port, and the end of the server's
-/// log. `confirm_serving` calls it only once `launchd_serves` said no, so a
-/// pid listening on the port is never the job's.
+/// log. `confirm_serving` calls `not_serving` only once `launchd_serves`
+/// said no, so a pid listening on the port is never the job's.
 fn not_serving(job: Option<&Job>, listener: Option<u32>, log: &str, log_end: &str) -> String {
     let launchd = match job {
         Some(job) => format!("launchctl print says {}", job.text()),

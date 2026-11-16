@@ -1,7 +1,7 @@
 //! The shared sccache server: which process listens on its port, whether
 //! launchd's job is that process, what it says about itself, the compiles it
-//! runs, and stopping it. Only a server that is already listening is asked:
-//! asking with none running starts one.
+//! runs, and stopping it. This module asks the server about itself only when
+//! it already listens, because asking starts a server when none runs.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -123,8 +123,8 @@ impl Job {
 }
 
 /// Reads what `launchctl print <service>` printed, here or on a host
-/// (`host_installed::installed_script`). The job's own fields are
-/// indented by one tab; deeper lines belong to nested sections, some of which
+/// (`host_installed::installed_script`). launchctl indents the job's own
+/// fields by one tab; deeper lines belong to nested sections, some of which
 /// have a `state` of their own.
 /// Fails when the job has no `state` line or a `pid` that is not a number,
 /// since launchctl then printed something builds does not know how to read.
@@ -179,7 +179,8 @@ pub fn launchd_serves(job: Option<&Job>, listener: Option<u32>) -> bool {
 }
 
 /// How many compiles the server with pid <pid> runs now. The server runs
-/// each compile as a child process, so this counts its children.
+/// each compile as a child process, so `compiles` counts the server's child
+/// processes.
 pub fn compiles(pid: u32) -> Result<usize> {
     let output = Command::new("pgrep")
         .args(["-P", &pid.to_string()])
@@ -193,8 +194,9 @@ pub fn compiles(pid: u32) -> Result<usize> {
     }
 }
 
-/// Waits until the server with pid <pid> runs no compile, so stopping it fails
-/// none. Fails when it still runs compiles after <limit>.
+/// Waits until the server with pid <pid> runs no compile, so that no compile
+/// fails when the server stops. Fails when the server still runs compiles
+/// after <limit>.
 pub fn wait_for_compiles(pid: u32, limit: Duration) -> Result<()> {
     let start = Instant::now();
     let mut said = false;
@@ -228,7 +230,7 @@ const STOP_LIMIT: Duration = Duration::from_secs(20);
 /// Stops the server listening on sccache's port with <sccache>
 /// `--stop-server`, which lets the requests in progress finish for up to 10
 /// seconds, and waits until no process listens there. Fails, with what
-/// sccache said, when the port is still held after STOP_LIMIT.
+/// sccache said, when a process still listens on the port after STOP_LIMIT.
 pub fn stop(sccache: &Path) -> Result<()> {
     let output = Command::new(sccache)
         .arg("--stop-server")

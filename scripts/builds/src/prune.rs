@@ -638,8 +638,9 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     tool.places.require_volume()?;
     // Before the roots are pruned: a worktree about to go has nothing to prune.
     retire_idle(tool, &tool.roots()?, run)?;
-    // After the retiring: a retired worktree's jobs no longer use its
-    // worktrees on the hosts.
+    // Remove the host worktrees after retire_idle runs, because the jobs of
+    // a worktree it retires no longer use that worktree's copies on the
+    // hosts.
     crate::remote_worktrees::prune(&tool.places, &crate::host::Ssh::from_env(), run)?;
     let roots = tool.roots()?;
     for root in &roots {

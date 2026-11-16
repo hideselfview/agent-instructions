@@ -49,9 +49,10 @@ fn a_worktree_belongs_to_the_checkout_it_is_named_after() {
     assert!(!belongs("side-1", &here));
 }
 
-/// An unused worktree goes unless a job that still runs claims it, or a job
-/// is claiming it now; a worktree of a checkout here always stays. A claim
-/// whose job id names no pid keeps the worktree, and prune says why.
+/// prune removes an unused worktree unless a running job claims it or a job
+/// is claiming it now, and never removes a worktree of a checkout here. When
+/// the job id in a claim names no pid, prune keeps the worktree and says
+/// why.
 #[test]
 fn an_unused_worktree_goes_unless_a_running_job_claims_it() {
     let here = names(&["bae", "side-1"]);
@@ -133,8 +134,8 @@ fn host_worktree(home: &Path, clone: &Path, name: &str, claim: Option<&str>) {
 /// prune removes each worktree on a host that belongs to no checkout here,
 /// with its build root, including one whose claim's job is gone, and keeps
 /// the worktrees of the checkouts here, the one a running job claims, an app
-/// checkout, and everything with --dry-run. A host that does not answer is
-/// passed over.
+/// checkout, and everything with --dry-run. prune skips a host that does
+/// not answer.
 #[test]
 fn prune_removes_the_worktrees_on_a_host_that_no_checkout_uses() {
     let scratch = Scratch::new("remote-worktrees");

@@ -54,10 +54,12 @@ fn reads_what_a_host_has_installed() {
     assert!(parse_installed("").is_err());
 }
 
-/// launchd runs a host's sccache server only when the process listening on
-/// sccache's port is launchd's running job, the test setup passes: a job
-/// that is running while a client's server holds the port, a job launchd
-/// keeps starting again, or a server with no plist from builds is not.
+/// launchd runs a host's sccache server only when launchd's running job is
+/// the process listening on sccache's port, the same check that setup uses.
+/// The test checks the cases where launchd does not run the server: a
+/// client's server holds the port while the job runs, nothing listens,
+/// launchd keeps starting the job again, launchd has no job, or the host
+/// has no plist from builds.
 #[test]
 fn launchd_runs_a_hosts_sccache_only_when_its_job_listens() {
     use crate::sccache::tests::{RESPAWNING, RUNNING};
@@ -77,8 +79,9 @@ fn launchd_runs_a_hosts_sccache_only_when_its_job_listens() {
     );
 }
 
-/// A host with no builds, or another builds than this Mac's, is a finding
-/// that names `builds host setup`; a host that got this Mac's copy is none.
+/// A host with no builds program, or a different version than this Mac's,
+/// gets a finding that names `builds host setup`; a host with this Mac's
+/// copy gets no finding.
 #[test]
 fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
     let scratch = Scratch::new("host-installed");
@@ -96,7 +99,7 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
         speed: Some(1.0),
     };
     let hosts = [Host::local(), m1.clone(), gone];
-    // A host that does not answer is a finding that says why.
+    // A host that does not answer gets a finding that says why.
     let all = installed_findings(&read_all_installed(&places, &ssh, &hosts));
     assert!(
         all.iter().any(|advice| advice
@@ -136,10 +139,10 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
     );
 }
 
-/// A Mac whose sccache server launchd does not run is a finding: a host's
-/// finding names `builds host setup`, this Mac's `builds install`.
-/// read_all_installed reports that launchd does not run sccache when the
-/// home has no plist from builds.
+/// When launchd does not run a Mac's sccache server, that Mac gets a
+/// finding. A host's finding names `builds host setup`, and this Mac's
+/// finding names `builds install`. read_all_installed reports that launchd
+/// does not run sccache when the home has no plist from builds.
 #[test]
 fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
     let installed = |sccache_under_launchd| Installed {

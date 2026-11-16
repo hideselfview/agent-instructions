@@ -16,10 +16,11 @@ pub struct Installed {
     /// and the repos' scripts run there; None when the host has none.
     pub builds: Option<String>,
     /// Whether launchd runs the host's sccache server from the plist builds
-    /// writes (`install::run_sccache_under_launchd`), so the server has
-    /// builds' cap and does not exit when idle: the plist is there and the
-    /// process listening on sccache's port is launchd's job
-    /// (`sccache::launchd_serves`, the test setup passes).
+    /// writes (`install::run_sccache_under_launchd`), so the server keeps the
+    /// cache under the size limit builds sets and does not exit when idle:
+    /// the plist is there, and the process listening on sccache's port is
+    /// launchd's job (`sccache::launchd_serves`, the same check that setup
+    /// uses).
     pub sccache_under_launchd: bool,
 }
 

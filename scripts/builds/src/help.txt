@@ -1420,10 +1420,10 @@ INSTALLING
                               changed or another server holds sccache's port,
                               and only once the compiles of the server it
                               stops finish, since a restart fails every
-                              compile in flight; it fails, with what launchd
-                              and the server's log say, unless launchd's
-                              server then listens on the port), point Xcode's
-                              default DerivedData at the
+                              running compile; `builds install` fails, with
+                              what launchd and the server's log say, unless
+                              launchd's server then listens on the port),
+                              point Xcode's default DerivedData at the
                               volume, restart a running dashboard so it runs
                               the new code, and copy the same builds to every
                               recorded host (HOSTS). When builds cannot reach a
