@@ -33,6 +33,7 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
         total_kib: Some(18_000_000),
         activity: Activity::default(),
         words: Default::default(),
+        stalled: false,
         errors: Vec::new(),
     }
 }

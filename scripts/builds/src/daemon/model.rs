@@ -971,6 +971,7 @@ impl Model {
                             processes,
                         },
                         words: Default::default(),
+                        stalled: false,
                         errors: Vec::new(),
                     }
                 }
@@ -990,6 +991,7 @@ impl Model {
                     total_kib: facts.gone_kib,
                     activity: Activity::default(),
                     words: Default::default(),
+                    stalled: false,
                     errors: Vec::new(),
                 },
             };
@@ -1083,6 +1085,11 @@ impl Model {
                         _ => None,
                     };
                     let build = builds.get(&checkout.name).cloned();
+                    checkout.stalled = state.health.as_ref().is_some_and(|h| {
+                        h.worktrees
+                            .iter()
+                            .any(|w| w.stalled && w.path == checkout.path)
+                    });
                     let shell = state.health.as_ref().is_some_and(|h| {
                         h.shells
                             .active
@@ -1357,6 +1364,10 @@ pub struct CheckoutPage {
     /// The words of the worktree's card (cards.rs); empty for a gone root
     /// and an app checkout, which have no card.
     pub words: super::cards::Words,
+    /// Has health judged this claimed worktree stalled: no change and no
+    /// build for an hour, and not held or waiting on the person's review
+    /// (health.rs)? The card shows it.
+    pub stalled: bool,
     /// What the daemon could not read to say where the worktree's work
     /// stands, which the card shows: the claim's project, the project's
     /// lists, or its rules review.

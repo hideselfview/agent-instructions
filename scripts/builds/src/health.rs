@@ -165,6 +165,10 @@ pub struct WorktreeHealth {
     /// Minutes since the newer of HEAD's commit and the newest uncommitted
     /// write.
     pub quiet_minutes: Option<i64>,
+    /// No change and no build for QUIET_MINUTES, and not held or waiting on
+    /// the person's review: health lists it under needs action, and the
+    /// dashboard's card says it stalled.
+    pub stalled: bool,
     pub building: Vec<BuildProcess>,
     /// The holder of an app lock building for this worktree in the app
     /// checkout (`Holder::builds_for`).
@@ -665,12 +669,12 @@ pub fn assess(
         // A held claim is quiet on purpose: its note says why. A worktree
         // whose design change waits on the person's review is waiting on them.
         let held = claim.note_state.as_deref() == Some("held");
-        if !held
+        let stalled = !held
             && !awaiting_review
             && building.is_empty()
             && app_build.is_none()
-            && idle_minutes.is_none_or(|m| m >= QUIET_MINUTES)
-        {
+            && idle_minutes.is_none_or(|m| m >= QUIET_MINUTES);
+        if stalled {
             findings.push(Finding::new(
                 FindingKind::Quiet,
                 Advice::said(format!(
@@ -689,6 +693,7 @@ pub fn assess(
             branch,
             git,
             quiet_minutes,
+            stalled,
             building,
             app_build,
         });
@@ -1180,9 +1185,9 @@ mod tests {
         }
     }
 
-    /// A claim with no change for hours and no build is idle, unless its
-    /// note says it is held or its design change waits on the person's review
-    /// (the third claim).
+    /// A claim with no change for hours and no build is idle (stalled),
+    /// unless its note says it is held or its design change waits on the
+    /// person's review (the third claim).
     #[test]
     fn a_held_claim_is_not_idle() {
         let now = 1_800_000_000;
@@ -1246,7 +1251,15 @@ mod tests {
             "{:?}",
             health.findings
         );
-        assert_eq!(health.worktrees.len(), 3);
+        assert_eq!(
+            health
+                .worktrees
+                .iter()
+                .map(|w| w.stalled)
+                .collect::<Vec<_>>(),
+            [true, false, false],
+            "the dashboard shows the finding's worktree, and only it, as stalled"
+        );
     }
 
     /// The findings for one claimed worktree whose files last changed

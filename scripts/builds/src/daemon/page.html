@@ -471,12 +471,6 @@ function activity(c) {
 function sideNumber(name) { const m = /(\d+)$/.exec(name); return m ? Number(m[1]) : 0; }
 // Most recent activity first.
 function byActivity(a, b) { return activity(b) - activity(a) || sideNumber(a.name) - sideNumber(b.name); }
-const QUIET_SECONDS = 30 * 60;
-// Uncommitted files and no write to them for 30 minutes: an agent that may have stalled.
-function quiet(c) {
-  const g = c.git;
-  return !!(g && !g.error && g.uncommitted && g.last_write && Date.now() / 1000 - g.last_write >= QUIET_SECONDS);
-}
 
 // What a checkout's build folders say.
 function built(c) {
@@ -676,8 +670,9 @@ function programCounts(processes) {
   }
   return counts;
 }
-// A card's footer: the worktree, its times and the stalled pill; then the
-// branch, its uncommitted files and its disk.
+// A card's footer: the worktree, its times and the stalled pill (health's
+// rule, which the daemon decides); then the branch, its uncommitted files and
+// its disk.
 function cardFoot(c) {
   const g = c.git;
   const times = [];
@@ -692,7 +687,7 @@ function cardFoot(c) {
   return h("div", {class: "foot"},
     h("div", {class: "r"}, h("span", {class: "wt", title: c.name}, h("b", {}, c.name)),
       h("span", {class: "right"}, h("span", {class: "times"}, times),
-        quiet(c) ? h("span", {class: "stalled", title: "Stalled: an agent claims this worktree, but no file in it has changed and no build has run there for an hour."}, "stalled") : null)),
+        c.stalled ? h("span", {class: "stalled", title: "Stalled: an agent claims this worktree, but no file in it has changed and no build has run there for an hour."}, "stalled") : null)),
     h("div", {class: "r"}, h("span", {class: "wt", title: detachedAt(c)}, h("span", {class: "br"}, detachedAt(c))),
       h("span", {class: "right"},
         b && b.over.length ? h("span", {class: "bad", title: b.over.join("; ")}, "build over cap") : null,
@@ -1188,8 +1183,8 @@ function waitDetails() {
 // What `builds health` lists under "needs action", each finding's text
 // followed by the command it suggests. The disk figure already shows the free
 // space in red under its floor, so the box leaves out the disk finding. It
-// keeps the finding for a worktree with no change: a card marks a worktree
-// quiet only when it has uncommitted files.
+// keeps the finding for a worktree with no change, which that worktree's card
+// also marks stalled.
 const SHOWN_ELSEWHERE = new Set(["disk"]);
 function findingsView(health) {
   const box = document.getElementById("findings");
