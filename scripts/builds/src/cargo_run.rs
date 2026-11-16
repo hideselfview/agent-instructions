@@ -283,7 +283,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         Some(job) => cargo_place::finish(job)?,
     };
     if let Some(checkout) = &checkout {
-        let recorded = hook_check().and_then(|hook_check| match hook_check {
+        let recorded = hook_check(&env).and_then(|hook_check| match hook_check {
             None => Ok(()),
             Some(hook_check) => record_finished(
                 &places,
@@ -311,12 +311,15 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     }
 }
 
-/// The hook check that started this run, from `HOOK_CHECK_VARIABLE`; None
-/// when no hook check started it.
-fn hook_check() -> Result<Option<(i64, u32)>> {
-    match std::env::var(HOOK_CHECK_VARIABLE) {
-        Ok(value) => Ok(Some(parse_hook_check(&value)?)),
-        Err(_) => Ok(None),
+/// The hook check that started this run, from `HOOK_CHECK_VARIABLE` as
+/// <env> reads it; None when no hook check started it.
+fn hook_check(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Result<Option<(i64, u32)>> {
+    match env(HOOK_CHECK_VARIABLE) {
+        None => Ok(None),
+        Some(value) => match value.to_str() {
+            Some(value) => Ok(Some(parse_hook_check(value)?)),
+            None => fail!("{HOOK_CHECK_VARIABLE} is not UTF-8: {value:?}"),
+        },
     }
 }
 
@@ -428,6 +431,19 @@ mod tests {
     use super::*;
     use crate::lane::Lane;
     use crate::testing::{Scratch, git, repo};
+
+    #[test]
+    fn the_hook_check_comes_from_the_variable_the_env_reader_gives() {
+        let named = |value: &'static str| {
+            move |name: &str| (name == HOOK_CHECK_VARIABLE).then(|| value.into())
+        };
+        assert_eq!(
+            hook_check(&named("1700000000:2")).unwrap(),
+            Some((1_700_000_000, 2))
+        );
+        assert_eq!(hook_check(&|_: &str| None).unwrap(), None);
+        assert!(hook_check(&named("soon")).is_err());
+    }
 
     fn role(dir: &Path) -> &'static [&'static str] {
         role_config(Checkout::at(dir).unwrap().as_ref())
