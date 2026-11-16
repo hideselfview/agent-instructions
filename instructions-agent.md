@@ -59,9 +59,9 @@ has no notification, run one watcher with a hard timeout.
 `until ! pgrep -f "<pattern>"` never ends, because pgrep finds the watcher's own
 command line.
 
-**Stop a runaway process without asking.** When a development process hangs or
-runs away, such as a test, a build, a server, or a system daemon our work keeps
-busy (fseventsd), stop it yourself.
+**Stop a stuck process without asking.** When a development process never
+finishes or keeps using CPU, such as a test, a build, a server, or a system
+daemon our work keeps busy (fseventsd), stop it yourself.
 
 **Say what surprises you.** When something would make a competent engineer look
 twice (an unused dependency, a hand-written version of a standard function, a
