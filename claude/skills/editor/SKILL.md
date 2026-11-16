@@ -164,10 +164,12 @@ one for these:
 - Say what a thing is, not what it isn't.
   - A clause about what something isn't, doesn't need or doesn't use ("needs no
     sign-in", "not a plugin", "without a server") names one of the endless
-    things it isn't. Cut it.
+    things it isn't. Cut it, and use the room it frees to say more about what
+    the thing is, when the reader needs it.
   - "The canvas is a claude.ai artifact that a session publishes with the
     Artifact tool, and it needs no Claude Design sign-in" becomes "A session
-    publishes the canvas, a claude.ai artifact, with the Artifact tool".
+    publishes the canvas, a claude.ai artifact, with the Artifact tool, which
+    uploads an HTML page to claude.ai and returns its link".
   - A rule that forbids an action ("never stash") stays.
 - Use one term for each thing; don't rotate synonyms.
 - Match the wording to the strength of the rule: "must" for a rule, never "can".
