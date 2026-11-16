@@ -107,8 +107,8 @@ fn prefix_from_marker(lane: &str, line: &[u8]) -> Option<String> {
 /// the pipe open.
 const OUTPUT_GRACE: Duration = Duration::from_secs(2);
 
-/// The step a caller named <name>: refused when <config> has no such step
-/// or a `ci-only` line names it.
+/// Returns the step a caller named <name>, and fails when <config> has no
+/// such step or a `ci-only` line names it.
 fn step_named<'a>(config: &'a Config, name: &str) -> Result<&'a Step> {
     let Some(step) = config.steps.iter().find(|step| step.name == name) else {
         let known: Vec<&str> = config.steps.iter().map(|step| step.name.as_str()).collect();
