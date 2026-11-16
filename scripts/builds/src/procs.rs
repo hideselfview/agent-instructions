@@ -379,6 +379,8 @@ pub fn cores() -> usize {
 pub struct Place {
     /// `bae/side-3`.
     pub label: String,
+    /// The repo the checkout is of: `bae`.
+    pub repo: String,
     pub top: PathBuf,
     pub root: PathBuf,
 }
@@ -535,11 +537,13 @@ mod tests {
         let places = vec![
             Place {
                 label: "demo/main".into(),
+                repo: "demo".into(),
                 top: other.clone(),
                 root: base.join("volume/demo/main"),
             },
             Place {
                 label: "demo/side-1".into(),
+                repo: "demo".into(),
                 top: top.clone(),
                 root: base.join("volume/demo/side-1"),
             },

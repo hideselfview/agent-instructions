@@ -737,12 +737,10 @@ pub fn assess(
             .cloned()
             .collect();
         let label = places[place].label.clone();
-        // A place's label is `<repo>/<checkout>` (`places_of`).
-        let repo = label.split('/').next().unwrap_or_default();
         let app_builds: Vec<AppBuildRun> = machine
             .app_builds
             .iter()
-            .filter(|run| run.builds_for(&label, repo, branch.as_deref()))
+            .filter(|run| run.builds_for(&label, &places[place].repo, branch.as_deref()))
             .cloned()
             .collect();
         let quiet_minutes = git.activity().map(|when| minutes_since(now, when));
@@ -820,6 +818,7 @@ pub fn places_of(roots: &[Root]) -> Vec<Place> {
         .filter(|root| root.live.is_some())
         .map(|root| Place {
             label: format!("{}/{}", root_repo(root), root.name()),
+            repo: root_repo(root),
             top: root.top.clone(),
             root: root.path.clone(),
         })
@@ -1330,6 +1329,7 @@ mod tests {
         };
         let place = |n: usize| Place {
             label: format!("demo/side-{n}"),
+            repo: "demo".to_string(),
             top: PathBuf::from(format!("/demo-worktrees/side-{n}")),
             root: PathBuf::from(format!("/volume/demo/side-{n}")),
         };
@@ -1409,6 +1409,7 @@ mod tests {
         };
         let place = Place {
             label: "demo/side-1".to_string(),
+            repo: "demo".to_string(),
             top: PathBuf::from("/demo-worktrees/side-1"),
             root: PathBuf::from("/volume/demo/side-1"),
         };
@@ -1491,6 +1492,7 @@ mod tests {
         };
         let place = Place {
             label: "demo/side-1".to_string(),
+            repo: "demo".to_string(),
             top: PathBuf::from("/demo-worktrees/side-1"),
             root: PathBuf::from("/volume/demo/side-1"),
         };
@@ -1569,6 +1571,7 @@ mod tests {
             };
             let place = Place {
                 label: "demo/side-1".to_string(),
+                repo: "demo".to_string(),
                 top: PathBuf::from("/demo-worktrees/side-1"),
                 root: PathBuf::from("/volume/demo/side-1"),
             };
@@ -1687,6 +1690,7 @@ mod tests {
         };
         let place = |n: usize| Place {
             label: format!("demo/side-{n}"),
+            repo: "demo".to_string(),
             top: PathBuf::from(format!("/demo-worktrees/side-{n}")),
             root: PathBuf::from(format!("/volume/demo/side-{n}")),
         };

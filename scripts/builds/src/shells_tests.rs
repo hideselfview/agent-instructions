@@ -10,6 +10,7 @@ fn places() -> Vec<Place> {
             let name = label.rsplit('/').next().unwrap();
             Place {
                 label: label.to_string(),
+                repo: "demo".to_string(),
                 top: PathBuf::from(format!("{HOME}/dev/demo-worktrees/{name}")),
                 root: PathBuf::from(format!("/volume/demo/{name}")),
             }
