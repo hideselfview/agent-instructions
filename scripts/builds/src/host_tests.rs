@@ -432,12 +432,21 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
         speed: Some(1.0),
     };
     let hosts = [Host::local(), m1.clone(), gone];
+    // A host that does not answer is a finding that says why.
+    let all = installed_findings(&read_all_installed(&places, &ssh, &hosts));
+    assert!(
+        all.iter().any(|advice| advice
+            .text
+            .starts_with("builds could not read what host gone has installed")
+            && advice.text.contains("Connection refused")),
+        "{all:?}"
+    );
     // Neither home has builds' sccache plist, so each also has its sccache
-    // finding; this test reads the builds ones.
+    // finding; this test reads m1's builds ones.
     let findings = || -> Vec<crate::health::Advice> {
         installed_findings(&read_all_installed(&places, &ssh, &hosts))
             .into_iter()
-            .filter(|advice| !advice.text.contains("sccache"))
+            .filter(|advice| advice.text.starts_with("host m1") && !advice.text.contains("sccache"))
             .collect()
     };
 

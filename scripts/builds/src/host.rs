@@ -646,9 +646,8 @@ pub fn read_all_installed(places: &Places, ssh: &Ssh, hosts: &[Host]) -> Vec<Hos
 }
 
 /// The "needs action" lines for <reads>: each host whose builds is not this
-/// Mac's, and each host, this Mac included, whose sccache server launchd does
-/// not run. A host that did not answer adds none, since its load card and
-/// `builds host list` already say it does not answer.
+/// Mac's, each host, this Mac included, whose sccache server launchd does not
+/// run, and each host that builds could not ask, with what went wrong.
 pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice> {
     let Some(local) = reads.iter().find(|read| read.host == LOCAL) else {
         return Vec::new();
@@ -669,8 +668,16 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
         ));
     }
     for read in reads.iter().filter(|read| read.host != LOCAL) {
-        let Ok(installed) = &read.read else { continue };
         let name = &read.host;
+        let installed = match &read.read {
+            Ok(installed) => installed,
+            Err(error) => {
+                out.push(crate::health::Advice::said(format!(
+                    "builds could not read what host {name} has installed: {error}"
+                )));
+                continue;
+            }
+        };
         let setup = format!("builds host setup {name}");
         if installed.builds != local.builds {
             let text = match installed.builds {

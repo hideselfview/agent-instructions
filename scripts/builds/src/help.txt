@@ -911,7 +911,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               this Mac's (`builds host setup <name>`); a build
                               host, or this Mac, whose sccache server launchd
                               does not run from builds' plist (`builds host
-                              setup <name>`, or `builds install` here)
+                              setup <name>`, or `builds install` here); a
+                              build host that builds could not ask what it
+                              has installed, with what went wrong
   builds dashboard [--port <port>] [--listen <address>]
                               run the daemon until it is killed. It follows
                               the volume, the checkouts and the lists through
