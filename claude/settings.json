@@ -5,6 +5,11 @@
     "CLAUDE_CODE_SUBAGENT_MODEL": "opus"
   },
   "permissions": {
+    "allow": [
+      "Bash(kill:*)",
+      "Bash(pkill:*)",
+      "Bash(killall:*)"
+    ],
     "defaultMode": "auto"
   },
   "model": "opus[1m]",
