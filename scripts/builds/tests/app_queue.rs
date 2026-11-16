@@ -589,6 +589,43 @@ fn a_takeover_runs_an_app_build_again_from_its_first_step() {
     assert_one_at_a_time(&log);
 }
 
+/// An app build waits for the lane with no use of the stores, so install
+/// does not wait for it. When an install ran meanwhile, the lane, once it
+/// holds the lock, leaves the queue and runs the installed builds, which
+/// queues again and builds.
+#[test]
+fn a_lane_that_waited_through_an_install_runs_the_installed_builds_and_builds_once() {
+    let mut volume = Volume::new("app-build-install");
+    volume.app_repo();
+    volume.lock("H");
+    volume.until_logged("start H");
+    let build = start_app_build(&volume, &["two"]);
+    volume.until_queued(2);
+    let install = volume
+        .dir
+        .join("home/Library/Application Support/builds/install");
+    assert!(
+        !install.join("commands").is_dir()
+            || std::fs::read_dir(install.join("commands")).unwrap().count() == 0,
+        "the waiting build holds no use"
+    );
+    // What builds install counts when it moves the stores.
+    std::fs::create_dir_all(&install).unwrap();
+    std::fs::write(install.join("generation"), "1\n").unwrap();
+    volume.open_gate("H");
+    volume.open_gate("two");
+    let (status, said) = finish(build);
+    assert!(status.success(), "{said}");
+    assert!(
+        said.contains("builds install ran while this build waited for the lane"),
+        "{said}"
+    );
+    assert_eq!(
+        volume.log(),
+        lines(&["start H", "end H", "start two", "end two"])
+    );
+}
+
 #[test]
 fn app_build_runs_the_steps_named_and_lists_them() {
     let volume = Volume::new("app-build-steps");

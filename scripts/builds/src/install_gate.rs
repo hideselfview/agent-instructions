@@ -8,9 +8,13 @@
 //!
 //! A command uses the stores in one of two ways:
 //! - A command that writes a store after long work, with what it measured
-//!   since it started (main.rs's `holds_for_life` names them: a hook run, an
-//!   app build, a review that asks reviewers), holds a command use for its
-//!   life.
+//!   since it started (main.rs's `holds_for_life` names them: a hook run and
+//!   a review that asks reviewers), holds a command use for its life.
+//! - An app build's lane holds a command use from the moment it holds the
+//!   lane's lock until it ends (`hold_from_now`): before that it has done no
+//!   work and written nothing, so a build waiting for the lane holds no use.
+//!   When install ran while the lane waited, the lane leaves the queue and
+//!   runs the installed builds in its place.
 //! - Every other command takes a connection use while each store connection
 //!   it opens is open. Its writes are each one short transaction, so a
 //!   command such as `builds cargo test` holds no use while it builds.
@@ -20,7 +24,8 @@
 //! holds a shared lock on while it starts and that install locks
 //! exclusively. Install closes the commands gate and waits for every command
 //! use, then closes the connections gate and waits for every connection use,
-//! then moves the stores, puts its program on PATH and opens both gates. So
+//! then counts one more install in the generation file, moves the stores,
+//! puts its program on PATH and opens both gates. So
 //! while install waits for a long command, only a command that would hold a
 //! use for its life waits at the gate; the others keep working.
 //!
@@ -41,14 +46,57 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Fail, Result};
 use crate::places::Places;
 
 /// The variable that names the process whose use covers a builds command.
 pub const VARIABLE: &str = "BUILDS_USE";
+
+/// Runs the program at this program's path with this process's arguments in
+/// its place; returns only when it cannot, with why.
+pub fn run_again() -> Fail {
+    use std::os::unix::process::CommandExt;
+    let program = match std::env::current_exe() {
+        Ok(program) => program,
+        Err(error) => return Fail::Message(format!("finding this program: {error}")),
+    };
+    let error = std::process::Command::new(&program)
+        .args(std::env::args_os().skip(1))
+        .exec();
+    Fail::Message(format!("running {} again: {error}", program.display()))
+}
+
+/// The file that counts the installs that moved the stores.
+fn generation_file(places: &Places) -> PathBuf {
+    places.install_dir().join("generation")
+}
+
+/// How many installs moved the stores: 0 before the first.
+fn generation(places: &Places) -> Result<u64> {
+    let path = generation_file(places);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => match text.trim().parse() {
+            Ok(count) => Ok(count),
+            Err(_) => fail!("{} holds {text:?}, not a count", path.display()),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
+        Err(error) => fail!("reading {}: {error}", path.display()),
+    }
+}
+
+/// Counts one more install, in one rename. Only install calls it, with both
+/// gates closed.
+fn advance_generation(places: &Places) -> Result<()> {
+    let path = generation_file(places);
+    let part = path.with_extension("part");
+    let next = generation(places)? + 1;
+    std::fs::write(&part, format!("{next}\n")).context(|| format!("writing {}", part.display()))?;
+    std::fs::rename(&part, &path).context(|| format!("replacing {}", path.display()))
+}
 
 /// What a use spans.
 #[derive(Clone, Copy)]
@@ -191,7 +239,8 @@ fn identity(path: &Path) -> Option<(u64, u64)> {
 }
 
 /// The connection uses of one process: the first open connection takes the
-/// process's use, and the last one to close ends it.
+/// process's use, and the last one to close ends it, until the process holds
+/// a use for the rest of its life (`hold_from_now`).
 pub struct PerConnection {
     places: Places,
     pid: u32,
@@ -199,27 +248,72 @@ pub struct PerConnection {
     since: String,
     /// The program file this process started from, which install replaces.
     program: Option<(PathBuf, Option<(u64, u64)>)>,
+    /// The installs counted when this process started.
+    generation: u64,
     held: Mutex<Option<(usize, Use)>>,
+    held_for_life: AtomicBool,
+}
+
+/// What `hold_from_now` found.
+pub enum FromNow {
+    /// The process holds this use for the rest of its life.
+    Holds(Use),
+    /// It takes no use: a holder's use covers it, or it is in a test.
+    Covered,
+    /// An install ran since the process started: it must run the installed
+    /// program in its place.
+    InstallRan,
 }
 
 impl PerConnection {
-    pub fn new(places: Places, pid: u32, what: &str, since: &str) -> PerConnection {
+    pub fn new(places: Places, pid: u32, what: &str, since: &str) -> Result<PerConnection> {
         let program = std::env::current_exe().ok().map(|exe| {
             let found = identity(&exe);
             (exe, found)
         });
-        PerConnection {
+        Ok(PerConnection {
+            generation: generation(&places)?,
             places,
             pid,
             what: what.to_string(),
             since: since.to_string(),
             program,
             held: Mutex::new(None),
-        }
+            held_for_life: AtomicBool::new(false),
+        })
     }
 
-    /// A use for one connection, waiting at the gate while an install runs.
-    pub fn take(&self) -> Result<ConnectionUse<'_>> {
+    /// Takes a use for the rest of the process's life, waiting at the gate
+    /// while an install runs, unless an install ran since the process
+    /// started. No connection of the process may be open: install waits for
+    /// it before it opens the gate.
+    pub fn hold_from_now(&self) -> Result<FromNow> {
+        let (gate, _) = pass(
+            &self.places,
+            Kind::Command,
+            "builds install runs: this command waits until it finishes",
+        )?;
+        let taken = take(
+            &self.places,
+            Kind::Command,
+            gate,
+            self.pid,
+            &self.what,
+            &self.since,
+        )?;
+        if generation(&self.places)? != self.generation || self.program_replaced() {
+            return Ok(FromNow::InstallRan);
+        }
+        self.held_for_life.store(true, Ordering::SeqCst);
+        Ok(FromNow::Holds(taken))
+    }
+
+    /// A use for one connection, waiting at the gate while an install runs;
+    /// none once the process holds a use for its life.
+    pub fn take(&self) -> Result<Option<ConnectionUse<'_>>> {
+        if self.held_for_life.load(Ordering::SeqCst) {
+            return Ok(None);
+        }
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         match held.as_mut() {
             Some((count, _)) => *count += 1,
@@ -240,7 +334,7 @@ impl PerConnection {
                 *held = Some((1, taken));
             }
         }
-        Ok(ConnectionUse { owner: self })
+        Ok(Some(ConnectionUse { owner: self }))
     }
 
     /// Whether install has put another program at this process's path
@@ -285,7 +379,26 @@ pub fn use_per_connection(per_connection: PerConnection) {
 /// None when the process holds a use for its life, a holder's use covers it,
 /// or it takes none (install, the dashboard, tests).
 pub fn for_connection() -> Result<Option<ConnectionUse<'static>>> {
-    PER_CONNECTION.get().map(PerConnection::take).transpose()
+    match PER_CONNECTION.get() {
+        Some(per_connection) => per_connection.take(),
+        None => Ok(None),
+    }
+}
+
+/// Takes a use of the stores for the rest of this process's life, for a
+/// command that holds none at start (`PerConnection::hold_from_now`). Every
+/// builds command the process starts from then on runs under it.
+pub fn hold_from_now() -> Result<FromNow> {
+    let Some(per_connection) = PER_CONNECTION.get() else {
+        return Ok(FromNow::Covered);
+    };
+    let found = per_connection.hold_from_now()?;
+    if matches!(found, FromNow::Holds(_)) {
+        // SAFETY: the only other threads an app build's lane runs here wait
+        // in `open` on the queue's tickets and read no environment.
+        unsafe { std::env::set_var(VARIABLE, per_connection.pid.to_string()) };
+    }
+    Ok(found)
 }
 
 /// Whether install has put another program at this process's path since it
@@ -353,12 +466,13 @@ fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Re
 
 /// Closes the commands gate and waits for every command use, then closes
 /// the connections gate and waits for every connection use, telling <say>
-/// each use it waits on.
+/// each use it waits on; then counts one more install.
 pub fn close(places: &Places, say: &mut dyn FnMut(String)) -> Result<Closed> {
     let commands = close_gate(places, Kind::Command, say)?;
     wait_for_uses(places, Kind::Command, say)?;
     let connections = close_gate(places, Kind::Connection, say)?;
     wait_for_uses(places, Kind::Connection, say)?;
+    advance_generation(places)?;
     Ok(Closed {
         _gates: [commands, connections],
     })

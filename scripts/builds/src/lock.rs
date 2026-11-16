@@ -182,6 +182,16 @@ impl Held {
         }
     }
 
+    /// Takes this build out of the queue, then frees the lock, which lets the
+    /// next in the queue go: for a build that leaves the line for good, as
+    /// one that runs the installed builds in its place does. No process this
+    /// one started may still run.
+    pub fn leave(self) -> Result<()> {
+        let left = self.queue.drop_ticket(&self.ticket.name);
+        self.release();
+        left
+    }
+
     /// After a takeover, or a build the host's Xcode could not start: gives
     /// the lock and the place up, takes a new place where the old one stood,
     /// and waits for a lock again (the one just freed, or another's).

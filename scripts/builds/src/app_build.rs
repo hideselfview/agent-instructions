@@ -73,6 +73,7 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::host::Ssh;
+use crate::install_gate;
 use crate::lane::Lane;
 use crate::lock::{self, Found, Keep, Ran, Within};
 use crate::places::Places;
@@ -748,6 +749,9 @@ struct Timing {
     wait: Duration,
     checkout: Option<String>,
     steps: Vec<StepRecord>,
+    /// The use of the stores the lane takes once it holds the lane's lock
+    /// (`hold_stores`), held until `record` has written the run.
+    stores: Option<install_gate::Use>,
 }
 
 impl Timing {
@@ -757,6 +761,7 @@ impl Timing {
             wait: Duration::ZERO,
             checkout: None,
             steps: Vec::new(),
+            stores: None,
         }
     }
 
@@ -817,6 +822,25 @@ fn run_lane(
     result
 }
 
+/// Takes the use of the stores a lane holds from the moment it holds the
+/// lane's lock <held> (install_gate.rs), into <stores>. When install ran while
+/// the lane waited, the lane's program writes a store of another schema, so
+/// the lane leaves the queue and runs the installed builds in its place.
+fn hold_stores(held: lock::Held, stores: &mut Option<install_gate::Use>) -> Result<lock::Held> {
+    match install_gate::hold_from_now()? {
+        install_gate::FromNow::Holds(taken) => *stores = Some(taken),
+        install_gate::FromNow::Covered => {}
+        install_gate::FromNow::InstallRan => {
+            note(
+                "builds install ran while this build waited for the lane: it leaves the queue and runs the installed builds, which queues again",
+            );
+            held.leave()?;
+            return Err(install_gate::run_again());
+        }
+    }
+    Ok(held)
+}
+
 fn build_lane(
     places: &Places,
     repo: &str,
@@ -846,7 +870,8 @@ fn build_lane(
         ));
     }
     let waiting = Instant::now();
-    let mut held = lock::take_where(places, &ssh, repo, lane, allowed)?;
+    let held = lock::take_where(places, &ssh, repo, lane, allowed)?;
+    let mut held = hold_stores(held, &mut timing.stores)?;
     timing.wait += waiting.elapsed();
     loop {
         timing.checkout = Some(held.checkout.clone());

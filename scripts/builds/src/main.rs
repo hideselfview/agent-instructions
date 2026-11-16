@@ -136,15 +136,13 @@ const UNGATED: [&str; 5] = ["install", "dashboard", "help", "-h", "--help"];
 /// (install_gate.rs): it writes a store after long work, with what it measured
 /// since it started. Every other command writes in short transactions, or
 /// runs under a holder's use: `builds cargo` records a run only for a hook
-/// check, under the hook run's use.
+/// check, under the hook run's use. An app build's lane records its findings
+/// and its run after long work too, and takes its use once it holds the
+/// lane's lock (app_build.rs).
 fn holds_for_life(command: &str, rest: &[String]) -> bool {
     match command {
         // Records the hook run once its checks end (hook_stats.rs).
         "checks" => rest.first().is_some_and(|sub| sub == "run"),
-        // Records each shots run's findings once the run ends, and each
-        // lane's run, with its wait for the lane and its steps, once the lane
-        // ends (app_build.rs).
-        "app-build" => true,
         // A run, a replay and an audit record what the reviewers answered
         // once they answer (review/mod.rs); the other review commands read or
         // write in one transaction.
@@ -182,11 +180,11 @@ fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::U
     let (what, since) = (args.join(" "), text::clock());
     if !holds_for_life(command, &args[1..]) {
         if !install_gate::may_start(&places)? {
-            run_again(args)?;
+            return Err(install_gate::run_again());
         }
         install_gate::use_per_connection(install_gate::PerConnection::new(
             places, pid, &what, &since,
-        ));
+        )?);
         return Ok(None);
     }
     match install_gate::enter_for_life(&places, pid, &what, &since)? {
@@ -197,18 +195,8 @@ fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::U
             unsafe { std::env::set_var(install_gate::VARIABLE, pid.to_string()) };
             Ok(Some(held))
         }
-        install_gate::Entered::RunAgain => run_again(args).map(|()| None),
+        install_gate::Entered::RunAgain => Err(install_gate::run_again()),
     }
-}
-
-/// Runs the program at this program's path with <args> in this process's
-/// place; returns only when it cannot.
-fn run_again(args: &[String]) -> Result<()> {
-    use std::os::unix::process::CommandExt;
-    let program = std::env::current_exe()
-        .map_err(|error| Fail::Message(format!("finding this program: {error}")))?;
-    let error = std::process::Command::new(&program).args(args).exec();
-    fail!("running {} again: {error}", program.display())
 }
 
 fn run(command: &str, args: &[String]) -> Result<()> {

@@ -264,8 +264,9 @@ impl Queue {
         }
     }
 
-    /// Takes <name> out of the order and removes its file: its owner is gone.
-    fn drop_ticket(&self, name: &str) -> Result<()> {
+    /// Takes <name> out of the order and removes its file: its owner is gone,
+    /// or leaves the line for good.
+    pub fn drop_ticket(&self, name: &str) -> Result<()> {
         let _guard = self.guard()?;
         let mut order = self.order();
         if order.iter().any(|entry| entry == name) {
