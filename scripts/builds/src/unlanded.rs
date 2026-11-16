@@ -91,7 +91,7 @@ pub fn in_worktree(
     checkout: &Checkout,
     since: i64,
     held: &[String],
-    commits: &[crate::procs::GitCommit],
+    commits: &crate::procs::GitCommits,
 ) -> Result<Held> {
     let top = &checkout.top;
     let unread = |error: String| {
@@ -125,7 +125,7 @@ pub fn in_worktree(
             .map_err(unread)?
             .into_iter()
             .collect(),
-        committing: crate::procs::commits_in(commits, top),
+        committing: crate::procs::commits_in(commits, top).map_err(fail::Fail::Message)?,
     })
 }
 
@@ -311,7 +311,7 @@ pub fn unheld_in(
     places: &crate::places::Places,
     checkout: &Checkout,
     since: i64,
-    commits: &[crate::procs::GitCommit],
+    commits: &crate::procs::GitCommits,
 ) -> Result<Held> {
     let loaded = crate::lists::store::load_all(places);
     let top = checkout.top.display().to_string();

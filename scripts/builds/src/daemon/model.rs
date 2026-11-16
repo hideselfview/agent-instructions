@@ -1329,7 +1329,7 @@ fn claimed_of(
     roots: &[Root],
     facts: &HashMap<PathBuf, Facts>,
     places: &[Place],
-    commits: &[crate::procs::GitCommit],
+    commits: &crate::procs::GitCommits,
 ) -> crate::fail::Result<(Vec<Claimed>, Vec<crate::lists::held::Worktree>)> {
     let mut claimed = Vec::new();
     let mut held = Vec::new();

@@ -629,7 +629,7 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
         app_checkout: false,
         ahead: crate::lists::design_paths::commits_of_range(&w.dir, range).unwrap(),
         uncommitted: Some(0),
-        committing: Vec::new(),
+        committing: Ok(Vec::new()),
     };
     let loaded = Ok(vec![crate::lists::store::Loaded {
         project: "demo".into(),

@@ -101,8 +101,9 @@ pub struct Worktree {
     pub ahead: Vec<String>,
     /// How many files are not committed; None when git could not tell.
     pub uncommitted: Option<usize>,
-    /// The pids of the `git commit`s that run in it.
-    pub committing: Vec<i32>,
+    /// The pids of the `git commit`s that run in it, or why builds cannot
+    /// tell.
+    pub committing: std::result::Result<Vec<i32>, String>,
 }
 
 impl Worktree {
@@ -194,7 +195,10 @@ pub fn findings(
             && worktree.claim.note_state.as_deref() != Some("held")
             && worktree.ahead.is_empty()
             && worktree.uncommitted == Some(0)
-            && worktree.committing.is_empty()
+            && worktree
+                .committing
+                .as_ref()
+                .is_ok_and(|pids| pids.is_empty())
             && running.is_empty()
         {
             found.push(Advice::run(

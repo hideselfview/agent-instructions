@@ -136,7 +136,7 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
         app_checkout: false,
         ahead,
         uncommitted: Some(0),
-        committing: Vec::new(),
+        committing: Ok(Vec::new()),
     }
 }
 
@@ -423,8 +423,10 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
     let mut editing = bae_worktree(None);
     editing.uncommitted = Some(1);
     let mut committing = bae_worktree(None);
-    committing.committing = vec![4242];
-    for busy in [waiting, editing, committing] {
+    committing.committing = Ok(vec![4242]);
+    let mut unknown = bae_worktree(None);
+    unknown.committing = Err("builds cannot read process 4242".into());
+    for busy in [waiting, editing, committing, unknown] {
         assert!(
             findings(&loaded(read(&db)), std::slice::from_ref(&busy))
                 .iter()

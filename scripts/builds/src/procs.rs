@@ -134,6 +134,28 @@ pub fn runs(pid: i32) -> bool {
     signalled == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
+/// The process state of a zombie in `proc_bsdinfo.pbi_status` (SZOMB in
+/// <sys/proc.h>): one that exited and waits for its parent to reap it.
+const SZOMB: u32 = 5;
+
+/// Has <pid> exited, as a zombie waiting for its parent or gone altogether?
+/// The kernel keeps a zombie's pid, so `runs` says it runs, but it has no
+/// arguments or working directory left to read.
+pub fn ended(pid: i32) -> bool {
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    let read = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&mut info as *mut libc::proc_bsdinfo).cast(),
+            size,
+        )
+    };
+    (read != size && !runs(pid)) || (read == size && info.pbi_status == SZOMB)
+}
+
 /// The arguments of <pid>: None when it has exited, and an error that names
 /// it when it still runs and builds cannot read its arguments.
 pub fn live_args(pid: i32) -> std::result::Result<Option<Vec<String>>, String> {
@@ -235,23 +257,38 @@ pub struct GitCommit {
     pub dir: PathBuf,
 }
 
-/// The `git commit` processes among <processes> whose working directory
-/// builds can read.
-pub fn git_commits(processes: &Processes) -> Vec<GitCommit> {
-    processes
+/// The `git commit`s that run, and the git processes whose arguments builds
+/// could not read although they still run: each of those may be a `git
+/// commit` in its working directory.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct GitCommits {
+    pub found: Vec<GitCommit>,
+    pub unread: Vec<GitCommit>,
+}
+
+/// The `git commit`s among <processes> that this user runs. builds reads a
+/// git process's working directory first: the kernel drops it when the
+/// process exits, so a git process with none has ended or is ending.
+pub fn git_commits(processes: &Processes) -> GitCommits {
+    let uid = unsafe { libc::getuid() };
+    let mut commits = GitCommits::default();
+    for process in processes
         .list
         .iter()
-        .filter(|process| process.name == "git")
-        .filter(|process| {
-            args(process.pid).is_some_and(|argv| git_subcommand(&argv) == Some("commit"))
-        })
-        .filter_map(|process| {
-            Some(GitCommit {
-                pid: process.pid,
-                dir: cwd(process.pid)?,
-            })
-        })
-        .collect()
+        .filter(|p| p.name == "git" && p.uid == uid)
+    {
+        let pid = process.pid;
+        let Some(dir) = cwd(pid) else { continue };
+        match args(pid) {
+            Some(argv) if git_subcommand(&argv) == Some("commit") => {
+                commits.found.push(GitCommit { pid, dir });
+            }
+            Some(_) => {}
+            None if ended(pid) => {}
+            None => commits.unread.push(GitCommit { pid, dir }),
+        }
+    }
+    commits
 }
 
 /// The subcommand of the git command line <argv>: its first word that is
@@ -272,14 +309,27 @@ pub fn git_subcommand(argv: &[String]) -> Option<&str> {
     None
 }
 
-/// The pids of <commits> that run in <top> or a folder in it.
-pub fn commits_in(commits: &[GitCommit], top: &Path) -> Vec<i32> {
-    let real = std::fs::canonicalize(top).unwrap_or_else(|_| top.to_path_buf());
-    commits
+/// The pids of the commits of <commits> that run in <top> or a folder in it.
+/// Fails when a git process there has arguments builds could not read,
+/// since it may be a `git commit`, or when builds cannot resolve <top> to the
+/// path the kernel gives as a working directory.
+pub fn commits_in(commits: &GitCommits, top: &Path) -> std::result::Result<Vec<i32>, String> {
+    let real = std::fs::canonicalize(top)
+        .map_err(|error| format!("resolving {}: {error}", top.display()))?;
+    let here = |commit: &&GitCommit| commit.dir.starts_with(top) || commit.dir.starts_with(&real);
+    if let Some(unread) = commits.unread.iter().find(here) {
+        return Err(format!(
+            "builds cannot read the arguments of git process {}, which runs in {}, so it cannot tell whether a git commit runs there",
+            unread.pid,
+            top.display()
+        ));
+    }
+    Ok(commits
+        .found
         .iter()
-        .filter(|commit| commit.dir.starts_with(top) || commit.dir.starts_with(&real))
+        .filter(here)
         .map(|commit| commit.pid)
-        .collect()
+        .collect())
 }
 
 /// CPU time used so far, in seconds, and the physical footprint in bytes.
@@ -553,6 +603,31 @@ pub fn build_processes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A worktree has the commits that run in it or a folder in it, and
+    /// commits_in fails for one where a git process runs whose arguments
+    /// builds could not read.
+    #[test]
+    fn commits_in_names_the_commits_of_a_worktree_and_fails_on_an_unread_git_there() {
+        let top = std::env::temp_dir().canonicalize().unwrap();
+        let other = top.join("elsewhere");
+        let commit = |pid: i32, dir: PathBuf| GitCommit { pid, dir };
+        let mut commits = GitCommits {
+            found: vec![
+                commit(1, top.join("sub")),
+                commit(2, PathBuf::from("/nowhere")),
+            ],
+            unread: vec![commit(3, PathBuf::from("/nowhere"))],
+        };
+        assert_eq!(commits_in(&commits, &top), Ok(vec![1]));
+        commits.unread.push(commit(4, top.clone()));
+        let said = commits_in(&commits, &top).unwrap_err();
+        assert!(said.contains("git process 4"), "{said}");
+        assert!(
+            commits_in(&commits, &other).is_err(),
+            "{other:?} does not exist"
+        );
+    }
 
     /// The subcommand is the first word past git's global options and
     /// their values.
