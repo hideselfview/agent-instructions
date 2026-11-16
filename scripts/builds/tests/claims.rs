@@ -360,8 +360,10 @@ fn claims_keep_their_notes_and_a_notes_state_until_a_plain_note_clears_it() {
     // Clearing the note keeps the claim.
     demo.run(&["note", &side]);
     assert_eq!(claim_fields(&file), ["agent A", &since]);
-    demo.run(&["release", &side]);
-    assert!(!file.exists(), "release left the claim");
+    // side-1's branch and files hold work origin/main lacks, so release
+    // refuses and the claim stays.
+    demo.refuses("it holds work origin/main lacks", &["release", &side]);
+    assert!(file.exists(), "a refused release took the claim");
 }
 
 #[test]
@@ -503,7 +505,9 @@ fn prune_keeps_a_claimed_folder_over_its_cap_and_deletes_it_once_released() {
         "a claimed folder over its cap wasn't kept: {said}"
     );
     assert_eq!(listing(&profile), before, "a dry run deleted");
-    demo.run(&["release", &side]);
+    // The changed .build-dirs is work release refuses to leave, so the claim
+    // goes by hand: the subject here is prune.
+    std::fs::remove_file(demo.claim_file(3)).unwrap();
     let out = demo.builds().args(["prune", "--dry-run"]).output().unwrap();
     let said =
         String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
@@ -769,7 +773,11 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
         .collect();
     assert_eq!(held, [&Value::from("held")], "health missed the hold");
     states("held", "working");
-    demo.run(&["release", &side]);
+    // Release refuses side-1's work, so the claim goes by hand, as a claim
+    // file lost outside builds would: commits with no claim are work left
+    // behind.
+    demo.refuses("it holds work origin/main lacks", &["release", &side]);
+    std::fs::remove_file(demo.claim_file(1)).unwrap();
     states("ready-to-land", "working");
 
     // Once the daemon is gone, status measures again.

@@ -45,6 +45,15 @@ branch, not the worktree, is the unit of work.
     for bae's rules and project file), never in the main checkout. The main
     checkout is the live copy that install.sh links, so a commit on a side
     branch installs nothing (`builds help`).
+  - Work that origin/main lacks (commits, or files not committed) leaves a
+    worktree only by landing, or with an item that holds it: an item parked
+    there (`builds item park`), which keeps the worktree and branch while it
+    waits in the queue, or one taken there held on the person (`builds item
+    take --held`). `builds release` refuses every other worktree with such
+    work, on its HEAD, on a branch it left since its claim began or in its
+    files, and names those three ways. Only the person throws work away, by
+    dropping its item (`builds item drop`), which records the commits and
+    files on the closed item, deletes the branch and frees the worktree.
 
 Each checkout builds into its own folders on /Volumes/Builds. Never set
 CARGO_TARGET_DIR or another CARGO_* variable on a command: the path is part of
@@ -177,9 +186,10 @@ DISPATCH
   - Take items from `builds next`. Claim the worktree (`builds claim`), mark
     the items running (`builds item take`), keep the worktree's note current
     (`builds note`) on every dispatch and handoff. A landing that leaves
-    nothing to land releases the worktree; release a worktree by hand only when
-    its work stops, or moves to another worktree, before `builds land` puts it
-    on origin/main. `builds item list --running` shows what runs after a
+    nothing to land releases the worktree. When an agent stops before its
+    work lands, park its item where the work is (`builds item park`); release
+    a worktree by hand only when it holds nothing origin/main lacks (release
+    refuses the rest). `builds item list --running` shows what runs after a
     compact.
   - Read-only agents (planners, audits) read origin/main through `git show`
     and `git grep`, never a checkout.

@@ -260,5 +260,5 @@ pub fn discard(work: &DroppedWork) -> Result<()> {
 }
 
 fn forget_claim(checkout: &Checkout) -> Result<()> {
-    crate::claim::release(checkout).map(|_| ())
+    crate::claim::forget(checkout).map(|_| ())
 }

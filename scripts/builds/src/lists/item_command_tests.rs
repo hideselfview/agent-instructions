@@ -882,3 +882,91 @@ fn a_refused_drop_leaves_the_work_where_it_was() {
     let checkout = Checkout::find(&side_arg).unwrap();
     assert_eq!(checkout.branch().unwrap().as_deref(), Some("work"));
 }
+
+/// `release` of <side>, which must be refused; what it said.
+fn release_refused(demo: &Demo, side: &std::path::Path) -> String {
+    refusal(cmd_release(
+        &demo.tool.places,
+        &[side.display().to_string()],
+    ))
+}
+
+/// Release refuses a worktree whose branch holds commits origin/main lacks,
+/// names them and the ways the work may leave, and keeps the claim.
+#[test]
+fn release_refuses_a_worktree_whose_branch_holds_unlanded_commits() {
+    let demo = demo("release-branch");
+    let side = demo.add_side(1, "agent A", "work");
+    demo.commit(&side, "unlanded");
+    let said = release_refused(&demo, &side);
+    assert!(
+        said.contains("branch work: ")
+            && said.contains(" unlanded")
+            && said.contains("builds land")
+            && said.contains("builds item park")
+            && said.contains("--held"),
+        "{said}"
+    );
+    let checkout = Checkout::find(&side.display().to_string()).unwrap();
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_some()
+    );
+}
+
+/// Release refuses a worktree with files not committed, and names them.
+#[test]
+fn release_refuses_a_worktree_with_uncommitted_files() {
+    let demo = demo("release-files");
+    let side = demo.add_side(1, "agent A", "work");
+    std::fs::write(side.join("loose"), "x").unwrap();
+    let said = release_refused(&demo, &side);
+    assert!(said.contains("1 file not committed: loose"), "{said}");
+}
+
+/// Switching the worktree off its branch does not hide the branch's work:
+/// release names the branch it left. A detached HEAD past origin/main with
+/// no branch is refused too.
+#[test]
+fn release_refuses_a_branch_the_worktree_left_and_detached_commits() {
+    let demo = demo("release-left");
+    let side = demo.add_side(1, "agent A", "work");
+    demo.commit(&side, "unlanded");
+    crate::testing::git(&side, &["switch", "-q", "--detach", "main"]);
+    let said = release_refused(&demo, &side);
+    assert!(said.contains("branch work, which it left: "), "{said}");
+
+    let other = demo.add_side(2, "agent B", "other");
+    crate::testing::git(&other, &["switch", "-q", "--detach"]);
+    demo.commit(&other, "detached");
+    let said = release_refused(&demo, &other);
+    assert!(said.contains("detached HEAD: "), "{said}");
+}
+
+/// Work an item holds parked lets the worktree go, and so does work that
+/// landed.
+#[test]
+fn release_lets_go_of_parked_or_landed_work() {
+    let demo = demo("release-ok");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let sha = demo.commit(&side, "landed");
+    crate::testing::git(&demo.main, &["cherry-pick", &sha]);
+    crate::testing::git(&demo.main, &["push", "-q", "origin", "main"]);
+    crate::testing::git(&side, &["fetch", "-q", "origin"]);
+    cmd_release(&demo.tool.places, std::slice::from_ref(&side_arg)).unwrap();
+
+    let two = demo.add_side(2, "agent B", "other");
+    let two_arg = two.display().to_string();
+    demo.commit(&two, "unlanded");
+    add(&demo, FIVE, &[]).unwrap();
+    item(&demo, &park_args("1", &two_arg, "other")).unwrap();
+    crate::claim::cmd_claim(
+        &demo.tool.places,
+        &[two_arg.clone(), "agent C".into()],
+        NOON,
+    )
+    .unwrap();
+    cmd_release(&demo.tool.places, &[two_arg]).unwrap();
+}

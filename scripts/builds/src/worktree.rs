@@ -283,12 +283,14 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
             "{top} holds a parked item's work; take the item there (`builds item take`) to work on it"
         );
     }
-    let dirty = git_text(
-        git(&checkout.top).args(["status", "--porcelain"]),
-        "read the worktree's status",
-    )?;
-    if !dirty.is_empty() {
-        fail!("{top} has uncommitted or untracked files; commit or remove them first");
+    // With no claim, no branch the worktree left counts as its own: those
+    // stay as branches, which health lists while they hold work.
+    let held = crate::unlanded::unheld_in(&tool.places, checkout, i64::MAX)?;
+    if !held.is_empty() {
+        fail!(
+            "{}",
+            crate::unlanded::refusal("retire", &checkout.top, &held)
+        );
     }
     run_checked(
         git(&checkout.main)

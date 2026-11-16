@@ -64,7 +64,7 @@ fn new_claims_a_worktree_and_retire_removes_it() {
     std::fs::write(side.join("stray"), "x").unwrap();
     assert!(
         refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg)))
-            .contains("has uncommitted or untracked files")
+            .contains("1 file not committed: stray")
     );
     std::fs::remove_file(side.join("stray")).unwrap();
     cmd_retire(&tool, std::slice::from_ref(&side_arg)).unwrap();

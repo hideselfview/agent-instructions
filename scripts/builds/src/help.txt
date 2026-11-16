@@ -161,8 +161,10 @@ the others and `builds prune` retires them once they are idle.
 A claim records who works in a side worktree, so that no other session takes
 it: whoever hands out the worktree (a coordinator dispatching an agent, or the
 person) claims it. A landing that leaves nothing to land releases it (`builds
-land`); whoever handed it out releases it when the work stops, or moves to
-another worktree, before `builds land` puts it on origin/main. A claim is a
+land`); whoever handed it out releases it when the work stops, once the
+worktree holds nothing origin/main lacks: release refuses a worktree whose
+work would be left with no claim and no item (`builds item park` keeps it
+with its item instead). A claim is a
 file in the worktree's git dir, so retiring the worktree deletes its claim;
 `status` shows it, and `retire` refuses a claimed worktree. A claim is not a
 lock: an agent runs a series of separate commands, so nothing could hold one,
@@ -245,9 +247,23 @@ because landing rebases or cherry-picks it.
                               REF`); note never refuses it for an app
                               checkout, which runs no item
   builds release <checkout>   remove its claim; refused while an item of any
-                              project runs in the worktree
+                              project runs in the worktree, and while it holds
+                              work origin/main lacks that no item holds: commits
+                              on HEAD, on a branch the worktree left since its
+                              claim began (HEAD's reflog says which) that no
+                              worktree checks out, or files not committed. A
+                              detached HEAD past origin/main counts too. The
+                              refusal names the commits and files, and the
+                              ways the work may leave: land it, park it under
+                              its item (`builds item park`), or take it under
+                              an item held on the person (`builds item take
+                              --held`). An item parked there holds all of it.
+                              Only the person throws work away, by dropping
+                              its item
   builds retire <checkout>    remove a clean, unclaimed side worktree and its
-                              build root; refuses an app checkout
+                              build root; refuses an app checkout, a worktree
+                              an item is parked in, and one whose HEAD or files
+                              hold work origin/main lacks
 
 
 CARGO

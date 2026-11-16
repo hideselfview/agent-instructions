@@ -1,0 +1,228 @@
+//! Work that origin/main lacks. `builds release` and `builds retire` refuse a
+//! worktree that holds such work which nothing else holds (`in_worktree`), so
+//! a session can't drop it by releasing. Work leaves a worktree only by landing,
+//! by an item that holds it (running held on the person, or parked), or by
+//! the person dropping that item (lists/dropped.rs).
+
+use std::collections::BTreeSet;
+use std::path::Path;
+
+use crate::checkout::{Checkout, git, git_text};
+use crate::fail;
+use crate::fail::Result;
+use crate::side_git::Commit;
+
+/// The work a worktree holds that origin/main lacks.
+#[derive(Debug, Default)]
+pub struct Held {
+    /// The commits on HEAD, newest first, with HEAD's branch, or None when
+    /// HEAD is detached.
+    pub head: (Option<String>, Vec<Commit>),
+    /// Each other branch the worktree had checked out since its claim began,
+    /// with its commits, newest first.
+    pub left: Vec<(String, Vec<Commit>)>,
+    /// The files not committed.
+    pub uncommitted: Vec<String>,
+}
+
+impl Held {
+    pub fn is_empty(&self) -> bool {
+        self.head.1.is_empty()
+            && self.left.iter().all(|(_, commits)| commits.is_empty())
+            && self.uncommitted.is_empty()
+    }
+}
+
+/// The branches the worktree <top> left since <since> (seconds since 1970),
+/// as its HEAD's reflog records each checkout: `checkout: moving from A to
+/// B` names A, the branch left.
+fn branches_left(top: &Path, since: i64) -> Result<Vec<String>> {
+    let log = git_text(
+        git(top).args([
+            "reflog",
+            "show",
+            "HEAD",
+            "--date=unix",
+            "--format=%gd%x00%gs",
+        ]),
+        "read HEAD's reflog",
+    )?;
+    let mut left = Vec::new();
+    for line in log.lines() {
+        let Some((selector, subject)) = line.split_once('\0') else {
+            continue;
+        };
+        let at = selector
+            .strip_prefix("HEAD@{")
+            .and_then(|rest| rest.strip_suffix('}'))
+            .and_then(|at| at.parse::<i64>().ok());
+        let Some(at) = at else {
+            fail!("git printed a reflog entry {selector:?} with no time");
+        };
+        if at < since {
+            break;
+        }
+        let Some(moved) = subject.strip_prefix("checkout: moving from ") else {
+            continue;
+        };
+        let Some((from, _)) = moved.split_once(" to ") else {
+            continue;
+        };
+        if !left.iter().any(|known| known == from) {
+            left.push(from.to_string());
+        }
+    }
+    Ok(left)
+}
+
+/// The work in <checkout> that origin/main lacks and no open item holds:
+/// HEAD's commits, the commits of each branch the worktree left since
+/// <since> (its claim's start) that no worktree checks out now and no name
+/// of <held> (the branches open items run or are parked on) covers, and the
+/// files not committed.
+pub fn in_worktree(checkout: &Checkout, since: i64, held: &[String]) -> Result<Held> {
+    let top = &checkout.top;
+    let unread = |error: String| {
+        fail::Fail::Message(format!("reading the work in {}: {error}", top.display()))
+    };
+    let branch = checkout.branch()?;
+    let head = crate::side_git::waiting_to_land(top, "HEAD").map_err(unread)?;
+    let checked_out: Vec<String> = crate::checkout::worktree_list(top)?
+        .into_iter()
+        .filter_map(|listed| listed.branch)
+        .collect();
+    let mut left = Vec::new();
+    for name in branches_left(top, since)? {
+        if Some(&name) == branch.as_ref()
+            || checked_out.contains(&name)
+            || held.contains(&name)
+            || !branch_exists(top, &name)?
+        {
+            continue;
+        }
+        let commits =
+            crate::side_git::waiting_to_land(top, &format!("refs/heads/{name}")).map_err(unread)?;
+        if !commits.is_empty() {
+            left.push((name, commits));
+        }
+    }
+    Ok(Held {
+        head: (branch, head),
+        left,
+        uncommitted: crate::side_git::uncommitted_paths(top)
+            .map_err(unread)?
+            .into_iter()
+            .collect(),
+    })
+}
+
+/// Does branch <branch> exist in the repo of <dir>?
+fn branch_exists(dir: &Path, branch: &str) -> Result<bool> {
+    let status = git(dir)
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|error| {
+            fail::Fail::Message(format!("running git in {}: {error}", dir.display()))
+        })?;
+    Ok(status.success())
+}
+
+/// <commits> as a refusal lists them: each short sha and subject.
+fn commit_words(commits: &[Commit]) -> String {
+    commits
+        .iter()
+        .map(|c| format!("{} {}", c.sha, c.subject))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Why <what> (a command) refuses <top>, which holds <held>, and the ways
+/// its work may leave the worktree.
+pub fn refusal(what: &str, top: &Path, held: &Held) -> String {
+    let top = top.display();
+    let mut lines = vec![format!(
+        "{what} refuses {top}: it holds work origin/main lacks, which nothing else holds:"
+    )];
+    let (branch, head) = &held.head;
+    if !head.is_empty() {
+        let on = match branch {
+            Some(branch) => format!("branch {branch}"),
+            None => "detached HEAD".to_string(),
+        };
+        lines.push(format!("  {on}: {}", commit_words(head)));
+    }
+    for (branch, commits) in &held.left {
+        lines.push(format!(
+            "  branch {branch}, which it left: {}",
+            commit_words(commits)
+        ));
+    }
+    if !held.uncommitted.is_empty() {
+        lines.push(format!(
+            "  {} not committed: {}",
+            crate::text::counted(held.uncommitted.len(), "file", "files"),
+            held.uncommitted.join(", ")
+        ));
+    }
+    let branch = branch.as_deref().unwrap_or("BRANCH");
+    lines.push(format!(
+        "Land it (`builds land {top} --done N SHA...`), park it under its item (`builds item park N --worktree {top} --branch {branch}`), or hand it to an item held on the person (`builds item take N --worktree {top} --branch {branch} --brief P --held WHY`). Commit the files and give detached commits a branch (`git -C {top} switch -c NAME`) first. Only the person throws work away, by dropping its item."
+    ));
+    lines.join("\n")
+}
+
+/// The repo and branch of every running or parked place of an open item of
+/// <loaded>: the branches items hold.
+fn named_branches(loaded: &[crate::lists::store::Loaded]) -> BTreeSet<(String, String)> {
+    let mut named = BTreeSet::new();
+    for lists in loaded
+        .iter()
+        .filter_map(|project| project.lists.as_ref().ok())
+    {
+        for item in &lists.items {
+            let places = item
+                .running
+                .iter()
+                .map(|r| (&r.worktree, &r.branch))
+                .chain(item.parked.iter().map(|p| (&p.worktree, &p.branch)));
+            for (worktree, branch) in places {
+                if let Some((repo, _)) = crate::lists::side_worktree_parts(worktree) {
+                    named.insert((repo, branch.clone()));
+                }
+            }
+        }
+    }
+    named
+}
+
+/// The work in <checkout> that origin/main lacks and that no open item holds,
+/// for a claim that began at <since>: none when an item is parked there,
+/// since the item holds all of it. Fails when a store does not load, since
+/// its items may hold the work.
+pub fn unheld_in(places: &crate::places::Places, checkout: &Checkout, since: i64) -> Result<Held> {
+    let loaded = crate::lists::store::load_all(places);
+    let top = checkout.top.display().to_string();
+    let parked = crate::lists::parked::parked_worktrees(&loaded).map_err(|fault| {
+        fail::Fail::Message(format!(
+            "builds cannot tell which items hold {top}'s work: {fault}"
+        ))
+    })?;
+    if parked.contains(&top) {
+        return Ok(Held::default());
+    }
+    let repo = checkout.repo();
+    let held: Vec<String> = named_branches(loaded.as_deref().unwrap_or_default())
+        .into_iter()
+        .filter(|(named_repo, _)| *named_repo == repo)
+        .map(|(_, branch)| branch)
+        .collect();
+    in_worktree(checkout, since, &held)
+}

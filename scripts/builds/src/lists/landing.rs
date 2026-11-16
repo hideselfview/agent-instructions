@@ -405,10 +405,10 @@ pub fn landed(tool: &Tool, args: &[String]) -> Result<()> {
 }
 
 /// Releases each worktree of <ran_in> that no item of any project runs in
-/// any more and that has nothing past origin/main: its agent has no work
-/// left there, so its claim and its note would only mislead. A worktree that
-/// is gone, has no claim, still runs an item or still has commits waiting to
-/// land keeps its claim.
+/// any more and that holds no work origin/main lacks (unlanded.rs): its
+/// agent has no work left there, so its claim and its note would only
+/// mislead. A worktree that is gone, has no claim, still runs an item or
+/// still holds such work keeps its claim.
 fn release_finished(places: &crate::places::Places, ran_in: &[String]) -> Result<()> {
     let every = crate::lists::store::every_lists(places)?;
     let mut done: Vec<&String> = Vec::new();
@@ -424,14 +424,13 @@ fn release_finished(places: &crate::places::Places, ran_in: &[String]) -> Result
             continue;
         }
         let checkout = Checkout::find(worktree)?;
-        let git = crate::side_git::read(&checkout.top);
-        if let Some(error) = &git.error {
-            fail!("reading git in {worktree} to release it: {error}");
-        }
-        if !git.ahead.is_empty() {
+        let Some(claim) = crate::claim::Claim::read(&checkout.claim_file())? else {
+            continue;
+        };
+        if !crate::unlanded::unheld_in(places, &checkout, claim.since)?.is_empty() {
             continue;
         }
-        if let Some(claim) = crate::claim::release(&checkout)? {
+        if let Some(claim) = crate::claim::forget(&checkout)? {
             note(format!("released {worktree} (was {})", claim.text()));
         }
     }

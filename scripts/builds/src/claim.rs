@@ -275,14 +275,25 @@ pub fn cmd_note(places: &Places, args: &[String]) -> Result<()> {
 }
 
 /// `builds release <checkout>`, refused while an item of the lists runs in
-/// the worktree: the claim names the item's agent.
+/// the worktree, since the claim names the item's agent, and while the
+/// worktree holds work origin/main lacks that no item holds
+/// (`require_nothing_unlanded`).
 pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
     let [checkout] = args else {
         fail!("usage: builds release <checkout>")
     };
     let checkout = Checkout::find(checkout)?;
     crate::lists::running::require_release_allowed(places, &checkout)?;
-    match release(&checkout)? {
+    if let Some(claim) = Claim::read(&checkout.claim_file())? {
+        let held = crate::unlanded::unheld_in(places, &checkout, claim.since)?;
+        if !held.is_empty() {
+            fail!(
+                "{}",
+                crate::unlanded::refusal("release", &checkout.top, &held)
+            );
+        }
+    }
+    match forget(&checkout)? {
         Some(claim) => note(format!(
             "released {} (was {})",
             checkout.top.display(),
@@ -295,8 +306,9 @@ pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
 
 /// Removes <checkout>'s claim and the project file it names, and returns the
 /// claim, or None when there was none. A project file left behind would give
-/// its project to a later claim that names no project.
-pub fn release(checkout: &Checkout) -> Result<Option<Claim>> {
+/// its project to a later claim that names no project. It asks nothing of
+/// the worktree's work: `cmd_release` and each other caller check it first.
+pub fn forget(checkout: &Checkout) -> Result<Option<Claim>> {
     let file = checkout.claim_file();
     let claim = Claim::read(&file)?;
     remove_if_present(&checkout.project_file())?;
