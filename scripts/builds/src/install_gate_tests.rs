@@ -152,6 +152,26 @@ fn holds_use(places: &Places, kind: Kind, pid: u32) -> bool {
     !lock(&file, libc::LOCK_EX, false, &path).unwrap()
 }
 
+/// Whether the use of process <pid> has ended: its file is gone, or an
+/// exclusive lock on the file comes within `PATIENCE`. A process that a test
+/// running beside this one starts keeps the file locked for a moment after
+/// the use dropped it, until that process runs its own program.
+fn use_ended(places: &Places, kind: Kind, pid: u32) -> bool {
+    let path = kind.uses(places).join(pid.to_string());
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return true,
+        Err(error) => panic!("opening {}: {error}", path.display()),
+    };
+    let (locked, locks) = channel();
+    std::thread::spawn(move || {
+        locked
+            .send(lock(&file, libc::LOCK_EX, true, &path).unwrap())
+            .unwrap()
+    });
+    locks.recv_timeout(PATIENCE).is_ok()
+}
+
 /// A command that passes the gate holds it shared, and install waits for it
 /// without saying another install runs; a closed gate is another install's.
 #[test]
@@ -226,7 +246,7 @@ fn a_lane_holds_a_use_once_it_holds_its_lock_unless_an_install_ran_while_it_wait
         FromNow::InstallRan
     ));
     assert!(
-        !holds_use(&places, Kind::Command, 21),
+        use_ended(&places, Kind::Command, 21),
         "the lane that runs again holds no use"
     );
     // The installed builds, run again, holds its use.
