@@ -593,7 +593,8 @@ cannot start refuses mac app builds only (APP BUILDS).
                               that copy run `builds host setup-here` there,
                               which writes the host's sccache config with
                               builds' cap and runs its sccache server under
-                              launchd, as `builds install` does here (it
+                              launchd, as `builds install` does here, first
+                              stopping a server a client started there (it
                               needs the host's user logged in to its desktop,
                               where launchd runs user agents), and records the
                               host's core speed in `hosts`: this Mac's time
@@ -1409,8 +1410,13 @@ INSTALLING
                               folder already there onto the volume), write the
                               sccache config, run the sccache server under
                               launchd (restarting it only when its settings
-                              changed, since a restart fails every compile in
-                              flight), point Xcode's default DerivedData at the
+                              changed or another server holds sccache's port,
+                              and only once the compiles of the server it
+                              stops finish, since a restart fails every
+                              compile in flight; it fails, with what launchd
+                              and the server's log say, unless launchd's
+                              server then listens on the port), point Xcode's
+                              default DerivedData at the
                               volume, restart a running dashboard so it runs
                               the new code, and copy the same builds to every
                               recorded host (HOSTS). When builds cannot reach a
