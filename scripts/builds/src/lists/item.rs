@@ -38,6 +38,19 @@ pub enum Wait {
     Condition(String),
 }
 
+impl Wait {
+    /// The wait as `builds item wait` takes it: `item:N`, `question:N`,
+    /// `design:N` or `condition:TEXT`.
+    pub fn arg(&self) -> String {
+        match self {
+            Wait::Item(id) => format!("item:{}", id.0),
+            Wait::Question(id) => format!("question:{}", id.0),
+            Wait::Design(id) => format!("design:{}", id.0),
+            Wait::Condition(text) => format!("condition:{text}"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Level {
@@ -601,6 +614,35 @@ impl Lists {
         self.items
             .iter()
             .filter(move |item| item.waits.contains(wait))
+    }
+
+    /// Refuses while an open item waits on <on>, a record about to leave its
+    /// list: names each such item and the `builds item wait` command that
+    /// frees it, and says to <how> the record after.
+    pub fn require_none_waits_on(&self, on: &Wait, how: &str) -> Result<()> {
+        let waiting: Vec<&Item> = self.open_items_waiting_on(on).collect();
+        if waiting.is_empty() {
+            return Ok(());
+        }
+        let named: Vec<String> = waiting
+            .iter()
+            .map(|i| format!("{} \"{}\"", i.id, i.title))
+            .collect();
+        let free: Vec<String> = waiting
+            .iter()
+            .map(|i| format!("`builds item wait {} --off {}`", i.id.0, on.arg()))
+            .collect();
+        let record = match on {
+            Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => id.to_string(),
+            Wait::Condition(text) => text.clone(),
+        };
+        fail!(
+            "{} wait{} on {record}; free {} first ({}), then {how} it",
+            named.join("; "),
+            if waiting.len() == 1 { "s" } else { "" },
+            if waiting.len() == 1 { "it" } else { "each" },
+            free.join("; ")
+        )
     }
 }
 

@@ -360,25 +360,7 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str) -> Result<()> {
             id.0
         );
     }
-    let on_it = Wait::Item(id);
-    let waiting: Vec<&Item> = lists.open_items_waiting_on(&on_it).collect();
-    if !waiting.is_empty() {
-        let named: Vec<String> = waiting
-            .iter()
-            .map(|i| format!("{} \"{}\"", i.id, i.title))
-            .collect();
-        let free: Vec<String> = waiting
-            .iter()
-            .map(|i| format!("builds item wait {} --off item:{}", i.id.0, id.0))
-            .collect();
-        fail!(
-            "{} wait{} on {id}; free {} first ({}), then {how} it",
-            named.join("; "),
-            if waiting.len() == 1 { "s" } else { "" },
-            if waiting.len() == 1 { "it" } else { "each" },
-            free.join("; ")
-        );
-    }
+    lists.require_none_waits_on(&Wait::Item(id), how)?;
     for question in &lists.questions {
         let asked = Wait::Question(question.id);
         let blocked: Vec<Id> = lists.open_items_waiting_on(&asked).map(|i| i.id).collect();

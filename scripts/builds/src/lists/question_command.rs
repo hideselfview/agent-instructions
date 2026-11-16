@@ -456,23 +456,12 @@ fn leave(
     store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         open_question(lists, id)?;
-        let waiting: Vec<String> = lists
-            .items
-            .iter()
-            .filter(|item| item.waits.contains(&Wait::Question(id)))
-            .map(|item| {
-                format!(
-                    "{} {}: `builds item wait {} --off question:{}`",
-                    item.id, item.title, item.id.0, id.0
-                )
-            })
-            .collect();
-        if !waiting.is_empty() {
-            fail!(
-                "items still wait on question {id}; free each first:\n  {}",
-                waiting.join("\n  ")
-            );
-        }
+        let verb = if leaving == Leaving::Drop {
+            "drop"
+        } else {
+            "defer"
+        };
+        lists.require_none_waits_on(&Wait::Question(id), verb)?;
         close(db, id, how, &stamp)
     })?;
     let lists = store.load()?;
