@@ -343,6 +343,24 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             db::stamp()
         );
     }
+    // A store from just before the cargo runs' table, or after it, has the
+    // review's tables; the move makes them in every older store.
+    let had_review_tables = [
+        BEFORE_CARGO_RUNS_STAMP,
+        BEFORE_DESIGN_FIX_STAMP,
+        BEFORE_LANDING_REVIEW_STAMP,
+        BEFORE_SCORED_CALLS_STAMP,
+        BEFORE_TAGS_STAMP,
+        BEFORE_CARGO_RUNS_REMOVED_STAMP,
+        BEFORE_ORIGINS_STAMP,
+        BEFORE_FINISHED_STAMP,
+        BEFORE_CHANGED_LINES_STAMP,
+        BEFORE_CHECK_STARTS_STAMP,
+        BEFORE_CANVAS_STAMP,
+        BEFORE_DESIGN_DROP_STAMP,
+        BEFORE_PUSHED_STAMP,
+    ]
+    .contains(&found);
     // Off for the moves, so a table made again keeps the references to it as
     // they are written; every reference is checked before the commit.
     conn.pragma_update(None, "foreign_keys", false).sql()?;
@@ -398,9 +416,9 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         // Every part is `IF NOT EXISTS`, so a store that has one keeps it.
         tx.execute_batch(db::DESIGN_SESSION_PART).sql()?;
         tx.execute_batch(db::SHOT_FINDINGS_PART).sql()?;
-        // The review's tables are plain `CREATE TABLE`s: a store from just before
-        // the cargo runs' table, or after it, already has them.
-        if found != BEFORE_CARGO_RUNS_STAMP && found != BEFORE_DESIGN_FIX_STAMP {
+        // The review's tables are plain `CREATE TABLE`s, so a store that has
+        // one fails the move.
+        if !had_review_tables {
             tx.execute_batch(db::REVIEW_PART).sql()?;
         }
         tx.execute_batch(&design_fix()).sql()?;
@@ -515,15 +533,10 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     if ![BEFORE_DESIGN_DROP_STAMP, BEFORE_PUSHED_STAMP].contains(&found) {
         crate::lists::project::move_to_canvas(&tx)?;
     }
-    // A store whose review tables the move made above has `review_pushed`.
-    let has_pushed: bool = tx
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM sqlite_schema WHERE name = 'review_pushed'",
-            [],
-            |row| row.get(0),
-        )
-        .sql()?;
-    if !has_pushed {
+    // The review's tables the move made above include `review_pushed`; a
+    // store that had them gets it here, and one that has it already fails
+    // the move.
+    if had_review_tables {
         tx.execute_batch(db::statement(
             &db::schema(),
             "CREATE TABLE review_pushed",
