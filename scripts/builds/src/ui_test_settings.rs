@@ -183,7 +183,11 @@ fn place(name: &str) -> String {
 /// sudo there can ask the person for the password.
 fn run_at_terminal(ssh: &Ssh, host: &Host, script: &str) -> Result<()> {
     let mut command = match &host.target {
-        Some(target) => ssh.terminal_command(target, &format!("sh -c {}", sh_quote(script))),
+        Some(target) => ssh.command(
+            target,
+            &format!("sh -c {}", sh_quote(script)),
+            host::Terminal::Person,
+        ),
         None => {
             let mut command = Command::new("sh");
             command.arg("-c").arg(script);

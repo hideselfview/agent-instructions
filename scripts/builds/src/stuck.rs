@@ -678,7 +678,7 @@ pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
     let read = (|| {
         let listing = match &host.target {
             Some(target) => output_of(
-                ssh.command(target, &ps_script()),
+                ssh.command(target, &ps_script(), crate::host::Terminal::None),
                 &format!("ps on host {}", host.name),
             )?,
             None => output_of(ps_command(), "ps")?,
@@ -695,6 +695,7 @@ pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
                         ssh.command(
                             target,
                             &format!("lsof -a -d cwd -Fpn -p {}", list.join(",")),
+                            crate::host::Terminal::None,
                         ),
                         &format!("lsof on host {}", host.name),
                     )?)

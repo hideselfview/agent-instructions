@@ -83,7 +83,11 @@ pub fn install_program(ssh: &Ssh, host: &Host) -> Result<String> {
         root = crate::remote::root_script(host)
     );
     let mut child = ssh
-        .command(target, &format!("sh -c {}", sh_quote(&script)))
+        .command(
+            target,
+            &format!("sh -c {}", sh_quote(&script)),
+            host::Terminal::None,
+        )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

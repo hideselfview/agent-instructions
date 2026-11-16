@@ -252,9 +252,11 @@ impl Transport<'_> {
     /// A command that runs <script> with `sh` on the host.
     pub fn command(&self, script: &str) -> Command {
         match &self.host.target {
-            Some(target) => self
-                .ssh
-                .command(target, &format!("sh -c {}", sh_quote(script))),
+            Some(target) => self.ssh.command(
+                target,
+                &format!("sh -c {}", sh_quote(script)),
+                host::Terminal::None,
+            ),
             None => {
                 let mut command = Command::new("sh");
                 command.arg("-c").arg(script).env("HOME", &self.places.home);

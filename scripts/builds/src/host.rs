@@ -70,27 +70,16 @@ impl Ssh {
         ]
     }
 
-    /// `ssh <options> <target> <command>`; ssh hands the command to the
-    /// remote shell as one line.
-    pub fn command(&self, target: &str, remote_command: &str) -> Command {
+    /// `ssh <options> [-t] <target> <command>`; ssh hands the command to
+    /// the remote shell as one line, with a terminal there when <terminal>
+    /// says so.
+    pub fn command(&self, target: &str, remote_command: &str, terminal: Terminal) -> Command {
         let mut command = Command::new(&self.program);
-        command
-            .args(Self::options())
-            .arg(target)
-            .arg(remote_command);
-        command
-    }
-
-    /// `command`, with a terminal on the host for the command (`-t`), so a
-    /// program there such as sudo can ask the person at this terminal for a
-    /// password.
-    pub fn terminal_command(&self, target: &str, remote_command: &str) -> Command {
-        let mut command = Command::new(&self.program);
-        command
-            .args(Self::options())
-            .arg("-t")
-            .arg(target)
-            .arg(remote_command);
+        command.args(Self::options());
+        if terminal == Terminal::Person {
+            command.arg("-t");
+        }
+        command.arg(target).arg(remote_command);
         command
     }
 
@@ -98,6 +87,16 @@ impl Ssh {
     pub fn git_command(&self) -> String {
         format!("{} {}", sh_quote(&self.program), Self::options().join(" "))
     }
+}
+
+/// Whether a command run over ssh gets a terminal on the host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Terminal {
+    /// No terminal: builds reads what the command prints.
+    None,
+    /// A terminal (`ssh -t`) joined to this one, so a program on the host,
+    /// such as sudo, can ask the person at this terminal for a password.
+    Person,
 }
 
 /// <text> as one word for a POSIX shell.
@@ -253,7 +252,7 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
 /// what ssh printed.
 pub fn probe_target(ssh: &Ssh, target: &str) -> std::result::Result<Probe, String> {
     let output = ssh
-        .command(target, PROBE_SCRIPT)
+        .command(target, PROBE_SCRIPT, Terminal::None)
         .stdin(Stdio::null())
         .output()
         .map_err(|error| format!("running {}: {error}", ssh.program))?;
