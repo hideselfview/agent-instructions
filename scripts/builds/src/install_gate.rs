@@ -413,15 +413,27 @@ pub struct Closed {
     _gates: [File; 2],
 }
 
-/// Closes <kind>'s gate, waiting for another install that holds it closed.
+/// Closes <kind>'s gate, waiting for whoever holds it.
 fn close_gate(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Result<File> {
     let path = kind.gate(places);
     let gate = open(&path)?;
     if !lock(&gate, libc::LOCK_EX, false, &path)? {
-        say("another builds install runs: waiting for it".to_string());
+        if closed_by_install(&gate, &path)? {
+            say("another builds install runs: waiting for it".to_string());
+        }
         lock(&gate, libc::LOCK_EX, true, &path)?;
     }
     Ok(gate)
+}
+
+/// Whether another install holds the gate at <path>, which <gate> opens,
+/// closed. Only an install locks a gate exclusively. A command that passes
+/// the gate holds a shared lock on it for a moment, and so does a process
+/// that another thread of that command starts, until the process runs its
+/// own program and closes the gate's file. When no install holds the gate,
+/// <gate> holds a shared lock on return.
+fn closed_by_install(gate: &File, path: &Path) -> Result<bool> {
+    Ok(!lock(gate, libc::LOCK_SH, false, path)?)
 }
 
 /// Waits until every use of <kind> ends, telling <say> each use it waits

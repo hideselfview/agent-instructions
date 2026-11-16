@@ -152,6 +152,28 @@ fn holds_use(places: &Places, kind: Kind, pid: u32) -> bool {
     !lock(&file, libc::LOCK_EX, false, &path).unwrap()
 }
 
+/// A command that passes the gate holds it shared, and install waits for it
+/// without saying another install runs; a closed gate is another install's.
+#[test]
+fn install_says_another_install_runs_only_when_one_holds_the_gate() {
+    let scratch = Scratch::new("install-gate-holder");
+    let places = scratch.places();
+    let path = Kind::Command.gate(&places);
+    let passing = open(&path).unwrap();
+    assert!(lock(&passing, libc::LOCK_SH, false, &path).unwrap());
+    let probe = open(&path).unwrap();
+    assert!(
+        !closed_by_install(&probe, &path).unwrap(),
+        "a command passing the gate is no install"
+    );
+    drop(probe);
+    drop(passing);
+    let closed = close(&places, &mut |line| panic!("no use to wait for: {line}")).unwrap();
+    let probe = open(&path).unwrap();
+    assert!(closed_by_install(&probe, &path).unwrap());
+    drop(closed);
+}
+
 #[test]
 fn the_file_of_a_use_whose_process_died_holds_no_install() {
     let scratch = Scratch::new("install-gate-dead");
