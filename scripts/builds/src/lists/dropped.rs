@@ -54,8 +54,8 @@ fn main_of(worktree: &str) -> Result<(String, PathBuf)> {
 
 /// What <worktree> holds of an item's work on <branch>: the commits on the
 /// branch and on the worktree's HEAD that origin/main lacks, and the files
-/// not committed there. Refused when another worktree checks the branch out,
-/// since deleting it would take that worktree's work too.
+/// not committed there. read fails when another worktree checks the branch
+/// out, since deleting the branch would take that worktree's work too.
 pub fn read(worktree: &str, branch: &str) -> Result<DroppedWork> {
     let (repo, main) = main_of(worktree)?;
     if let Some(other) = crate::checkout::worktree_list(&main)?
@@ -109,7 +109,7 @@ pub fn read(worktree: &str, branch: &str) -> Result<DroppedWork> {
     })
 }
 
-/// Records <works> as what closed item <id> held when it was dropped.
+/// Records <works> as what closed item <id> held when the person dropped it.
 pub fn record(db: &Connection, id: Id, works: &[DroppedWork]) -> Result<()> {
     for work in works {
         db.execute(

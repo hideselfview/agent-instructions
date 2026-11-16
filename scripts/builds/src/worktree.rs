@@ -119,8 +119,8 @@ enum Start {
 }
 
 /// Refuses to resume <branch> in <main>'s repo when it does not exist or a
-/// worktree checks it out: git would refuse the checkout after the worktree
-/// was claimed.
+/// worktree checks it out: git would refuse the checkout after `builds new`
+/// claimed the worktree.
 fn require_resumable(main: &Path, branch: &str) -> Result<()> {
     if !crate::checkout::branch_exists(main, branch)? {
         fail!(
@@ -183,10 +183,10 @@ fn add_new(tool: &Tool, main: &Path, start: &Start) -> Result<std::path::PathBuf
     Ok(dir)
 }
 
-/// Checks <start> out in the free worktree <free>: a fresh branch out of
-/// origin/main, HEAD detached there when no branch is named, or the branch
-/// resumed. Nothing in it is lost: a free worktree is clean and holds no
-/// commit missing from origin/main.
+/// Checks <start> out in the free worktree <free>: a new branch at
+/// origin/main, HEAD detached there when the caller names no branch, or the
+/// branch to resume. The checkout loses nothing: a free worktree is clean
+/// and holds no commit missing from origin/main.
 fn reuse(free: &Checkout, start: &Start) -> Result<()> {
     let mut checkout = git(&free.top);
     checkout.args(["-c", "core.hooksPath=/dev/null", "checkout", "-q"]);
@@ -271,8 +271,9 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
             "{top} holds a parked item's work; take the item there (`builds item take`) to work on it"
         );
     }
-    // With no claim, no branch the worktree left counts as its own: those
-    // stay as branches, which health lists while they hold work.
+    // With no claim to start from, unheld_in ignores the branches this
+    // worktree left. Those branches stay, and `builds health` lists them
+    // while they hold work.
     let held = crate::unlanded::unheld_in(&tool.places, checkout, i64::MAX)?;
     if !held.is_empty() {
         fail!(

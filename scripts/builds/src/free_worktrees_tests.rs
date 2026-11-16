@@ -379,7 +379,8 @@ fn new_resumes_an_existing_branch_in_a_free_worktree_or_a_new_one() {
 }
 
 /// `new --resume` refuses a branch that does not exist, one another worktree
-/// checks out, and a fresh branch named beside it, and claims nothing.
+/// checks out, and a call that also names a new branch with -b, and claims
+/// nothing.
 #[test]
 fn new_refuses_to_resume_a_missing_or_checked_out_branch() {
     let scratch = Scratch::new("free-resume-refused");
@@ -390,7 +391,7 @@ fn new_refuses_to_resume_a_missing_or_checked_out_branch() {
         args.extend(extra.iter().map(|arg| arg.to_string()));
         match cmd_new(&tool, &args) {
             Err(crate::fail::Fail::Message(message)) => message,
-            other => panic!("new {extra:?} was not refused: {other:?}"),
+            other => panic!("new did not refuse {extra:?}: {other:?}"),
         }
     };
     assert!(

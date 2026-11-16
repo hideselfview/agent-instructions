@@ -192,8 +192,9 @@ pub struct LooseBranch {
     pub commits: Vec<Commit>,
 }
 
-/// What `loose_branches` found of each branch tip against origin/main's tip,
-/// kept between readings so a branch is judged again only when either moves.
+/// What `loose_branches` found of each branch tip against origin/main's tip.
+/// The caller keeps it between readings, so `loose_branches` judges a branch
+/// again only when its tip or origin/main's tip moves.
 #[derive(Default)]
 pub struct Judged(HashMap<(String, String), Vec<Commit>>);
 

@@ -1,8 +1,9 @@
 //! `builds item take`: an agent starts work on items, and `builds item park`:
 //! an item keeps its work in a worktree with no agent while it waits in the
 //! queue. The agent is the worktree's claim, read when asked and never
-//! stored; the worktrees, branches and brief are checked before the store's
-//! lock (git and the file system), what depends on the lists under it. Work
+//! stored. The command checks the worktrees, branches and brief in git and
+//! the file system before it takes the store's lock, and checks what
+//! depends on the lists after it takes the lock. Work
 //! that spans repos names one worktree and branch per repo (`--worktree W
 //! --branch B` repeated, the nth branch for the nth worktree); the items run
 //! or park in all of them. Taking a parked item moves it to running in the
@@ -167,7 +168,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         .collect::<Result<_>>()?;
     for (at, id) in ids.iter().enumerate() {
         if ids[..at].contains(id) {
-            fail!("{id} is named twice");
+            fail!("the command names {id} twice");
         }
     }
     let design_session = match args.value("as")? {
@@ -273,7 +274,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// each worktree W on its branch B with no agent, and waits in the queue
 /// (`builds next` names the worktree) until an agent takes it there. A
 /// running item must park where it runs, and stops running. A worktree that
-/// another item runs or is parked in is refused. The store's write comes
+/// another item runs or is parked in, park refuses. The store's write comes
 /// first, then each worktree's claim goes: no agent works there.
 pub fn park(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["worktree", "branch"], &[])?;
@@ -331,7 +332,7 @@ pub fn park(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         }
     }
     note(format!(
-        "{id} is parked in {}; it waits in the queue",
+        "{id} is parked in {} and waits in the queue",
         places_words(places.iter().map(|p| (&p.top, &p.branch)))
     ));
     Ok(())

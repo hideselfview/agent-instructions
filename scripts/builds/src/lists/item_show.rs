@@ -257,7 +257,7 @@ pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 /// What `builds next` prints for <lists>: each ready coordinator item, its
-/// brief, and the worktree it is parked in, where its work waits.
+/// brief, and the worktree it is parked in, which holds its work.
 pub fn next_text(lists: &Lists) -> String {
     let ready = derive::dispatch_order(lists);
     let mut out = String::new();

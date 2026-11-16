@@ -67,12 +67,12 @@ pub const HOOK_CHECK_STARTS_PART: &str = include_str!("hook_check_starts.sql");
 /// the last part of the schema.
 pub const CARGO_RUNS_PART: &str = include_str!("cargo_run.sql");
 
-/// Where open items hold a worktree with no agent (lists/parked.sql), the
-/// last part of the schema.
+/// Where open items hold a worktree with no agent (lists/parked.sql); the
+/// schema holds it after the cargo runs' part.
 pub const PARKED_PART: &str = include_str!("lists/parked.sql");
 
-/// The work dropped items held (lists/dropped.sql), the last part of the
-/// schema.
+/// The work an item held when the person dropped it (lists/dropped.sql), the
+/// last part of the schema.
 pub const DROPPED_PART: &str = include_str!("lists/dropped.sql");
 
 /// The whole schema: the lists' tables, then the hook stats', then the

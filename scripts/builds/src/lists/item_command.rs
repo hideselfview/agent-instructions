@@ -366,7 +366,7 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str, work_goes: bool) -> Resul
     if !work_goes && !item.parked.is_empty() {
         let worktrees: Vec<&str> = item.parked.iter().map(|p| p.worktree.as_str()).collect();
         fail!(
-            "{id} is parked in {}, where its work waits; take it there and land the work before you {how} it",
+            "{id} is parked in {}, which holds its commits and files; take it there and land the work before you {how} it",
             worktrees.join(" and ")
         );
     }
@@ -404,7 +404,7 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         {
             let worktrees: Vec<&str> = item.parked.iter().map(|p| p.worktree.as_str()).collect();
             fail!(
-                "{id} is parked in {}, where its work waits; take it there and land the work",
+                "{id} is parked in {}, which holds its commits and files; take it there and land the work",
                 worktrees.join(" and ")
             );
         }

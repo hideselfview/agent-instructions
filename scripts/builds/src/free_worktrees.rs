@@ -3,8 +3,8 @@
 //! nothing has used for a day, so they don't pile up.
 //!
 //! A side worktree is free when it has no claim, no item parked in it, a
-//! clean tree, and no commit missing from origin/main. Landing rebases, so "missing" is judged by patch
-//! (`side_git`, `git cherry`), not by hash. main and the repo's app checkout
+//! clean tree, and no commit missing from origin/main. Landing rebases, so
+//! `side_git` compares commits by patch (`git cherry`), not by hash. main and the repo's app checkout
 //! are never free: the person's builds and the agents' app builds stay warm in
 //! them.
 
@@ -24,7 +24,7 @@ use crate::tool::Tool;
 use crate::worktree::retire_checkout;
 
 /// Is the side worktree <checkout> free, given what git says about it and
-/// the worktrees items are parked in (<parked>)?
+/// the worktrees that hold parked items (<parked>)?
 fn is_free(checkout: &Checkout, git: &SideGit, parked: &[String]) -> Result<bool> {
     Ok(Claim::read(&checkout.claim_file())?.is_none()
         && !parked.contains(&checkout.top.display().to_string())

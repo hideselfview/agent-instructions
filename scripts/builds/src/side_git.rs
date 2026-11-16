@@ -99,8 +99,8 @@ fn commits(top: &Path, rev: &[&str]) -> Result<Vec<Commit>, String> {
 }
 
 /// The commits on origin/main by author time and subject, which a
-/// cherry-pick and a rebase both keep: what tells a landed copy of a commit
-/// whose patch the landing changed (`waiting_to_land`).
+/// cherry-pick and a rebase both keep. `waiting_to_land` uses them to find a
+/// landed copy of a commit whose patch changed when it landed.
 pub struct MainCopies(HashSet<(i64, String)>);
 
 impl MainCopies {
@@ -109,8 +109,8 @@ impl MainCopies {
         MainCopies::of(top, &format!("{rev}..origin/main"))
     }
 
-    /// Every commit on origin/main: enough to judge any rev, read once
-    /// when many revs are judged together.
+    /// Every commit on origin/main: enough to judge any rev, so a caller
+    /// that checks many revs reads origin/main once.
     pub fn all(top: &Path) -> Result<MainCopies, String> {
         MainCopies::of(top, "origin/main")
     }
@@ -201,7 +201,7 @@ fn uncommitted(top: &Path) -> Result<(usize, Option<i64>), String> {
 }
 
 /// The paths `git status` calls dirty in <top>: staged, changed and
-/// untracked alike, each file named.
+/// untracked alike. An untracked folder shows as each file in it.
 pub fn uncommitted_paths(top: &Path) -> Result<BTreeSet<String>, String> {
     let status = run(
         top,

@@ -1,7 +1,7 @@
 -- Where an open item holds a worktree with no agent (`builds item park`): its
 -- work waits there on its branch while the item waits in the queue, and
--- taking the item moves it to `running` in the same worktree. One worktree per
--- repo the work spans. parked.rs owns these tables and is the only code that
+-- taking the item moves it to `running` in the same worktree. A parked item
+-- holds one worktree for each repo its work spans. parked.rs owns these tables and is the only code that
 -- writes them.
 
 CREATE TABLE parked (

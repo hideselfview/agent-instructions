@@ -123,7 +123,8 @@ struct State {
     host_load: HashMap<String, VecDeque<(i64, f64)>>,
     /// Each repo's branches with commits waiting to land that no worktree
     /// checks out, by the repo's main checkout, with what the readings found
-    /// of each branch tip; read again when any checkout of the repo changes.
+    /// of each branch tip; the daemon reads them again when any checkout of
+    /// the repo changes.
     loose: HashMap<PathBuf, (crate::unlanded::Judged, Vec<crate::unlanded::LooseBranch>)>,
     /// What reading a repo's branches failed with, by its main checkout.
     loose_errors: HashMap<PathBuf, String>,
@@ -1514,8 +1515,8 @@ pub struct CheckoutPage {
     /// None for a gone root, and for a live one until the daemon reads its
     /// sizes.
     pub folders: Option<Vec<FolderFacts>>,
-    /// None until the daemon reads the sizes, and while a folder is still
-    /// being walked.
+    /// None until the daemon reads the sizes, and while the daemon is still
+    /// walking a folder.
     pub total_kib: Option<u64>,
     pub activity: Activity,
     /// The words of the worktree's card (cards.rs); empty for a gone root

@@ -241,9 +241,9 @@ pub fn running_in_any<'a>(lists: &'a [Lists], worktree: &str) -> Vec<(&'a Lists,
         .collect()
 }
 
-/// `builds release` is refused while an item of any project runs in the
-/// worktree: the claim is what names the agent, so releasing it under a
-/// running item would leave the marker with no one behind it.
+/// `builds release` refuses while an item of any project runs in the
+/// worktree: the claim names the agent, so releasing it under a running
+/// item would leave the item running with no agent named for it.
 pub fn require_release_allowed(places: &Places, checkout: &Checkout) -> Result<()> {
     let every = crate::lists::store::every_lists(places)?;
     let top = checkout.top.display().to_string();

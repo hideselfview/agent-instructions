@@ -256,7 +256,7 @@ fn take_refuses_what_is_not_ready_or_not_right() {
             &demo,
             &take_args(&side_arg, &brief, &["1", "1"], "work")
         ))
-        .contains("named twice")
+        .contains("names #1 twice")
     );
     let main = demo.main.display().to_string();
     assert!(
@@ -934,7 +934,8 @@ fn a_refused_drop_leaves_the_work_where_it_was() {
     assert_eq!(checkout.branch().unwrap().as_deref(), Some("work"));
 }
 
-/// `release` of <side>, which must be refused; what it said.
+/// Runs release on <side>, which the test expects release to refuse, and
+/// returns what release said.
 fn release_refused(demo: &Demo, side: &std::path::Path) -> String {
     refusal(cmd_release(
         &demo.tool.places,
@@ -943,7 +944,7 @@ fn release_refused(demo: &Demo, side: &std::path::Path) -> String {
 }
 
 /// Release refuses a worktree whose branch holds commits origin/main lacks,
-/// names them and the ways the work may leave, and keeps the claim.
+/// names them and the commands that keep the work, and keeps the claim.
 #[test]
 fn release_refuses_a_worktree_whose_branch_holds_unlanded_commits() {
     let demo = demo("release-branch");
@@ -977,8 +978,8 @@ fn release_refuses_a_worktree_with_uncommitted_files() {
 }
 
 /// Switching the worktree off its branch does not hide the branch's work:
-/// release names the branch it left. A detached HEAD past origin/main with
-/// no branch is refused too.
+/// release names the branch it left. Release also refuses a detached HEAD
+/// past origin/main with no branch.
 #[test]
 fn release_refuses_a_branch_the_worktree_left_and_detached_commits() {
     let demo = demo("release-left");
@@ -1063,8 +1064,8 @@ fn release_and_health_wait_for_a_git_commit_that_runs_in_the_worktree() {
     cmd_release(&demo.tool.places, &[side.display().to_string()]).unwrap();
 }
 
-/// Work an item holds parked lets the worktree go, and so does work that
-/// landed.
+/// Release removes the claim of a worktree whose work an item holds parked,
+/// or whose work landed.
 #[test]
 fn release_lets_go_of_parked_or_landed_work() {
     let demo = demo("release-ok");
@@ -1113,8 +1114,8 @@ fn add_loose_branch(demo: &Demo) -> String {
 }
 
 /// Health lists a branch with commits origin/main lacks that no worktree
-/// checks out and no item names, with the command that takes it back, and
-/// goes quiet once a worktree takes it back or the branch lands.
+/// checks out and no item names, with the command that checks it out, and
+/// stops listing it once a worktree checks it out again or the branch lands.
 #[test]
 fn health_lists_a_loose_branch_until_a_worktree_takes_it_or_it_lands() {
     let demo = demo("health-loose");
@@ -1164,7 +1165,7 @@ fn health_lists_a_loose_branch_until_a_worktree_takes_it_or_it_lands() {
 }
 
 /// An open item of any project that names a loose branch in one of its
-/// running places holds it, so health stays quiet about it.
+/// running places holds it, so health does not list the branch.
 #[test]
 fn health_leaves_a_branch_an_item_of_another_project_names() {
     let demo = demo("health-loose-other");

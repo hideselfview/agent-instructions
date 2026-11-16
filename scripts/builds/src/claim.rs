@@ -306,8 +306,9 @@ pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
 
 /// Removes <checkout>'s claim and the project file it names, and returns the
 /// claim, or None when there was none. A project file left behind would give
-/// its project to a later claim that names no project. It asks nothing of
-/// the worktree's work: `cmd_release` and each other caller check it first.
+/// its project to a later claim that names no project. forget does not check
+/// the worktree for work origin/main lacks; `cmd_release` and each other
+/// caller check that first.
 pub fn forget(checkout: &Checkout) -> Result<Option<Claim>> {
     let file = checkout.claim_file();
     let claim = Claim::read(&file)?;

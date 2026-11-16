@@ -51,13 +51,13 @@ branch, not the worktree, is the unit of work.
     waits in the queue, or one taken there held on the person (`builds item
     take --held`). `builds release` refuses every other worktree with such
     work, on its HEAD, on a branch it left since its claim began or in its
-    files, and names those three ways. Only the person throws work away, by
+    files, and names the three ways to keep it: land, park or take --held. Only the person throws work away, by
     dropping its item (`builds item drop`), which records the commits and
     files on the closed item, deletes the branch and frees the worktree.
   - `builds health` lists each local branch with commits origin/main lacks
-    that no worktree checks out and no open item names. Take it back with
-    `builds new <repo> --resume <branch>`, land it, or ask the person whether
-    to drop it.
+    that no worktree checks out and no open item names. Check it out in a
+    worktree with `builds new <repo> --resume <branch>` and land it, or ask
+    the person whether to drop it.
 
 Each checkout builds into its own folders on /Volumes/Builds. Never set
 CARGO_TARGET_DIR or another CARGO_* variable on a command: the path is part of
@@ -364,8 +364,8 @@ the person.
   - A running item whose worktree is gone or unclaimed: land it, stop it
     (`builds item stop`) or hand it on.
   - A branch with commits origin/main lacks that no worktree checks out and
-    no item names: take it back (`builds new <repo> --resume <branch>`) and
-    land or park it, or put the question of dropping it to the person.
+    no item names: check it out in a worktree (`builds new <repo> --resume
+    <branch>`) and land or park it, or ask the person whether to drop it.
   - Disk under the floor: hold the queue.
   - An app lock held long, or with agents waiting: check that the holder is
     building, not stuck. A step past its time limit is killed and passes the

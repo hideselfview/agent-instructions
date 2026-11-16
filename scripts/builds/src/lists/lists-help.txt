@@ -217,8 +217,8 @@ runs in (plans are in no commit); an absolute path is itself.
       keeps its project. A parked worktree belongs to its item: take refuses
       another item there and refuses the parked item anywhere else, and
       `builds new`, `prune` and `retire` never hand it out or remove it.
-      Refused for an item parked already, a worktree another item runs or is
-      parked in, and a worktree on another branch of work. `item take` in W
+      park refuses an item parked already, a worktree another item runs or
+      is parked in, and a worktree on another branch of work. `item take` in W
       moves the item from parked to running; claim W for the agent first.
 
   builds item handoff N --brief P
@@ -232,8 +232,8 @@ runs in (plans are in no commit); an absolute path is itself.
   builds item finished N --made WHAT
       Closes an open item whose work made no commits (an audit, research) as
       finished, with what it made (items, stack entries, notes), and removes
-      it from every worktree it runs in. Refused for a parked item, whose
-      work waits in its worktree. A finished item frees the items that
+      it from every worktree it runs in. finished refuses a parked item,
+      whose worktree holds its work. A finished item frees the items that
       wait on it, as a landed item does.
 
   builds item drop N --why WHY | builds item defer N --issue URL

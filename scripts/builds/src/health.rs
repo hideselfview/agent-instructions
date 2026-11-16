@@ -864,7 +864,7 @@ pub fn assess(
 fn loose_advice(branch: &crate::unlanded::LooseBranch) -> Advice {
     Advice::run(
         format!(
-            "branch: {} {} holds {} origin/main lacks ({}), and no worktree checks it out or open item names it; take it back into a worktree with",
+            "branch: {} {} holds {} origin/main lacks ({}), and no worktree checks it out or open item names it; check it out in a worktree with",
             branch.repo,
             branch.branch,
             crate::text::counted(branch.commits.len(), "commit", "commits"),

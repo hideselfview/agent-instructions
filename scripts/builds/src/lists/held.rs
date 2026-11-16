@@ -161,9 +161,9 @@ pub fn findings(
     let Ok(every) = loaded else {
         return Vec::new();
     };
-    // Every project's items, whatever project a claim names: in a repo two
-    // projects hold, either project's items run in its worktrees. A store
-    // that fails its check is `running::findings`'s to name.
+    // Health reads the items of every project, whatever project the claim
+    // names: in a repo two projects hold, either project's items run in its
+    // worktrees. `running::findings` names a store that fails its check.
     let every: Vec<Lists> = every
         .iter()
         .filter_map(|project| project.lists.clone().ok())

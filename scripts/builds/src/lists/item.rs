@@ -123,7 +123,7 @@ pub struct Item {
     pub parked: Vec<Parked>,
     pub landed: Vec<LandedPart>,
     /// What it held when the person dropped it: one entry per worktree it ran
-    /// or was parked in. Empty for an open item.
+    /// or parked in. An open item has none.
     pub dropped: Vec<crate::lists::dropped::DroppedWork>,
     /// Newest last.
     pub notes: Vec<Note>,
