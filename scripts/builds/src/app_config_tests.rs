@@ -45,7 +45,6 @@ fn a_config_names_each_platforms_build() {
             rules: Vec::new(),
             needs: Vec::new(),
             sources: Vec::new(),
-            ci_only: Vec::new(),
         }
     );
 }
@@ -100,6 +99,7 @@ fn step_lines_name_a_command_each_in_the_order_written() {
         command: words(command),
         limit: None,
         place: Where::Anywhere,
+        ci_only: false,
     };
     assert_eq!(
         config.steps,
@@ -402,8 +402,8 @@ fn a_ci_only_line_names_steps_that_only_ci_runs() {
         "step mac a ./a\nstep mac b ./b\nstep android c ./c\nci-only a\nci-only c a\n",
     )
     .unwrap();
-    assert!(config.is_ci_only("a") && config.is_ci_only("c"));
-    assert!(!config.is_ci_only("b"));
+    let ci_only: Vec<bool> = config.steps.iter().map(|step| step.ci_only).collect();
+    assert_eq!(ci_only, vec![true, false, true]);
     assert!(
         parse_config("ci-only a\n").is_err(),
         "a step it does not name"

@@ -114,7 +114,7 @@ fn step_named<'a>(config: &'a Config, name: &str) -> Result<&'a Step> {
         let known: Vec<&str> = config.steps.iter().map(|step| step.name.as_str()).collect();
         fail!("{CONFIG} has no step {name} (it has: {})", known.join(", "));
     };
-    if config.is_ci_only(name) {
+    if step.ci_only {
         fail!(
             "step {name} is CI-only in {CONFIG}, and builds refuses it: {ONLY_WHAT_A_CHANGE_TOUCHES}. Name the change's test classes with --test and its screens' shots with --shots"
         );
@@ -130,7 +130,7 @@ fn chosen(config: &Config, lane: Lane, names: &[String]) -> Result<Vec<Step>> {
         return Ok(config
             .steps
             .iter()
-            .filter(|step| step.lane == lane && !config.is_ci_only(&step.name))
+            .filter(|step| step.lane == lane && !step.ci_only)
             .cloned()
             .collect());
     }
@@ -253,6 +253,7 @@ fn lane_steps(
             command: picker.command_for(arg),
             limit: Some(kind.limit()),
             place: picker.place,
+            ci_only: false,
         });
     }
     Ok(steps)
@@ -1286,11 +1287,7 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
             std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
         let config = parse_config(&text)?;
         for step in &config.steps {
-            let ci_only = if config.is_ci_only(&step.name) {
-                " (CI only)"
-            } else {
-                ""
-            };
+            let ci_only = if step.ci_only { " (CI only)" } else { "" };
             println!(
                 "{} {} {}{ci_only}",
                 step.lane.word(),

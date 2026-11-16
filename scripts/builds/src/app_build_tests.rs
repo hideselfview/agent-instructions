@@ -108,6 +108,7 @@ fn steps_stop_at_the_first_failure() {
         command: command.iter().map(|w| w.to_string()).collect(),
         limit: None,
         place: lock::Where::Anywhere,
+        ci_only: false,
     };
     let steps = [
         step("a", &["touch", "a"]),
@@ -143,6 +144,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
         command: vec!["sh".to_string(), "-c".to_string(), script],
         limit: None,
         place: lock::Where::Anywhere,
+        ci_only: false,
     };
     let broken = step(format!("echo building; echo \"{said}\" >&2; exit 70"));
     assert_eq!(
@@ -191,6 +193,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
             .to_vec(),
         limit: Some(Duration::from_millis(500)),
         place: lock::Where::Anywhere,
+        ci_only: false,
     };
     let after = Step {
         name: "after".to_string(),
@@ -198,6 +201,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         command: vec!["touch".to_string(), "after".to_string()],
         limit: None,
         place: lock::Where::Anywhere,
+        ci_only: false,
     };
     let started = std::time::Instant::now();
     let Err(Fail::Message(message)) =
@@ -480,6 +484,7 @@ fn fake(name: &str, command: &[&str], limit: Option<Duration>) -> Step {
         command: command.iter().map(|w| w.to_string()).collect(),
         limit,
         place: lock::Where::Anywhere,
+        ci_only: false,
     }
 }
 

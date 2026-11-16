@@ -122,9 +122,6 @@ pub struct Config {
     pub needs: Vec<(Lane, Vec<String>)>,
     /// The `sources` lines: the folders that declare the lane's tests.
     pub sources: Vec<Source>,
-    /// The steps the `ci-only` lines name, which `builds app-build` never
-    /// runs.
-    pub ci_only: Vec<String>,
 }
 
 /// An `on <pattern> <step>...` line.
@@ -145,11 +142,6 @@ impl Rule {
 }
 
 impl Config {
-    /// Does a `ci-only` line name the step <name>?
-    pub fn is_ci_only(&self, name: &str) -> bool {
-        self.ci_only.iter().any(|step| step == name)
-    }
-
     /// The folders of <lane>'s checkout that its picks write.
     pub fn results_of(&self, lane: Lane) -> Vec<String> {
         self.results
@@ -337,6 +329,9 @@ pub struct Step {
     /// Where it may run: `Where::Here` for a step a `here` line names, the
     /// place of its test line for a test run, else `Where::Anywhere`.
     pub place: Where,
+    /// True for a step a `ci-only` line names: only CI runs it, and
+    /// `builds app-build` refuses it.
+    pub ci_only: bool,
 }
 
 impl Step {
@@ -427,6 +422,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     command,
                     limit: None,
                     place: Where::Anywhere,
+                    ci_only: false,
                 });
             }
             (keyword @ ("test" | "shots"), _) => {
@@ -595,8 +591,9 @@ pub fn parse_config(text: &str) -> Result<Config> {
         }
     }
     for name in &ci_only {
-        if !steps.iter().any(|step| step.name == *name) {
-            fail!("{CONFIG}: ci-only names step {name}, which {CONFIG} does not name");
+        match steps.iter_mut().find(|step| step.name == *name) {
+            Some(step) => step.ci_only = true,
+            None => fail!("{CONFIG}: ci-only names step {name}, which {CONFIG} does not name"),
         }
     }
     for (lane, program) in windowed {
@@ -616,10 +613,10 @@ pub fn parse_config(text: &str) -> Result<Config> {
         .flat_map(|rule| rule.steps.iter())
         .chain(needs.iter().flat_map(|(_, steps)| steps.iter()))
     {
-        if !steps.iter().any(|known| known.name == *step) {
+        let Some(known) = steps.iter().find(|known| known.name == *step) else {
             fail!("{CONFIG}: a rule names step {step}, which {CONFIG} does not name");
-        }
-        if ci_only.contains(step) {
+        };
+        if known.ci_only {
             fail!(
                 "{CONFIG}: a rule names step {step}, which a ci-only line names, so no app build may run it"
             );
@@ -663,7 +660,6 @@ pub fn parse_config(text: &str) -> Result<Config> {
         rules,
         needs,
         sources,
-        ci_only,
     })
 }
 
