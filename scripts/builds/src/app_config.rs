@@ -185,6 +185,15 @@ fn lane_and_program(word: &str) -> Option<(Lane, Option<String>)> {
     }
 }
 
+/// The word `lane_and_program` reads: `mac` for <lane>'s default program,
+/// `mac:shots` for the named <program>.
+pub fn lane_and_program_word(lane: Lane, program: Option<&str>) -> String {
+    match program {
+        Some(program) => format!("{}:{program}", lane.word()),
+        None => lane.word().to_string(),
+    }
+}
+
 /// What a command-line flag picks to run through a `.app-build` line of the
 /// lane, in place of a step of its own.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -565,10 +574,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
         }
     }
     for (lane, program) in windowed {
-        let named = match &program {
-            Some(program) => format!("{}:{program}", lane.word()),
-            None => lane.word().to_string(),
-        };
+        let named = lane_and_program_word(lane, program.as_deref());
         match pickers
             .iter_mut()
             .find(|picker| picker.is(lane, PickKind::Class, program.as_deref()))
@@ -607,11 +613,8 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 .iter()
                 .any(|picker| picker.is(source.lane, PickKind::Class, Some(program)))
         {
-            fail!(
-                "{CONFIG}: sources for {}:{program}, which has no `test {}:{program}` line",
-                source.lane.word(),
-                source.lane.word()
-            );
+            let named = lane_and_program_word(source.lane, Some(program));
+            fail!("{CONFIG}: sources for {named}, which has no `test {named}` line");
         }
     }
     let mac = match (mac_build, mac_app, bundle) {

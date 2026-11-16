@@ -490,3 +490,12 @@ fn a_test_line_and_its_sources_can_name_a_program_of_the_lane() {
     );
     assert!(parse_config("step mac a ./a\ntest mac: ./s {class}\n").is_err());
 }
+
+#[test]
+fn the_lane_and_program_word_reads_back_as_its_lane_and_program() {
+    for (lane, program) in [(Lane::Mac, None), (Lane::Android, Some("ui".to_string()))] {
+        let word = lane_and_program_word(lane, program.as_deref());
+        assert_eq!(lane_and_program(&word), Some((lane, program)), "{word}");
+    }
+    assert_eq!(lane_and_program_word(Lane::Mac, Some("shots")), "mac:shots");
+}

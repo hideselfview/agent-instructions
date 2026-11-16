@@ -1213,17 +1213,14 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
             );
         }
         for picker in &config.pickers {
-            let program = picker
-                .program
-                .as_ref()
-                .map_or(String::new(), |program| format!(":{program}"));
+            let named =
+                crate::app_config::lane_and_program_word(picker.lane, picker.program.as_deref());
             let place = match picker.place {
                 lock::Where::Anywhere => String::new(),
                 place => format!(" (runs only {})", place.only()),
             };
             println!(
-                "{}{program} {} <{}> {}{place}",
-                picker.lane.word(),
+                "{named} {} <{}> {}{place}",
                 picker.kind.flag(),
                 picker.kind.what(),
                 picker.command.join(" ")
