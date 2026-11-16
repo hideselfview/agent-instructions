@@ -58,11 +58,11 @@ pub fn park(db: &Connection, id: Id, places: &[Parked]) -> Result<()> {
     Ok(())
 }
 
-/// Ends item <id>'s parking wherever it is parked, if it is; says how many
-/// items it ended (0 or 1).
-pub fn end(db: &Connection, id: Id) -> Result<usize> {
+/// Ends item <id>'s parking wherever it is parked, if it is.
+pub fn end(db: &Connection, id: Id) -> Result<()> {
     db.execute("DELETE FROM parked WHERE item_id = ?1", [id])
-        .sql()
+        .sql()?;
+    Ok(())
 }
 
 /// Where every parked item is parked, by item.
