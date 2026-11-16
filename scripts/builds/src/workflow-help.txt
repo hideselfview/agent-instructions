@@ -160,6 +160,15 @@ DISPATCH
   - Disk is a queue limit, never a question for the person: under the floor,
     start nothing new, and start the next work as agents finish and their
     build folders are pruned.
+  - Flaky tests and speed work (profiling, benchmarks, timing a build) never
+    go in the work queue. They need a quiet machine: on a loaded one, load
+    hides the cause and skews every number, and repeated runs slow every other
+    agent. Open a GitHub issue for each one instead, with what is known, and
+    take it off the queue. Whoever works the issue does it on a quiet machine,
+    and finds a flaky test's cause from its failure output and code. Logs
+    that record the state at the failure, such as which process holds a lock,
+    show the cause; one test runs alone, filtered by name, never the whole
+    suite in a loop.
   - Another worktree may keep an app build while a wave of work needs it;
     clear it once that work moves on (`builds help`, APP BUILDS).
   - When an agent finishes, land its commits and start the next work in the
