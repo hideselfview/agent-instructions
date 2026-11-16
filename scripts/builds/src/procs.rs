@@ -247,9 +247,9 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
     Some(found)
 }
 
-/// A `git commit` that runs: until it ends (its hooks can wait minutes),
-/// the files it commits are in neither the working tree's changes nor a
-/// commit for long, and the worktree is not free.
+/// A running `git commit`. Its hooks can run for minutes, and until the
+/// commit ends, the files it commits are in no commit yet, so the worktree
+/// is not free.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GitCommit {
     pub pid: i32,

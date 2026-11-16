@@ -1323,7 +1323,7 @@ fn folder_facts(
 }
 
 /// The claimed side worktrees of <roots>, with <commits>, the `git
-/// commit`s that ran when the processes were last read.
+/// commit`s that ran when the daemon last read the processes.
 fn claimed_of(
     tool_places: &Places,
     roots: &[Root],

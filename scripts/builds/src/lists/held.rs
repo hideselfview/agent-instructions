@@ -214,8 +214,8 @@ pub fn findings(
                 format!("builds note {top} TEXT"),
             ));
         }
-        // Release refuses a worktree with commits, files or a commit in
-        // flight that nothing else holds, so health says to release only one
+        // Release refuses a worktree with commits, files or a running git
+        // commit that nothing else holds, so health says to release only one
         // with none of them.
         if !standing
             && worktree.claim.note_state.as_deref() != Some("held")

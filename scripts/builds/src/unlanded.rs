@@ -25,8 +25,8 @@ pub struct Held {
     pub left: Vec<(String, Vec<Commit>)>,
     /// The files not committed.
     pub uncommitted: Vec<String>,
-    /// The pids of the `git commit`s that run in it: work on its way into a
-    /// commit, which a hook can hold for minutes.
+    /// The pids of the `git commit`s that run in it: files git is still
+    /// committing, which a pre-commit hook can make take minutes.
     pub committing: Vec<i32>,
 }
 

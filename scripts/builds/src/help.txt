@@ -254,16 +254,16 @@ because landing rebases or cherry-picks it.
                               on HEAD, on a branch the worktree left since its
                               claim began (HEAD's reflog says which) that no
                               worktree checks out, files not committed, or a
-                              `git commit` that runs there (its hook can hold
-                              the files for minutes). A detached HEAD past
-                              origin/main counts too. The refusal names the
-                              commits, files and commits that run, and the
-                              commands that keep the work: land it, park it
-                              under its item (`builds item park`), or take it
-                              under an item held on the person (`builds item
-                              take --held`). An item parked there holds all of
-                              it. Only the person throws work away, by dropping
-                              its item
+                              `git commit` that runs there (its hook can run for
+                              minutes before git commits the files). A detached
+                              HEAD past origin/main counts too. The refusal
+                              names the commits, the files and each `git commit`
+                              that runs, and the commands that keep the work:
+                              land it, park it under its item (`builds item
+                              park`), or take it under an item held on the
+                              person (`builds item take --held`). An item parked
+                              there holds all of it. Only the person throws work
+                              away, by dropping its item
   builds retire <checkout>    remove a clean, unclaimed side worktree and its
                               build root; refuses an app checkout, a worktree
                               an item is parked in, and one whose HEAD or files
