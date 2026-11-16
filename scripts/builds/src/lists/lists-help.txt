@@ -91,9 +91,17 @@ item titles of five to seven words, and git, files and GitHub.
 DECISION STACK
 
 The stack is asked from the top, one entry at a time: first the entries placed
-first (newest first), then the rest by how many open items each unblocks,
-directly or through chains of open items (ties oldest first), then the entries
-placed last.
+first, in the person's ranked order, then the rest by how many open items each
+unblocks, directly or through chains of open items (ties oldest first), then the
+entries placed last. `question list`, `question show`, `lists show` and the
+dashboard's Waiting on you tab all show this one order.
+
+To rank the stack as the person orders it, place each entry first, from the
+person's last choice to their first: each `place N first` puts N above every
+entry placed first before it. `place N --above M` and `place N --below M` put N
+directly next to M, an entry already in the ranked order, and every other entry
+keeps its place in that order. Placing an entry again moves it, and `place N
+auto` takes it out of the ranked order.
 
   builds question ask --title T --kind question|your-step|held
                       --details-file F (--blocks N[,N] | --blocks-nothing WHY)
@@ -104,7 +112,7 @@ placed last.
       entry blocks, open items that gain a wait on it (a running item may be
       blocked: its agent is held on the answer), or why it is asked though
       nothing waits; a --blocks item that is unknown or closed is refused.
-      --first puts it on top, with why. --from-item N closes item N as moved
+      --first puts it on top of the ranked order, with why. --from-item N closes item N as moved
       to the stack (it was the person's work), every item that waited on N
       waits on the new entry instead, and the entry comes from N, so its trail
       has N's tags; refused for a running item. --origin N names the record
@@ -137,8 +145,12 @@ placed last.
       defer needs an open GitHub issue (`gh issue view URL --json state`,
       asked before the write lock).
 
-  builds question place N first|last|auto --why WHY [--by-person]
-      Places it first, last, or by what it unblocks (auto).
+  builds question place N (first|last|auto | --above M | --below M) --why WHY
+                          [--by-person]
+      Places it on top of the ranked order (first), at the bottom of the
+      stack (last), directly above or below M in the ranked order, or by
+      what it unblocks (auto, which removes its placement). The command
+      refuses --above and --below when M is not in the ranked order.
 
   builds question edit N [--title T] [--details-file F]
                          [--blocks-nothing WHY | --blocks-something]

@@ -89,7 +89,7 @@ pub enum How {
 }
 
 /// A record that left its list, as it was.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Record {
     Question(Question),
@@ -97,8 +97,7 @@ pub enum Record {
     Design(DesignChange),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Closed {
     pub record: Record,
     pub how: How,

@@ -2,6 +2,7 @@
 //! order and what each entry blocks, dispatch order, and flow. Shared by the
 //! commands and the daemon.
 
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
@@ -167,10 +168,11 @@ fn blocked_through_chains(lists: &Lists, question: &Question) -> (Vec<Id>, BTree
     (direct, all)
 }
 
-/// The stack in the order it is asked: `placed first` (newest first), then by
-/// how many open items wait on each directly or through a chain of open
-/// items, most first, ties oldest first, then `placed last` (by the same
-/// count and age). The first is the question being asked now.
+/// The stack in the order it is asked: the entries placed first in the
+/// person's ranked order, highest rank on top; then by how many open items
+/// wait on each directly or through a chain of open items, most first, ties
+/// oldest first; then `placed last` (by the same count and age). The first
+/// is the question being asked now.
 pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
     let mut entries: Vec<StackEntry<'_>> = lists
         .questions
@@ -184,22 +186,21 @@ pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
             }
         })
         .collect();
-    let group = |entry: &StackEntry<'_>| match entry.question.placed.as_ref().map(|p| p.at) {
-        Some(Position::First) => 0,
-        None => 1,
-        Some(Position::Last) => 2,
-    };
-    entries.sort_by(|a, b| {
-        group(a).cmp(&group(b)).then_with(|| {
-            if group(a) == 0 {
-                (b.question.opened.at, b.question.id).cmp(&(a.question.opened.at, a.question.id))
-            } else {
-                b.blocked_count.cmp(&a.blocked_count).then_with(|| {
-                    (a.question.opened.at, a.question.id)
-                        .cmp(&(b.question.opened.at, b.question.id))
-                })
-            }
-        })
+    entries.sort_by_key(|entry| {
+        // Ranks are unique, so the count and age order only the entries
+        // outside the ranked order, which all take rank 0 here.
+        let (group, rank) = match entry.question.placed.as_ref().map(|p| p.at) {
+            Some(Position::First { rank }) => (0, rank),
+            None => (1, 0),
+            Some(Position::Last) => (2, 0),
+        };
+        (
+            group,
+            Reverse(rank),
+            Reverse(entry.blocked_count),
+            entry.question.opened.at,
+            entry.question.id,
+        )
     });
     entries
 }

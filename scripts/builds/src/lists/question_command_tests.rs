@@ -231,8 +231,8 @@ fn ask_first_places_the_question_on_top() {
     let lists = store.load().unwrap();
     let placed = lists.questions.last().unwrap().placed.clone().unwrap();
     assert_eq!(
-        (placed.at, placed.why.as_str(), placed.by_person),
-        (Position::First, "no_idea_if_needed", false)
+        (placed.at.word(), placed.why.as_str(), placed.by_person),
+        ("first", "no_idea_if_needed", false)
     );
     assert!(
         out.contains("the stack's top is") && out.contains("Look_first"),
@@ -890,8 +890,8 @@ fn place_sets_and_clears_where_a_question_sits() {
     let lists = store.load().unwrap();
     let placed = lists.question(low).unwrap().placed.clone().unwrap();
     assert_eq!(
-        (placed.at, placed.why.as_str(), placed.by_person),
-        (Position::First, "the_person_said_so", true)
+        (placed.at.word(), placed.why.as_str(), placed.by_person),
+        ("first", "the_person_said_so", true)
     );
     assert!(out.contains(&format!("the stack's top is {low}")), "{out}");
     go(&scratch, &tool, &format!("place {low} last --why later")).unwrap();
@@ -918,7 +918,7 @@ fn place_sets_and_clears_where_a_question_sits() {
         &tool,
         &store,
         &format!("place {low} auto --why w --by-person"),
-        "--by-person goes with first or last",
+        "--by-person goes with first, last, --above or --below",
     );
     refuses(
         &scratch,
@@ -941,6 +941,122 @@ fn place_sets_and_clears_where_a_question_sits() {
         "place 99 first --why w",
         "is not a record",
     );
+}
+
+/// Five questions, each asked later blocking more items, so neither what
+/// each unblocks nor when it was asked gives the order the person chooses.
+fn five_questions(name: &str) -> (Scratch, Tool, Store, [Id; 5]) {
+    setup(name, |l| {
+        let mut ids = [Id(0); 5];
+        for (n, id) in ids.iter_mut().enumerate() {
+            *id = blocking(l);
+            for _ in 0..=n {
+                item(l, vec![Wait::Question(*id)]);
+            }
+        }
+        ids
+    })
+}
+
+/// The ids of the stack as `question list` prints them, top first.
+fn listed(scratch: &Scratch, tool: &Tool) -> Vec<Id> {
+    go(scratch, tool, "list")
+        .unwrap()
+        .lines()
+        .filter_map(|line| {
+            let (number, rest) = line.trim_start().split_once(". #")?;
+            number.parse::<usize>().ok()?;
+            Id::parse(rest.split_whitespace().next()?).ok()
+        })
+        .collect()
+}
+
+#[test]
+fn place_ranks_the_stack_in_the_order_the_person_chooses() {
+    let (scratch, tool, store, [a, b, c, d, e]) = five_questions("q-rank");
+    let place = |words: String| go(&scratch, &tool, &words).unwrap();
+    place(format!("place {d} first --why w --by-person"));
+    place(format!("place {c} first --why w --by-person"));
+    place(format!("place {a} --below {c} --why w --by-person"));
+    place(format!("place {b} --above {d} --why w --by-person"));
+    let out = place(format!("place {e} --above {b} --why w --by-person"));
+    assert!(
+        out.contains(&format!("placed question {e} above {b}")),
+        "{out}"
+    );
+    assert!(out.contains(&format!("the stack's top is {c}")), "{out}");
+    let chosen = vec![c, a, e, b, d];
+    assert_eq!(listed(&scratch, &tool), chosen);
+    // `question show`, `lists show` and the dashboard number and list the
+    // same order.
+    let shown = go(&scratch, &tool, &format!("show {e}")).unwrap();
+    assert!(shown.starts_with(&format!("  3. {e} ")), "{shown}");
+    let lists = store.load().unwrap();
+    let text = crate::lists::show::render(&lists, None).unwrap();
+    for (n, id) in chosen.iter().enumerate() {
+        assert!(
+            text.contains(&format!("{:>3}. {id} ", n + 1)),
+            "{id} is not number {} in:\n{text}",
+            n + 1
+        );
+    }
+    let view = crate::lists::view::View::build(&lists, NOON).unwrap();
+    assert_eq!(view.stack.iter().map(|q| q.id).collect::<Vec<_>>(), chosen);
+    // A question placed again moves: first puts it on top, and --below puts
+    // it back.
+    place(format!("place {d} first --why w"));
+    assert_eq!(listed(&scratch, &tool), vec![d, c, a, e, b]);
+    place(format!("place {d} --below {b} --why w"));
+    assert_eq!(listed(&scratch, &tool), chosen);
+    // auto takes a question out of the ranked order, and the rest keep
+    // theirs.
+    place(format!("place {a} auto --why w"));
+    assert_eq!(store.load().unwrap().question(a).unwrap().placed, None);
+    assert_eq!(listed(&scratch, &tool), vec![c, e, b, d, a]);
+    let placed = store.load().unwrap().question(e).unwrap().placed.clone();
+    assert_eq!(
+        placed.map(|p| (p.why, p.by_person)),
+        Some(("w".to_string(), true))
+    );
+}
+
+#[test]
+fn place_next_to_a_question_needs_one_in_the_ranked_order() {
+    let (scratch, tool, store, [a, b, c, d, _]) = five_questions("q-rank-refused");
+    go(&scratch, &tool, &format!("place {a} first --why w")).unwrap();
+    go(&scratch, &tool, &format!("place {b} last --why w")).unwrap();
+    for (command, expected) in [
+        (
+            format!("place {c} --above {a} --below {a} --why w"),
+            "--above and --below contradict each other".to_string(),
+        ),
+        (
+            format!("place {c} first --above {a} --why w"),
+            "--above and --below take the place of first, last or auto".to_string(),
+        ),
+        (
+            format!("place {c} --above {a}"),
+            "--why is required".to_string(),
+        ),
+        (
+            format!("place {a} --above {a} --why w"),
+            format!("question {a} can't sit above or below itself"),
+        ),
+        (
+            format!("place {c} --below {d} --why w"),
+            format!("question {d} is not in the ranked order"),
+        ),
+        (
+            format!("place {c} --above {b} --why w"),
+            format!("question {b} is not in the ranked order"),
+        ),
+        (
+            format!("place {c} --above 99 --why w"),
+            "#99 is not a record".to_string(),
+        ),
+    ] {
+        refuses(&scratch, &tool, &store, &command, &expected);
+    }
 }
 
 #[test]
@@ -1105,7 +1221,7 @@ fn blocking_with_plan(db: &Connection, plan: PlanRef) -> Id {
             details: "details".into(),
             kind: QuestionKind::Question,
             blocks_nothing: None,
-            placed: None,
+            first: None,
             plan: Some(plan),
             origin: None,
         },

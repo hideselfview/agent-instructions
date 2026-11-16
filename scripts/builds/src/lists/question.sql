@@ -26,8 +26,13 @@ CREATE INDEX question_origin ON question (origin);
 CREATE TABLE question_placement (
     question_id INTEGER PRIMARY KEY REFERENCES question (id) ON DELETE CASCADE,
     at TEXT NOT NULL CONSTRAINT question_placement_at_known CHECK (at IN ('first', 'last')),
+    -- A question placed first sits in the person's ranked order at the top
+    -- of the stack, above every question with a lower rank. A question
+    -- placed last has no rank.
+    rank INTEGER CONSTRAINT question_placement_rank_once UNIQUE,
     why TEXT NOT NULL CONSTRAINT question_placement_why_says_something CHECK (trim(why) <> ''),
-    by_person INTEGER NOT NULL CONSTRAINT question_placement_by_person_is_a_flag CHECK (by_person IN (0, 1))
+    by_person INTEGER NOT NULL CONSTRAINT question_placement_by_person_is_a_flag CHECK (by_person IN (0, 1)),
+    CONSTRAINT question_placement_rank_only_first CHECK ((at = 'first') = (rank IS NOT NULL))
 ) STRICT;
 
 -- A plan's numbered open question.

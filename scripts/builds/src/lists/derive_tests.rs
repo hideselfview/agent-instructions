@@ -3,23 +3,15 @@ use crate::lists::fixtures::{
     NOON, blocks_something, db, decision_answering, design, item, item_opened, question, read,
     set_area, set_audience, stamp,
 };
+use crate::lists::question::Spot;
 use crate::lists::record::close;
-use crate::lists::{Audience, How, Placement, Priority, Running, Stamp};
+use crate::lists::{Audience, How, Priority, Running, Stamp};
 use rusqlite::Connection;
 
 const DAY: i64 = 86400;
 
-fn place(db: &Connection, question: Id, at: Position) {
-    crate::lists::question::place(
-        db,
-        question,
-        Some(Placement {
-            at,
-            why: "why".into(),
-            by_person: true,
-        }),
-    )
-    .unwrap();
+fn place(db: &Connection, question: Id, spot: Spot) {
+    crate::lists::question::place(db, question, spot, "why", true).unwrap();
 }
 
 fn priority(db: &Connection, item: Id, level: Level) {
@@ -225,15 +217,16 @@ fn placements_sit_outside_the_count() {
     let first_old = question(&db);
     let first_new = question(&db);
     let last = blocked_question(&db, 5);
-    place(&db, first_old, Position::First);
-    place(&db, first_new, Position::First);
-    place(&db, last, Position::Last);
+    place(&db, first_new, Spot::First);
+    place(&db, first_old, Spot::First);
+    place(&db, last, Spot::Last);
     let ids: Vec<Id> = stack_order(&read(&db))
         .iter()
         .map(|e| e.question.id)
         .collect();
-    // First: newest first, whatever they block; then by count; last at the end.
-    assert_eq!(ids, vec![first_new, first_old, big, small, last]);
+    // First: the newest placement on top, whatever they block and whenever
+    // they were asked; then by count; last at the end.
+    assert_eq!(ids, vec![first_old, first_new, big, small, last]);
 }
 
 #[test]

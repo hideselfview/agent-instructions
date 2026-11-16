@@ -199,6 +199,10 @@ const BEFORE_DESIGN_DROP_STAMP: i64 = 693_169_097;
 /// pushed.
 const BEFORE_PUSHED_STAMP: i64 = 627_299_472;
 
+/// The stamp of the schema before each question placed first had a rank in
+/// the person's ranked order.
+const BEFORE_RANKS_STAMP: i64 = 1_211_427_460;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -238,7 +242,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// gets `closing` where an item may close as finished and a design change as
 /// dropped, and the move copies every closing into the new table, and every
 /// store gets the empty `review_pushed` table (no landing has recorded the
-/// commits it pushed yet).
+/// commits it pushed yet), and every store gets `question_placement` with a
+/// rank for each question placed first, given by when each was asked, so
+/// each keeps its place in the stack.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -334,11 +340,12 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CANVAS_STAMP,
         BEFORE_DESIGN_DROP_STAMP,
         BEFORE_PUSHED_STAMP,
+        BEFORE_RANKS_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP}, {BEFORE_CHECK_STARTS_STAMP}, {BEFORE_CANVAS_STAMP}, {BEFORE_DESIGN_DROP_STAMP} and {BEFORE_PUSHED_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP}, {BEFORE_CHECK_STARTS_STAMP}, {BEFORE_CANVAS_STAMP}, {BEFORE_DESIGN_DROP_STAMP}, {BEFORE_PUSHED_STAMP} and {BEFORE_RANKS_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -359,6 +366,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CANVAS_STAMP,
         BEFORE_DESIGN_DROP_STAMP,
         BEFORE_PUSHED_STAMP,
+        BEFORE_RANKS_STAMP,
     ]
     .contains(&found);
     // Off for the moves, so a table made again keeps the references to it as
@@ -381,6 +389,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CANVAS_STAMP,
         BEFORE_DESIGN_DROP_STAMP,
         BEFORE_PUSHED_STAMP,
+        BEFORE_RANKS_STAMP,
     ]
     .contains(&found)
     {
@@ -457,6 +466,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CANVAS_STAMP,
         BEFORE_DESIGN_DROP_STAMP,
         BEFORE_PUSHED_STAMP,
+        BEFORE_RANKS_STAMP,
     ]
     .contains(&found)
     {
@@ -474,6 +484,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CANVAS_STAMP,
         BEFORE_DESIGN_DROP_STAMP,
         BEFORE_PUSHED_STAMP,
+        BEFORE_RANKS_STAMP,
     ]
     .contains(&found)
     {
@@ -481,9 +492,9 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         crate::lists::question::move_to_origins(&tx)?;
     }
     // Only a store from just before builds recorded the commits a landing
-    // pushed has today's `closing`, where a design change may close as
-    // dropped.
-    if found != BEFORE_PUSHED_STAMP {
+    // pushed, or after, has today's `closing`, where a design change may
+    // close as dropped.
+    if ![BEFORE_PUSHED_STAMP, BEFORE_RANKS_STAMP].contains(&found) {
         crate::lists::record::remake_closing(&tx)?;
     }
     // Every store this moves from before a review's patch ids left out
@@ -494,6 +505,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CANVAS_STAMP,
         BEFORE_DESIGN_DROP_STAMP,
         BEFORE_PUSHED_STAMP,
+        BEFORE_RANKS_STAMP,
     ]
     .contains(&found)
     {
@@ -522,6 +534,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CANVAS_STAMP,
         BEFORE_DESIGN_DROP_STAMP,
         BEFORE_PUSHED_STAMP,
+        BEFORE_RANKS_STAMP,
     ]
     .contains(&found)
     {
@@ -530,13 +543,19 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     }
     // A store from just before a design change could close as dropped, or
     // after, has `canvas` on its project; no older store has it.
-    if ![BEFORE_DESIGN_DROP_STAMP, BEFORE_PUSHED_STAMP].contains(&found) {
+    if ![
+        BEFORE_DESIGN_DROP_STAMP,
+        BEFORE_PUSHED_STAMP,
+        BEFORE_RANKS_STAMP,
+    ]
+    .contains(&found)
+    {
         crate::lists::project::move_to_canvas(&tx)?;
     }
     // The review's tables the move made above include `review_pushed`; a
-    // store that had them gets it here, and one that has it already fails
-    // the move.
-    if had_review_tables {
+    // store that had them gets it here, except a store from after builds
+    // recorded the commits a landing pushed, which has it already.
+    if had_review_tables && found != BEFORE_RANKS_STAMP {
         tx.execute_batch(db::statement(
             &db::schema(),
             "CREATE TABLE review_pushed",
@@ -544,6 +563,8 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         ))
         .sql()?;
     }
+    // No store this moves has a rank on its placements.
+    crate::lists::question::move_to_ranks(&tx)?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))

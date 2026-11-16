@@ -5,7 +5,7 @@ use std::fmt::Write;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState, StackEntry};
 use crate::lists::trail::{trail_line, trail_wanted};
-use crate::lists::{Audience, Item, Level, Lists, Position, QuestionKind, Wait};
+use crate::lists::{Audience, Item, Level, Lists, QuestionKind, Wait};
 use crate::text::local_minute;
 
 pub fn kind_words(kind: QuestionKind) -> &'static str {
@@ -93,13 +93,13 @@ pub fn stack_entry(lists: &Lists, number: usize, entry: &StackEntry<'_>) -> Resu
         q.opened.by
     );
     if let Some(placed) = &q.placed {
-        let at = if placed.at == Position::First {
-            "first"
-        } else {
-            "last"
-        };
         let by = if placed.by_person { " by you" } else { "" };
-        let _ = writeln!(out, "       placed {at}{by}: {}", placed.why);
+        let _ = writeln!(
+            out,
+            "       placed {}{by}: {}",
+            placed.at.word(),
+            placed.why
+        );
     }
     if let Some(trail) = trail_line(lists, q.id)? {
         let _ = writeln!(out, "       {trail}");

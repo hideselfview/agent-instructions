@@ -1697,8 +1697,10 @@ fn schema_before_check_starts() -> String {
 }
 
 /// <schema> as its text read before a design change could close as dropped:
-/// record.sql's `closing` letting a design change only land.
+/// record.sql's `closing` letting a design change only land, and every newer
+/// change to the lists' tables.
 fn without_design_drop(schema: String) -> String {
+    let schema = without_ranks(schema);
     let (now, then) = (
         "WHEN 'design' THEN how IN ('landed', 'dropped')",
         "WHEN 'design' THEN how = 'landed'",
@@ -2022,7 +2024,7 @@ fn schema_before_pushed() -> String {
 #[test]
 fn the_pushed_stamp_is_the_schema_before_pushed_commits() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_pushed()),
+        db::stamp_of_text(&without_ranks(schema_before_pushed())),
         BEFORE_PUSHED_STAMP
     );
 }
@@ -2038,7 +2040,8 @@ fn a_store_from_before_pushed_commits_keeps_its_runs_and_gains_the_table() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&schema_before_pushed()).unwrap();
+        conn.execute_batch(&without_ranks(schema_before_pushed()))
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_PUSHED_STAMP)
             .unwrap();
         plant_run(&conn);
@@ -2053,4 +2056,122 @@ fn a_store_from_before_pushed_commits_keeps_its_runs_and_gains_the_table() {
     );
     let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
     assert_eq!(stats.runs, 1, "the move keeps the old run");
+}
+
+/// <schema> as its text read before each question placed first had a rank:
+/// question.sql's `question_placement` without `rank`.
+fn without_ranks(schema: String) -> String {
+    let (now, then) = (
+        "    at TEXT NOT NULL CONSTRAINT question_placement_at_known CHECK (at IN ('first', 'last')),
+    -- A question placed first sits in the person's ranked order at the top
+    -- of the stack, above every question with a lower rank. A question
+    -- placed last has no rank.
+    rank INTEGER CONSTRAINT question_placement_rank_once UNIQUE,
+    why TEXT NOT NULL CONSTRAINT question_placement_why_says_something CHECK (trim(why) <> ''),
+    by_person INTEGER NOT NULL CONSTRAINT question_placement_by_person_is_a_flag CHECK (by_person IN (0, 1)),
+    CONSTRAINT question_placement_rank_only_first CHECK ((at = 'first') = (rank IS NOT NULL))
+) STRICT;",
+        "    at TEXT NOT NULL CONSTRAINT question_placement_at_known CHECK (at IN ('first', 'last')),
+    why TEXT NOT NULL CONSTRAINT question_placement_why_says_something CHECK (trim(why) <> ''),
+    by_person INTEGER NOT NULL CONSTRAINT question_placement_by_person_is_a_flag CHECK (by_person IN (0, 1))
+) STRICT;",
+    );
+    assert_eq!(schema.matches(now).count(), 1, "{now}");
+    schema.replacen(now, then, 1)
+}
+
+/// The schema text before each question placed first had a rank.
+fn schema_before_ranks() -> String {
+    without_ranks(db::schema())
+}
+
+#[test]
+fn the_ranks_stamp_is_the_schema_before_ranks() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_ranks()),
+        BEFORE_RANKS_STAMP
+    );
+}
+
+/// A store from before ranks gives each question placed first a rank by when
+/// it was asked, the newest the highest, so the stack keeps its order, and
+/// equals a fresh schema.
+#[test]
+fn a_store_from_before_ranks_ranks_the_questions_placed_first_newest_asked_on_top() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-ranks");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_ranks()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_RANKS_STAMP)
+            .unwrap();
+        // Question n is asked at the time given and placed as given.
+        for (id, asked, at) in [
+            (1, 30, Some("first")),
+            (2, 10, Some("first")),
+            (3, 20, Some("last")),
+            (4, 40, Some("first")),
+            (5, 50, None),
+        ] {
+            crate::lists::record::plant(
+                &conn,
+                "record",
+                &[
+                    ("id", v(id)),
+                    ("kind", v("question")),
+                    ("opened_at", v(asked)),
+                    ("opened_by", v("tester")),
+                ],
+            )
+            .unwrap();
+            crate::lists::question::plant(
+                &conn,
+                "question",
+                &[
+                    ("id", v(id)),
+                    ("title", v("A question")),
+                    ("details", v("d")),
+                    ("kind", v("question")),
+                    ("blocks_nothing", v("asked anyway")),
+                ],
+            )
+            .unwrap();
+            if let Some(at) = at {
+                crate::lists::question::plant(
+                    &conn,
+                    "question_placement",
+                    &[
+                        ("question_id", v(id)),
+                        ("at", v(at)),
+                        ("why", v("w")),
+                        ("by_person", v(1)),
+                    ],
+                )
+                .unwrap();
+            }
+        }
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let ranks: Vec<(u32, Option<i64>)> = conn
+        .prepare("SELECT question_id, rank FROM question_placement ORDER BY question_id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(
+        ranks,
+        vec![(1, Some(2)), (2, Some(1)), (3, None), (4, Some(3))]
+    );
 }

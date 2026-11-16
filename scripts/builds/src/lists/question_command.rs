@@ -16,14 +16,13 @@ use crate::lists::derive::{self, ItemState};
 use crate::lists::draft::{require_draft_briefs, work_or_why};
 use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
 use crate::lists::item::{ItemDraft, RecordWait, add_item, add_wait, move_waits_to_question};
-use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, apply_blocked};
+use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, Spot, apply_blocked};
 use crate::lists::record::close;
 use crate::lists::show::{blocks_text, kind_words, stack_entry};
 use crate::lists::store::{self, Store};
 use crate::lists::trail::{self, trail_line, trail_wanted};
 use crate::lists::{
-    How, Id, Kind, Lists, Located, Placement, PlanRef, Position, Question, QuestionKind, Stamp,
-    Standing, Wait, tag,
+    How, Id, Kind, Lists, Located, PlanRef, Question, QuestionKind, Stamp, Standing, Wait, tag,
 };
 use crate::tool::Tool;
 
@@ -33,7 +32,7 @@ const USAGE: &str = "usage: builds question ask --title T --kind question|your-s
        builds question done N --request F
        builds question drop N --why WHY
        builds question defer N --issue URL
-       builds question place N first|last|auto --why WHY [--by-person]
+       builds question place N (first|last|auto | --above M | --below M) --why WHY [--by-person]
        builds question edit N [--title T] [--details-file F] [--blocks-nothing WHY | --blocks-something] [--origin N] [--tag T]... [--untag T]...
        builds question show N
        builds question list [--tag T]
@@ -158,14 +157,9 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
         ),
         (from_item, origin) => from_item.or(origin),
     };
-    let placed = match args.value("first")? {
-        None => None,
+    let first = match args.value("first")? {
         Some(why) if why.trim().is_empty() => fail!("--first needs its why"),
-        Some(why) => Some(Placement {
-            at: Position::First,
-            why: why.to_string(),
-            by_person: false,
-        }),
+        first => first.map(str::to_string),
     };
     let plan = match (args.value("plan")?, args.value("plan-number")?) {
         (None, None) => None,
@@ -192,7 +186,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
             details: details.clone(),
             kind,
             blocks_nothing: blocks_nothing.clone(),
-            placed: placed.clone(),
+            first: first.clone(),
             plan: plan.clone(),
             origin,
         };
@@ -474,39 +468,60 @@ fn leave(
 }
 
 fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
-    let args = Args::parse(args, &["why"], &["by-person"])?;
-    let [id, at] = args.exactly(2, USAGE)? else {
-        unreachable!("exactly two")
+    let args = Args::parse(args, &["why", "above", "below"], &["by-person"])?;
+    let (id, spot) = match (args.positional(), args.id("above")?, args.id("below")?) {
+        ([_], Some(_), Some(_)) => fail!(
+            "--above and --below contradict each other: name one question to place it next to"
+        ),
+        ([id], Some(next), None) => (id, Some(Spot::Above(next))),
+        ([id], None, Some(next)) => (id, Some(Spot::Below(next))),
+        ([id, at], None, None) => (
+            id,
+            match at.as_str() {
+                "first" => Some(Spot::First),
+                "last" => Some(Spot::Last),
+                "auto" => None,
+                other => fail!("the place is first, last or auto, not '{other}'"),
+            },
+        ),
+        ([_, _], _, _) => {
+            fail!("--above and --below take the place of first, last or auto: give one of them")
+        }
+        _ => fail!("{USAGE}"),
     };
     let id = Id::parse(id)?;
     let why = args.why()?;
-    let placed = match at.as_str() {
-        "auto" => {
-            if args.switch("by-person") {
-                fail!(
-                    "--by-person goes with first or last; auto gives the place back to the order of what it unblocks"
-                );
-            }
-            None
-        }
-        other => {
-            let at: Position = parse_named("the place", other, "first, last or auto")?;
-            Some(Placement {
-                at,
-                why: why.to_string(),
-                by_person: args.switch("by-person"),
-            })
-        }
-    };
+    let by_person = args.switch("by-person");
+    if spot.is_none() && by_person {
+        fail!(
+            "--by-person goes with first, last, --above or --below; auto gives the place back to the order of what it unblocks"
+        );
+    }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, words, |db| {
-        open_question(&store::read(db)?, id)?;
-        question::place(db, id, placed)
+        let lists = &store::read(db)?;
+        open_question(lists, id)?;
+        match spot {
+            Some(spot) => {
+                if let Spot::Above(next) | Spot::Below(next) = spot {
+                    open_question(lists, next)?;
+                }
+                question::place(db, id, spot, why, by_person)
+            }
+            None => question::unplace(db, id),
+        }
     })?;
     let lists = store.load()?;
+    let to = match spot {
+        Some(Spot::First) => "first".to_string(),
+        Some(Spot::Last) => "last".to_string(),
+        Some(Spot::Above(next)) => format!("above {next}"),
+        Some(Spot::Below(next)) => format!("below {next}"),
+        None => "by what it unblocks".to_string(),
+    };
     Ok(format!(
-        "placed question {id} {at}\n{}\n",
+        "placed question {id} {to}\n{}\n",
         stack_top(&lists)
     ))
 }

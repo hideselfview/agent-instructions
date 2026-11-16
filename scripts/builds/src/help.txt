@@ -1056,7 +1056,11 @@ STATUS, HEALTH AND THE DASHBOARD
                               open, every minute otherwise); per repo, its app build lanes with their queues
                               and Build buttons and its worktree cards; and
                               the lists (also at /api/lists and in the
-                              /events stream's `lists` events). Each question
+                              /events stream's `lists` events). The Waiting
+                              on you tab lists the questions in the order
+                              the stack asks them, which the person ranks
+                              with `builds question place` (`builds help
+                              lists`, DECISION STACK). Each question
                               and item row shows its trail on one line: the
                               tags of the records on it, then the numbers of
                               the earlier records, with the title of the

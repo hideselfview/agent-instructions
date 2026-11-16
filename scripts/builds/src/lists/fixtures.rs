@@ -121,7 +121,7 @@ pub fn question(db: &Connection) -> Id {
         details: "details".into(),
         kind: QuestionKind::Question,
         blocks_nothing: Some("nothing waits".into()),
-        placed: None,
+        first: None,
         plan: None,
         origin: None,
     };
@@ -136,7 +136,7 @@ pub fn question_kind(db: &Connection, kind: QuestionKind) -> Id {
         details: "details".into(),
         kind,
         blocks_nothing: Some("nothing waits".into()),
-        placed: None,
+        first: None,
         plan: None,
         origin: None,
     };

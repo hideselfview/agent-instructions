@@ -168,21 +168,41 @@ fn every_named_constraint_of_the_question_tables_refuses_its_row() {
     let placement = [
         ("question_id", v(good.0)),
         ("at", v("first")),
+        ("rank", v(1)),
         ("why", v("w")),
         ("by_person", v(1)),
     ];
     plant(&db, "question_placement", &placement).unwrap();
-    let again = |over: &[(&'static str, rusqlite::types::Value)]| {
-        row(&row(&placement, &[("question_id", v(good.0))]), over)
-    };
-    let _ = again;
+    plant(&db, "question", &spare_row(&[])).unwrap();
+    refused.check_as(
+        "question_placement_rank_once",
+        "UNIQUE",
+        plant(
+            &db,
+            "question_placement",
+            &row(&placement, &[("question_id", v(spare.0))]),
+        ),
+    );
     db.execute("DELETE FROM question_placement", []).unwrap();
+    for (at, rank) in [("first", rusqlite::types::Value::Null), ("last", v(1))] {
+        refused.check(
+            "question_placement_rank_only_first",
+            plant(
+                &db,
+                "question_placement",
+                &row(&placement, &[("at", v(at)), ("rank", rank)]),
+            ),
+        );
+    }
     refused.check(
         "question_placement_at_known",
         plant(
             &db,
             "question_placement",
-            &row(&placement, &[("at", v("middle"))]),
+            &row(
+                &placement,
+                &[("at", v("middle")), ("rank", rusqlite::types::Value::Null)],
+            ),
         ),
     );
     refused.check(

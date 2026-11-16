@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::db::Sql;
@@ -34,20 +34,46 @@ pub enum QuestionKind {
     Held,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+/// Where a placed question sits in the stack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "at", rename_all = "lowercase")]
 pub enum Position {
-    First,
+    /// In the person's ranked order at the top of the stack, above every
+    /// question placed first with a lower rank.
+    First { rank: i64 },
+    /// At the bottom of the stack.
     Last,
 }
 
+impl Position {
+    pub fn word(self) -> &'static str {
+        match self {
+            Position::First { .. } => "first",
+            Position::Last => "last",
+        }
+    }
+}
+
 /// Where a question sits in the stack when not by how much it unblocks.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Placement {
+    #[serde(flatten)]
     pub at: Position,
     pub why: String,
     pub by_person: bool,
+}
+
+/// Where `place` puts a question.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Spot {
+    /// On top of the ranked order, above every question placed there before.
+    First,
+    /// In the ranked order, directly above this question.
+    Above(Id),
+    /// In the ranked order, directly below this question.
+    Below(Id),
+    /// At the bottom of the stack.
+    Last,
 }
 
 /// A plan's numbered open question or decision.
@@ -60,8 +86,7 @@ pub struct PlanRef {
 
 /// An entry of the decision stack. What it blocks is not stored: it is the
 /// open items whose waits name it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Question {
     pub id: Id,
     pub title: String,
@@ -98,7 +123,8 @@ pub struct NewQuestion {
     pub kind: QuestionKind,
     /// Why it is asked though nothing waits on it.
     pub blocks_nothing: Option<String>,
-    pub placed: Option<Placement>,
+    /// Why it goes on top of the ranked order, when it does.
+    pub first: Option<String>,
     pub plan: Option<PlanRef>,
     /// The record it came from.
     pub origin: Option<Id>,
@@ -112,19 +138,88 @@ fn kind_word(kind: QuestionKind) -> &'static str {
     }
 }
 
-fn position_word(at: Position) -> &'static str {
-    match at {
-        Position::First => "first",
-        Position::Last => "last",
-    }
+/// The rank of question <id> in the ranked order, None when it is not
+/// placed first.
+fn rank_of(db: &Connection, id: Id) -> Result<Option<i64>> {
+    db.query_row(
+        "SELECT rank FROM question_placement WHERE question_id = ?1",
+        [id],
+        |row| row.get(0),
+    )
+    .optional()
+    .sql()
+    .map(Option::flatten)
 }
 
-/// Writes the placement of question <id>, replacing one it has.
-fn insert_placement(db: &Connection, id: Id, placed: &Placement) -> Result<()> {
+/// Raises every rank from <from> up by one, the highest first, so no two
+/// placements hold one rank at any step, and leaves rank <from> free.
+fn free_rank(db: &Connection, from: i64) -> Result<()> {
+    let mut statement = db
+        .prepare("SELECT rank FROM question_placement WHERE rank >= ?1 ORDER BY rank DESC")
+        .sql()?;
+    let ranks = statement
+        .query_map([from], |row| row.get::<_, i64>(0))
+        .sql()?
+        .collect::<rusqlite::Result<Vec<i64>>>()
+        .sql()?;
+    for rank in ranks {
+        db.execute(
+            "UPDATE question_placement SET rank = rank + 1 WHERE rank = ?1",
+            [rank],
+        )
+        .sql()?;
+    }
+    Ok(())
+}
+
+/// Writes question <id>'s placement at <spot>, replacing one it has.
+fn put(db: &Connection, id: Id, spot: Spot, why: &str, by_person: bool) -> Result<()> {
+    // The question leaves its old place first, so a move within the ranked
+    // order frees its old rank.
     db.execute(
-        "INSERT INTO question_placement (question_id, at, why, by_person) VALUES (?1, ?2, ?3, ?4) \
-         ON CONFLICT (question_id) DO UPDATE SET at = ?2, why = ?3, by_person = ?4",
-        params![id, position_word(placed.at), placed.why, placed.by_person],
+        "DELETE FROM question_placement WHERE question_id = ?1",
+        [id],
+    )
+    .sql()?;
+    let at = match spot {
+        Spot::Last => Position::Last,
+        Spot::First => {
+            let top: i64 = db
+                .query_row(
+                    "SELECT COALESCE(MAX(rank), 0) FROM question_placement",
+                    [],
+                    |row| row.get(0),
+                )
+                .sql()?;
+            Position::First { rank: top + 1 }
+        }
+        Spot::Above(next) | Spot::Below(next) => {
+            if next == id {
+                fail!("question {id} can't sit above or below itself");
+            }
+            require_open_question(db, next)?;
+            let Some(rank) = rank_of(db, next)? else {
+                fail!(
+                    "question {next} is not in the ranked order: `builds question place {} first --why …` puts it there",
+                    next.0
+                )
+            };
+            let rank = if matches!(spot, Spot::Above(_)) {
+                rank + 1
+            } else {
+                rank
+            };
+            free_rank(db, rank)?;
+            Position::First { rank }
+        }
+    };
+    let rank = match at {
+        Position::First { rank } => Some(rank),
+        Position::Last => None,
+    };
+    db.execute(
+        "INSERT INTO question_placement (question_id, at, rank, why, by_person) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, at.word(), rank, why, by_person],
     )
     .sql()?;
     Ok(())
@@ -147,8 +242,8 @@ fn insert(db: &Connection, id: Id, new: &NewQuestion) -> Result<()> {
         params![id, new.title, new.details, kind_word(new.kind), new.blocks_nothing, new.origin],
     )
     .sql()?;
-    if let Some(placed) = &new.placed {
-        insert_placement(db, id, placed)?;
+    if let Some(why) = &new.first {
+        put(db, id, Spot::First, why, false)?;
     }
     if let Some(plan) = &new.plan {
         db.execute(
@@ -168,20 +263,22 @@ fn require_open_question(db: &Connection, id: Id) -> Result<()> {
     }
 }
 
-/// Sets, or with None clears, open question <id>'s placement.
-pub fn place(db: &Connection, id: Id, placed: Option<Placement>) -> Result<()> {
+/// Places open question <id> at <spot>, for <why>, replacing a placement it
+/// has. <by_person> says the person asked for the place.
+pub fn place(db: &Connection, id: Id, spot: Spot, why: &str, by_person: bool) -> Result<()> {
     require_open_question(db, id)?;
-    match placed {
-        Some(placed) => insert_placement(db, id, &placed),
-        None => {
-            db.execute(
-                "DELETE FROM question_placement WHERE question_id = ?1",
-                [id],
-            )
-            .sql()?;
-            Ok(())
-        }
-    }
+    put(db, id, spot, why, by_person)
+}
+
+/// Removes open question <id>'s placement, so what it unblocks orders it.
+pub fn unplace(db: &Connection, id: Id) -> Result<()> {
+    require_open_question(db, id)?;
+    db.execute(
+        "DELETE FROM question_placement WHERE question_id = ?1",
+        [id],
+    )
+    .sql()?;
+    Ok(())
 }
 
 /// Changes open question <id>: the title and details when given, and its
@@ -230,32 +327,29 @@ pub fn read(
 ) -> Result<Vec<Question>> {
     let mut placements: BTreeMap<Id, Placement> = BTreeMap::new();
     let mut statement = db
-        .prepare("SELECT question_id, at, why, by_person FROM question_placement")
+        .prepare("SELECT question_id, at, rank, why, by_person FROM question_placement")
         .sql()?;
     for row in statement
         .query_map([], |row| {
             Ok((
                 row.get::<_, Id>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, bool>(3)?,
+                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, bool>(4)?,
             ))
         })
         .sql()?
     {
-        let (id, at, why, by_person) = row.sql()?;
-        placements.insert(
-            id,
-            Placement {
-                at: if at == "first" {
-                    Position::First
-                } else {
-                    Position::Last
-                },
-                why,
-                by_person,
-            },
-        );
+        let (id, at, rank, why, by_person) = row.sql()?;
+        let at = match (at.as_str(), rank) {
+            ("first", Some(rank)) => Position::First { rank },
+            ("last", None) => Position::Last,
+            _ => fail!(
+                "question {id}'s placement holds {at} with rank {rank:?}, which question_placement refuses"
+            ),
+        };
+        placements.insert(id, Placement { at, why, by_person });
     }
     let mut plans: BTreeMap<Id, PlanRef> = BTreeMap::new();
     let mut statement = db
@@ -410,6 +504,32 @@ pub fn move_to_origins(db: &Connection) -> Result<()> {
             "CREATE INDEX question_origin",
             ";",
         )],
+    )
+}
+
+/// Makes `question_placement` again as question.sql writes it, with `rank`,
+/// and copies the old rows into it. The stack showed the questions placed
+/// first newest asked on top, so each gets a rank by when it was asked, the
+/// newest the highest, and keeps its place. The statement comes from
+/// question.sql, so the table equals a fresh database's. migrate.rs runs
+/// this with the foreign keys off.
+pub fn move_to_ranks(db: &Connection) -> Result<()> {
+    const SQL: &str = include_str!("question.sql");
+    crate::db::remake_table(
+        db,
+        "question_placement",
+        crate::db::statement(SQL, "CREATE TABLE question_placement (", "STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO question_placement (question_id, at, rank, why, by_person)
+    SELECT p.question_id, p.at,
+        CASE WHEN p.at = 'first' THEN ROW_NUMBER() OVER (PARTITION BY p.at ORDER BY r.opened_at, p.question_id) END,
+        p.why, p.by_person
+    FROM question_placement_old p JOIN record r ON r.id = p.question_id;",
+            )
+            .sql()
+        },
+        &[],
     )
 }
 
