@@ -98,6 +98,31 @@ fn commits(top: &Path, rev: &[&str]) -> Result<Vec<Commit>, String> {
     Ok(found)
 }
 
+/// The commits on origin/main by author time and subject, which a
+/// cherry-pick and a rebase both keep: what tells a landed copy of a commit
+/// whose patch the landing changed (`waiting_to_land`).
+struct MainCopies(HashSet<(i64, String)>);
+
+impl MainCopies {
+    /// The commits on origin/main since <rev> left it: enough to judge <rev>.
+    fn since(top: &Path, rev: &str) -> Result<MainCopies, String> {
+        MainCopies::of(top, &format!("{rev}..origin/main"))
+    }
+
+    fn of(top: &Path, range: &str) -> Result<MainCopies, String> {
+        Ok(MainCopies(
+            commits(top, &[range])?
+                .into_iter()
+                .map(|c| (c.authored, c.subject))
+                .collect(),
+        ))
+    }
+
+    fn holds(&self, commit: &Commit) -> bool {
+        self.0.contains(&(commit.authored, commit.subject.clone()))
+    }
+}
+
 /// The commits on <rev> that origin/main has no copy of, newest first.
 ///
 /// A coordinator lands a branch by cherry-picking or rebasing it, so the
@@ -108,21 +133,34 @@ fn commits(top: &Path, rev: &[&str]) -> Result<Vec<Commit>, String> {
 /// it with the same author time and subject, which a cherry-pick and a rebase
 /// both keep.
 pub fn waiting_to_land(top: &Path, rev: &str) -> Result<Vec<Commit>, String> {
+    waiting_to_land_beside(top, rev, &MainCopies::since(top, rev)?)
+}
+
+/// `waiting_to_land`, judged against <copies>, which holds at least the
+/// commits on origin/main since <rev> left it. `git cherry` reads the patch
+/// of every commit on both sides, which takes most of the time for a branch
+/// far behind origin/main, so it runs only when author time and subject
+/// leave a commit unmatched.
+fn waiting_to_land_beside(
+    top: &Path,
+    rev: &str,
+    copies: &MainCopies,
+) -> Result<Vec<Commit>, String> {
+    let unmatched: Vec<Commit> = commits(top, &[&format!("origin/main..{rev}")])?
+        .into_iter()
+        .filter(|c| !copies.holds(c))
+        .collect();
+    if unmatched.is_empty() {
+        return Ok(unmatched);
+    }
     let marks = run(top, &["cherry", "origin/main", rev])?;
-    let unmatched: HashSet<&str> = marks
+    let no_patch_copy: HashSet<&str> = marks
         .lines()
         .filter_map(|line| line.strip_prefix("+ "))
         .collect();
-    let landed: HashSet<(i64, String)> = commits(top, &[&format!("{rev}..origin/main")])?
+    Ok(unmatched
         .into_iter()
-        .map(|c| (c.authored, c.subject))
-        .collect();
-    Ok(commits(top, &[&format!("origin/main..{rev}")])?
-        .into_iter()
-        .filter(|c| {
-            unmatched.contains(c.full.as_str())
-                && !landed.contains(&(c.authored, c.subject.clone()))
-        })
+        .filter(|c| no_patch_copy.contains(c.full.as_str()))
         .collect())
 }
 
@@ -200,3 +238,7 @@ pub fn read(top: &Path) -> SideGit {
         error: Some(error),
     })
 }
+
+#[cfg(test)]
+#[path = "side_git_tests.rs"]
+mod tests;
