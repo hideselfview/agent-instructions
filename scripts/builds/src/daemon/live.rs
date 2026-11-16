@@ -67,8 +67,8 @@ pub fn daemon_lives(lock: &Path) -> io::Result<bool> {
 mod tests {
     use super::*;
 
-    /// The lock file names the daemon that holds it while it lives, and no
-    /// daemon once its claim is gone.
+    /// `daemon_pid` returns this process's pid while it holds the lock, and
+    /// None before it claims the lock and after it drops the claim.
     #[test]
     fn the_pid_of_the_daemon_holding_the_lock_is_read_while_it_lives() {
         let scratch = crate::testing::Scratch::new("live-pid");

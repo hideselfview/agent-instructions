@@ -4,16 +4,17 @@
 //! when several runs start within a minute, each pick would read the loads
 //! from before the others and choose the same host. `cargo_place::choose`
 //! counts each host's recent runs as load its probe does not show yet
-//! (`host::rank_by_room`), so a burst of runs spreads across the hosts.
+//! (`host::rank_by_room`), so runs that start close together go to different
+//! hosts.
 //!
 //! The record is the folder `cargo-starts` beside the file `hosts`: one file
 //! per run, named for the pid of its `builds cargo` process, holding the host
 //! it went to and when it started. A run counts while it is under a minute
 //! old and its process still runs: a run that already ended adds no load. A
 //! pick holds the folder's lock from reading the record until it has written
-//! its own run, so picks made at the same time take turns and each sees the
-//! ones before it. Files over a minute old name nothing a pick counts, and
-//! the pick that reads them deletes them.
+//! its own run, so builds picks a host for one run at a time and each pick
+//! sees the runs picked before it. A pick no longer counts the runs in files
+//! over a minute old, and the pick that reads those files deletes them.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -30,7 +31,8 @@ pub const WINDOW_SECONDS: i64 = 60;
 /// name.
 pub type Recent = HashMap<String, u32>;
 
-/// The record, read under its lock: the lock is held until `record`.
+/// The record, read under its lock. `Starts` holds the lock until `record`
+/// writes the run and drops it.
 pub struct Starts {
     dir: PathBuf,
     _lock: File,
@@ -55,7 +57,8 @@ pub fn read(places: &Places, now: i64) -> Result<Starts> {
             .path();
         let name = crate::checkout::file_name(&path);
         let Ok(pid) = name.parse::<i32>() else {
-            // The lock, and a file being written (`.<pid>`).
+            // Skips the lock and any file that `record` is still writing
+            // (`.<pid>`).
             continue;
         };
         let (host, at) = parse(&path)?;

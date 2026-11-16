@@ -47,12 +47,12 @@
 //! A takeover stops the step running; the lane's build then runs again from
 //! the checkout, behind the build that took over.
 //!
-//! A step of the mac lane that fails after xcodebuild printed that it cannot
-//! start (xcode.rs) failed because of the host, not the code: the lane records
-//! the host as refusing mac app builds (host.rs), which `builds health` lists
-//! with the fix xcodebuild named, and runs again from its place in the queue
-//! in a checkout on another host, as the lane's lock picks no checkout on a
-//! host so recorded.
+//! When a step of the mac lane fails after xcodebuild printed that it cannot
+//! start (xcode.rs), the host caused the failure, not the code. The lane then
+//! records the host as refusing mac app builds (host.rs), and `builds health`
+//! lists the host with the fix xcodebuild named. The lane runs again from its
+//! place in the queue, in a checkout on another host, because the lane's lock
+//! skips checkouts on hosts recorded this way.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
@@ -330,9 +330,9 @@ enum Ended {
     XcodeCannotStart(String),
 }
 
-/// What a step's run keeps of its output: all of it for a shots run whose
-/// findings are kept (<all>), and xcodebuild's line saying it cannot start
-/// when the lane watches for it (<xcode>).
+/// What a step's run keeps of its output: all of it for a shots run with a
+/// store that keeps its findings (<all>), and xcodebuild's line saying it
+/// cannot start when the lane watches for it (<xcode>).
 fn keep_for<'a>(
     kind: StepKind,
     shots: Option<&ShotsStore>,
@@ -381,8 +381,8 @@ fn run_steps(
 type RunStep<'a> = dyn FnMut(&Step, StepKind, Option<&Found>) -> Result<Within> + 'a;
 
 /// Runs <steps> in order, each by <run>, stopping at the first that fails.
-/// Each step it starts is timed into <log> (app_timing.rs). With <watch>, each
-/// step's run watches for xcodebuild's line saying it cannot start, and a step
+/// `run_steps_with` times each step it starts into <log> (app_timing.rs).
+/// With <watch>, each step's run watches for xcodebuild's line saying it cannot start, and a step
 /// that fails after printing it ends the run with `XcodeCannotStart`.
 fn run_steps_with(
     steps: &[Step],
@@ -427,7 +427,7 @@ fn run_steps_with(
             }
             Err(Fail::Exit(code)) => {
                 note(format!("step {} failed (exit {code})", step.name));
-                if let Some(said) = found.lock().expect("no panic holding it").take() {
+                if let Some(said) = found.lock().expect("no thread panicked holding it").take() {
                     return Ok(Ended::XcodeCannotStart(said));
                 }
                 return Err(Fail::Exit(code));
@@ -536,9 +536,10 @@ impl Site {
 
 /// Runs <step> (of <kind>) in the checkout on a host, watching for
 /// xcodebuild's line in <xcode>, keeps the findings of a shots run here, then
-/// copies <results> back, as a step that failed or ran out of time has
+/// copies <results> back, since a step that failed or ran out of time has
 /// written the reports its reader needs most. A copy that fails fails a step
-/// that passed, and is only said after one that did not.
+/// that passed; after a step that failed, the run notes the copy's error and
+/// keeps the step's own result.
 fn run_remote_step(
     remote: &mut RemoteApp,
     step: &Step,
@@ -900,7 +901,7 @@ fn build_lane(
                 let host = site.host_name().to_string();
                 crate::host::record_refusal(places, crate::host::Refused::MacBuilds, &host, &said)?;
                 note(format!(
-                    "host {host}'s Xcode cannot start, so the build failed there whatever the code. builds health now lists {host} with the fix, mac app builds pass over its app checkouts, and {commit} builds again in another. xcodebuild said: {said}"
+                    "host {host}'s Xcode cannot start, so the build failed there and the code did not cause it. builds health now lists {host} with the fix, mac app builds skip its app checkouts, and {commit} builds again in a checkout on another host. xcodebuild said: {said}"
                 ));
             }
         }

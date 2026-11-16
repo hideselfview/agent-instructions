@@ -103,7 +103,8 @@ fn refusals_keep_the_first_time_and_go_with_their_host() {
     record_refusal(&places, Refused::Jobs, "m1", "first").unwrap();
     record_refusal(&places, Refused::Jobs, "m1", "second").unwrap();
     record_refusal(&places, Refused::MacBuilds, "m1", "plugin").unwrap();
-    // This Mac is always a host, so its Xcode's record is listed.
+    // `refusals` lists this Mac's record of refusing mac app builds too,
+    // because this Mac is always a host.
     record_refusal(&places, Refused::MacBuilds, LOCAL, "plugin here").unwrap();
     // A record of a host that is not recorded is not listed.
     record_refusal(&places, Refused::Jobs, "old", "gone").unwrap();

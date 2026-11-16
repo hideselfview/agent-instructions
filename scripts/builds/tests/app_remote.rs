@@ -247,10 +247,10 @@ fn a_step_the_repo_keeps_on_this_mac_never_takes_a_hosts_checkout() {
 }
 
 /// A mac lane step that fails because the host's Xcode cannot start runs
-/// again in a checkout on another host, and the host is recorded, so the next
-/// build passes over it from the start.
+/// again in a checkout on another host. builds records the host, so the next
+/// build skips it from the start.
 #[test]
-fn a_host_whose_xcode_cannot_start_is_passed_over_and_recorded() {
+fn a_build_skips_and_records_a_host_whose_xcode_cannot_start() {
     let world = World::new("xcode");
     std::fs::write(world.dir.join("hosts"), "m1 user@m1 10\nm2 user@m2 10\n").unwrap();
     std::fs::write(

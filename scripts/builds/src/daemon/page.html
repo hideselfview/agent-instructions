@@ -1304,7 +1304,7 @@ function workTrail(w) {
 }
 // Does an open question or item carry <tag> on its trail?
 function tagIsOpen(tag) { return [...lists.stack, ...lists.items].some(rec => rec.trail.tags.includes(tag)); }
-// The tags of each entry the chosen tab shows when no tag is chosen.
+// The tags of each entry the chosen tab shows while the reader has chosen no tag.
 function tabTags() {
   if (tab === "stack") {
     const {own, held} = stackEntries();
@@ -1360,7 +1360,7 @@ function questionRow(q) {
 // Design changes that wait on your review: recorded, not approved, not landed.
 function reviews() { return lists.designs.filter(g => !g.closed && !g.approved); }
 function heldWorks() { return lists.board.works.filter(w => w.tab === "waiting"); }
-// The questions and held work Waiting on you shows when no tag is chosen.
+// The questions and held work Waiting on you shows while the reader has chosen no tag.
 function stackEntries() { return {own: lists.stack, held: heldWorks()}; }
 // With a tag chosen, only the questions and held work that carry it; design
 // changes carry no tags.
@@ -1467,7 +1467,7 @@ function checkoutState(w) {
   const c = repo && repo.checkouts.find(x => x.name === w.checkout);
   return c ? c.state : null;
 }
-// The running work Running shows when no tag is chosen.
+// The running work Running shows while the reader has chosen no tag.
 function runningWorks() { return lists.board.works.filter(w => w.tab === "running"); }
 // With a tag chosen, only the running work whose items carry it.
 function runningShown() {
@@ -1492,7 +1492,7 @@ function runningItems() {
     h("div", {class: "l-works"}, drawn.map(designRow)))});
   return out.length ? out : [empty(tagFilter ? "Nothing tagged " + tagFilter + " is running." : "Nothing is running.")];
 }
-// The items Queue shows when no tag is chosen.
+// The items Queue shows while the reader has chosen no tag.
 function queueEntries() { return lists.items.filter(it => !isRunning(it)); }
 // With a tag chosen, only the items that carry it.
 function queueShown() { return queueEntries().filter(it => tagged(it.trail.tags)); }

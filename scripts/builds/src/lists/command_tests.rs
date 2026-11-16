@@ -228,8 +228,8 @@ fn add_repo_refuses_a_repo_already_in_a_project_and_a_missing_project() {
 
 /// A store made with no design globs gets them later: each kind given
 /// replaces that kind's globs for the repos it names, and the rest stay.
-/// Health names a repo whose main checkout has a design folder until its
-/// design places are set.
+/// Health names a repo whose main checkout has a design folder until someone
+/// runs design-globs with --design-places for that repo.
 #[test]
 fn design_globs_sets_the_globs_of_an_existing_store() {
     let scratch = Scratch::new("lists-cmd-design-globs");

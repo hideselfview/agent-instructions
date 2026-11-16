@@ -1,7 +1,7 @@
 use super::*;
 
-/// The line an M1 whose Xcode was updated without its system content
-/// printed in `xcodebuild -create-xcframework`.
+/// `xcodebuild -create-xcframework` printed this line on an M1 Mac after
+/// someone updated Xcode without installing its system content.
 const SAID: &str = "A required plugin failed to load. Please ensure system content is up-to-date \u{2014} try running 'xcodebuild -runFirstLaunch'.";
 
 #[test]

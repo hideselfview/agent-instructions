@@ -210,7 +210,8 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// and its rows from every store, and every store gets `item` with an origin of
 /// any kind (each item keeps the decision or design change that made it) and
 /// `question` with an origin (no question has one yet), and every store gets
-/// `closing` where an item may close as finished, with every closing kept.
+/// `closing` where an item may close as finished, and the move copies every
+/// closing into the new table.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any

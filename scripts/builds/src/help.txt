@@ -240,14 +240,14 @@ incremental on in a profile, set profile.dev.incremental in Cargo.toml, never
 CARGO_INCREMENTAL=1, with which sccache refuses every compile.
 
 In a side worktree, `builds cargo` runs test, clippy, check, doc and nextest
-run|list on the host with the most free cores (cores minus the one-minute load,
-less the host's cores for each `builds cargo` run that started there in the
-last minute and still runs, since cargo runs a compile job per core and the
-load average shows a run only after a while; this Mac wins a tie, and picks
-made at once take turns, so a burst of runs spreads across the hosts),
-passing over a host that does not answer, is under the
-free-disk floor, refuses jobs (HOSTS) or has no clone of the repo. It sends the
-checkout's HEAD plus its working tree (staged and unstaged edits, deletions,
+run|list on the host with the most free cores. builds skips a host that does
+not answer, is under the free-disk floor, refuses jobs (HOSTS) or has no clone of
+the repo. A host's free cores are its cores minus its one-minute load, less the
+host's cores again for each `builds cargo` run that started there in the last
+minute and still runs: cargo runs a compile job per core, and the load average
+shows a run only after a while. This Mac wins a tie. When several runs start at
+the same time, builds picks a host for one run at a time, so the runs go to
+different hosts. builds sends the checkout's HEAD plus its working tree (staged and unstaged edits, deletions,
 and files git neither tracks nor ignores) as a commit to the host's clone only,
 runs cargo in a remote worktree there that keeps its build between runs, prints
 the same output and exits with the same status; one line on stderr names the
@@ -386,19 +386,20 @@ takeover; its output comes back behind [<lane> <host>:<name>]. After each
 --test or --shots run there, passed or failed, the folders of the lane's
 `results` lines are copied to /Volumes/Builds/<repo>/<host>:<name>/<path> here,
 where agents read them. A mac lane checkout on a host needs Xcode there.
-
-A host whose Xcode cannot start fails every mac lane build, whatever the code:
-xcodebuild prints "A required plugin failed to load" and names the fix (as
-after an Xcode update whose system content was not installed). When a mac lane
-step fails after printing that line, builds records the host (this Mac
-included) in the folder host-xcode-failures beside the file `hosts`, and the
-lane runs again from its place in the queue in a checkout on another host.
-The mac lane passes over a recorded host's checkouts, and `builds health`
-lists the host under "needs action" with xcodebuild's fix, until `builds host
-clear-xcode <name>` removes the record. A step that fails without that line
-failed because of the code, and fails the build.
 build-app, `builds lock` and a build that runs a `here` step never take a
 checkout on a host.
+
+When a host's Xcode cannot start, every xcodebuild run there fails, whatever
+code it builds: xcodebuild prints "A required plugin failed to load" and names
+the fix (as after someone updates Xcode and nobody runs its first launch, which
+installs its system content). When a mac lane step fails after printing that
+line, builds records the host (this Mac included) in the folder
+host-xcode-failures beside the file `hosts`, and the lane runs again from its
+place in the queue in a checkout on another host. The mac lane skips a recorded
+host's checkouts, and `builds health` lists the host under "needs action" with
+xcodebuild's fix, until `builds host clear-xcode <name>` removes the record. A
+step that fails without that line failed because of its code, and fails the
+build.
 
 Each --shots run's findings (what the shots program printed) are stored in the
 project's store under the repo, the full commit, the lane, the prefix and the
@@ -437,12 +438,12 @@ built again.
                               ([<lane>] until it holds a lock), and the build
                               fails if either lane fails, saying which. A lane takes the free lock of the checkout
                               on the less loaded host first (load average per
-                              core, this Mac counted; a host that does not
-                              answer is skipped, and in the mac lane so is a
-                              host whose Xcode cannot start). Each lane's run
-                              goes to the project's store when it ends: the
-                              ref, the claim
-                              of the worktree it ran from, the checkout, its
+                              core, this Mac counted). The lane skips a host
+                              that does not answer, and the mac lane also
+                              skips a host whose Xcode cannot start. Each
+                              lane's run goes to the project's store when it
+                              ends: the ref, the claim of the worktree it ran
+                              from, the checkout, its
                               wait in the queue, and each step's start, wall
                               time, CPU time and result; the dashboard shows
                               the last 12 hours

@@ -286,8 +286,8 @@ fn is_test_binary(row: &Row) -> bool {
 
 /// Is <row> a test binary that a `builds cargo` above it runs, that has run
 /// IDLE_MINUTES or more and used less than IDLE_SHARE of a core since it
-/// started? The rule `builds health` uses for an idle agent shell
-/// (shells.rs): a test that works uses CPU.
+/// started? This is the rule `builds health` uses to call an agent shell idle
+/// (shells.rs), because a test that works uses CPU.
 fn is_hung_test(by_pid: &HashMap<i32, &Row>, row: &Row) -> bool {
     let age = row.age_seconds as f64;
     is_test_binary(row)
@@ -309,7 +309,7 @@ pub struct Hung {
     pub age_seconds: i64,
     pub command: String,
     /// The worktree (`repo/side-N`, or `repo/remote-N` on a host) it runs
-    /// in, when one can be told.
+    /// in, when `checkout_of` finds one.
     pub checkout: Option<String>,
     /// The command that stops it.
     pub stop: String,
@@ -320,7 +320,7 @@ impl Hung {
     pub fn finding(&self) -> Advice {
         Advice::run(
             format!(
-                "hung test: {} pid {} in {} has sat idle for {}: it used {:.1}% of a core since it started, under the {:.0}% that marks an agent shell idle after {IDLE_MINUTES}m, and the builds cargo that runs it waits on it. It runs {}. Stop it with",
+                "hung test: {} pid {} in {} has sat idle for {}: it used {:.1}% of a core since it started, under the {:.0}% that marks an agent shell idle after {IDLE_MINUTES}m, and the builds cargo that runs it waits on it. The test's command is {}. Stop it with",
                 self.host,
                 self.pid,
                 self.checkout.as_deref().unwrap_or("an unknown worktree"),
@@ -672,8 +672,8 @@ fn now_seconds() -> i64 {
         .as_secs() as i64
 }
 
-/// Reads <host>'s processes and judges them, passing over the dashboard,
-/// whose pid on the host is <dashboard>.
+/// Reads <host>'s processes and judges them, and skips the dashboard, whose
+/// pid on the host is <dashboard>.
 pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
     let read = (|| {
         let listing = match &host.target {

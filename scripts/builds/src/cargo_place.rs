@@ -322,7 +322,8 @@ pub fn choose(
     Ok(choice)
 }
 
-/// `choose`, with the runs <recent> counts.
+/// Chooses the host as `choose` does, counting the recent runs in <recent>
+/// against each host's room.
 fn pick(
     places: &Places,
     ssh: &Ssh,

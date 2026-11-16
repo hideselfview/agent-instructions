@@ -1352,7 +1352,7 @@ fn without_finished(schema: String) -> String {
             "WHEN 'item' THEN how IN ('landed', 'dropped', 'deferred', 'moved-to-stack')",
         ),
         (
-            "    -- Why it was settled, dropped or deferred, or what a finished item made.\n",
+            "    -- Why whoever closed the record settled, dropped or deferred it, or what a\n    -- finished item made.\n",
             "",
         ),
         (

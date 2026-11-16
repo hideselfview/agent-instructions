@@ -539,9 +539,9 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
 
     // A pick probes the host, finds git failing there and passes it over, so
     // the command runs here even though m1 has the most room. m1's probe
-    // reads this Mac's own cores and load through the stand-in ssh, so this
-    // Mac's probe gets a load no real one reaches, and m1 has more room
-    // however busy this Mac is.
+    // reads this Mac's own cores and load through the stand-in ssh, so the
+    // test gives this Mac's probe a load of 1000, higher than any real Mac
+    // reports, and m1 has more room however busy this Mac is.
     let local = host("local", None);
     let probes = host::probe_all(&places, &ssh, vec![local.clone(), m1.clone()]);
     assert!(probes[1].1.as_ref().unwrap().git_fails.is_some());

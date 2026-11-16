@@ -13,11 +13,11 @@
 //! the next pick may choose the host again.
 //!
 //! A host refuses mac app builds when its Xcode cannot start (xcode.rs): an
-//! app build that saw it records the host, this Mac included, in the folder
-//! `host-xcode-failures` the same way, and the mac lane passes over the
-//! host's app checkouts. No probe can tell that Xcode starts again, so the
-//! record stays until `builds host clear-xcode` removes it, once the fix
-//! xcodebuild named has run on the host.
+//! app build whose step failed that way records the host, this Mac included,
+//! in the folder `host-xcode-failures` the same way, and the mac lane skips
+//! the host's app checkouts. No probe can find out whether Xcode starts
+//! again, so the record stays until `builds host clear-xcode` removes it,
+//! once someone has run the fix xcodebuild named on the host.
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -229,9 +229,9 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
 }
 
 /// Asks <host>, and keeps its record of refusing jobs current with the
-/// answer: a host whose git fails is recorded as refusing jobs, and one whose
-/// git runs loses that record. A host that does not answer keeps its record
-/// as it is.
+/// answer: `probe` records a host whose git fails as refusing jobs, and
+/// removes the record of a host whose git runs. A host that does not answer
+/// keeps its record as it is.
 pub fn probe(places: &Places, ssh: &Ssh, host: &Host) -> std::result::Result<Probe, String> {
     let Some(target) = &host.target else {
         return probe_local(places).map_err(|fail| fail.text());
@@ -375,7 +375,7 @@ pub fn refusal_finding(refusal: &Refusal) -> crate::health::Advice {
         };
         return crate::health::Advice::run(
             format!(
-                "host {name}'s Xcode cannot start (since {}), so mac app builds pass over its app checkouts. xcodebuild said: {}. {fix}, then tell builds to use {name} again with",
+                "host {name}'s Xcode cannot start (since {}), so mac app builds skip its app checkouts. xcodebuild said: {}. {fix}, then tell builds to use {name} again with",
                 local_minute(refusal.at),
                 refusal.said.trim_end_matches('.')
             ),
@@ -603,10 +603,10 @@ pub fn choose(
 }
 
 /// The hosts a cargo build may run on, the one with the most room first: the
-/// reachable hosts above the free-disk floor, ordered by `Probe::room_after`
-/// the runs <recent> counts on each. Hosts whose room is equal to the
-/// hundredth of a core keep the order they came in, and `all` puts this Mac
-/// first, so this Mac wins a tie. The line says why, with every host's room
+/// reachable hosts above the free-disk floor, ordered by `Probe::room_after`,
+/// given the number of runs that <recent> counts on each host. Hosts whose
+/// room is equal to the hundredth of a core keep the order they came in, and
+/// `all` puts this Mac first, so this Mac wins a tie. The line says why, with every host's room
 /// and recent runs and each host that was left out. A host left out is not a
 /// failure: the caller runs on the next, and on this Mac when none is left.
 pub fn rank_by_room(

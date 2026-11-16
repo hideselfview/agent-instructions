@@ -1,7 +1,7 @@
-//! What xcodebuild prints when it cannot start on a Mac. A Mac whose Xcode
-//! cannot load a plug-in it needs (as when Xcode was updated and the system
-//! content its first launch installs was not) fails every xcodebuild run with
-//! the line `CANNOT_START` begins, whatever the code it builds. An app build
+//! What xcodebuild prints when it cannot start on a Mac. When someone updates
+//! Xcode and Xcode's first launch has not installed its system content yet,
+//! Xcode cannot load a plug-in it needs, and every xcodebuild run fails with a
+//! line that starts with `CANNOT_START`, whatever code it builds. An app build
 //! that sees that line in a failed step's output counts the failure as the
 //! host's, not the code's (app_build.rs).
 

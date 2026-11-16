@@ -25,7 +25,8 @@ CREATE TABLE closing (
     decision_id INTEGER CONSTRAINT closing_decision_answers_once UNIQUE REFERENCES decision (id),
     -- The question that took an item's place.
     question_id INTEGER REFERENCES question (id),
-    -- Why it was settled, dropped or deferred, or what a finished item made.
+    -- Why whoever closed the record settled, dropped or deferred it, or what a
+    -- finished item made.
     reason TEXT,
     CONSTRAINT closing_names_its_record FOREIGN KEY (record_id, kind) REFERENCES record (id, kind),
     CONSTRAINT closing_how_fits_kind CHECK (

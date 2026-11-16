@@ -204,9 +204,9 @@ no commit); an absolute path is itself.
 
   builds item finished N --made WHAT
       Closes an open item whose work made no commits (an audit, research) as
-      finished, with what it made (items, stack entries, notes), and ends its
-      running everywhere. A finished item meets the waits on it, as a landed
-      one does.
+      finished, with what it made (items, stack entries, notes), and removes
+      it from every worktree it runs in. A finished item frees the items that
+      wait on it, as a landed item does.
 
   builds item drop N --why WHY | builds item defer N --issue URL
       Refused while the item runs, while an open item waits on it (the message
@@ -457,8 +457,8 @@ PROJECTS
       REPO:GLOB entries as init. Each flag given replaces that kind's globs
       for each repo it names; the other kinds and repos keep theirs. `builds
       health` names a repo whose main checkout has a design folder and that
-      has no --design-places globs, since no design change can be recorded
-      there.
+      has no --design-places globs, since the design session cannot record a
+      design change in that repo.
 
   builds lists add-repo PROJECT REPO [--by WHO]
       Adds a repo to the project, so its worktrees run items, land commits

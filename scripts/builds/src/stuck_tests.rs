@@ -393,11 +393,11 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
     );
 }
 
-/// A test binary under `builds cargo` on a host that has used next to no CPU
-/// for 20 minutes or more is hung, and its finding names the worktree, the
-/// command and the idle time, with the ssh command that stops it. A test
-/// that uses CPU, one younger than 20 minutes and one no `builds cargo` runs
-/// are not.
+/// A test binary that `builds cargo` runs on a host, and that has used next
+/// to no CPU for 20 minutes or more, is hung. Its finding names the worktree,
+/// the command and the idle time, with the ssh command that stops it. A test
+/// that uses CPU is not hung, nor is a test younger than 20 minutes, nor a
+/// test that no `builds cargo` runs.
 #[test]
 fn an_idle_test_that_builds_cargo_runs_on_a_host_is_hung() {
     const TEST: &str = "/Users/d/builds-root/bae/remote-1/target/debug/deps/bae_store-0123456789abcdef --test-threads 4";
@@ -423,11 +423,13 @@ fn an_idle_test_that_builds_cargo_runs_on_a_host_is_hung() {
         ),
         row(12, 11, 501, 0.0, 30.0, 2_290, "cargo test -p bae-store"),
         row(13, 12, 501, 0.0, 2.0, 37 * 60, TEST),
-        // Uses CPU: a long test at work.
+        // This test uses CPU, so it still works.
         row(14, 12, 501, 40.0, 900.0, 37 * 60, TEST),
-        // Too young to tell.
+        // This test has run for less than 20 minutes, so the check cannot
+        // call it hung.
         row(15, 12, 501, 0.0, 1.0, 10 * 60, TEST),
-        // Under an agent's own cargo, which the agent shell's rules cover.
+        // This test runs under an agent's own cargo, so the agent shell's
+        // rules cover it and this check skips it.
         row(20, 1, 501, 0.0, 1.0, 2_300, "cargo test"),
         row(21, 20, 501, 0.0, 1.0, 37 * 60, TEST),
     ];
@@ -463,8 +465,8 @@ fn an_idle_test_that_builds_cargo_runs_on_a_host_is_hung() {
     assert_eq!(findings(&[host]).len(), 1);
 }
 
-/// The dashboard, busy for hours as builds started it, is no busy process and
-/// gets no finding; another builds process like it would.
+/// builds never flags its own dashboard as busy, even after hours of high
+/// CPU. Any other builds process with the same CPU use gets a finding.
 #[test]
 fn the_dashboard_is_never_a_busy_build() {
     let rows = vec![

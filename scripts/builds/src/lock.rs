@@ -526,7 +526,7 @@ impl LineWatch {
     fn end_line(&mut self) {
         let text = String::from_utf8_lossy(&self.line);
         if text.contains(self.needle) {
-            let mut found = self.found.lock().expect("no panic holding it");
+            let mut found = self.found.lock().expect("no thread panicked holding it");
             if found.is_none() {
                 *found = Some(text.trim_end().to_string());
             }
@@ -552,7 +552,7 @@ fn copy_and_keep(
         let _ = to.write_all(&chunk[..read]);
         if let Some(all) = &all {
             all.lock()
-                .expect("no panic holding it")
+                .expect("no thread panicked holding it")
                 .extend_from_slice(&chunk[..read]);
         }
         if let Some(watch) = &mut watch {

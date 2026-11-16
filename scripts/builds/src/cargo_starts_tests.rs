@@ -29,7 +29,7 @@ fn running() -> std::process::Child {
 }
 
 /// Three runs that start within a minute, each picking after the one before
-/// recorded its pick: the loads the hosts report have not moved, and still
+/// recorded its pick: the loads the hosts report stay the same, and still
 /// the runs go to both hosts.
 #[test]
 fn a_burst_of_runs_picks_both_hosts() {
@@ -66,8 +66,8 @@ fn a_burst_of_runs_picks_both_hosts() {
     }
 }
 
-/// A run whose process ended counts for nothing, and a run a minute old or
-/// older is deleted when a pick reads the record.
+/// A pick does not count a run whose process ended, and `read` deletes the
+/// file of any run that started a minute ago or earlier.
 #[test]
 fn only_runs_under_a_minute_old_that_still_run_count() {
     let scratch = Scratch::new("cargo-starts-window");

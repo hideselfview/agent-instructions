@@ -1051,8 +1051,7 @@ fn dashboard_finding(dashboard: Option<i32>) -> Option<Finding> {
         Finding::new(
             FindingKind::Dashboard,
             Advice::run(
-                "dashboard: no dashboard runs, so its page shows nothing; start it with"
-                    .to_string(),
+                "dashboard: not running, so its page does not load; start it with".to_string(),
                 "builds dashboard".to_string(),
             ),
         )

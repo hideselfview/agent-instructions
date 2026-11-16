@@ -396,8 +396,9 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str) -> Result<()> {
 }
 
 /// `item finished N --made WHAT`: closes an open item whose work finished
-/// with no commits (an audit, research), saying what it made, and ends its
-/// running everywhere. It meets the waits on it, as a landing does.
+/// with no commits (an audit, research), saying what it made, and removes it
+/// from every worktree it runs in. Closing the item frees the items that wait
+/// on it, as a landing does.
 fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["made"], &[])?;
     let id = one_id(&args, "builds item finished N --made WHAT")?;

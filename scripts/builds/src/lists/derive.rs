@@ -15,9 +15,11 @@ use crate::text::local_day;
 /// How many days back flow counts, today included.
 pub const FLOW_DAYS: usize = 14;
 
-/// Does a record that closed this way meet the waits on it? A question
-/// answered, settled or done; an item or design change landed; an item
-/// finished. One that was dropped, deferred or moved to the stack never does.
+/// Does a record that closed this way free the items that wait on it? A
+/// question frees them when someone answers, settles or completes it. An item
+/// or design change frees them when it lands, and an item also frees them
+/// when it finishes. A record that someone dropped, deferred or moved to the
+/// stack never frees them.
 pub fn closed_meets_wait(closed: &Closed) -> bool {
     use crate::lists::How;
     matches!(

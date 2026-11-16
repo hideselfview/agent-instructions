@@ -156,8 +156,8 @@ pub fn set_design_globs(db: &Connection, kind: GlobKind, globs: &Globs) -> Resul
 
 /// The health finding for each repo of a loaded store whose main checkout
 /// (`<home>/dev/<repo>`) has a design folder and that has no design place
-/// globs: no design change can be recorded in it, and `land` never asks for
-/// one.
+/// globs: lists cannot record a design change in it, and `land` never asks
+/// for one.
 pub fn missing_globs_findings(
     home: &std::path::Path,
     loaded: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
@@ -172,7 +172,7 @@ pub fn missing_globs_findings(
             if design.is_dir() && !lists.design_places.contains_key(repo) {
                 found.push(crate::health::Advice::run(
                     format!(
-                        "lists: repo {repo} has a design folder ({}), and project {}'s store names none of its design places, so no design change can be recorded there and landing never asks for one; set its globs with",
+                        "lists: repo {repo} has a design folder ({}), and project {}'s store names none of its design places, so lists cannot record a design change there and landing never asks for one; set its globs with",
                         design.display(),
                         lists.project
                     ),
