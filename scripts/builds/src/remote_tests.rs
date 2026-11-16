@@ -1,6 +1,6 @@
 use super::*;
 use crate::host::tests::fake_ssh;
-use crate::testing::{Scratch, git};
+use crate::testing::{Scratch, git, host_builds};
 
 /// Runs a job that nothing stops.
 fn run_job(
@@ -62,20 +62,7 @@ fn setup(name: &str) -> Setup {
 /// Puts a `builds` where host setup installs it in <home>, which writes each
 /// run's arguments to <home>/builds-runs.txt and exits with status 0.
 fn fake_builds(home: &Path) {
-    write_builds(home, "echo \"builds $*\" >> \"$HOME/builds-runs.txt\"");
-}
-
-/// Writes a `builds` with the shell lines <body> into <home>'s ~/.local/bin.
-fn write_builds(home: &Path, body: &str) {
-    let bin = home.join(".local/bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    let program = bin.join("builds");
-    std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
-    std::fs::set_permissions(
-        &program,
-        std::os::unix::fs::PermissionsExt::from_mode(0o755),
-    )
-    .unwrap();
+    host_builds(home, "echo \"builds $*\" >> \"$HOME/builds-runs.txt\"");
 }
 
 fn request(what: What, command: &[&str]) -> Request {
@@ -422,7 +409,7 @@ fn every_job_runs_the_hosts_builds_setup_in_its_worktree_before_the_hook() {
 #[test]
 fn a_failing_builds_setup_fails_the_job_and_releases_the_claim() {
     let s = setup("remote-setup-fails");
-    write_builds(&s.home, "echo 'build volume gone' >&2; exit 4");
+    host_builds(&s.home, "echo 'build volume gone' >&2; exit 4");
     let places = s.scratch.places();
     let job = request(What::Ref("main".to_string()), &["true"]);
     let Err(Fail::Message(message)) = run_job(&places, &s.ssh, &s.host, &s.source, &job) else {

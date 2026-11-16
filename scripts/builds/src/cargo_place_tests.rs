@@ -207,14 +207,7 @@ fn remote(name: &str, clone: bool, builds_script: &str) -> (Remote, Checkout, Ch
 /// claim runs, does nothing, and every other command runs the shell lines
 /// <body>.
 fn host_builds(home: &Path, body: &str) {
-    let bin = home.join(".local/bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    std::fs::write(
-        bin.join("builds"),
-        format!("#!/bin/sh\n[ \"$1\" = setup ] && exit 0\n{body}"),
-    )
-    .unwrap();
-    std::fs::set_permissions(bin.join("builds"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::testing::host_builds(home, &format!("[ \"$1\" = setup ] && exit 0\n{body}"));
 }
 
 const RECORDING_BUILDS: &str = r#"echo "host=$BUILDS_CARGO_HOST args=$* flags=$RUSTFLAGS" > ../ran.txt

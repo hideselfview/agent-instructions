@@ -77,6 +77,18 @@ pub fn git(dir: &Path, args: &[&str]) {
     );
 }
 
+/// Writes a host's `builds` into <home>'s ~/.local/bin, where host setup
+/// installs it: a shell script that runs the lines <body>.
+pub fn host_builds(home: &Path, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = home.join(".local/bin");
+    std::fs::create_dir_all(&bin).expect("creatable");
+    let program = bin.join("builds");
+    std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).expect("writable");
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
+        .expect("the fake builds can be made runnable");
+}
+
 /// A repo at <dir> with one commit holding <manifest> as its .build-dirs,
 /// and a .gitignore listing its paths, as a repo's own does.
 pub fn repo(dir: &Path, manifest: &str) {
