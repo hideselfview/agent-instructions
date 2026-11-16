@@ -335,7 +335,7 @@ fn a_holder_records_how_long_it_waited_and_the_step_it_runs() {
     assert_eq!(taken.pid, std::process::id() as i32);
     assert!(
         taken.waited_ms >= SETTLE.as_millis() as u64,
-        "it waited for the first build: {taken:?}"
+        "the second holder waited for the first build: {taken:?}"
     );
     assert_eq!(taken.step, None, "no step runs yet");
     free.send(()).unwrap();

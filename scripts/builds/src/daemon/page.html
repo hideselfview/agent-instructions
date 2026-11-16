@@ -772,8 +772,8 @@ function hours(minutes) {
 // how long, how long it has built and the programs, how long it waited for a
 // checkout, then CPU and memory. The times come from the record the build
 // keeps beside its lock (holder_run.rs); a build that keeps none shows none.
-// A checkout on another Mac shows no CPU and memory: only its lock is read
-// from here.
+// A checkout on another Mac shows no CPU and memory: the daemon on this Mac
+// reads only its lock.
 function checkoutNow(ab) {
   const now = ab.now, run = now.run;
   if (now.state === "building") {

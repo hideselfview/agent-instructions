@@ -135,8 +135,9 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
     waiting.claim = Some(claimed("read-shape"));
     let page = repo(
         vec![app, agent, waiting],
-        // Its process started 32 minutes ago: it waited 25 for the lock, then
-        // ran `macos` and started `macos-tests` 4 minutes ago.
+        // The lock holder's process started 32 minutes ago. The holder waited
+        // 25 minutes for the lock, ran `macos`, and started `macos-tests` 4
+        // minutes ago.
         vec![running(
             lock("side-1", 32, "/d/bae-worktrees/side-5", &[]),
             25,
@@ -425,7 +426,7 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
         how_of(build_for(&page, "reads-storage")),
         "place 3 in the queue, waiting 20 minutes, asked for macos macos-tests"
     );
-    // Its holder keeps no record of its run, so the words name no times.
+    // The lock holder has no run record, so the build's line shows no times.
     assert_eq!(
         flat(build_for(&page, "reads-auto-picks")),
         Some(app_build(
