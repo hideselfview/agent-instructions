@@ -87,12 +87,23 @@ pub struct FolderFacts {
     pub link: &'static str,
 }
 
+/// One reading of the processes: what they said, the places the reading
+/// placed their builds among, and the volume's free space read with them.
+/// The daemon judges health from it with each claim as its file says at the
+/// time it judges.
+#[derive(Clone)]
+struct Sample {
+    machine: Machine,
+    places: Vec<Place>,
+    disk: DiskSpace,
+}
+
 #[derive(Default)]
 struct State {
     version: u64,
     roots: Vec<Root>,
     facts: HashMap<PathBuf, Facts>,
-    machine: Option<Machine>,
+    sample: Option<Sample>,
     /// pid -> (CPU seconds, when read), for CPU %.
     cpu: HashMap<i32, (f64, Instant)>,
     cpu_percent: HashMap<i32, f64>,
@@ -642,13 +653,40 @@ impl Model {
         Ok(crate::health::host_findings(&busy, &refusals, &installed))
     }
 
-    /// The health the last reading judged, None before the first reading.
-    pub fn held_health(&self) -> Option<Health> {
-        self.state
-            .lock()
-            .expect("no panic holding it")
-            .health
-            .clone()
+    /// Judges health now from the last reading of the processes, with each
+    /// claim read from its file now: a command that just wrote a claim
+    /// (`note --state held`) asks for health next, before the next reading.
+    /// None before the first reading. This function never reads the
+    /// processes: a reading takes seconds on a loaded machine, longer than a
+    /// command waits.
+    pub fn health_now(&self) -> crate::fail::Result<Option<Health>> {
+        let state = self.state.lock().expect("no panic holding it");
+        match state.sample.clone() {
+            Some(sample) => self.judge(&state, now_seconds(), sample).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Judges health at <now> from <sample>, the roots and their facts in
+    /// <state>, and the claims as their files say now.
+    fn judge(&self, state: &State, now: i64, sample: Sample) -> crate::fail::Result<Health> {
+        let Sample {
+            machine,
+            places,
+            disk,
+        } = sample;
+        let (mut claimed, held) = claimed_of(&self.places, &state.roots, &state.facts, &places)?;
+        let unclaimed = unclaimed_of(&self.places, &state.roots, &state.facts, &places)?;
+        let lists = crate::health::lists_findings(
+            &self.places,
+            &self.lists.current().1,
+            &places,
+            &mut claimed,
+            &held,
+        )?;
+        Ok(assess(
+            now, disk, machine, &places, claimed, unclaimed, lists,
+        ))
     }
 
     /// Reads the processes and judges health now.
@@ -709,25 +747,13 @@ impl Model {
         while state.load.len() > LOAD_KEPT {
             state.load.pop_front();
         }
-        let (mut claimed, held) = claimed_of(&self.places, &roots, &state.facts, &places)?;
-        let unclaimed = unclaimed_of(&self.places, &roots, &state.facts, &places)?;
-        let lists = crate::health::lists_findings(
-            &self.places,
-            &self.lists.current().1,
-            &places,
-            &mut claimed,
-            &held,
-        )?;
-        let health = assess(
-            now,
-            self.rules.disk_space(free_kib),
-            machine.clone(),
-            &places,
-            claimed,
-            unclaimed,
-            lists,
-        );
-        state.machine = Some(machine);
+        let sample = Sample {
+            machine,
+            places,
+            disk: self.rules.disk_space(free_kib),
+        };
+        let health = self.judge(&state, now, sample.clone())?;
+        state.sample = Some(sample);
         state.health = Some(health.clone());
         state.version += 1;
         self.changed.notify_all();
@@ -873,7 +899,7 @@ impl Model {
         let (entries, memory) = self.tracker.size();
         let (_, snapshot) = self.lists.current();
         let state = self.state.lock().expect("no panic holding it");
-        let places = places_of(&state.roots);
+        let machine = state.sample.as_ref().map(|sample| &sample.machine);
         let mut repos: Vec<RepoPage> = Vec::new();
         for root in &state.roots {
             let repo_name = root
@@ -884,9 +910,7 @@ impl Model {
             if !repos.iter().any(|r| r.name == repo_name) {
                 repos.push(RepoPage {
                     lanes: crate::status::lanes_of(&self.places, &repo_name)?,
-                    locks: state
-                        .machine
-                        .as_ref()
+                    locks: machine
                         .map(|m| {
                             m.locks
                                 .iter()
@@ -895,9 +919,7 @@ impl Model {
                                 .collect()
                         })
                         .unwrap_or_default(),
-                    queues: state
-                        .machine
-                        .as_ref()
+                    queues: machine
                         .map(|m| {
                             m.queues
                                 .iter()
@@ -907,9 +929,7 @@ impl Model {
                         })
                         .unwrap_or_default(),
                     runs: self.runs.pages(&repo_name, &|lane| {
-                        state
-                            .machine
-                            .as_ref()
+                        machine
                             .and_then(|m| {
                                 m.queues
                                     .iter()
@@ -924,8 +944,13 @@ impl Model {
                 });
             }
             let facts = state.facts.get(&root.path).cloned().unwrap_or_default();
-            let place = places.iter().position(|p| p.root == root.path);
-            let processes: Vec<ProcessPage> = match (&state.machine, place) {
+            // The builds' places are indexes into the places the reading
+            // placed them among.
+            let place = state
+                .sample
+                .as_ref()
+                .and_then(|sample| sample.places.iter().position(|p| p.root == root.path));
+            let processes: Vec<ProcessPage> = match (machine, place) {
                 (Some(machine), Some(at)) => machine
                     .builds
                     .iter()
@@ -1130,7 +1155,7 @@ impl Model {
                 disk: self.rules.disk_space(space.free_kib),
                 size_kib: space.size_kib,
             },
-            load: state.machine.as_ref().map(|m| LoadPage {
+            load: machine.map(|m| LoadPage {
                 now: m.load,
                 cores: m.cores,
                 history: state.load.iter().copied().collect(),

@@ -179,11 +179,12 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         ),
         "/api/health" => json(
             &mut stream,
-            match model.held_health() {
-                Some(health) => Ok(serde_json::to_vec(&health).expect("health serializes")),
-                None => Err(crate::fail::Fail::Message(
+            match model.health_now() {
+                Ok(Some(health)) => Ok(serde_json::to_vec(&health).expect("health serializes")),
+                Ok(None) => Err(crate::fail::Fail::Message(
                     "the daemon has not read the processes yet".into(),
                 )),
+                Err(error) => Err(error),
             },
         ),
         "/api/lists" => match model.lists_json() {

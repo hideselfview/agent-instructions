@@ -136,9 +136,10 @@ fn answer(model: &Model, given: &Path, stream: UnixStream) -> std::io::Result<()
                 .collect();
             Reply::Measure(model.tracker.measure(&paths, fresh))
         }
-        Question::Health => match model.held_health() {
-            Some(health) => Reply::Health(Box::new(health)),
-            None => Reply::Failed("the daemon has not read the processes yet".into()),
+        Question::Health => match model.health_now() {
+            Ok(Some(health)) => Reply::Health(Box::new(health)),
+            Ok(None) => Reply::Failed("the daemon has not read the processes yet".into()),
+            Err(error) => Reply::Failed(error.text()),
         },
     };
     let mut stream = stream;

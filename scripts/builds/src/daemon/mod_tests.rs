@@ -21,10 +21,11 @@ fn ask(model: &Model, given: &Path, question: &Question) -> Reply {
     serde_json::from_str(&line).unwrap()
 }
 
-/// A health question gets the reading the daemon already holds. Reading the
-/// processes takes seconds on a loaded machine, longer than a command waits,
-/// so the answer path never reads them: with the volume gone, a reading made
-/// now would fail, and the held one still answers.
+/// The daemon judges its answer to a health question from the reading it
+/// already holds. Reading the processes takes seconds on a loaded machine,
+/// longer than a command waits, so the answer path never reads them: with
+/// the volume gone, a reading made now would fail, and the held one still
+/// answers.
 #[test]
 fn health_answers_from_the_reading_the_daemon_holds() {
     let scratch = Scratch::new("held-health");

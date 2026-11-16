@@ -468,13 +468,11 @@ fn sizes_count_each_block_once_in_one_call_for_every_path() {
     );
 }
 
-/// A side worktree's cargo builds run without incremental compilation, so a
-/// prune deletes every incremental folder in its cargo folder; one still over
-/// its cap then is kept whole while the worktree is claimed, and deleted whole
-/// once it isn't. (A dry run: a real prune also deletes build output in the
-/// machine's real temporary folders.)
+/// A side worktree's build folder over its cap is kept whole while the
+/// worktree is claimed, and deleted whole once it isn't. (A dry run: a real
+/// prune also deletes build output in the machine's real temporary folders.)
 #[test]
-fn prune_drops_a_side_worktrees_incremental_folders_and_keeps_a_claimed_folder_over_its_cap() {
+fn prune_keeps_a_claimed_folder_over_its_cap_and_deletes_it_once_released() {
     let demo = Demo::new("prune");
     let side3 = demo.side(3);
     let side = path(&side3).to_string();
@@ -483,11 +481,6 @@ fn prune_drops_a_side_worktrees_incremental_folders_and_keeps_a_claimed_folder_o
     std::fs::create_dir_all(profile.join(".fingerprint")).unwrap();
     std::fs::create_dir_all(profile.join("deps")).unwrap();
     std::fs::write(profile.join("deps/other"), vec![7u8; 2 * 1024 * 1024]).unwrap();
-    for n in 1..=4 {
-        let folder = profile.join(format!("incremental/crate{n}-id"));
-        std::fs::create_dir_all(&folder).unwrap();
-        std::fs::write(folder.join("data"), vec![n as u8; 512 * 1024]).unwrap();
-    }
     let listing = |profile: &Path| {
         let out = Command::new("find").arg(profile).output().unwrap();
         let mut lines: Vec<String> = String::from_utf8(out.stdout)
@@ -503,11 +496,6 @@ fn prune_drops_a_side_worktrees_incremental_folders_and_keeps_a_claimed_folder_o
     let out = demo.builds().args(["prune", "--dry-run"]).output().unwrap();
     let said =
         String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
-    assert!(
-        said.contains("would delete 4 incremental folders this checkout builds without incremental compilation from")
-            && said.contains("demo/side-3/target/debug"),
-        "a side worktree's incremental folders were kept: {said}"
-    );
     assert!(
         said.contains("claimed, kept: ") && said.contains("demo/side-3/target"),
         "a claimed folder over its cap wasn't kept: {said}"

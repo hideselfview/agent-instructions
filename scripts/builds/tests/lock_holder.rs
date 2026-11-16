@@ -13,8 +13,8 @@ const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
 
 /// A repo `demo` with origin/main, its app checkout side-1, and side-2,
-/// claimed, whose one commit of its own was made three hours ago and nothing
-/// since; on a build volume of its own.
+/// claimed three hours ago, whose one commit of its own was made then and
+/// nothing since; on a build volume of its own.
 struct Demo {
     dir: PathBuf,
     side: PathBuf,
@@ -115,7 +115,24 @@ impl Demo {
             demo.run(&["claim", &side, "agent B"]).status.success(),
             "claim"
         );
+        demo.date_claim(three_hours_ago);
         demo
+    }
+
+    /// Moves side-2's claim's start to <epoch>, as if `builds claim` had run
+    /// then: the claim file is `<who>\t<YYYY-MM-DD HH:MM>`, in local time.
+    fn date_claim(&self, epoch: u64) {
+        let file = PathBuf::from(git(&self.side, &["rev-parse", "--absolute-git-dir"], None))
+            .join("builds-claim");
+        let date = Command::new("date")
+            .args(["-r", &epoch.to_string(), "+%Y-%m-%d %H:%M"])
+            .output()
+            .unwrap();
+        assert!(date.status.success());
+        let date = String::from_utf8(date.stdout).unwrap();
+        let claim = std::fs::read_to_string(&file).unwrap();
+        let (who, _) = claim.split_once('\t').unwrap();
+        std::fs::write(&file, format!("{who}\t{}\n", date.trim())).unwrap();
     }
 
     fn builds(&self) -> Command {
@@ -330,7 +347,8 @@ fn a_stopped_holder_stops_its_whole_build_before_the_waiter_starts() {
     );
 }
 
-/// side-2, quiet for three hours with no build of its own, is idle.
+/// side-2, claimed and quiet for three hours with no build of its own, is
+/// idle.
 #[test]
 fn a_side_worktree_quiet_for_hours_with_no_build_is_idle() {
     let demo = Demo::new("idle");
