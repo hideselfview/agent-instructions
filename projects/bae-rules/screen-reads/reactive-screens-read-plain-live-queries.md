@@ -1,19 +1,20 @@
 ---
 digest: >-
   A bae screen shows the rows of its SQL query, with no cache, enrichment or
-  other step between the query and the screen, except values that live in Rust's
-  memory and change many times a second (keyed latest-value streams, which never
-  carry anything read from SQL), state that exists only on screen (kept by the
-  view), and a pure Rust function of one live query result that only shapes how
-  its rows display (coven's `process`). A read that follows changes is one coven
-  live query; any other read is a plain SQL read. Each window of a long list is
-  its own live query bounded by a key at both ends. SQL decides which rows a
-  screen gets, reads every row a value needs in one statement, and counts across
-  windows. Rust and the apps never keep memory between reads (incremental or
-  lazy computation included), run a side pass, force a rerun, pick a read path
-  by size, or filter, sort or join rows outside SQL, and nothing answers from
-  the rows a screen has loaded. The apps draw the rows Rust hands them and never
-  filter, sort, group or count them.
+  other step between the query and the screen, except values that change many
+  times a second (keyed latest-value streams, which carry a value in Rust's
+  memory or one a Rust watcher computes from it and a live query's latest
+  result, and never a plain query result), state that exists only on screen
+  (kept by the view), and a pure Rust function of one live query result that
+  only shapes how its rows display (coven's `process`). A read that follows
+  changes is one coven live query; any other read is a plain SQL read. Each
+  window of a long list is its own live query bounded by a key at both ends. SQL
+  decides which rows a screen gets, reads every row a value needs in one
+  statement, and counts across windows. Rust and the apps never keep memory
+  between reads (incremental or lazy computation included), run a side pass,
+  force a rerun, pick a read path by size, or filter, sort or join rows outside
+  SQL, and nothing answers from the rows a screen has loaded. The apps draw the
+  rows Rust hands them and never filter, sort, group or count them.
 paths:
   - bae-*/src/**/*.rs
   - '**/*.sql'
@@ -32,30 +33,33 @@ between the query and the screen. In Rust, a pure function of one query result
 may shape how that result's rows display. A long list shows several windows at a
 time, and each window is its own live query.
 
-Two things a screen shows don't come from SQL:
+Two kinds of value reach a screen outside its query's rows:
 
-- A value that lives in Rust's memory and changes many times a second (playback
-  position, transfer bytes, rates, levels) travels on a keyed latest-value
+- A value that changes many times a second travels on a keyed latest-value
   stream, as a channel would carry it inside Rust
-  (`native-views-draw-fast-changing-values.md`). Core never writes such a value
-  to a table for a query to read, and never puts a query's result on a fast
-  stream. A value SQL can read reaches the screen through the screen's live
-  query, however often it changes.
+  (`native-views-draw-fast-changing-values.md`).
+  - The value lives in Rust's memory (playback position, transfer bytes, rates,
+    levels), or a Rust watcher computes it from such a value and a live query's
+    values ("A fast value computed with a live query's values").
+  - Core never writes such a value to a table for a query to read.
+  - Core never puts a plain query result, with no fast-changing part, on a fast
+    stream. Such a value reaches the screen through the screen's live query,
+    however often it changes.
 - State that exists only on screen (hover, focus, the selected rows, an open
   popover or menu, a drag in progress, the text typed in a search or input
   field) stays in the view that controls it and never goes into SQL. A query
   that depends on it, such as a search, gets it in the request, and an action on
   the selected rows gets their ids in the request.
-- A drag or a click that writes stays in progress until its write returns. The
-  view keeps drawing the moved row or the new value until then, and then draws
-  the query's rows, so the screen never jumps back to the old order or value.
-  When the write fails, the view draws the query's rows, which show what is
-  stored. The view keeps nothing past the write's return, and never waits for a
-  later query result to match what it drew.
-- When a query's parameters change, such as a search's text as the person types,
-  the view keeps drawing the last rows until the query returns its first rows
-  for the new parameters, and then draws those. The screen never empties between
-  one set of parameters and the next.
+  - A drag or a click that writes stays in progress until its write returns. The
+    view keeps drawing the moved row or the new value until then, and then draws
+    the query's rows, so the screen never jumps back to the old order or value.
+    When the write fails, the view draws the query's rows, which show what is
+    stored. The view keeps nothing past the write's return, and never waits for
+    a later query result to match what it drew.
+  - When a query's parameters change, such as a search's text as the person
+    types, the view keeps drawing the last rows until the query returns its
+    first rows for the new parameters, and then draws those. The screen never
+    empties between one set of parameters and the next.
 
 ### Why nothing goes between the query and the screen
 
@@ -131,6 +135,32 @@ A `process` function never does any of these:
     recompute only what changed. That is memory between reads, so bae never uses
     one.
 
+### A fast value computed with a live query's values
+
+A fast stream may carry a value that Rust computes from a value in its memory
+that changes many times a second, such as transfer progress or playback
+position, together with a live query's values. An upload's bar is one: the
+release's stored bytes, which a live query reads, plus, for each file being
+sent, its size times the share of it that coven's transfer watch says has moved.
+Its speed is measured from how fast those shares move.
+
+A Rust watcher in the domain that owns the value computes it:
+
+- The watcher waits on the live query and the in-memory source (for the upload
+  bar, coven's transfer watch) together.
+- Each time the query reruns or the source changes, the watcher computes the
+  value from the query's latest result and the source's latest value, and sends
+  it on the fast stream.
+- A speed is a measurement of the source's changes over time, so the watcher
+  keeps those changes for as long as the measurement needs them.
+
+The watcher keeps no other memory between reads:
+
+- No value kept from an earlier read to cover the time between a transfer ending
+  and the query reading its file as stored.
+- No copy of the values it last sent, kept so it sends only the ones that
+  changed.
+
 ### The apps draw only the rows Rust hands them
 
 The apps (Swift and Kotlin) draw each row as Rust hands it over. They never
@@ -173,6 +203,9 @@ subscribe(SELECT COUNT(*) FROM ...)                    -- the count
   (in a `Mutex`, `OnceLock`, atomic, field or cache) for a later read to use.
   Every read starts from the database.
   - An incremental or lazy computation framework is memory between reads.
+  - A fast value's watcher holds its query's latest result until the query
+    reruns, and nothing else from it ("A fast value computed with a live query's
+    values").
 - **A side pass.** No second walk over the rows beside the live query to count
   them or note where groups start.
   - A walk that shapes one result for display is that query's `process`

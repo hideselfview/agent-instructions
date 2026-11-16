@@ -1,12 +1,14 @@
 ---
 digest: >-
-  A fast stream carries a value that lives in Rust's memory and changes many
-  times a second (playback position, transfer bytes, rates, levels), one latest
-  value per key, as a channel would inside Rust; it never carries a query's
-  result, and core never writes its value to a table. In every bae app, that
-  value reaches the screen through a native view or layer that reads the
-  stream's latest value per key once per display frame, never through the UI
-  framework's observed state (SwiftUI, Compose, Avalonia bindings) and never
+  A fast stream carries a value that changes many times a second, one latest
+  value per key, as a channel would inside Rust: a value in Rust's memory
+  (playback position, transfer bytes, rates, levels), or one that Rust computes
+  from such a value and a live query's values, such as an upload bar's stored
+  bytes plus the bytes its files being sent have moved. It never carries a
+  plain query result, and core never writes its value to a table. In every bae
+  app, that value reaches the screen through a native view or layer that reads
+  the stream's latest value per key once per display frame, never through the
+  UI framework's observed state (SwiftUI, Compose, Avalonia bindings) and never
   with a main-thread hop per change.
 paths:
   - '**/*.swift'
@@ -23,37 +25,6 @@ upload or download has moved, transfer rates, meter levels. Core sends them on
 keyed streams, not in tables. In every bae app, a view that the stream sets
 directly draws them, never the UI framework's observed state.
 
-### Fast streams carry Rust values, not query results
-
-A fast stream carries values that live in Rust's memory: one value per key, the
-latest one, the way a watch channel carries it from one part of Rust to another.
-Core sends each value straight from where it has it, such as the audio output's
-position or a transfer's byte count, to the view that draws it.
-
-Core never passes a value between a live query and a fast stream:
-
-- Core never writes a fast value to a table so a live query can read it. Each
-  such write makes coven rerun screen queries many times a second to deliver one
-  number.
-- Core never puts a live query's result, or anything else read from SQL, on a
-  fast stream. A value that SQL can read reaches the screen through the screen's
-  live query, however often it changes. When that query reruns too often, the
-  fix is in the query or in coven.
-
-### A screen that shows a fast value beside its rows
-
-Some screens show both: an upload's bar is the release's files already stored
-(rows in tables) and the file being sent right now (a fast value). Core keeps
-the two apart, and the view puts them together without arithmetic:
-
-- The screen's live query returns the rows: the release, the fraction of it
-  already stored, and each file being sent with its share of the release.
-- The fast stream carries, under each file's key, only what changes many times a
-  second: how far that file has gone, as a fraction, and its speed.
-- The view draws the stored part from the row, and for each file being sent a
-  segment as wide as its share, filled to the stream's fraction. The view adds
-  nothing up.
-
 Observed state (SwiftUI `@Observable` or `@State`, Compose state read in
 composition, an Avalonia view-model property behind a binding) reruns the
 framework's update on every change: every view that reads the value evaluates,
@@ -63,6 +34,36 @@ changes a second across every visible row.
 Each app splits the work in two: the framework places the view once and gives it
 the stream's key, and the view reads the value itself. A new app follows the
 same split from its first progress bar.
+
+### What a fast stream carries
+
+A fast stream carries one value per key, the latest one, the way a watch channel
+carries it from one part of Rust to another. Each value changes many times a
+second, and is one of two kinds:
+
+- A value that lives in Rust's memory, such as the audio output's position or a
+  transfer's byte count. Core sends it straight from where it has it to the view
+  that draws it.
+- A value that Rust computes from such a value together with a live query's
+  values.
+  - An upload's bar is the release's stored bytes, from the live query, plus,
+    for each file being sent, its size times the share of it that coven's
+    transfer watch says has moved. Its speed is measured from how fast those
+    shares move.
+  - A Rust watcher in the domain that owns the value computes it again each time
+    the query reruns or the in-memory value changes
+    (`reactive-screens-read-plain-live-queries.md`, "A fast value computed with
+    a live query's values").
+  - The view draws the value as the stream gives it, and adds nothing up.
+
+Core never does either of these:
+
+- Write a fast value to a table so a live query can read it. Each such write
+  makes coven rerun screen queries many times a second to deliver one number.
+- Put a plain query result, with no fast-changing part, on a fast stream. Such a
+  value reaches the screen through the screen's live query, however often it
+  changes. When that query reruns too often, the fix is in the query or in
+  coven.
 
 ### Drawn once per frame, from the latest value per key
 
@@ -110,17 +111,18 @@ model's `INotifyPropertyChanged`.
 
 ### Which values change fast
 
-A fast value lives in Rust's memory, not in a table, and changes more than about
-once a second while it is active. Counts of stored rows are state from tables,
-however often a scan changes them, and reach the screen through its live query
-like any other row data.
+A fast value changes more than about once a second while it is active, and at
+least one of the values it comes from lives in Rust's memory, not in a table.
+Counts of stored rows are state from tables, however often a scan changes them,
+and reach the screen through its live query like any other row data.
 
 ### Signs of a violation
 
 - A store or view-model property that a progress or position stream updates,
   read in a SwiftUI `body`, a composable or a binding.
 - A `Text("\(rate)")` fed from a throughput stream.
-- A fast stream fed from a live query or a SQL read, or a table that core writes
-  several times a second so a screen's query can show progress.
+- A fast stream that carries a plain query result, with no fast-changing part,
+  or a table that core writes several times a second so a screen's query can
+  show progress.
 - A stream callback that moves to the main thread (`Task { @MainActor in }`,
   `scope.launch(Dispatchers.Main)`) for each value of a fast stream.
