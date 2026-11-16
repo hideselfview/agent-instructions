@@ -11,24 +11,36 @@ This is the first rule for any text a person reads: app strings, notifications,
 errors, item and plan titles, commit messages, PR descriptions, docs, comments,
 and replies in chat. It outranks every other writing rule.
 
+Short text (app strings, titles, buttons, messages) has no room to set up
+context, so it follows the forms here. A document (prose a reader reads from the
+top, such as a README, a rule or a brief) also follows the editor skill
+(`claude/skills/editor/SKILL.md`), which names its reader up front, introduces
+the names it uses and gives its sections headers. Where the two give different
+forms below, each says which text it covers.
+
 **Active.** Name the actor and the action: "bae uploads the cover", not "the
-cover is uploaded"; "Ana removed this Mac", not "this Mac was removed". A title,
-task or button starts with its verb: "Rebuild the dashboard to match its board",
-"Scan device…".
+cover is uploaded"; "Ana removed this Mac", not "this Mac was removed". An item
+or plan title, a task, a button or a menu item starts with its verb: "Rebuild
+the dashboard to match its board", "Scan device…". A document's section header
+instead names what the section holds ("Crates and apps").
 
 **Literal.** Use the words for what happens. Figures of speech make the reader
-translate: "reads like", "lands", "short-circuits", "hydrate", "the flywheel".
-So do metaphors borrowed from another field ("signed" for an ID that isn't
-signed, "fan-out"), made-up coinages ("wire-printed") and pattern names used as
-nouns ("the strategy", "the visitor"). Write what the thing does instead.
+translate: "reads like", "short-circuits", "hydrate", "the flywheel". So do
+metaphors borrowed from another field ("signed" for an ID that isn't signed,
+"fan-out"), made-up coinages ("wire-printed") and pattern names used as nouns
+("the strategy", "the visitor"). Write what the thing does instead. A word the
+project defines as the name of its own operation ("land" for `builds land`) is a
+term, not a figure: a document introduces it once, then uses it.
 
 **Plain.** Pick the simplest word that does the job. Spell out any abbreviation
-the reader hasn't met. When a word needs a parenthetical to explain it, use the
-parenthetical instead of the word.
+the reader hasn't met. In short text, when a word needs a parenthetical to
+explain it, use the parenthetical instead of the word. A document keeps a name
+the reader meets again or acts on, and introduces it where it first appears.
 
 **Whole sentences.** Keep the articles and verbs. Headline grammar ("Dashboard
 reads like its new board", "Key wait names devices holding it") saves a word and
-loses the meaning.
+loses the meaning. Drop a "the" only when it points at nothing the reader knows:
+"How to design and judge the work" becomes "How to design and judge work".
 
 **Name the subject; don't open with "It".** A sentence that starts with "It"
 pointing back at the last one ("This Mac is offline. It holds your changes…")
@@ -55,5 +67,7 @@ Examples:
   skips the rest"
 
 Before you send or commit text, read each sentence and ask: who does what, and
-would someone who doesn't know the code understand it the first time? If not,
-rewrite it.
+would its reader understand it the first time? App text's reader is the app's
+user, who knows nothing of the code. A document names its reader up front; an
+agent knows general tools (sccache, SwiftPM) but not this project's own names.
+If not, rewrite it.

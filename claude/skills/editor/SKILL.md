@@ -5,6 +5,11 @@ description: Edit a document the way an editor does. Agree the outline and what 
 
 # Editor
 
+This skill covers documents: prose a reader reads from the top, such as a
+README, a rule, a note or a brief. Short text (app strings, titles, buttons,
+messages) has no room to set up context and follows the shorter forms in
+`rules/text-people-read/write-plain-literal-active-sentences.md`.
+
 An editor first learns who the reader is, then drafts the outline and decides
 what to cut, agrees both with the person, orders the document from general to
 specific, and fixes each sentence. Then, with the structure settled, the editor
@@ -134,21 +139,20 @@ Every sentence is plain, literal and active
 one for these:
 
 - Read every verb and ask whether it says literally what happens. Verbs of place
-  and body (sits, lives, holds, lands, draws, frees) are the usual figures of
-  speech: "bae-app sits over bae-library" becomes "bae-app uses bae-library",
-  and "keep the build warm" becomes "keep it built". "Point at" and "aim at" are
-  figures too: "point the agent at the file" becomes "give the agent the file's
-  path".
+  and body (sits, lives, draws, frees) are the usual figures of speech: "bae-app
+  sits over bae-library" becomes "bae-app uses bae-library", and "keep the build
+  warm" becomes "keep it built". "Point at" and "aim at" are figures too: "point
+  the agent at the file" becomes "give the agent the file's path".
 - Cull "The X" labels hard: a header or bold label made of "the" and a noun
   ("The parts", "**The keychain.**") stands where a name or a statement belongs.
   Name what the section holds, or start the list item with its sentence. A bold
   label that only repeats the first words of its sentence ("**Sparkle.** Sparkle
   is...") goes too.
-- Don't put "the" before a general noun to make it sound like a specific, known
-  thing: "How to design and judge the work" becomes "How to design and judge
-  work", and "the real shape" becomes "the structure the domain has". Keep "the"
-  when it names one thing the reader can identify ("the diff", "the pre-commit
-  hook").
+- Keep each article a sentence needs, but don't put "the" before a general noun
+  to make it sound like a specific, known thing: "How to design and judge the
+  work" becomes "How to design and judge work", and "the real shape" becomes
+  "the structure the domain has". Keep "the" when it names one thing the reader
+  can identify ("the diff", "the pre-commit hook").
 - Give each sentence one idea, but don't split by rule: one sentence with a list
   of parallel items reads better than four sentences in a row that start
   "Don't".
@@ -157,7 +161,9 @@ one for these:
   of the section list the overview leaves out.
 - Cut hype: dramatic stakes, grand framing, or importance the facts don't carry
   ("this changes everything", "the heart of bae", "a critical safeguard"). Say
-  what the thing does and let the reader judge its weight.
+  what the thing does and let the reader judge its weight. Public website pages
+  that aren't docs (landing, pricing, feature and download pages) are exempt, as
+  the rule says.
 - Eradicate clefts. A cleft splits a plain sentence in two to stage it: "What a
   screen shows is what its query returns", "What matters is X", "It is X that
   Y". Write the plain sentence: "A screen shows its query's rows."
