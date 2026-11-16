@@ -38,8 +38,11 @@ impl Drop for Checkout {
 
 impl Source {
     /// The checkout the reviewers read: the repo itself when it is one, else
-    /// a copy of the files of <rev> (`git archive`) in a folder removed when
-    /// the checkout is dropped.
+    /// a copy of the files of <rev> (`git archive`) in a folder of its own,
+    /// removed when the checkout is dropped. Two copies of one commit get two
+    /// folders: tests in one process make commits with the same contents in
+    /// the same second, which get the same SHA, and a copy that shared its
+    /// folder with another lost it when the other was dropped.
     pub fn checkout(&self) -> Result<Checkout> {
         if self.in_place {
             return Ok(Checkout {
@@ -47,7 +50,11 @@ impl Source {
                 owned: false,
             });
         }
-        let name = format!("builds-review-{}-{}", std::process::id(), &self.rev);
+        let name = format!(
+            "builds-review-{}-{}",
+            crate::text::staged_suffix(),
+            &self.rev
+        );
         let path = std::env::temp_dir().join(name);
         std::fs::create_dir_all(&path).context(|| format!("creating {}", path.display()))?;
         let mut archive = git(&self.repo)
