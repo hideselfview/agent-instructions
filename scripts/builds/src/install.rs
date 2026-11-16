@@ -310,14 +310,22 @@ fn restart_dashboards(home: &Path) -> Result<()> {
     Ok(())
 }
 
-fn launchctl(args: &[&str]) -> Result<bool> {
-    Ok(Command::new("launchctl")
+/// Runs `launchctl <args>`, and fails with what launchctl said when it
+/// fails.
+fn launchctl(args: &[&str]) -> Result<()> {
+    let output = Command::new("launchctl")
         .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .context(|| "running launchctl".to_string())?
-        .success())
+        .output()
+        .context(|| "running launchctl".to_string())?;
+    if !output.status.success() {
+        fail!(
+            "launchctl {} failed ({}): {}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&[output.stdout, output.stderr].concat()).trim()
+        );
+    }
+    Ok(())
 }
 
 /// builds' cap for the sccache cache, from the shared caches.
@@ -469,19 +477,7 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
     if crate::sccache::listening()? {
         crate::sccache::stop(&sccache, STOP_LIMIT)?;
     }
-    let bootstrap = Command::new("launchctl")
-        .args(["bootstrap", &domain])
-        .arg(&plist_path)
-        .output()
-        .context(|| "running launchctl".to_string())?;
-    if !bootstrap.status.success() {
-        fail!(
-            "launchctl bootstrap {domain} {} failed ({}): {}",
-            plist_path.display(),
-            bootstrap.status,
-            String::from_utf8_lossy(&[bootstrap.stdout, bootstrap.stderr].concat()).trim()
-        );
-    }
+    launchctl(&["bootstrap", &domain, &plist_path.to_string_lossy()])?;
     let log = sccache_log_path(home);
     let pid = confirm_serving(
         || Ok((read_job(&service)?, crate::sccache::listener()?)),
