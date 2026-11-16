@@ -40,6 +40,79 @@ fn health_answers_from_the_reading_the_daemon_holds() {
     }
 }
 
+/// A claim written after the daemon's last reading of the processes reaches
+/// the next health answer: `builds note --state held` and then `builds
+/// health` see the hold before the daemon reads the processes again.
+#[test]
+fn a_health_answer_holds_a_claim_written_after_the_last_reading() {
+    let scratch = Scratch::new("claim-after-reading");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    crate::testing::repo(&main, "target 1G\n");
+    let side = scratch.dir.join("demo-worktrees/side-1");
+    crate::testing::git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &side.display().to_string(),
+        ],
+    );
+    let checkout = crate::checkout::Checkout::find(&side.display().to_string()).unwrap();
+    crate::setup::setup(&tool, &checkout).unwrap();
+    crate::claim::write_claim(&checkout, "agent A", tool.now, None, None).unwrap();
+    let model = model_in(&scratch);
+    // The daemon reads the worktree's git state on its own thread.
+    let mut seen = 0;
+    loop {
+        let page = model.page().unwrap();
+        let read = page.repos.iter().any(|repo| {
+            repo.checkouts
+                .iter()
+                .any(|c| c.name == "side-1" && c.git.is_some())
+        });
+        if read {
+            break;
+        }
+        seen = model.wait_change(seen);
+    }
+    // No reading of the processes comes after this one.
+    model.stop_sampling();
+    model.sample_now().unwrap();
+    let note_state = |reply: Reply| match reply {
+        Reply::Health(health) => {
+            let worktree = health
+                .worktrees
+                .iter()
+                .find(|w| w.checkout == "demo/side-1")
+                .expect("health lists the claimed worktree");
+            worktree.claim.note_state.clone()
+        }
+        Reply::Failed(message) => panic!("answered a failure: {message}"),
+        Reply::Measure(_) => panic!("answered sizes to a health question"),
+    };
+    let places = scratch.places();
+    assert_eq!(
+        note_state(ask(&model, &places.root, &Question::Health)),
+        None
+    );
+    crate::claim::write_claim(
+        &checkout,
+        "agent A",
+        tool.now,
+        Some("kept until the review".to_string()),
+        Some("held".to_string()),
+    )
+    .unwrap();
+    assert_eq!(
+        note_state(ask(&model, &places.root, &Question::Health)),
+        Some("held".to_string()),
+        "the answer missed the hold written after the last reading"
+    );
+}
+
 /// A tool whose volume is a short path: a socket's path must fit in
 /// SUN_LEN, which the scratch folder's does not.
 struct ShortVolume(PathBuf);
