@@ -32,7 +32,7 @@ fn installed_script() -> String {
     format!(
         r#"if [ -e "$HOME/.local/bin/builds" ]; then echo "builds=$(shasum -a 256 "$HOME/.local/bin/builds" | cut -d ' ' -f 1)"; else echo builds=missing; fi
 if [ -e "$HOME/Library/LaunchAgents/{label}.plist" ]; then echo plist=present; else echo plist=missing; fi
-echo "listener=$({listener} 2>/dev/null | head -n 1)"
+{listener}
 if job=$(launchctl print "gui/$(id -u)/{label}" 2>/dev/null); then echo job=loaded; printf '%s\n' "$job"; else echo job=none; fi"#,
         listener = crate::sccache::listener_script()
     )
@@ -53,9 +53,7 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
         Some("missing") => false,
         _ => fail!("the host's answer has no plist line: {text:?}"),
     };
-    let Some(listener) = value("listener") else {
-        fail!("the host's answer has no listener line: {text:?}");
-    };
+    let listener = crate::sccache::parse_listener_lines(text)?;
     let job = match text.split_once("\njob=") {
         Some((_, rest)) if rest.starts_with("loaded") => Some(crate::sccache::parse_job(rest)),
         Some((_, rest)) if rest.starts_with("none") => None,
@@ -67,11 +65,7 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
             "" => fail!("shasum printed nothing for the host's builds: {text:?}"),
             digest => Some(digest.to_string()),
         },
-        sccache_under_launchd: plist
-            && crate::sccache::launchd_serves(
-                job.as_ref(),
-                crate::sccache::parse_listener(listener),
-            ),
+        sccache_under_launchd: plist && crate::sccache::launchd_serves(job.as_ref(), listener),
     })
 }
 

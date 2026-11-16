@@ -453,7 +453,7 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
     let domain = format!("gui/{uid}");
     let service = format!("{domain}/{SCCACHE_LABEL}");
     let job = read_job(&service)?;
-    let listener = crate::sccache::listener();
+    let listener = crate::sccache::listener()?;
     if !changed && launchd_serves(job.as_ref(), listener) {
         note("the sccache server already runs under launchd with these settings");
         return Ok(());
@@ -466,7 +466,7 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
     }
     // A server that a client started holds sccache's port, and launchd's
     // server could not listen there.
-    if crate::sccache::listening() {
+    if crate::sccache::listening()? {
         crate::sccache::stop(&sccache, STOP_LIMIT)?;
     }
     let bootstrap = Command::new("launchctl")
@@ -484,7 +484,7 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
     }
     let log = sccache_log_path(home);
     let pid = confirm_serving(
-        || Ok((read_job(&service)?, crate::sccache::listener())),
+        || Ok((read_job(&service)?, crate::sccache::listener()?)),
         START_LIMIT,
         &log,
         &tilde(&log, home),

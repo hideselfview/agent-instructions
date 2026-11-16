@@ -413,10 +413,16 @@ fn caches_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
-/// `sccache: ...` lines from a running server.
+/// `sccache: ...` lines from a running server, or the line that says why
+/// lsof could not tell whether one listens.
 fn sccache_lines(out: &mut Vec<String>) {
-    if !crate::sccache::listening() {
-        return;
+    match crate::sccache::listening() {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(fail) => {
+            out.push(format!("sccache: {}", fail.text()));
+            return;
+        }
     }
     for line in crate::sccache::stats() {
         if line.starts_with("Cache location")

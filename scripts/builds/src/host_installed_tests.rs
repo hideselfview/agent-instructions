@@ -19,7 +19,10 @@ fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> Strin
         Some(printed) => format!("job=loaded\n{printed}"),
         None => "job=none\n".to_string(),
     };
-    format!("builds={builds}\nplist={plist}\nlistener={listener}\n{job}")
+    let status = if listener.is_empty() { 1 } else { 0 };
+    format!(
+        "builds={builds}\nplist={plist}\nlistener_status={status}\nlistener={listener}\nlistener_said=\n{job}"
+    )
 }
 
 #[test]
@@ -42,6 +45,12 @@ fn reads_what_a_host_has_installed() {
     assert!(parse_installed(&answer("", "present", "", None)).is_err());
     assert!(parse_installed("builds=ab12\n").is_err());
     assert!(parse_installed("builds=ab12\nplist=present\nlistener=\n").is_err());
+    let lsof_fails = answer("ab12", "present", "", None)
+        .replace("listener_said=", "listener_said=lsof: cannot run");
+    assert!(
+        parse_installed(&lsof_fails).is_err(),
+        "a failing lsof is an error, not a free port"
+    );
     assert!(parse_installed("").is_err());
 }
 

@@ -307,7 +307,7 @@ pub struct Machine {
 /// least READING_MINUTES old; this reading joins the record when the newest
 /// in it is a minute old or more.
 pub fn sccache_reading(home: &Path, now: i64) -> Result<(bool, Option<u64>, Option<Reading>)> {
-    let listening = crate::sccache::listening();
+    let listening = crate::sccache::listening()?;
     let executed = if listening {
         crate::sccache::count(&crate::sccache::stats(), "Compile requests executed")
     } else {
