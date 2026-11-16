@@ -6,7 +6,9 @@
 //! It exits 1 when something needs acting on: clients waiting on an sccache
 //! server that finished nothing since the last readings, agent shells that are
 //! junk (shells.rs), a claimed worktree with no change and no build for an hour
-//! (its own, or one it holds the app lock for), the volume under its
+//! (its own, a `builds cargo` run of its own on another host, a `builds
+//! app-build` of its branch, or one it holds the app lock for), the volume
+//! under its
 //! free-space floor, a lists store that fails its check, a running item
 //! whose worktree is gone or has no claim (lists/running.rs), a held worktree
 //! whose item waits on nothing open, commits that change design files no
@@ -19,9 +21,11 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::cargo_place::RemoteRun;
 use crate::checkout::{Root, parallel_map};
 use crate::claim::Claim;
 use crate::fail::{Context, Fail, Result};
+use crate::host::Host;
 use crate::lane::Lane;
 use crate::places::DiskSpace;
 use crate::procs::{
@@ -170,6 +174,11 @@ pub struct WorktreeHealth {
     /// dashboard's card says it stalled.
     pub stalled: bool,
     pub building: Vec<BuildProcess>,
+    /// Its `builds cargo` runs whose cargo runs on another host.
+    pub remote_runs: Vec<RemoteRun>,
+    /// The `builds app-build` requests that build for it
+    /// (`AppBuildRun::builds_for`).
+    pub app_builds: Vec<AppBuildRun>,
     /// The holder of an app lock building for this worktree in the app
     /// checkout (`Holder::builds_for`).
     pub app_build: Option<i32>,
@@ -220,6 +229,29 @@ pub struct Holder {
     /// the lock still run? False when only processes it started still have
     /// the lock file open: the build is over and what is left keeps the lock.
     pub driver_running: bool,
+}
+
+/// A `builds app-build` request that runs: the process that the command
+/// started, which waits while each lane's process waits in its queue and
+/// builds in an app checkout here or on another host.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AppBuildRun {
+    pub pid: i32,
+    pub repo: String,
+    /// The ref it builds: the branch, as `builds app-build` is run.
+    pub reference: String,
+    pub started: i64,
+    /// The checkout its working directory is in.
+    pub started_from: Option<String>,
+}
+
+impl AppBuildRun {
+    /// Does it build for the worktree <label> of <repo>, which has <branch>
+    /// checked out? When it builds that branch, or it was run from there.
+    fn builds_for(&self, label: &str, repo: &str, branch: Option<&str>) -> bool {
+        self.started_from.as_deref() == Some(label)
+            || (self.repo == repo && Some(self.reference.as_str()) == branch)
+    }
 }
 
 impl Holder {
@@ -301,6 +333,11 @@ pub struct Machine {
     /// Build processes, each placed in one of the places it was sampled
     /// with.
     pub builds: Vec<BuildProcess>,
+    /// `builds cargo` runs that use another host, each placed in the place
+    /// of its `builds cargo` process.
+    pub remote_runs: Vec<RemoteRun>,
+    /// The `builds app-build` requests that run.
+    pub app_builds: Vec<AppBuildRun>,
     pub sccache: SccacheHealth,
     pub shells: Shells,
     pub locks: Vec<LockHealth>,
@@ -335,11 +372,14 @@ pub fn sccache_reading(home: &Path, now: i64) -> Result<(bool, Option<u64>, Opti
     Ok((listening, executed, compared))
 }
 
-/// Reads the processes now: build processes placed in <places>, sccache's
-/// waiting clients, agent shells, and the holders of <locks> (each repo's
-/// app.lock). <sccache> is a `sccache_reading`.
+/// Reads the processes now: build processes placed in <places>, the
+/// `builds cargo` runs there that use one of <hosts>, the `builds app-build`
+/// requests, sccache's waiting clients, agent shells, and the holders of
+/// <locks> (each repo's app.lock).
+/// <sccache> is a `sccache_reading`.
 pub fn sample(
     places: &[Place],
+    hosts: &[Host],
     locks: &[AppLock],
     uid: u32,
     home: &Path,
@@ -348,6 +388,25 @@ pub fn sample(
 ) -> Machine {
     let processes = Processes::read();
     let builds = build_processes(&processes, places, &BUILD_NAMES);
+    let remote_runs = crate::cargo_place::remote_runs(&processes, places, hosts);
+    let app_builds = processes
+        .list
+        .iter()
+        .filter(|process| process.name == "builds")
+        .filter_map(|process| {
+            let argv = args(process.pid)?;
+            let (repo, reference) = crate::app_build::requested(&argv)?;
+            Some(AppBuildRun {
+                pid: process.pid,
+                repo: repo.to_string(),
+                reference: reference.to_string(),
+                started: process.started,
+                started_from: cwd(process.pid)
+                    .and_then(|dir| place_of(places, &dir))
+                    .map(|at| places[at].label.clone()),
+            })
+        })
+        .collect();
     let (listening, executed, compared) = sccache;
     let mut waiting = Vec::new();
     for process in &processes.list {
@@ -486,6 +545,8 @@ pub fn sample(
         load: load_average(),
         cores: cores(),
         builds,
+        remote_runs,
+        app_builds,
         sccache: SccacheHealth {
             listening,
             executed,
@@ -652,6 +713,21 @@ pub fn assess(
             .filter(|b| b.place == place)
             .cloned()
             .collect();
+        let remote_runs: Vec<RemoteRun> = machine
+            .remote_runs
+            .iter()
+            .filter(|run| run.place == place)
+            .cloned()
+            .collect();
+        let label = places[place].label.clone();
+        // A place's label is `<repo>/<checkout>` (`places_of`).
+        let repo = label.split('/').next().unwrap_or_default();
+        let app_builds: Vec<AppBuildRun> = machine
+            .app_builds
+            .iter()
+            .filter(|run| run.builds_for(&label, repo, branch.as_deref()))
+            .cloned()
+            .collect();
         let quiet_minutes = git.activity().map(|when| minutes_since(now, when));
         // A worktree claimed a few minutes ago is not idle, even when its
         // files have not changed for hours.
@@ -659,7 +735,6 @@ pub fn assess(
             .activity()
             .max(Some(claim.since))
             .map(|when| minutes_since(now, when));
-        let label = places[place].label.clone();
         let app_build = machine
             .locks
             .iter()
@@ -672,6 +747,8 @@ pub fn assess(
         let stalled = !held
             && !awaiting_review
             && building.is_empty()
+            && remote_runs.is_empty()
+            && app_builds.is_empty()
             && app_build.is_none()
             && idle_minutes.is_none_or(|m| m >= QUIET_MINUTES);
         if stalled {
@@ -695,6 +772,8 @@ pub fn assess(
             quiet_minutes,
             stalled,
             building,
+            remote_runs,
+            app_builds,
             app_build,
         });
     }
@@ -797,6 +876,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let sccache = sccache_reading(&tool.places.home, now)?;
     let machine = sample(
         &places,
+        &crate::host::all(&tool.places)?,
         &locks_of(&tool.places, &roots)?,
         tool.places.uid,
         &tool.places.home,
@@ -893,6 +973,36 @@ fn process_summary(building: &[BuildProcess]) -> String {
         .join(", ")
 }
 
+/// What builds for worktree <w>: its build processes here, its `builds
+/// cargo` runs on other hosts, the `builds app-build` requests for it, and
+/// the app lock's holder building for it.
+fn builds_line(w: &WorktreeHealth) -> String {
+    let mut parts = Vec::new();
+    if !w.building.is_empty() {
+        parts.push(format!("building: {}", process_summary(&w.building)));
+    }
+    for run in &w.remote_runs {
+        parts.push(format!(
+            "running cargo on host {} (builds cargo, pid {})",
+            run.host, run.pid
+        ));
+    }
+    for run in &w.app_builds {
+        parts.push(format!(
+            "builds app-build of {} (pid {})",
+            run.reference, run.pid
+        ));
+    }
+    if let Some(pid) = w.app_build {
+        parts.push(format!("building in the app checkout (pid {pid})"));
+    }
+    if parts.is_empty() {
+        "no build running".to_string()
+    } else {
+        parts.join("; ")
+    }
+}
+
 /// The lines `builds health` prints.
 pub fn lines(health: &Health) -> Vec<String> {
     let mut out = Vec::new();
@@ -977,15 +1087,7 @@ pub fn lines(health: &Health) -> Vec<String> {
             w.quiet_minutes
                 .map(|m| format!("{m}m ago"))
                 .unwrap_or_else(|| "unknown".to_string()),
-            match (w.building.is_empty(), w.app_build) {
-                (true, None) => "no build running".to_string(),
-                (true, Some(pid)) => format!("building in the app checkout (pid {pid})"),
-                (false, None) => format!("building: {}", process_summary(&w.building)),
-                (false, Some(pid)) => format!(
-                    "building: {}; and in the app checkout (pid {pid})",
-                    process_summary(&w.building)
-                ),
-            }
+            builds_line(w)
         ));
     }
     for lock in &health.locks {
@@ -1196,6 +1298,8 @@ mod tests {
             load: [1.0; 3],
             cores: 8,
             builds: Vec::new(),
+            remote_runs: Vec::new(),
+            app_builds: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),
@@ -1272,6 +1376,8 @@ mod tests {
             load: [1.0; 3],
             cores: 8,
             builds: Vec::new(),
+            remote_runs: Vec::new(),
+            app_builds: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),
@@ -1336,6 +1442,161 @@ mod tests {
         assert_eq!(findings.len(), 1, "{findings:?}");
     }
 
+    /// A claimed worktree with no change for hours whose `builds cargo` runs
+    /// cargo on another host is building there: it is not idle, and its line
+    /// names the host.
+    #[test]
+    fn a_quiet_worktree_whose_cargo_runs_on_another_host_is_not_idle() {
+        let now = 1_800_000_000;
+        let machine = Machine {
+            at: now,
+            load: [1.0; 3],
+            cores: 8,
+            builds: Vec::new(),
+            remote_runs: vec![RemoteRun {
+                pid: 4242,
+                place: 0,
+                host: "m1".to_string(),
+                started: now - 600,
+            }],
+            app_builds: Vec::new(),
+            sccache: SccacheHealth {
+                listening: true,
+                executed: Some(1),
+                compared: None,
+                waiting: Vec::new(),
+            },
+            shells: Shells::default(),
+            locks: Vec::new(),
+            queues: Vec::new(),
+        };
+        let place = Place {
+            label: "demo/side-1".to_string(),
+            top: PathBuf::from("/demo-worktrees/side-1"),
+            root: PathBuf::from("/volume/demo/side-1"),
+        };
+        let claimed = Claimed {
+            place: 0,
+            claim: Claim {
+                who: "agent 1".to_string(),
+                since: now - 5 * 3600,
+                note: None,
+                note_state: None,
+            },
+            branch: Some("work".to_string()),
+            git: SideGit {
+                head: None,
+                ahead: Vec::new(),
+                uncommitted: Some(3),
+                last_write: Some(now - 2 * 3600),
+                error: None,
+            },
+            awaiting_review: false,
+        };
+        let health = assess(
+            now,
+            DiskSpace {
+                free_kib: 100 << 20,
+                floor_kib: 30 << 20,
+                hard_floor_kib: 10 << 20,
+            },
+            machine,
+            &[place],
+            vec![claimed],
+            Vec::new(),
+            Vec::new(),
+        );
+        assert!(health.findings.is_empty(), "{:?}", health.findings);
+        let shown = lines(&health);
+        assert!(
+            shown
+                .iter()
+                .any(|line| line.ends_with("; running cargo on host m1 (builds cargo, pid 4242)")),
+            "{shown:?}"
+        );
+    }
+
+    /// A claimed worktree with no change for hours is building while a
+    /// `builds app-build` of its branch runs, wherever it was run from and
+    /// wherever its lanes build; an app build of another branch run from
+    /// elsewhere leaves it idle.
+    #[test]
+    fn a_quiet_worktree_whose_branch_an_app_build_builds_is_not_idle() {
+        let now = 1_800_000_000;
+        let run = |reference: &str| AppBuildRun {
+            pid: 5151,
+            repo: "demo".to_string(),
+            reference: reference.to_string(),
+            started: now - 600,
+            started_from: Some("demo/main".to_string()),
+        };
+        let judge = |app_builds: Vec<AppBuildRun>| {
+            let machine = Machine {
+                at: now,
+                load: [1.0; 3],
+                cores: 8,
+                builds: Vec::new(),
+                remote_runs: Vec::new(),
+                app_builds,
+                sccache: SccacheHealth {
+                    listening: true,
+                    executed: Some(1),
+                    compared: None,
+                    waiting: Vec::new(),
+                },
+                shells: Shells::default(),
+                locks: Vec::new(),
+                queues: Vec::new(),
+            };
+            let place = Place {
+                label: "demo/side-1".to_string(),
+                top: PathBuf::from("/demo-worktrees/side-1"),
+                root: PathBuf::from("/volume/demo/side-1"),
+            };
+            let claimed = Claimed {
+                place: 0,
+                claim: Claim {
+                    who: "agent 1".to_string(),
+                    since: now - 5 * 3600,
+                    note: None,
+                    note_state: None,
+                },
+                branch: Some("work".to_string()),
+                git: SideGit {
+                    head: None,
+                    ahead: Vec::new(),
+                    uncommitted: Some(0),
+                    last_write: Some(now - 2 * 3600),
+                    error: None,
+                },
+                awaiting_review: false,
+            };
+            assess(
+                now,
+                DiskSpace {
+                    free_kib: 100 << 20,
+                    floor_kib: 30 << 20,
+                    hard_floor_kib: 10 << 20,
+                },
+                machine,
+                &[place],
+                vec![claimed],
+                Vec::new(),
+                Vec::new(),
+            )
+        };
+        let building = judge(vec![run("work")]);
+        assert!(building.findings.is_empty(), "{:?}", building.findings);
+        let shown = lines(&building);
+        assert!(
+            shown
+                .iter()
+                .any(|line| line.ends_with("; builds app-build of work (pid 5151)")),
+            "{shown:?}"
+        );
+        assert_eq!(judge(vec![run("other")]).findings.len(), 1);
+    }
+
     /// An unclaimed worktree holding commits missing from origin/main is
     /// work left behind; one holding none is not a finding.
     #[test]
@@ -1346,6 +1607,8 @@ mod tests {
             load: [1.0; 3],
             cores: 8,
             builds: Vec::new(),
+            remote_runs: Vec::new(),
+            app_builds: Vec::new(),
             sccache: SccacheHealth {
                 listening: true,
                 executed: Some(1),

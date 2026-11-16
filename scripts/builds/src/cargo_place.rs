@@ -32,6 +32,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::host::{self, Host, Ssh};
 use crate::places::Places;
+use crate::procs::{Place, Processes, args, cwd, place_of};
 use crate::remote::{self, Job, Request, Start, Transport, What};
 use crate::text::note;
 
@@ -453,6 +454,66 @@ pub fn finish(job: Job) -> Result<crate::cargo_run::Exited> {
         code,
         lock_wait: Some(lock_wait),
     })
+}
+
+/// A `builds cargo` run on this Mac that uses another host: cargo runs on the
+/// host, so no build process of the run runs here. The run belongs to the
+/// checkout its `builds cargo` process runs in.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RemoteRun {
+    /// The `builds cargo` process on this Mac.
+    pub pid: i32,
+    /// Index into the places it was placed among.
+    #[serde(skip)]
+    pub place: usize,
+    /// The name of the host.
+    pub host: String,
+    pub started: i64,
+}
+
+/// The `builds cargo` runs among <processes> that use one of <hosts>: each
+/// `builds cargo` whose working directory is in one of <places> and whose
+/// child is an ssh to the host, which names the host's target as one
+/// argument (`Ssh::command`). `builds cargo` reaches its host through such a
+/// child at every step: it asks the host for its load, sends the job, claims
+/// a worktree there, runs cargo there and releases the worktree. While it
+/// asks several hosts for their load before it picks one, the run uses each
+/// of them.
+pub fn remote_runs(processes: &Processes, places: &[Place], hosts: &[Host]) -> Vec<RemoteRun> {
+    let targets: Vec<(&str, &str)> = hosts
+        .iter()
+        .filter_map(|host| Some((host.target.as_deref()?, host.name.as_str())))
+        .collect();
+    let mut found = Vec::new();
+    if targets.is_empty() {
+        return found;
+    }
+    for process in processes.list.iter().filter(|p| p.name == "builds") {
+        if args(process.pid).is_none_or(|argv| argv.get(1).map(String::as_str) != Some("cargo")) {
+            continue;
+        }
+        let Some(place) = cwd(process.pid).and_then(|dir| place_of(places, &dir)) else {
+            continue;
+        };
+        for child in processes.children(process.pid) {
+            let argv = args(child.pid).unwrap_or_default();
+            for (target, name) in &targets {
+                if !argv.iter().skip(1).any(|arg| arg == target) {
+                    continue;
+                }
+                let run = RemoteRun {
+                    pid: process.pid,
+                    place,
+                    host: name.to_string(),
+                    started: process.started,
+                };
+                if !found.contains(&run) {
+                    found.push(run);
+                }
+            }
+        }
+    }
+    found
 }
 
 #[cfg(test)]

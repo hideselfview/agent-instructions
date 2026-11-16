@@ -718,6 +718,7 @@ impl Model {
         let places = places_of(&roots);
         let machine = sample(
             &places,
+            &crate::host::all(&self.places)?,
             &locks_of(&self.places, &roots)?,
             self.places.uid,
             &self.places.home,

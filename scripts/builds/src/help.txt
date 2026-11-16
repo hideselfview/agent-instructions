@@ -870,8 +870,11 @@ STATUS, HEALTH AND THE DASHBOARD
                                 stopped and why
                               - each claimed worktree: claim, branch,
                                 uncommitted files, commits waiting to land,
-                                minutes since a change, and builds there or
-                                under an app lock for it
+                                minutes since a change, and builds there,
+                                its `builds cargo` runs whose cargo runs on
+                                another host, the `builds app-build` runs of
+                                its branch, here or on another host, or
+                                builds under an app lock for it
                               - each lane's lock holder (the build's top
                                 process when its `builds lock` is gone)
                               - the busy processes on this Mac and every host

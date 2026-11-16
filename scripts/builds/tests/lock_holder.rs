@@ -1,9 +1,11 @@
 //! `builds lock` and `builds health` on a scratch repo and build volume, with
 //! `sleep` standing in for a build: a waiting command does not start while any
 //! process of the holder's build lives, whether the holder is killed outright
-//! or asked to stop; and health counts a build under the lock as the build of
+//! or asked to stop; health counts a build under the lock as the build of
 //! the worktree it is for, and finds the holder by the lock file's open
-//! descriptor once `builds lock` itself is gone.
+//! descriptor once `builds lock` itself is gone; and health counts a `builds
+//! cargo` run whose cargo runs on another host as a build of the worktree it
+//! was run in.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -135,12 +137,54 @@ impl Demo {
         std::fs::write(&file, format!("{who}\t{}\n", date.trim())).unwrap();
     }
 
+    /// builds on the demo's volume, with its lists and hosts beside it and
+    /// the fake ssh `host_m1` writes, so nothing reaches a real host.
     fn builds(&self) -> Command {
         let mut command = Command::new(BUILDS);
         command
             .env("BUILDS_ROOT", self.dir.join("volume"))
-            .env("HOME", self.dir.join("home"));
+            .env("HOME", self.dir.join("home"))
+            .env("BUILDS_LISTS", self.dir.join("lists"))
+            .env("BUILDS_SSH", self.dir.join("bin/ssh"));
         command
+    }
+
+    /// Records host m1, whose home is <dir>/m1 with a clone of demo and
+    /// <builds> as its `builds`, behind a fake ssh that runs each command on
+    /// this Mac in that home. The ssh stays the command's parent, as a real
+    /// one does, so its arguments still name the host.
+    fn host_m1(&self, builds: &str) {
+        let home = self.dir.join("m1");
+        let origin = self.dir.join("origin.git");
+        std::fs::create_dir_all(home.join("dev")).unwrap();
+        git(
+            &self.dir,
+            &[
+                "clone",
+                "-q",
+                origin.to_str().unwrap(),
+                home.join("dev/demo").to_str().unwrap(),
+            ],
+            None,
+        );
+        script(&home.join(".local/bin/builds"), builds);
+        script(
+            &self.dir.join("bin/ssh"),
+            &format!(
+                r#"#!/bin/sh
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) shift 2;;
+    *) break;;
+  esac
+done
+shift
+cd '{home}' && HOME='{home}' sh -c "$*"
+"#,
+                home = home.display()
+            ),
+        );
+        std::fs::write(self.dir.join("hosts"), "m1 user@m1 10\n").unwrap();
     }
 
     fn run(&self, args: &[&str]) -> std::process::Output {
@@ -231,6 +275,14 @@ impl Drop for Demo {
         }
         let _ = std::fs::remove_dir_all(&self.dir);
     }
+}
+
+/// Writes the program <text> at <path>.
+fn script(path: &Path, text: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 fn until(what: &str, mut done: impl FnMut() -> bool) {
@@ -421,4 +473,52 @@ fn a_killed_holders_build_is_found_by_the_open_lock_file_and_linked_by_commit() 
         "health called side-2 idle while a build at its commit held the app lock"
     );
     kill(-build, libc::SIGTERM);
+}
+
+/// A `builds cargo test` run from side-2 whose cargo runs on host m1 builds
+/// for side-2, though no build process of it runs on this Mac: side-2 is
+/// not idle, and health names the run's host.
+#[test]
+fn a_cargo_run_on_another_host_builds_for_the_worktree_it_was_run_from() {
+    let mut demo = Demo::new("remote");
+    let started = demo.dir.join("started");
+    demo.host_m1(&format!(
+        "#!/bin/sh\n[ \"$1\" = cargo ] || exit 1\ntouch '{}'\nexec sleep 30\n",
+        started.display()
+    ));
+    let run = demo
+        .builds()
+        .current_dir(&demo.side)
+        .args(["cargo", "test"])
+        .env("BUILDS_CARGO_HOST", "m1")
+        .env_remove("RUSTC_WRAPPER")
+        .env_remove("RUSTC_WORKSPACE_WRAPPER")
+        .env_remove("BUILDS_CARGO_BEFORE")
+        .env_remove("CARGO_TARGET_DIR")
+        .env_remove("FFMPEG_DIR")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = run.id() as i64;
+    demo.started.push(run);
+    until("cargo to start on m1", || started.exists());
+    let health = demo.health();
+    let side = demo.side_2(&health);
+    let runs: Vec<(i64, &str)> = side["remote_runs"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no remote runs in {side}"))
+        .iter()
+        .map(|run| (run["pid"].as_i64().unwrap(), run["host"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        runs,
+        [(pid, "m1")],
+        "health did not find the run on m1: {side}"
+    );
+    assert!(
+        !demo.idle(&health),
+        "health called side-2 idle while its cargo ran on m1"
+    );
 }

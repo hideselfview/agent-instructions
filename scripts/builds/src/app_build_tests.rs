@@ -681,3 +681,37 @@ fn a_shots_run_keeps_its_report_and_the_pictures_it_shows_under_its_key_in_the_s
     std::fs::remove_dir_all(top.join("shots")).unwrap();
     assert!(folder.join("img/a.png").exists());
 }
+
+/// A request names its repo and ref; a lane's process, `--list` and other
+/// commands name none.
+#[test]
+fn a_request_names_its_repo_and_ref() {
+    let argv = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        requested(&argv(&[
+            "/x/builds",
+            "app-build",
+            "bae",
+            "work",
+            "--test",
+            "A"
+        ])),
+        Some(("bae", "work"))
+    );
+    assert_eq!(
+        requested(&argv(&[
+            "builds",
+            "app-build",
+            "bae",
+            "--lane",
+            "mac",
+            "work"
+        ])),
+        None
+    );
+    assert_eq!(
+        requested(&argv(&["builds", "app-build", "bae", "--list"])),
+        None
+    );
+    assert_eq!(requested(&argv(&["builds", "cargo", "test", "x"])), None);
+}

@@ -1152,6 +1152,21 @@ pub fn run_lanes(
     }
 }
 
+/// The repo and the ref that the command line <argv> of a running `builds
+/// app-build` request names: `builds app-build <repo> <ref> ...`. None for
+/// any other command, for `--list`, and for a lane's process (`--lane`),
+/// which the request starts and waits for.
+pub fn requested(argv: &[String]) -> Option<(&str, &str)> {
+    match argv {
+        [_, command, repo, reference, ..]
+            if command == "app-build" && !reference.starts_with('-') =>
+        {
+            Some((repo.as_str(), reference.as_str()))
+        }
+        _ => None,
+    }
+}
+
 pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
     let [repo, rest @ ..] = args else {
         fail!("{USAGE}");
