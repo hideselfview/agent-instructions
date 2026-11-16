@@ -14,9 +14,9 @@ and replies in chat. It outranks every other writing rule.
 Short text (app strings, titles, buttons, messages) has no room to set up
 context, so it follows the forms here. A document (prose a reader reads from the
 top, such as a README, a rule or a brief) also follows the editor skill
-(`claude/skills/editor/SKILL.md`), which names its reader up front, introduces
-the names it uses and gives its sections headers. Where the two give different
-forms below, each says which text it covers.
+(`claude/skills/editor/SKILL.md`), which asks a document to name its reader up
+front, introduce the names it uses and give its sections headers. Where the two
+give different forms below, each says which text it covers.
 
 **Active.** Name the actor and the action: "bae uploads the cover", not "the
 cover is uploaded"; "Ana removed this Mac", not "this Mac was removed". An item
@@ -76,7 +76,7 @@ Examples:
   skips the rest"
 
 Before you send or commit text, read each sentence and ask: who does what, and
-would its reader understand it the first time? App text's reader is the app's
-user, who knows nothing of the code. A document names its reader up front; an
-agent knows general tools (sccache, SwiftPM) but not this project's own names.
-If not, rewrite it.
+would its reader understand it the first time? If not, rewrite it. App text's
+reader is the app's user, who knows nothing of the code. A document names its
+reader up front. When a document's reader is an agent, that reader knows general
+tools (sccache, SwiftPM) but not this project's own names.
