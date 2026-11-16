@@ -850,8 +850,10 @@ ownership checker, about 10 MB per coven revision), and a `.build-dirs`
 checkout runs. `setup` and `prune` delete each version in the folder whose name
 no live checkout's file contains, reading the file in every live checkout,
 whether or not its own `.build-dirs` has the line. An entry whose name starts
-with a dot is an install still being written, and stays. When a checkout's
-`.build-dirs` or one of the files can't be read, nothing is deleted.
+with a dot is one a script is still installing, and `setup` and `prune` leave
+it. When builds cannot read a checkout's `.build-dirs`, the folder or one of
+the files, it deletes nothing there and says why. When no live checkout has
+the file a line names, builds deletes nothing in that folder and says so.
 
 Build output in the temporary folders. A build pointed at /private/tmp or the
 user's temporary folder writes 5-14 GB there that nothing else deletes. `setup`

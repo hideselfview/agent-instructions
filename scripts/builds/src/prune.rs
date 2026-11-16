@@ -610,13 +610,14 @@ pub fn prune_cargo_git(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
 }
 
 /// The tools a repo's script installs once per version into the cache home
-/// (`.build-dirs` `installed` lines): each version, an entry in the tool's
-/// folder named after it, goes once no live checkout's file names it. Every
-/// live checkout's file counts, whether or not its own manifest has the
-/// line, so a checkout on a branch from before the line keeps its version.
-/// An entry whose name starts with a dot is an install a script is still
-/// writing, and stays. A manifest or file that can't be read deletes nothing
-/// it could keep.
+/// (`.build-dirs` `installed` lines). Each version is an entry in the
+/// tool's folder named after it, and pruning deletes it once no live
+/// checkout's file names it. Pruning reads the file in every live checkout,
+/// whether or not the checkout's own manifest has the line, so a checkout on
+/// a branch from before the line keeps its version. Pruning leaves an entry
+/// whose name starts with a dot, since a script is still installing it. When
+/// pruning can't read a manifest, the folder or a file, it deletes nothing
+/// that the unread text could name, and notes why.
 pub fn prune_installed(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     let tops: Vec<&Path> = roots
         .iter()
@@ -629,7 +630,7 @@ pub fn prune_installed(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
             Ok(declared) => declared,
             Err(error) => {
                 note(format!(
-                    "reading {}'s {} failed, so no installed tool was deleted: {}",
+                    "pruning could not read {}'s {}, so it deleted no installed tool: {}",
                     top.display(),
                     crate::manifest::MANIFEST,
                     error.text()

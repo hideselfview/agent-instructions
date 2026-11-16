@@ -132,11 +132,11 @@ fn a_side_worktree_keeps_its_incremental_folders_for_the_idle_hours() {
     assert!(!idle.exists(), "pruning kept an idle incremental folder");
 }
 
-/// An installed tool's version goes once no live checkout's file names it; a
-/// checkout whose `.build-dirs` lacks the `installed` line still keeps the
-/// version its file names, and an install still being written stays.
+/// Pruning deletes an installed tool's version once no live checkout's file
+/// names it. It keeps the version that the file of a checkout without the
+/// `installed` line names, and an install that a script is still writing.
 #[test]
-fn an_installed_version_goes_once_no_checkout_names_it() {
+fn pruning_deletes_an_installed_version_once_no_checkout_names_it() {
     let scratch = Scratch::new("prune-installed");
     let tool = scratch.tool(0);
     let main = scratch.dir.join("demo");
@@ -172,24 +172,24 @@ fn an_installed_version_goes_once_no_checkout_names_it() {
     prune_installed(&tool, &roots, Run::Dry).unwrap();
     assert!(
         folder.join("ccc333").exists(),
-        "a dry run deleted a version"
+        "a dry run of pruning deleted a version"
     );
     prune_installed(&tool, &roots, Run::Real).unwrap();
     assert!(
         !folder.join("ccc333").exists(),
-        "a version no checkout names was kept"
+        "pruning kept a version no checkout names"
     );
     assert!(
         folder.join("aaa111").exists(),
-        "the version main's file names was deleted"
+        "pruning deleted the version that main's file names"
     );
     assert!(
         folder.join("ddd444").exists(),
-        "the version named by a checkout without the line was deleted"
+        "pruning deleted the version that a checkout without the installed line names"
     );
     assert!(
         folder.join(".install.x").exists(),
-        "an install still being written was deleted"
+        "pruning deleted an install that a script is still writing"
     );
     for top in [&main, &side] {
         std::fs::remove_file(top.join("scripts/checker.sh")).unwrap();
@@ -197,7 +197,7 @@ fn an_installed_version_goes_once_no_checkout_names_it() {
     prune_installed(&tool, &roots, Run::Real).unwrap();
     assert!(
         folder.join("aaa111").exists() && folder.join("ddd444").exists(),
-        "with no file to read, a version was deleted"
+        "with no file to read, pruning deleted a version"
     );
 }
 
