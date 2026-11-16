@@ -119,17 +119,11 @@ pub struct Runs {
     stream: Mutex<Option<Stream>>,
 }
 
-fn alive(pid: i32) -> bool {
-    unsafe {
-        libc::kill(pid, 0) == 0
-            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-    }
-}
-
 /// Is <pid> a running `build-app`? A process alive under that pid could be
 /// another that took the number.
 fn is_build_app(pid: i32) -> bool {
-    alive(pid) && crate::procs::args(pid).is_some_and(|args| args.iter().any(|a| a == "build-app"))
+    crate::procs::runs(pid)
+        && crate::procs::args(pid).is_some_and(|args| args.iter().any(|a| a == "build-app"))
 }
 
 impl Run {

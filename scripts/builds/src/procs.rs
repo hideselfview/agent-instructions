@@ -127,6 +127,13 @@ impl Processes {
     }
 }
 
+/// Does the process <pid> run? A process of another user runs too: signal 0
+/// to it fails with EPERM.
+pub fn runs(pid: i32) -> bool {
+    let signalled = unsafe { libc::kill(pid, 0) };
+    signalled == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
 /// The working directory of <pid>; None when it exited or can't be read.
 pub fn cwd(pid: i32) -> Option<PathBuf> {
     let mut info: libc::proc_vnodepathinfo = unsafe { std::mem::zeroed() };

@@ -41,12 +41,6 @@ fn dir_of(places: &Places) -> PathBuf {
     crate::host::hosts_file(places).with_file_name("cargo-starts")
 }
 
-/// Is the process <pid> running?
-fn runs(pid: i32) -> bool {
-    let signalled = unsafe { libc::kill(pid, 0) };
-    signalled == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-
 /// Takes the record's lock, waiting while another pick holds it, and reads
 /// the runs that count at <now> (seconds since 1970).
 pub fn read(places: &Places, now: i64) -> Result<Starts> {
@@ -67,7 +61,7 @@ pub fn read(places: &Places, now: i64) -> Result<Starts> {
         let (host, at) = parse(&path)?;
         if now - at >= WINDOW_SECONDS {
             std::fs::remove_file(&path).context(|| format!("removing {}", path.display()))?;
-        } else if runs(pid) {
+        } else if crate::procs::runs(pid) {
             *recent.entry(host).or_insert(0) += 1;
         }
     }
