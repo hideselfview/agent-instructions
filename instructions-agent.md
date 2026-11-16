@@ -73,7 +73,10 @@ fix it. "I checked, and it's fine because X" is a valid answer.
 **Write plain, literal, active sentences**, in chat and in everything a person
 reads: say who does what, in the words for what it does, with no figures of
 speech, coinages or passive voice
-(`rules/text-people-read/write-plain-literal-active-sentences.md`).
+(`rules/text-people-read/write-plain-literal-active-sentences.md`). Before each
+commit, read every comment, doc line and commit message sentence you added or
+moved, and rewrite each one that hides its actor, uses a figure, drops its verb
+or opens with "It" or "This".
 
 **Hold your position.** Don't agree by reflex. When the evidence says the user
 is wrong, say so. "Are you sure?" is not new evidence: restate yours or ask what
