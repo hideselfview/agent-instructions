@@ -1,9 +1,9 @@
 //! A design system's `tokens.css`, written from its `design/system/tokens.json`:
 //! one custom property per token and one class per text style, laid out as the
-//! claude.ai Design System page compiles it. builds draws boards with it
-//! (`design_render`), and `builds design tokens-css DIR` writes the file into a
-//! worktree for whatever else loads it there (a repo's shot checks, the
-//! design system's preview pages).
+//! claude.ai Design System page compiles it. builds draws boards with it, and
+//! `builds design tokens-css DIR` writes the file into a worktree for other
+//! tools that load it there (a repo's screenshot checks, the design system's
+//! preview pages); both read the tokens through `design_render::Source`.
 //!
 //! The stylesheet, in order:
 //!
@@ -18,14 +18,13 @@
 
 use std::fmt;
 use std::marker::PhantomData;
-use std::path::Path;
 
 use serde::Deserialize;
 use serde::de::{Deserializer, MapAccess, Visitor};
 use serde_json::Value;
 
 use crate::fail;
-use crate::fail::{Context, Fail, Result};
+use crate::fail::{Context, Result};
 
 /// Where a worktree's tokens are, and where their stylesheet goes.
 pub const TOKENS_JSON: &str = "design/system/tokens.json";
@@ -211,18 +210,6 @@ pub fn tokens_css(json: &str) -> Result<String> {
         }
     }
     Ok(out.join("\n") + "\n")
-}
-
-/// `builds design tokens-css DIR`: writes DIR's tokens.css from its
-/// tokens.json.
-pub fn write_tokens_css(dir: &Path) -> Result<String> {
-    let from = dir.join(TOKENS_JSON);
-    let json = std::fs::read_to_string(&from).context(|| format!("reading {}", from.display()))?;
-    let css = tokens_css(&json)
-        .map_err(|error| Fail::Message(format!("{}: {}", from.display(), error.text())))?;
-    let to = dir.join(TOKENS_CSS);
-    std::fs::write(&to, css).context(|| format!("writing {}", to.display()))?;
-    Ok(format!("wrote {}\n", to.display()))
 }
 
 #[cfg(test)]

@@ -516,5 +516,9 @@ fn tokens_css(args: &[String]) -> Result<String> {
     let [dir] = args.exactly(1, USAGE)? else {
         unreachable!("exactly one")
     };
-    crate::design_tokens::write_tokens_css(Path::new(dir))
+    let dir = Path::new(dir);
+    let css = crate::design_render::Source::Dir(dir).tokens_css()?;
+    let to = dir.join(crate::design_tokens::TOKENS_CSS);
+    std::fs::write(&to, css).context(|| format!("writing {}", to.display()))?;
+    Ok(format!("wrote {}\n", to.display()))
 }

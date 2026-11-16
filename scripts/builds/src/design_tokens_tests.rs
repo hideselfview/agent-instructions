@@ -1,5 +1,4 @@
 use super::*;
-use crate::testing::Scratch;
 
 /// The families and font stacks are out of alphabetical order, so the test
 /// can check that the stylesheet keeps the order of the file.
@@ -76,33 +75,4 @@ fn tokens_that_cannot_make_a_stylesheet_say_why() {
     );
     let error = tokens_css("not json").unwrap_err().text();
     assert!(error.starts_with("reading the tokens: "), "{error}");
-}
-
-#[test]
-fn tokens_css_writes_the_stylesheet_beside_the_tokens() {
-    let scratch = Scratch::new("tokens-css");
-    let dir = scratch.dir.join("wt");
-    assert!(
-        write_tokens_css(&dir)
-            .unwrap_err()
-            .text()
-            .starts_with(&format!("reading {}", dir.join(TOKENS_JSON).display()))
-    );
-    std::fs::create_dir_all(dir.join("design/system")).unwrap();
-    std::fs::write(dir.join(TOKENS_JSON), TOKENS).unwrap();
-    let said = write_tokens_css(&dir).unwrap();
-    assert_eq!(said, format!("wrote {}\n", dir.join(TOKENS_CSS).display()));
-    assert_eq!(
-        std::fs::read_to_string(dir.join(TOKENS_CSS)).unwrap(),
-        tokens_css(TOKENS).unwrap()
-    );
-    std::fs::write(dir.join(TOKENS_JSON), "[]").unwrap();
-    let error = write_tokens_css(&dir).unwrap_err().text();
-    assert!(
-        error.starts_with(&format!(
-            "{}: reading the tokens",
-            dir.join(TOKENS_JSON).display()
-        )),
-        "{error}"
-    );
 }

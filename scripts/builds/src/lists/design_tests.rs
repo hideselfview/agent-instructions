@@ -1471,3 +1471,26 @@ fn a_review_board_must_be_a_file_at_the_last_commit_not_only_in_the_worktree() {
         "{refused}"
     );
 }
+
+#[test]
+fn tokens_css_writes_the_stylesheet_of_a_worktree_from_its_tokens() {
+    let w = world("design-tokens-css");
+    let wt = w.worktree();
+    assert!(
+        message(w.run(&format!("tokens-css {wt}")))
+            .contains("design/system/tokens.json is not there")
+    );
+    let tokens = crate::testing::tokens_json("1");
+    std::fs::create_dir_all(w.dir.join("design/system")).unwrap();
+    std::fs::write(w.dir.join("design/system/tokens.json"), &tokens).unwrap();
+    let css = w.dir.join("design/system/tokens.css");
+    assert_eq!(
+        w.run(&format!("tokens-css {wt}")).unwrap(),
+        format!("wrote {}\n", css.display())
+    );
+    assert_eq!(
+        std::fs::read_to_string(&css).unwrap(),
+        crate::design_tokens::tokens_css(&tokens).unwrap()
+    );
+    assert!(message(w.run("tokens-css")).contains("usage"));
+}

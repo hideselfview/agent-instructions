@@ -186,12 +186,19 @@ impl Source<'_> {
     /// The design system's tokens.css, bundle.css and bundle.js. builds
     /// writes tokens.css from the source's tokens.json itself.
     fn design_system(&self, cache: &Path) -> Result<[String; 3]> {
-        let tokens = self.read(TOKENS_JSON, "the design system's tokens")?;
-        let css = tokens_css(&tokens).map_err(|error| {
-            fail::Fail::Message(format!("{}: {}", self.label(TOKENS_JSON), error.text()))
-        })?;
+        let css = self.tokens_css()?;
         let [bundle_css, bundle_js] = self.bundles(cache)?;
         Ok([css, bundle_css, bundle_js])
+    }
+
+    /// The tokens.css of the source's tokens.json; an error names the file.
+    /// The review page, `design render` and `design tokens-css` all read the
+    /// tokens here.
+    pub fn tokens_css(&self) -> Result<String> {
+        let tokens = self.read(TOKENS_JSON, "the design system's tokens")?;
+        tokens_css(&tokens).map_err(|error| {
+            fail::Fail::Message(format!("{}: {}", self.label(TOKENS_JSON), error.text()))
+        })
     }
 
     /// The design system's bundle.css and bundle.js. A directory has them on

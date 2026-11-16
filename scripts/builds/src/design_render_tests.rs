@@ -507,6 +507,46 @@ fn a_review_page_of_a_change_with_no_last_commit_says_to_amend_it() {
     assert!(error.contains("amend it"), "{error}");
 }
 
+#[test]
+fn the_tokens_are_read_from_a_directory_or_a_commit_and_an_error_names_their_file() {
+    let scratch = Scratch::new("render-tokens");
+    let dir = tree(&scratch);
+    let tokens = dir.join("design/system/tokens.json");
+    assert!(
+        Source::Dir(&dir)
+            .tokens_css()
+            .unwrap()
+            .contains("--tokens: 1;")
+    );
+    let first = commit(&dir);
+    std::fs::write(&tokens, crate::testing::tokens_json("2")).unwrap();
+    let at = |rev: &str| Source::Commit { repo: &dir, rev }.tokens_css();
+    assert!(at(&first).unwrap().contains("--tokens: 1;"));
+    assert!(
+        Source::Dir(&dir)
+            .tokens_css()
+            .unwrap()
+            .contains("--tokens: 2;")
+    );
+    std::fs::write(&tokens, "not json").unwrap();
+    assert!(
+        message(Source::Dir(&dir).tokens_css())
+            .starts_with(&format!("{}: reading the tokens", tokens.display()))
+    );
+    let broken = commit(&dir);
+    assert!(message(at(&broken)).starts_with(&format!(
+        "{broken}:design/system/tokens.json: reading the tokens"
+    )));
+    std::fs::remove_file(&tokens).unwrap();
+    assert_eq!(
+        message(Source::Dir(&dir).tokens_css()),
+        format!(
+            "the design system's tokens {} is not there",
+            tokens.display()
+        )
+    );
+}
+
 /// The design systems kept in <cache>, one folder each.
 fn kept(cache: &Path) -> usize {
     std::fs::read_dir(cache)
