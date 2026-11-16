@@ -161,6 +161,14 @@ one for these:
 - Eradicate clefts. A cleft splits a plain sentence in two to stage it: "What a
   screen shows is what its query returns", "What matters is X", "It is X that
   Y". Write the plain sentence: "A screen shows its query's rows."
+- Say what a thing is, not what it isn't.
+  - A clause about what something isn't, doesn't need or doesn't use ("needs no
+    sign-in", "not a plugin", "without a server") names one of the endless
+    things it isn't. Cut it.
+  - "The canvas is a claude.ai artifact that a session publishes with the
+    Artifact tool, and it needs no Claude Design sign-in" becomes "A session
+    publishes the canvas, a claude.ai artifact, with the Artifact tool".
+  - A rule that forbids an action ("never stash") stays.
 - Use one term for each thing; don't rotate synonyms.
 - Match the wording to the strength of the rule: "must" for a rule, never "can".
 - Don't let an example suggest it is the only case. When many things work the
