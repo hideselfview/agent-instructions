@@ -32,8 +32,8 @@ use std::process::Stdio;
 use crate::checkout::{git, git_text};
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lists::Lists;
-use crate::lists::design::DesignChange;
+use crate::lists::design::{DesignChange, DrawnChange, covers};
+use crate::lists::{Lists, Located, Standing};
 
 /// A repo's globs: its design places, its shared sources and its spec files.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -516,6 +516,87 @@ pub fn drawn_by<'a>(
         Some(tip) => drawing_at(top, tip, paths),
         None => Ok(Drawing::default()),
     }
+}
+
+/// One commit past origin/main that changes design files, and the open
+/// design change that covers it, if one does.
+pub struct DesignCommit<'a> {
+    pub sha: String,
+    pub changes: Changes,
+    pub covered_by: Option<&'a DesignChange>,
+}
+
+/// Each commit of <ahead> (the commits past origin/main, oldest first) in
+/// the worktree at <top> of <repo> that changes design files, with the open
+/// design change of the repo that covers it, approved or waiting on the
+/// person's review. A change covers a commit as `design::covers` decides it
+/// for `builds design check`, which land runs: it holds every place the
+/// commit changes, and draws each changed path a drawing shows byte for byte
+/// as the last of <ahead> does. The comparison reads files, so a change
+/// still covers its commits after they are rebased onto a moved main.
+/// Health and the dashboard's design card both read coverage here. Empty
+/// when the lists name no design globs for the repo.
+pub fn design_commits<'a>(
+    lists: &'a Lists,
+    repo: &str,
+    top: &Path,
+    ahead: &[String],
+) -> Result<Vec<DesignCommit<'a>>> {
+    let globs = Globs::of(lists, repo);
+    if globs.places.is_empty() && globs.sources.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut commits = Vec::new();
+    for sha in ahead {
+        let changes = changes_of(top, &globs, std::slice::from_ref(sha))?;
+        if changes.is_design_change() {
+            commits.push((sha, changes));
+        }
+    }
+    if commits.is_empty() {
+        return Ok(Vec::new());
+    }
+    let drawn: BTreeSet<&String> = commits
+        .iter()
+        .flat_map(|(_, changes)| changes.drawn())
+        .collect();
+    let last = ahead.last().expect("it holds the design commits");
+    let now = drawing_at(top, last, drawn.iter().copied())?;
+    let mut open = Vec::new();
+    for design in open_designs(lists, repo) {
+        open.push(DrawnChange {
+            design,
+            drawing: drawn_by(top, design, drawn.iter().copied())?,
+        });
+    }
+    Ok(commits
+        .into_iter()
+        .map(|(sha, changes)| {
+            let covered_by = open
+                .iter()
+                .find(|drawn| covers(std::slice::from_ref(*drawn), &changes, &now).is_ok())
+                .map(|drawn| drawn.design);
+            DesignCommit {
+                sha: sha.clone(),
+                changes,
+                covered_by,
+            }
+        })
+        .collect())
+}
+
+/// The open design changes of <repo>.
+pub fn open_designs<'a>(lists: &'a Lists, repo: &str) -> impl Iterator<Item = &'a DesignChange> {
+    lists.designs.iter().filter(move |design| {
+        design.repo == repo
+            && matches!(
+                lists.locate(design.id),
+                Some(Located {
+                    standing: Standing::Open,
+                    ..
+                })
+            )
+    })
 }
 
 /// Does <path> exist as a file or folder in commit <rev>?

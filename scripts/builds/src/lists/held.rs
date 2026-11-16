@@ -12,8 +12,8 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
-use crate::lists::design::{DesignChange, DrawnChange, covers};
-use crate::lists::design_paths::{Changes, Globs, changes_of, drawing_at, drawn_by};
+use crate::lists::design::DesignChange;
+use crate::lists::design_paths::{DesignCommit, design_commits};
 use crate::lists::running::running_in;
 use crate::lists::store::{Loaded, Store, lists_of, project_of};
 use crate::lists::{Item, Lists, Located, Standing, Wait};
@@ -116,88 +116,6 @@ impl Worktree {
     }
 }
 
-/// One commit past origin/main that changes design files, and the open
-/// design change that covers it, if one does.
-struct DesignCommit<'a> {
-    sha: String,
-    changes: Changes,
-    covered_by: Option<&'a DesignChange>,
-}
-
-/// Each commit of <worktree> past origin/main that changes design files, with
-/// the open design change of its repo that covers it, approved or waiting on
-/// the person's review. A change covers a commit as `design::covers` decides
-/// it for `builds design check`, which land runs: it holds every place the
-/// commit changes, and draws each changed path a drawing shows byte for byte
-/// as the worktree's last commit does. The comparison reads files, so a
-/// change still covers its commits after they are rebased onto a moved main.
-fn design_commits<'a>(
-    lists: &'a Lists,
-    worktree: &Worktree,
-    globs: &Globs,
-) -> Result<Vec<DesignCommit<'a>>> {
-    let mut commits = Vec::new();
-    for sha in &worktree.ahead {
-        let changes = changes_of(&worktree.top, globs, std::slice::from_ref(sha))?;
-        if changes.is_design_change() {
-            commits.push((sha, changes));
-        }
-    }
-    if commits.is_empty() {
-        return Ok(Vec::new());
-    }
-    let drawn: BTreeSet<&String> = commits
-        .iter()
-        .flat_map(|(_, changes)| changes.drawn())
-        .collect();
-    let last = worktree.ahead.last().expect("it holds the design commits");
-    let now = drawing_at(&worktree.top, last, drawn.iter().copied())?;
-    let mut open = Vec::new();
-    for design in lists.designs.iter().filter(|design| {
-        design.repo == worktree.repo
-            && matches!(
-                lists.locate(design.id),
-                Some(Located {
-                    standing: Standing::Open,
-                    ..
-                })
-            )
-    }) {
-        open.push(DrawnChange {
-            design,
-            drawing: drawn_by(&worktree.top, design, drawn.iter().copied())?,
-        });
-    }
-    Ok(commits
-        .into_iter()
-        .map(|(sha, changes)| {
-            let covered_by = open
-                .iter()
-                .find(|drawn| covers(std::slice::from_ref(*drawn), &changes, &now).is_ok())
-                .map(|drawn| drawn.design);
-            DesignCommit {
-                sha: sha.clone(),
-                changes,
-                covered_by,
-            }
-        })
-        .collect())
-}
-
-/// The design commits of <worktree> (`design_commits`), or None when its
-/// lists name no design globs for its repo or it has no commits past
-/// origin/main.
-fn design_commits_of<'a>(
-    lists: &'a Lists,
-    worktree: &Worktree,
-) -> Option<Result<Vec<DesignCommit<'a>>>> {
-    let globs = Globs::of(lists, &worktree.repo);
-    if worktree.ahead.is_empty() || (globs.places.is_empty() && globs.sources.is_empty()) {
-        return None;
-    }
-    Some(design_commits(lists, worktree, &globs))
-}
-
 /// The labels of the worktrees whose commits an open design change covers
 /// and that waits on the person's review: they wait on the person, so they
 /// are not quiet. Once the person approves, the change waits on landing and
@@ -214,7 +132,8 @@ pub fn awaiting_review(
                 return false;
             };
             // `findings` names a worktree whose design files health can't read.
-            let Some(Ok(commits)) = design_commits_of(lists, worktree) else {
+            let Ok(commits) = design_commits(lists, &worktree.repo, &worktree.top, &worktree.ahead)
+            else {
                 return false;
             };
             commits
@@ -285,21 +204,21 @@ pub fn findings(
                 format!("builds release {top}"),
             ));
         }
-        let uncovered: Vec<DesignCommit> = match design_commits_of(lists, worktree) {
-            None => continue,
-            Some(Err(error)) => {
-                found.push(Advice::said(format!(
-                    "lists: could not read the design files {} changes: {}",
-                    worktree.label,
-                    error.text()
-                )));
-                continue;
-            }
-            Some(Ok(commits)) => commits
-                .into_iter()
-                .filter(|commit| commit.covered_by.is_none())
-                .collect(),
-        };
+        let uncovered: Vec<DesignCommit> =
+            match design_commits(lists, &worktree.repo, &worktree.top, &worktree.ahead) {
+                Err(error) => {
+                    found.push(Advice::said(format!(
+                        "lists: could not read the design files {} changes: {}",
+                        worktree.label,
+                        error.text()
+                    )));
+                    continue;
+                }
+                Ok(commits) => commits
+                    .into_iter()
+                    .filter(|commit| commit.covered_by.is_none())
+                    .collect(),
+            };
         if uncovered.is_empty() {
             continue;
         }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::lists::fixtures::{db, design_drawn, read};
+use crate::lists::fixtures::{db, design_drawn, design_tipped, read};
 use crate::lists::{Lists, Resolution};
 use crate::testing::{Scratch, git, repo};
 
@@ -32,9 +32,12 @@ fn branch(dir: &Path, files: &[&str]) -> Vec<Commit> {
     }]
 }
 
-fn lists_with(worktree: &Path, places: &[&str]) -> (Lists, crate::lists::Id) {
+/// Lists with one design change drawn at <ahead>'s last commit in
+/// <worktree>, holding <places>.
+fn lists_with(worktree: &Path, ahead: &[Commit], places: &[&str]) -> (Lists, crate::lists::Id) {
     let db = db();
     let id = design_drawn(&db, &worktree.display().to_string(), &[], vec![]);
+    design_tipped(&db, id, &ahead[0].full);
     for place in places {
         crate::lists::fixtures::design_place(&db, id, place, Resolution::Matches("checked".into()));
     }
@@ -50,7 +53,7 @@ fn a_branch_whose_change_waits_on_review_names_the_change() {
     let scratch = Scratch::new("design-cards-review");
     let top = scratch.dir.join("side-2");
     let ahead = branch(&top, &[BOARD]);
-    let (lists, id) = lists_with(&top, &[BOARD]);
+    let (lists, id) = lists_with(&top, &ahead, &[BOARD]);
     let title = lists.design(id).unwrap().title.clone();
     let wait = Reads::default().standing(&lists, "bae", &top, &ahead);
     assert_eq!(wait, Some(ItemWait::Review { id: id.0, title }));
@@ -61,7 +64,7 @@ fn a_design_branch_no_recorded_change_covers_waits_on_the_design_session() {
     let scratch = Scratch::new("design-cards-unrecorded");
     let top = scratch.dir.join("side-2");
     let ahead = branch(&top, &[BOARD, "design/mocks/Other.dc.html"]);
-    let (lists, _) = lists_with(&top, &[BOARD]);
+    let (lists, _) = lists_with(&top, &ahead, &[BOARD]);
     let wait = Reads::default().standing(&lists, "bae", &top, &ahead);
     assert_eq!(wait, Some(ItemWait::Unrecorded));
 }
@@ -71,6 +74,6 @@ fn a_branch_with_no_design_files_has_no_design_standing() {
     let scratch = Scratch::new("design-cards-none");
     let top = scratch.dir.join("side-2");
     let ahead = branch(&top, &["src/main.rs"]);
-    let (lists, _) = lists_with(&top, &[BOARD]);
+    let (lists, _) = lists_with(&top, &ahead, &[BOARD]);
     assert_eq!(Reads::default().standing(&lists, "bae", &top, &ahead), None);
 }

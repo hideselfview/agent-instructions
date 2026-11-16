@@ -639,6 +639,52 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
         .collect()
 }
 
+/// The dashboard's design card for the worktree of <w> whose commits past
+/// origin/main are those of <range>.
+fn card_of(w: &World, range: &str) -> Option<crate::daemon::cards::ItemWait> {
+    let ahead: Vec<crate::side_git::Commit> =
+        crate::lists::design_paths::commits_of_range(&w.dir, range)
+            .unwrap()
+            .into_iter()
+            .rev()
+            .map(|full| crate::side_git::Commit {
+                sha: full[..7].to_string(),
+                full,
+                time: 1,
+                authored: 1,
+                subject: "a commit".into(),
+            })
+            .collect();
+    crate::daemon::design_cards::Reads::default().standing(&w.state(), "bae", &w.dir, &ahead)
+}
+
+/// The dashboard's design card and health decide coverage the same way: on
+/// a branch rebased onto a moved main, both count the recorded change as
+/// covering its commits, and both stop once a board is drawn again.
+#[test]
+fn the_design_card_and_health_agree_on_a_rebased_branch() {
+    use crate::daemon::cards::ItemWait;
+    let w = world("design-card-rebased");
+    let a = "design/mocks/A.dc.html";
+    w.commit(&[a]);
+    w.request(base_request(&w, json!({ a: { "matches": "x" } })))
+        .unwrap();
+    rebase_onto_moved_main(&w);
+    let title = w.state().designs[0].title.clone();
+    assert_eq!(
+        card_of(&w, "moved..HEAD"),
+        Some(ItemWait::Review { id: 1, title })
+    );
+    assert_eq!(health_of(&w, "moved..HEAD"), Vec::<String>::new());
+    w.approve(1);
+    assert_eq!(card_of(&w, "moved..HEAD"), None);
+    assert_eq!(health_of(&w, "moved..HEAD"), Vec::<String>::new());
+
+    w.commit(&[a]);
+    assert_eq!(card_of(&w, "moved..HEAD"), Some(ItemWait::Unrecorded));
+    assert_eq!(health_of(&w, "moved..HEAD").len(), 1);
+}
+
 /// A design change recorded on commits covers them after the branch is
 /// rebased onto a main that moved: the rebased commits draw the boards the
 /// same, so health raises nothing and land's check passes. A board drawn
