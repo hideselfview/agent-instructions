@@ -937,9 +937,12 @@ matching file is staged.
 
   builds checks run [<worktree>]
                               what the pre-commit hook runs: the check and fix
-                              lines the staged files match, in file order, from
-                              the repo root, printing each one's name, time and
-                              result (with a failing one's output) and the
+                              lines the staged files match, from the repo root:
+                              the fix lines first, one at a time in file order,
+                              then every check line at the same time, since
+                              the checks only read the tree the fixes left. It
+                              prints each one's name, time and result (with a
+                              failing one's output) in that order, and the
                               total time. Every line runs even after one fails,
                               and the exit status is non-zero if any did. It
                               refuses before any line runs, naming each file,

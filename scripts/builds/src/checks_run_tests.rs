@@ -82,7 +82,10 @@ fn a_check_gets_the_staged_files_it_matches() {
     stage(&top, "a.sh", "x");
     stage(&top, "b.md", "x");
     run_staged(&top, None).unwrap();
-    assert_eq!(log(&top), "ok a.sh\nsecond \n");
+    // The checks run at the same time, so either may log first.
+    let mut logged: Vec<String> = log(&top).lines().map(str::to_string).collect();
+    logged.sort();
+    assert_eq!(logged, ["ok a.sh", "second "]);
 }
 
 #[test]
@@ -94,8 +97,43 @@ fn a_failing_check_still_lets_the_rest_run_and_the_run_fails() {
     );
     stage(&top, "a.sh", "x");
     let error = run_staged(&top, None).unwrap_err().text();
-    assert_eq!(log(&top), "fail \nsecond \n");
+    // The checks run at the same time, so either may log first.
+    let mut logged: Vec<String> = log(&top).lines().map(str::to_string).collect();
+    logged.sort();
+    assert_eq!(logged, ["fail ", "second "]);
     assert!(error.contains("bad") && !error.contains("good"), "{error}");
+}
+
+/// The formatters run first, one at a time, and then every check at the same
+/// time over what the formatters wrote: each check here waits until the other
+/// has started, which only checks that run at once both get past.
+#[test]
+fn the_checks_run_at_the_same_time_after_the_formatters() {
+    let scratch = Scratch::new("run-at-once");
+    let top = repo(
+        &scratch,
+        "check one *.txt tools/meet.sh one two {files}\nfix fmt *.txt tools/format.sh {files}\ncheck two *.txt tools/meet.sh two one {files}\n",
+    );
+    stub(
+        &top,
+        "meet.sh",
+        r#"top="$(git rev-parse --show-toplevel)"
+touch "$top/$1.started"
+i=0
+while [ ! -e "$top/$2.started" ]; do
+  i=$((i+1)); [ "$i" -gt 200 ] && exit 9
+  sleep 0.05
+done
+echo "$1 read $(cat "$3")" >> "$top/log"
+"#,
+    );
+    git(&top, &["add", "tools/meet.sh"]);
+    git(&top, &["commit", "-q", "-m", "Add meet"]);
+    stage(&top, "a.txt", "ugly\n");
+    run_staged(&top, None).unwrap();
+    let mut logged: Vec<String> = log(&top).lines().map(str::to_string).collect();
+    logged.sort();
+    assert_eq!(logged, ["one read formatted", "two read formatted"]);
 }
 
 #[test]

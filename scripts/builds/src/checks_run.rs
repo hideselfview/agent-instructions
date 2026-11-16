@@ -5,11 +5,12 @@
 //! runs them on a landing's result.
 //!
 //! `run` is what the pre-commit hook calls, over the staged files. Every
-//! picked `check` and `fix` runs, in file order, even after one fails; the run
-//! fails at the end if any did. A program's output is kept and shown only when
-//! it fails. A `fix` that changed a file has that file staged again, unless the
-//! file also had unstaged changes before the fix ran: staging it would sweep
-//! those into the commit, so nothing of that fix is staged and the run fails.
+//! picked `fix` runs first, one at a time in file order, and then every picked
+//! `check` at the same time, since the checks only read the tree the fixes
+//! left. Every line runs even after one fails; the run fails at the end if any
+//! did. A program's output is kept and shown only when it fails. A `fix` that
+//! changed a file has that file staged again (`run` refuses a staged file
+//! that also has unstaged changes before any line runs).
 //!
 //! Each `run` is recorded in the project's hook database (hook_stats.rs): the
 //! staged diff, every check run or skipped, and the timings. A run whose record
@@ -417,29 +418,36 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
     if picked.is_empty() {
         return Ok(());
     }
+    // Each line's name for the `builds cargo` it runs, by its place among
+    // the recorded checks.
+    let hook_checks: Vec<Option<String>> = picked
+        .iter()
+        .map(|planned| {
+            run.as_deref().map(|run| {
+                let position = run
+                    .checks
+                    .iter()
+                    .position(|c| c.name == planned.line.name)
+                    .expect("every picked line is recorded");
+                crate::cargo_run::hook_check_value(run.at, position as u32)
+            })
+        })
+        .collect();
     let mut failed: Vec<&str> = Vec::new();
-    for planned in &picked {
-        let name = planned.line.name.as_str();
-        let before: Vec<(String, Option<u64>)> = match planned.line.kind {
-            Kind::Fix => planned
-                .files
-                .iter()
-                .map(|file| (file.clone(), fingerprint(top, file)))
-                .collect(),
-            _ => Vec::new(),
-        };
+    // The formatters first, one at a time in file order: each may rewrite
+    // files, which it stages again, and the checks read what they wrote.
+    for (planned, hook_check) in picked.iter().zip(&hook_checks) {
+        if planned.line.kind != Kind::Fix {
+            continue;
+        }
+        let before: Vec<(String, Option<u64>)> = planned
+            .files
+            .iter()
+            .map(|file| (file.clone(), fingerprint(top, file)))
+            .collect();
         let load = Load::here();
-        let hook_check = run.as_deref().map(|run| {
-            let position = run
-                .checks
-                .iter()
-                .position(|c| c.name == name)
-                .expect("every picked line is recorded");
-            crate::cargo_run::hook_check_value(run.at, position as u32)
-        });
         let ran = execute(top, planned, false, hook_check.as_deref())?;
-        let problem = (!ran.ok).then(|| ran.output.clone());
-        if ran.ok && planned.line.kind == Kind::Fix {
+        if ran.ok {
             let changed: Vec<String> = before
                 .into_iter()
                 .filter(|(file, was)| fingerprint(top, file) != *was)
@@ -452,48 +460,32 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
                 )?;
             }
         }
-        if let Some(run) = run.as_deref_mut() {
-            let record = run
-                .checks
-                .iter_mut()
-                .find(|c| c.name == name)
-                .expect("every picked line is recorded");
-            record.outcome = if problem.is_none() {
-                Outcome::Passed
-            } else {
-                Outcome::Failed
-            };
-            record.handed = Some((
-                if planned.line.command.iter().any(|arg| arg == "{files}") {
-                    planned.files.len() as u32
-                } else {
-                    0
-                },
-                if planned.line.command.iter().any(|arg| arg == "{crates}") {
-                    planned.argv.iter().filter(|arg| *arg == "-p").count() as u32
-                } else {
-                    0
-                },
-            ));
-            record.ms = Some(millis(ran.took));
-            record.started = Some(load);
-        }
-        match problem {
-            None => note(format!(
-                "{} {name}: ok, {}",
-                planned.line.kind.word(),
-                seconds(ran.took)
-            )),
-            Some(output) => {
-                note(format!(
-                    "{} {name}: FAILED, {}",
-                    planned.line.kind.word(),
-                    seconds(ran.took)
-                ));
-                eprint!("{output}");
-                failed.push(name);
-            }
-        }
+        finish_line(planned, load, ran, run.as_deref_mut(), &mut failed);
+    }
+    // Then every check at the same time: they only read the tree. Each one's
+    // time is its own, and the results print in file order.
+    let checks: Vec<(&Planned, &Option<String>)> = picked
+        .iter()
+        .zip(&hook_checks)
+        .filter(|(planned, _)| planned.line.kind == Kind::Check)
+        .collect();
+    let ran_all: Vec<(Load, Result<Ran>)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = checks
+            .iter()
+            .map(|(planned, hook_check)| {
+                scope.spawn(move || {
+                    let load = Load::here();
+                    (load, execute(top, planned, false, hook_check.as_deref()))
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("a check's thread does not panic"))
+            .collect()
+    });
+    for ((planned, _), (load, ran)) in checks.iter().zip(ran_all) {
+        finish_line(planned, load, ran?, run.as_deref_mut(), &mut failed);
     }
     note(format!(
         "{} run, {} failed, {}",
@@ -505,6 +497,52 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
         Ok(())
     } else {
         Err(Fail::Message(format!("failed: {}", failed.join(", "))))
+    }
+}
+
+/// Prints how <planned> ran (with its output when it failed, which joins
+/// <failed>) and records it in <run>, with this Mac's <load> when it started.
+fn finish_line<'a>(
+    planned: &'a Planned,
+    load: Load,
+    ran: Ran,
+    run: Option<&mut Run>,
+    failed: &mut Vec<&'a str>,
+) {
+    let name = planned.line.name.as_str();
+    if let Some(run) = run {
+        let record = run
+            .checks
+            .iter_mut()
+            .find(|c| c.name == name)
+            .expect("every picked line is recorded");
+        record.outcome = if ran.ok {
+            Outcome::Passed
+        } else {
+            Outcome::Failed
+        };
+        record.handed = Some((
+            if planned.line.command.iter().any(|arg| arg == "{files}") {
+                planned.files.len() as u32
+            } else {
+                0
+            },
+            if planned.line.command.iter().any(|arg| arg == "{crates}") {
+                planned.argv.iter().filter(|arg| *arg == "-p").count() as u32
+            } else {
+                0
+            },
+        ));
+        record.ms = Some(millis(ran.took));
+        record.started = Some(load);
+    }
+    let kind = planned.line.kind.word();
+    if ran.ok {
+        note(format!("{kind} {name}: ok, {}", seconds(ran.took)));
+    } else {
+        note(format!("{kind} {name}: FAILED, {}", seconds(ran.took)));
+        eprint!("{}", ran.output);
+        failed.push(name);
     }
 }
 
