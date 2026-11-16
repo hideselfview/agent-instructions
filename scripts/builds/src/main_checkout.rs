@@ -5,8 +5,8 @@
 //! commit there: land moves main only when git can fast-forward it without
 //! touching the person's commits or uncommitted edits, and otherwise leaves
 //! the checkout as it is and prints the command to run. In agent-instructions
-//! the fast-forward also makes the landing live: the checkout's post-merge hook
-//! runs install.sh. `builds health` lists each project's main checkout whose
+//! the fast-forward also installs the landed change: the checkout's post-merge
+//! hook runs install.sh. `builds health` lists each project's main checkout whose
 //! main lacks commits that origin/main has, with the command that brings it
 //! forward.
 //!
@@ -124,7 +124,7 @@ pub fn findings(
 }
 
 /// What health says about the main checkout at <main>, or None when its main
-/// holds origin/main.
+/// has every commit that origin/main has.
 fn finding(main: &Path) -> Option<Advice> {
     let standing = match Standing::read(main) {
         Ok(standing) => standing,

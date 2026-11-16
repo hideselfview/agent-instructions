@@ -86,12 +86,14 @@
 //! After the records, land fast-forwards the repo's main checkout to
 //! origin/main (`git merge --ff-only`), so the person and the agents who read
 //! code there see what landed (main_checkout.rs). In agent-instructions the
-//! checkout's post-merge hook then makes the landing live. The main checkout
-//! is the person's: when it is not on main, its main has commits origin/main
-//! lacks, or git refuses the fast-forward (the person's uncommitted edits
-//! there would change), land leaves it as it is and prints a line that starts
-//! with MAIN CHECKOUT BEHIND, says which checkout and why, and gives the
-//! command to run once the person clears it. The landing still succeeds: the
+//! checkout's post-merge hook then runs install.sh, which installs the landed
+//! builds and links the landed rules and skills. The main checkout is the
+//! person's: when it is not on main, or git refuses the fast-forward because
+//! the person's commits or uncommitted edits there are in the way, land
+//! leaves it as it is and prints a line that starts with MAIN CHECKOUT
+//! BEHIND, says which checkout and why, and gives the command to run once the
+//! person checks out main there, or pushes, commits or removes those commits
+//! and edits. The landing still succeeds: the
 //! commits stay on origin/main and the records stay written.
 //!
 //! The store's checks and records run as `builds` commands of this same

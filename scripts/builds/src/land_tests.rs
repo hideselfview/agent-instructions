@@ -1173,7 +1173,7 @@ fn a_landing_fast_forwards_the_main_checkout_and_keeps_the_persons_edits() {
     assert_eq!(
         head_of(&f.main),
         main_of(&f),
-        "the cherry-picked commit too"
+        "the main checkout holds the cherry-picked commit too"
     );
     assert_eq!(branch_of(&f.main).as_deref(), Some("main"));
     assert_eq!(

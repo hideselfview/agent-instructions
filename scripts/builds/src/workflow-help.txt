@@ -23,8 +23,8 @@ branch, not the worktree, is the unit of work.
 
   - The main checkout stays on main, for iterative work and edits made with
     the person. `builds land` fast-forwards it to origin/main after each
-    landing, so code read there is current, but no agent edits, builds or
-    commits there (LANDING).
+    landing, so the person and the agents who read code there see what
+    landed, but no agent edits, builds or commits there (LANDING).
   - side-1 is for background work: each feature or fix is a new branch from
     origin/main there. It stays built, so never delete or recreate it.
   - Extra side worktrees (side-2 and on) are for agents that work at the same
@@ -253,9 +253,9 @@ names it as the fix of one of its confirmed findings.
   - After each landing, `builds land` fast-forwards the repo's main checkout
     to origin/main, so the person and the agents who read code there see
     what landed. Agents still never edit, build or commit in a main checkout.
-    Commits landed in agent-instructions go live then: the main checkout's
-    post-merge hook runs install.sh, which installs the landed builds and
-    links the landed rules and skills. When land prints MAIN CHECKOUT BEHIND
+    In agent-instructions, the main checkout's post-merge hook then runs
+    install.sh, which installs the landed builds and links the landed rules
+    and skills. When land prints MAIN CHECKOUT BEHIND
     (the checkout is not on main, or the person's commits or uncommitted
     edits there stop the fast-forward), tell the person and give them the
     command it prints; never stash or reset their edits.
