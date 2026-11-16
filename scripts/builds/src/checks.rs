@@ -179,14 +179,19 @@ impl Line {
 /// expanded, in file order. A line that names `{files}` or `{crates}` and has
 /// nothing to hand it (no matching file still there, no crate holding one) is
 /// left out. With <every>, a line is picked whether or not a file matches it.
+/// <files> changed from commit <base> to the working tree: a changed root
+/// `Cargo.lock` hands `{crates}` the crates whose resolved dependencies
+/// changed since <base> (`lock_diff`), or every crate with no <base>.
 pub fn plan(
     top: &Path,
     lines: &[Line],
     kinds: &[Kind],
     files: &[String],
     every: bool,
+    base: Option<&str>,
 ) -> Result<Vec<Planned>> {
     let mut metadata: Option<Vec<Crate>> = None;
+    let mut lock: Option<Vec<String>> = None;
     let mut planned = Vec::new();
     for line in lines.iter().filter(|line| kinds.contains(&line.kind)) {
         let matching: Vec<String> = files
@@ -205,7 +210,11 @@ pub fn plan(
             if metadata.is_none() {
                 metadata = Some(workspace_crates(top)?);
             }
-            let held = crates_holding(metadata.as_deref().expect("just read"), &existing);
+            let crates = metadata.as_deref().expect("just read");
+            if lock.is_none() && existing.iter().any(|file| file == LOCK) {
+                lock = Some(lock_crates(top, crates, base)?);
+            }
+            let held = crates_holding(crates, &existing, lock.as_deref().unwrap_or_default());
             if held.is_empty() {
                 continue;
             }
@@ -293,14 +302,39 @@ fn workspace_crates(top: &Path) -> Result<Vec<Crate>> {
     Ok(crates)
 }
 
+/// The root lock file.
+const LOCK: &str = "Cargo.lock";
+
+/// The crates a change to the root `Cargo.lock` since <base> reaches: those
+/// whose resolved dependencies changed, or every crate when there is no
+/// <base> or <base> had no lock.
+fn lock_crates(top: &Path, crates: &[Crate], base: Option<&str>) -> Result<Vec<String>> {
+    let every = || crates.iter().map(|c| c.name.clone()).collect();
+    let Some(base) = base else {
+        return Ok(every());
+    };
+    let Some(old) = crate::lock_diff::lock_at(top, base)? else {
+        return Ok(every());
+    };
+    let path = top.join(LOCK);
+    let new = std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
+    let names: Vec<String> = crates.iter().map(|c| c.name.clone()).collect();
+    crate::lock_diff::reached(&old, &new, &names)
+}
+
 /// The names of the crates that hold some of <files> (the deepest crate whose
-/// folder contains one), sorted. A root `Cargo.toml` or `Cargo.lock` counts as
-/// every crate.
-fn crates_holding(crates: &[Crate], files: &[String]) -> Vec<String> {
+/// folder contains one), sorted. A root `Cargo.toml` counts as every crate,
+/// since it holds the workspace's lints and patches, and the root
+/// `Cargo.lock` as the crates <lock> names (`lock_crates`).
+fn crates_holding(crates: &[Crate], files: &[String], lock: &[String]) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for file in files {
-        if file == "Cargo.toml" || file == "Cargo.lock" {
+        if file == "Cargo.toml" {
             names.extend(crates.iter().map(|c| c.name.clone()));
+            continue;
+        }
+        if file == LOCK {
+            names.extend(lock.iter().cloned());
             continue;
         }
         let holder = crates

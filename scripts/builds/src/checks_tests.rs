@@ -90,7 +90,15 @@ fn workspace(scratch: &Scratch) -> std::path::PathBuf {
 fn crates_argv(top: &Path, staged: &[&str]) -> Vec<String> {
     let lines =
         parse("check c *.rs,Cargo.toml,Cargo.lock cargo clippy {crates} -- -D warnings\n").unwrap();
-    let planned = plan(top, &lines, &[Kind::Check], &files(staged), false).unwrap();
+    let planned = plan(
+        top,
+        &lines,
+        &[Kind::Check],
+        &files(staged),
+        false,
+        Some("HEAD"),
+    )
+    .unwrap();
     planned
         .into_iter()
         .next()
@@ -108,6 +116,71 @@ fn crates_expand_to_the_crates_holding_a_staged_file() {
     );
     assert_eq!(
         crates_argv(&top, &["crates/b/src/lib.rs", "crates/a/src/lib.rs"]),
+        files(&[
+            "cargo", "clippy", "-p", "a", "-p", "b", "--", "-D", "warnings"
+        ])
+    );
+}
+
+/// A lock of the workspace where crate a depends on the registry crate dep
+/// at <version>, and b on nothing.
+fn lock_with_dep(version: &str) -> String {
+    format!(
+        r#"version = 4
+
+[[package]]
+name = "a"
+version = "0.1.0"
+dependencies = [
+ "dep",
+]
+
+[[package]]
+name = "b"
+version = "0.1.0"
+
+[[package]]
+name = "dep"
+version = "{version}"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "{version}0"
+"#
+    )
+}
+
+/// A staged lock hands `{crates}` only the crates whose resolved
+/// dependencies changed since HEAD.
+#[test]
+fn a_staged_lock_counts_as_the_crates_whose_dependencies_changed() {
+    let scratch = Scratch::new("checks-lock");
+    let top = workspace(&scratch);
+    std::fs::write(top.join("Cargo.lock"), lock_with_dep("1.0.0")).unwrap();
+    git(&top, &["add", "-A"]);
+    git(
+        &top,
+        &[
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "Start",
+        ],
+    );
+    std::fs::write(top.join("Cargo.lock"), lock_with_dep("1.0.1")).unwrap();
+    assert_eq!(
+        crates_argv(&top, &["Cargo.lock"]),
+        files(&["cargo", "clippy", "-p", "a", "--", "-D", "warnings"])
+    );
+    // The lock as HEAD has it reaches no crate, so the line has nothing to
+    // hand and is left out.
+    std::fs::write(top.join("Cargo.lock"), lock_with_dep("1.0.0")).unwrap();
+    assert!(crates_argv(&top, &["Cargo.lock"]).is_empty());
+    // The root manifest still counts as every crate.
+    assert_eq!(
+        crates_argv(&top, &["Cargo.toml"]),
         files(&[
             "cargo", "clippy", "-p", "a", "-p", "b", "--", "-D", "warnings"
         ])
@@ -139,9 +212,16 @@ fn a_line_with_nothing_to_hand_its_placeholder_is_left_out() {
     // Matches, but is not on disk.
     let lines = parse("check f *.rs tool {files}\n").unwrap();
     assert!(
-        plan(&top, &lines, &[Kind::Check], &files(&["gone.rs"]), false)
-            .unwrap()
-            .is_empty()
+        plan(
+            &top,
+            &lines,
+            &[Kind::Check],
+            &files(&["gone.rs"]),
+            false,
+            None
+        )
+        .unwrap()
+        .is_empty()
     );
 }
 
@@ -160,11 +240,12 @@ fn files_expand_to_the_matching_files_in_order_and_gates_run_whole() {
         &[Kind::Check],
         &files(&["b.sh", "a.sh", "c.md"]),
         false,
+        None,
     )
     .unwrap();
     assert_eq!(planned[0].argv, files(&["lint", "--x", "b.sh", "a.sh"]));
     assert_eq!(planned[1].argv, files(&["./gate.sh"]));
-    let only_md = plan(&top, &lines, &[Kind::Check], &files(&["c.md"]), false).unwrap();
+    let only_md = plan(&top, &lines, &[Kind::Check], &files(&["c.md"]), false, None).unwrap();
     assert_eq!(only_md.len(), 1);
     assert_eq!(only_md[0].line.name, "gate");
 }

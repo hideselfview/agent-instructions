@@ -34,6 +34,7 @@ mod lane;
 mod linker;
 mod lists;
 mod lock;
+mod lock_diff;
 mod lock_wait;
 mod manifest;
 mod migrate;

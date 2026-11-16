@@ -398,7 +398,14 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
             partly.join(", ")
         );
     }
-    let picked = plan(top, &lines, &[Kind::Check, Kind::Fix], &staged, false)?;
+    let picked = plan(
+        top,
+        &lines,
+        &[Kind::Check, Kind::Fix],
+        &staged,
+        false,
+        Some("HEAD"),
+    )?;
     if let Some(run) = run.as_deref_mut() {
         run.plan_ms = millis(started.elapsed());
         run.checks = lines
@@ -561,7 +568,7 @@ pub fn run_whole(top: &Path, out: &mut dyn std::io::Write) -> Result<Vec<WholeFa
     }
     let started = Instant::now();
     let lines = load(top)?;
-    let picked: Vec<Planned> = plan(top, &lines, &[Kind::Check], &[], true)?
+    let picked: Vec<Planned> = plan(top, &lines, &[Kind::Check], &[], true, None)?
         .into_iter()
         .filter(|planned| planned.line.whole)
         .collect();
@@ -606,7 +613,14 @@ pub fn run_whole(top: &Path, out: &mut dyn std::io::Write) -> Result<Vec<WholeFa
 
 pub fn list_staged(top: &Path) -> Result<String> {
     let lines = load(top)?;
-    let picked = plan(top, &lines, &[Kind::Check, Kind::Fix], &staged(top)?, false)?;
+    let picked = plan(
+        top,
+        &lines,
+        &[Kind::Check, Kind::Fix],
+        &staged(top)?,
+        false,
+        Some("HEAD"),
+    )?;
     Ok(picked
         .iter()
         .map(|p| {
@@ -651,7 +665,14 @@ pub fn select_tests(
             "list the changed files",
         )?;
         Ok((
-            plan(top, lines, &[Kind::Test], &z_list(&text), false)?,
+            plan(
+                top,
+                lines,
+                &[Kind::Test],
+                &z_list(&text),
+                false,
+                Some(since),
+            )?,
             None,
         ))
     } else {
@@ -661,7 +682,7 @@ pub fn select_tests(
         )?);
         let why = format!("{since} is not in the history, so every test runs");
         Ok((
-            plan(top, lines, &[Kind::Test], &everything, true)?,
+            plan(top, lines, &[Kind::Test], &everything, true, None)?,
             Some(why),
         ))
     }

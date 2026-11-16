@@ -1,0 +1,168 @@
+//! Which workspace crates a change to `Cargo.lock` reaches: those whose
+//! resolved dependencies changed. A lock entry changed when the new lock has
+//! it (by name, version and source) and the old one has it otherwise or not
+//! at all. A workspace crate is reached when its own entry changed or one of
+//! the entries it depends on, at any depth, did. A package the new lock no
+//! longer has changed the entry of each package that depended on it, so it
+//! reaches the same crates through them.
+
+use std::collections::{BTreeSet, HashMap};
+use std::path::Path;
+
+use crate::fail;
+use crate::fail::{Context, Result};
+
+/// One package of a lock: its name, version and source (empty for a
+/// workspace crate or a path dependency).
+type Key = (String, String, String);
+
+/// A lock's packages by key, with each one's whole entry and the keys of the
+/// packages it depends on.
+struct Lock {
+    entries: HashMap<Key, toml::Value>,
+    depends: HashMap<Key, Vec<Key>>,
+}
+
+/// Reads the text of a `Cargo.lock`; <what> names it in errors.
+fn parse(text: &str, what: &str) -> Result<Lock> {
+    let value: toml::Value = toml::from_str(text).context(|| format!("reading {what}"))?;
+    let packages = match value.get("package") {
+        Some(toml::Value::Array(packages)) => packages.as_slice(),
+        Some(_) => fail!("{what}'s package is not a list"),
+        None => &[],
+    };
+    let text_of = |package: &toml::Value, field: &str| -> String {
+        package
+            .get(field)
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    let mut entries = HashMap::new();
+    for package in packages {
+        let key = (
+            text_of(package, "name"),
+            text_of(package, "version"),
+            text_of(package, "source"),
+        );
+        if key.0.is_empty() {
+            fail!("{what} has a package without a name");
+        }
+        entries.insert(key, package.clone());
+    }
+    let mut depends = HashMap::new();
+    for (key, package) in &entries {
+        let mut keys = Vec::new();
+        let listed = package
+            .get("dependencies")
+            .and_then(|value| value.as_array())
+            .map(|list| list.as_slice())
+            .unwrap_or_default();
+        for dependency in listed {
+            let Some(text) = dependency.as_str() else {
+                fail!("{what}: a dependency of {} is not text", key.0);
+            };
+            keys.push(resolve(&entries, text).map_err(|fail| {
+                crate::fail::Fail::Message(format!("reading {what}: {}", fail.text()))
+            })?);
+        }
+        depends.insert(key.clone(), keys);
+    }
+    Ok(Lock { entries, depends })
+}
+
+/// The key a lock's dependency text names: `name`, `name version` or
+/// `name version (source)`, where the name alone is unique in the lock.
+fn resolve(entries: &HashMap<Key, toml::Value>, text: &str) -> Result<Key> {
+    let mut words = text.splitn(3, ' ');
+    let name = words.next().unwrap_or_default();
+    let version = words.next();
+    let source = words
+        .next()
+        .map(|source| source.trim_start_matches('(').trim_end_matches(')'));
+    let found: Vec<&Key> = entries
+        .keys()
+        .filter(|key| {
+            key.0 == name
+                && version.is_none_or(|version| key.1 == version)
+                && source.is_none_or(|source| key.2 == source)
+        })
+        .collect();
+    match found[..] {
+        [key] => Ok(key.clone()),
+        [] => fail!("the dependency {text:?} names no package of the lock"),
+        _ => fail!("the dependency {text:?} names more than one package of the lock"),
+    }
+}
+
+/// The names of <members> that the change from the lock text <old> to <new>
+/// reaches, sorted.
+pub fn reached(old: &str, new: &str, members: &[String]) -> Result<Vec<String>> {
+    let old = parse(old, "the old Cargo.lock")?;
+    let new = parse(new, "the new Cargo.lock")?;
+    let changed: BTreeSet<&Key> = new
+        .entries
+        .iter()
+        .filter(|(key, entry)| old.entries.get(*key) != Some(*entry))
+        .map(|(key, _)| key)
+        .collect();
+    let mut reached = Vec::new();
+    for member in members {
+        let starts: Vec<&Key> = new
+            .entries
+            .keys()
+            .filter(|key| key.0 == *member && key.2.is_empty())
+            .collect();
+        let mut seen: BTreeSet<&Key> = BTreeSet::new();
+        let mut stack = starts;
+        let mut hit = false;
+        while let Some(key) = stack.pop() {
+            if !seen.insert(key) {
+                continue;
+            }
+            if changed.contains(key) {
+                hit = true;
+                break;
+            }
+            stack.extend(new.depends.get(key).into_iter().flatten());
+        }
+        if hit {
+            reached.push(member.clone());
+        }
+    }
+    reached.sort();
+    Ok(reached)
+}
+
+/// The `Cargo.lock` of commit <rev> in the repo at <top>; None when <rev> is
+/// no commit (a repo before its first) or that commit has no `Cargo.lock`.
+pub fn lock_at(top: &Path, rev: &str) -> Result<Option<String>> {
+    let answers = |args: &[&str]| -> Result<bool> {
+        Ok(crate::checkout::git(top)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .context(|| "running git".to_string())?
+            .success())
+    };
+    if !answers(&[
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        &format!("{rev}^{{commit}}"),
+    ])? || !answers(&["cat-file", "-e", &format!("{rev}:Cargo.lock")])?
+    {
+        return Ok(None);
+    }
+    crate::checkout::git_text(
+        crate::checkout::git(top).args(["show", &format!("{rev}:Cargo.lock")]),
+        "read the old Cargo.lock",
+    )
+    .map(Some)
+}
+
+#[cfg(test)]
+#[path = "lock_diff_tests.rs"]
+mod tests;
