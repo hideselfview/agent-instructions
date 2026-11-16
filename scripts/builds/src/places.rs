@@ -163,6 +163,13 @@ impl Places {
         self.app_locks_dir(repo, lane).join(checkout)
     }
 
+    /// The record that the build holding <checkout>'s lock keeps of its run
+    /// (holder_run.rs).
+    pub fn app_lock_run_file(&self, repo: &str, lane: Lane, checkout: &str) -> PathBuf {
+        self.app_locks_dir(repo, lane)
+            .join(format!("{checkout}.run"))
+    }
+
     /// What <repo>'s app checkout <checkout> last built (app_build.rs `Built`).
     pub fn app_built_file(&self, repo: &str, checkout: &str) -> PathBuf {
         self.root.join(repo).join(checkout).join(".last-app-build")

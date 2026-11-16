@@ -1,0 +1,97 @@
+//! What the build that holds an app lock is doing, kept beside the lock in
+//! `app.locks/<checkout>.run` for health and the dashboard to read: the
+//! build's process, when it joined the lane's queue, how long it waited there
+//! in all, and the step it runs now with when that step started. The holder
+//! writes the record whole when it takes the lock and again as each step
+//! starts (lock.rs `Held`). A record that names another process than the
+//! lock's holder is a past holder's, and readers leave it out.
+
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+use crate::fail;
+use crate::fail::{Context, Result};
+
+/// The record a lock's holder keeps of its run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HolderRun {
+    /// The process that holds the lock and wrote the record.
+    pub pid: i32,
+    /// When the build joined the lane's queue, seconds since 1970.
+    pub joined_at: i64,
+    /// How long the build waited in the lane's queue in all, a wait after a
+    /// takeover included.
+    pub waited_ms: u64,
+    /// The step it runs now; None before its first step and for a holder
+    /// that runs no steps (`builds lock`, `build-app`).
+    pub step: Option<RunningStep>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunningStep {
+    pub name: String,
+    /// Seconds since 1970.
+    pub started_at: i64,
+}
+
+/// How long a holder has waited and built, at one moment, in whole minutes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunTimes {
+    /// How long it waited in the lane's queue in all.
+    pub waited_minutes: i64,
+    /// How long it has built since it joined the queue, leaving out its
+    /// waits.
+    pub building_minutes: i64,
+    pub step: Option<StepTime>,
+}
+
+/// The step a holder runs now and how long it has run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepTime {
+    pub name: String,
+    pub minutes: i64,
+}
+
+fn minutes(seconds: i64) -> i64 {
+    seconds.max(0) / 60
+}
+
+impl HolderRun {
+    /// Its times at <now>, seconds since 1970.
+    pub fn times(&self, now: i64) -> RunTimes {
+        let waited = (self.waited_ms / 1000) as i64;
+        RunTimes {
+            waited_minutes: minutes(waited),
+            building_minutes: minutes(now - self.joined_at - waited),
+            step: self.step.as_ref().map(|step| StepTime {
+                name: step.name.clone(),
+                minutes: minutes(now - step.started_at),
+            }),
+        }
+    }
+
+    /// Writes the record to <file> whole.
+    pub fn write(&self, file: &Path) -> Result<()> {
+        crate::whole_file::write(
+            file,
+            serde_json::to_vec(self).expect("a holder's record serializes"),
+        )
+    }
+
+    /// The record at <file>; None when there is none.
+    pub fn read(file: &Path) -> Result<Option<HolderRun>> {
+        let bytes = match std::fs::read(file) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => fail!("reading {}: {error}", file.display()),
+        };
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .context(|| format!("reading {}", file.display()))
+    }
+}
+
+#[cfg(test)]
+#[path = "holder_run_tests.rs"]
+mod tests;

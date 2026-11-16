@@ -7,6 +7,7 @@ use serde::Serialize;
 use super::cards::{ItemWait, QueuedBuild};
 use super::model::{CheckoutPage, RepoPage};
 use crate::health::{Holder, LockHealth};
+use crate::holder_run::RunTimes;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Program {
@@ -27,7 +28,9 @@ pub enum Now {
         /// The branch (or ref) the running build is for, read from the
         /// build's own command line; None when it names none.
         branch: Option<String>,
-        minutes: i64,
+        /// How long it waited for a checkout, how long it has built, and the
+        /// step it runs; None when it keeps no record of its run.
+        run: Option<RunTimes>,
         programs: Vec<Program>,
         cpu: f64,
         memory: u64,
@@ -151,11 +154,30 @@ fn short_age(minutes: i64) -> String {
     }
 }
 
+/// How long a running build has built, waited and run its step, in words:
+/// " for 7 minutes after waiting 25 minutes, running macos-tests for 4
+/// minutes"; empty when it keeps no record of its run.
+fn run_words(run: Option<&RunTimes>) -> String {
+    let Some(run) = run else {
+        return String::new();
+    };
+    let step = match &run.step {
+        Some(step) => format!(", running {} for {}", step.name, minutes_word(step.minutes)),
+        None => String::new(),
+    };
+    format!(
+        " for {} after waiting {}{step}",
+        minutes_word(run.building_minutes),
+        minutes_word(run.waited_minutes)
+    )
+}
+
 /// What <repo>'s app build lanes do for <branch>: the lane, whether the
-/// build runs, and in words how far it is: the checkout that builds it and
-/// for how long, or its place in the lane's queue and how long it has
-/// waited, then the steps it asked for. The running build first; None when
-/// no build of the branch runs or waits.
+/// build runs, and in words how far it is: the checkout that builds it, how
+/// long it has built after how long a wait and the step it runs, or its
+/// place in the lane's queue and how long it has waited, then the steps it
+/// asked for. The running build first; None when no build of the branch runs
+/// or waits.
 pub fn build_for(repo: &RepoPage, branch: &str) -> Option<ItemWait> {
     let lane_name = |lane: &str| {
         let mut word = lane.to_string();
@@ -174,9 +196,9 @@ pub fn build_for(repo: &RepoPage, branch: &str) -> Option<ItemWait> {
                 lane: lane_name(&lock.lane),
                 running: true,
                 how: format!(
-                    "builds in {} for {}, {}",
+                    "builds in {}{}, {}",
                     lock.checkout,
-                    minutes_word(holder.minutes),
+                    run_words(holder.run.as_ref()),
                     asked_words(&asked)
                 ),
                 queued: None,
@@ -278,7 +300,7 @@ fn now_of(
         Some(holder) => Now::Building {
             who: who(repo, holder.started_from.as_deref()),
             branch: branch_of(&holder.command),
-            minutes: holder.minutes,
+            run: holder.run.clone(),
             programs,
             cpu,
             memory,

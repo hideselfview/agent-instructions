@@ -26,6 +26,7 @@ mod flock;
 mod floor;
 mod free_worktrees;
 mod health;
+mod holder_run;
 mod hook_check_starts;
 mod hook_impact;
 mod hook_stats;

@@ -2,6 +2,7 @@ use super::*;
 use crate::claim::Claim;
 use crate::daemon::model::{Activity, ProcessPage};
 use crate::health::{Holder, LaneQueue, LockHealth, Queued};
+use crate::holder_run::StepTime;
 use crate::side_git::{Commit, SideGit};
 
 fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> CheckoutPage {
@@ -61,8 +62,23 @@ fn lock(checkout: &str, minutes: i64, from: &str, running: &[&str]) -> LockHealt
             started_from: Some(from.into()),
             app_head: None,
             driver_running: true,
+            run: None,
         }),
     }
+}
+
+/// <lock> with a holder that waited <waited> minutes for it, has built for
+/// <building> minutes since, and runs <step> for its minutes.
+fn running(mut lock: LockHealth, waited: i64, building: i64, step: (&str, i64)) -> LockHealth {
+    lock.holder.as_mut().unwrap().run = Some(RunTimes {
+        waited_minutes: waited,
+        building_minutes: building,
+        step: Some(StepTime {
+            name: step.0.into(),
+            minutes: step.1,
+        }),
+    });
+    lock
 }
 
 fn process(name: &str) -> ProcessPage {
@@ -119,7 +135,14 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
     waiting.claim = Some(claimed("read-shape"));
     let page = repo(
         vec![app, agent, waiting],
-        vec![lock("side-1", 6, "/d/bae-worktrees/side-5", &[])],
+        // Its process started 32 minutes ago: it waited 25 for the lock, then
+        // ran `macos` and started `macos-tests` 4 minutes ago.
+        vec![running(
+            lock("side-1", 32, "/d/bae-worktrees/side-5", &[]),
+            25,
+            7,
+            ("macos-tests", 4),
+        )],
         vec![
             queued("/d/bae-worktrees/side-9", "builds app-build"),
             queued("/d/bae-main", "builds build-app bae mac"),
@@ -135,7 +158,14 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
         Now::Building {
             who: "mac-alerts".into(),
             branch: None,
-            minutes: 6,
+            run: Some(RunTimes {
+                waited_minutes: 25,
+                building_minutes: 7,
+                step: Some(StepTime {
+                    name: "macos-tests".into(),
+                    minutes: 4
+                }),
+            }),
             programs: vec![
                 Program {
                     name: "xcodebuild".into(),
@@ -272,7 +302,12 @@ fn a_lane_names_the_branch_of_the_build_that_runs_not_the_one_checked_out_before
 
 #[test]
 fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
-    let mut held = lock("side-1", 6, "/d/bae-worktrees/side-5", &[]);
+    let mut held = running(
+        lock("side-1", 31, "/d/bae-worktrees/side-5", &[]),
+        25,
+        6,
+        ("macos", 4),
+    );
     held.holder.as_mut().unwrap().command = "builds app-build bae mac-alerts macos".into();
     let page = repo(
         vec![checkout("side-1", Some("mac"), None)],
@@ -293,7 +328,7 @@ fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
         Some(app_build(
             "Mac",
             true,
-            "builds in side-1 for 6 minutes, asked for macos"
+            "builds in side-1 for 6 minutes after waiting 25 minutes, running macos for 4 minutes, asked for macos"
         ))
     );
     assert_eq!(
@@ -390,12 +425,13 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
         how_of(build_for(&page, "reads-storage")),
         "place 3 in the queue, waiting 20 minutes, asked for macos macos-tests"
     );
+    // Its holder keeps no record of its run, so the words name no times.
     assert_eq!(
         flat(build_for(&page, "reads-auto-picks")),
         Some(app_build(
             "Mac",
             true,
-            "builds in side-1 for 27 minutes, asked for macos macos-tests"
+            "builds in side-1, asked for macos macos-tests"
         ))
     );
     assert_eq!(

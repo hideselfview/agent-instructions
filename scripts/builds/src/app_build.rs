@@ -65,7 +65,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::app_config::{
     CONFIG, Config, PickKind, Step, app_checkout_top, check_out, parse_config, run_command_keeping,
@@ -448,12 +448,13 @@ fn run_local_step(
 /// Runs <steps> in the checkout <top>, as `run_steps_with` does with <watch>.
 fn run_steps(
     top: &Path,
+    held: &lock::Held,
     steps: &[Step],
     log: &mut Vec<StepRecord>,
     shots: Option<&ShotsStore>,
     watch: bool,
 ) -> Result<Ended> {
-    run_steps_with(steps, log, watch, &mut |step, kind, fault| {
+    run_steps_with(held, steps, log, watch, &mut |step, kind, fault| {
         run_local_step(top, step, kind, shots, fault)
     })
 }
@@ -463,10 +464,13 @@ fn run_steps(
 type RunStep<'a> = dyn FnMut(&Step, StepKind, Option<&Found>) -> Result<Within> + 'a;
 
 /// Runs <steps> in order, each by <run>, stopping at the first that fails.
-/// `run_steps_with` times each step it starts into <log> (app_timing.rs).
-/// With <watch>, each step's run watches for a line of `HOST_FAULTS`, and a
-/// step that fails after printing one ends the run with `HostFault`.
+/// `run_steps_with` records each step as it starts in the record <held>
+/// keeps beside its lock (holder_run.rs), and times each step it starts into
+/// <log> (app_timing.rs). With <watch>, each step's run watches for a line of
+/// `HOST_FAULTS`, and a step that fails after printing one ends the run with
+/// `HostFault`.
 fn run_steps_with(
+    held: &lock::Held,
     steps: &[Step],
     log: &mut Vec<StepRecord>,
     watch: bool,
@@ -474,6 +478,7 @@ fn run_steps_with(
 ) -> Result<Ended> {
     for step in steps {
         note(format!("step {}", step.name));
+        held.runs(&step.name)?;
         let kind = match pick_kind_of(&step.name) {
             Some(PickKind::Class) => StepKind::Test,
             Some(PickKind::Shots) => StepKind::Shots,
@@ -601,6 +606,7 @@ impl Site {
     /// keeps its findings in <shots> here.
     fn run_steps(
         &mut self,
+        held: &lock::Held,
         steps: &[Step],
         results: &[String],
         shots: Option<&ShotsStore>,
@@ -608,10 +614,12 @@ impl Site {
         log: &mut Vec<StepRecord>,
     ) -> Result<Ended> {
         match self {
-            Site::Local(top) => run_steps(top, steps, log, shots, watch),
-            Site::Remote(remote) => run_steps_with(steps, log, watch, &mut |step, kind, fault| {
-                run_remote_step(remote, step, kind, results, shots, fault)
-            }),
+            Site::Local(top) => run_steps(top, held, steps, log, shots, watch),
+            Site::Remote(remote) => {
+                run_steps_with(held, steps, log, watch, &mut |step, kind, fault| {
+                    run_remote_step(remote, step, kind, results, shots, fault)
+                })
+            }
         }
     }
 }
@@ -802,21 +810,37 @@ impl RunSite for RemoteApp {
 
 /// What a lane's run has timed so far, for `record` to write when it ends.
 struct Timing {
-    started_at: i64,
-    wait: Duration,
-    checkout: Option<String>,
+    /// The lane's lock as the run last held it; None until the run takes
+    /// one.
+    held: Option<HeldTimes>,
     steps: Vec<StepRecord>,
     /// The use of the stores the lane takes once it holds the lane's lock
     /// (`hold_stores`), held until `record` has written the run.
     stores: Option<install_gate::Use>,
 }
 
+/// When a run joined the lane's queue, how long it waited there in all, and
+/// the checkout whose lock it holds, as `lock::Held` keeps them.
+struct HeldTimes {
+    joined_at: i64,
+    wait: Duration,
+    checkout: String,
+}
+
+impl HeldTimes {
+    fn of(held: &lock::Held) -> HeldTimes {
+        HeldTimes {
+            joined_at: held.joined_at,
+            wait: held.waited,
+            checkout: held.checkout.clone(),
+        }
+    }
+}
+
 impl Timing {
     fn start() -> Timing {
         Timing {
-            started_at: app_timing::now(),
-            wait: Duration::ZERO,
-            checkout: None,
+            held: None,
             steps: Vec::new(),
             stores: None,
         }
@@ -826,7 +850,7 @@ impl Timing {
     /// repo in no project, or a write that fails, is said and changes nothing
     /// about the build's result.
     fn record(self, places: &Places, repo: &str, lane: Lane, built_ref: &str, passed: bool) {
-        let Some(checkout) = self.checkout else {
+        let Some(held) = self.held else {
             return;
         };
         let written = app_timing::database_of(places, repo).and_then(|database| {
@@ -836,13 +860,13 @@ impl Timing {
             app_timing::record(
                 &database,
                 &RunRecord {
-                    started_at: self.started_at,
+                    started_at: held.joined_at,
                     repo: repo.to_string(),
                     lane,
-                    checkout,
+                    checkout: held.checkout,
                     built_ref: built_ref.to_string(),
                     who: who_asked(),
-                    wait_ms: self.wait.as_millis() as u64,
+                    wait_ms: held.wait.as_millis() as u64,
                     passed,
                     steps: self.steps,
                 },
@@ -923,12 +947,10 @@ fn build_lane(
             windowed.name
         ));
     }
-    let waiting = Instant::now();
     let held = lock::take_where(places, &ssh, repo, lane, allowed)?;
     let mut held = hold_stores(held, &mut timing.stores)?;
-    timing.wait += waiting.elapsed();
     loop {
-        timing.checkout = Some(held.checkout.clone());
+        timing.held = Some(HeldTimes::of(&held));
         let mut site = Site::of(places, &ssh, repo, lane, &held.checkout)?;
         note(format!("building in {}", held.checkout));
         if std::env::var_os(PREFIXED).is_some() {
@@ -976,7 +998,14 @@ fn build_lane(
             .partition(|step| pick_kind_of(&step.name).is_some());
         let shots = ShotsStore::of(places, repo, lane, &config);
         let watch = lane.uses_xcode();
-        let mut ended = site.run_steps(&builds, &[], shots.as_ref(), watch, &mut timing.steps)?;
+        let mut ended = site.run_steps(
+            &held,
+            &builds,
+            &[],
+            shots.as_ref(),
+            watch,
+            &mut timing.steps,
+        )?;
         if ended == Ended::Finished && !builds.is_empty() {
             let steps = builds.iter().map(|step| step.name.clone()).collect();
             Built {
@@ -987,6 +1016,7 @@ fn build_lane(
         }
         if ended == Ended::Finished {
             ended = site.run_steps(
+                &held,
                 &tests,
                 &config.results_of(lane),
                 shots.as_ref(),
@@ -1012,9 +1042,7 @@ fn build_lane(
                 ));
             }
         }
-        let waiting = Instant::now();
         held = held.requeue()?;
-        timing.wait += waiting.elapsed();
     }
 }
 

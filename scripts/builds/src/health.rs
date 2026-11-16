@@ -28,6 +28,7 @@ use crate::cargo_place::RemoteRun;
 use crate::checkout::{Root, parallel_map};
 use crate::claim::Claim;
 use crate::fail::{Context, Fail, Result};
+use crate::holder_run::{HolderRun, RunTimes};
 use crate::host::Host;
 use crate::lane::Lane;
 use crate::places::DiskSpace;
@@ -238,6 +239,11 @@ pub struct Holder {
     /// the lock still run? False when only processes it started still have
     /// the lock file open: the build is over and what is left keeps the lock.
     pub driver_running: bool,
+    /// How long the build waited for the lock, how long it has built, and
+    /// the step it runs, from the record it keeps beside the lock
+    /// (holder_run.rs); None when the process that took the lock has kept no
+    /// record or no longer runs.
+    pub run: Option<RunTimes>,
 }
 
 /// A `builds app-build` request that runs: the process that the person or
@@ -286,6 +292,8 @@ pub struct AppLock {
     /// The app checkout (side-N) the lock is for.
     pub checkout: String,
     pub path: PathBuf,
+    /// The record its holder keeps of its run (holder_run.rs).
+    pub run_file: PathBuf,
     /// The app checkout's top, when it is a live checkout.
     pub app_top: Option<PathBuf>,
 }
@@ -452,6 +460,7 @@ pub fn sample(
         lane,
         checkout,
         path,
+        run_file,
         app_top,
     } in locks
     {
@@ -484,6 +493,18 @@ pub fn sample(
         if holding.is_none() && taken(path) {
             holding = topmost(&processes, uid, opened);
         }
+        let run = match holding.filter(|_| driver_running) {
+            None => None,
+            Some(process) => match HolderRun::read(run_file) {
+                Ok(record) => record
+                    .filter(|record| record.pid == process.pid)
+                    .map(|record| record.times(now)),
+                Err(error) => {
+                    unread.push(error.text());
+                    None
+                }
+            },
+        };
         let holder = holding.map(|process| Holder {
             pid: process.pid,
             minutes: minutes_since(now, process.started),
@@ -495,6 +516,7 @@ pub fn sample(
             started_from: started_from(places, process.pid),
             app_head: app_top.as_deref().and_then(head_of),
             driver_running,
+            run,
         });
         held.push(LockHealth {
             repo: repo.clone(),
@@ -855,6 +877,7 @@ pub fn locks_of(places: &crate::places::Places, roots: &[Root]) -> Result<Vec<Ap
                 locks.push(AppLock {
                     repo: repo.clone(),
                     lane,
+                    run_file: places.app_lock_run_file(&repo, lane, &app),
                     checkout: app,
                     path,
                     app_top,
@@ -863,6 +886,23 @@ pub fn locks_of(places: &crate::places::Places, roots: &[Root]) -> Result<Vec<Ap
         }
     }
     Ok(locks)
+}
+
+/// How long <holder> has held its lock, in words: its wait, its building
+/// time and its step from the record it keeps, else how long ago its process
+/// started.
+fn held_for(holder: &Holder) -> String {
+    let Some(run) = &holder.run else {
+        return format!("started {}m ago", holder.minutes);
+    };
+    let step = match &run.step {
+        Some(step) => format!(", step {} for {}m", step.name, step.minutes),
+        None => String::new(),
+    };
+    format!(
+        "waited {}m, building {}m{step}",
+        run.waited_minutes, run.building_minutes
+    )
 }
 
 /// What the lists say, one line each: the running-item and held-work
@@ -1120,13 +1160,13 @@ pub fn lines(health: &Health) -> Vec<String> {
     for lock in &health.locks {
         match &lock.holder {
             Some(holder) => out.push(format!(
-                "app lock {} ({} {}): held {}m by pid {} ({}){}",
+                "app lock {} ({} {}): held by pid {} ({}), {}{}",
                 lock.repo,
                 lock.lane,
                 lock.checkout,
-                holder.minutes,
                 holder.pid,
                 holder.command,
+                held_for(holder),
                 if holder.running.is_empty() {
                     String::new()
                 } else {

@@ -5,6 +5,16 @@ use crate::db;
 use crate::testing::Scratch;
 use std::time::Duration;
 
+/// A lock of an app lane in <scratch>'s places, held while a test runs steps,
+/// which record the step they run beside it.
+fn held_in(scratch: &Scratch) -> lock::Held {
+    let places = scratch.places();
+    places
+        .write_app_checkouts("steps", Lane::Mac, &["side-1".to_string()])
+        .unwrap();
+    lock::take(&places, "steps", Lane::Mac).unwrap()
+}
+
 fn config() -> Config {
     parse_config("step mac one ./one\nstep android two ./two\nstep mac three ./three\nstep android four ./four\n").unwrap()
 }
@@ -102,6 +112,7 @@ fn a_marker_line_names_the_checkout_in_the_prefix_and_other_lines_do_not() {
 #[test]
 fn steps_stop_at_the_first_failure() {
     let scratch = crate::testing::Scratch::new("app-build-steps");
+    let held = held_in(&scratch);
     let step = |name: &str, command: &[&str]| Step {
         name: name.to_string(),
         lane: Lane::Mac,
@@ -116,7 +127,7 @@ fn steps_stop_at_the_first_failure() {
         step("c", &["touch", "c"]),
     ];
     assert!(matches!(
-        run_steps(&scratch.dir, &steps, &mut Vec::new(), None, false),
+        run_steps(&scratch.dir, &held, &steps, &mut Vec::new(), None, false),
         Err(Fail::Exit(1))
     ));
     assert!(scratch.dir.join("a").exists());
@@ -125,7 +136,15 @@ fn steps_stop_at_the_first_failure() {
         "the step after the failure did not run"
     );
     assert_eq!(
-        run_steps(&scratch.dir, &steps[..1], &mut Vec::new(), None, false).unwrap(),
+        run_steps(
+            &scratch.dir,
+            &held,
+            &steps[..1],
+            &mut Vec::new(),
+            None,
+            false
+        )
+        .unwrap(),
         Ended::Finished
     );
 }
@@ -137,6 +156,7 @@ fn steps_stop_at_the_first_failure() {
 #[test]
 fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure() {
     let scratch = crate::testing::Scratch::new("app-build-xcode");
+    let held = held_in(&scratch);
     let said = "A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.";
     let step = |script: String| Step {
         name: "xcframework".to_string(),
@@ -150,6 +170,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
     assert_eq!(
         run_steps(
             &scratch.dir,
+            &held,
             std::slice::from_ref(&broken),
             &mut Vec::new(),
             None,
@@ -160,19 +181,20 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
     );
     assert!(
         matches!(
-            run_steps(&scratch.dir, &[broken], &mut Vec::new(), None, false),
+            run_steps(&scratch.dir, &held, &[broken], &mut Vec::new(), None, false),
             Err(Fail::Exit(70))
         ),
         "a lane that does not watch for the line fails as the step did"
     );
     let passed = step(format!("echo \"{said}\"; exit 0"));
     assert_eq!(
-        run_steps(&scratch.dir, &[passed], &mut Vec::new(), None, true).unwrap(),
+        run_steps(&scratch.dir, &held, &[passed], &mut Vec::new(), None, true).unwrap(),
         Ended::Finished
     );
     assert!(matches!(
         run_steps(
             &scratch.dir,
+            &held,
             &[step("exit 65".to_string())],
             &mut Vec::new(),
             None,
@@ -185,6 +207,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
 #[test]
 fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
     let scratch = crate::testing::Scratch::new("app-build-limit");
+    let held = held_in(&scratch);
     let slow = Step {
         name: "slow".to_string(),
         lane: Lane::Mac,
@@ -204,9 +227,14 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         ci_only: false,
     };
     let started = std::time::Instant::now();
-    let Err(Fail::Message(message)) =
-        run_steps(&scratch.dir, &[slow, after], &mut Vec::new(), None, false)
-    else {
+    let Err(Fail::Message(message)) = run_steps(
+        &scratch.dir,
+        &held,
+        &[slow, after],
+        &mut Vec::new(),
+        None,
+        false,
+    ) else {
         panic!("fails")
     };
     assert!(
@@ -491,6 +519,7 @@ fn fake(name: &str, command: &[&str], limit: Option<Duration>) -> Step {
 #[test]
 fn running_fake_steps_times_each_one_with_its_kind_and_result() {
     let scratch = Scratch::new("timing-steps");
+    let held = held_in(&scratch);
     let steps = [
         fake("build", &["true"], None),
         fake("test Foo", &["true"], None),
@@ -498,7 +527,7 @@ fn running_fake_steps_times_each_one_with_its_kind_and_result() {
         fake("never", &["true"], None),
     ];
     let mut log = Vec::new();
-    let _ = run_steps(&scratch.dir, &steps, &mut log, None, false);
+    let _ = run_steps(&scratch.dir, &held, &steps, &mut log, None, false);
     let seen: Vec<(&str, StepKind, StepResult)> = log
         .iter()
         .map(|s| (s.name.as_str(), s.kind, s.result))
@@ -515,13 +544,47 @@ fn running_fake_steps_times_each_one_with_its_kind_and_result() {
     assert!(log.iter().all(|s| s.started_at > 0));
 }
 
+/// Each step names itself in the record beside the lock as it starts: the
+/// second step reads the record and finds its own name there.
+#[test]
+fn each_step_is_recorded_beside_the_lock_as_the_step_that_runs() {
+    let scratch = Scratch::new("timing-running-step");
+    let held = held_in(&scratch);
+    let record = scratch
+        .places()
+        .app_lock_run_file("steps", Lane::Mac, &held.checkout);
+    let names = format!("grep -q '\"name\":\"macos-tests\"' {}", record.display());
+    run_steps(
+        &scratch.dir,
+        &held,
+        &[
+            fake("macos", &["true"], None),
+            fake("macos-tests", &["sh", "-c", &names], None),
+        ],
+        &mut Vec::new(),
+        None,
+        false,
+    )
+    .unwrap();
+    let run = crate::holder_run::HolderRun::read(&record)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (run.joined_at, run.waited_ms),
+        (held.joined_at, held.waited.as_millis() as u64)
+    );
+    assert_eq!(run.step.unwrap().name, "macos-tests");
+}
+
 #[test]
 fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_timeout() {
     let scratch = Scratch::new("timing-cpu");
+    let held = held_in(&scratch);
     let burn = "i=0; while [ $i -lt 30000 ]; do i=$((i+1)); done";
     let mut log = Vec::new();
     run_steps(
         &scratch.dir,
+        &held,
         &[fake("burn", &["sh", "-c", burn], None)],
         &mut log,
         None,
@@ -533,6 +596,7 @@ fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_
     let mut log = Vec::new();
     let _ = run_steps(
         &scratch.dir,
+        &held,
         &[fake(
             "slow",
             &["sh", "-c", "sleep 300"],
@@ -548,13 +612,18 @@ fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_
 #[test]
 fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store() {
     let scratch = crate::testing::Scratch::new("timing-lane-run");
+    let held = held_in(&scratch);
     let places = scratch.places();
     let store = crate::lists::fixtures::make_store(&places, &["demo"]);
     let mut timing = Timing::start();
-    timing.wait = Duration::from_millis(1500);
-    timing.checkout = Some("side-3".to_string());
+    timing.held = Some(HeldTimes {
+        joined_at: 1_790_000_000,
+        wait: Duration::from_millis(1500),
+        checkout: "side-3".to_string(),
+    });
     run_steps(
         &scratch.dir,
+        &held,
         &[
             fake("build", &["true"], None),
             fake("test Foo", &["true"], None),
@@ -567,16 +636,30 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
     timing.record(&places, "demo", Lane::Mac, "my-branch", true);
     let path = store.dir.join(app_timing::DATABASE);
     let conn = rusqlite::Connection::open(&path).unwrap();
-    let row: (i64, String, String, bool) = conn
+    let row: (i64, i64, String, String, bool) = conn
         .query_row(
-            "SELECT wait_ms, checkout, built_ref, passed FROM app_build_runs",
+            "SELECT started_at, wait_ms, checkout, built_ref, passed FROM app_build_runs",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .unwrap();
     assert_eq!(
         row,
-        (1500, "side-3".to_string(), "my-branch".to_string(), true)
+        (
+            1_790_000_000,
+            1500,
+            "side-3".to_string(),
+            "my-branch".to_string(),
+            true
+        )
     );
     let repo = &app_timing::stats(&path, 0).unwrap()[0];
     assert_eq!(repo.repo, "demo");
@@ -636,13 +719,14 @@ const FINDINGS_RUN: &str = "echo '   Compiling x' >&2; echo '    Running `target
 #[test]
 fn a_shots_run_that_printed_findings_is_kept_under_its_commit_platform_prefix_and_version() {
     let scratch = crate::testing::Scratch::new("shots-keep");
+    let held = held_in(&scratch);
     let places = scratch.places();
     let store = crate::lists::fixtures::make_store(&places, &["demo"]);
     let database = store.dir.join(app_timing::DATABASE);
     let top = scratch.dir.join("repo");
     let kept = shots_store(&top, &database);
     let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
-    let result = run_steps(&top, &[step], &mut Vec::new(), Some(&kept), false);
+    let result = run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false);
     assert!(matches!(result, Err(Fail::Exit(1))));
     let commit = resolve(&top, "HEAD").unwrap();
     let key = shot_findings::Key {
@@ -670,6 +754,7 @@ fn a_shots_run_that_printed_findings_is_kept_under_its_commit_platform_prefix_an
 #[test]
 fn a_shots_run_that_died_on_an_error_keeps_nothing() {
     let scratch = crate::testing::Scratch::new("shots-error");
+    let held = held_in(&scratch);
     let places = scratch.places();
     let store = crate::lists::fixtures::make_store(&places, &["demo"]);
     let database = store.dir.join(app_timing::DATABASE);
@@ -684,7 +769,7 @@ fn a_shots_run_that_died_on_an_error_keeps_nothing() {
         ],
         None,
     );
-    let _ = run_steps(&top, &[step], &mut Vec::new(), Some(&kept), false);
+    let _ = run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false);
     let conn = db::open_reader(&database).unwrap().unwrap();
     let rows: i64 = conn
         .query_row("SELECT COUNT(*) FROM shot_findings", [], |row| row.get(0))
@@ -695,6 +780,7 @@ fn a_shots_run_that_died_on_an_error_keeps_nothing() {
 #[test]
 fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
     let scratch = crate::testing::Scratch::new("shots-serve");
+    let held = held_in(&scratch);
     let places = scratch.places();
     let store = crate::lists::fixtures::make_store(&places, &["demo"]);
     let database = store.dir.join(app_timing::DATABASE);
@@ -707,7 +793,7 @@ fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
     std::fs::create_dir_all(&marker).unwrap();
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
-    let _ = run_steps(&top, &[step], &mut Vec::new(), Some(&kept), false);
+    let _ = run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false);
     let args = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     // Served from the store: no lane process starts (one would run this test
     // program as `builds`, and wait for a lock that does not exist).
@@ -734,13 +820,14 @@ const REPORT_RUN: &str = "mkdir -p shots/report/img; echo png > shots/report/img
 #[test]
 fn a_shots_run_keeps_its_report_and_the_pictures_it_shows_under_its_key_in_the_store() {
     let scratch = crate::testing::Scratch::new("shots-report");
+    let held = held_in(&scratch);
     let places = scratch.places();
     let store = crate::lists::fixtures::make_store(&places, &["demo"]);
     let database = store.dir.join(app_timing::DATABASE);
     let top = scratch.dir.join("repo");
     let kept = shots_store(&top, &database);
     let step = fake("shots mac.a.", &["sh", "-c", REPORT_RUN], None);
-    run_steps(&top, &[step], &mut Vec::new(), Some(&kept), false).unwrap();
+    run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false).unwrap();
     let commit = resolve(&top, "HEAD").unwrap();
     let key = shot_findings::Key {
         repo: "demo".to_string(),

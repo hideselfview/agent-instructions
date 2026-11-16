@@ -240,6 +240,8 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .lane-now .who { font-weight: 600; }
 .lane-now .use { font: 12px var(--mono); }
 .lane-now .procs { font: 12px var(--mono); overflow-wrap: anywhere; }
+.lane-now .step { font: 500 12px var(--mono); overflow-wrap: anywhere; }
+.lane-now .waited { font-size: 12px; color: var(--muted); }
 .lane-now .procs .ic { display: inline; font: inherit; }
 .lane-now .procs .ic svg { vertical-align: -2px; margin-right: 5px; }
 .lane-now.stuck .who { color: var(--text); }
@@ -548,7 +550,8 @@ async function queueAction(action, lock, q) {
 // last of the holders (queue.rs); with a lock free it only moves the waiter up.
 function takeOver(holders, free, lock, q) {
   if (!free) {
-    const names = holders.map(l => shortCommand(l.holder.command).name + " (held " + l.holder.minutes + "m)").join(", ");
+    const names = holders.map(l => shortCommand(l.holder.command).name +
+      (l.holder.run ? " (building " + l.holder.run.building_minutes + "m)" : " (started " + l.holder.minutes + "m ago)")).join(", ");
     if (!confirm("Every lock is held (" + names + "). Stop the one that started last so " + queuedName(q) +
       " builds now? The stopped build goes straight behind it and runs again by itself.")) return;
   }
@@ -765,15 +768,20 @@ function worktreeCard(c) {
 function hours(minutes) {
   return minutes >= 120 ? Math.round(minutes / 60) + " hours" : minutes === 1 ? "1 minute" : minutes + " minutes";
 }
-// What builds in one app checkout of a lane: who, the programs, CPU and
-// memory. A checkout on another Mac shows no CPU and memory: only its lock is
-// read from here.
+// What builds in one app checkout of a lane: who, the step it runs and for
+// how long, how long it has built and the programs, how long it waited for a
+// checkout, then CPU and memory. The times come from the record the build
+// keeps beside its lock (holder_run.rs); a build that keeps none shows none.
+// A checkout on another Mac shows no CPU and memory: only its lock is read
+// from here.
 function checkoutNow(ab) {
-  const now = ab.now;
+  const now = ab.now, run = now.run;
   if (now.state === "building") {
     return [
       h("div", {class: "who"}, now.who + " is building"),
-      h("div", {class: "procs"}, icon("build", 0, now.minutes + "m"), " · " + programs(now.programs)),
+      run && run.step ? h("div", {class: "step"}, run.step.name + ", " + run.step.minutes + "m") : null,
+      h("div", {class: "procs"}, run ? [icon("build", 0, run.building_minutes + "m"), " · "] : null, programs(now.programs)),
+      run ? h("div", {class: "waited"}, "Waited " + run.waited_minutes + "m for a checkout") : null,
       ab.remote ? null : h("div", {class: "use"}, Math.round(now.cpu) + "% CPU · " + bytes(now.memory))];
   }
   if (now.state === "stuck") {

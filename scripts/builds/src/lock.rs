@@ -34,6 +34,10 @@
 //! behind. It says `Within::TimedOut` and the caller fails the build, so the lock
 //! goes to the next in line instead of staying with a build that hangs.
 //!
+//! The holder keeps a record of its run beside the lock (holder_run.rs): when
+//! it joined the queue, how long it waited, and the step it runs now
+//! (`Held::runs`).
+//!
 //! Waiters go in the order of queue.rs. A takeover sends the holder SIGUSR2:
 //! it stops its build's group and, once the build has exited, `run_in_group`
 //! says `Ran::TakenOver`; the caller then takes a new place in the queue
@@ -45,10 +49,11 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+use crate::holder_run::{HolderRun, RunningStep};
 use crate::host::{self, Ssh};
 use crate::lane::Lane;
 use crate::places::Places;
@@ -168,9 +173,38 @@ pub struct Held {
     lane: Lane,
     ssh: Ssh,
     allowed: Where,
+    /// When this build joined the lane's queue, seconds since 1970.
+    pub joined_at: i64,
+    /// How long it waited in the queue in all, a wait after a takeover
+    /// included.
+    pub waited: Duration,
 }
 
 impl Held {
+    /// Writes the record of this build's run beside its lock, naming <step>
+    /// as the step it runs now.
+    fn record(&self, step: Option<RunningStep>) -> Result<()> {
+        HolderRun {
+            pid: std::process::id() as i32,
+            joined_at: self.joined_at,
+            waited_ms: self.waited.as_millis() as u64,
+            step,
+        }
+        .write(
+            &self
+                .places
+                .app_lock_run_file(&self.repo, self.lane, &self.checkout),
+        )
+    }
+
+    /// Records <step> as the step this build runs from now on.
+    pub fn runs(&self, step: &str) -> Result<()> {
+        self.record(Some(RunningStep {
+            name: step.to_string(),
+            started_at: crate::app_timing::now(),
+        }))
+    }
+
     /// Frees the lock and lets the next in the queue go. No process this one
     /// started may still run.
     pub fn release(self) {
@@ -197,6 +231,7 @@ impl Held {
     /// and waits for a lock again (the one just freed, or another's).
     pub fn requeue(self) -> Result<Held> {
         TAKEN_OVER.store(false, Ordering::SeqCst);
+        let waiting = Instant::now();
         let ticket = self.queue.reissue(&self.ticket)?;
         unsafe {
             libc::close(self.lock);
@@ -205,7 +240,7 @@ impl Held {
         self.queue.wait_for_turn(&ticket.name)?;
         let (lock, checkout) =
             take_free_lock(&self.places, &self.ssh, &self.repo, self.lane, self.allowed)?;
-        Ok(Held {
+        let held = Held {
             lock,
             ticket,
             queue: self.queue,
@@ -215,7 +250,11 @@ impl Held {
             lane: self.lane,
             ssh: self.ssh,
             allowed: self.allowed,
-        })
+            joined_at: self.joined_at,
+            waited: self.waited + waiting.elapsed(),
+        };
+        held.record(None)?;
+        Ok(held)
     }
 }
 
@@ -416,6 +455,8 @@ fn take_in(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, allowed: Where) -
     TAKEN_OVER.store(false, Ordering::SeqCst);
     QUEUED.store(true, Ordering::SeqCst);
     let queue = Queue::of(places, repo, lane);
+    let joined_at = crate::app_timing::now();
+    let waiting = Instant::now();
     let (ticket, ahead) = queue.join()?;
     if ahead >= queue.slots() {
         note(format!(
@@ -425,7 +466,7 @@ fn take_in(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, allowed: Where) -
     }
     queue.wait_for_turn(&ticket.name)?;
     let (lock, checkout) = take_free_lock(places, ssh, repo, lane, allowed)?;
-    Ok(Held {
+    let held = Held {
         lock,
         ticket,
         queue,
@@ -435,7 +476,11 @@ fn take_in(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, allowed: Where) -
         lane,
         ssh: ssh.clone(),
         allowed,
-    })
+        joined_at,
+        waited: waiting.elapsed(),
+    };
+    held.record(None)?;
+    Ok(held)
 }
 
 /// Whether stdin is a terminal this process is the foreground process of.

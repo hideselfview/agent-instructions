@@ -308,3 +308,44 @@ fn a_host_that_does_not_answer_is_skipped_and_named_when_it_was_the_only_one() {
         "{text}"
     );
 }
+
+#[test]
+fn a_holder_records_how_long_it_waited_and_the_step_it_runs() {
+    let scratch = Scratch::new("lock-record");
+    let places = places(&scratch);
+    let record = places.app_lock_run_file("demo", Lane::Mac, "side-1");
+    let first = take(&places, "demo", Lane::Mac).unwrap();
+    let (said, heard) = channel();
+    let (free, freed): (_, Receiver<()>) = channel();
+    let waiter = places.clone();
+    std::thread::spawn(move || {
+        let held = take(&waiter, "demo", Lane::Mac).unwrap();
+        said.send(()).unwrap();
+        freed.recv().unwrap();
+        held.runs("macos-tests").unwrap();
+        said.send(()).unwrap();
+        freed.recv().unwrap();
+        held.release();
+    });
+    until_tickets(&Queue::of(&places, "demo", Lane::Mac), 2);
+    std::thread::sleep(SETTLE);
+    first.release();
+    heard.recv().unwrap();
+    let taken = HolderRun::read(&record).unwrap().unwrap();
+    assert_eq!(taken.pid, std::process::id() as i32);
+    assert!(
+        taken.waited_ms >= SETTLE.as_millis() as u64,
+        "it waited for the first build: {taken:?}"
+    );
+    assert_eq!(taken.step, None, "no step runs yet");
+    free.send(()).unwrap();
+    heard.recv().unwrap();
+    let running = HolderRun::read(&record).unwrap().unwrap();
+    assert_eq!(
+        (running.joined_at, running.waited_ms),
+        (taken.joined_at, taken.waited_ms),
+        "a step changes neither when it joined nor how long it waited"
+    );
+    assert_eq!(running.step.unwrap().name, "macos-tests");
+    free.send(()).unwrap();
+}

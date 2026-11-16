@@ -39,7 +39,9 @@ on it:
   <repo>/<checkout>/    one build root per checkout (main or side-N)
   <repo>/app-checkouts  the mac lane's app checkouts, one name per line
   <repo>/app.locks/     one lock per app checkout (app.locks/side-N), held by
-                        the build that runs there
+                        the build that runs there, and beside each lock the
+                        record that build keeps (side-N.run): when it joined
+                        the queue, how long it waited, and the step it runs
   <repo>/app.queue/     the builds waiting for the lane's locks: `order` holds
                         one ticket per line, next first, with the holders'
                         tickets at the head (one per app checkout), and each
