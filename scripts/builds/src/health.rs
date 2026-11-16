@@ -1172,7 +1172,10 @@ pub fn host_findings(
         .chain(
             refusals
                 .iter()
-                .filter_map(crate::host::refusal_finding)
+                // ui_test_settings::findings writes these with the host's
+                // settings.
+                .filter(|refusal| refusal.refused != crate::host::Refused::UiAutomation)
+                .map(crate::host::refusal_finding)
                 .chain(crate::host_installed::installed_findings(installed))
                 .chain(crate::ui_test_settings::findings(refusals, installed))
                 .map(|advice| Finding::new(FindingKind::Host, advice)),
@@ -1797,6 +1800,28 @@ mod tests {
             line.starts_with("host m1's Xcode cannot start")
                 && line.contains("Run sudo xcodebuild -runFirstLaunch on m1"),
             "{line}"
+        );
+    }
+
+    /// A host whose UI tests timed out gets one line, the one
+    /// ui_test_settings writes, not a second one from its record.
+    #[test]
+    fn a_host_whose_ui_tests_timed_out_is_one_finding() {
+        let refusal = crate::host::Refusal {
+            host: "m1".to_string(),
+            refused: crate::host::Refused::UiAutomation,
+            at: 1_800_000_000,
+            said: "Timed out while enabling automation mode.".to_string(),
+        };
+        assert_eq!(
+            crate::host::refusal_finding(&refusal).command.as_deref(),
+            Some("builds host setup m1")
+        );
+        let found = host_findings(&[], &[refusal], &[]);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].advice.command.as_deref(),
+            Some("builds host setup m1")
         );
     }
 

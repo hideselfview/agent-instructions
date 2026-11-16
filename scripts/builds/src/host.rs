@@ -435,33 +435,33 @@ fn refusals_of(places: &Places, refused: Refused, hosts: &[Host]) -> Result<Vec<
     Ok(found)
 }
 
-/// The line `builds health` prints under "needs action" for <refusal>; None
-/// for a host whose UI tests timed out, whose line `ui_test_settings::findings`
-/// writes with the host's settings.
-pub fn refusal_finding(refusal: &Refusal) -> Option<crate::health::Advice> {
+/// The line for <refusal> under "needs action". For a host whose UI tests
+/// timed out, `builds health` prints the line `ui_test_settings::findings`
+/// writes with the host's settings in place of this one, which knows none.
+pub fn refusal_finding(refusal: &Refusal) -> crate::health::Advice {
     let name = &refusal.host;
     let at = local_minute(refusal.at);
     let said = refusal.said.trim_end_matches('.');
     match refusal.refused {
-        Refused::Jobs => Some(crate::health::Advice::run(
+        Refused::Jobs => crate::health::Advice::run(
             format!(
                 "host {name} refuses jobs (since {at}), so builds runs its jobs on this Mac. {name} said: {said}. Fix what {name} said on {name}. builds uses {name} again once a probe finds it answering with git running. Each builds cargo that may leave this Mac probes it; to probe every host now, run"
             ),
             "builds host list".to_string(),
-        )),
+        ),
         Refused::Xcode => {
             let fix = match crate::xcode::fix_named_in(&refusal.said) {
                 Some(fix) => format!("Run sudo {fix} on {name}"),
                 None => format!("Fix what xcodebuild said on {name}"),
             };
-            Some(crate::health::Advice::run(
+            crate::health::Advice::run(
                 format!(
                     "host {name}'s Xcode cannot start (since {at}), so mac app builds skip its app checkouts. xcodebuild said: {said}. {fix}, then tell builds to use {name} again with"
                 ),
                 format!("builds host clear-xcode {name}"),
-            ))
+            )
         }
-        Refused::UiAutomation => None,
+        Refused::UiAutomation => crate::ui_test_settings::finding(name, Some(refusal), None),
     }
 }
 

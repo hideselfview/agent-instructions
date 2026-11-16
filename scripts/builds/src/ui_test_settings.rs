@@ -298,7 +298,7 @@ pub fn findings(refusals: &[Refusal], reads: &[HostInstalled]) -> Vec<Advice> {
 
 /// The line for host <name>, with its record of timing out when it has one
 /// and its settings when builds could read them.
-fn finding(name: &str, refusal: Option<&Refusal>, settings: Option<&UiTestSettings>) -> Advice {
+pub fn finding(name: &str, refusal: Option<&Refusal>, settings: Option<&UiTestSettings>) -> Advice {
     let place = place(name);
     let setup = format!("builds host setup {name}");
     let lacking = settings.filter(|settings| !settings.missing.is_empty());
