@@ -33,6 +33,7 @@ impl Scratch {
             root,
             home: self.dir.join("home"),
             cargo_home: self.dir.join("cargo"),
+            cache_home: self.dir.join("cache"),
             private_tmp,
             user_temp: None,
             tmpdir: None,

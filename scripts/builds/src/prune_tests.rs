@@ -131,3 +131,72 @@ fn a_side_worktree_keeps_its_incremental_folders_for_the_idle_hours() {
     );
     assert!(!idle.exists(), "pruning kept an idle incremental folder");
 }
+
+/// An installed tool's version goes once no live checkout's file names it; a
+/// checkout whose `.build-dirs` lacks the `installed` line still keeps the
+/// version its file names, and an install still being written stays.
+#[test]
+fn an_installed_version_goes_once_no_checkout_names_it() {
+    let scratch = Scratch::new("prune-installed");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    crate::testing::repo(&main, "target 1G\ninstalled checker scripts/checker.sh\n");
+    let side = scratch.dir.join("demo-worktrees/side-1");
+    crate::testing::git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &side.display().to_string(),
+        ],
+    );
+    for top in [&main, &side] {
+        crate::setup::setup(&tool, &Checkout::find(&top.display().to_string()).unwrap()).unwrap();
+    }
+    std::fs::write(side.join(".build-dirs"), "target 1G\n").unwrap();
+    for (top, version) in [(&main, "aaa111"), (&side, "ddd444")] {
+        std::fs::create_dir_all(top.join("scripts")).unwrap();
+        std::fs::write(
+            top.join("scripts/checker.sh"),
+            format!("checker_revision=\"{version}\"\n"),
+        )
+        .unwrap();
+    }
+    let folder = tool.places.cache_home.join("checker");
+    for name in ["aaa111", "ccc333", "ddd444", ".install.x"] {
+        fill(&folder.join(name), 1);
+    }
+    let roots = tool.roots().unwrap();
+    prune_installed(&tool, &roots, Run::Dry).unwrap();
+    assert!(
+        folder.join("ccc333").exists(),
+        "a dry run deleted a version"
+    );
+    prune_installed(&tool, &roots, Run::Real).unwrap();
+    assert!(
+        !folder.join("ccc333").exists(),
+        "a version no checkout names was kept"
+    );
+    assert!(
+        folder.join("aaa111").exists(),
+        "the version main's file names was deleted"
+    );
+    assert!(
+        folder.join("ddd444").exists(),
+        "the version named by a checkout without the line was deleted"
+    );
+    assert!(
+        folder.join(".install.x").exists(),
+        "an install still being written was deleted"
+    );
+    for top in [&main, &side] {
+        std::fs::remove_file(top.join("scripts/checker.sh")).unwrap();
+    }
+    prune_installed(&tool, &roots, Run::Real).unwrap();
+    assert!(
+        folder.join("aaa111").exists() && folder.join("ddd444").exists(),
+        "with no file to read, a version was deleted"
+    );
+}

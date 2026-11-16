@@ -65,6 +65,9 @@ pub struct Places {
     pub home: PathBuf,
     /// CARGO_HOME, or ~/.cargo.
     pub cargo_home: PathBuf,
+    /// XDG_CACHE_HOME, or ~/.cache: where a repo's scripts install the tools
+    /// that a `.build-dirs` `installed` line names.
+    pub cache_home: PathBuf,
     /// /private/tmp, where probes and stray builds land.
     pub private_tmp: PathBuf,
     /// `getconf DARWIN_USER_TEMP_DIR`, where mktemp puts things.
@@ -89,6 +92,10 @@ impl Places {
         let cargo_home = std::env::var_os("CARGO_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".cargo"));
+        let cache_home = std::env::var_os("XDG_CACHE_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".cache"));
         let tmpdir = std::env::var_os("TMPDIR")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
@@ -100,6 +107,7 @@ impl Places {
             root,
             home,
             cargo_home,
+            cache_home,
             private_tmp: PathBuf::from("/private/tmp"),
             user_temp: darwin_user_temp_dir(),
             tmpdir,

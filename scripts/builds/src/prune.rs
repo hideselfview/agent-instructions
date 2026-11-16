@@ -1,7 +1,8 @@
 //! Bounding what builds leave behind: each checkout's unused build copies and
 //! caps, DerivedData, the shared caches, build output in the temporary
-//! folders, tests' temporary folders, Claude Code scratch folders, and cargo's
-//! git checkouts. `setup` runs these for its checkout, `prune` for every one.
+//! folders, tests' temporary folders, Claude Code scratch folders, cargo's
+//! git checkouts, and the tool versions a repo's scripts install that no
+//! checkout runs. `setup` runs these for its checkout, `prune` for every one.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -608,6 +609,89 @@ pub fn prune_cargo_git(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     Ok(())
 }
 
+/// The tools a repo's script installs once per version into the cache home
+/// (`.build-dirs` `installed` lines): each version, an entry in the tool's
+/// folder named after it, goes once no live checkout's file names it. Every
+/// live checkout's file counts, whether or not its own manifest has the
+/// line, so a checkout on a branch from before the line keeps its version.
+/// An entry whose name starts with a dot is an install a script is still
+/// writing, and stays. A manifest or file that can't be read deletes nothing
+/// it could keep.
+pub fn prune_installed(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
+    let tops: Vec<&Path> = roots
+        .iter()
+        .filter_map(|root| root.live.as_ref())
+        .map(|checkout| checkout.top.as_path())
+        .collect();
+    let mut files_of: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for top in &tops {
+        let declared = match crate::manifest::installed(top) {
+            Ok(declared) => declared,
+            Err(error) => {
+                note(format!(
+                    "reading {}'s {} failed, so no installed tool was deleted: {}",
+                    top.display(),
+                    crate::manifest::MANIFEST,
+                    error.text()
+                ));
+                return Ok(());
+            }
+        };
+        for line in declared {
+            let files = files_of.entry(line.folder).or_default();
+            if !files.contains(&line.file) {
+                files.push(line.file);
+            }
+        }
+    }
+    for (folder, files) in files_of {
+        let dir = tool.places.cache_home.join(&folder);
+        // Listed before the files are read: a script names a version before
+        // it installs it, so every version listed here that a checkout runs
+        // is in that checkout's file by the time it is read.
+        let versions = visible_names(&dir);
+        if versions.is_empty() {
+            continue;
+        }
+        let what = format!(
+            "installed versions in {} that no checkout's {} names",
+            dir.display(),
+            files.join(" or ")
+        );
+        let listing = match naming_texts(&tops, &files) {
+            // With no file to read, every version would read as unnamed.
+            Ok(texts) if texts.is_empty() => continue,
+            Ok(texts) => Ok(versions
+                .into_iter()
+                .filter(|version| {
+                    let version = version.to_string_lossy();
+                    !texts.iter().any(|text| text.contains(&*version))
+                })
+                .map(|version| dir.join(version))
+                .collect()),
+            Err(error) => Err(error),
+        };
+        prune_listed(run, &what, listing);
+    }
+    Ok(())
+}
+
+/// The text of each of <files> in each checkout of <tops> that has it.
+fn naming_texts(tops: &[&Path], files: &[String]) -> std::result::Result<Vec<String>, String> {
+    let mut texts = Vec::new();
+    for top in tops {
+        for file in files {
+            let path = top.join(file);
+            match std::fs::read_to_string(&path) {
+                Ok(text) => texts.push(text),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("{}: {error}", path.display())),
+            }
+        }
+    }
+    Ok(texts)
+}
+
 /// `builds prune [--dry-run] [--idle <minutes> [--include-warm]]`. Also
 /// retires the free side worktrees nothing has used for a day, and removes
 /// the worktrees on the hosts that no checkout's jobs use.
@@ -675,6 +759,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     prune_temp_builds(tool, run)?;
     prune_scratchpads(tool, run)?;
     prune_cargo_git(tool, &roots, run)?;
+    prune_installed(tool, &roots, run)?;
     if !run.dry() {
         empty_trash(tool)?;
     }

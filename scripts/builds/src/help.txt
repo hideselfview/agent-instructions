@@ -66,8 +66,9 @@ lists its build output folders in `.build-dirs` at its root (cargo's target,
 Xcode and SwiftPM .build folders, Gradle's build and .gradle, dotnet's obj and
 bin, Lean's .lake), and each listed path is a symlink in the checkout to the
 same path under the checkout's build root (target ->
-/Volumes/Builds/bae/main/target). `.build-dirs` has one line per folder, and a
-`keep` line for each build that must stay:
+/Volumes/Builds/bae/main/target). `.build-dirs` has one line per folder, a
+`keep` line for each build that must stay, and an `installed` line for each
+tool the repo's scripts install into the user's cache home:
 
   <path> <cap>              the folder and its size cap
   <path> <cap> app <cap>    a second cap, for the folder in the repo's app
@@ -82,6 +83,12 @@ same path under the checkout's build root (target ->
                             main and the app checkouts, where the person runs
                             the app built there (bae:
                             bae-macos/bae/.build/runApp)
+  installed <folder> <file> a tool a script installs once per version into
+                            <folder> in ${XDG_CACHE_HOME:-~/.cache}, one entry
+                            per version, named after it; <file> in the
+                            checkout names the version it runs (bae:
+                            owner-construction-check
+                            scripts/owner-construction-check.sh)
 
 Tools always write through <checkout>/<path>, so the path a build sees never
 changes, however often builds deletes and recreates the folder behind the link.
@@ -836,6 +843,16 @@ Cargo's git checkouts. `setup` and `prune` delete each checkout in
 ~/.cargo/git/checkouts that no live checkout's Cargo.lock pins, holding cargo's
 package cache locks. The git databases in ~/.cargo/git/db stay.
 
+Installed tools. A repo's script may install a tool once per version into a
+folder in the user's cache home, for every checkout on the Mac to share (bae's
+ownership checker, about 10 MB per coven revision), and a `.build-dirs`
+`installed` line names the folder and the file that names the version a
+checkout runs. `setup` and `prune` delete each version in the folder whose name
+no live checkout's file contains, reading the file in every live checkout,
+whether or not its own `.build-dirs` has the line. An entry whose name starts
+with a dot is an install still being written, and stays. When a checkout's
+`.build-dirs` or one of the files can't be read, nothing is deleted.
+
 Build output in the temporary folders. A build pointed at /private/tmp or the
 user's temporary folder writes 5-14 GB there that nothing else deletes. `setup`
 and `prune` delete each cargo target, DerivedData or SwiftPM folder there, up
@@ -855,8 +872,9 @@ a toolchain upgrade is fine.
                               checkout is gone, DerivedData entries nothing
                               wrote to for a day, build output in the
                               temporary folders nothing wrote to for 30
-                              minutes, and cargo's git checkouts no Cargo.lock
-                              pins. First it retires each free side worktree
+                              minutes, cargo's git checkouts no Cargo.lock
+                              pins, and installed tool versions no checkout
+                              names. First it retires each free side worktree
                               (no claim, a clean tree, every commit on
                               origin/main by patch) that nothing has written
                               to or built in for a day; never main, side-1, an

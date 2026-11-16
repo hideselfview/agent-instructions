@@ -1,5 +1,6 @@
 //! A repo's `.build-dirs`: its build output paths and the size each may reach,
-//! and the shared caches every checkout uses, with theirs.
+//! the tools its scripts install into the user's cache home, and the shared
+//! caches every checkout uses, with their sizes.
 
 use std::path::{Path, PathBuf};
 
@@ -52,7 +53,7 @@ pub fn has_manifest(top: &Path) -> bool {
 /// The entries of <top>'s manifest, in its order; none without one. Fails on
 /// a malformed line, naming it.
 pub fn build_dirs(top: &Path) -> Result<Vec<BuildDir>> {
-    Ok(parse(top)?.0)
+    Ok(parse(top)?.dirs)
 }
 
 /// The paths a `keep <path>` line of <top>'s manifest names: builds inside a
@@ -61,20 +62,52 @@ pub fn build_dirs(top: &Path) -> Result<Vec<BuildDir>> {
 /// person runs or tests the app built there. A path is relative to the
 /// checkout.
 pub fn kept_builds(top: &Path) -> Result<Vec<String>> {
-    Ok(parse(top)?.1)
+    Ok(parse(top)?.kept)
 }
 
-fn parse(top: &Path) -> Result<(Vec<BuildDir>, Vec<String>)> {
+/// A tool a repo's script installs once per version into a folder in the
+/// user's cache home, for every checkout on the machine to share, with each
+/// version in an entry named after it (bae's ownership checker, one per coven
+/// revision); and the file in the checkout whose text names the version the
+/// checkout runs. An `installed <folder> <file>` line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Installed {
+    /// Relative to the cache home: `owner-construction-check`.
+    pub folder: String,
+    /// Relative to the checkout: `scripts/owner-construction-check.sh`.
+    pub file: String,
+}
+
+/// The tools the `installed` lines of <top>'s manifest name; none without
+/// one.
+pub fn installed(top: &Path) -> Result<Vec<Installed>> {
+    Ok(parse(top)?.installed)
+}
+
+/// What a manifest's lines say, in its order.
+struct Manifest {
+    dirs: Vec<BuildDir>,
+    kept: Vec<String>,
+    installed: Vec<Installed>,
+}
+
+/// Does relative <path> lead out of the folder it is relative to?
+fn escapes(path: &str) -> bool {
+    path.starts_with('/') || path.split('/').any(|part| part == "..")
+}
+
+fn parse(top: &Path) -> Result<Manifest> {
     let file = top.join(MANIFEST);
+    let mut manifest = Manifest {
+        dirs: Vec::new(),
+        kept: Vec::new(),
+        installed: Vec::new(),
+    };
     let text = match std::fs::read_to_string(&file) {
         Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok((Vec::new(), Vec::new()));
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(manifest),
         Err(error) => fail!("reading {}: {error}", file.display()),
     };
-    let mut entries = Vec::new();
-    let mut kept = Vec::new();
     for line in text.lines() {
         let mut fields = line.split_ascii_whitespace();
         let Some(path) = fields.next() else { continue };
@@ -85,13 +118,40 @@ fn parse(top: &Path) -> Result<(Vec<BuildDir>, Vec<String>)> {
             let (Some(kept_path), None) = (fields.next(), fields.next()) else {
                 fail!("{}: 'keep' takes one path, got '{line}'", file.display());
             };
-            if kept_path.starts_with('/') || kept_path.split('/').any(|part| part == "..") {
+            if escapes(kept_path) {
                 fail!(
                     "{}: '{kept_path}' must be inside the checkout",
                     file.display()
                 );
             }
-            kept.push(kept_path.to_string());
+            manifest.kept.push(kept_path.to_string());
+            continue;
+        }
+        if path == "installed" {
+            let (Some(folder), Some(named_in), None) =
+                (fields.next(), fields.next(), fields.next())
+            else {
+                fail!(
+                    "{}: 'installed' takes a folder in the cache home and a file in the checkout, got '{line}'",
+                    file.display()
+                );
+            };
+            if escapes(folder) {
+                fail!(
+                    "{}: '{folder}' must be inside the cache home",
+                    file.display()
+                );
+            }
+            if escapes(named_in) {
+                fail!(
+                    "{}: '{named_in}' must be inside the checkout",
+                    file.display()
+                );
+            }
+            manifest.installed.push(Installed {
+                folder: folder.to_string(),
+                file: named_in.to_string(),
+            });
             continue;
         }
         let cap = fields.next().unwrap_or("");
@@ -112,12 +172,7 @@ fn parse(top: &Path) -> Result<(Vec<BuildDir>, Vec<String>)> {
                 ),
             }
         }
-        if path.starts_with('/')
-            || path == ".."
-            || path.starts_with("../")
-            || path.ends_with("/..")
-            || path.contains("/../")
-        {
+        if escapes(path) {
             fail!("{}: '{path}' must be inside the checkout", file.display());
         }
         let what = format!("{}: '{path}'", file.display());
@@ -125,14 +180,14 @@ fn parse(top: &Path) -> Result<(Vec<BuildDir>, Vec<String>)> {
         let app_cap_kib = app_cap
             .map(|cap| self::cap_kib(cap, &format!("{what} (app)")))
             .transpose()?;
-        entries.push(BuildDir {
+        manifest.dirs.push(BuildDir {
             path: path.to_string(),
             cap_kib,
             app_cap_kib,
             lane,
         });
     }
-    Ok((entries, kept))
+    Ok(manifest)
 }
 
 /// <cap> (20G, 500M) in KiB; fails naming <what> when it is neither.
@@ -362,6 +417,40 @@ mod tests {
         for bad in ["keep\n", "keep a b\n", "keep ../x\n"] {
             std::fs::write(dir.join(MANIFEST), bad).unwrap();
             assert!(kept_builds(&dir).is_err(), "{bad} passed");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn installed_lines() {
+        let dir =
+            std::env::temp_dir().join(format!("builds-manifest-installed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(MANIFEST),
+            "target 1G\ninstalled checker scripts/checker.sh\n",
+        )
+        .unwrap();
+        assert_eq!(build_dirs(&dir).unwrap().len(), 1);
+        assert_eq!(
+            installed(&dir).unwrap(),
+            vec![Installed {
+                folder: "checker".into(),
+                file: "scripts/checker.sh".into(),
+            }]
+        );
+        for (bad, says) in [
+            ("installed checker\n", "'installed' takes a folder"),
+            ("installed a b c\n", "'installed' takes a folder"),
+            ("installed ../x f\n", "must be inside the cache home"),
+            ("installed /x f\n", "must be inside the cache home"),
+            ("installed x ../f\n", "must be inside the checkout"),
+        ] {
+            std::fs::write(dir.join(MANIFEST), bad).unwrap();
+            match installed(&dir) {
+                Err(fail::Fail::Message(message)) => assert!(message.contains(says), "{message}"),
+                other => panic!("{bad}: {other:?}"),
+            }
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }
