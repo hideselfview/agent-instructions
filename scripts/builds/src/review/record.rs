@@ -637,22 +637,22 @@ pub fn move_to_landing_review(db: &Connection) -> Result<()> {
     let index = slice("CREATE INDEX review_landing_key", ";");
     let commit = slice("CREATE TABLE review_commit", "WITHOUT ROWID;");
     let fix = slice("CREATE TABLE review_fix", "STRICT;");
-    db.execute_batch(&format!(
-        "PRAGMA legacy_alter_table = ON;
-ALTER TABLE review_landing RENAME TO review_landing_old;
-{landing}
-INSERT INTO review_landing (id, key, repo, opened_at, landed_at, landed_run)
+    crate::db::remake_table(
+        db,
+        "review_landing",
+        landing,
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_landing (id, key, repo, opened_at, landed_at, landed_run)
     SELECT o.id, o.key, o.repo, o.opened_at, o.closed_at,
         CASE WHEN o.closed_at IS NULL THEN NULL
             ELSE (SELECT MAX(r.id) FROM review_run r WHERE r.landing_id = o.id AND r.kind = 'review') END
-    FROM review_landing_old o;
-DROP TABLE review_landing_old;
-{index}
-{commit}
-{fix}
-PRAGMA legacy_alter_table = OFF;"
-    ))
-    .sql()
+    FROM review_landing_old o;",
+            )
+            .sql()
+        },
+        &[index, commit, fix],
+    )
 }
 
 /// Moves a store's `review_call` from before calls kept their prompt and
@@ -670,12 +670,13 @@ pub fn move_to_scored_calls(db: &Connection) -> Result<()> {
     let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
     let call = slice("CREATE TABLE review_call", "STRICT;");
     let index = slice("CREATE INDEX review_call_run", ";");
-    db.execute_batch(&format!(
-        "PRAGMA legacy_alter_table = ON;
-ALTER TABLE review_call RENAME TO review_call_old;
-{call}"
-    ))
-    .sql()?;
+    crate::db::remake_table(db, "review_call", call, copy_scored_calls, &[index])
+}
+
+/// Copies every call of `review_call_old` into `review_call` with the prompt
+/// read from the system prompt of its first exchange, for
+/// `move_to_scored_calls`.
+fn copy_scored_calls(db: &Connection) -> Result<()> {
     let ids: Vec<i64> = {
         let mut statement = db
             .prepare("SELECT id FROM review_call_old ORDER BY id")
@@ -708,12 +709,7 @@ ALTER TABLE review_call RENAME TO review_call_old;
         )
         .sql()?;
     }
-    db.execute_batch(&format!(
-        "DROP TABLE review_call_old;
-{index}
-PRAGMA legacy_alter_table = OFF;"
-    ))
-    .sql()
+    Ok(())
 }
 
 /// A row that keeps a patch id: a commit a review read, or a finding's fix.

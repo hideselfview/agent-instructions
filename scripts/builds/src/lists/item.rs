@@ -613,21 +613,22 @@ impl Lists {
 /// `legacy_alter_table`, so the tables that point at `item` keep naming it.
 pub fn move_to_origins(db: &Connection) -> Result<()> {
     const SQL: &str = include_str!("item.sql");
-    db.execute_batch(&format!(
-        "PRAGMA legacy_alter_table = ON;
-ALTER TABLE item RENAME TO item_old;
-{}
-INSERT INTO item (id, record_kind, title, area, details, audience, brief, origin)
-    SELECT id, record_kind, title, area, details, audience, brief, origin FROM item_old;
-DROP TABLE item_old;
-{}
-{}
-PRAGMA legacy_alter_table = OFF;",
+    crate::db::remake_table(
+        db,
+        "item",
         crate::db::statement(SQL, "CREATE TABLE item (", "STRICT;"),
-        crate::db::statement(SQL, "CREATE INDEX item_origin", ";"),
-        crate::db::statement(SQL, "CREATE INDEX item_area", ";"),
-    ))
-    .sql()
+        |db| {
+            db.execute_batch(
+                "INSERT INTO item (id, record_kind, title, area, details, audience, brief, origin)
+    SELECT id, record_kind, title, area, details, audience, brief, origin FROM item_old;",
+            )
+            .sql()
+        },
+        &[
+            crate::db::statement(SQL, "CREATE INDEX item_origin", ";"),
+            crate::db::statement(SQL, "CREATE INDEX item_area", ";"),
+        ],
+    )
 }
 
 /// The tables item.rs owns.

@@ -111,6 +111,36 @@ pub fn statement<'a>(schema: &'a str, from: &str, end: &str) -> &'a str {
     &schema[start..start + length + end.len()]
 }
 
+/// Makes table <table> again as <create> writes it, for a store move: renames
+/// the old table to `<table>_old`, runs <create>, lets <copy> copy the old
+/// rows from `<table>_old` into the new table, drops the old table and runs
+/// <after> (the table's indexes and any table the move adds beside it).
+/// migrate.rs runs a move with the foreign keys off, and SQLite renames the
+/// old table under `legacy_alter_table`, so the tables that point at <table>
+/// keep naming it.
+pub fn remake_table(
+    db: &Connection,
+    table: &str,
+    create: &str,
+    copy: impl FnOnce(&Connection) -> Result<()>,
+    after: &[&str],
+) -> Result<()> {
+    db.execute_batch(&format!(
+        "PRAGMA legacy_alter_table = ON;
+ALTER TABLE {table} RENAME TO {table}_old;
+{create}"
+    ))
+    .sql()?;
+    copy(db)?;
+    db.execute_batch(&format!(
+        "DROP TABLE {table}_old;
+{}
+PRAGMA legacy_alter_table = OFF;",
+        after.join("\n")
+    ))
+    .sql()
+}
+
 /// The stamp of the schema text: its FNV-1a hash, folded into `user_version`'s
 /// positive range and kept off 0 (no schema) and 1 (which a hook-stats-only
 /// database once carried).

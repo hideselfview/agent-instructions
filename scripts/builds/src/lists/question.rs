@@ -394,19 +394,23 @@ pub fn apply_blocked(
 /// keep naming it.
 pub fn move_to_origins(db: &Connection) -> Result<()> {
     const SQL: &str = include_str!("question.sql");
-    db.execute_batch(&format!(
-        "PRAGMA legacy_alter_table = ON;
-ALTER TABLE question RENAME TO question_old;
-{}
-INSERT INTO question (id, record_kind, title, details, kind, blocks_nothing)
-    SELECT id, record_kind, title, details, kind, blocks_nothing FROM question_old;
-DROP TABLE question_old;
-{}
-PRAGMA legacy_alter_table = OFF;",
+    crate::db::remake_table(
+        db,
+        "question",
         crate::db::statement(SQL, "CREATE TABLE question (", "STRICT;"),
-        crate::db::statement(SQL, "CREATE INDEX question_origin", ";"),
-    ))
-    .sql()
+        |db| {
+            db.execute_batch(
+                "INSERT INTO question (id, record_kind, title, details, kind, blocks_nothing)
+    SELECT id, record_kind, title, details, kind, blocks_nothing FROM question_old;",
+            )
+            .sql()
+        },
+        &[crate::db::statement(
+            SQL,
+            "CREATE INDEX question_origin",
+            ";",
+        )],
+    )
 }
 
 /// The tables question.rs owns.

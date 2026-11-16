@@ -355,17 +355,19 @@ fn insert_closing(db: &Connection, id: Id, kind: Kind, how: &How, stamp: &Stamp)
 /// `closing`.
 pub fn move_to_finished(db: &Connection) -> Result<()> {
     const SQL: &str = include_str!("record.sql");
-    db.execute_batch(&format!(
-        "PRAGMA legacy_alter_table = ON;
-ALTER TABLE closing RENAME TO closing_old;
-{}
-INSERT INTO closing (record_id, kind, how, at, by, decision_id, question_id, reason)
-    SELECT record_id, kind, how, at, by, decision_id, question_id, reason FROM closing_old;
-DROP TABLE closing_old;
-PRAGMA legacy_alter_table = OFF;",
+    crate::db::remake_table(
+        db,
+        "closing",
         crate::db::statement(SQL, "CREATE TABLE closing (", "STRICT;"),
-    ))
-    .sql()
+        |db| {
+            db.execute_batch(
+                "INSERT INTO closing (record_id, kind, how, at, by, decision_id, question_id, reason)
+    SELECT record_id, kind, how, at, by, decision_id, question_id, reason FROM closing_old;",
+            )
+            .sql()
+        },
+        &[],
+    )
 }
 
 /// How <id> left its list and who closed it when, or None when it is open.

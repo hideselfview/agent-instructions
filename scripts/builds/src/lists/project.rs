@@ -258,17 +258,19 @@ pub fn set_canvas(db: &Connection, canvas: bool) -> Result<()> {
 /// equals a fresh database's. migrate.rs runs this with the foreign keys off.
 pub fn move_to_canvas(db: &Connection) -> Result<()> {
     const SQL: &str = include_str!("project.sql");
-    db.execute_batch(&format!(
-        "PRAGMA legacy_alter_table = ON;
-ALTER TABLE project RENAME TO project_old;
-{}
-INSERT INTO project (singleton, name, canvas)
-    SELECT singleton, name, EXISTS (SELECT 1 FROM design_board) FROM project_old;
-DROP TABLE project_old;
-PRAGMA legacy_alter_table = OFF;",
+    crate::db::remake_table(
+        db,
+        "project",
         crate::db::statement(SQL, "CREATE TABLE project (", "STRICT;"),
-    ))
-    .sql()
+        |db| {
+            db.execute_batch(
+                "INSERT INTO project (singleton, name, canvas)
+    SELECT singleton, name, EXISTS (SELECT 1 FROM design_board) FROM project_old;",
+            )
+            .sql()
+        },
+        &[],
+    )
 }
 
 /// What the project's tables hold.

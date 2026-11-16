@@ -265,3 +265,59 @@ fn every_table_is_written_only_by_the_file_that_owns_it() {
     let found = foreign_writes(&rust_sources(&src), &owners);
     assert!(found.is_empty(), "{}", found.join("\n"));
 }
+
+/// A remade table takes its new shape and keeps its rows, the tables that
+/// point at it still name it, and the old table is gone.
+#[test]
+fn a_remade_table_keeps_its_rows_and_the_tables_that_point_at_it() {
+    let db = Connection::open_in_memory().unwrap();
+    // As migrate.rs runs a move.
+    db.pragma_update(None, "foreign_keys", false).unwrap();
+    db.execute_batch(
+        "CREATE TABLE thing (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE part (thing_id INTEGER NOT NULL REFERENCES thing (id));
+INSERT INTO thing (id, name) VALUES (1, 'one'), (2, 'two');
+INSERT INTO part (thing_id) VALUES (2);",
+    )
+    .unwrap();
+    remake_table(
+        &db,
+        "thing",
+        "CREATE TABLE thing (id INTEGER PRIMARY KEY, name TEXT NOT NULL, size INTEGER NOT NULL);",
+        |db| {
+            db.execute_batch(
+                "INSERT INTO thing (id, name, size) SELECT id, name, 0 FROM thing_old;",
+            )
+            .sql()
+        },
+        &["CREATE INDEX thing_name ON thing (name);"],
+    )
+    .unwrap();
+    let rows: Vec<(i64, String, i64)> = db
+        .prepare("SELECT id, name, size FROM thing ORDER BY id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .map(|row| row.unwrap())
+        .collect();
+    assert_eq!(rows, [(1, "one".into(), 0), (2, "two".into(), 0)]);
+    let sql = |name: &str| -> Option<String> {
+        db.query_row(
+            "SELECT sql FROM sqlite_master WHERE name = ?1",
+            [name],
+            |row| row.get(0),
+        )
+        .ok()
+    };
+    assert!(sql("part").unwrap().contains("REFERENCES thing (id)"));
+    assert!(sql("thing_name").is_some());
+    assert!(sql("thing_old").is_none());
+    let joined: String = db
+        .query_row(
+            "SELECT t.name FROM part p JOIN thing t ON t.id = p.thing_id",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(joined, "two");
+}
