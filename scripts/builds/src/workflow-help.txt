@@ -148,6 +148,15 @@ DISPATCH
     main". A quick-mode brief names the one test that proves the change and
     the clippy command with the hook's feature sets, never "the tests of what
     you touched".
+  - Critical work starts first. Critical work is what the person sees in the
+    apps (a screen, a bug, a feature the person asked for), builds work that
+    blocks or slows the agents, and the cleanups the person marks critical.
+    The coordinator places each critical item first (`--priority first`). A
+    cleanup is critical only when the person says so: ask before placing one
+    first. The screen-reads cleanup is critical, because the iOS, Windows and
+    Linux apps wait on it so that they don't copy the read shapes it removes.
+    Other cleanups (rewording, deleting dead code, merging duplicate types)
+    start only when no critical item is ready.
   - Take items from `builds next`. Claim the worktree (`builds claim`), mark
     the items running (`builds item take`), keep the worktree's note current
     (`builds note`) on every dispatch and handoff. A landing that leaves
