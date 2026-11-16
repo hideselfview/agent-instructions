@@ -101,38 +101,48 @@ fn belongs(name: &str, checkouts: &[String]) -> bool {
 }
 
 /// Is the `builds` process on this Mac that runs job <id> still running?
-/// An id whose pid builds cannot read counts as running.
-fn job_runs(id: &str) -> bool {
-    let Some(pid) = id
-        .split_once('-')
-        .and_then(|(pid, _)| pid.parse::<libc::pid_t>().ok())
-    else {
-        return true;
-    };
-    // SAFETY: signal 0 only checks that the process exists.
-    let exists = unsafe { libc::kill(pid, 0) == 0 };
-    exists || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+/// None when the id names no pid builds can read.
+fn job_runs(id: &str) -> Option<bool> {
+    let (pid, _) = id.split_once('-')?;
+    Some(crate::procs::runs(pid.parse().ok()?))
 }
 
-/// Why <worktree> goes, or None when it stays: it belongs to no checkout
-/// among <checkouts> and no running job claims it.
-fn unused(
+/// What prune does with a job worktree.
+#[derive(Debug, PartialEq, Eq)]
+enum Judged {
+    /// A checkout here uses it, or a job claims it.
+    Used,
+    /// No checkout here uses it, for this reason, and prune removes it.
+    Unused(String),
+    /// No checkout here uses it, but its claim names a job whose pid builds
+    /// cannot read. prune keeps it and says so.
+    UnreadableClaim(String),
+}
+
+/// What prune does with <worktree>: it removes the worktree when it belongs
+/// to no checkout among <checkouts> and no running job claims it.
+fn judge(
     worktree: &HostWorktree,
     checkouts: &[String],
-    job_runs: impl Fn(&str) -> bool,
-) -> Option<String> {
+    job_runs: impl Fn(&str) -> Option<bool>,
+) -> Judged {
     if belongs(&worktree.name, checkouts) {
-        return None;
+        return Judged::Used;
     }
     let checkout = worktree.name.strip_prefix(PREFIX).unwrap_or(&worktree.name);
     let why = format!("no checkout of {} here is named {checkout}", worktree.repo);
     match &worktree.claim {
-        Claim::Free => Some(why),
-        Claim::Starting => None,
-        Claim::Job(id) if job_runs(id) => None,
-        Claim::Job(id) => Some(format!(
-            "{why}, and the process of job {id}, which claimed it, is gone"
-        )),
+        Claim::Free => Judged::Unused(why),
+        Claim::Starting => Judged::Used,
+        Claim::Job(id) => match job_runs(id) {
+            Some(true) => Judged::Used,
+            Some(false) => Judged::Unused(format!(
+                "{why}, and the process of job {id}, which claimed it, is gone"
+            )),
+            None => Judged::UnreadableClaim(format!(
+                "{why}, but the job id {id:?} in its claim names no pid builds can check"
+            )),
+        },
     }
 }
 
@@ -224,8 +234,13 @@ fn prune_host(places: &Places, ssh: &Ssh, host: &Host, run: Run) -> Result<()> {
             ));
             continue;
         };
-        let Some(why) = unused(&worktree, here, job_runs) else {
-            continue;
+        let why = match judge(&worktree, here, job_runs) {
+            Judged::Used => continue,
+            Judged::Unused(why) => why,
+            Judged::UnreadableClaim(said) => {
+                note(format!("kept {shown}: {said}"));
+                continue;
+            }
         };
         if app_checkout(places, repo, &host.name, &worktree.name)? {
             continue;

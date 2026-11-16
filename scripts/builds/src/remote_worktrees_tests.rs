@@ -50,41 +50,43 @@ fn a_worktree_belongs_to_the_checkout_it_is_named_after() {
 }
 
 /// An unused worktree goes unless a job that still runs claims it, or a job
-/// is claiming it now; a worktree of a checkout here always stays.
+/// is claiming it now; a worktree of a checkout here always stays. A claim
+/// whose job id names no pid keeps the worktree, and prune says why.
 #[test]
 fn an_unused_worktree_goes_unless_a_running_job_claims_it() {
     let here = names(&["bae", "side-1"]);
-    let runs = |id: &str| id == "live-1";
+    let runs = |id: &str| match id {
+        "live-1" => Some(true),
+        "dead-1" => Some(false),
+        _ => None,
+    };
     assert_eq!(
-        unused(&worktree("remote-3", Claim::Free), &here, runs).as_deref(),
-        Some("no checkout of bae here is named 3")
+        judge(&worktree("remote-3", Claim::Free), &here, runs),
+        Judged::Unused("no checkout of bae here is named 3".to_string())
     );
     assert_eq!(
-        unused(
-            &worktree("remote-3", Claim::Job("dead-1".into())),
-            &here,
-            runs
-        )
-        .as_deref(),
-        Some(
-            "no checkout of bae here is named 3, and the process of job dead-1, which claimed it, is gone"
-        )
+        judge(&worktree("remote-3", Claim::Job("dead-1".into())), &here, runs),
+        Judged::Unused("no checkout of bae here is named 3, and the process of job dead-1, which claimed it, is gone".to_string())
     );
     assert_eq!(
-        unused(
+        judge(
             &worktree("remote-3", Claim::Job("live-1".into())),
             &here,
             runs
         ),
-        None
+        Judged::Used
     );
     assert_eq!(
-        unused(&worktree("remote-3", Claim::Starting), &here, runs),
-        None
+        judge(&worktree("remote-3", Claim::Job("junk".into())), &here, runs),
+        Judged::UnreadableClaim("no checkout of bae here is named 3, but the job id \"junk\" in its claim names no pid builds can check".to_string())
     );
     assert_eq!(
-        unused(&worktree("remote-side-1.2", Claim::Free), &here, runs),
-        None
+        judge(&worktree("remote-3", Claim::Starting), &here, runs),
+        Judged::Used
+    );
+    assert_eq!(
+        judge(&worktree("remote-side-1.2", Claim::Free), &here, runs),
+        Judged::Used
     );
 }
 
@@ -98,9 +100,10 @@ fn gone_pid() -> u32 {
 
 #[test]
 fn a_job_runs_while_its_process_on_this_mac_runs() {
-    assert!(job_runs(&format!("{}-17", std::process::id())));
-    assert!(!job_runs(&format!("{}-17", gone_pid())));
-    assert!(job_runs("unreadable"), "an id builds cannot read stays");
+    assert_eq!(job_runs(&format!("{}-17", std::process::id())), Some(true));
+    assert_eq!(job_runs(&format!("{}-17", gone_pid())), Some(false));
+    assert_eq!(job_runs("unreadable"), None);
+    assert_eq!(job_runs("x-17"), None);
 }
 
 /// Adds worktree <name> of the host's clone <clone>, with a build root in the
