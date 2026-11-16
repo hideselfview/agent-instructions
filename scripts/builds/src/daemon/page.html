@@ -14,7 +14,7 @@
   --bg: #F6F6F3; --surface: #FFFFFF; --pinned: #EDEDE8; --pinned-line: #DADAD3;
   --line: #E2E2DC; --line-soft: #F0F0EA; --track: #ECECE6;
   --text: #1A1A19; --text-2: #2B2B29; --text-3: #3A3A37; --muted: #5C5C57; --muted-2: #6B6B66;
-  --ok: #2E7D4F; --warn: #9A5B00; --bad: #B3261E; --bad-bg: #FDE7E5;
+  --ok: #2E7D4F; --warn: #86692A; --warn-bg: #F5EEDA; --bad: #B3261E; --bad-bg: #FDE7E5;
   --accent: #1F4FB8; --waiting-bg: #EEF3FC;
   --working-bg: #E7F2EA; --working: #1F5E38;
   --ready-bg: #E3ECFB; --ready: #1F4FB8;
@@ -30,7 +30,7 @@
     --bg: #161615; --surface: #1F1F1D; --pinned: #262624; --pinned-line: #383833;
     --line: #34342F; --line-soft: #2B2B28; --track: #34342F;
     --text: #ECECE8; --text-2: #D9D9D3; --text-3: #C9C9C2; --muted: #A6A69F; --muted-2: #9C9C95;
-    --ok: #5DBB84; --warn: #E8A84A; --bad: #FF8A80; --bad-bg: #3D1A17;
+    --ok: #5DBB84; --warn: #D6BD84; --warn-bg: #2C2719; --bad: #FF8A80; --bad-bg: #3D1A17;
     --accent: #93B2FF; --waiting-bg: #1C2538;
     --working-bg: #1C3324; --working: #93D8AE;
     --ready-bg: #1D2A45; --ready: #A9C3FF;
@@ -157,47 +157,67 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .more-wts { border: 1px dashed var(--line); border-radius: 12px; background: transparent; color: var(--muted); font: 600 14px var(--sans); padding: 12px 16px; display: flex; align-items: center; cursor: pointer; text-align: left; min-height: 48px; }
 .more-wts:hover { border-color: var(--muted-2); color: var(--text-2); }
 
-.wt-card { background: var(--surface); border: 1px solid var(--surface); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.wt-card .t { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.wt-card .t > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wt-card .t b { font-weight: 700; font-size: 15px; }
-.wt-card .br { font: 400 13px var(--mono); color: var(--muted); margin-left: 4px; }
-.wt-card .what { color: var(--text-2); }
-.wt-card .title { color: var(--text); font-weight: 600; }
-.wt-card .title + .what { font-size: 13px; color: var(--muted); }
+.wt-card { --num-w: 30px; --sha-w: 74px; background: var(--surface); border: 1px solid var(--surface); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* The card's running items, each number beside its title: the first three, then "N more". */
+.items { display: flex; flex-direction: column; gap: 3px; margin-block: 8px 12px; padding-left: 10px; line-height: 1.55; }
+.items .it { display: grid; grid-template-columns: var(--num-w) minmax(0, 1fr); gap: 0 4px; align-items: baseline; }
+.items .n { font: 500 12px var(--mono); color: var(--muted-2); font-variant-numeric: tabular-nums; text-align: left; }
+.items .tt { color: var(--text-2); font-weight: 500; min-width: 0; }
+.items details > summary { padding-left: calc(var(--num-w) + 4px); margin-top: 1px; }
+.items details[open] { display: flex; flex-direction: column; }
+.items details[open] > summary { order: 2; margin-top: 3px; }
+.items details .list { display: flex; flex-direction: column; gap: 3px; }
+/* With no running item, the claim note on one line where the items would be. */
+.wt-card .note { margin-block: 8px 12px; padding-left: 10px; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-card summary { cursor: pointer; font-size: 12px; color: var(--muted); list-style: none; }
+.wt-card summary::-webkit-details-marker { display: none; }
+.wt-card summary:hover { color: var(--text-2); }
+.wt-card summary:focus-visible { outline: 2px solid var(--ready); outline-offset: 2px; border-radius: 3px; }
+.wt-card summary .less, .wt-card details[open] > summary .more { display: none; }
+.wt-card details[open] > summary .less { display: inline; }
 .wt-card > *:has(+ .foot) { margin-bottom: 6px; }
-.wt-card .foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
-.wt-card .tree { margin-left: auto; }
+/* The footer's two lines: the worktree, its times and the stalled pill; the
+   branch, its uncommitted files and its disk. */
+.wt-card .foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.foot .r { display: flex; flex-wrap: nowrap; gap: 4px 14px; align-items: baseline; min-width: 0; }
+.foot .r > * { flex: none; }
+.foot .r > .wt { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.foot .wt b { color: var(--text-2); font-weight: 600; }
+.foot .br { font: 400 12px var(--mono); color: var(--muted); }
+.foot .right { margin-left: auto; display: inline-flex; gap: 4px 14px; align-items: baseline; }
+.foot .times { display: inline-flex; gap: 4px 14px; align-items: baseline; }
+.foot .ic { align-items: baseline; gap: 3px; }
+.foot .ic svg { align-self: center; width: 13px; height: 13px; color: var(--muted-2); opacity: 0.75; }
+.stalled { color: var(--warn); background: var(--warn-bg); font-weight: 700; font-size: 14px; font-variant: all-small-caps; letter-spacing: 0.04em; border-radius: 999px; padding: 0 8px; }
 .ic { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
 .ic svg { flex: none; }
-.quiet { color: var(--muted-2); font-style: italic; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
-.bar { margin: -13px -17px 6px; border-radius: 12px 12px 0 0; padding: 7px 17px; background: var(--line-soft); color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 12px; }
+.bar { margin: -13px -17px 8px; border-radius: 12px 12px 0 0; padding: 10px 17px; background: var(--line-soft); color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 12px; }
 .bar.building { background: var(--working-bg); color: var(--working); }
 .bar.ready { background: var(--ready-bg); color: var(--ready); }
 .bar.you { background: var(--you-bg); color: var(--you); }
 /* A worktree whose branch waits in an app build lane's queue. */
 .bar.queued { background: var(--winding-bg); color: var(--winding); }
-.bar.queued .disk { color: var(--winding); }
 /* A worktree whose commits wait on their rules review before they can land. */
 .bar.inreview { background: var(--winding-bg); color: var(--winding); }
-.bar.inreview .disk { color: var(--winding); }
 .wt-card .steps { font: 12px var(--mono); }
 .bar .qplace { font: 500 12px var(--mono); margin-left: 4px; }
-.bar .grp { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; }
-.bar .l-id { margin-right: -6px; color: inherit; opacity: 0.75; }
+.bar .grp { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+/* What the card waits on, at the bar's right: an icon and a word or two, the whole sentence on hover. */
+.bar .pill { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; font-size: 12px; font-variant-numeric: tabular-nums; padding: 2px 9px 2px 7px; border-radius: 999px; background: color-mix(in srgb, currentColor 14%, transparent); }
+.bar .pill svg { flex: none; }
 .bar .state { font-weight: 600; }
-.bar .disk { margin-left: auto; font: 500 13px var(--mono); }
-.bar.ready .disk { color: var(--ready); }
 .bar .bar-procs { flex-basis: 100%; font: 12px var(--mono); overflow-wrap: anywhere; }
 .bar .bar-procs .ic { display: inline; font: inherit; }
 .bar .bar-procs .ic svg { vertical-align: -2px; margin-right: 5px; }
-.land { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.land .c { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; align-items: baseline; }
+/* The commits waiting to land, one line each: the first holds "+N" for the rest. */
+.land { background: color-mix(in srgb, var(--surface), var(--text) 4%); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.land .c { display: grid; grid-template-columns: var(--sha-w) minmax(0, 1fr); gap: 2px 10px; align-items: baseline; }
 .land .c .mono { color: var(--muted-2); font-size: 12px; }
-.land .c > span:not(.mono) { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.land details summary { cursor: pointer; padding: 0; font-size: 12px; color: var(--muted); list-style: none; }
-.land details summary::-webkit-details-marker { display: none; }
-.land details .c { margin-top: 2px; }
+.land .c > span:not(.mono) { color: var(--muted); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.land details { display: flex; flex-direction: column; gap: 4px; }
+.land summary.c { grid-template-columns: var(--sha-w) minmax(0, 1fr) max-content; font-size: 13px; color: inherit; }
+.land summary .tog { font-size: 12px; color: var(--muted); }
+.land summary:hover .tog { color: var(--text-2); }
 
 /* An app build lane: one card wide, green all over while it builds. */
 .lane { border: 1px solid var(--line); border-radius: 12px; background: transparent; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
@@ -640,9 +660,10 @@ function icon(name, epoch, text) {
   el.prepend(svgEl);
   return el;
 }
-function diskSpan(c) {
-  return h("span", {class: "disk", title: "Disk: the build output this worktree holds on the build volume."},
-    c.total_kib === null ? "…" : size(c.total_kib));
+// A worktree's build output on the volume, as its card's footer shows it.
+function diskText(kib) {
+  if (kib === null || kib === undefined) return "…";
+  return kib >= 1048576 ? (kib / 1048576).toFixed(1) + " GB" : Math.floor(kib / 1024) + " MB";
 }
 function programs(names) {
   return names.map(p => p.count > 1 ? p.name + " ×" + p.count : p.name).join(", ");
@@ -655,62 +676,108 @@ function programCounts(processes) {
   }
   return counts;
 }
-function cardLine(c) {
+// A card's footer: the worktree, its times and the stalled pill; then the
+// branch, its uncommitted files and its disk.
+function cardFoot(c) {
   const g = c.git;
-  const foot = [];
-  if (g && g.head) foot.push(icon("commit", g.head.time));
-  if (g && g.last_write) foot.push(icon("write", g.last_write));
+  const times = [];
+  if (g && g.head) times.push(icon("commit", g.head.time));
+  if (g && g.last_write) times.push(icon("write", g.last_write));
   if (c.claim) {
     const t = Date.parse(c.claim.since.replace(" ", "T"));
-    if (!isNaN(t)) foot.push(icon("claim", t / 1000));
+    if (!isNaN(t)) times.push(icon("claim", t / 1000));
   }
   const b = built(c);
-  if (quiet(c)) foot.push(h("span", {class: "quiet", title: "Uncommitted files, and none written for 30 minutes"}, "quiet"));
-  if (b && b.over.length) foot.push(h("span", {class: "bad", title: b.over.join("; ")}, "build over cap"));
-  if (b) for (const p of b.links) foot.push(h("span", {class: "bad"}, p));
-  if (c.words.tree) foot.push(h("span", {class: "tree"}, c.words.tree));
-  return h("div", {class: "foot"}, foot);
+  const files = c.words.uncommitted;
+  return h("div", {class: "foot"},
+    h("div", {class: "r"}, h("span", {class: "wt", title: c.name}, h("b", {}, c.name)),
+      h("span", {class: "right"}, h("span", {class: "times"}, times),
+        quiet(c) ? h("span", {class: "stalled", title: "Stalled: an agent claims this worktree, but no file in it has changed and no build has run there for an hour."}, "stalled") : null)),
+    h("div", {class: "r"}, h("span", {class: "wt", title: detachedAt(c)}, h("span", {class: "br"}, detachedAt(c))),
+      h("span", {class: "right"},
+        b && b.over.length ? h("span", {class: "bad", title: b.over.join("; ")}, "build over cap") : null,
+        b && b.links.length ? h("span", {class: "bad", title: b.links.join("; ")}, plural(b.links.length, "build folder", "build folders") + " not linked here") : null,
+        files ? h("span", {title: files.title}, files.text) : null,
+        h("span", {title: "Disk: the build output this worktree holds on the build volume."}, diskText(c.total_kib)))));
 }
-function commitCells(commits) {
-  return commits.flatMap(x => [h("span", {class: "mono"}, x.sha), h("span", {title: x.subject}, x.subject)]);
+// The icon of each thing a card can wait on (PillKind in cards.rs).
+const PILL_ICONS = {
+  answer: '<circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.3a1.9 1.9 0 1 1 2.7 1.7c-.5.3-.9.6-.9 1.2v.3"/><circle cx="8" cy="11.6" r=".6" fill="currentColor"/>',
+  review: '<path d="M1.5 8S3.9 3.5 8 3.5 14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>',
+  fixes: '<path d="M10.6 2.4a3.1 3.1 0 0 0-4 4L2.4 10.6l3 3 4.2-4.2a3.1 3.1 0 0 0 4-4l-1.9 1.9-1.8-.4-.4-1.8z"/>',
+  settle: '<path d="M6 4h7.5M6 8h7.5M6 12h7.5"/><circle cx="2.75" cy="4" r=".6" fill="currentColor"/><circle cx="2.75" cy="8" r=".6" fill="currentColor"/><circle cx="2.75" cy="12" r=".6" fill="currentColor"/>',
+  unreviewed: ICONS.commit[2],
+  after: '<path d="M6.5 9.5l3-3"/><path d="M7.2 4.6l1.3-1.3a2.5 2.5 0 0 1 3.6 3.6l-1.3 1.3"/><path d="M8.8 11.4l-1.3 1.3a2.5 2.5 0 0 1-3.6-3.6l1.3-1.3"/>',
+  unrecorded: ICONS.write[2],
+  build: ICONS.build[2],
+  held: '<path d="M6 3.5v9M10 3.5v9"/>',
+};
+// What the card waits on, in the bar: an icon and a word or two, with the
+// whole sentence on hover.
+function pillSpan(p) {
+  const el = h("span", {class: "pill", title: p.title}, p.text);
+  el.prepend(svg("svg", {viewBox: "0 0 16 16", width: "14", height: "14", fill: "none", stroke: "currentColor",
+    "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true"}));
+  el.firstChild.innerHTML = PILL_ICONS[p.kind];
+  return el;
 }
-// A worktree's card, the way the board draws one: a bar with its state and
-// its disk (green for Working, blue for Ready to land, grey for a branch whose
-// rules review is not finished), what builds in it on
-// that bar's second line, its title, one plain line, the commit waiting to
-// land, and a footer of times and tree state. The daemon words the state, the
-// line and the tree (cards.rs).
-// The card's line, with the steps a queued build asked for in the mono face.
-function queuedLine(words) {
+// The line that opens a list's hidden rest; it reads "Show fewer" while open
+// and moves below the list's last row.
+function moreSummary(n) {
+  return h("summary", {}, h("span", {class: "more"}, n + " more"), h("span", {class: "less"}, "Show fewer"));
+}
+const ITEMS_SHOWN = 3;
+function itemRows(items) {
+  return items.map(i => h("div", {class: "it"}, h("span", {class: "n"}, "#" + i.id), h("span", {class: "tt"}, i.title)));
+}
+function itemList(items) {
+  return h("div", {class: "items"}, itemRows(items.slice(0, ITEMS_SHOWN)),
+    items.length > ITEMS_SHOWN ? h("details", {}, moreSummary(items.length - ITEMS_SHOWN),
+      h("div", {class: "list"}, itemRows(items.slice(ITEMS_SHOWN)))) : null);
+}
+function commitCells(x) {
+  return [h("span", {class: "mono"}, x.sha), h("span", {title: x.subject}, x.subject)];
+}
+// The commits waiting to land: the first commit's line opens the rest, with
+// "+N" at its right, which reads "Show fewer" while they show.
+function commitBox(ahead) {
+  if (!ahead.length) return null;
+  if (ahead.length === 1) return h("div", {class: "land"}, h("div", {class: "c"}, commitCells(ahead[0])));
+  return h("div", {class: "land"}, h("details", {},
+    h("summary", {class: "c"}, commitCells(ahead[0]),
+      h("span", {class: "tog"}, h("span", {class: "more"}, "+" + (ahead.length - 1)), h("span", {class: "less"}, "Show fewer"))),
+    ahead.slice(1).map(x => h("div", {class: "c"}, commitCells(x)))));
+}
+// The note, with the steps a queued build asked for in the mono face.
+function queuedNote(words) {
   const steps = words.queued && words.queued.steps;
-  const at = steps ? words.line.indexOf(steps) : -1;
-  if (at < 0) return words.line;
-  return [words.line.slice(0, at), h("span", {class: "steps"}, steps), words.line.slice(at + steps.length)];
+  const at = steps ? words.note.indexOf(steps) : -1;
+  if (at < 0) return words.note;
+  return [words.note.slice(0, at), h("span", {class: "steps"}, steps), words.note.slice(at + steps.length)];
 }
+// A worktree's card, one layout for every card: a bar with its state at the
+// left and what it waits on at the right (green for Working, blue for Ready
+// to land, grey for a branch whose rules review is not finished), what builds
+// in it on that bar's second line, its running items (or its note when none
+// runs), the commits waiting to land, and a two-line footer. The daemon words
+// the state, the pill, the note and the uncommitted files (cards.rs).
 function worktreeCard(c) {
   const g = c.git, a = c.activity, building = a.processes.length > 0;
-  const chip = c.words.chip;
-  const queued = c.words.queued;
+  const words = c.words, chip = words.chip, queued = words.queued;
   const tone = queued ? " queued" : c.state === "in-review" ? " inreview" : chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
-  const ahead = g && !g.error ? g.ahead : [];
-  const land = ahead.length ? h("div", {class: "land"},
-    h("div", {class: "c"}, commitCells(ahead.slice(0, 1))),
-    ahead.length > 1 ? h("details", {}, h("summary", {}, (ahead.length - 1) + " more"),
-      h("div", {class: "c"}, commitCells(ahead.slice(1)))) : null) : null;
   return h("article", {class: "wt-card"},
     h("div", {class: "bar" + tone},
-      h("span", {class: "grp"}, c.words.numbers.length ? idChip(...c.words.numbers) : null, chip ? h("span", {class: "state"}, chip,
+      h("span", {class: "grp"}, chip ? h("span", queued ? {class: "state", title: queued.line} : {class: "state"}, chip,
         queued ? [" ", h("span", {class: "qplace"}, queued.place + "/" + queued.of)] : null) : null,
         building ? h("span", {}, Math.round(a.cpu) + "% CPU · " + bytes(a.memory)) : null),
-      diskSpan(c),
+      words.pill ? pillSpan(words.pill) : null,
       building ? h("span", {class: "bar-procs"}, icon("build", a.started), " · " + programs(programCounts(a.processes))) : null),
-    h("div", {class: "t"}, h("span", {}, h("b", {}, c.name), " ", h("span", {class: "br", title: detachedAt(c)}, detachedAt(c)))),
-    c.words.titles.map(title => h("div", {class: "title"}, title)),
-    c.words.line ? h("div", {class: "what"}, queuedLine(c.words)) : null,
+    words.items.length ? itemList(words.items) : null,
+    words.note ? h("div", {class: "note", title: words.note}, queuedNote(words)) : null,
     g && g.error ? h("div", {class: "error"}, g.error) : null,
     c.errors.map(error => h("div", {class: "error"}, error)),
-    land,
-    cardLine(c));
+    commitBox(g && !g.error ? g.ahead : []),
+    cardFoot(c));
 }
 function hours(minutes) {
   return minutes >= 120 ? Math.round(minutes / 60) + " hours" : minutes === 1 ? "1 minute" : minutes + " minutes";

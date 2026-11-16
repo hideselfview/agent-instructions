@@ -1,6 +1,7 @@
-//! The words on a worktree's card: the chip in its top bar, the one plain
-//! line of what is happening, and the state of its tree. The page draws
-//! them; the times and the commits come from the checkout's own facts.
+//! The words on a worktree's card: the chip in its top bar, the pill that
+//! names what the card waits on, the running items it lists (or its note
+//! when none runs), and its uncommitted files. The page draws them; the
+//! times and the commits come from the checkout's own facts.
 
 use super::model::CheckoutPage;
 
@@ -8,7 +9,7 @@ use super::model::CheckoutPage;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ItemWait {
     /// An open question for the person.
-    Answer(String),
+    Answer { id: u32, title: String },
     /// A design change that waits on the person's review.
     Review { id: u32, title: String },
     /// An app build of the branch runs or waits in a lane: `lane` is `Mac`
@@ -60,7 +61,23 @@ impl ReviewWait {
         }
     }
 
-    fn line(self) -> String {
+    /// The pill in the card's bar; None when the chip says it all.
+    fn pill(self) -> Option<Pill> {
+        let (kind, text) = match self {
+            ReviewWait::NotRun | ReviewWait::Running => return None,
+            ReviewWait::ToSettle(n) => (PillKind::Settle, count(n, "finding", "findings")),
+            ReviewWait::Unfixed(n) => (PillKind::Fixes, count(n, "finding", "findings")),
+            ReviewWait::Unreviewed(n) => (PillKind::Unreviewed, count(n, "commit", "commits")),
+        };
+        Some(Pill {
+            kind,
+            text,
+            title: self.sentence(),
+        })
+    }
+
+    /// Where the review stands, in a sentence.
+    fn sentence(self) -> String {
         let findings = |n: usize, what: &str| match n {
             1 => format!("1 {what} finding waits"),
             n => format!("{n} {what} findings wait"),
@@ -100,11 +117,19 @@ pub struct QueuedBuild {
     pub steps: Option<String>,
 }
 
+/// <n> things, in the singular for one.
+fn count(n: usize, one: &str, many: &str) -> String {
+    match n {
+        1 => format!("1 {one}"),
+        n => format!("{n} {many}"),
+    }
+}
+
 impl ItemWait {
     /// What the person has to do comes before another item.
     pub fn rank(&self) -> u8 {
         match self {
-            ItemWait::Answer(_) => 0,
+            ItemWait::Answer { .. } => 0,
             ItemWait::Review { .. } => 1,
             ItemWait::AppBuild { .. } => 2,
             ItemWait::Item { .. } => 3,
@@ -115,20 +140,39 @@ impl ItemWait {
 
     /// Does only the person's answer or review end this wait?
     pub fn needs_person(&self) -> bool {
-        matches!(self, ItemWait::Answer(_) | ItemWait::Review { .. })
+        matches!(self, ItemWait::Answer { .. } | ItemWait::Review { .. })
     }
 
-    /// The words of the wait. <titled> says an item's title is already the
-    /// card's main line, so a design change's title belongs in the words;
-    /// without one, the change's title is the main line.
-    fn line(&self, titled: bool) -> String {
+    /// The pill in the card's bar; None for an app build that has not
+    /// started and a rules review that has no findings yet, which the chip
+    /// names.
+    fn pill(&self) -> Option<Pill> {
+        let (kind, text) = match self {
+            ItemWait::Answer { id, .. } => (PillKind::Answer, format!("Answer #{id}")),
+            ItemWait::Review { id, .. } => (PillKind::Review, format!("Review #{id}")),
+            ItemWait::AppBuild {
+                lane,
+                running: true,
+                ..
+            } => (PillKind::Build, format!("{lane} build")),
+            ItemWait::AppBuild { running: false, .. } => return None,
+            ItemWait::Item { id, .. } => (PillKind::After, format!("After #{id}")),
+            ItemWait::Unrecorded => (PillKind::Unrecorded, "No design change".to_string()),
+            ItemWait::RulesReview(review) => return review.pill(),
+        };
+        Some(Pill {
+            kind,
+            text,
+            title: self.sentence(),
+        })
+    }
+
+    /// The wait in a sentence.
+    fn sentence(&self) -> String {
         match self {
-            ItemWait::Answer(title) => format!("Waits on your answer: {title}"),
-            ItemWait::Review { id, title } if titled => {
+            ItemWait::Answer { title, .. } => format!("Waits on your answer: {title}"),
+            ItemWait::Review { id, title } => {
                 format!("Waits on your review of design change {id}: {title}")
-            }
-            ItemWait::Review { id, .. } => {
-                format!("Waits on your review of design change {id}")
             }
             ItemWait::AppBuild {
                 lane,
@@ -143,7 +187,7 @@ impl ItemWait {
             ItemWait::Unrecorded => {
                 "Waits on the design session to record its design change.".to_string()
             }
-            ItemWait::RulesReview(review) => review.line(),
+            ItemWait::RulesReview(review) => review.sentence(),
         }
     }
 }
@@ -175,133 +219,190 @@ pub fn waits_in_queue(state: Option<&str>, wait: Option<&ItemWait>) -> bool {
         && matches!(wait, Some(ItemWait::AppBuild { running: false, .. }))
 }
 
+/// A running item, as its card lists it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct RunningItem {
+    pub id: u32,
+    pub title: String,
+}
+
+/// What the pill in a card's bar names: the page draws an icon for each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PillKind {
+    /// An open question for the person.
+    Answer,
+    /// A design change that waits on the person's review.
+    Review,
+    /// Confirmed review findings that wait on a fix.
+    Fixes,
+    /// Review findings for the coordinator to settle.
+    Settle,
+    /// Commits the rules review did not read.
+    Unreviewed,
+    /// Another item.
+    After,
+    /// Design commits that no recorded design change covers.
+    Unrecorded,
+    /// An app build of the branch that runs now.
+    Build,
+    /// A worktree held on purpose.
+    Held,
+}
+
+/// What a card waits on, in an icon and one or two words; `title` is the
+/// whole sentence, which the page shows on hover.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct Pill {
+    pub kind: PillKind,
+    pub text: String,
+    pub title: String,
+}
+
 /// What a card says in words.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Words {
     /// The chip at the left of the top bar: only a worktree an agent holds
     /// or commits wait in has one.
     pub chip: Option<&'static str>,
-    /// The titles of the items running here, the card's main lines: one per
-    /// item. They replace the claim note. A design branch with no running
-    /// item shows its design change's title.
-    pub titles: Vec<String>,
-    /// The numbers of the items running here, in list order. The page shows
-    /// them first in the top bar. model.rs sets them when it reads the
-    /// card's items; `words` leaves them empty.
-    pub numbers: Vec<u32>,
-    /// The plain line of what the worktree waits on or does. With a title
-    /// above it, the claim note is left out.
-    pub line: String,
-    /// `clean` or `N files changed`; None when git was not read here.
-    pub tree: Option<String>,
+    /// What the worktree waits on, at the right of the top bar.
+    pub pill: Option<Pill>,
+    /// The items running here, in list order.
+    pub items: Vec<RunningItem>,
+    /// Only when no item runs: the claim note, else what the worktree waits
+    /// on or what its state means.
+    pub note: Option<String>,
+    /// The uncommitted files; None for a clean tree, or when git was not
+    /// read here.
+    pub uncommitted: Option<Uncommitted>,
     /// The place in a lane's queue of a worktree that waits for its app
     /// build to start.
     pub queued: Option<QueuedBuild>,
 }
 
-fn tree(checkout: &CheckoutPage) -> Option<String> {
+/// A worktree's uncommitted files, as its card's footer counts them, with
+/// what the count means in `title`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct Uncommitted {
+    pub text: String,
+    pub title: String,
+}
+
+fn uncommitted(checkout: &CheckoutPage) -> Option<Uncommitted> {
     let git = checkout.git.as_ref().filter(|git| git.error.is_none())?;
-    Some(match git.uncommitted? {
-        0 => "clean".to_string(),
-        1 => "1 file changed".to_string(),
-        n => format!("{n} files changed"),
+    let files = match git.uncommitted? {
+        0 => return None,
+        n => count(n, "file", "files"),
+    };
+    Some(Uncommitted {
+        title: format!("{files} changed, not committed"),
+        text: files,
     })
 }
 
 /// The words of <checkout>, a live checkout that is not an app checkout:
-/// <titles> are its running items' and <wait> is what they wait on.
-pub fn words(checkout: &CheckoutPage, titles: &[String], wait: Option<&ItemWait>) -> Words {
-    let tree = tree(checkout);
+/// <items> are its running items and <wait> is what they wait on.
+pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemWait>) -> Words {
+    let uncommitted = uncommitted(checkout);
     if checkout.main {
         return Words {
             chip: None,
-            titles: Vec::new(),
-            numbers: Vec::new(),
-            line: "Your checkout. No agent works or builds here.".into(),
-            tree,
+            pill: None,
+            items: Vec::new(),
+            note: Some("Your checkout. No agent works or builds here.".into()),
+            uncommitted,
             queued: None,
         };
     }
-    // A running item's title replaces the claim note.
-    let note = checkout
+    let claim_note = checkout
         .claim
         .as_ref()
         .and_then(|claim| claim.note.clone())
         .filter(|note| !note.is_empty());
-    let titled = !titles.is_empty();
-    let note = if titled { None } else { note };
-    let fallback = |text: &str| {
-        if titled {
-            String::new()
-        } else {
-            text.to_string()
-        }
-    };
-    let (chip, line) = match checkout.state {
+    // <said> is the sentence the card falls back on when no item runs and
+    // the agent left no note.
+    let (chip, pill, said) = match checkout.state {
         Some("queued") => match wait {
-            Some(ItemWait::AppBuild { lane, .. }) => (Some(queued_chip(lane)), String::new()),
-            _ => (Some("Working"), String::new()),
+            Some(ItemWait::AppBuild {
+                lane,
+                queued: Some(queued),
+                ..
+            }) => (Some(queued_chip(lane)), None, queued.line.clone()),
+            Some(ItemWait::AppBuild { lane, .. }) => (Some(queued_chip(lane)), None, String::new()),
+            _ => (Some("Working"), None, String::new()),
         },
         Some("waiting-on-you") if wait.is_some_and(ItemWait::needs_person) => (
             Some("Waiting on you"),
-            wait.map(|w| w.line(titled)).unwrap_or_default(),
+            wait.and_then(ItemWait::pill),
+            wait.map(ItemWait::sentence).unwrap_or_default(),
         ),
         Some("ready-to-land") if wait == Some(&ItemWait::Unrecorded) => (
             Some("Ready to land"),
-            wait.map(|w| w.line(titled)).unwrap_or_default(),
+            wait.and_then(ItemWait::pill),
+            wait.map(ItemWait::sentence).unwrap_or_default(),
         ),
         Some("working") if wait.is_some() => (
             Some("Working"),
-            wait.map(|w| w.line(titled)).unwrap_or_default(),
+            wait.and_then(ItemWait::pill),
+            wait.map(ItemWait::sentence).unwrap_or_default(),
         ),
         Some("in-review") => match wait {
-            Some(ItemWait::RulesReview(review)) => (Some(review.chip()), review.line()),
-            _ => (Some("Needs review"), String::new()),
+            Some(ItemWait::RulesReview(review)) => {
+                (Some(review.chip()), review.pill(), review.sentence())
+            }
+            _ => (Some("Needs review"), None, String::new()),
         },
-        Some("free") => (None, "Free: no claim, every commit landed.".to_string()),
+        Some("free") => (
+            None,
+            None,
+            "Free: no claim, every commit landed.".to_string(),
+        ),
         Some("ready-to-land") if checkout.claim.is_none() => (
             Some("Ready to land"),
+            None,
             "Commits wait to land and no agent claims this worktree.".to_string(),
         ),
         Some("ready-to-land") => (
             Some("Ready to land"),
+            None,
             "Waits to be landed by the coordinator.".to_string(),
         ),
-        Some("waiting-on-you") => (
-            Some("Waiting on you"),
-            note.unwrap_or_else(|| fallback("Waits on you.")),
-        ),
-        Some("held") => (
-            Some("Working"),
-            note.unwrap_or_else(|| fallback("Held on purpose with no work running.")),
-        ),
+        Some("waiting-on-you") => (Some("Waiting on you"), None, "Waits on you.".to_string()),
+        Some("held") => {
+            let why = claim_note
+                .clone()
+                .unwrap_or_else(|| "Held on purpose with no work running.".to_string());
+            (
+                Some("Working"),
+                Some(Pill {
+                    kind: PillKind::Held,
+                    text: "Held".to_string(),
+                    title: why.clone(),
+                }),
+                why,
+            )
+        }
         Some("winding-down") => (
             Some("Working"),
-            note.unwrap_or_else(|| fallback("Finishing its last item.")),
+            None,
+            "Finishing its last item.".to_string(),
         ),
         _ => (
             Some("Working"),
-            note.unwrap_or_else(|| fallback("Working; its agent left no note.")),
+            None,
+            "Working; its agent left no note.".to_string(),
         ),
+    };
+    let note = match items {
+        [] => claim_note.or((!said.is_empty()).then_some(said)),
+        _ => None,
     };
     Words {
         chip,
-        numbers: Vec::new(),
-        titles: match wait {
-            Some(ItemWait::Review { title, .. }) if !titled => vec![title.clone()],
-            _ => titles.to_vec(),
-        },
-        line: match (checkout.state, wait) {
-            (
-                Some("queued"),
-                Some(ItemWait::AppBuild {
-                    queued: Some(queued),
-                    ..
-                }),
-            ) => queued.line.clone(),
-            _ => line,
-        },
-        tree,
+        pill,
+        items: items.to_vec(),
+        note,
+        uncommitted,
         queued: match (checkout.state, wait) {
             (
                 Some("queued"),

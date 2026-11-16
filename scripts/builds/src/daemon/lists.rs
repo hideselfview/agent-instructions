@@ -168,7 +168,7 @@ pub fn running_worktrees(snapshot: &Snapshot) -> Vec<String> {
 }
 
 /// The items running in <worktree>, in the order the items are listed.
-fn running_items<'a>(
+fn items_in<'a>(
     lists: &'a crate::lists::Lists,
     worktree: &'a str,
 ) -> impl Iterator<Item = &'a crate::lists::Item> {
@@ -178,19 +178,17 @@ fn running_items<'a>(
         .filter(move |item| item.running.iter().any(|r| r.worktree == worktree))
 }
 
-/// The titles of the items running in <worktree>, in the order the items
-/// are listed.
-pub fn running_titles(lists: &crate::lists::Lists, worktree: &str) -> Vec<String> {
-    running_items(lists, worktree)
-        .map(|item| item.title.clone())
-        .collect()
-}
-
-/// The numbers of the items running in <worktree>, in the order the items
-/// are listed.
-pub fn running_numbers(lists: &crate::lists::Lists, worktree: &str) -> Vec<u32> {
-    running_items(lists, worktree)
-        .map(|item| item.id.0)
+/// The items running in <worktree> as its card lists them, in the order the
+/// items are listed.
+pub fn running_items(
+    lists: &crate::lists::Lists,
+    worktree: &str,
+) -> Vec<super::cards::RunningItem> {
+    items_in(lists, worktree)
+        .map(|item| super::cards::RunningItem {
+            id: item.id.0,
+            title: item.title.clone(),
+        })
         .collect()
 }
 
@@ -200,15 +198,11 @@ pub fn running_wait(lists: &crate::lists::Lists, worktree: &str) -> Option<super
     use super::cards::ItemWait;
     use crate::lists::Wait;
     let mut found: Vec<ItemWait> = Vec::new();
-    for item in lists
-        .items
-        .iter()
-        .filter(|item| item.running.iter().any(|r| r.worktree == worktree))
-    {
+    for item in items_in(lists, worktree) {
         for wait in crate::lists::derive::unmet_waits(lists, item) {
             let title = |id| lists.locate(id).map(|found| found.title.to_string());
             found.extend(match wait {
-                Wait::Question(id) => title(*id).map(ItemWait::Answer),
+                Wait::Question(id) => title(*id).map(|title| ItemWait::Answer { id: id.0, title }),
                 Wait::Design(id) => title(*id).map(|title| ItemWait::Review { id: id.0, title }),
                 Wait::Item(id) => title(*id).map(|title| ItemWait::Item { id: id.0, title }),
                 Wait::Condition(_) => None,

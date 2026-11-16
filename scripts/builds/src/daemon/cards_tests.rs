@@ -58,106 +58,175 @@ fn the_chip_names_only_a_worktree_with_an_agent_or_commits() {
 }
 
 #[test]
-fn the_line_is_the_agents_note_or_what_the_state_means() {
-    let line = |state, note| words(&card(Some(state), claim(note), Some(0)), &[], None).line;
+fn with_no_running_item_the_card_shows_the_agents_note_or_what_the_state_means() {
+    let note = |state, note| words(&card(Some(state), claim(note), Some(0)), &[], None).note;
     assert_eq!(
-        line("working", Some("Measuring each screen read.")),
-        "Measuring each screen read."
+        note("working", Some("Measuring each screen read.")).as_deref(),
+        Some("Measuring each screen read.")
     );
-    assert_eq!(line("working", None), "Working; its agent left no note.");
     assert_eq!(
-        line("ready-to-land", Some("note")),
-        "Waits to be landed by the coordinator."
+        note("working", None).as_deref(),
+        Some("Working; its agent left no note.")
     );
-    assert_eq!(line("free", None), "Free: no claim, every commit landed.");
     assert_eq!(
-        words(&card(Some("ready-to-land"), None, Some(0)), &[], None).line,
-        "Commits wait to land and no agent claims this worktree."
+        note("ready-to-land", None).as_deref(),
+        Some("Waits to be landed by the coordinator.")
+    );
+    assert_eq!(
+        note("ready-to-land", Some("Done.")).as_deref(),
+        Some("Done.")
+    );
+    assert_eq!(
+        note("free", None).as_deref(),
+        Some("Free: no claim, every commit landed.")
+    );
+    assert_eq!(
+        words(&card(Some("ready-to-land"), None, Some(0)), &[], None)
+            .note
+            .as_deref(),
+        Some("Commits wait to land and no agent claims this worktree.")
     );
     let mut main = card(None, None, None);
     main.main = true;
     assert_eq!(
-        words(&main, &[], None).line,
-        "Your checkout. No agent works or builds here."
+        words(&main, &[], None).note.as_deref(),
+        Some("Your checkout. No agent works or builds here.")
     );
 }
 
 #[test]
-fn the_tree_says_clean_or_how_many_files_changed() {
-    let tree = |n| words(&card(Some("working"), claim(None), n), &[], None).tree;
-    assert_eq!(tree(Some(0)).as_deref(), Some("clean"));
-    assert_eq!(tree(Some(1)).as_deref(), Some("1 file changed"));
-    assert_eq!(tree(Some(7)).as_deref(), Some("7 files changed"));
-    assert_eq!(tree(None), None);
-    let mut broken = card(Some("working"), claim(None), Some(0));
+fn the_footer_counts_uncommitted_files_and_says_nothing_for_a_clean_tree() {
+    let files = |n| words(&card(Some("working"), claim(None), n), &[], None).uncommitted;
+    let count = |text: &str, title: &str| {
+        Some(Uncommitted {
+            text: text.to_string(),
+            title: title.to_string(),
+        })
+    };
+    assert_eq!(files(Some(0)), None);
+    assert_eq!(
+        files(Some(1)),
+        count("1 file", "1 file changed, not committed")
+    );
+    assert_eq!(
+        files(Some(7)),
+        count("7 files", "7 files changed, not committed")
+    );
+    assert_eq!(files(None), None);
+    let mut broken = card(Some("working"), claim(None), Some(3));
     broken.git.as_mut().unwrap().error = Some("git failed".into());
-    assert_eq!(words(&broken, &[], None).tree, None);
+    assert_eq!(words(&broken, &[], None).uncommitted, None);
 }
 
-fn titled(state: &'static str, note: Option<&str>, titles: &[&str]) -> Words {
-    let titles: Vec<String> = titles.iter().map(|t| t.to_string()).collect();
-    words(&card(Some(state), claim(note), Some(0)), &titles, None)
+fn running(items: &[(u32, &str)]) -> Vec<RunningItem> {
+    items
+        .iter()
+        .map(|(id, title)| RunningItem {
+            id: *id,
+            title: title.to_string(),
+        })
+        .collect()
 }
 
-#[test]
-fn a_running_items_title_replaces_the_claim_note() {
-    for state in ["working", "waiting-on-you", "held", "winding-down"] {
-        let card = titled(
-            state,
-            Some("Measuring each screen read."),
-            &["Test the storage manager"],
-        );
-        assert_eq!(card.titles, ["Test the storage manager"], "{state}");
-        assert_eq!(card.line, "", "{state} shows no note under the title");
-    }
-}
-
-#[test]
-fn two_running_items_show_both_titles() {
-    let card = titled("working", Some("note"), &["First item", "Second item"]);
-    assert_eq!(card.titles, ["First item", "Second item"]);
-    assert_eq!(card.line, "");
-}
-
-#[test]
-fn a_ready_to_land_card_with_a_title_keeps_its_landing_line_and_not_the_note() {
-    let card = titled("ready-to-land", Some("note"), &["Test the storage manager"]);
-    assert_eq!(card.chip, Some("Ready to land"));
-    assert_eq!(card.titles, ["Test the storage manager"]);
-    assert_eq!(card.line, "Waits to be landed by the coordinator.");
-}
-
-#[test]
-fn a_card_with_no_running_item_shows_its_note_and_no_title() {
-    let card = titled("working", Some("Measuring each screen read."), &[]);
-    assert!(card.titles.is_empty());
-    assert_eq!(card.line, "Measuring each screen read.");
-}
-
-fn waiting(state: &'static str, wait: ItemWait) -> Words {
-    let titles = vec!["Reopen a copied library".to_string()];
+fn listed(state: &'static str, note: Option<&str>, items: &[(u32, &str)]) -> Words {
     words(
-        &card(Some(state), claim(Some("note")), Some(0)),
-        &titles,
-        Some(&wait),
+        &card(Some(state), claim(note), Some(0)),
+        &running(items),
+        None,
     )
 }
 
 #[test]
-fn an_item_that_waits_on_a_question_says_so_under_waiting_on_you() {
-    let card = waiting(
+fn the_card_lists_each_running_item_by_number_and_title_and_shows_no_note() {
+    for state in [
+        "working",
         "waiting-on-you",
-        ItemWait::Answer("When to reopen a copied library".into()),
+        "held",
+        "winding-down",
+        "ready-to-land",
+    ] {
+        let card = listed(
+            state,
+            Some("Measuring each screen read."),
+            &[(117, "Test the storage manager")],
+        );
+        assert_eq!(
+            card.items,
+            running(&[(117, "Test the storage manager")]),
+            "{state}"
+        );
+        assert_eq!(card.note, None, "{state} shows no note beside its items");
+    }
+    let batch = listed(
+        "working",
+        Some("note"),
+        &[(159, "First item"), (160, "Second item")],
     );
-    assert_eq!(card.chip, Some("Waiting on you"));
     assert_eq!(
-        card.line,
-        "Waits on your answer: When to reopen a copied library"
+        batch.items,
+        running(&[(159, "First item"), (160, "Second item")])
     );
+    assert_eq!(batch.note, None);
 }
 
 #[test]
-fn an_item_that_waits_on_another_item_names_it_and_stays_working() {
+fn a_card_with_no_running_item_shows_its_note_and_no_items() {
+    let card = listed("working", Some("Measuring each screen read."), &[]);
+    assert!(card.items.is_empty());
+    assert_eq!(card.note.as_deref(), Some("Measuring each screen read."));
+}
+
+#[test]
+fn a_card_that_waits_on_nothing_has_no_pill() {
+    for state in ["working", "ready-to-land", "winding-down", "free"] {
+        assert_eq!(
+            listed(state, Some("note"), &[(1, "Item")]).pill,
+            None,
+            "{state}"
+        );
+    }
+}
+
+fn waiting(state: &'static str, wait: ItemWait) -> Words {
+    words(
+        &card(Some(state), claim(Some("note")), Some(0)),
+        &running(&[(7, "Reopen a copied library")]),
+        Some(&wait),
+    )
+}
+
+fn pill(kind: PillKind, text: &str, title: &str) -> Option<Pill> {
+    Some(Pill {
+        kind,
+        text: text.to_string(),
+        title: title.to_string(),
+    })
+}
+
+#[test]
+fn an_item_that_waits_on_a_question_names_it_in_the_pill_under_waiting_on_you() {
+    let card = waiting(
+        "waiting-on-you",
+        ItemWait::Answer {
+            id: 438,
+            title: "When to reopen a copied library".into(),
+        },
+    );
+    assert_eq!(card.chip, Some("Waiting on you"));
+    assert_eq!(
+        card.pill,
+        pill(
+            PillKind::Answer,
+            "Answer #438",
+            "Waits on your answer: When to reopen a copied library"
+        )
+    );
+    assert_eq!(card.items, running(&[(7, "Reopen a copied library")]));
+    assert_eq!(card.note, None);
+}
+
+#[test]
+fn an_item_that_waits_on_another_item_names_it_in_the_pill_and_stays_working() {
     let card = waiting(
         "working",
         ItemWait::Item {
@@ -166,21 +235,32 @@ fn an_item_that_waits_on_another_item_names_it_and_stays_working() {
         },
     );
     assert_eq!(card.chip, Some("Working"));
-    assert_eq!(card.line, "Waits on #1320: Store the library id");
+    assert_eq!(
+        card.pill,
+        pill(
+            PillKind::After,
+            "After #1320",
+            "Waits on #1320: Store the library id"
+        )
+    );
 }
 
 #[test]
-fn an_item_that_waits_on_a_design_review_names_the_change() {
+fn an_item_that_waits_on_a_design_review_names_the_change_in_the_pill() {
     let card = waiting(
         "waiting-on-you",
         ItemWait::Review {
-            id: 12,
+            id: 428,
             title: "Heading row".into(),
         },
     );
     assert_eq!(
-        card.line,
-        "Waits on your review of design change 12: Heading row"
+        card.pill,
+        pill(
+            PillKind::Review,
+            "Review #428",
+            "Waits on your review of design change 428: Heading row"
+        )
     );
 }
 
@@ -193,30 +273,67 @@ fn a_design_branch_no_recorded_change_covers_says_it_waits_on_the_design_session
     );
     assert_eq!(card.chip, Some("Ready to land"));
     assert_eq!(
-        card.line,
-        "Waits on the design session to record its design change."
+        card.pill,
+        pill(
+            PillKind::Unrecorded,
+            "No design change",
+            "Waits on the design session to record its design change."
+        )
     );
 }
 
 #[test]
-fn a_design_branch_with_no_running_item_is_titled_by_its_design_change() {
-    let card = words(
-        &card(Some("waiting-on-you"), claim(Some("note")), Some(0)),
+fn a_design_branch_with_no_running_item_shows_its_note_and_the_change_in_the_pill() {
+    let review = ItemWait::Review {
+        id: 1419,
+        title: "AirPlay PIN sheet".into(),
+    };
+    let noted = words(
+        &card(
+            Some("waiting-on-you"),
+            claim(Some("Drawing the sheet.")),
+            Some(0),
+        ),
         &[],
-        Some(&ItemWait::Review {
-            id: 1419,
-            title: "AirPlay PIN sheet".into(),
-        }),
+        Some(&review),
     );
-    assert_eq!(card.titles, ["AirPlay PIN sheet"]);
-    assert_eq!(card.line, "Waits on your review of design change 1419");
+    assert!(noted.items.is_empty());
+    assert_eq!(noted.note.as_deref(), Some("Drawing the sheet."));
+    assert_eq!(
+        noted.pill,
+        pill(
+            PillKind::Review,
+            "Review #1419",
+            "Waits on your review of design change 1419: AirPlay PIN sheet"
+        )
+    );
+    let unnoted = words(
+        &card(Some("waiting-on-you"), claim(None), Some(0)),
+        &[],
+        Some(&review),
+    );
+    assert_eq!(
+        unnoted.note.as_deref(),
+        Some("Waits on your review of design change 1419: AirPlay PIN sheet")
+    );
 }
 
 #[test]
-fn an_item_waiting_on_a_question_keeps_its_own_title_over_the_question() {
-    let card = waiting("waiting-on-you", ItemWait::Answer("Which port?".into()));
-    assert_eq!(card.titles, ["Reopen a copied library"]);
-    assert_eq!(card.line, "Waits on your answer: Which port?");
+fn a_held_worktree_says_held_in_the_pill_with_its_note() {
+    let card = listed("held", Some("Until the store lands."), &[(3, "Item")]);
+    assert_eq!(card.chip, Some("Working"));
+    assert_eq!(
+        card.pill,
+        pill(PillKind::Held, "Held", "Until the store lands.")
+    );
+    assert_eq!(
+        listed("held", None, &[]).pill,
+        pill(
+            PillKind::Held,
+            "Held",
+            "Held on purpose with no work running."
+        )
+    );
 }
 
 #[test]
@@ -232,9 +349,31 @@ fn a_branch_with_an_app_build_waits_on_it_and_is_not_ready_to_land() {
         }),
     );
     assert_eq!(card.chip, Some("Working"));
+    assert_eq!(card.pill, None, "the build has not started");
     assert_eq!(
-        card.line,
-        "Waits on the Mac app build: place 2 in the queue"
+        card.note.as_deref(),
+        Some("Waits on the Mac app build: place 2 in the queue")
+    );
+}
+
+#[test]
+fn a_branch_whose_app_build_runs_names_the_lane_in_the_pill() {
+    let card = waiting(
+        "working",
+        ItemWait::AppBuild {
+            lane: "Android".into(),
+            running: true,
+            how: "builds in side-1 for 1 minute".into(),
+            queued: None,
+        },
+    );
+    assert_eq!(
+        card.pill,
+        pill(
+            PillKind::Build,
+            "Android build",
+            "Android app build: builds in side-1 for 1 minute"
+        )
     );
 }
 
@@ -295,7 +434,11 @@ fn a_queued_card_names_the_lane_and_carries_its_place_and_what_it_asked() {
         Some(&queued_wait(false)),
     );
     assert_eq!(card.chip, Some("Waiting on Mac"));
-    assert_eq!(card.line, "Asked 8m ago to run macos macos-tests.");
+    assert_eq!(card.pill, None, "the chip says it");
+    assert_eq!(
+        card.note.as_deref(),
+        Some("Asked 8m ago to run macos macos-tests.")
+    );
     let queued = card.queued.unwrap();
     assert_eq!((queued.place, queued.of), (1, 4));
     assert_eq!(queued.steps.as_deref(), Some("macos macos-tests"));
@@ -316,32 +459,44 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
     let said = |wait| {
         let card = words(
             &card(Some("in-review"), claim(None), Some(0)),
-            &[],
+            &running(&[(117, "Item")]),
             Some(&review(wait)),
         );
-        (card.chip.unwrap(), card.line)
+        (card.chip.unwrap(), card.pill)
     };
-    assert_eq!(said(ReviewWait::NotRun), ("Needs review", String::new()));
-    assert_eq!(said(ReviewWait::Running).0, "Reviewing");
+    assert_eq!(said(ReviewWait::NotRun), ("Needs review", None));
+    assert_eq!(said(ReviewWait::Running), ("Reviewing", None));
     assert_eq!(
         said(ReviewWait::ToSettle(3)),
         (
             "Findings to settle",
-            "3 review findings wait on the coordinator to settle them.".to_string()
+            pill(
+                PillKind::Settle,
+                "3 findings",
+                "3 review findings wait on the coordinator to settle them."
+            )
         )
     );
     assert_eq!(
         said(ReviewWait::Unfixed(1)),
         (
             "Waiting on fixes",
-            "1 confirmed review finding waits on a commit that fixes it.".to_string()
+            pill(
+                PillKind::Fixes,
+                "1 finding",
+                "1 confirmed review finding waits on a commit that fixes it."
+            )
         )
     );
     assert_eq!(
         said(ReviewWait::Unreviewed(2)),
         (
             "Unreviewed commits",
-            "The review did not read 2 commits, and no finding names them as fixes: they land as a change of their own.".to_string()
+            pill(
+                PillKind::Unreviewed,
+                "2 commits",
+                "The review did not read 2 commits, and no finding names them as fixes: they land as a change of their own."
+            )
         )
     );
 }

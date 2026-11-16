@@ -339,7 +339,7 @@ fn a_hook_runs_write_reads_no_store_again_and_the_served_snapshot_is_the_same() 
 }
 
 #[test]
-fn the_titles_of_a_worktrees_running_items_come_in_list_order() {
+fn a_worktrees_running_items_come_in_list_order_with_their_numbers_and_titles() {
     let db = db();
     let first = item(&db, vec![]);
     let second = item(&db, vec![]);
@@ -355,26 +355,15 @@ fn the_titles_of_a_worktrees_running_items_come_in_list_order() {
     crate::lists::running::start(&db, &[second], &[running(here)]).unwrap();
     crate::lists::running::start(&db, &[elsewhere], &[running("/d/bae-worktrees/side-3")]).unwrap();
     let lists = read(&db);
-    let titles = running_titles(&lists, here);
-    let expected: Vec<String> = [first, second]
+    let expected: Vec<crate::daemon::cards::RunningItem> = [first, second]
         .iter()
-        .map(|id| {
-            lists
-                .items
-                .iter()
-                .find(|i| i.id == *id)
-                .unwrap()
-                .title
-                .clone()
+        .map(|id| crate::daemon::cards::RunningItem {
+            id: id.0,
+            title: lists.item(*id).unwrap().title.clone(),
         })
         .collect();
-    assert_eq!(titles.len(), 2);
-    for title in &expected {
-        assert!(titles.contains(title));
-    }
-    assert!(running_titles(&lists, "/d/bae-worktrees/side-9").is_empty());
-    assert_eq!(running_numbers(&lists, here), [first.0, second.0]);
-    assert!(running_numbers(&lists, "/d/bae-worktrees/side-9").is_empty());
+    assert_eq!(running_items(&lists, here), expected);
+    assert!(running_items(&lists, "/d/bae-worktrees/side-9").is_empty());
 }
 
 #[test]
@@ -400,7 +389,10 @@ fn a_running_item_waits_on_its_question_before_another_item() {
     let title = lists.question(question).unwrap().title.clone();
     assert_eq!(
         running_wait(&lists, here),
-        Some(crate::daemon::cards::ItemWait::Answer(title))
+        Some(crate::daemon::cards::ItemWait::Answer {
+            id: question.0,
+            title
+        })
     );
     assert_eq!(running_wait(&lists, "/d/bae-worktrees/side-9"), None);
 }
