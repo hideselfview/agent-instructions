@@ -192,20 +192,6 @@ fn a_second_install_waits_for_the_first() {
     drop(install.join().unwrap());
 }
 
-/// Waits until process <pid> holds no use of <kind>. A process that another
-/// test forks meanwhile holds a copy of every open file until it calls exec,
-/// and with it the use's lock, for a moment after the use ended.
-fn until_ended(places: &Places, kind: Kind, pid: u32) {
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while holds_use(places, kind, pid) {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "process {pid} still holds its use"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
-}
-
 #[test]
 fn the_file_of_a_use_whose_process_died_holds_no_install() {
     let scratch = Scratch::new("install-gate-dead");
@@ -285,7 +271,10 @@ fn a_lane_that_queues_again_holds_no_use_while_it_waits() {
     assert!(holds_use(&places, Kind::Command, 23));
     // The lane goes back to the queue.
     drop(held);
-    until_ended(&places, Kind::Command, 23);
+    assert!(
+        !Kind::Command.uses(&places).join("23").exists(),
+        "the lane's use removed its file when it ended"
+    );
     let connection = building
         .take()
         .unwrap()
