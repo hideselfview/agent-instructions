@@ -173,7 +173,7 @@ fn a_step_names_its_lane_first() {
 }
 
 #[test]
-fn a_test_line_gives_a_lane_the_command_that_runs_one_class() {
+fn a_test_line_gives_a_lane_the_command_that_runs_its_classes() {
     let config =
         parse_config("test mac ./t.sh --run-only {class}\ntest android ./g.sh --tests *{class}\n")
             .unwrap();
@@ -229,17 +229,21 @@ fn a_test_line_needs_a_lane_a_class_placeholder_and_to_be_the_only_one_of_its_la
 }
 
 #[test]
-fn the_class_fills_each_word_it_stands_in() {
+fn the_word_that_holds_the_class_appears_once_for_each_class() {
     let test = Picker {
         lane: Lane::Mac,
         kind: PickKind::Class,
         program: None,
-        command: words("./g.sh --tests *{class}"),
+        command: words("./g.sh --tests *{class} --continue"),
         place: Where::Anywhere,
     };
     assert_eq!(
-        test.command_for("FooTest"),
-        words("./g.sh --tests *FooTest")
+        test.command_for(&["FooTest"]),
+        words("./g.sh --tests *FooTest --continue")
+    );
+    assert_eq!(
+        test.command_for(&["FooTest", "BarTest"]),
+        words("./g.sh --tests *FooTest *BarTest --continue")
     );
 }
 
@@ -306,14 +310,14 @@ fn a_shots_line_gives_a_lane_the_command_that_runs_a_selection_of_shots() {
     .unwrap();
     let mac = config.picker(Lane::Mac, PickKind::Shots).unwrap();
     assert_eq!(
-        mac.command_for("mac.welcome."),
+        mac.command_for(&["mac.welcome."]),
         words("./s run --select mac.welcome.")
     );
     assert_eq!(
         config
             .picker(Lane::Android, PickKind::Shots)
             .unwrap()
-            .command_for("android.x."),
+            .command_for(&["android.x."]),
         words("./a --select=android.x.")
     );
     assert_eq!(

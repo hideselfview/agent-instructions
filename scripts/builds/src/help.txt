@@ -398,9 +398,11 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
                     :<name>, the `test <lane>:<name>` line runs the classes
                     declared there
   test <lane>[:<name>] <program> [<args>...]
-                    how the lane runs one test class, named in its {class};
-                    a lane may have a named test line per kind of test (bae:
-                    mac:shots for the shot test bundle)
+                    how the lane runs test classes: the word that holds
+                    {class} appears once for each class, so one run of the
+                    line runs all of a build's classes for it; a lane may
+                    have a named test line per kind of test (bae: mac:shots
+                    for the shot test bundle)
   shots <lane> <program> [<args>...]
                     how the lane runs the shots (pictures of app views, each
                     checked against its board) whose names start with the
@@ -430,7 +432,8 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
 
 A step that runs past its limit gets SIGTERM to its whole process group and
 SIGKILL ten seconds later, and fails the build, which gives up the lock. Each
---test run is limited to 10 minutes and each --shots run to 20. `builds
+run of a test line, with all of its classes, is limited to 10 minutes, and
+each --shots run to 20. `builds
 build-app` and `builds lock` set no limit.
 
 An app checkout may be on another host (`builds host`). Its lock, queue and
@@ -503,9 +506,10 @@ built again.
                               check out <ref> in a free app checkout of each
                               lane the steps are in, holding that checkout's
                               lock, and run the steps in the order given,
-                              stopping at the first failure; then run the lane's
-                              `test` line once per --test class and its `shots`
-                              line once per --shots prefix (in any order, after
+                              stopping at the first failure; then run each
+                              `test` line of the lane once with all of its
+                              --test classes and its `shots` line once per
+                              --shots prefix (in any order, after
                               the steps; the lane must have the line). A class
                               or prefix is one argument, never read by a
                               shell. app-build refuses a prefix that selects

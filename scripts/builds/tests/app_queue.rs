@@ -1123,7 +1123,8 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
 }
 
 /// With no step named, a branch that changes both lanes' folders builds both
-/// lanes' steps, and each test class and shots prefix goes to its lane.
+/// lanes' steps, and each test class and shots prefix goes to its lane. The
+/// mac lane's two classes run in one run of its test line.
 #[test]
 fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_in_its_lane() {
     let volume = Volume::new("derive-both");
@@ -1152,6 +1153,7 @@ fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_
     std::fs::create_dir_all(top.join("mac")).unwrap();
     std::fs::create_dir_all(top.join("droid")).unwrap();
     std::fs::write(top.join("mac/MacFoo.txt"), "struct MacFoo {}\n").unwrap();
+    std::fs::write(top.join("mac/MacBar.txt"), "struct MacBar {}\n").unwrap();
     std::fs::write(top.join("droid/DroidFoo.txt"), "object DroidFoo {}\n").unwrap();
     git(&["add", "mac", "droid"]);
     git(&["commit", "-q", "-m", "Change both lanes"]);
@@ -1167,6 +1169,8 @@ fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_
         "MacFoo",
         "--test",
         "DroidFoo",
+        "--test",
+        "MacBar",
         "--shots",
         "android.a.",
         "--shots",
@@ -1176,7 +1180,7 @@ fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_
     assert!(built.status.success(), "{said}");
     let log = volume.log();
     let count = |line: &str| log.iter().filter(|l| *l == line).count();
-    // The step, the class and the shots run of each lane.
+    // The step, the run of the test line and the shots run of each lane.
     assert_eq!(count("end one"), 3, "{log:?}\n{said}");
     assert_eq!(count("end droid"), 3, "{log:?}\n{said}");
 }

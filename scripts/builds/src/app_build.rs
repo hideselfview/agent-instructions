@@ -27,12 +27,13 @@
 //!
 //! `--test <lane> <Class>` and `--shots <lane> <prefix>` (any number of each,
 //! in any order, after the steps) add, to the end of that lane's steps, the
-//! lane's `test` or `shots` line (app_config.rs) with the class or the prefix
-//! in it, one run per flag, each with the kind's limit. With such flags and
-//! no step named in the `--lane` form, only those runs happen. An app build
-//! runs only what a change touches, so every form refuses a `--shots` prefix
-//! that selects every shot of its lane (`mac.`) and a step that a `ci-only`
-//! line names (app_config.rs); CI runs the full suites.
+//! lane's `test` or `shots` line (app_config.rs) with the classes or the
+//! prefix in it, each run with the kind's limit: one run of each test line
+//! for all of its classes, and one run of the shots line per prefix. With
+//! such flags and no step named in the `--lane` form, only those runs happen.
+//! An app build runs only what a change touches, so every form refuses a
+//! `--shots` prefix that selects every shot of its lane (`mac.`) and a step
+//! that a `ci-only` line names (app_config.rs); CI runs the full suites.
 //!
 //! A run of picks with no step named tests what the checkout holds, so it
 //! refuses unless the checkout's last build (`Built`, kept beside the lock's
@@ -223,10 +224,22 @@ pub fn missing_line(lane: Lane, kind: PickKind, arg: &str) -> Fail {
     ))
 }
 
+/// One run of a `test` or `shots` line: the line's kind and program, and its
+/// arguments (every class of the lane's picks that the program runs, or one
+/// shots prefix).
+struct PickRun<'a> {
+    kind: PickKind,
+    program: Option<String>,
+    args: Vec<&'a str>,
+}
+
 /// What <lane> runs: its steps (<names>, or every one when none is named and
-/// no pick is), then the line of each of <picks> that is the lane's. A test
-/// class runs through the program <program_of> names for it, the lane's
-/// default when None.
+/// no pick is), then the runs of its lines for <picks>. A test class runs
+/// through the program <program_of> names for it, the lane's default when
+/// None, and each program runs all of its classes in one invocation, placed
+/// in the order of its first class: each start of Gradle or xcodebuild takes
+/// seconds before any test runs. Each shots prefix runs on its own, since
+/// builds keeps the findings of each prefix's run.
 fn lane_steps(
     config: &Config,
     lane: Lane,
@@ -239,19 +252,33 @@ fn lane_steps(
     } else {
         chosen(config, lane, names)?
     };
+    let mut runs: Vec<PickRun> = Vec::new();
     for (_, kind, arg) in picks.iter().filter(|(own, _, _)| *own == lane) {
         let program = match kind {
             PickKind::Class => program_of(arg)?,
             PickKind::Shots => None,
         };
-        let Some(picker) = config.picker_in(lane, *kind, program.as_deref()) else {
-            return Err(missing_line(lane, *kind, arg));
+        let same = runs
+            .iter_mut()
+            .find(|run| *kind == PickKind::Class && run.kind == *kind && run.program == program);
+        match same {
+            Some(run) => run.args.push(arg),
+            None => runs.push(PickRun {
+                kind: *kind,
+                program,
+                args: vec![arg],
+            }),
+        }
+    }
+    for run in runs {
+        let Some(picker) = config.picker_in(lane, run.kind, run.program.as_deref()) else {
+            return Err(missing_line(lane, run.kind, &run.args.join(" ")));
         };
         steps.push(Step {
-            name: format!("{}{arg}", kind.step_prefix()),
+            name: format!("{}{}", run.kind.step_prefix(), run.args.join(" ")),
             lane,
-            command: picker.command_for(arg),
-            limit: Some(kind.limit()),
+            command: picker.command_for(&run.args),
+            limit: Some(run.kind.limit()),
             place: picker.place,
             ci_only: false,
         });

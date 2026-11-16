@@ -12,7 +12,7 @@
 //! step android android ./bae-android/compile-all.sh
 //! limit macos 90m
 //! test mac ./bae-macos/test.sh --run-only {class}
-//! test android ./bae-android/gradle.sh :app:testFullDebugUnitTest --tests *{class}
+//! test android ./bae-android/test-class.sh {class}
 //! shots mac scripts/cargo.sh run -p bae-shots -- run --platform mac --select {select}
 //! shots-source bae-shots
 //! ```
@@ -20,11 +20,15 @@
 //! A line starting with `#` is a comment.
 //!
 //! A `test <lane> <command>` line, at most one per lane, is the command that
-//! runs one test class, `{class}` in a word standing for the class:
+//! runs test classes, `{class}` in a word standing for a class:
 //! `builds app-build <repo> <ref> --test <lane> <Class>` runs it, so a class
-//! needs no step of its own. A `shots <lane> <command>` line is the same for
-//! a selection of screenshots, `{select}` standing for the prefix of their
-//! names: `--shots <lane> <prefix>` runs it.
+//! needs no step of its own. builds runs the line once for all of a build's
+//! classes that it runs: the word that holds `{class}` appears once for each
+//! class (`--tests *{class}` becomes `--tests *A *B`, so a program that needs
+//! a flag before each class gets a script that adds the flags). A `shots
+//! <lane> <command>` line is the same for a selection of
+//! screenshots, `{select}` standing for the prefix of their names: `--shots
+//! <lane> <prefix>` runs it, once for each prefix.
 //!
 //! A `shots-source <folder>` line names the folder, relative to the repo's top,
 //! that holds the shots program's source. Its git tree at a commit is the
@@ -108,8 +112,8 @@ pub struct Config {
     pub android: Option<AndroidApp>,
     /// What `builds app-build` runs, in the order written.
     pub steps: Vec<Step>,
-    /// How each lane runs one test class and one selection of shots; at most
-    /// one of each per lane.
+    /// How each lane runs test classes and one selection of shots: at most
+    /// one test line per lane and program, and one shots line per lane.
     pub pickers: Vec<Picker>,
     /// The `shots-source` line: the folder of the shots program's source.
     pub shots_source: Option<String>,
@@ -245,7 +249,8 @@ impl PickKind {
     }
 
     /// How long one run may take, as the limit of a step: the time the
-    /// per-class and per-area steps in bae's `.app-build` had.
+    /// per-class and per-area steps in bae's `.app-build` had. A run of a
+    /// test line has this limit however many classes it runs.
     pub fn limit(self) -> Duration {
         match self {
             PickKind::Class => Duration::from_secs(10 * 60),
@@ -264,8 +269,8 @@ impl PickKind {
 }
 
 /// A `test` or `shots` `<lane> <program> [<args>...]` line: the command, as for
-/// `Step`, that runs one pick of the lane, with the kind's placeholder where
-/// the argument goes.
+/// `Step`, that runs picks of the lane (the classes of a run, or one shots
+/// prefix), with the kind's placeholder where each argument goes.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Picker {
     pub lane: Lane,
@@ -286,12 +291,22 @@ impl Picker {
         self.lane == lane && self.kind == kind && self.program.as_deref() == program
     }
 
-    /// The command with <arg> in each word's placeholder; the argument stays
-    /// one argument, never read by a shell.
-    pub fn command_for(&self, arg: &str) -> Vec<String> {
+    /// The command for <args>: each word that holds the placeholder appears
+    /// once for each of <args>, in order, with that argument in place of the
+    /// placeholder. Each argument stays one argument, never read by a shell.
+    pub fn command_for(&self, args: &[&str]) -> Vec<String> {
+        let placeholder = self.kind.placeholder();
         self.command
             .iter()
-            .map(|word| word.replace(self.kind.placeholder(), arg))
+            .flat_map(|word| {
+                if word.contains(placeholder) {
+                    args.iter()
+                        .map(|arg| word.replace(placeholder, arg))
+                        .collect()
+                } else {
+                    vec![word.clone()]
+                }
+            })
             .collect()
     }
 }
