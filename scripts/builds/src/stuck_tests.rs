@@ -268,29 +268,29 @@ fn findings_come_only_from_hosts_that_were_read() {
     let hosts = vec![
         HostBusy {
             host: "m1".into(),
-            busy: Err("ssh failed".into()),
-            wedged: None,
-            hung: Vec::new(),
+            read: Err("ssh failed".into()),
         },
         HostBusy {
             host: "local".into(),
-            busy: Ok(judge(
-                "local",
-                &[row(
-                    17,
-                    1,
-                    0,
-                    140.0,
-                    200_000.0,
-                    500_000,
-                    "/usr/libexec/fseventsd",
-                )],
-                &HashMap::new(),
-                &sampling(),
-                None,
-            )),
-            wedged: None,
-            hung: Vec::new(),
+            read: Ok(HostRead {
+                busy: judge(
+                    "local",
+                    &[row(
+                        17,
+                        1,
+                        0,
+                        140.0,
+                        200_000.0,
+                        500_000,
+                        "/usr/libexec/fseventsd",
+                    )],
+                    &HashMap::new(),
+                    &sampling(),
+                    None,
+                ),
+                wedged: None,
+                hung: Vec::new(),
+            }),
         },
     ];
     assert_eq!(findings(&hosts).len(), 1);
@@ -379,9 +379,11 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
     let rows = vec![row(17, 1, 0, 100.0, 40.0 * 60.0, 3 * 3600, FSEVENTSD_PATH)];
     let hosts = vec![HostBusy {
         host: "local".into(),
-        busy: Ok(judge("local", &rows, &HashMap::new(), &sampling(), None)),
-        wedged: wedged("local", &rows, 0, &sampling()),
-        hung: Vec::new(),
+        read: Ok(HostRead {
+            busy: judge("local", &rows, &HashMap::new(), &sampling(), None),
+            wedged: wedged("local", &rows, 0, &sampling()),
+            hung: Vec::new(),
+        }),
     }];
     let found = findings(&hosts);
     assert_eq!(found.len(), 1, "{found:?}");
@@ -452,9 +454,11 @@ fn an_idle_test_that_builds_cargo_runs_on_a_host_is_hung() {
     );
     let host = HostBusy {
         host: "m1".into(),
-        busy: Ok(Vec::new()),
-        wedged: None,
-        hung,
+        read: Ok(HostRead {
+            busy: Vec::new(),
+            wedged: None,
+            hung,
+        }),
     };
     assert_eq!(findings(&[host]).len(), 1);
 }

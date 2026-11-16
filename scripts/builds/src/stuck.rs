@@ -610,13 +610,18 @@ pub fn wedged(host: &str, rows: &[Row], event_id: u64, sampling: &Sampling) -> O
     })
 }
 
-/// What reading one host gave.
+/// What reading one host gave: what its processes showed, or why `read`
+/// could not list them.
 pub struct HostBusy {
     pub host: String,
-    pub busy: Result<Vec<Busy>, String>,
+    pub read: Result<HostRead, String>,
+}
+
+/// What one listing of a host's processes showed.
+pub struct HostRead {
+    pub busy: Vec<Busy>,
     /// Set on this Mac only, the one host whose fseventsd health can ask.
     pub wedged: Option<Wedged>,
-    /// Empty when the host could not be read.
     pub hung: Vec<Hung>,
 }
 
@@ -670,7 +675,7 @@ fn now_seconds() -> i64 {
 /// Reads <host>'s processes and judges them, passing over the dashboard,
 /// whose pid on the host is <dashboard>.
 pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
-    let busy = (|| {
+    let read = (|| {
         let listing = match &host.target {
             Some(target) => output_of(
                 ssh.command(target, &ps_script()),
@@ -712,21 +717,15 @@ pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
             ),
             Some(_) => None,
         };
-        Ok((
-            judge(&host.name, &rows, &cwds, &sampling, dashboard),
+        Ok(HostRead {
+            busy: judge(&host.name, &rows, &cwds, &sampling, dashboard),
             wedged,
-            hung_tests(&host.name, &rows, &cwds, &sampling),
-        ))
+            hung: hung_tests(&host.name, &rows, &cwds, &sampling),
+        })
     })();
-    let (busy, wedged, hung) = match busy {
-        Ok((busy, wedged, hung)) => (Ok(busy), wedged, hung),
-        Err(error) => (Err(error), None, Vec::new()),
-    };
     HostBusy {
         host: host.name.clone(),
-        busy,
-        wedged,
-        hung,
+        read,
     }
 }
 
@@ -738,10 +737,10 @@ pub fn lines(hosts: &[HostBusy]) -> Vec<String> {
         minutes(PEGGED_SECONDS)
     )];
     for host in hosts {
-        match &host.busy {
+        match &host.read {
             Err(error) => out.push(format!("    {}: not read: {error}", host.host)),
-            Ok(busy) if busy.is_empty() => out.push(format!("    {}: none", host.host)),
-            Ok(busy) => out.extend(busy.iter().map(Busy::line)),
+            Ok(read) if read.busy.is_empty() => out.push(format!("    {}: none", host.host)),
+            Ok(read) => out.extend(read.busy.iter().map(Busy::line)),
         }
     }
     out
@@ -750,18 +749,17 @@ pub fn lines(hosts: &[HostBusy]) -> Vec<String> {
 /// The "needs action" lines for <hosts>.
 pub fn findings(hosts: &[HostBusy]) -> Vec<Advice> {
     let mut out = Vec::new();
-    for host in hosts {
+    for read in hosts.iter().filter_map(|host| host.read.as_ref().ok()) {
         // A wedged fseventsd gets its own finding, in place of the busy one.
-        out.extend(host.wedged.iter().map(|w| w.finding.clone()));
-        let skip = host.wedged.as_ref().map(|w| w.pid);
+        out.extend(read.wedged.iter().map(|w| w.finding.clone()));
+        let skip = read.wedged.as_ref().map(|w| w.pid);
         out.extend(
-            host.busy
+            read.busy
                 .iter()
-                .flatten()
                 .filter(|busy| Some(busy.pid) != skip)
                 .filter_map(Busy::finding),
         );
-        out.extend(host.hung.iter().map(Hung::finding));
+        out.extend(read.hung.iter().map(Hung::finding));
     }
     out
 }

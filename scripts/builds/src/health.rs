@@ -1112,8 +1112,8 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             busy.iter()
                 .map(|host| serde_json::json!({
                     "host": host.host,
-                    "busy": host.busy.as_ref().ok(),
-                    "error": host.busy.as_ref().err(),
+                    "busy": host.read.as_ref().ok().map(|read| &read.busy),
+                    "error": host.read.as_ref().err(),
                 }))
                 .collect::<Vec<_>>()
         );
@@ -1397,9 +1397,7 @@ mod tests {
         };
         let busy = vec![crate::stuck::HostBusy {
             host: "m1".to_string(),
-            busy: Err("ssh failed".to_string()),
-            wedged: None,
-            hung: Vec::new(),
+            read: Err("ssh failed".to_string()),
         }];
         let found = host_findings(&busy, &[refusal]);
         assert_eq!(found.len(), 1, "{found:?}");
