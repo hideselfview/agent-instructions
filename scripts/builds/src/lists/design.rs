@@ -129,6 +129,14 @@ pub struct DesignChange {
     pub landed: Vec<DesignLanding>,
 }
 
+impl DesignChange {
+    /// Does the change wait on the person? It waits on their review until
+    /// they approve it, and then only on its landing.
+    pub fn waits_on_person(&self) -> bool {
+        self.approved.is_none()
+    }
+}
+
 impl Lists {
     pub fn design(&self, id: Id) -> Option<&DesignChange> {
         self.designs.iter().find(|d| d.id == id)

@@ -57,6 +57,8 @@ pub struct WaitView {
     pub title: Option<String>,
     pub text: Option<String>,
     pub met: bool,
+    /// Does it wait on the person (`derive::wait_on_person`)?
+    pub on_person: bool,
 }
 
 /// What the daemon joins to a running item from the worktree's claim and
@@ -232,6 +234,7 @@ fn wait_view(lists: &Lists, wait: &Wait) -> WaitView {
             title,
             text: None,
             met: derive::wait_met(lists, wait),
+            on_person: derive::wait_on_person(lists, wait),
         }
     };
     match wait {
@@ -244,6 +247,7 @@ fn wait_view(lists: &Lists, wait: &Wait) -> WaitView {
             title: None,
             text: Some(text.clone()),
             met: false,
+            on_person: false,
         },
     }
 }

@@ -74,7 +74,7 @@ impl Reads {
                     && changes.deleted.iter().all(|p| d.deleted.contains(p))
             })
             .collect();
-        match covering.iter().find(|d| d.approved.is_none()) {
+        match covering.iter().find(|d| d.waits_on_person()) {
             Some(design) => Some(ItemWait::Review {
                 id: design.id.0,
                 title: design.title.clone(),

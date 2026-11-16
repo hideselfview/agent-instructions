@@ -164,3 +164,32 @@ fn a_wait_on_another_item_is_not_the_persons() {
     let board = board_of(&db, &[]);
     assert_eq!((board.waiting, board.running, board.queue), (0, 1, 1));
 }
+
+#[test]
+fn work_whose_item_waits_on_a_design_change_to_review_is_held_on_the_person() {
+    use crate::lists::Wait;
+    use crate::lists::fixtures::design;
+    let db = db();
+    let change = design(&db);
+    let waits = item(&db, vec![Wait::Design(change)]);
+    start(&db, waits, "side-1");
+    let board = board_of(&db, &[]);
+    assert_eq!(board.works[0].tab, Tab::Waiting);
+    // The change to review and the work it holds.
+    assert_eq!((board.waiting, board.running), (2, 0));
+}
+
+#[test]
+fn work_whose_item_waits_on_an_approved_design_change_is_not_held_on_the_person() {
+    use crate::lists::Wait;
+    use crate::lists::fixtures::design;
+    let db = db();
+    let change = design(&db);
+    let waits = item(&db, vec![Wait::Design(change)]);
+    start(&db, waits, "side-1");
+    crate::lists::design::approve(&db, change, &stamp(NOON)).unwrap();
+    let board = board_of(&db, &[]);
+    assert_eq!(board.works[0].tab, Tab::Running);
+    // The work, and the approved change that waits to land.
+    assert_eq!((board.waiting, board.running), (0, 2));
+}

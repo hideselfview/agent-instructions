@@ -93,11 +93,11 @@ fn the_json_has_the_pages_shape() {
     );
     assert_eq!(
         item_json["waits"][0],
-        json!({"kind": "question", "id": q.0, "title": lists.question(q).unwrap().title, "text": null, "met": false})
+        json!({"kind": "question", "id": q.0, "title": lists.question(q).unwrap().title, "text": null, "met": false, "on_person": true})
     );
     assert_eq!(
         item_json["waits"][1],
-        json!({"kind": "condition", "id": null, "title": null, "text": "a quiet machine", "met": false})
+        json!({"kind": "condition", "id": null, "title": null, "text": "a quiet machine", "met": false, "on_person": false})
     );
     let running_json = json["items"]
         .as_array()

@@ -209,11 +209,9 @@ pub fn awaiting_review(
             let Some(Ok(commits)) = design_commits_of(lists, worktree) else {
                 return false;
             };
-            commits.iter().any(|commit| {
-                commit
-                    .covered_by
-                    .is_some_and(|design| design.approved.is_none())
-            })
+            commits
+                .iter()
+                .any(|commit| commit.covered_by.is_some_and(DesignChange::waits_on_person))
         })
         .map(|worktree| worktree.label.clone())
         .collect()

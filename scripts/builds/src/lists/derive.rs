@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use crate::lists::{
-    Audience, Closed, Decision, Id, Item, Kind, Level, Lists, Located, Position, Question, Record,
-    Standing, Wait, day,
+    Audience, Closed, Decision, DesignChange, Id, Item, Kind, Level, Lists, Located, Position,
+    Question, Record, Standing, Wait, day,
 };
 use crate::text::local_day;
 
@@ -63,6 +63,18 @@ pub fn wait_met(lists: &Lists, wait: &Wait) -> bool {
             ..
         }) => closed_meets_wait(closed),
         _ => false,
+    }
+}
+
+/// Does <wait> wait on the person? A wait on an open question waits on their
+/// answer, and a wait on an open design change waits on their review until
+/// they approve it; after that, it waits only on the change's landing. A wait
+/// on an item or a condition is never theirs.
+pub fn wait_on_person(lists: &Lists, wait: &Wait) -> bool {
+    match wait {
+        Wait::Question(_) => !wait_met(lists, wait),
+        Wait::Design(id) => lists.design(*id).is_some_and(DesignChange::waits_on_person),
+        Wait::Item(_) | Wait::Condition(_) => false,
     }
 }
 

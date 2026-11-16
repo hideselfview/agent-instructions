@@ -241,6 +241,25 @@ fn an_item_that_waits_on_another_item_names_it_in_the_pill_and_stays_working() {
 }
 
 #[test]
+fn an_item_that_waits_on_an_approved_design_change_names_it_in_the_pill_and_stays_working() {
+    let card = waiting(
+        "working",
+        ItemWait::Landing {
+            id: 428,
+            title: "Heading row".into(),
+        },
+    );
+    assert_eq!(card.chip, Some("Working"));
+    assert_eq!(
+        card.pill,
+        pill(
+            "After #428",
+            "Waits on design change 428 to land: Heading row"
+        )
+    );
+}
+
+#[test]
 fn an_item_that_waits_on_a_design_review_names_the_change_in_the_pill() {
     let card = waiting(
         "waiting-on-you",
@@ -403,6 +422,11 @@ fn ready_to_land_needs_no_active_shell_no_app_build_and_no_waiting_item() {
     assert!(keeps_working(Some("ready-to-land"), true, None));
     assert!(keeps_working(Some("ready-to-land"), false, Some(&build)));
     assert!(keeps_working(Some("ready-to-land"), false, Some(&item)));
+    let landing = ItemWait::Landing {
+        id: 2,
+        title: "Heading row".into(),
+    };
+    assert!(keeps_working(Some("ready-to-land"), false, Some(&landing)));
     assert!(!keeps_working(
         Some("ready-to-land"),
         false,

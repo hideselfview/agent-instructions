@@ -193,7 +193,8 @@ pub fn running_items(
 }
 
 /// What the running items of <worktree> wait on that is not met, the first
-/// that needs the person (a question, a design change), else an item.
+/// that needs the person (a question, a design change to review), else an
+/// item or a design change to land.
 pub fn running_wait(lists: &crate::lists::Lists, worktree: &str) -> Option<super::cards::ItemWait> {
     use super::cards::ItemWait;
     use crate::lists::Wait;
@@ -203,7 +204,10 @@ pub fn running_wait(lists: &crate::lists::Lists, worktree: &str) -> Option<super
             let title = |id| lists.locate(id).map(|found| found.title.to_string());
             found.extend(match wait {
                 Wait::Question(id) => title(*id).map(|title| ItemWait::Answer { id: id.0, title }),
-                Wait::Design(id) => title(*id).map(|title| ItemWait::Review { id: id.0, title }),
+                Wait::Design(id) if crate::lists::derive::wait_on_person(lists, wait) => {
+                    title(*id).map(|title| ItemWait::Review { id: id.0, title })
+                }
+                Wait::Design(id) => title(*id).map(|title| ItemWait::Landing { id: id.0, title }),
                 Wait::Item(id) => title(*id).map(|title| ItemWait::Item { id: id.0, title }),
                 Wait::Condition(_) => None,
             });

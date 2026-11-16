@@ -56,12 +56,10 @@ fn short(commit: &str) -> String {
     commit.chars().take(7).collect()
 }
 
-/// Does <item> wait on an answer or a review? A wait on another item or a
-/// condition is not the person's.
+/// Does <item> wait on the person's answer or review
+/// (`derive::wait_on_person`)?
 fn waits_on_person(item: &ItemView) -> bool {
-    item.waits
-        .iter()
-        .any(|wait| !wait.met && matches!(wait.kind, "question" | "design"))
+    item.waits.iter().any(|wait| wait.on_person)
 }
 
 /// The tab counts of <view>.

@@ -397,6 +397,56 @@ fn a_running_item_waits_on_its_question_before_another_item() {
     assert_eq!(running_wait(&lists, "/d/bae-worktrees/side-9"), None);
 }
 
+fn running_on_design(db: &rusqlite::Connection, change: crate::lists::Id) -> &'static str {
+    let waiting = item(db, vec![crate::lists::Wait::Design(change)]);
+    let here = "/d/bae-worktrees/side-2";
+    crate::lists::running::start(
+        db,
+        &[waiting],
+        &[Running {
+            worktree: here.into(),
+            branch: "b".into(),
+            brief: "plans/briefs/x.md".into(),
+            since: stamp(NOON),
+        }],
+    )
+    .unwrap();
+    here
+}
+
+#[test]
+fn a_running_item_waits_on_the_persons_review_of_a_design_change_until_they_approve_it() {
+    let db = db();
+    let change = design(&db);
+    let here = running_on_design(&db, change);
+    let lists = read(&db);
+    let title = lists.design(change).unwrap().title.clone();
+    assert_eq!(
+        running_wait(&lists, here),
+        Some(crate::daemon::cards::ItemWait::Review {
+            id: change.0,
+            title
+        })
+    );
+}
+
+#[test]
+fn a_running_item_waits_on_an_approved_design_change_to_land() {
+    let db = db();
+    let change = design(&db);
+    let here = running_on_design(&db, change);
+    crate::lists::design::approve(&db, change, &stamp(NOON)).unwrap();
+    let lists = read(&db);
+    let title = lists.design(change).unwrap().title.clone();
+    assert_eq!(
+        running_wait(&lists, here),
+        Some(crate::daemon::cards::ItemWait::Landing {
+            id: change.0,
+            title
+        })
+    );
+}
+
 #[test]
 fn a_design_change_id_two_projects_both_hold_opens_by_its_project() {
     let with_design = |name: &str| {

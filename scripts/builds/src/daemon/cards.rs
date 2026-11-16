@@ -24,6 +24,8 @@ pub enum ItemWait {
     },
     /// Another item.
     Item { id: u32, title: String },
+    /// A design change the person approved, which has not landed.
+    Landing { id: u32, title: String },
     /// Commits of a design branch that no recorded design change covers.
     Unrecorded,
     /// Commits waiting to land whose rules review `builds land` would not
@@ -124,7 +126,7 @@ impl ItemWait {
             ItemWait::Answer { .. } => 0,
             ItemWait::Review { .. } => 1,
             ItemWait::AppBuild { .. } => 2,
-            ItemWait::Item { .. } => 3,
+            ItemWait::Item { .. } | ItemWait::Landing { .. } => 3,
             ItemWait::Unrecorded => 4,
             ItemWait::RulesReview(_) => 5,
         }
@@ -148,7 +150,7 @@ impl ItemWait {
                 ..
             } => format!("{lane} build"),
             ItemWait::AppBuild { running: false, .. } => return None,
-            ItemWait::Item { id, .. } => format!("After #{id}"),
+            ItemWait::Item { id, .. } | ItemWait::Landing { id, .. } => format!("After #{id}"),
             ItemWait::Unrecorded => "No design change".to_string(),
             ItemWait::RulesReview(review) => return review.pill(),
         };
@@ -175,6 +177,9 @@ impl ItemWait {
                 format!("Waits on the {lane} app build: {how}")
             }
             ItemWait::Item { id, title } => format!("Waits on #{id}: {title}"),
+            ItemWait::Landing { id, title } => {
+                format!("Waits on design change {id} to land: {title}")
+            }
             ItemWait::Unrecorded => {
                 "Waits on the design session to record its design change.".to_string()
             }
@@ -186,13 +191,14 @@ impl ItemWait {
 /// Does a card in <state> stay Working instead of Ready to land? Ready to
 /// land means commits past origin/main and nothing else going on: no agent
 /// shell active in the worktree (<shell>), no app build of its branch and no
-/// running item that waits on another (<wait>).
+/// running item that waits on another item or on a design change to land
+/// (<wait>).
 pub fn keeps_working(state: Option<&str>, shell: bool, wait: Option<&ItemWait>) -> bool {
     state == Some("ready-to-land")
         && (shell
             || matches!(
                 wait,
-                Some(ItemWait::AppBuild { .. } | ItemWait::Item { .. })
+                Some(ItemWait::AppBuild { .. } | ItemWait::Item { .. } | ItemWait::Landing { .. })
             ))
 }
 
