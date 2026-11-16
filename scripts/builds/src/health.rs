@@ -862,18 +862,13 @@ pub fn assess(
 /// What health says of <branch>: its commits, and the command that takes it
 /// back into a worktree.
 fn loose_advice(branch: &crate::unlanded::LooseBranch) -> Advice {
-    let commits: Vec<String> = branch
-        .commits
-        .iter()
-        .map(|c| format!("{} {}", c.sha, c.subject))
-        .collect();
     Advice::run(
         format!(
             "branch: {} {} holds {} origin/main lacks ({}), and no worktree checks it out or open item names it; take it back into a worktree with",
             branch.repo,
             branch.branch,
             crate::text::counted(branch.commits.len(), "commit", "commits"),
-            commits.join("; ")
+            crate::unlanded::commit_words(&branch.commits)
         ),
         format!(
             "builds new {} --resume {}",

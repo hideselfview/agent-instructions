@@ -127,7 +127,7 @@ pub fn in_worktree(checkout: &Checkout, since: i64, held: &[String]) -> Result<H
 }
 
 /// <commits> as a refusal lists them: each short sha and subject.
-fn commit_words(commits: &[Commit]) -> String {
+pub fn commit_words(commits: &[Commit]) -> String {
     commits
         .iter()
         .map(|c| format!("{} {}", c.sha, c.subject))
