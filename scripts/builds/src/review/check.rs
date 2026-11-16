@@ -53,17 +53,19 @@ pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
     files
 }
 
-/// Whether <code> is in the diff's lines of <file>. The file is matched by its
-/// path, or by the end of it when the reviewer named a shorter one.
+/// Whether the path <path> is the file <file> a finding names: the whole
+/// path, or its end when the reviewer named a shorter one.
+pub fn names_file(path: &str, file: &str) -> bool {
+    path == file || path.ends_with(&format!("/{file}"))
+}
+
+/// Whether <code> is in the diff's lines of <file>, matched by `names_file`.
 pub fn code_in(files: &[DiffFile], file: &str, code: &str) -> Result<(), String> {
     let wanted = squash(code);
     if wanted.is_empty() {
         return Err("it quotes no code".to_string());
     }
-    let named: Vec<&DiffFile> = files
-        .iter()
-        .filter(|f| f.path == file || f.path.ends_with(&format!("/{file}")))
-        .collect();
+    let named: Vec<&DiffFile> = files.iter().filter(|f| names_file(&f.path, file)).collect();
     if named.is_empty() {
         return Err(format!("the diff has no file {file}"));
     }

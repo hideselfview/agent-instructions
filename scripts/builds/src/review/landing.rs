@@ -176,9 +176,11 @@ fn on_commits(
     messages: &mut HashMap<String, String>,
 ) -> Result<bool> {
     if finding.file != files::COMMIT_MESSAGE {
-        let named =
-            |path: &String| path == &finding.file || path.ends_with(&format!("/{}", finding.file));
-        return Ok(needs.iter().any(|n| n.paths.iter().any(named)));
+        return Ok(needs.iter().any(|n| {
+            n.paths
+                .iter()
+                .any(|path| check::names_file(path, &finding.file))
+        }));
     }
     let quote = check::squash(&finding.code);
     let mut holders: Vec<&Commit> = Vec::new();
