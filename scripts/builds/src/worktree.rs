@@ -122,19 +122,7 @@ enum Start {
 /// worktree checks it out: git would refuse the checkout after the worktree
 /// was claimed.
 fn require_resumable(main: &Path, branch: &str) -> Result<()> {
-    let exists = git(main)
-        .args([
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{branch}"),
-        ])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .status()
-        .context(|| format!("running git in {}", main.display()))?
-        .success();
-    if !exists {
+    if !crate::checkout::branch_exists(main, branch)? {
         fail!(
             "new: {} has no branch {branch} to resume",
             crate::checkout::file_name(main)

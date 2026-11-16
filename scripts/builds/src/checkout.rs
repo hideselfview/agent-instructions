@@ -404,6 +404,23 @@ pub fn worktrees_of(top: &Path) -> Result<Vec<PathBuf>> {
         .collect())
 }
 
+/// Does branch <branch> exist in the repo of <dir>?
+pub fn branch_exists(dir: &Path, branch: &str) -> Result<bool> {
+    let status = git(dir)
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .context(|| format!("running git in {}", dir.display()))?;
+    Ok(status.success())
+}
+
 /// One worktree of a repo and the branch it checks out.
 pub struct Listed {
     pub top: PathBuf,

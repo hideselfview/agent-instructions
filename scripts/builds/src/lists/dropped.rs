@@ -52,25 +52,6 @@ fn main_of(worktree: &str) -> Result<(String, PathBuf)> {
     Ok((repo, main))
 }
 
-/// Does branch <branch> exist in the repo of <dir>?
-fn branch_exists(dir: &Path, branch: &str) -> Result<bool> {
-    let status = git(dir)
-        .args([
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{branch}"),
-        ])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|error| {
-            fail::Fail::Message(format!("running git in {}: {error}", dir.display()))
-        })?;
-    Ok(status.success())
-}
-
 /// What <worktree> holds of an item's work on <branch>: the commits on the
 /// branch and on the worktree's HEAD that origin/main lacks, and the files
 /// not committed there. Refused when another worktree checks the branch out,
@@ -99,7 +80,7 @@ pub fn read(worktree: &str, branch: &str) -> Result<DroppedWork> {
     };
     let unread =
         |error: String| fail::Fail::Message(format!("reading the work in {worktree}: {error}"));
-    if branch_exists(&main, branch)? {
+    if crate::checkout::branch_exists(&main, branch)? {
         add(
             crate::side_git::waiting_to_land(&main, &format!("refs/heads/{branch}"))
                 .map_err(unread)?,
@@ -252,7 +233,7 @@ pub fn discard(work: &DroppedWork) -> Result<()> {
             "remove the files not committed",
         )?;
     }
-    if branch_exists(&main, &work.branch)? {
+    if crate::checkout::branch_exists(&main, &work.branch)? {
         git_text(
             git(&main).args(["branch", "-q", "-D", &work.branch]),
             "delete the branch",

@@ -102,7 +102,7 @@ pub fn in_worktree(checkout: &Checkout, since: i64, held: &[String]) -> Result<H
         if Some(&name) == branch.as_ref()
             || checked_out.contains(&name)
             || held.contains(&name)
-            || !branch_exists(top, &name)?
+            || !crate::checkout::branch_exists(top, &name)?
         {
             continue;
         }
@@ -124,25 +124,6 @@ pub fn in_worktree(checkout: &Checkout, since: i64, held: &[String]) -> Result<H
             top,
         ),
     })
-}
-
-/// Does branch <branch> exist in the repo of <dir>?
-fn branch_exists(dir: &Path, branch: &str) -> Result<bool> {
-    let status = git(dir)
-        .args([
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{branch}"),
-        ])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|error| {
-            fail::Fail::Message(format!("running git in {}: {error}", dir.display()))
-        })?;
-    Ok(status.success())
 }
 
 /// <commits> as a refusal lists them: each short sha and subject.

@@ -9,12 +9,11 @@
 //! worktrees it is parked in.
 
 use std::path::Path;
-use std::process::Stdio;
 
-use crate::checkout::{Checkout, git};
+use crate::checkout::{Checkout, branch_exists};
 use crate::claim::Claim;
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::Result;
 use crate::lists::args::Args;
 use crate::lists::draft::require_brief_from;
 use crate::lists::held::waits_on_open;
@@ -29,23 +28,6 @@ use crate::tool::Tool;
 
 const USAGE: &str = "builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2] --brief P [--as design-session] [--held WHY]";
 const PARK_USAGE: &str = "builds item park N --worktree W --branch B [--worktree W2 --branch B2]";
-
-/// Does branch <branch> exist in the repo of <top>?
-fn branch_exists(top: &Path, branch: &str) -> Result<bool> {
-    let status = git(top)
-        .args([
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{branch}"),
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .context(|| format!("running git in {}", top.display()))?;
-    Ok(status.success())
-}
 
 /// One worktree an item runs or parks in: checked, with its branch and the
 /// claim that holds it, if any.
