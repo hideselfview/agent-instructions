@@ -90,9 +90,9 @@ There are two exceptions:
   popover or menu, a drag in progress, the text typed in an input field) stays
   in the view that controls it. A drag or click that writes stays in progress
   until its write returns, so the view draws the moved row or new value until
-  then and the screen never jumps back. A query whose request changes, such as a
-  search, keeps drawing its last answer until the new request's first answer
-  arrives.
+  then and the screen never jumps back. When a query's parameters change, such
+  as a search's text, the view keeps drawing the last rows until the query
+  returns its first rows for the new parameters.
 
 The full rules are
 `projects/bae-rules/screen-reads/reactive-screens-read-plain-live-queries.md`
