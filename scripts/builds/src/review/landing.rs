@@ -11,15 +11,15 @@
 //! change gets one review; the coordinator reads the fixes for its confirmed
 //! findings. So check-landing takes a landing's commits when one change's
 //! review covers them: each commit whose paths a group's rules cover is either
-//! one the review read, matched by patch id (`commits.rs`) so that a rebase or
-//! a cherry-pick that keeps its change keeps its review, or the fix the
-//! coordinator named for one of the review's confirmed findings. Every group
-//! that covers a path a reviewed commit changes must have answered over it, the
-//! coordinator must have settled every finding, and every confirmed finding
-//! must name a fix among the commits landed. A commit that the review did not
-//! read and that no finding names as its fix is new work, which builds land
-//! takes only as a separate change. A landing whose changed paths no group
-//! covers needs no review.
+//! one the review read, matched by the patch id of its added and removed lines
+//! (`commits.rs`) so that a rebase or a cherry-pick that keeps those lines
+//! keeps its review, or the fix the coordinator named for one of the review's
+//! confirmed findings. Every group that covers a path a reviewed commit
+//! changes must have answered over it, the coordinator must have settled every
+//! finding, and every confirmed finding must name a fix among the commits
+//! landed. A commit that the review did not read and that no finding names as
+//! its fix is new work, which builds land takes only as a separate change. A
+//! landing whose changed paths no group covers needs no review.
 //!
 //! `landed` records the landing as landed with the change's review run, then
 //! decides whether to audit it (`audit.rs`) and, when it is sampled, starts
@@ -288,7 +288,7 @@ pub fn refusal(commits: &[Commit], verdict: &Verdict) -> Option<String> {
             ));
         }
         text.push_str(&format!(
-            "{ONE_REVIEW} A commit added after the review, or one whose patch id a rebase changed, is new work: land the reviewed commits and their fixes without it, then review it as a change of its own. When later commits need it, ask the person how to land them.\n"
+            "{ONE_REVIEW} A commit added after the review, or one whose added or removed lines a rebase changed, is new work: land the reviewed commits and their fixes without it, then review it as a change of its own. When later commits need it, ask the person how to land them.\n"
         ));
     }
     if !unfinished.unsettled.is_empty() {

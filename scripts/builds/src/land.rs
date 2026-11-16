@@ -69,11 +69,11 @@
 //! gets one review; the coordinator reads the fixes for its confirmed
 //! findings. `builds review check-landing`, run after the lists' checks and
 //! before anything is fetched, refuses unless each commit is one a change's
-//! review read (by patch id, so a rebase or cherry-pick that keeps its change
-//! counts) or the named fix of one of that review's confirmed findings, and
-//! the review is finished: every group that covers a path a reviewed commit
-//! changes answered, every finding is settled, and every confirmed one is
-//! fixed by one of the commits. Commits whose paths no group covers need no
+//! review read (by the patch id of its added and removed lines, so a rebase or
+//! cherry-pick that keeps those lines counts) or the named fix of one of that
+//! review's confirmed findings, and the review is finished: every group that
+//! covers a path a reviewed commit changes answered, every finding is settled,
+//! and every confirmed one is fixed by one of the commits. Commits whose paths no group covers need no
 //! review. After the push, `builds review landed` records the review's
 //! landing as landed beside the items and the design change, and starts the
 //! audit of a sampled one, which never fails the landing.
@@ -778,9 +778,8 @@ impl Landing<'_> {
             // Something else that moved this worktree's HEAD during the checks
             // (a checkout run by hand) leaves nothing of the landing's to push,
             // and the push of origin/main to itself would report success. HEAD
-            // is compared with the commit the landing made, not by patch: a
-            // cherry-pick onto changed surrounding lines has another patch id
-            // though it holds the change.
+            // is compared with the commit the landing made, not by patch id:
+            // another commit that holds the same change has the same patch id.
             let head = git_text(dir, &["rev-parse", "HEAD"]).unwrap_or_default();
             if head != landed {
                 let name =

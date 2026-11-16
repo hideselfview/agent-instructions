@@ -210,7 +210,7 @@ fn a_commit_added_after_the_review_lands_as_a_change_of_its_own() {
 }
 
 #[test]
-fn a_rebased_commit_whose_patch_id_changed_is_a_new_diff() {
+fn a_rebased_commit_whose_added_lines_changed_is_a_new_diff() {
     let demo = demo("landing-rebased");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
@@ -234,7 +234,7 @@ fn a_rebased_commit_whose_patch_id_changed_is_a_new_diff() {
     };
     assert_eq!(unfinished.unreviewed.len(), 1);
     assert_eq!(unfinished.unreviewed[0].sha, changed);
-    assert!(refused(&asked).contains("one whose patch id a rebase changed"));
+    assert!(refused(&asked).contains("one whose added or removed lines a rebase changed"));
 }
 
 #[test]

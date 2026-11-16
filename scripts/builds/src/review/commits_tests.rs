@@ -50,3 +50,47 @@ fn a_cherry_picked_commit_keeps_its_patch_id_and_an_empty_commit_has_none() {
     );
     assert!(with_patch_ids(&dir, &["no-such-commit".to_string()]).is_err());
 }
+
+#[test]
+fn a_commit_rebased_over_a_changed_context_line_keeps_its_patch_id_and_a_changed_added_line_does_not()
+ {
+    let scratch = Scratch::new("review-commits-context");
+    let dir = scratch.dir.join("repo");
+    repo(&dir, "target 1G\n");
+    let lines = |changed: &[(usize, &str)]| -> String {
+        (1..=9)
+            .map(|n| {
+                changed
+                    .iter()
+                    .find(|(at, _)| *at == n)
+                    .map_or(format!("line {n}\n"), |(_, text)| format!("{text}\n"))
+            })
+            .collect()
+    };
+    commit(&dir, "f.txt", &lines(&[]));
+    run_git(&dir, &["checkout", "-q", "-b", "work"]);
+    let reviewed = commit(&dir, "f.txt", &lines(&[(5, "line five")]));
+    // Main changes line 3, one of the context lines around the change to line
+    // 5 that a diff shows, and the change is rebased onto it.
+    run_git(&dir, &["checkout", "-q", "main"]);
+    commit(&dir, "f.txt", &lines(&[(3, "line three")]));
+    run_git(&dir, &["cherry-pick", &reviewed]);
+    let rebased = head(&dir);
+    let read = with_patch_ids(&dir, &[reviewed, rebased]).unwrap();
+    assert_eq!(
+        read[0].patch_id, read[1].patch_id,
+        "only a context line changed"
+    );
+    // A conflict's resolution that changes the added line is new work.
+    std::fs::write(
+        dir.join("f.txt"),
+        lines(&[(3, "line three"), (5, "line FIVE")]),
+    )
+    .unwrap();
+    run_git(&dir, &["commit", "-q", "--amend", "-a", "--no-edit"]);
+    let resolved = with_patch_ids(&dir, &[head(&dir)]).unwrap();
+    assert_ne!(
+        read[0].patch_id, resolved[0].patch_id,
+        "the added line changed"
+    );
+}

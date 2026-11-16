@@ -1016,16 +1016,19 @@ a landing in a repo of no project with lists: there is nothing to record. A
 design-only landing (`--design N` alone) follows the same rule.
 
 A review matches a landing's commits by their changes, not by their SHAs. A
-review records each commit it read with its patch id (`git patch-id
---stable`, over a diff whose options builds fixes); a commit that changes
-nothing has none. Land reads the patch ids of the commits it was given. A
-rebase or cherry-pick that keeps a commit's change keeps its patch id, so the
-review still covers it. A fix is matched the same way: `builds review fixed`
-records the patch id of the fixing commit.
+review records each commit it read with its patch id: `git patch-id --stable`
+of the commit's diff without context lines (`--unified=0`, with the other
+diff options builds fixes), so the id covers only the lines the commit adds
+and removes. A commit that changes nothing has none. Land reads the patch ids
+of the commits it was given. A rebase or cherry-pick that keeps a commit's
+added and removed lines keeps its patch id, even when the lines around them
+changed, so the review still covers it. A fix is matched the same way:
+`builds review fixed` records the patch id of the fixing commit.
 
 A commit that is neither one the review read nor a named fix is new work: a
-commit added after the review, a squash, or a commit whose patch id a rebase
-changed (a conflict, or changed context lines). Land refuses it and names it.
+commit added after the review, a squash, or a commit whose added or removed
+lines a rebase changed (a conflict's resolution). Land refuses it and names
+it.
 Land the reviewed commits and their fixes without it, then review it as a
 change of its own: once the first change has landed, `builds review` on the
 branch opens a new change under the same key, and reads only the commits past

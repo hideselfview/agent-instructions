@@ -214,8 +214,9 @@ names it as the fix of one of its confirmed findings.
   - No diff is reviewed more than once. Each change gets one review; the
     coordinator reads the fixes for its confirmed findings. Land the
     reviewed commits with their named fixes. A rebase or cherry-pick that
-    keeps each commit's change keeps its review. A commit added after the
-    review, a squash, or a commit whose patch id a rebase changed is new
+    keeps each commit's added and removed lines keeps its review, even when
+    the lines around them changed. A commit added after the review, a
+    squash, or a commit whose added or removed lines a rebase changed is new
     work: land the reviewed commits without it, then review it as a change
     of its own. When the reviewed commits can't land without it, ask the
     person how to land them.

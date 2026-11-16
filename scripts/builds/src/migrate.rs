@@ -21,7 +21,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::db::{self, DATABASE, Sql};
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Fail, Result};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::queue::is_held;
@@ -181,6 +181,9 @@ const BEFORE_ORIGINS_STAMP: i64 = 778_443_283;
 /// The stamp of the schema before an item could close as finished.
 const BEFORE_FINISHED_STAMP: i64 = 1_574_915_211;
 
+/// The stamp of the schema before a review's patch ids left out context lines.
+const BEFORE_CHANGED_LINES_STAMP: i64 = 640_728_139;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -211,7 +214,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// any kind (each item keeps the decision or design change that made it) and
 /// `question` with an origin (no question has one yet), and every store gets
 /// `closing` where an item may close as finished, and the move copies every
-/// closing into the new table.
+/// closing into the new table, and the move gives every commit a review read
+/// and every fix the patch id of its added and removed lines alone, read from
+/// the clone `~/dev/<repo>` of the repo its landing names.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -231,7 +236,7 @@ pub fn migrate_stores(places: &Places) -> Result<()> {
     }
     dirs.sort();
     for dir in dirs {
-        move_store(&dir.join(DATABASE))?;
+        move_store(places, &dir.join(DATABASE))?;
     }
     Ok(())
 }
@@ -274,7 +279,7 @@ fn design_fix() -> String {
     db::statement(&db::schema(), "CREATE TABLE design_fix", "STRICT;").to_string()
 }
 
-fn move_store(path: &Path) -> Result<()> {
+fn move_store(places: &Places, path: &Path) -> Result<()> {
     if !path.is_file() {
         return Ok(());
     }
@@ -302,11 +307,12 @@ fn move_store(path: &Path) -> Result<()> {
         BEFORE_CARGO_RUNS_REMOVED_STAMP,
         BEFORE_ORIGINS_STAMP,
         BEFORE_FINISHED_STAMP,
+        BEFORE_CHANGED_LINES_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP} and {BEFORE_FINISHED_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP} and {BEFORE_CHANGED_LINES_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -326,6 +332,7 @@ fn move_store(path: &Path) -> Result<()> {
         BEFORE_CARGO_RUNS_REMOVED_STAMP,
         BEFORE_ORIGINS_STAMP,
         BEFORE_FINISHED_STAMP,
+        BEFORE_CHANGED_LINES_STAMP,
     ]
     .contains(&found)
     {
@@ -397,6 +404,7 @@ fn move_store(path: &Path) -> Result<()> {
         BEFORE_CARGO_RUNS_REMOVED_STAMP,
         BEFORE_ORIGINS_STAMP,
         BEFORE_FINISHED_STAMP,
+        BEFORE_CHANGED_LINES_STAMP,
     ]
     .contains(&found)
     {
@@ -405,14 +413,36 @@ fn move_store(path: &Path) -> Result<()> {
     // Stores stamped after builds added the cargo runs' table still have it;
     // dropping the table also drops its index.
     tx.execute_batch("DROP TABLE IF EXISTS cargo_runs;").sql()?;
-    // Only a store from before an item could close as finished has today's
-    // `item` and `question`.
-    if found != BEFORE_FINISHED_STAMP {
+    // Only a store from before an item could close as finished, or after, has
+    // today's `item` and `question`.
+    if ![BEFORE_FINISHED_STAMP, BEFORE_CHANGED_LINES_STAMP].contains(&found) {
         crate::lists::item::move_to_origins(&tx)?;
         crate::lists::question::move_to_origins(&tx)?;
     }
-    // No store this moves has today's `closing`.
-    crate::lists::record::move_to_finished(&tx)?;
+    // Only a store from before a review's patch ids left out context lines
+    // has today's `closing`.
+    if found != BEFORE_CHANGED_LINES_STAMP {
+        crate::lists::record::move_to_finished(&tx)?;
+    }
+    // Every store this moves holds patch ids taken with the context lines; the
+    // move takes each again without them.
+    crate::review::record::move_to_changed_lines(&tx, |repo, shas| {
+        let clone = places.home.join(crate::host::clone_path(repo));
+        crate::review::commits::with_patch_ids(&clone, shas).map_err(|why| {
+            Fail::Message(format!(
+                "reading the commits of {repo} from {}: {}",
+                clone.display(),
+                why.text()
+            ))
+        })
+    })
+    .map_err(|why| {
+        Fail::Message(format!(
+            "{} keeps patch ids this move could not read again, so it is left as it was: {}",
+            path.display(),
+            why.text()
+        ))
+    })?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))

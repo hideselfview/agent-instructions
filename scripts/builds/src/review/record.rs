@@ -716,6 +716,83 @@ PRAGMA legacy_alter_table = OFF;"
     .sql()
 }
 
+/// A row that keeps a patch id: a commit a review read, or a finding's fix.
+enum PatchRow {
+    Read { run: i64, position: i64 },
+    Fix { finding: i64 },
+}
+
+/// Gives every commit a review read and every commit named as a fix the patch
+/// id that builds takes today, of the commit's added and removed lines alone
+/// (commits.rs), in place of the one a store kept before, which covered the
+/// context lines too. <patch_ids> reads commits of the repo a landing names
+/// with their patch ids. A commit it cannot read, a commit it gives no patch
+/// id, and a commit of no landing leave no patch id to match the review by, so
+/// the move fails and migrate.rs leaves the store as it was.
+pub fn move_to_changed_lines(
+    db: &Connection,
+    patch_ids: impl Fn(&str, &[String]) -> Result<Vec<Commit>>,
+) -> Result<()> {
+    let read = |sql: &str,
+                row_of: fn(i64, i64) -> PatchRow|
+     -> Result<Vec<(PatchRow, String, Option<String>)>> {
+        let mut statement = db.prepare(sql).sql()?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row_of(row.get(0)?, row.get(1)?), row.get(2)?, row.get(3)?))
+            })
+            .sql()?;
+        rows.map(|row| row.sql()).collect()
+    };
+    let mut rows = read(
+        "SELECT c.run_id, c.position, c.sha, l.repo FROM review_commit c
+            JOIN review_run r ON r.id = c.run_id LEFT JOIN review_landing l ON l.id = r.landing_id",
+        |run, position| PatchRow::Read { run, position },
+    )?;
+    rows.extend(read(
+        "SELECT x.finding_id, 0, x.sha, l.repo FROM review_fix x
+            JOIN review_finding f ON f.id = x.finding_id JOIN review_call k ON k.id = f.call_id
+            JOIN review_run r ON r.id = k.run_id LEFT JOIN review_landing l ON l.id = r.landing_id",
+        |finding, _| PatchRow::Fix { finding },
+    )?);
+    let mut repos: Vec<&str> = Vec::new();
+    for (_, sha, repo) in &rows {
+        let Some(repo) = repo else {
+            fail!("commit {sha} is kept for a review run of no landing, so no repo names it");
+        };
+        if !repos.contains(&repo.as_str()) {
+            repos.push(repo);
+        }
+    }
+    for repo in repos {
+        let of_repo = || rows.iter().filter(|(_, _, r)| r.as_deref() == Some(repo));
+        let mut shas: Vec<String> = Vec::new();
+        for (_, sha, _) in of_repo() {
+            if !shas.contains(sha) {
+                shas.push(sha.clone());
+            }
+        }
+        let commits = patch_ids(repo, &shas)?;
+        for (row, sha, _) in of_repo() {
+            let Some(commit) = commits.iter().find(|c| &c.sha == sha) else {
+                fail!("commit {sha} of repo {repo} has no patch id: it changes nothing");
+            };
+            match row {
+                PatchRow::Read { run, position } => db.execute(
+                    "UPDATE review_commit SET patch_id = ?3 WHERE run_id = ?1 AND position = ?2",
+                    params![run, position, commit.patch_id],
+                ),
+                PatchRow::Fix { finding } => db.execute(
+                    "UPDATE review_fix SET patch_id = ?2 WHERE finding_id = ?1",
+                    params![finding, commit.patch_id],
+                ),
+            }
+            .sql()?;
+        }
+    }
+    Ok(())
+}
+
 /// The tables record.rs owns.
 #[cfg(test)]
 const TABLES: [&str; 9] = [

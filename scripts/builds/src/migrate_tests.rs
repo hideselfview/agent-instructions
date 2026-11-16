@@ -1341,7 +1341,7 @@ fn a_store_from_before_origins_keeps_each_item_its_origin_and_equals_a_fresh_sch
 
 /// <schema> as its text read before an item could close as finished.
 fn without_finished(schema: String) -> String {
-    let mut old = schema;
+    let mut old = without_changed_lines(schema);
     for (now, then) in [
         (
             "'landed', 'finished', 'dropped', 'deferred', 'moved-to-stack')\n    ),",
@@ -1455,4 +1455,202 @@ fn a_store_from_before_finished_keeps_its_closings_and_takes_a_finished_item() {
         },
     )
     .unwrap();
+}
+
+/// <schema> as its text read before a review's patch ids left out context
+/// lines: `review_commit`'s comment as it read then. A schema without the
+/// review's tables is left as it is.
+fn without_changed_lines(schema: String) -> String {
+    if !schema.contains("CREATE TABLE review_commit") {
+        return schema;
+    }
+    let now = "-- The commits a review read, in order, each with its patch id: `git patch-id
+-- --stable` of the commit's diff without context lines, so the id covers only
+-- the lines the commit adds and removes (commits.rs). A commit that changes
+-- nothing has none and is left out. `builds land` matches the commits it lands
+-- to a run by these patch ids, so a rebase or a cherry-pick that keeps each
+-- commit's added and removed lines keeps its review.
+";
+    let then = "-- The commits a review read, in order, each with its patch id (`git patch-id
+-- --stable`); a commit that changes nothing has none and is left out. `builds
+-- land` matches the commits it lands to a run by these patch ids, so a rebase
+-- or a cherry-pick that keeps each commit's change keeps its review.
+";
+    assert_eq!(schema.matches(now).count(), 1, "{now}");
+    schema.replace(now, then)
+}
+
+#[test]
+fn the_changed_lines_stamp_is_the_schema_before_changed_lines() {
+    assert_eq!(
+        db::stamp_of_text(&without_changed_lines(db::schema())),
+        BEFORE_CHANGED_LINES_STAMP
+    );
+}
+
+/// A store as the schema before a review's patch ids left out context lines
+/// made it, with one landing of repo `demo` whose review read <read> and whose
+/// one confirmed finding <fix> fixes, each kept with a stale patch id.
+fn store_before_changed_lines(dir: &std::path::Path, read: &str, fix: &str) -> std::path::PathBuf {
+    use crate::lists::fixtures::v;
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&without_changed_lines(db::schema()))
+        .unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_CHANGED_LINES_STAMP)
+        .unwrap();
+    crate::lists::project::plant(&conn, "repo", &[("name", v("demo"))]).unwrap();
+    let plant = |table: &str, columns: &[(&str, rusqlite::types::Value)]| {
+        crate::review::record::plant(&conn, table, columns).unwrap();
+    };
+    plant(
+        "review_landing",
+        &[
+            ("id", v(1)),
+            ("key", v("branch:work")),
+            ("repo", v("demo")),
+            ("opened_at", v(5)),
+        ],
+    );
+    plant(
+        "review_run",
+        &[
+            ("id", v(10)),
+            ("landing_id", v(1)),
+            ("kind", v("review")),
+            ("at", v(6)),
+            ("base", v("b")),
+            ("head", v("h")),
+            ("grouping", v("g")),
+            ("rules_version", v("")),
+        ],
+    );
+    plant(
+        "review_commit",
+        &[
+            ("run_id", v(10)),
+            ("position", v(0)),
+            ("sha", v(read)),
+            ("patch_id", v("stale")),
+        ],
+    );
+    plant(
+        "review_text",
+        &[("hash", v("p")), ("text", v("the prompt"))],
+    );
+    plant(
+        "review_call",
+        &[
+            ("id", v(20)),
+            ("run_id", v(10)),
+            ("group_name", v("words")),
+            ("model", v("opus")),
+            ("prompt", v("p")),
+            ("rules", v("[\"r\"]")),
+            ("tokens_in", v(1)),
+            ("tokens_out", v(1)),
+            ("tokens_cached", v(0)),
+            ("tokens_written", v(0)),
+        ],
+    );
+    plant(
+        "review_finding",
+        &[
+            ("id", v(30)),
+            ("call_id", v(20)),
+            ("rule", v("r")),
+            ("clause", v("c")),
+            ("file", v("f.txt")),
+            ("line", v(1)),
+            ("code", v("x")),
+            ("problem", v("p")),
+            ("blocking", v(0)),
+            ("settled", v("confirmed")),
+            ("settled_why", v("w")),
+            ("settled_at", v(7)),
+            ("settled_by", v("coordinator")),
+        ],
+    );
+    plant(
+        "review_fix",
+        &[
+            ("finding_id", v(30)),
+            ("sha", v(fix)),
+            ("patch_id", v("stale")),
+            ("at", v(8)),
+            ("by", v("coordinator")),
+        ],
+    );
+    path
+}
+
+/// The clone `~/dev/demo` under <places>' home with two commits past its
+/// start: the one a review read and the one that fixed its finding.
+fn demo_clone(places: &Places) -> (String, String) {
+    let dir = places.home.join("dev/demo");
+    crate::testing::repo(&dir, "target 1G\n");
+    let mut shas = Vec::new();
+    for (file, text) in [("f.txt", "read\n"), ("g.txt", "fix\n")] {
+        std::fs::write(dir.join(file), text).unwrap();
+        crate::testing::git(&dir, &["add", file]);
+        crate::testing::git(&dir, &["commit", "-q", "-m", file]);
+        shas.push(
+            crate::review::commits::in_range(&dir, "HEAD~1", "HEAD")
+                .unwrap()
+                .remove(0),
+        );
+    }
+    (shas[0].clone(), shas[1].clone())
+}
+
+#[test]
+fn a_store_from_before_changed_lines_keeps_each_review_commit_and_fix_with_its_patch_id_read_again()
+{
+    let scratch = Scratch::new("move-changed-lines");
+    let places = scratch.places();
+    let (read, fix) = demo_clone(&places);
+    let path = store_before_changed_lines(&places.lists.join("demo"), &read, &fix);
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let today = crate::review::commits::with_patch_ids(
+        &places.home.join("dev/demo"),
+        &[read.clone(), fix.clone()],
+    )
+    .unwrap();
+    assert_eq!(
+        crate::review::record::commits_of_run(&conn, 10).unwrap(),
+        today[..1]
+    );
+    let finding = crate::review::record::finding_of(&conn, 30).unwrap();
+    assert_eq!(finding.fix.as_ref(), Some(&today[1]));
+}
+
+#[test]
+fn a_store_whose_reviewed_commit_the_clone_lacks_is_left_as_it_was() {
+    let scratch = Scratch::new("move-changed-lines-lost");
+    let places = scratch.places();
+    let (_, fix) = demo_clone(&places);
+    let lost = "0".repeat(40);
+    let path = store_before_changed_lines(&places.lists.join("demo"), &lost, &fix);
+    let refused = migrate_stores(&places).unwrap_err().text();
+    assert!(
+        refused.contains("left as it was") && refused.contains("dev/demo"),
+        "{refused}"
+    );
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(
+        db::stamp_of(&conn, &path).unwrap(),
+        BEFORE_CHANGED_LINES_STAMP
+    );
+    let kept: String = conn
+        .query_row("SELECT patch_id FROM review_fix", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(kept, "stale");
 }

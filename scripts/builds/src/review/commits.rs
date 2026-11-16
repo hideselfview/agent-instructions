@@ -1,8 +1,11 @@
 //! What a change is to the review's record and to `builds land`: its commits,
-//! each with its patch id (`git patch-id --stable`). A rebase or a cherry-pick
-//! that keeps a commit's change keeps its patch id while its SHA changes, so a
-//! landing is matched to the review that read the same changes, not the same
-//! SHAs.
+//! each with its patch id, which `git patch-id --stable` takes of the commit's
+//! diff without context lines, so the id covers only the lines the commit adds
+//! and removes. A rebase or a cherry-pick that keeps those lines keeps the
+//! patch id while the SHA changes, even when the lines around them changed, so
+//! a landing is matched to the review that read the same changes, not the same
+//! SHAs. A conflict's resolution that changes an added or removed line gives
+//! the commit another patch id.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -11,7 +14,7 @@ use crate::checkout::git;
 use crate::fail;
 use crate::fail::{Context, Result};
 
-/// A commit and the patch id of its change.
+/// A commit and the patch id of its added and removed lines.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Commit {
     pub sha: String,
@@ -91,21 +94,25 @@ pub fn newest(repo: &Path, count: usize) -> Result<Vec<String>> {
     .collect())
 }
 
-/// Each of <revs> with the patch id of its change, in the order given. A
-/// commit that changes nothing (and a merge, whose change `git log -p` does not
-/// show) has no patch id and is left out.
+/// Each of <revs> with the patch id of its added and removed lines, in the
+/// order given. A commit that changes nothing (and a merge, whose change `git
+/// log -p` does not show) has no patch id and is left out.
 pub fn with_patch_ids(repo: &Path, revs: &[String]) -> Result<Vec<Commit>> {
     if revs.is_empty() {
         return Ok(Vec::new());
     }
     let shas = full_shas(repo, revs)?;
     // The diff options are fixed here, not left to the repo's config, so a
-    // commit's patch id is the same whenever it is read.
+    // commit's patch id is the same whenever it is read. `--unified=0` leaves
+    // out the context lines, and `git patch-id` ignores the line numbers in
+    // the hunk headers, so lines that moved or changed around the change
+    // leave its patch id as it was.
     let mut log = git(repo);
     log.args([
         "log",
         "--no-walk=unsorted",
         "-p",
+        "--unified=0",
         "--no-color",
         "--no-ext-diff",
         "--no-renames",

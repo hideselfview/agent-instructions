@@ -42,12 +42,13 @@ branch this way:
     repo.
 - Run `builds land` with the reviewed commits and their named fixes in the
   branch's own worktree, once its agent is done there.
-  - Land matches commits by patch id, so a rebase or cherry-pick that keeps each
-    commit's change still counts.
-  - A commit added after the review, a squash, or a commit whose patch id a
-    rebase changed is new work, which land refuses. Land the reviewed commits
-    and their fixes without it, then review it as a change of its own. When the
-    reviewed commits can't land without it, ask the person.
+  - Land matches commits by a patch id of their added and removed lines alone,
+    so a rebase or cherry-pick that keeps those lines still counts, even when
+    the lines around them changed.
+  - A commit added after the review, a squash, or a commit whose added or
+    removed lines a rebase changed is new work, which land refuses. Land the
+    reviewed commits and their fixes without it, then review it as a change of
+    its own. When the reviewed commits can't land without it, ask the person.
 - Run `builds review show <landing>` to list a change's review, the commits it
   read, its findings, and how each was settled and fixed.
   - A review's key defaults to the worktree's branch, such as `branch:work`.
