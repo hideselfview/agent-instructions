@@ -561,15 +561,16 @@ fn a_command_on_this_mac_runs_without_the_git_variables_of_a_hook() {
 }
 
 /// An ssh that, like the real one, returns only once nothing on the host
-/// holds the command's output open: it passes the output of `fake_ssh`
-/// through a pipe, which a process the command left behind keeps open.
+/// holds the command's output open, with the command's exit status: it
+/// passes the output of `fake_ssh` through a pipe, which a process the
+/// command left behind would keep open.
 fn holding_ssh(dir: &Path, fake: &Ssh) -> Ssh {
     std::fs::create_dir_all(dir).unwrap();
     let program = dir.join("ssh");
     std::fs::write(
         &program,
         format!(
-            "#!/bin/sh\n{} \"$@\" | cat\n",
+            "#!/bin/bash\nset -o pipefail\n{} \"$@\" | cat\n",
             crate::host::sh_quote(&fake.program)
         ),
     )
@@ -593,15 +594,9 @@ fn app_checkout(s: &Setup) -> PathBuf {
     wt
 }
 
-/// Checks every 100ms and gives ssh 300ms to return.
-const QUICK_WATCH: Watch = Watch {
-    every: Duration::from_millis(100),
-    grace: Duration::from_millis(300),
-};
-
 #[test]
-fn a_command_whose_process_ends_while_ssh_stays_open_fails() {
-    let s = setup("remote-lost");
+fn a_command_that_leaves_a_process_holding_its_output_ends_with_its_status() {
+    let s = setup("remote-leftover");
     let places = s.scratch.places();
     let ssh = holding_ssh(&s.scratch.dir.join("holding-bin"), &s.ssh);
     let wt = app_checkout(&s);
@@ -610,55 +605,57 @@ fn a_command_whose_process_ends_while_ssh_stays_open_fails() {
         ssh: &ssh,
         host: &s.host,
     };
-    // The command exits and leaves a process holding its output open, so
-    // ssh never returns.
-    let command = args(&["sh", "-c", "sleep 60 & echo $! > left.pid; exit 3"]);
+    // The command exits 3 and leaves a process in a process group of its
+    // own that holds the command's output open, as a build daemon does.
+    let command = args(&[
+        "sh",
+        "-c",
+        "set -m; sleep 60 & echo $! > left.pid; printf 'last words'; printf 'last error' >&2; exit 3",
+    ]);
     let started = std::time::Instant::now();
-    let ran = run_command_watched(
+    let ran = run_command(
         &transport,
         &AtomicBool::new(false),
         &wt.display().to_string(),
         &command,
-        false,
-        &QUICK_WATCH,
+        true,
     );
     let took = started.elapsed();
     let left = std::fs::read_to_string(wt.join("left.pid")).unwrap();
     unsafe { libc::kill(left.trim().parse().unwrap(), libc::SIGKILL) };
-    let Err(Fail::Message(message)) = ran else {
-        panic!("expected a failure, got {ran:?}");
-    };
-    assert!(message.contains("without an exit status"), "{message}");
-    assert!(message.contains("host m1"), "{message}");
+    let (code, _) = ran.unwrap();
+    assert_eq!(code, 3);
     assert!(took < Duration::from_secs(5), "{took:?}");
 }
 
 #[test]
-fn a_command_that_outlasts_the_checks_runs_to_its_end() {
-    let s = setup("remote-watched");
+fn a_command_passes_on_all_it_printed() {
+    let s = setup("remote-relay");
     let places = s.scratch.places();
     let wt = app_checkout(&s);
-    // An earlier step's pid file names a process that has ended.
-    std::fs::write(format!("{}.job/pid", wt.display()), "999999 earlier\n").unwrap();
     let transport = Transport {
         places: &places,
         ssh: &s.ssh,
         host: &s.host,
     };
-    assert_eq!(
-        process_of(&transport, &wt.display().to_string(), "this-run"),
-        Ok(Process::Starting),
-        "a check reads no other run's pid"
-    );
-    let command = args(&["sh", "-c", "sleep 1; exit 4"]);
-    let ran = run_command_watched(
-        &transport,
-        &AtomicBool::new(false),
+    let output = s.scratch.dir.join("output");
+    // The script's own output goes to a file, so this test reads what the
+    // relays passed on.
+    let mut start = transport.command(&run_script(
+        &s.host,
         &wt.display().to_string(),
-        &command,
-        false,
-        &QUICK_WATCH,
-    )
-    .unwrap();
-    assert_eq!(ran, (4, None));
+        &args(&["sh", "-c", "seq 1 20000; printf 'no end of line'; exit 4"]),
+        "test",
+    ));
+    let status = start
+        .stdout(std::fs::File::create(&output).unwrap())
+        .status()
+        .unwrap();
+    assert_eq!(status.code(), Some(4));
+    let text = std::fs::read_to_string(&output).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 20001, "{}", &text[text.len() - 100..]);
+    assert_eq!(lines[19999], "20000");
+    assert_eq!(lines[20000], "no end of line");
+    assert!(!wt.with_extension("job").join("out").exists());
 }

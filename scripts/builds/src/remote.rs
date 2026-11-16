@@ -12,9 +12,8 @@
 //! prune` removes it (remote_worktrees.rs). When the job ends,
 //! however it ends, builds deletes the ref and the claim. A stopped `builds
 //! remote run` (SIGTERM, SIGINT, SIGHUP) stops the command on the host.
-//! While the command runs on another host, builds checks that its process
-//! there still exists, and fails a command whose process is gone while ssh
-//! has not returned (`Watch`).
+//! The command's run ends when the command does, even when it leaves
+//! processes behind (`run_script`).
 //!
 //! On this Mac (host `local`) the clone is `~/dev/<repo>`, which already holds
 //! the commit, so nothing is pushed.
@@ -22,8 +21,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{RecvTimeoutError, channel};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::checkout::{Checkout, git, git_text};
 use crate::fail;
@@ -419,11 +417,21 @@ echo "worktree=$wt""#,
     )
 }
 
-/// Runs <command> in <worktree> as a process group of its own. The file `pid`
-/// in the claim folder holds the group leader's pid and <run>, the id of this
-/// run, for `stop_script` and `check_script`. An app checkout's claim folder
-/// stays between steps, so the file may hold an earlier step's pid until this
-/// run writes its own; <run> tells the two apart.
+/// Runs <command> in <worktree> as a process group of its own, whose leader's
+/// pid goes in the claim folder for `stop_script`, and exits with the
+/// command's exit status as soon as the command ends.
+///
+/// ssh returns only once nothing on the host holds its output open, and a
+/// command can leave processes behind that do (a build daemon, a simulator's
+/// helper), some of them in process groups of their own. So the command
+/// writes to two FIFOs in the claim folder, never to ssh's output, and a relay
+/// for each passes what comes through on to ssh's stdout or stderr. When the
+/// command ends, the script stops what is left in its process group and
+/// writes a line that marks the end of run <run> to each FIFO, after
+/// everything the command wrote. Each relay passes on what came before the
+/// marker and exits. A process the command left behind may still hold a
+/// FIFO, but nothing holds ssh's output. When the script cannot stop what is
+/// left in the group, it says so and fails a command that passed.
 fn run_script(host: &Host, worktree: &str, command: &[String], run: &str) -> String {
     let words: Vec<String> = command.iter().map(|word| sh_quote(word)).collect();
     format!(
@@ -432,93 +440,46 @@ fn run_script(host: &Host, worktree: &str, command: &[String], run: &str) -> Str
 ulimit -n 10240 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null
 set -m
 cd {wt} || exit 92
-( exec {words} ) &
+job={wt}.job
+rm -f "$job/out" "$job/err"
+mkfifo "$job/out" "$job/err" || exit 95
+end={end}
+relay='{{ at = index($0, end); if (at) {{ if (at > 1) print substr($0, 1, at - 1); fflush(); exit }} print; fflush() }}'
+LC_ALL=C awk -v end="$end" "$relay" < "$job/out" &
+out=$!
+LC_ALL=C awk -v end="$end" "$relay" < "$job/err" >&2 &
+err=$!
+exec 3>"$job/out" 4>"$job/err"
+( exec {words} < /dev/null >&3 2>&4 3>&- 4>&- ) &
 pid=$!
-echo "$pid" {run} > {wt}.job/pid
-wait $pid 2>/dev/null"#,
+echo $pid > "$job/pid"
+wait $pid 2>/dev/null
+status=$?
+if kill -0 -- "-$pid" 2>/dev/null; then
+  if ! said=$(kill -TERM -- "-$pid" 2>&1); then
+    echo "builds could not stop the processes the command left in its process group $pid on host {host}: $said" >&2
+    [ $status -eq 0 ] && status=96
+  fi
+fi
+echo "$end" >&3
+echo "$end" >&4
+exec 3>&- 4>&-
+wait $out $err
+rm -f "$job/out" "$job/err"
+exit $status"#,
         root = root_script(host),
         wt = sh_quote(worktree),
         words = words.join(" "),
-        run = sh_quote(run),
+        end = sh_quote(&format!("builds-end-of-run-{run}")),
+        host = host.name,
     )
 }
 
 fn stop_script(worktree: &str) -> String {
     format!(
-        r#"read pid _ < {wt}.job/pid && kill -TERM -- "-$pid""#,
+        r#"pid=$(cat {wt}.job/pid) && kill -TERM -- "-$pid""#,
         wt = sh_quote(worktree)
     )
-}
-
-/// Prints `starting` until run <run> has written its pid, then `running`
-/// while the process with that pid exists and `ended` once it is gone.
-fn check_script(worktree: &str, run: &str) -> String {
-    format!(
-        r#"if read pid run 2>/dev/null < {wt}.job/pid && [ "$run" = {run} ]; then
-  if ps -p "$pid" >/dev/null 2>&1; then echo running; else echo ended; fi
-else
-  echo starting
-fi"#,
-        wt = sh_quote(worktree),
-        run = sh_quote(run),
-    )
-}
-
-/// What `check_script` found of a command's process on its host.
-#[derive(Debug, PartialEq, Eq)]
-enum Process {
-    /// The run has not written its pid yet.
-    Starting,
-    Running,
-    Ended,
-}
-
-/// Asks the host where run <run>'s process in <worktree> is. The error says
-/// why the host gave no answer.
-fn process_of(
-    transport: &Transport,
-    worktree: &str,
-    run: &str,
-) -> std::result::Result<Process, String> {
-    let said = transport
-        .ask(
-            &check_script(worktree, run),
-            "checking the command's process",
-        )
-        .map_err(|error| error.text())??;
-    match said.trim() {
-        "starting" => Ok(Process::Starting),
-        "running" => Ok(Process::Running),
-        "ended" => Ok(Process::Ended),
-        other => Err(format!(
-            "checking the command's process on host {} printed {other:?}",
-            transport.host.name
-        )),
-    }
-}
-
-/// How `run_command` watches a command on a host other than this Mac. ssh
-/// returns only once nothing on the host holds the command's output open, so
-/// a process the command left behind keeps ssh waiting after the command has
-/// ended. So builds asks the host every <every> whether the command's process
-/// still exists, and when it is gone and ssh has not returned <grace> later,
-/// builds stops ssh and fails the command.
-struct Watch {
-    every: Duration,
-    grace: Duration,
-}
-
-const HOST_WATCH: Watch = Watch {
-    every: Duration::from_secs(30),
-    grace: Duration::from_secs(10),
-};
-
-/// How the ssh or sh process that ran a command ended.
-enum Ended {
-    Exited(std::process::ExitStatus),
-    /// The command's process on the host was gone and ssh had not returned
-    /// after the watch's grace, so builds killed ssh.
-    Lost,
 }
 
 /// Releases the worktree's claim and deletes the job's ref.
@@ -546,24 +507,9 @@ pub fn run_command(
     command: &[String],
     time_locks: bool,
 ) -> Result<(i32, Option<Duration>)> {
-    run_command_watched(transport, stop, worktree, command, time_locks, &HOST_WATCH)
-}
-
-/// `run_command`, watching a command on a host other than this Mac as <watch>
-/// says. A command on this Mac runs under `sh`, which returns when the
-/// command ends, so nothing watches it.
-fn run_command_watched(
-    transport: &Transport,
-    stop: &AtomicBool,
-    worktree: &str,
-    command: &[String],
-    time_locks: bool,
-    watch: &Watch,
-) -> Result<(i32, Option<Duration>)> {
     use std::os::unix::process::{CommandExt, ExitStatusExt};
-    let run = job_id();
     let mut child = transport
-        .command(&run_script(transport.host, worktree, command, &run))
+        .command(&run_script(transport.host, worktree, command, &job_id()))
         .stdin(Stdio::null())
         .stderr(if time_locks {
             Stdio::piped()
@@ -581,74 +527,31 @@ fn run_command_watched(
         .map(|stderr| crate::lock_wait::relay(stderr, std::io::stderr()));
     let waited = || relay.map(|relay| relay.join().expect("the relay does not panic"));
     let mut stopped = false;
-    let ended = std::thread::scope(|scope| -> Result<Ended> {
-        // `_over` drops when this closure returns, which tells the checker
-        // the command is over.
-        let (_over, ending) = channel::<()>();
-        let (answer, answers) = channel();
-        if transport.host.target.is_some() {
-            let run = &run;
-            scope.spawn(move || {
-                while ending.recv_timeout(watch.every) == Err(RecvTimeoutError::Timeout) {
-                    if answer.send(process_of(transport, worktree, run)).is_err() {
-                        return;
-                    }
-                }
-            });
+    let status = loop {
+        if let Some(status) = child
+            .try_wait()
+            .context(|| "waiting for the command".to_string())?
+        {
+            break status;
         }
-        let mut gone_since = None;
-        loop {
-            if let Some(status) = child
-                .try_wait()
-                .context(|| "waiting for the command".to_string())?
-            {
-                return Ok(Ended::Exited(status));
+        if stop.load(Ordering::SeqCst) && !stopped {
+            stopped = true;
+            if let Err(error) = transport.capture(&stop_script(worktree), "stopping the command") {
+                note(error.text());
             }
-            if stop.load(Ordering::SeqCst) && !stopped {
-                stopped = true;
-                if let Err(error) =
-                    transport.capture(&stop_script(worktree), "stopping the command")
-                {
-                    note(error.text());
-                }
-            }
-            while let Ok(answer) = answers.try_recv() {
-                match answer {
-                    Ok(Process::Ended) => {
-                        gone_since.get_or_insert_with(Instant::now);
-                    }
-                    Ok(Process::Starting | Process::Running) => {}
-                    Err(said) => note(said),
-                }
-            }
-            if gone_since.is_some_and(|since: Instant| since.elapsed() >= watch.grace) {
-                // ssh runs in a process group of its own.
-                unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
-                child
-                    .wait()
-                    .context(|| "waiting for the stopped ssh".to_string())?;
-                return Ok(Ended::Lost);
-            }
-            std::thread::sleep(Duration::from_millis(50));
         }
-    })?;
+        std::thread::sleep(Duration::from_millis(50));
+    };
     let waited = waited();
     if stopped {
         return Ok((STOPPED_EXIT, waited));
     }
-    match ended {
-        Ended::Exited(status) => Ok((
-            status
-                .code()
-                .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)),
-            waited,
-        )),
-        Ended::Lost => fail!(
-            "the command ended on host {} without an exit status: its process there was gone, and ssh had not returned {} seconds later, so builds stopped ssh and counts the command as failed",
-            transport.host.name,
-            watch.grace.as_secs()
-        ),
-    }
+    Ok((
+        status
+            .code()
+            .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)),
+        waited,
+    ))
 }
 
 /// The worktree path the claim script printed.
