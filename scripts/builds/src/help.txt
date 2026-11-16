@@ -630,7 +630,8 @@ cannot start refuses mac app builds only (APP BUILDS).
                               job from that checkout holds it. builds keeps the
                               remote worktree between jobs, so a checkout's job
                               finds the files and build output its last job
-                              left; the repo's
+                              left, until `builds prune` removes it once the
+                              checkout is gone; the repo's
                               scripts/hooks/post-checkout runs in it with
                               BUILDS_ROOT set to ~/builds-root (the command
                               gets the same). When the job ends, builds deletes
@@ -809,6 +810,12 @@ a toolchain upgrade is fine.
                               to or built in for a day; never main, side-1, an
                               app checkout, a claimed worktree or one with
                               commits waiting to land, which `health` lists.
+                              Then it removes each worktree on a host that no
+                              checkout's jobs use (`builds remote run`), with
+                              its build root there: one whose name matches no
+                              checkout of this Mac's clone of its repo, unless
+                              a job whose builds process still runs here
+                              claims it.
                               --idle also deletes every folder and DerivedData
                               entry nothing wrote to for that long, outside
                               main's and the app checkouts' own folders unless

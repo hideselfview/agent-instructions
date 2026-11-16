@@ -609,7 +609,8 @@ pub fn prune_cargo_git(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
 }
 
 /// `builds prune [--dry-run] [--idle <minutes> [--include-warm]]`. Also
-/// retires the free side worktrees nothing has used for a day.
+/// retires the free side worktrees nothing has used for a day, and removes
+/// the worktrees on the hosts that no checkout's jobs use.
 pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     let mut run = Run::Real;
     let mut idle: u64 = 0;
@@ -637,6 +638,9 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     tool.places.require_volume()?;
     // Before the roots are pruned: a worktree about to go has nothing to prune.
     retire_idle(tool, &tool.roots()?, run)?;
+    // After the retiring: a retired worktree's jobs no longer use its
+    // worktrees on the hosts.
+    crate::remote_worktrees::prune(&tool.places, &crate::host::Ssh::from_env(), run)?;
     let roots = tool.roots()?;
     for root in &roots {
         let Some(checkout) = &root.live else {

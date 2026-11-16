@@ -8,7 +8,8 @@
 //! `remote-<name>.<n>` while another job from that checkout holds it),
 //! checks the commit out there and runs the command. builds keeps the
 //! worktree between jobs, so its files and build output stay as that
-//! checkout's last job left them. When the job ends,
+//! checkout's last job left them, until the checkout is gone and `builds
+//! prune` removes it (remote_worktrees.rs). When the job ends,
 //! however it ends, builds deletes the ref and the claim. A stopped `builds
 //! remote run` (SIGTERM, SIGINT, SIGHUP) stops the command on the host.
 //!

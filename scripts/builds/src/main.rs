@@ -44,6 +44,7 @@ mod procs;
 mod prune;
 mod queue;
 mod remote;
+mod remote_worktrees;
 mod review;
 mod sccache;
 mod setup;
