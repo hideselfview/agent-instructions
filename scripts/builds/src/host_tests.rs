@@ -314,3 +314,59 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
             .is_empty()
     );
 }
+
+#[test]
+fn reads_what_a_host_has_installed() {
+    assert_eq!(
+        parse_installed("builds=ab12\n").unwrap(),
+        Installed {
+            builds: Some("ab12".to_string())
+        }
+    );
+    assert_eq!(
+        parse_installed("builds=missing\n").unwrap(),
+        Installed { builds: None }
+    );
+    assert!(parse_installed("builds=\n").is_err());
+    assert!(parse_installed("").is_err());
+}
+
+/// A host with no builds, or another builds than this Mac's, is a finding
+/// that names `builds host setup`; a host that got this Mac's copy is none.
+#[test]
+fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
+    let scratch = Scratch::new("host-installed");
+    let places = scratch.places();
+    let home = scratch.dir.join("remote-home");
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let mine = places.home.join(".local/bin/builds");
+    std::fs::create_dir_all(mine.parent().unwrap()).unwrap();
+    std::fs::copy(std::env::current_exe().unwrap(), &mine).unwrap();
+    let m1 = host("m1");
+    let gone = Host {
+        name: "gone".to_string(),
+        target: Some("unreachable".to_string()),
+        cores: 1,
+    };
+    let hosts = [Host::local(), m1.clone(), gone];
+    let findings = || installed_findings(&read_all_installed(&places, &ssh, &hosts));
+
+    let found = findings();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].text.starts_with("host m1 has no builds"),
+        "{found:?}"
+    );
+    assert_eq!(found[0].command.as_deref(), Some("builds host setup m1"));
+
+    setup_host(&ssh, &m1).unwrap();
+    assert_eq!(findings(), [], "m1 has this Mac's builds");
+
+    std::fs::write(home.join(".local/bin/builds"), "older").unwrap();
+    let found = findings();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].text.starts_with("host m1 runs another builds"),
+        "{found:?}"
+    );
+}

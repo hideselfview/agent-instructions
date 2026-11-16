@@ -1,6 +1,7 @@
 //! `builds install`: puts `builds` on PATH, creates the shared caches and the
 //! links to them, writes the sccache config, runs the sccache server under
-//! launchd, and points Xcode's default DerivedData at the volume. It runs from
+//! launchd, points Xcode's default DerivedData at the volume, and copies the
+//! same builds to every recorded host. It runs from
 //! a fresh build, never from the installed binary (that fails: it would copy
 //! itself onto itself); it changes only what differs.
 
@@ -394,6 +395,31 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     if replaced {
         restart_dashboards(home)?;
     }
+    install_on_hosts(&tool.places, &crate::host::Ssh::from_env())
+}
+
+/// Copies this build to every recorded host, as `builds host setup` does, so
+/// each host's jobs run the builds this Mac runs. Every host gets its copy
+/// before a host that failed fails the install, naming each such host;
+/// `builds health` reports each host whose builds differs from this Mac's
+/// until a later install or `builds host setup` reaches it.
+fn install_on_hosts(places: &crate::places::Places, ssh: &crate::host::Ssh) -> Result<()> {
+    let hosts = crate::host::read_remote(places)?;
+    let installed =
+        crate::checkout::parallel_map(&hosts, |host| crate::host::setup_host(ssh, host));
+    let mut failed = Vec::new();
+    for (host, result) in hosts.iter().zip(installed) {
+        match result {
+            Ok(_) => note(format!("installed this builds on host {}", host.name)),
+            Err(error) => failed.push(format!("host {}: {}", host.name, error.text())),
+        }
+    }
+    if !failed.is_empty() {
+        fail!(
+            "builds is installed on this Mac but not on every host: {}. `builds health` reports each host whose builds differs from this Mac's, and `builds host setup <name>` installs it there",
+            failed.join("; ")
+        );
+    }
     Ok(())
 }
 
@@ -429,5 +455,27 @@ mod tests {
         );
         require_new_build(&other, &installed).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Every host that answers gets this build, and a host that does not
+    /// fails the install, named.
+    #[test]
+    fn install_copies_this_build_to_every_host_and_names_the_ones_it_missed() {
+        let scratch = crate::testing::Scratch::new("install-hosts");
+        let places = scratch.places();
+        let home = scratch.dir.join("remote-home");
+        let ssh = crate::host::tests::fake_ssh(&scratch.dir.join("bin"), &home);
+        let hosts = crate::host::hosts_file(&places);
+        std::fs::create_dir_all(hosts.parent().unwrap()).unwrap();
+        std::fs::write(&hosts, "m1 u@m1 10\ngone unreachable 4\n").unwrap();
+        let Err(crate::fail::Fail::Message(message)) = install_on_hosts(&places, &ssh) else {
+            panic!("expected a failure for the host that does not answer");
+        };
+        assert!(message.contains("host gone:"), "{message}");
+        assert!(!message.contains("host m1"), "{message}");
+        assert_eq!(
+            std::fs::read(home.join(".local/bin/builds")).unwrap(),
+            std::fs::read(std::env::current_exe().unwrap()).unwrap()
+        );
     }
 }

@@ -12,7 +12,8 @@
 //! whose item waits on nothing open, commits that change design files no
 //! recorded design change covers (lists/held.rs), a repo with a design folder
 //! and no design globs (lists/project.rs), or a build host that refuses
-//! jobs or whose Xcode cannot start (host.rs).
+//! jobs, whose Xcode cannot start, or whose builds is not this Mac's
+//! (host.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -1024,14 +1025,15 @@ pub fn lines(health: &Health) -> Vec<String> {
 }
 
 /// The findings that come from the hosts: each process that looks stuck on
-/// one (stuck.rs), and each host that refuses jobs or whose Xcode cannot
-/// start (host.rs). `assess` judges
+/// one (stuck.rs), each host that refuses jobs or whose Xcode cannot start,
+/// and each host whose builds is not this Mac's (host.rs). `assess` judges
 /// only what this Mac's process reading finds, which runs no ssh, so `builds
 /// health` and the dashboard each add these findings to the ones `assess`
 /// returns.
 pub fn host_findings(
     busy: &[crate::stuck::HostBusy],
     refusals: &[crate::host::Refusal],
+    installed: &[crate::host::HostInstalled],
 ) -> Vec<Finding> {
     crate::stuck::findings(busy)
         .into_iter()
@@ -1040,6 +1042,11 @@ pub fn host_findings(
             refusals.iter().map(|refusal| {
                 Finding::new(FindingKind::Host, crate::host::refusal_finding(refusal))
             }),
+        )
+        .chain(
+            crate::host::installed_findings(installed)
+                .into_iter()
+                .map(|advice| Finding::new(FindingKind::Host, advice)),
         )
         .collect()
 }
@@ -1104,7 +1111,10 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     health.findings.extend(dashboard_finding(dashboard));
     // Read now: a probe in another command may have just written or removed one.
     let refusals = crate::host::refusals(&tool.places)?;
-    health.findings.extend(host_findings(&busy, &refusals));
+    let installed = crate::host::read_all_installed(&tool.places, &ssh, &hosts);
+    health
+        .findings
+        .extend(host_findings(&busy, &refusals, &installed));
     if json {
         let mut value = serde_json::to_value(&health).expect("health serializes");
         value["busy"] = serde_json::json!(
@@ -1398,7 +1408,7 @@ mod tests {
             host: "m1".to_string(),
             read: Err("ssh failed".to_string()),
         }];
-        let found = host_findings(&busy, &[refusal]);
+        let found = host_findings(&busy, &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(found[0].advice.command.as_deref(), Some("builds host list"));
@@ -1423,7 +1433,7 @@ mod tests {
             at: 1_800_000_000,
             said: "A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.".to_string(),
         };
-        let found = host_findings(&[], &[refusal]);
+        let found = host_findings(&[], &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(

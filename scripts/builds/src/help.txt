@@ -558,7 +558,9 @@ cannot start refuses mac app builds only (APP BUILDS).
                               records it in the file `hosts` beside the lists
                               folder. `setup` copies this Mac's builds program
                               to ~/.local/bin/builds on the host (both are
-                              arm64 macOS) and makes its ~/builds-root. `list`
+                              arm64 macOS) and makes its ~/builds-root;
+                              `builds install` copies it to every host the
+                              same way. `list`
                               asks every host for its load average per core,
                               its free disk, whether it answers and whether it
                               refuses jobs, and keeps each host's record of
@@ -858,7 +860,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               when it answers clients with event id 0 on this
                               Mac (a plain kill does not end it); a build host
                               that refuses jobs (HOSTS), with what the host
-                              said and what to fix
+                              said and what to fix; a build host whose
+                              ~/.local/bin/builds is missing or differs from
+                              this Mac's (`builds host setup <name>`)
   builds dashboard [--port <port>] [--listen <address>]
                               run the daemon until it is killed. It follows
                               the volume, the checkouts and the lists through
@@ -1331,7 +1335,12 @@ INSTALLING
                               launchd (restarting it only when its settings
                               changed, since a restart fails every compile in
                               flight), point Xcode's default DerivedData at the
-                              volume, and restart a running dashboard so it
-                              runs the new code. Run it from a fresh build
-                              (install.sh does), never from the installed
-                              binary, which can't copy itself onto itself
+                              volume, restart a running dashboard so it runs
+                              the new code, and copy the same builds to every
+                              recorded host (HOSTS). A host it could not reach
+                              or install on fails the install, named, once
+                              every other host has its copy, and `builds
+                              health` lists it until its builds matches this
+                              Mac's. Run it from a fresh build (install.sh
+                              does), never from the installed binary, which
+                              can't copy itself onto itself

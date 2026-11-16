@@ -625,8 +625,8 @@ impl Model {
     }
 
     /// What `builds health` reads from the hosts besides the processes: each
-    /// host's busy processes, this Mac's included, and the hosts that refuse
-    /// jobs.
+    /// host's busy processes, this Mac's included, the hosts that refuse
+    /// jobs, and what each host has installed.
     fn read_host_findings(
         &self,
         ssh: &crate::host::Ssh,
@@ -638,7 +638,8 @@ impl Model {
             crate::stuck::read(ssh, host, host.target.is_none().then_some(dashboard))
         });
         let refusals = crate::host::refusals(&self.places)?;
-        Ok(crate::health::host_findings(&busy, &refusals))
+        let installed = crate::host::read_all_installed(&self.places, ssh, &hosts);
+        Ok(crate::health::host_findings(&busy, &refusals, &installed))
     }
 
     /// The health the last reading judged, None before the first reading.

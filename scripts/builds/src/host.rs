@@ -533,6 +533,116 @@ pub fn remove(places: &Places, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// What a host has installed of builds' own, as `INSTALLED_SCRIPT` prints it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Installed {
+    /// The SHA-256 of the host's ~/.local/bin/builds, the program its jobs
+    /// and the repos' scripts run there; None when the host has none.
+    pub builds: Option<String>,
+}
+
+/// Runs on a host, and on this Mac, to print what `parse_installed` reads.
+const INSTALLED_SCRIPT: &str = r#"if [ -e "$HOME/.local/bin/builds" ]; then echo "builds=$(shasum -a 256 "$HOME/.local/bin/builds" | cut -d ' ' -f 1)"; else echo builds=missing; fi"#;
+
+/// Reads what `INSTALLED_SCRIPT` printed.
+pub fn parse_installed(text: &str) -> Result<Installed> {
+    let Some(builds) = text.lines().find_map(|line| line.strip_prefix("builds=")) else {
+        fail!("the host's answer has no builds line: {text:?}");
+    };
+    Ok(Installed {
+        builds: match builds.trim() {
+            "missing" => None,
+            "" => fail!("shasum printed nothing for the host's builds: {text:?}"),
+            digest => Some(digest.to_string()),
+        },
+    })
+}
+
+/// Asks <host> what it has installed; for this Mac, <places>' home holds
+/// what it has. The error says what went wrong asking.
+pub fn read_installed(
+    places: &Places,
+    ssh: &Ssh,
+    host: &Host,
+) -> std::result::Result<Installed, String> {
+    let mut command = match &host.target {
+        Some(target) => ssh.command(target, INSTALLED_SCRIPT),
+        None => {
+            let mut command = Command::new("sh");
+            command
+                .arg("-c")
+                .arg(INSTALLED_SCRIPT)
+                .env("HOME", &places.home);
+            command
+        }
+    };
+    let output = command
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("asking host {}: {error}", host.name))?;
+    if !output.status.success() {
+        return Err(format!(
+            "asking host {} what it has installed failed ({}): {}",
+            host.name,
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    parse_installed(&String::from_utf8_lossy(&output.stdout)).map_err(|fail| fail.text())
+}
+
+/// What one host said it has installed, or why asking failed.
+pub struct HostInstalled {
+    pub host: String,
+    pub read: std::result::Result<Installed, String>,
+}
+
+/// Asks every host in <hosts>, this Mac included, at the same time.
+pub fn read_all_installed(places: &Places, ssh: &Ssh, hosts: &[Host]) -> Vec<HostInstalled> {
+    parallel_map(hosts, |host| HostInstalled {
+        host: host.name.clone(),
+        read: read_installed(places, ssh, host),
+    })
+}
+
+/// The "needs action" lines for <reads>: each host whose builds is not this
+/// Mac's. A host that did not answer adds none, since its load card and
+/// `builds host list` already say it does not answer.
+pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice> {
+    let Some(local) = reads.iter().find(|read| read.host == LOCAL) else {
+        return Vec::new();
+    };
+    let local = match &local.read {
+        Ok(installed) => installed,
+        Err(error) => {
+            return vec![crate::health::Advice::said(format!(
+                "builds could not read this Mac's own ~/.local/bin/builds to compare the hosts' with it: {error}"
+            ))];
+        }
+    };
+    let mut out = Vec::new();
+    for read in reads.iter().filter(|read| read.host != LOCAL) {
+        let Ok(installed) = &read.read else { continue };
+        if installed.builds == local.builds {
+            continue;
+        }
+        let name = &read.host;
+        let text = match installed.builds {
+            None => format!(
+                "host {name} has no builds at ~/.local/bin/builds, so the repos' scripts fail in its jobs. Install this Mac's builds there with"
+            ),
+            Some(_) => format!(
+                "host {name} runs another builds than this Mac (its ~/.local/bin/builds differs), so its jobs run another version's host logic and store schema. Install this Mac's builds there with"
+            ),
+        };
+        out.push(crate::health::Advice::run(
+            text,
+            format!("builds host setup {name}"),
+        ));
+    }
+    out
+}
+
 /// One line of `builds host list`.
 pub fn list_line(host: &Host, probe: &std::result::Result<Probe, String>) -> String {
     match probe {
