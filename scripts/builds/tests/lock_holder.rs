@@ -481,11 +481,20 @@ fn a_killed_holders_build_is_found_by_the_open_lock_file_and_linked_by_commit() 
 #[test]
 fn a_cargo_run_on_another_host_builds_for_the_worktree_it_was_run_from() {
     let mut demo = Demo::new("remote");
+    // The fake cargo on m1 says it started through this FIFO, which a thread
+    // here reads.
     let started = demo.dir.join("started");
+    let made = Command::new("mkfifo").arg(&started).status().unwrap();
+    assert!(made.success(), "mkfifo");
     demo.host_m1(&format!(
-        "#!/bin/sh\n[ \"$1\" = cargo ] || exit 1\ntouch '{}'\nexec sleep 30\n",
+        "#!/bin/sh\n[ \"$1\" = cargo ] || exit 1\necho started > '{}'\nexec sleep 30\n",
         started.display()
     ));
+    let (said, heard) = std::sync::mpsc::channel();
+    let fifo = started.clone();
+    std::thread::spawn(move || {
+        let _ = said.send(std::fs::read_to_string(fifo));
+    });
     let run = demo
         .builds()
         .current_dir(&demo.side)
@@ -503,7 +512,12 @@ fn a_cargo_run_on_another_host_builds_for_the_worktree_it_was_run_from() {
         .unwrap();
     let pid = run.id() as i64;
     demo.started.push(run);
-    until("cargo to start on m1", || started.exists());
+    // PATIENCE only bounds a run that never starts; the FIFO says when it does.
+    match heard.recv_timeout(PATIENCE) {
+        Ok(Ok(text)) => assert_eq!(text, "started\n"),
+        Ok(Err(error)) => panic!("reading the FIFO: {error}"),
+        Err(_) => panic!("cargo never started on m1"),
+    }
     let health = demo.health();
     let side = demo.side_2(&health);
     let runs: Vec<(i64, &str)> = side["remote_runs"]
