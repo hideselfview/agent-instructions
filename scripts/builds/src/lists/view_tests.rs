@@ -214,3 +214,46 @@ fn a_design_change_shows_the_items_waiting_on_it_and_its_approval() {
         "no render, no image of a board, in the lists"
     );
 }
+
+#[test]
+fn each_question_and_item_carries_its_trail() {
+    let db = db();
+    let first = crate::lists::fixtures::question(&db);
+    crate::lists::tag::add_tags(&db, first, &["screen-reads audit".into()]).unwrap();
+    let work = item(&db, vec![]);
+    crate::lists::item::set_origin(&db, work, first).unwrap();
+    let asked = crate::lists::fixtures::question(&db);
+    crate::lists::question::set_origin(&db, asked, work).unwrap();
+    let lists = read(&db);
+    let json = view_json(&lists);
+    let question = |id: Id| {
+        json["stack"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|q| q["id"] == json!(id.0))
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(
+        question(asked)["trail"],
+        json!({
+            "tags": ["screen-reads audit"],
+            "earlier": [
+                {"id": first.0, "title": lists.question(first).unwrap().title},
+                {"id": work.0, "title": lists.item(work).unwrap().title},
+            ],
+        })
+    );
+    assert_eq!(
+        json["items"][0]["trail"],
+        json!({
+            "tags": ["screen-reads audit"],
+            "earlier": [{"id": first.0, "title": lists.question(first).unwrap().title}],
+        })
+    );
+    assert_eq!(
+        question(first)["trail"],
+        json!({"tags": ["screen-reads audit"], "earlier": []})
+    );
+}

@@ -275,7 +275,9 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-tagbar button .l-count { font: 500 11px var(--mono); white-space: nowrap; opacity: 0.85; }
 .l-tagbar button[aria-pressed="true"] { background: var(--on); border-color: var(--on); color: var(--on-text); }
 .l-tagbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.l-tagrow { display: inline; margin-left: 4px; }
+/* A row's trail: the tags it shows, then each record from the first to it, on one line. */
+.l-trail { display: inline-block; max-width: 100%; margin-left: 4px; vertical-align: bottom; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 500 11px var(--sans); color: var(--muted); }
+.l-trail a.l-ref { color: var(--muted); }
 .l-tag { display: inline-block; margin: 0 4px 0 0; vertical-align: baseline; font: 500 11px var(--sans); color: var(--muted); background: var(--line-soft); border: 0; border-radius: 4px; padding: 1px 6px; cursor: pointer; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 .l-tag:hover { color: var(--text-2); }
 .l-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -1268,22 +1270,42 @@ function section(title, n, ...kids) {
 }
 function empty(text) { return {key: "none", data: text, make: () => h("div", {class: "l-empty"}, text)}; }
 
-// ---- Tags
-// Each tag names the audit or group a question or an item came from. A tag on
-// a row shows that tag's entries alone; so does the tag bar, whose All shows
-// every entry again.
-function tagChips(tags) {
-  if (!tags || !tags.length) return null;
-  return h("span", {class: "l-tagrow"}, tags.map(t => h("button", {type: "button", class: "l-tag", "data-tag": t, title: "Show only the entries tagged " + t}, t)));
+// ---- Trails and tags
+// A question's or an item's trail is where it came from: the tags it shows,
+// then each record from the first to it. The earlier records show their
+// numbers, and the one it came from its title too, so the trail stays on one
+// line. Each tag names the audit or group the trail began in. A tag on a row
+// shows that tag's entries alone; so does the tag bar, whose All shows every
+// entry again.
+// <id> is the row's record, which ends the trail; null for tags alone.
+function trailRow(id, trail) {
+  if (!trail.tags.length && !trail.earlier.length) return null;
+  const kids = trail.tags.map(t => h("button", {type: "button", class: "l-tag", "data-tag": t, title: "Show only the entries tagged " + t}, t));
+  trail.earlier.forEach((r, i) => {
+    if (kids.length) kids.push(" → ");
+    kids.push(recLink(r.id, i === trail.earlier.length - 1 ? "#" + r.id + " " + r.title : null));
+  });
+  if (id !== null) {
+    kids.push(" → ");
+    kids.push("#" + id);
+  }
+  return h("span", {class: "l-trail"}, kids);
 }
 function tagged(tags) { return !tagFilter || (tags || []).includes(tagFilter); }
-function itemTags(id) { const it = lists.items.find(i => i.id === id); return it ? it.tags : []; }
-// The tags of a running work: those of each of its items.
+function itemTags(id) { const it = lists.items.find(i => i.id === id); return it ? it.trail.tags : []; }
+// The tags of a running work: those each of its items' trails show.
 function workTags(w) { return [...new Set(w.items.flatMap(i => itemTags(i.id)))].sort(); }
-// Every tag of the open questions and items, with how many carry it.
+// A running work of one item shows that item's trail; one of several items
+// shows the tags their trails show.
+function workTrail(w) {
+  if (w.items.length !== 1) return trailRow(null, {tags: workTags(w), earlier: []});
+  const it = lists.items.find(i => i.id === w.items[0].id);
+  return it ? trailRow(it.id, it.trail) : null;
+}
+// Every tag the open questions' and items' trails show, with how many show it.
 function tagCounts() {
   const counts = new Map();
-  for (const rec of [...lists.stack, ...lists.items]) for (const t of rec.tags || []) counts.set(t, (counts.get(t) || 0) + 1);
+  for (const rec of [...lists.stack, ...lists.items]) for (const t of rec.trail.tags) counts.set(t, (counts.get(t) || 0) + 1);
   return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 }
 function setTag(next) {
@@ -1308,7 +1330,7 @@ function renderTags() {
 function questionRow(q) {
   const direct = q.blocks.length;
   return fold("q:" + q.id, q.id,
-    [h("span", {class: "l-title"}, idChip(q.id), q.title, tagChips(q.tags))],
+    [h("span", {class: "l-title"}, idChip(q.id), q.title, trailRow(q.id, q.trail))],
     () => h("div", {class: "l-plain"},
       direct ? h("div", {class: "l-facts"},
         fact("Blocks", plural(Math.max(q.blocked_count, direct), "item", "items") +
@@ -1328,7 +1350,7 @@ function heldWorks() { return lists.board.works.filter(w => w.tab === "waiting")
 // changes carry no tags.
 function stackShown() {
   return {
-    own: lists.stack.filter(q => tagged(q.tags)),
+    own: lists.stack.filter(q => tagged(q.trail.tags)),
     review: tagFilter ? [] : reviews(),
     held: heldWorks().filter(w => tagged(workTags(w))),
   };
@@ -1364,7 +1386,6 @@ function itemBody(it) {
     h("ul", {class: "l-list"}, it.waits.map(w => h("li", {}, waitLink(w), w.met ? " (met)" : "")))));
   if (it.priority) facts.push(fact("Priority " + it.priority.level + ":", it.priority.why));
   if (it.brief) facts.push(fact("Brief", mono(it.brief)));
-  if (it.from !== null && it.from !== undefined) facts.push(fact("Made by", recLink(it.from)));
   for (const l of it.landed) facts.push(fact("Landed in " + repoDisplayName(l.repo) + ":", mono(l.commits.join(" ")), " " + stamp(l.at)));
   const notes = it.notes.length ? h("div", {class: "l-facts"}, it.notes.map(n =>
     h("div", {class: "l-fact"}, h("span", {class: "k"}, stamp(n.at) + " " + n.by + ":"), " ", inline(n.text)))) : null;
@@ -1374,7 +1395,7 @@ function itemBody(it) {
 function itemRow(it) {
   const sub = itemSub(it);
   return fold("i:" + it.id, it.id,
-    [h("span", {class: "l-title"}, idChip(it.id), it.title, tagChips(it.tags))],
+    [h("span", {class: "l-title"}, idChip(it.id), it.title, trailRow(it.id, it.trail))],
     () => h("div", {class: "l-plain"}, sub ? h("span", {class: "l-sub"}, sub) : null, itemBody(it)),
     "l-work");
 }
@@ -1384,7 +1405,7 @@ function itemRow(it) {
 function workRow(w) {
   const first = w.items[0].id;
   return fold("i:" + first, first,
-    [h("span", {class: "l-title"}, idChip(...w.items.map(i => i.id)), w.title, tagChips(workTags(w))), h("span", {class: "l-wt"}, repoDisplayName(w.repo) + " " + w.checkout)],
+    [h("span", {class: "l-title"}, idChip(...w.items.map(i => i.id)), w.title, workTrail(w)), h("span", {class: "l-wt"}, repoDisplayName(w.repo) + " " + w.checkout)],
     () => h("div", {class: "l-plain"},
       w.now ? h("div", {class: "l-fact"}, inline(w.now)) : null,
       h("div", {class: "l-facts"},
@@ -1453,7 +1474,7 @@ function runningItems() {
   return out.length ? out : [empty(tagFilter ? "Nothing tagged " + tagFilter + " is running." : "Nothing is running.")];
 }
 // With a tag chosen, only the items that carry it.
-function queueShown() { return lists.items.filter(it => !isRunning(it) && tagged(it.tags)); }
+function queueShown() { return lists.items.filter(it => !isRunning(it) && tagged(it.trail.tags)); }
 function queueItems() {
   const all = queueShown();
   const out = [{key: "head", data: [lists.flow], make: workHead}];
@@ -1566,7 +1587,7 @@ function showRecord(id) {
   if (!rec) return;
   // A record the chosen tag hides shows with every entry.
   const own = lists.stack.find(q => q.id === id) || lists.items.find(i => i.id === id);
-  if (tagFilter && !(own && tagged(own.tags))) {
+  if (tagFilter && !(own && tagged(own.trail.tags))) {
     tagFilter = "";
     try { localStorage.setItem(TAG_KEY, tagFilter); } catch (e) { /* kept for this page only */ }
   }

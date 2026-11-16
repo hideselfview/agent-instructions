@@ -5,6 +5,7 @@
 use serde::Serialize;
 
 use crate::lists::derive::{self, FLOW_DAYS, FlowDay};
+use crate::lists::trail::trail;
 use crate::lists::{
     Audience, DesignChange, Id, Item, LandedPart, Lists, Located, Note, Placement, PlanRef,
     Priority, QuestionKind, Resolution, Stamp, Standing, Wait, side_worktree_parts,
@@ -43,8 +44,8 @@ pub struct StackView {
     pub placed: Option<Placement>,
     pub plan: Option<PlanRef>,
     pub opened: Stamp,
-    /// The audits or groups it came from, in the order of their text.
-    pub tags: Vec<String>,
+    /// Where it came from (trail.rs).
+    pub trail: TrailView,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -97,10 +98,9 @@ pub struct ItemView {
     pub running: Vec<RunningView>,
     pub landed: Vec<LandedPart>,
     pub notes: Vec<Note>,
-    pub from: Option<Id>,
     pub opened: Stamp,
-    /// The audits or groups it came from, in the order of their text.
-    pub tags: Vec<String>,
+    /// Where it came from (trail.rs).
+    pub trail: TrailView,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -203,7 +203,7 @@ impl View {
                     placed: entry.question.placed.clone(),
                     plan: entry.question.plan.clone(),
                     opened: entry.question.opened.clone(),
-                    tags: entry.question.tags.clone(),
+                    trail: trail_view(lists, entry.question.id),
                 })
                 .collect(),
             areas: lists.areas.clone(),
@@ -216,6 +216,33 @@ impl View {
             decisions: decisions(lists),
             flow: derive::flow(lists, now),
         }
+    }
+}
+
+/// A trail as the page reads it: the tags it shows and the earlier records,
+/// each with its title.
+#[derive(Clone, Debug, Serialize)]
+pub struct TrailView {
+    pub tags: Vec<String>,
+    pub earlier: Vec<Named>,
+}
+
+/// The trail of record <id> as the page reads it.
+fn trail_view(lists: &Lists, id: Id) -> TrailView {
+    let trail = trail(lists, id);
+    TrailView {
+        tags: trail.tags,
+        earlier: trail
+            .earlier
+            .into_iter()
+            .map(|earlier| Named {
+                id: earlier,
+                title: lists
+                    .locate(earlier)
+                    .map(|found| found.title.to_string())
+                    .unwrap_or_default(),
+            })
+            .collect(),
     }
 }
 
@@ -278,9 +305,8 @@ fn item_view(lists: &Lists, item: &Item) -> ItemView {
             .collect(),
         landed: item.landed.clone(),
         notes: item.notes.clone(),
-        from: item.origin,
         opened: item.opened.clone(),
-        tags: item.tags.clone(),
+        trail: trail_view(lists, item.id),
     }
 }
 

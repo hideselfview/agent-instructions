@@ -849,11 +849,13 @@ STATUS, HEALTH AND THE DASHBOARD
                               and Build buttons and its worktree cards; and
                               the lists (also at /api/lists and in the
                               /events stream's `lists` events). Each question
-                              and item row shows its tags (`builds help
-                              lists`); a tag on a row, or in the bar of every
-                              tag above the lists, shows that tag's entries
-                              alone on each tab, and All shows every entry
-                              again
+                              and item row shows its trail on one line: the
+                              tags it shows, then the numbers of the earlier
+                              records, with the title of the record it came
+                              from (`builds help lists`); a tag on a row, or
+                              in the bar of every tag above the lists, shows
+                              that tag's entries alone on each tab, and All
+                              shows every entry again
 
 
 COMMIT CHECKS

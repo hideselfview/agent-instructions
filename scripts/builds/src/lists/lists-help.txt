@@ -54,7 +54,7 @@ or tagging an earlier record takes off each later record the tags its trail now
 shows. `question show`, `item show`, `question list`, `item list` and `lists
 show` print each record's trail, and the list commands take `--tag T` to show
 only the records whose trail shows T, each question keeping its place in the
-stack; the dashboard shows each row's tags and a bar of every tag that shows
+stack; the dashboard shows each row's trail and a bar of every tag that shows
 one tag's entries together. A record keeps its origin and its tags when it
 closes, and `edit --origin N`, `edit --tag T` and `edit --untag T` change those
 of an open or a closed record; an edit of any other field needs an open one.
@@ -454,10 +454,10 @@ PROJECTS
       The stack in the order it is asked, then the queue, as text, each record
       with its trail; with --tag T only the records whose trail shows T; with
       --json the whole state with its derived fields (each item's state, what
-      each question blocks, the flow of the last 14 days), the JSON the
-      dashboard reads. The dashboard adds, to each worktree a running item
-      runs in, the agent, note, note state and commits waiting to land of its
-      claim.
+      each question blocks, each record's trail, the flow of the last 14
+      days), the JSON the dashboard reads. The dashboard adds, to each
+      worktree a running item runs in, the agent, note, note state and
+      commits waiting to land of its claim.
 
   builds lists project-of DIR
       Prints the project DIR's repo belongs to, or nothing. Refused when the
