@@ -36,7 +36,7 @@ const TOKENS: &str = r##"{
 fn the_stylesheet_has_a_block_per_theme_then_the_other_tokens_then_a_class_per_text_style() {
     assert_eq!(
         tokens_css(TOKENS).unwrap(),
-        r#"/* demo — generated from tokens.json */
+        r#"/* demo: builds design tokens-css writes this file from tokens.json */
 :root, [data-theme="dark"] {
   --background: #111111;
   --danger: #FF0000;

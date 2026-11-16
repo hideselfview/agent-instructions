@@ -195,10 +195,10 @@ impl Source<'_> {
     }
 
     /// The design system's bundle.css and bundle.js. A directory has them on
-    /// disk. No commit holds them (they are generated and ignored), so a
-    /// commit's are built by its own build-bundle.py and kept in <cache> under
-    /// the hash of the folders they come from: one build per distinct design
-    /// system.
+    /// disk. No commit holds them (they are generated and ignored), so the
+    /// commit's own build-bundle.py builds them, and builds keeps them in
+    /// <cache> under the hash of the folders they come from: one build per
+    /// distinct design system.
     fn bundles(&self, cache: &Path) -> Result<[String; 2]> {
         let Source::Commit { repo, rev } = self else {
             let [a, b] = BUNDLES.map(|rel| self.read(rel, "the design system's"));

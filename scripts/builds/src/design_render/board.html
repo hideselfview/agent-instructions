@@ -79,7 +79,7 @@ function conv(n, key, sc) {
     var dot = ref.indexOf('.');
     var ns = dot > 0 ? window[ref.slice(0, dot)] : undefined;
     var Cm = ns && ns[ref.slice(dot + 1)];
-    if (!Cm) throw new Error('no ' + ref);
+    if (!Cm) throw new Error('Could not find the component ' + ref + ' on window');
     var ck = props.key;
     delete props.key;
     return h('div', { key: ck, className: 'sc-host-x', style: { display: 'contents' } }, h.apply(null, [Cm, props].concat(kids())));

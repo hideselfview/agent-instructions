@@ -611,7 +611,8 @@ fn a_commit_whose_design_system_cannot_be_generated_says_why() {
         error.contains("design/system/build-bundle.py failed") && error.contains("no bundles"),
         "{error}"
     );
-    // A link out of the repo is no source build-bundle.py can be given.
+    // The renderer refuses a source that links outside the repo and does not
+    // pass it to build-bundle.py.
     std::os::unix::fs::symlink("/etc/hosts", dir.join("design/system/outside")).unwrap();
     let error = draw(&commit(&dir));
     assert!(

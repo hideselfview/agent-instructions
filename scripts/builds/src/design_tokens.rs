@@ -150,7 +150,7 @@ struct Style {
 pub fn tokens_css(json: &str) -> Result<String> {
     let tokens: Tokens = serde_json::from_str(json).context(|| "reading the tokens".to_string())?;
     let mut out = vec![format!(
-        "/* {} — generated from tokens.json */",
+        "/* {}: builds design tokens-css writes this file from tokens.json */",
         tokens.name
     )];
     for (at, theme) in tokens.color.themes.iter().enumerate() {
