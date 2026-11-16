@@ -19,14 +19,21 @@
 //! touch is a place, written `path#heading`. A path none of this covers is
 //! outside the design files, and a spec file in commits that are no design
 //! change is outside them too.
+//!
+//! A drawing (`drawing_at`) is the git object each changed board, component
+//! folder and source is at one commit. Comparing two drawings tells whether
+//! two commits hold those files byte for byte the same, whatever their hashes.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::path::Path;
+use std::process::Stdio;
 
 use crate::checkout::{git, git_text};
 use crate::fail;
-use crate::fail::Result;
+use crate::fail::{Context, Result};
 use crate::lists::Lists;
+use crate::lists::design::DesignChange;
 
 /// A repo's globs: its design places, its shared sources and its spec files.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -110,6 +117,14 @@ impl Changes {
             && self.deleted.is_empty()
             && self.sources.is_empty()
             && self.shared.is_empty())
+    }
+
+    /// The changed paths whose bytes a board's drawing shows: the places
+    /// (board files and component folders) and the shared design-system
+    /// sources. Shared files that are no source and spec sections change no
+    /// drawing.
+    pub fn drawn(&self) -> impl Iterator<Item = &String> {
+        self.places.iter().chain(&self.sources)
     }
 
     /// Every place the design change must resolve: the places and the spec
@@ -406,6 +421,101 @@ pub fn changes_of(top: &Path, globs: &Globs, shas: &[String]) -> Result<Changes>
         changes.outside.append(&mut changes.spec_files);
     }
     Ok(changes)
+}
+
+/// How a commit draws some design paths: the git object each path is at
+/// that commit (a board file's or a source's blob, a component folder's
+/// tree), or None for a path the commit has no file or folder at. Two
+/// drawings of a path are the same when their objects are, so the files are
+/// byte-identical.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Drawing {
+    objects: BTreeMap<String, Option<String>>,
+}
+
+impl Drawing {
+    /// Do this drawing and <other> both read <path>, and draw it the same?
+    pub fn same(&self, other: &Drawing, path: &str) -> bool {
+        match (self.objects.get(path), other.objects.get(path)) {
+            (Some(mine), Some(theirs)) => mine == theirs,
+            _ => false,
+        }
+    }
+}
+
+/// How commit <rev> in the checkout at <top> draws <paths> (`Changes::drawn`
+/// writes them). Fails when <rev> is no commit there. With no paths it reads
+/// nothing.
+pub fn drawing_at<'a>(
+    top: &Path,
+    rev: &str,
+    paths: impl IntoIterator<Item = &'a String>,
+) -> Result<Drawing> {
+    let paths: Vec<&String> = paths.into_iter().collect();
+    if paths.is_empty() {
+        return Ok(Drawing::default());
+    }
+    // A commit that exists makes "missing" mean the path, never the commit.
+    let commit = full_sha(top, rev)?;
+    let asked: String = paths
+        .iter()
+        .map(|path| format!("{commit}:{}\n", path.trim_end_matches('/')))
+        .collect();
+    let what = format!("read the design paths at {rev}");
+    let mut child = git(top)
+        .args(["cat-file", "--batch-check=%(objectname)"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context(|| format!("running git to {what}"))?;
+    let mut stdin = child.stdin.take().expect("piped");
+    // git answers each line as it reads it, so the lines go in from another
+    // thread while this one reads the answers.
+    let output = std::thread::scope(|scope| {
+        let writer = scope.spawn(move || stdin.write_all(asked.as_bytes()));
+        let output = child.wait_with_output();
+        let written = writer.join().expect("the writer does not panic");
+        output.and_then(|output| written.map(|()| output))
+    })
+    .context(|| format!("running git to {what}"))?;
+    if !output.status.success() {
+        fail!(
+            "git failed to {what}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let answers = String::from_utf8_lossy(&output.stdout);
+    let answers: Vec<&str> = answers.lines().collect();
+    if answers.len() != paths.len() {
+        fail!(
+            "git answered {} of the {} design paths it was asked to read at {rev}",
+            answers.len(),
+            paths.len()
+        );
+    }
+    let objects = paths
+        .into_iter()
+        .zip(answers)
+        .map(|(path, answer)| {
+            let object = (!answer.ends_with(" missing")).then(|| answer.to_string());
+            (path.clone(), object)
+        })
+        .collect();
+    Ok(Drawing { objects })
+}
+
+/// How design change <design> draws <paths>: as its last commit has them,
+/// or not at all for a change recorded before its last commit was kept.
+pub fn drawn_by<'a>(
+    top: &Path,
+    design: &DesignChange,
+    paths: impl IntoIterator<Item = &'a String>,
+) -> Result<Drawing> {
+    match &design.tip {
+        Some(tip) => drawing_at(top, tip, paths),
+        None => Ok(Drawing::default()),
+    }
 }
 
 /// Does <path> exist as a file or folder in commit <rev>?

@@ -15,7 +15,7 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
-use crate::lists::design_paths::{Changes, PlaceKind};
+use crate::lists::design_paths::{Changes, Drawing, PlaceKind};
 use crate::lists::design_session::{self, SessionState};
 use crate::lists::item::{ItemDraft, RecordWait, add_item};
 use crate::lists::record;
@@ -117,8 +117,8 @@ pub struct DesignChange {
     /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
     /// What lets the change land: the person's review (`design approve`),
-    /// or the recording of a fix. An amend clears it, since what was approved
-    /// is no longer what is drawn.
+    /// or the recording of a fix. An amend clears it unless every board
+    /// stays as the person approved it (`amend`).
     pub approved: Option<Stamp>,
     /// What a change that changes no design fixes (a design-system measure,
     /// a drawing mistake): it is approved when recorded, with no review.
@@ -574,6 +574,10 @@ pub struct Drawn<'a> {
     pub worktree: &'a str,
     /// The last commit of the range the boards are drawn at.
     pub tip: &'a str,
+    /// For an amend, the change's last commit before it, when `tip` draws
+    /// every place of the change byte for byte as that commit does; None
+    /// when a place is drawn differently, and for a record.
+    pub same_as: Option<&'a str>,
 }
 
 /// Records a new design change of <repo> for <changes>.
@@ -670,8 +674,11 @@ fn open_design_of<'a>(lists: &'a Lists, id: Id, repo: &str) -> Result<&'a Design
 
 /// Holds open design change <id> to the places <changes> holds: the answers
 /// of <request> are added, and a stored place the range no longer changes
-/// leaves with its board and its place on the review page. What the person approved is no
-/// longer what is drawn, so the approval is cleared.
+/// leaves with its board and its place on the review page. The person's
+/// approval stays only when what they approved stays: the same places,
+/// deleted boards and review page, every place drawn byte for byte as the
+/// last commit they approved draws it (`Drawn::same_as`), and no fix turned
+/// into a change that needs their review. Otherwise the amend clears it.
 pub fn amend(
     db: &Connection,
     id: Id,
@@ -681,10 +688,8 @@ pub fn amend(
     affected: &BTreeSet<String>,
     stamp: &Stamp,
 ) -> Result<Recorded> {
-    let Drawn { repo, .. } = *drawn;
-    open_design_of(&store::read(db)?, id, repo)?;
-    db.execute("DELETE FROM design_approval WHERE design_id = ?1", [id])
-        .sql()?;
+    let Drawn { repo, same_as, .. } = *drawn;
+    let before = open_design_of(&store::read(db)?, id, repo)?.clone();
     if let Some(title) = &request.title {
         if title.trim().is_empty() {
             fail!("title is empty");
@@ -707,6 +712,18 @@ pub fn amend(
         .sql()?;
     }
     let new_items = resolve(db, id, request, drawn, changes, affected, stamp)?;
+    let after = store::read(db)?;
+    let after = after.design(id).expect("resolve keeps the change open");
+    let approval_holds = same_as.is_some()
+        && same_as == before.tip.as_deref()
+        && before.places.keys().eq(after.places.keys())
+        && before.deleted == after.deleted
+        && before.review == after.review
+        && !(before.fix.is_some() && request.fix.is_none());
+    if !approval_holds {
+        db.execute("DELETE FROM design_approval WHERE design_id = ?1", [id])
+            .sql()?;
+    }
     keep_fix(db, id, request, stamp)?;
     Ok(Recorded {
         design: id,
@@ -744,13 +761,8 @@ fn takes_part(design: &DesignChange, changes: &Changes) -> bool {
             && !(changes.sources.is_empty() && changes.shared.is_empty()))
 }
 
-/// Do the open design changes <ids> together resolve every place <changes>
-/// holds, and has the person approved each? Compares by path, so a rebased
-/// commit checks the same, and names each place left over. Landing closes
-/// every change it names, so each one must resolve or answer for something
-/// the commits change: otherwise it would close with commits that are not
-/// its own.
-pub fn check_changes(lists: &Lists, ids: &[Id], repo: &str, changes: &Changes) -> Result<()> {
+/// The open design changes <ids> of <repo>, in order, each named once.
+pub fn open_named<'a>(lists: &'a Lists, ids: &[Id], repo: &str) -> Result<Vec<&'a DesignChange>> {
     let mut designs = Vec::new();
     for (at, id) in ids.iter().enumerate() {
         if ids[..at].contains(id) {
@@ -758,38 +770,100 @@ pub fn check_changes(lists: &Lists, ids: &[Id], repo: &str, changes: &Changes) -
         }
         designs.push(open_design_of(lists, *id, repo)?);
     }
-    let named = named(ids);
-    if !changes.is_design_change() {
-        fail!("the commits change no design files, so there is nothing to check for {named}");
-    }
+    Ok(designs)
+}
+
+/// A design change and how its last commit draws the paths of the commits
+/// it is checked against (`Changes::drawn`, `design_paths::drawn_by`).
+pub struct DrawnChange<'a> {
+    pub design: &'a DesignChange,
+    pub drawing: Drawing,
+}
+
+/// Do <designs> together cover <changes>, the design files of commits whose
+/// last commit draws them as <now>? Each place the commits change must be a
+/// place of one of the changes. The person reviews each board as its
+/// change's last commit draws it, so every changed path a drawing shows must
+/// hold the same bytes there as in the commits: a board or component place in
+/// a change that holds it, a shared design-system source in any of the
+/// changes. The comparison reads files, not commit hashes, so commits rebased
+/// onto a moved main stay covered while they draw the same boards. One of the
+/// changes answers for the shared files and sources (`needs_answer`), and
+/// each change resolves or answers for something the commits change: landing
+/// closes every change it names, so one that takes no part would close with
+/// commits that are not its own. Names each path left over. `builds design
+/// check`, which land runs, and health's search for design commits that no
+/// change covers both decide coverage here.
+pub fn covers(designs: &[DrawnChange], changes: &Changes, now: &Drawing) -> Result<()> {
+    let ids: Vec<Id> = designs.iter().map(|d| d.design.id).collect();
+    let named = named(&ids);
+    let holds = |d: &DrawnChange, place: &str| d.design.places.contains_key(place);
     let unresolved: Vec<&str> = changes
         .resolvable()
         .into_iter()
-        .filter(|p| !designs.iter().any(|d| d.places.contains_key(*p)))
-        .map(|p| p.as_str())
+        .map(String::as_str)
+        .filter(|place| !designs.iter().any(|d| holds(d, place)))
         .collect();
     if !unresolved.is_empty() {
         let verb = if ids.len() == 1 { "does" } else { "do" };
         fail!(
             "{named} {verb} not resolve {}. {}",
             unresolved.join(", "),
-            amend_hint(ids, "each place", "the change that draws the place")
+            amend_hint(&ids, "each place", "the change that draws the place")
         );
     }
-    needs_answer(&designs, changes, "the commits").map_err(|error| match error {
+    let redrawn: Vec<&str> = changes
+        .drawn()
+        .map(String::as_str)
+        .filter(|path| {
+            !designs.iter().any(|d| {
+                (changes.sources.contains(*path) || holds(d, path)) && d.drawing.same(now, path)
+            })
+        })
+        .collect();
+    if !redrawn.is_empty() {
+        let pronoun = if redrawn.len() == 1 { "it" } else { "them" };
+        fail!(
+            "{named} drew {}, and the commits draw {pronoun} differently; the person approves each board as its change drew it. {}",
+            redrawn.join(", "),
+            amend_hint(
+                &ids,
+                "the boards and sources as the commits draw them",
+                "the change that draws the path"
+            )
+        );
+    }
+    let plain: Vec<&DesignChange> = designs.iter().map(|d| d.design).collect();
+    needs_answer(&plain, changes, "the commits").map_err(|error| match error {
         crate::fail::Fail::Message(message) => crate::fail::Fail::Message(format!(
             "{message} ({named}). {}",
-            amend_hint(ids, "the answer", "one of these changes")
+            amend_hint(&ids, "the answer", "one of these changes")
         )),
         other => other,
     })?;
-    for design in &designs {
+    if let Some(stray) = plain.iter().find(|design| !takes_part(design, changes)) {
+        fail!(
+            "design change {} resolves nothing the commits change, so landing them must not close it; leave it out",
+            stray.id
+        );
+    }
+    Ok(())
+}
+
+/// Do the open design changes <designs> cover <changes> (`covers`), and has
+/// the person approved each? What `builds design check` decides, and builds
+/// land with it.
+pub fn check_changes(designs: &[DrawnChange], changes: &Changes, now: &Drawing) -> Result<()> {
+    if !changes.is_design_change() {
+        let ids: Vec<Id> = designs.iter().map(|d| d.design.id).collect();
+        fail!(
+            "the commits change no design files, so there is nothing to check for {}",
+            named(&ids)
+        );
+    }
+    covers(designs, changes, now)?;
+    for DrawnChange { design, .. } in designs {
         let id = design.id;
-        if !takes_part(design, changes) {
-            fail!(
-                "design change {id} resolves nothing the commits change, so landing them must not close it; leave it out"
-            );
-        }
         if design.approved.is_none() {
             fail!(
                 "design change {id} waits on the person's review; once they have said to land it, `builds design approve {} --by-person` records that",

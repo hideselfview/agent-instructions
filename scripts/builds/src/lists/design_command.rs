@@ -249,28 +249,40 @@ fn require_briefs(scope: &Scope, request: &DesignRequest) -> Result<()> {
     Ok(())
 }
 
-/// What a record or amend printed: the change and the items waiting on it,
-/// and that the change waits on the person's review.
-fn recorded_words(
-    verb: &str,
-    recorded: &design::Recorded,
-    title: &str,
-    cleared: bool,
-    fix: bool,
-) -> String {
-    let mut out = format!("{verb} design change {} \"{title}\"\n", recorded.design);
-    if fix {
-        out.push_str(&format!(
+/// Where a recorded or amended change stands with the person's review.
+enum Review {
+    /// A fix that changes no design, approved when recorded.
+    Fix,
+    /// The person's approval stays: every board is drawn as they approved it.
+    Kept,
+    /// The amend cleared the person's approval.
+    Cleared,
+    /// The change waits on the person's first review.
+    Waits,
+}
+
+/// What a record or amend printed: the change, where it stands with the
+/// person's review, and the items waiting on it.
+fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, review: Review) -> String {
+    let id = recorded.design;
+    let mut out = format!("{verb} design change {id} \"{title}\"\n");
+    let waits = "it waits on the person's review (the Waiting on you tab); builds land --design refuses it until `builds design approve --by-person`\n";
+    match review {
+        Review::Fix => out.push_str(&format!(
             "it is a fix that changes no design, so it needs no review; builds land --design {} can land it\n",
-            recorded.design.0
-        ));
-    } else {
-        if cleared {
+            id.0
+        )),
+        Review::Kept => out.push_str(&format!(
+            "the person's approval stays: every board is byte for byte as they approved it; builds land --design {} can land it\n",
+            id.0
+        )),
+        Review::Cleared => {
             out.push_str(
                 "the person's approval is cleared: they approved what was drawn before this\n",
             );
+            out.push_str(waits);
         }
-        out.push_str("it waits on the person's review (the Waiting on you tab); builds land --design refuses it until `builds design approve --by-person`\n");
+        Review::Waits => out.push_str(waits),
     }
     if !recorded.new_items.is_empty() {
         let ids: Vec<String> = recorded.new_items.iter().map(|id| id.to_string()).collect();
@@ -298,6 +310,7 @@ fn record(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>)
                 repo: &repo,
                 worktree: &worktree,
                 tip: &scope.tip,
+                same_as: None,
             },
             &request,
             &scope.changes,
@@ -312,13 +325,12 @@ fn record(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>)
             .clone();
         Ok((recorded, title))
     })?;
-    Ok(recorded_words(
-        "recorded",
-        &recorded,
-        &title,
-        false,
-        request.fix.is_some(),
-    ))
+    let review = if request.fix.is_some() {
+        Review::Fix
+    } else {
+        Review::Waits
+    };
+    Ok(recorded_words("recorded", &recorded, &title, review))
 }
 
 fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) -> Result<String> {
@@ -335,7 +347,8 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) 
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let repo = scope.checkout.repo();
     let worktree = scope.checkout.top.display().to_string();
-    let (recorded, title, cleared) =
+    let same_as = drawn_the_same(&scope, id)?;
+    let (recorded, title, review) =
         scope
             .store
             .write(&stamp, &format!("design amend {id}"), |db| {
@@ -349,6 +362,7 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) 
                         repo: &repo,
                         worktree: &worktree,
                         tip: &scope.tip,
+                        same_as: same_as.as_deref(),
                     },
                     &request,
                     &scope.changes,
@@ -356,16 +370,45 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) 
                     &stamp,
                 )?;
                 design_session::keep(db, id, session)?;
-                let title = store::read(db)?.design(id).expect("open").title.clone();
-                Ok((recorded, title, was_approved))
+                let lists = store::read(db)?;
+                let design = lists.design(id).expect("open");
+                let review = match (design.fix.is_some(), design.approved.is_some()) {
+                    (true, _) => Review::Fix,
+                    (false, true) => Review::Kept,
+                    (false, false) if was_approved => Review::Cleared,
+                    (false, false) => Review::Waits,
+                };
+                Ok((recorded, design.title.clone(), review))
             })?;
-    Ok(recorded_words(
-        "amended",
-        &recorded,
-        &title,
-        cleared,
-        request.fix.is_some(),
-    ))
+    Ok(recorded_words("amended", &recorded, &title, review))
+}
+
+/// The last commit of open change <id> of the scope's repo, when the range's
+/// last commit draws every board and component place of the change, and
+/// every path the range changes that a drawing shows (`Changes::drawn`),
+/// byte for byte as that commit does; None when one is drawn differently, or
+/// the change keeps no last commit. An amend keeps the person's approval
+/// only then (`design::amend`).
+fn drawn_the_same(scope: &Scope, id: Id) -> Result<Option<String>> {
+    let Some(design) = scope.lists.design(id) else {
+        return Ok(None);
+    };
+    let Some(tip) = &design.tip else {
+        return Ok(None);
+    };
+    if design.repo != scope.checkout.repo() {
+        return Ok(None);
+    }
+    let paths: BTreeSet<&String> = design
+        .places
+        .keys()
+        .filter(|place| PlaceKind::of(place) != PlaceKind::Spec)
+        .chain(scope.changes.drawn())
+        .collect();
+    let top = &scope.checkout.top;
+    let before = design_paths::drawing_at(top, tip, paths.iter().copied())?;
+    let after = design_paths::drawing_at(top, &scope.tip, paths.iter().copied())?;
+    Ok((before == after).then(|| tip.clone()))
 }
 
 /// `approve N --by-person`: the person's review of the boards, said by
@@ -411,7 +454,17 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
     }
     let ids = Id::parse_list(ids)?;
     let scope = named_scope(tool, &args, dir, shas)?;
-    design::check_changes(&scope.lists, &ids, &scope.checkout.repo(), &scope.changes)?;
+    let top = &scope.checkout.top;
+    let drawn: Vec<&String> = scope.changes.drawn().collect();
+    let mut designs = Vec::new();
+    for design in design::open_named(&scope.lists, &ids, &scope.checkout.repo())? {
+        designs.push(design::DrawnChange {
+            design,
+            drawing: design_paths::drawn_by(top, design, drawn.iter().copied())?,
+        });
+    }
+    let now = design_paths::drawing_at(top, &scope.tip, drawn.iter().copied())?;
+    design::check_changes(&designs, &scope.changes, &now)?;
     let named = design::named(&ids);
     Ok(match ids.as_slice() {
         [_] => format!("{named} resolves every place the commits change and is approved\n"),

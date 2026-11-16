@@ -283,7 +283,9 @@ other.
      shows in the dashboard's Waiting on you tab as a card, and its Details
      opens the review page, which shows each board now and proposed side by
      side and draws it again on each load. To change the boards again, commit
-     and run `builds design amend`, which clears an approval.
+     and run `builds design amend`, which clears an approval unless every
+     board comes out byte-identical. A rebase onto a moved main needs no
+     amend: health and land compare the boards' files, not commit hashes.
   3. Everything the person reviews goes on that page: new boards, proposals,
      before and after examples. Never make a page of your own (a review.html,
      a page in the scratchpad) or open a browser tab; the person reloads the

@@ -12,8 +12,8 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
-use crate::lists::design::DesignChange;
-use crate::lists::design_paths::{Changes, Globs, changes_of, is_ancestor};
+use crate::lists::design::{DesignChange, DrawnChange, covers};
+use crate::lists::design_paths::{Changes, Globs, changes_of, drawing_at, drawn_by};
 use crate::lists::running::running_in;
 use crate::lists::store::{Loaded, Store, lists_of, project_of};
 use crate::lists::{Item, Lists, Located, Standing, Wait};
@@ -126,54 +126,62 @@ struct DesignCommit<'a> {
 
 /// Each commit of <worktree> past origin/main that changes design files, with
 /// the open design change of its repo that covers it, approved or waiting on
-/// the person's review. A change covers a commit when the change's last
-/// commit is that commit or a later one, and the change's places hold every
-/// place the commit changes: the person reviews each of those places drawn at
-/// the change's last commit, which holds the commit's changes.
+/// the person's review. A change covers a commit as `design::covers` decides
+/// it for `builds design check`, which land runs: it holds every place the
+/// commit changes, and draws each changed path a drawing shows byte for byte
+/// as the worktree's last commit does. The comparison reads files, so a
+/// change still covers its commits after they are rebased onto a moved main.
 fn design_commits<'a>(
     lists: &'a Lists,
     worktree: &Worktree,
     globs: &Globs,
 ) -> Result<Vec<DesignCommit<'a>>> {
-    let open: Vec<(&DesignChange, &String)> = lists
-        .designs
-        .iter()
-        .filter(|design| {
-            design.repo == worktree.repo
-                && matches!(
-                    lists.locate(design.id),
-                    Some(Located {
-                        standing: Standing::Open,
-                        ..
-                    })
-                )
-        })
-        .filter_map(|design| design.tip.as_ref().map(|tip| (design, tip)))
-        .collect();
-    let mut found = Vec::new();
+    let mut commits = Vec::new();
     for sha in &worktree.ahead {
         let changes = changes_of(&worktree.top, globs, std::slice::from_ref(sha))?;
-        if !changes.is_design_change() {
-            continue;
+        if changes.is_design_change() {
+            commits.push((sha, changes));
         }
-        let mut covered_by = None;
-        for (design, tip) in &open {
-            let holds_places = changes
-                .resolvable()
-                .iter()
-                .all(|place| design.places.contains_key(*place));
-            if holds_places && is_ancestor(&worktree.top, sha, tip)? {
-                covered_by = Some(*design);
-                break;
-            }
-        }
-        found.push(DesignCommit {
-            sha: sha.clone(),
-            changes,
-            covered_by,
+    }
+    if commits.is_empty() {
+        return Ok(Vec::new());
+    }
+    let drawn: BTreeSet<&String> = commits
+        .iter()
+        .flat_map(|(_, changes)| changes.drawn())
+        .collect();
+    let last = worktree.ahead.last().expect("it holds the design commits");
+    let now = drawing_at(&worktree.top, last, drawn.iter().copied())?;
+    let mut open = Vec::new();
+    for design in lists.designs.iter().filter(|design| {
+        design.repo == worktree.repo
+            && matches!(
+                lists.locate(design.id),
+                Some(Located {
+                    standing: Standing::Open,
+                    ..
+                })
+            )
+    }) {
+        open.push(DrawnChange {
+            design,
+            drawing: drawn_by(&worktree.top, design, drawn.iter().copied())?,
         });
     }
-    Ok(found)
+    Ok(commits
+        .into_iter()
+        .map(|(sha, changes)| {
+            let covered_by = open
+                .iter()
+                .find(|drawn| covers(std::slice::from_ref(*drawn), &changes, &now).is_ok())
+                .map(|drawn| drawn.design);
+            DesignCommit {
+                sha: sha.clone(),
+                changes,
+                covered_by,
+            }
+        })
+        .collect())
 }
 
 /// The design commits of <worktree> (`design_commits`), or None when its

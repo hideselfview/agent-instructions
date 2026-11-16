@@ -602,6 +602,134 @@ fn check_compares_by_path_so_a_rebased_commit_still_checks() {
     assert!(w.run(&format!("{check} {picked}")).is_ok());
 }
 
+/// Moves main past `base` with a commit of a file outside the design files,
+/// then rebases the branch's commits onto it, as a branch is rebased before
+/// it lands. The moved main is the branch `moved`.
+fn rebase_onto_moved_main(w: &World) {
+    git(&w.dir, &["checkout", "-q", "-b", "moved", "base"]);
+    w.commit(&["src/moved.rs"]);
+    git(&w.dir, &["checkout", "-q", "main"]);
+    git(&w.dir, &["rebase", "-q", "moved"]);
+}
+
+/// What `builds health` says about the worktree of <w> whose commits past
+/// origin/main are those of <range>.
+fn health_of(w: &World, range: &str) -> Vec<String> {
+    let tree = crate::lists::held::Worktree {
+        label: "bae/side-1".into(),
+        top: w.dir.clone(),
+        repo: "bae".into(),
+        claim: crate::claim::Claim {
+            who: "agent".into(),
+            since: NOON,
+            note: None,
+            note_state: None,
+        },
+        project: Some("demo".into()),
+        app_checkout: false,
+        ahead: crate::lists::design_paths::commits_of_range(&w.dir, range).unwrap(),
+    };
+    let loaded = Ok(vec![crate::lists::store::Loaded {
+        project: "demo".into(),
+        lists: Ok(w.state()),
+    }]);
+    crate::lists::held::findings(&loaded, &[tree])
+        .into_iter()
+        .map(|advice| advice.text)
+        .collect()
+}
+
+/// A design change recorded on commits covers them after the branch is
+/// rebased onto a main that moved: the rebased commits draw the boards the
+/// same, so health raises nothing and land's check passes. A board drawn
+/// again after that is no longer what the change drew.
+#[test]
+fn a_design_branch_rebased_onto_a_moved_main_stays_covered() {
+    let w = world("design-rebased");
+    let a = "design/mocks/A.dc.html";
+    let drawn = w.commit(&[a]);
+    w.request(base_request(&w, json!({ a: { "matches": "x" } })))
+        .unwrap();
+    w.approve(1);
+    rebase_onto_moved_main(&w);
+    let rebased = w.sha("HEAD");
+    assert_ne!(rebased, drawn);
+    assert_eq!(health_of(&w, "moved..HEAD"), Vec::<String>::new());
+    let check = format!("check 1 {} moved..HEAD", w.worktree());
+    let out = w.run(&check).unwrap();
+    assert!(out.contains("resolves every place"), "{out}");
+
+    let redrawn = w.commit(&[a]);
+    let found = health_of(&w, "moved..HEAD");
+    assert!(
+        found.len() == 1 && found[0].contains(&rebased[..10]) && found[0].contains(&redrawn[..10]),
+        "{found:?}"
+    );
+    let refused = message(w.run(&check));
+    assert!(
+        refused.contains(&format!("design change #1 drew {a}"))
+            && refused.contains("builds design amend 1"),
+        "{refused}"
+    );
+}
+
+/// A shared design-system source changes how boards draw, so a source the
+/// commits change after the change drew it is no longer covered either.
+#[test]
+fn a_source_changed_after_the_change_drew_it_is_not_covered() {
+    let w = world("design-source-redrawn");
+    let (board, tokens) = ("design/mocks/A.dc.html", "design/system/tokens.json");
+    w.commit(&[board, tokens]);
+    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
+    request["no_app_place"] = json!("the design system has no components");
+    w.request(request).unwrap();
+    w.approve(1);
+    let check = format!("check 1 {} base..HEAD", w.worktree());
+    w.run(&check).unwrap();
+    w.commit(&[tokens]);
+    let refused = message(w.run(&check));
+    assert!(
+        refused.contains(&format!("design change #1 drew {tokens}")),
+        "{refused}"
+    );
+    assert_eq!(health_of(&w, "base..HEAD").len(), 1);
+}
+
+/// Amending a change to the commits of its rebased branch keeps the person's
+/// approval when every board comes out byte-identical, and clears it once a
+/// board or the review page changes.
+#[test]
+fn an_amend_whose_boards_come_out_the_same_keeps_the_approval() {
+    let w = world("design-amend-same");
+    let a = "design/mocks/A.dc.html";
+    w.commit(&[a]);
+    w.request(base_request(&w, json!({ a: { "matches": "x" } })))
+        .unwrap();
+    w.approve(1);
+    let approved = w.state().designs[0].approved.clone();
+    rebase_onto_moved_main(&w);
+    let request = json!({ "worktree": w.worktree(), "range": "moved..HEAD", "places": {} });
+    let amended = w.amend(1, request.clone()).unwrap();
+    assert!(
+        amended.contains("approval stays") && !amended.contains("waits on the person's review"),
+        "{amended}"
+    );
+    let design = &w.state().designs[0];
+    assert_eq!(design.approved, approved);
+    assert_eq!(design.tip, Some(w.sha("HEAD")));
+
+    let mut new_page = request.clone();
+    new_page["review"] = json!([{ "heading": "Other words", "boards": [{ "board": a, "caption": "A", "theme": "light" }] }]);
+    let amended = w.amend(1, new_page).unwrap();
+    assert!(amended.contains("approval is cleared"), "{amended}");
+    w.approve(1);
+
+    w.commit(&[a]);
+    let amended = w.amend(1, request).unwrap();
+    assert!(amended.contains("approval is cleared"), "{amended}");
+    assert!(w.state().designs[0].approved.is_none());
+}
+
 #[test]
 fn check_names_what_is_unresolved_and_refuses_a_closed_or_missing_change() {
     let w = world("design-check-refused");
@@ -1017,6 +1145,8 @@ fn an_amend_clears_the_approval_and_says_so() {
     ))
     .unwrap();
     w.approve(1);
+    // The board is drawn again, so the approval no longer holds.
+    w.commit(&["design/mocks/A.dc.html"]);
     let amended = w
         .amend(
             1,

@@ -325,7 +325,9 @@ design-globs`:
 
 Other changed files under design/ are shared design files. Commands that read
 git take a worktree DIR and find the project from its repo (or --project).
-Commits may be rebased, since places are compared by path.
+Commits may be rebased: builds compares a design change with commits by the
+paths they change and by the bytes of the boards, components and sources at
+the change's last commit and at the commits' last one, never by commit hash.
 
 The review page shows the change's words under their headings, with every board
 of the change drawn twice, side by side, in frames the person can zoom (never
@@ -431,9 +433,14 @@ sent again.
       does change needs an answer. `title` and `details` are optional;
       `worktree` replaces the one stored; `review`, when given, replaces the
       whole page (left out, the page stays, and must still hold every board
-      of the change). It stores the new last commit and clears the person's
-      approval, since they approved what was drawn before, and what the
-      recording session was told.
+      of the change). It stores the new last commit and clears what the
+      recording session was told. It keeps the person's approval when the
+      change keeps its places, deleted boards and review page, and the new
+      last commit holds every board, component and changed source byte for
+      byte as the commit they approved did, as after a rebase onto a moved
+      main that changed none of them. Otherwise it clears the approval, since
+      the person approved what was drawn before; an amend of a fix without
+      `fix` clears it too.
 
   builds design approve N --by-person
       Records the person's approval, which only they give: pass --by-person
@@ -443,10 +450,13 @@ sent again.
 
   builds design check N[,N...] DIR REV...
       Succeeds when one of the open changes N resolves each place the
-      commits change, one of them answers for the shared files and sources,
-      each change resolves or answers for something the commits change, and
-      the person has approved each; otherwise names what does not hold.
-      builds land runs it once with every change its --design flags name.
+      commits change; one change that holds each changed board or component
+      (any of them, for a changed source) holds the same bytes for it at its
+      last commit as the commits' last commit does; one of them answers for
+      the shared files and sources; each change resolves or answers for
+      something the commits change; and the person has approved each.
+      Otherwise it names what does not hold. builds land runs it once with
+      every change its --design flags name.
 
   builds design landed N DIR SHA...
       What builds land runs after the push, with SHAs on origin/main: records

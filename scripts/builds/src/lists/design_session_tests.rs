@@ -248,12 +248,15 @@ fn record_and_amend_keep_the_recording_sessions_inbox() {
         SessionState::Waiting
     );
 
-    // Approved and told, then amended from outside a session: the person's
-    // approval is cleared and the session still waits to be told.
+    // Approved and told, then amended over new tokens from outside a
+    // session: the person's approval is cleared and the session still waits
+    // to be told.
     let inbox = FakeInbox::listen(&socket);
     approve_and_tell(&store, Id(1), &stamp(NOON)).unwrap();
     inbox.received();
     assert_eq!(store.load().unwrap().designs[0].session, SessionState::Told);
+    std::fs::write(dir.join("design/system/tokens.css"), "b{}").unwrap();
+    git(&dir, &["commit", "-q", "-am", "new tokens"]);
     let printed = run(None, &format!("amend 1 --request {}", request(body))).unwrap();
     assert!(!printed.contains(TOKEN), "{printed}");
     let after = store.load().unwrap();

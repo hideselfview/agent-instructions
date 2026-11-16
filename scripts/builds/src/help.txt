@@ -1006,9 +1006,12 @@ STATUS, HEALTH AND THE DASHBOARD
                               in any project (`builds lists design-globs`);
                               commits that change design files that no open
                               design change covers, approved or waiting (a
-                              change covers a commit when its last commit is
-                              that commit or a later one and its places hold
-                              every place the commit changes; a worktree whose
+                              change covers a commit as `builds design check`
+                              decides it: its places hold every place the
+                              commit changes, and its last commit holds the
+                              same bytes as the worktree's last commit for
+                              each changed board, component and source, so a
+                              rebase keeps it covered; a worktree whose
                               open design change waits on the person's review
                               is not idle); a build past its step's 45-minute
                               default limit, or a test binary past 30 minutes
