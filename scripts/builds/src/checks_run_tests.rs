@@ -338,21 +338,25 @@ fn a_recorded_run_holds_the_files_each_check_with_its_time_and_what_was_skipped(
     let checks: Vec<_> = run
         .checks
         .iter()
-        .map(|c| (c.name.as_str(), c.outcome, c.handed))
+        .map(|c| (c.name.as_str(), c.outcome.word(), c.outcome.handed()))
         .collect();
     assert_eq!(
         checks,
         vec![
-            ("slow", Outcome::Passed, Some((1, 0))),
-            ("fail-me", Outcome::Failed, Some((0, 0))),
-            ("docs", Outcome::Skipped, None)
+            ("slow", "passed", Some((1, 0))),
+            ("fail-me", "failed", Some((0, 0))),
+            ("docs", "skipped", None)
         ]
     );
-    let slow_ms = run.checks[0].ms.unwrap();
+    let slow_ms = run.checks[0].outcome.ms().unwrap();
     assert!(slow_ms >= 300, "{slow_ms}");
-    assert_eq!(run.checks[2].ms, None);
+    assert_eq!(run.checks[2].outcome.ms(), None);
     // Each check that ran keeps this Mac's load when it started.
-    let started: Vec<bool> = run.checks.iter().map(|c| c.started.is_some()).collect();
+    let started: Vec<bool> = run
+        .checks
+        .iter()
+        .map(|c| c.outcome.started().is_some())
+        .collect();
     assert_eq!(started, [true, true, false]);
     assert!(
         run.total_ms >= run.plan_ms + slow_ms,
@@ -374,7 +378,7 @@ fn each_run_adds_a_row_and_a_run_with_nothing_picked_is_recorded_too() {
     let runs = recorded_runs(&log);
     assert_eq!(runs.len(), 2);
     // Newest first.
-    assert_eq!(runs[0].checks[0].outcome, Outcome::Passed);
+    assert!(runs[0].checks[0].outcome.passed());
     assert!(runs[1].passed);
     assert_eq!(runs[1].checks[0].outcome, Outcome::Skipped);
 }
@@ -404,7 +408,10 @@ fn a_crates_line_records_how_many_crates_it_was_handed() {
     stage(&top, "b/src/lib.rs", "// b\n");
     let log = recorded(&scratch);
     run_staged(&top, Some(&log)).unwrap();
-    assert_eq!(recorded_runs(&log)[0].checks[0].handed, Some((0, 2)));
+    assert_eq!(
+        recorded_runs(&log)[0].checks[0].outcome.handed(),
+        Some((0, 2))
+    );
 }
 
 #[test]

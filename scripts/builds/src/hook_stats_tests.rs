@@ -9,15 +9,26 @@ fn file(path: &str, change: Change, lines: Option<(u64, u64)>) -> StagedFile {
     }
 }
 
-fn check(name: &str, outcome: Outcome, ms: Option<u64>) -> CheckRecord {
+/// A check that ran, passed or not, in <ms>, handed one file.
+fn ran(name: &str, passed: bool, ms: u64) -> CheckRecord {
     CheckRecord {
         name: name.into(),
         kind: Kind::Check,
-        outcome,
-        handed: ms.map(|_| (1, 0)),
-        ms,
-        started: None,
-        cargo: None,
+        outcome: Outcome::Ran {
+            passed,
+            handed: (1, 0),
+            ms: Some(ms),
+            started: None,
+            cargo: None,
+        },
+    }
+}
+
+fn skipped(name: &str) -> CheckRecord {
+    CheckRecord {
+        name: name.into(),
+        kind: Kind::Check,
+        outcome: Outcome::Skipped,
     }
 }
 
@@ -53,9 +64,9 @@ fn a_run_comes_back_whole_with_its_files_and_checks_in_order() {
         100,
         true,
         vec![
-            check("fmt", Outcome::Passed, Some(40)),
-            check("clippy", Outcome::Passed, Some(60)),
-            check("docs", Outcome::Skipped, None),
+            ran("fmt", true, 40),
+            ran("clippy", true, 60),
+            skipped("docs"),
         ],
     );
     written.branch = None;
@@ -106,11 +117,7 @@ fn a_database_with_another_schema_version_is_refused() {
 fn the_schema_refuses_what_the_closed_sets_and_ranges_forbid() {
     let scratch = Scratch::new("hook-db-checks");
     let path = database(&scratch);
-    record(
-        &path,
-        &run(1, 10, true, vec![check("fmt", Outcome::Passed, Some(1))]),
-    )
-    .unwrap();
+    record(&path, &run(1, 10, true, vec![ran("fmt", true, 1)])).unwrap();
     let conn = open_for_writing(&path).unwrap();
     let refused = |sql: &str| conn.execute_batch(sql).is_err();
     // A run whose total is under its planning time, a passed value that is not 0 or 1.
@@ -168,15 +175,7 @@ fn a_record_that_fails_midway_leaves_nothing() {
     let scratch = Scratch::new("hook-db-atomic");
     let path = database(&scratch);
     // Two checks of one name break the run's uniqueness after its row and files are written.
-    let broken = run(
-        1,
-        10,
-        true,
-        vec![
-            check("fmt", Outcome::Passed, Some(1)),
-            check("fmt", Outcome::Passed, Some(2)),
-        ],
-    );
+    let broken = run(1, 10, true, vec![ran("fmt", true, 1), ran("fmt", true, 2)]);
     assert!(record(&path, &broken).is_err());
     assert_eq!(stats(&path, 0, "bae").unwrap().unwrap().runs, 0);
 }
@@ -190,38 +189,16 @@ fn stats_give_runs_their_figures_from_passing_runs_and_each_check_its_figures_fr
             1,
             1000,
             true,
-            vec![
-                check("fmt", Outcome::Passed, Some(100)),
-                check("clippy", Outcome::Passed, Some(800)),
-            ],
+            vec![ran("fmt", true, 100), ran("clippy", true, 800)],
         ),
         run(
             2,
             3000,
             false,
-            vec![
-                check("fmt", Outcome::Passed, Some(300)),
-                check("clippy", Outcome::Failed, Some(2500)),
-            ],
+            vec![ran("fmt", true, 300), ran("clippy", false, 2500)],
         ),
-        run(
-            3,
-            200,
-            true,
-            vec![
-                check("fmt", Outcome::Passed, Some(200)),
-                check("clippy", Outcome::Skipped, None),
-            ],
-        ),
-        run(
-            4,
-            400,
-            true,
-            vec![
-                check("fmt", Outcome::Passed, Some(400)),
-                check("clippy", Outcome::Skipped, None),
-            ],
-        ),
+        run(3, 200, true, vec![ran("fmt", true, 200), skipped("clippy")]),
+        run(4, 400, true, vec![ran("fmt", true, 400), skipped("clippy")]),
     ];
     for r in &runs {
         record(&path, r).unwrap();
@@ -273,10 +250,7 @@ fn the_report_names_the_checks_and_the_slowest_runs() {
             1_700_000_000,
             2500,
             true,
-            vec![
-                check("fmt", Outcome::Passed, Some(100)),
-                check("clippy", Outcome::Skipped, None),
-            ],
+            vec![ran("fmt", true, 100), skipped("clippy")],
         ),
     )
     .unwrap();
@@ -320,12 +294,7 @@ fn the_dashboard_json_has_each_project_with_its_figures_and_the_latest_runs_firs
     for at in 1..=25 {
         record(
             &store.dir.join(DATABASE),
-            &run(
-                at,
-                at as u64 * 10,
-                true,
-                vec![check("fmt", Outcome::Passed, Some(5))],
-            ),
+            &run(at, at as u64 * 10, true, vec![ran("fmt", true, 5)]),
         )
         .unwrap();
     }
@@ -362,7 +331,7 @@ fn the_dashboard_json_has_each_project_with_its_figures_and_the_latest_runs_firs
 fn check_set(names: &[(&str, u64)]) -> Vec<CheckRecord> {
     names
         .iter()
-        .map(|(name, ms)| check(name, Outcome::Passed, Some(*ms)))
+        .map(|(name, ms)| ran(name, true, *ms))
         .collect()
 }
 
@@ -544,12 +513,7 @@ fn a_failed_slow_run_moves_no_median_slowest_trend_or_over_limit_list() {
     // A slow failed run, over the limit, with a slow failed check.
     record(
         &path,
-        &run(
-            14,
-            200_000,
-            false,
-            vec![check("clippy", Outcome::Failed, Some(190_000))],
-        ),
+        &run(14, 200_000, false, vec![ran("clippy", false, 190_000)]),
     )
     .unwrap();
     let after = stats(&path, 0, "bae").unwrap().unwrap();
@@ -613,10 +577,7 @@ fn a_run_where_one_check_fails_adds_its_passing_checks_and_no_run_time() {
             2,
             200_000,
             false,
-            vec![
-                check("clippy", Outcome::Passed, Some(80_000)),
-                check("detekt", Outcome::Failed, Some(100_000)),
-            ],
+            vec![ran("clippy", true, 80_000), ran("detekt", false, 100_000)],
         ),
     )
     .unwrap();
@@ -656,10 +617,7 @@ fn a_failed_checks_time_is_not_stored_and_a_passed_checks_time_is() {
             1,
             200_000,
             false,
-            vec![
-                check("clippy", Outcome::Passed, Some(80_000)),
-                check("detekt", Outcome::Failed, Some(100_000)),
-            ],
+            vec![ran("clippy", true, 80_000), ran("detekt", false, 100_000)],
         ),
     )
     .unwrap();
@@ -720,10 +678,14 @@ fn a_check_comes_back_with_where_it_ran_and_how_loaded_that_host_was() {
         cores: 14,
         one_minute: 21.2,
     };
-    let mut fmt = check("fmt", Outcome::Passed, Some(40));
-    fmt.started = Some(here);
-    let mut clippy = check("clippy", Outcome::Passed, Some(122_800));
-    clippy.started = Some(here);
+    let started_here = |mut check: CheckRecord| {
+        if let Outcome::Ran { started, .. } = &mut check.outcome {
+            *started = Some(here);
+        }
+        check
+    };
+    let fmt = started_here(ran("fmt", true, 40));
+    let clippy = started_here(ran("clippy", true, 122_800));
     let written = run(7, 123_000, true, vec![fmt, clippy]);
     record(&path, &written).unwrap();
     let cargo = |position: u32, lock_wait: Option<u64>| crate::cargo_run::CargoRun {

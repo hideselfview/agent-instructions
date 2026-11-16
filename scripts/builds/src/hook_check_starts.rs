@@ -17,7 +17,7 @@ pub fn record(tx: &Transaction, run_id: i64, checks: &[CheckRecord]) -> Result<(
         )
         .context(what)?;
     for (position, check) in checks.iter().enumerate() {
-        if let Some(load) = check.started {
+        if let Some(load) = check.outcome.started() {
             start
                 .execute(params![
                     run_id,

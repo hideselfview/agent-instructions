@@ -89,26 +89,66 @@ impl StagedFile {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// What a check or fix did in one run.
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
-    Passed,
-    Failed,
+    /// It ran, and passed or failed.
+    Ran {
+        passed: bool,
+        /// The staged files and the workspace crates it was handed.
+        handed: (u32, u32),
+        /// Its time. `record` keeps it only for a passed check: a failed
+        /// check's time says nothing about how long the check takes.
+        ms: Option<u64>,
+        /// This Mac's load when it started; None for a check recorded before
+        /// builds kept the load.
+        started: Option<Load>,
+        /// The `builds cargo` run it started, when it started one: the host
+        /// cargo ran on, with that host's load. `record` writes none: `builds
+        /// cargo` records its own run (cargo_run.rs), and reading a run finds
+        /// it.
+        cargo: Option<crate::cargo_run::CargoRun>,
+    },
+    /// The staged files matched none of its paths.
     Skipped,
 }
 
 impl Outcome {
-    fn word(self) -> &'static str {
+    /// `passed`, `failed` or `skipped`, as the database keeps it.
+    pub fn word(&self) -> &'static str {
         match self {
-            Outcome::Passed => "passed",
-            Outcome::Failed => "failed",
+            Outcome::Ran { passed: true, .. } => "passed",
+            Outcome::Ran { passed: false, .. } => "failed",
             Outcome::Skipped => "skipped",
         }
     }
 
-    fn from_word(word: &str) -> Option<Outcome> {
-        [Outcome::Passed, Outcome::Failed, Outcome::Skipped]
-            .into_iter()
-            .find(|o| o.word() == word)
+    pub fn passed(&self) -> bool {
+        matches!(self, Outcome::Ran { passed: true, .. })
+    }
+
+    /// The staged files and crates a check that ran was handed.
+    pub fn handed(&self) -> Option<(u32, u32)> {
+        match self {
+            Outcome::Ran { handed, .. } => Some(*handed),
+            Outcome::Skipped => None,
+        }
+    }
+
+    /// The time of a check that ran and has one.
+    pub fn ms(&self) -> Option<u64> {
+        match self {
+            Outcome::Ran { ms, .. } => *ms,
+            Outcome::Skipped => None,
+        }
+    }
+
+    /// This Mac's load when a check that ran started, when builds kept it.
+    pub fn started(&self) -> Option<Load> {
+        match self {
+            Outcome::Ran { started, .. } => *started,
+            Outcome::Skipped => None,
+        }
     }
 }
 
@@ -119,27 +159,18 @@ pub struct CheckRecord {
     /// `Kind::Check` or `Kind::Fix`.
     pub kind: Kind,
     pub outcome: Outcome,
-    /// The staged files and the workspace crates it was handed; None for a
-    /// skipped one.
-    pub handed: Option<(u32, u32)>,
-    /// Its time. `record` keeps it only for a passed check: a failed check's
-    /// time says nothing about how long the check takes.
-    pub ms: Option<u64>,
-    /// This Mac's load when it started; None for a skipped check and for a
-    /// check recorded before builds kept the load.
-    pub started: Option<Load>,
-    /// The `builds cargo` run it started, when it started one: the host cargo
-    /// ran on, with that host's load. `record` writes none: `builds cargo`
-    /// records its own run (cargo_run.rs), and reading a run finds it.
-    pub cargo: Option<crate::cargo_run::CargoRun>,
 }
 
 impl CheckRecord {
     /// Where it ran and how loaded that host was: `on m1, load 3/10`, with the
-    /// time cargo waited for its file locks when it waited; None when nothing
-    /// says.
+    /// time cargo waited for its file locks when it waited; None for a
+    /// skipped check, and for one whose record holds neither a cargo run nor
+    /// this Mac's load.
     pub fn place_text(&self) -> Option<String> {
-        match (&self.cargo, &self.started) {
+        let Outcome::Ran { started, cargo, .. } = &self.outcome else {
+            return None;
+        };
+        match (cargo, started) {
             (Some(cargo), _) => Some(format!(
                 "on {}, {}{}",
                 cargo.host,
@@ -241,7 +272,11 @@ pub fn record(path: &Path, run: &Run) -> Result<()> {
             .prepare("INSERT INTO hook_run_checks (run_id, position, name, kind, outcome, files, crates, ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
             .context(what)?;
         for (position, c) in run.checks.iter().enumerate() {
-            let (files, crates) = c.handed.map(|(f, k)| (f as i64, k as i64)).unzip();
+            let (files, crates) = c
+                .outcome
+                .handed()
+                .map(|(f, k)| (f as i64, k as i64))
+                .unzip();
             check
                 .execute(params![
                     id,
@@ -251,7 +286,9 @@ pub fn record(path: &Path, run: &Run) -> Result<()> {
                     c.outcome.word(),
                     files,
                     crates,
-                    c.ms.filter(|_| c.outcome == Outcome::Passed)
+                    c.outcome
+                        .ms()
+                        .filter(|_| c.outcome.passed())
                         .map(|ms| ms as i64)
                 ])
                 .context(what)?;
@@ -666,20 +703,35 @@ fn runs_where(
         for row in rows {
             let (position, name, kind, outcome, files, crates, ms, cores, load) =
                 row.context(what)?;
-            let Some(outcome) = Outcome::from_word(&outcome) else {
-                fail!("the database holds a check outcome {outcome:?}")
+            let passed = match outcome.as_str() {
+                "passed" => true,
+                "failed" => false,
+                "skipped" => {
+                    run.checks.push(CheckRecord {
+                        name,
+                        kind: kind_of(&kind)?,
+                        outcome: Outcome::Skipped,
+                    });
+                    continue;
+                }
+                other => fail!("the database holds a check outcome {other:?}"),
+            };
+            let Some(handed) = files.zip(crates) else {
+                fail!("the database holds check {name}, which ran, without what it was handed");
             };
             run.checks.push(CheckRecord {
-                name,
                 kind: kind_of(&kind)?,
-                outcome,
-                handed: files.zip(crates).map(|(f, k)| (f as u32, k as u32)),
-                ms: ms.map(|ms| ms as u64),
-                started: cores.zip(load).map(|(cores, load)| Load {
-                    cores: cores as u32,
-                    one_minute: load,
-                }),
-                cargo: cargo.remove(&(position as u32)),
+                outcome: Outcome::Ran {
+                    passed,
+                    handed: (handed.0 as u32, handed.1 as u32),
+                    ms: ms.map(|ms| ms as u64),
+                    started: cores.zip(load).map(|(cores, load)| Load {
+                        cores: cores as u32,
+                        one_minute: load,
+                    }),
+                    cargo: cargo.remove(&(position as u32)),
+                },
+                name,
             });
         }
         runs.push(run);
@@ -782,8 +834,12 @@ pub fn report(project: &str, repo: &str, since: Option<&str>, stats: Option<&Sta
 /// 21/14)`.
 pub fn handed_text(run: &Run) -> String {
     let (files, crates) = handed_of(run);
-    let mut ran: Vec<&CheckRecord> = run.checks.iter().filter(|c| c.ms.is_some()).collect();
-    ran.sort_by_key(|c| std::cmp::Reverse(c.ms));
+    let mut ran: Vec<&CheckRecord> = run
+        .checks
+        .iter()
+        .filter(|c| c.outcome.ms().is_some())
+        .collect();
+    ran.sort_by_key(|c| std::cmp::Reverse(c.outcome.ms()));
     let slowest: Vec<String> = ran
         .iter()
         .take(3)
@@ -791,7 +847,7 @@ pub fn handed_text(run: &Run) -> String {
             let place = c
                 .place_text()
                 .map_or(String::new(), |place| format!(" ({place})"));
-            format!("{} {}{place}", c.name, seconds(c.ms.unwrap_or(0)))
+            format!("{} {}{place}", c.name, seconds(c.outcome.ms().unwrap_or(0)))
         })
         .collect();
     format!(
@@ -809,7 +865,7 @@ fn handed_of(run: &Run) -> (u32, u32) {
         files,
         run.checks
             .iter()
-            .filter_map(|c| c.handed)
+            .filter_map(|c| c.outcome.handed())
             .map(|(_, crates)| crates)
             .max()
             .unwrap_or(0),
@@ -831,7 +887,7 @@ pub(crate) fn run_json(run: &Run) -> serde_json::Value {
         "kinds": kinds_of(run),
         "crates": handed_of(run).1,
         "checks": run.checks.iter().map(|c| serde_json::json!({
-            "name": c.name, "kind": c.kind.word(), "outcome": c.outcome.word(), "ms": c.ms, "crates": c.handed.map(|(_, k)| k),
+            "name": c.name, "kind": c.kind.word(), "outcome": c.outcome.word(), "ms": c.outcome.ms(), "crates": c.outcome.handed().map(|(_, k)| k),
             "place": c.place_text(),
         })).collect::<Vec<_>>(),
     })

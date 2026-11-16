@@ -18,20 +18,18 @@ fn run(at: i64, base: Option<&str>, total_ms: u64, clippy_ms: u64, crates: u32) 
             CheckRecord {
                 name: "clippy".into(),
                 kind: Kind::Check,
-                outcome: Outcome::Passed,
-                handed: Some((1, crates)),
-                ms: Some(clippy_ms),
-                started: None,
-                cargo: None,
+                outcome: Outcome::Ran {
+                    passed: true,
+                    handed: (1, crates),
+                    ms: Some(clippy_ms),
+                    started: None,
+                    cargo: None,
+                },
             },
             CheckRecord {
                 name: "fmt".into(),
                 kind: Kind::Fix,
                 outcome: Outcome::Skipped,
-                handed: None,
-                ms: None,
-                started: None,
-                cargo: None,
             },
         ],
     }

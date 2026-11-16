@@ -416,10 +416,6 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
                 name: line.name.clone(),
                 kind: line.kind,
                 outcome: Outcome::Skipped,
-                handed: None,
-                ms: None,
-                started: None,
-                cargo: None,
             })
             .collect();
     }
@@ -524,25 +520,24 @@ fn finish_line<'a>(
             .iter_mut()
             .find(|c| c.name == name)
             .expect("every picked line is recorded");
-        record.outcome = if ran.ok {
-            Outcome::Passed
-        } else {
-            Outcome::Failed
+        record.outcome = Outcome::Ran {
+            passed: ran.ok,
+            handed: (
+                if planned.line.command.iter().any(|arg| arg == "{files}") {
+                    planned.files.len() as u32
+                } else {
+                    0
+                },
+                if planned.line.command.iter().any(|arg| arg == "{crates}") {
+                    planned.argv.iter().filter(|arg| *arg == "-p").count() as u32
+                } else {
+                    0
+                },
+            ),
+            ms: Some(millis(ran.took)),
+            started: Some(load),
+            cargo: None,
         };
-        record.handed = Some((
-            if planned.line.command.iter().any(|arg| arg == "{files}") {
-                planned.files.len() as u32
-            } else {
-                0
-            },
-            if planned.line.command.iter().any(|arg| arg == "{crates}") {
-                planned.argv.iter().filter(|arg| *arg == "-p").count() as u32
-            } else {
-                0
-            },
-        ));
-        record.ms = Some(millis(ran.took));
-        record.started = Some(load);
     }
     let kind = planned.line.kind.word();
     if ran.ok {

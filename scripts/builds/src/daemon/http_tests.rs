@@ -432,11 +432,13 @@ fn hook_store(_scratch: &Scratch, places: &crate::places::Places) {
         checks: vec![CheckRecord {
             name: "clippy".into(),
             kind: Kind::Check,
-            outcome: Outcome::Passed,
-            handed: Some((1, 4)),
-            ms: Some(clippy_ms),
-            started: None,
-            cargo: None,
+            outcome: Outcome::Ran {
+                passed: true,
+                handed: (1, 4),
+                ms: Some(clippy_ms),
+                started: None,
+                cargo: None,
+            },
         }],
     };
     let now = std::time::SystemTime::now()
