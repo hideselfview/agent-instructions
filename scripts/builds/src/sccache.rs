@@ -1,4 +1,5 @@
-//! The shared sccache server: what it says about itself, the compiles it
+//! The shared sccache server: which process listens on its port, whether
+//! launchd's job is that process, what it says about itself, the compiles it
 //! runs, and stopping it. Only a server that is already listening is asked:
 //! asking with none running starts one.
 
@@ -15,17 +16,108 @@ pub const PORT: u16 = 4226;
 /// How often the waits below look again.
 const POLL: Duration = Duration::from_millis(250);
 
+/// The arguments of the lsof that prints the pid listening on sccache's
+/// port.
+fn listener_args() -> [String; 4] {
+    [
+        "-nP".to_string(),
+        format!("-iTCP:{PORT}"),
+        "-sTCP:LISTEN".to_string(),
+        "-t".to_string(),
+    ]
+}
+
+/// A shell command that prints the pid listening on sccache's port, as
+/// `parse_listener` reads it, for a script that runs on a host.
+pub fn listener_script() -> String {
+    format!("lsof {}", listener_args().join(" "))
+}
+
+/// Reads the pid the lsof of `listener_args` printed, or None when it
+/// printed none.
+pub fn parse_listener(text: &str) -> Option<u32> {
+    text.lines().find_map(|line| line.trim().parse().ok())
+}
+
 /// The pid of the process listening on sccache's port, or None when no
 /// process listens there.
 pub fn listener() -> Option<u32> {
     let output = Command::new("lsof")
-        .args(["-nP", &format!("-iTCP:{PORT}"), "-sTCP:LISTEN", "-t"])
+        .args(listener_args())
         .stderr(Stdio::null())
         .output()
         .ok()?;
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .find_map(|line| line.trim().parse().ok())
+    parse_listener(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// What `launchctl print` says about a job launchd has loaded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Job {
+    /// `running`, `spawn scheduled`, `not running` and so on.
+    pub state: String,
+    /// The pid of the job's process while it runs.
+    pub pid: Option<u32>,
+    /// How the job's process last exited, as launchctl words it.
+    pub last_exit: Option<String>,
+}
+
+impl Job {
+    /// The pid of the job's process, when the job is running.
+    pub fn running_pid(&self) -> Option<u32> {
+        (self.state == "running").then_some(self.pid).flatten()
+    }
+
+    /// `state = spawn scheduled, last exit code = 2`.
+    pub fn text(&self) -> String {
+        match &self.last_exit {
+            Some(exit) => format!("state = {}, last exit code = {exit}", self.state),
+            None => format!("state = {}", self.state),
+        }
+    }
+}
+
+/// Reads what `launchctl print <service>` printed, here or on a host
+/// (`host_installed::installed_script`). The job's own fields are
+/// indented by one tab; deeper lines belong to nested sections, some of which
+/// have a `state` of their own.
+pub fn parse_job(text: &str) -> Job {
+    let field = |key: &str| {
+        text.lines()
+            .find_map(|line| {
+                line.strip_prefix('\t')?
+                    .strip_prefix(key)?
+                    .strip_prefix(" = ")
+            })
+            .map(|value| value.trim().to_string())
+    };
+    Job {
+        state: field("state").unwrap_or_default(),
+        pid: field("pid").and_then(|pid| pid.parse().ok()),
+        last_exit: field("last exit code"),
+    }
+}
+
+/// What launchd says about <service>, or None when launchd has not loaded
+/// it.
+pub fn read_job(service: &str) -> Result<Option<Job>> {
+    let output = Command::new("launchctl")
+        .args(["print", service])
+        .stderr(Stdio::null())
+        .output()
+        .context(|| "running launchctl".to_string())?;
+    Ok(output
+        .status
+        .success()
+        .then(|| parse_job(&String::from_utf8_lossy(&output.stdout))))
+}
+
+/// Does launchd's job serve sccache's port: is the process listening there
+/// the job's running process? Setup (`install::run_sccache_under_launchd`)
+/// and the check of what each host has installed (host_installed.rs) both
+/// judge the server by this.
+pub fn launchd_serves(job: Option<&Job>, listener: Option<u32>) -> bool {
+    job.and_then(Job::running_pid)
+        .is_some_and(|pid| listener == Some(pid))
 }
 
 /// Is a server listening on sccache's port?
@@ -126,8 +218,50 @@ pub fn count(stats: &[String], label: &str) -> Option<u64> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
+
+    /// What `launchctl print` prints for a running job and for one launchd
+    /// keeps starting again, cut to the lines that matter and one nested
+    /// section with a `state` of its own.
+    pub const RUNNING: &str = "gui/501/local.sccache-server = {\n\tactive count = 1\n\tstate = running\n\n\tprogram = /bin/sh\n\tpid = 2914\n\tlast exit code = (never exited)\n\tendpoints = {\n\t\tstate = active\n\t}\n}\n";
+    pub const RESPAWNING: &str = "gui/501/local.sccache-server = {\n\tendpoints = {\n\t\tstate = active\n\t}\n\tstate = spawn scheduled\n\tlast exit code = 2\n}\n";
+
+    #[test]
+    fn reads_what_launchctl_says_about_a_job() {
+        let running = parse_job(RUNNING);
+        assert_eq!(
+            running,
+            Job {
+                state: "running".to_string(),
+                pid: Some(2914),
+                last_exit: Some("(never exited)".to_string()),
+            }
+        );
+        assert_eq!(running.running_pid(), Some(2914));
+        let respawning = parse_job(RESPAWNING);
+        assert_eq!(respawning.state, "spawn scheduled");
+        assert_eq!(respawning.running_pid(), None);
+        assert_eq!(
+            respawning.text(),
+            "state = spawn scheduled, last exit code = 2"
+        );
+    }
+
+    /// launchd's job serves sccache's port only when its running process is
+    /// the one listening there.
+    #[test]
+    fn launchd_serves_only_when_its_process_listens() {
+        let running = parse_job(RUNNING);
+        assert!(launchd_serves(Some(&running), Some(2914)));
+        assert!(
+            !launchd_serves(Some(&running), Some(77)),
+            "a client's server"
+        );
+        assert!(!launchd_serves(Some(&running), None), "not listening yet");
+        assert!(!launchd_serves(Some(&parse_job(RESPAWNING)), Some(77)));
+        assert!(!launchd_serves(None, Some(77)), "launchd has no job");
+    }
 
     /// A process running `sh -c <script>` in a process group of its own, so
     /// the test can stop it and its children together.

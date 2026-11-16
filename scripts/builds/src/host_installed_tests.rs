@@ -11,25 +11,61 @@ fn host(name: &str) -> Host {
     }
 }
 
+/// What `installed_script` prints for a host with builds' plist, the pid
+/// <listener> on sccache's port, and launchd's job as `launchctl print`
+/// printed <job>, or no job.
+fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> String {
+    let job = match job {
+        Some(printed) => format!("job=loaded\n{printed}"),
+        None => "job=none\n".to_string(),
+    };
+    format!("builds={builds}\nplist={plist}\nlistener={listener}\n{job}")
+}
+
 #[test]
 fn reads_what_a_host_has_installed() {
+    use crate::sccache::tests::RUNNING;
     assert_eq!(
-        parse_installed("builds=ab12\nsccache=launchd\n").unwrap(),
+        parse_installed(&answer("ab12", "present", "2914", Some(RUNNING))).unwrap(),
         Installed {
             builds: Some("ab12".to_string()),
             sccache_under_launchd: true,
         }
     );
     assert_eq!(
-        parse_installed("builds=missing\nsccache=not-launchd\n").unwrap(),
+        parse_installed(&answer("missing", "present", "", None)).unwrap(),
         Installed {
             builds: None,
             sccache_under_launchd: false,
         }
     );
-    assert!(parse_installed("builds=\nsccache=launchd\n").is_err());
+    assert!(parse_installed(&answer("", "present", "", None)).is_err());
     assert!(parse_installed("builds=ab12\n").is_err());
+    assert!(parse_installed("builds=ab12\nplist=present\nlistener=\n").is_err());
     assert!(parse_installed("").is_err());
+}
+
+/// launchd runs a host's sccache server only when the process listening on
+/// sccache's port is launchd's running job, the test setup passes: a job
+/// that is running while a client's server holds the port, a job launchd
+/// keeps starting again, or a server with no plist from builds is not.
+#[test]
+fn launchd_runs_a_hosts_sccache_only_when_its_job_listens() {
+    use crate::sccache::tests::{RESPAWNING, RUNNING};
+    let under = |plist, listener, job| {
+        parse_installed(&answer("ab12", plist, listener, job))
+            .unwrap()
+            .sccache_under_launchd
+    };
+    assert!(under("present", "2914", Some(RUNNING)));
+    assert!(!under("present", "77", Some(RUNNING)), "a client's server");
+    assert!(!under("present", "", Some(RUNNING)), "nothing listens");
+    assert!(!under("present", "77", Some(RESPAWNING)));
+    assert!(!under("present", "77", None), "launchd has no job");
+    assert!(
+        !under("missing", "2914", Some(RUNNING)),
+        "no plist from builds"
+    );
 }
 
 /// A host with no builds, or another builds than this Mac's, is a finding
