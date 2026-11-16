@@ -82,12 +82,13 @@ them, with no cache, enrichment or other step between the query and the screen.
 There are two exceptions:
 
 - A value that changes many times a second travels on a keyed latest-value
-  stream, as a channel would carry it inside Rust. The value lives in Rust's
-  memory, such as playback position or a transfer's bytes, or a Rust watcher in
-  its domain computes it from such a value and a live query's latest result,
-  such as an upload bar's stored bytes plus the bytes its files being sent have
-  moved. Core never writes such a value to a table for a query to read, and
-  never puts a plain query result on a fast stream.
+  stream, as a channel would carry it inside Rust. Some such values live in
+  Rust's memory, such as playback position or a transfer's bytes. A Rust watcher
+  in the value's domain computes others from an in-memory value and a live
+  query's latest result: an upload bar is the release's stored bytes, from the
+  query, plus the bytes of its files that bae has sent so far. Core never writes
+  such a value to a table for a query to read, and never puts a plain query
+  result on a fast stream.
 - State that exists only on screen (hover, focus, the selected rows, an open
   popover or menu, a drag in progress, the text typed in an input field) stays
   in the view that controls it. A drag or click that writes stays in progress

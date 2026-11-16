@@ -141,8 +141,8 @@ A fast stream may carry a value that Rust computes from a value in its memory
 that changes many times a second, such as transfer progress or playback
 position, together with a live query's values. An upload's bar is one: the
 release's stored bytes, which a live query reads, plus, for each file being
-sent, its size times the share of it that coven's transfer watch says has moved.
-Its speed is measured from how fast those shares move.
+sent, its size times the share of its bytes that bae has sent so far, which
+coven's transfer watch reports.
 
 A Rust watcher in the domain that owns the value computes it:
 
@@ -151,8 +151,9 @@ A Rust watcher in the domain that owns the value computes it:
 - Each time the query reruns or the source changes, the watcher computes the
   value from the query's latest result and the source's latest value, and sends
   it on the fast stream.
-- A speed is a measurement of the source's changes over time, so the watcher
-  keeps those changes for as long as the measurement needs them.
+- The watcher measures a speed, such as the upload bar's, from how fast the
+  source's values change, and keeps those changes for as long as the measurement
+  needs them.
 
 The watcher keeps no other memory between reads:
 
