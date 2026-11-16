@@ -87,3 +87,17 @@ fn a_dependency_the_lock_does_not_have_is_an_error() {
     .concat();
     assert!(reached(&broken, &broken, &members()).is_err());
 }
+
+#[test]
+fn an_entry_without_a_version_is_an_error() {
+    let broken = [
+        HEADER.to_string(),
+        "\n[[package]]\nname = \"app\"\n".to_string(),
+    ]
+    .concat();
+    let Err(error) = reached(&broken, &broken, &members()) else {
+        panic!("a lock entry without a version reads");
+    };
+    let text = error.text();
+    assert!(text.contains("app without a version"), "{text}");
+}

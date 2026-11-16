@@ -31,33 +31,34 @@ fn parse(text: &str, what: &str) -> Result<Lock> {
         Some(_) => fail!("{what}'s package is not a list"),
         None => &[],
     };
-    let text_of = |package: &toml::Value, field: &str| -> String {
-        package
-            .get(field)
-            .and_then(|value| value.as_str())
-            .unwrap_or_default()
-            .to_string()
+    // A field's text; None when the entry has no such field.
+    let text_of = |package: &toml::Value, field: &str| -> Result<Option<String>> {
+        match package.get(field) {
+            None => Ok(None),
+            Some(toml::Value::String(text)) if !text.is_empty() => Ok(Some(text.clone())),
+            Some(other) => fail!("{what} has a package whose {field} is {other}, not text"),
+        }
     };
     let mut entries = HashMap::new();
     for package in packages {
-        let key = (
-            text_of(package, "name"),
-            text_of(package, "version"),
-            text_of(package, "source"),
-        );
-        if key.0.is_empty() {
+        let Some(name) = text_of(package, "name")? else {
             fail!("{what} has a package without a name");
-        }
-        entries.insert(key, package.clone());
+        };
+        let Some(version) = text_of(package, "version")? else {
+            fail!("{what} has a package {name} without a version");
+        };
+        // A workspace crate or a path dependency has no source.
+        let source = text_of(package, "source")?.unwrap_or_default();
+        entries.insert((name, version, source), package.clone());
     }
     let mut depends = HashMap::new();
     for (key, package) in &entries {
         let mut keys = Vec::new();
-        let listed = package
-            .get("dependencies")
-            .and_then(|value| value.as_array())
-            .map(|list| list.as_slice())
-            .unwrap_or_default();
+        let listed = match package.get("dependencies") {
+            None => &[][..],
+            Some(toml::Value::Array(list)) => list.as_slice(),
+            Some(_) => fail!("{what}: the dependencies of {} are not a list", key.0),
+        };
         for dependency in listed {
             let Some(text) = dependency.as_str() else {
                 fail!("{what}: a dependency of {} is not text", key.0);
