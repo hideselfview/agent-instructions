@@ -29,9 +29,10 @@ use crate::review::run::{self, Diff, Material};
 /// no reason of its own. The coordinator confirmed bae's findings with these
 /// in bulk, so they do not show that anyone judged the finding. They are the
 /// confirmed reasons of bae's store that restate the finding ("as the finding
-/// says", "real in the commit its run read"), found by counting the store's
-/// settle reasons by text on 2026-11-17: together they settled 1,667
-/// findings, and every other reason settled at most 57.
+/// says", "real in the commit its run read"). The agent that built the test
+/// set found them on 2026-11-17 by counting the store's settle reasons by
+/// text: together they settled 1,667 findings, and every other reason settled
+/// at most 57.
 pub const GENERIC: [&str; 11] = [
     "real as the finding says",
     "the sentence breaks the writing rule as the finding says",

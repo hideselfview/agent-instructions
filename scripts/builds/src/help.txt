@@ -1785,11 +1785,12 @@ run `review replay --rules-root` on it.
                               code, and labels as `none` each added line
                               that no finding of the landing names and that
                               names one site (24 characters or more, once in
-                              its file). A landing whose findings the check
-                              all rejects gives no case, and a landing with a
-                              case already keeps it and asks no model. Each
-                              confirmed candidate miss becomes a case the
-                              same way, over the diff the audit reviewer that
+                              its file). The command writes no case for a
+                              landing whose findings the check all rejects,
+                              and keeps the case of a landing that has one
+                              already without asking a model. The command
+                              also writes a case for each confirmed
+                              candidate miss the same way, over the diff the audit reviewer that
                               raised it read, which the store keeps, cut to
                               the files of the misses.
                               Exits 1 when a check gave no answer, and writes
