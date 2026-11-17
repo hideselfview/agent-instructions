@@ -112,9 +112,10 @@ PLAN, BRIEF, EXECUTE, REVIEW
     back to the agent that made it. The agent fixes it in a new commit, and the coordinator
     runs `builds review` again. That review reads only the changes since the
     last review, the fixes among them, and closes each open confirmed finding
-    whose problem the code no longer has. In that run, only the groups that
-    hold open findings in a file read that file, and every group that covers
-    any other changed file reads that file. For example, the writing group
+    whose problem the code no longer has. The review splits the rules into
+    groups and runs one reviewer per group. In that run, only the groups
+    that hold open findings in a file read that file, and every group that
+    covers any other changed file reads that file. For example, the writing group
     holds findings in a.rs and b.rs, and the errors group holds one in c.rs.
     After the fix, the writing group reads only a.rs and b.rs, and the
     errors group reads only c.rs. The coordinator settles what that
