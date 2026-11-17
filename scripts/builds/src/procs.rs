@@ -311,12 +311,13 @@ pub fn git_subcommand(argv: &[String]) -> Option<&str> {
 
 /// The pids of the commits of <commits> that run in <top> or a folder in it.
 /// Fails when a git process there has arguments builds could not read,
-/// since it may be a `git commit`, or when builds cannot resolve <top> to the
-/// path the kernel gives as a working directory.
+/// since it may be a `git commit`, or when builds cannot resolve <top>. The
+/// kernel gives each working directory with its links resolved, so builds
+/// compares it with <top> resolved the same way.
 pub fn commits_in(commits: &GitCommits, top: &Path) -> std::result::Result<Vec<i32>, String> {
     let real = std::fs::canonicalize(top)
         .map_err(|error| format!("resolving {}: {error}", top.display()))?;
-    let here = |commit: &&GitCommit| commit.dir.starts_with(top) || commit.dir.starts_with(&real);
+    let here = |commit: &&GitCommit| commit.dir.starts_with(&real);
     if let Some(unread) = commits.unread.iter().find(here) {
         return Err(format!(
             "builds cannot read the arguments of git process {}, which runs in {}, so it cannot tell whether a git commit runs there",
