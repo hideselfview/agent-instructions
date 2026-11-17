@@ -9,7 +9,7 @@ blocking: true
 
 This is the first rule for any text a person reads: app strings, notifications,
 errors, help text, item and plan titles, PR descriptions, docs, the spec,
-briefs, rules, and replies in chat. It outranks every other writing rule.
+briefs, rules, and replies in chat. This rule outranks every other writing rule.
 
 **Comments and commit messages.** The rule does not cover code comments (doc and
 line comments in a source file) or commit messages: a review judges neither on

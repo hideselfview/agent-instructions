@@ -1484,8 +1484,8 @@ reviewer reads the commit messages as one more file, named COMMIT_MESSAGE.
 Only groups whose rules judge what a message says read the messages (in
 agent-instructions, Commits and repo contents, whose rules ask whether the
 text is accurate). The writing group (Text people read) reads no commit
-message and judges no code comment, so a reworded message or comment never
-waits on the writing group.
+message and judges no code comment, so when an agent rewords a message or a
+comment, the review never waits on the writing group.
 `builds review` refuses the run when the review lacks nothing, naming the
 last review.
 
