@@ -3028,6 +3028,125 @@ fn a_store_from_before_blocks_from_waits_clears_the_why_of_each_question_an_open
     assert_eq!(waits, 3);
 }
 
+/// The schema text before the person could allow a confirmed finding to land:
+/// without `review_allowed`, and with the review's comments as they read then.
+fn schema_before_allowed() -> String {
+    let schema = db::schema();
+    let start = schema
+        .find("\n-- An open confirmed finding that the person allowed")
+        .expect("the allowed findings' comment");
+    let last = start
+        + schema[start..]
+            .find("CREATE TABLE review_allowed")
+            .expect("the review_allowed table");
+    let end = "STRICT;\n";
+    let stop = last + schema[last..].find(end).expect("it ends") + end.len();
+    let mut schema = format!("{}{}", &schema[..start], &schema[stop..]);
+    for (now, then) in [
+        (
+            "-- for every rule, each finding with how the coordinator settled it, the run
+-- that closed a confirmed finding, and each confirmed finding the person
+-- allowed to land. record.rs owns these tables and is the only code that
+-- writes them.",
+            "-- for every rule, each finding with how the coordinator settled it, and the
+-- run that closed a confirmed finding. record.rs owns these tables and is the
+-- only code that writes them.",
+        ),
+        (
+            "-- confirmed finding that no run closed, that the coordinator did not settle
+-- again as dropped and that the person did not allow to land is open, and
+-- `builds land` refuses the branch while one is.",
+            "-- confirmed finding that no run closed and the coordinator did not settle
+-- again as dropped is open, and `builds land` refuses the branch while one is.",
+        ),
+    ] {
+        assert_eq!(schema.matches(now).count(), 1, "{now}");
+        schema = schema.replacen(now, then, 1);
+    }
+    schema
+}
+
+#[test]
+fn the_allowed_stamp_is_the_schema_before_allowed() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_allowed()),
+        BEFORE_ALLOWED_STAMP
+    );
+}
+
+/// A store from before the person could allow a finding to land keeps its
+/// runs, equals a fresh schema, and then records an allowed finding.
+#[test]
+fn a_store_from_before_allowed_moves_and_records_an_allowed_finding() {
+    let scratch = Scratch::new("move-allowed");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_allowed()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_ALLOWED_STAMP)
+            .unwrap();
+        plant_run(&conn);
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    drop(conn);
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the move keeps the old run");
+    let conn = Connection::open(&path).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+    let landing = crate::review::record::add_landing(&conn, "k", "bae", 5).unwrap();
+    let call = crate::review::record::NewCall {
+        group: "g".to_string(),
+        model: "sonnet".to_string(),
+        prompt: "the prompt".to_string(),
+        rules: vec!["r".to_string()],
+        tokens_in: 0,
+        tokens_out: 0,
+        tokens_cached: 0,
+        tokens_written: 0,
+        cost_microdollars: 0,
+        sites: None,
+        failure: None,
+        verdicts: vec![("r".to_string(), "finding".to_string())],
+        findings: vec![crate::review::record::NewFinding {
+            rule: "r".to_string(),
+            clause: "c".to_string(),
+            file: "a.rs".to_string(),
+            line: 1,
+            code: "unused()".to_string(),
+            problem: "p".to_string(),
+            blocking: true,
+            check_failed: None,
+        }],
+        closes: Vec::new(),
+        exchanges: Vec::new(),
+    };
+    let run = crate::review::record::NewRun {
+        landing: Some(landing),
+        kind: crate::review::record::Kind::Review { changed_lines: 0 },
+        label: None,
+        at: 6,
+        base: "b",
+        head: "h",
+        since: None,
+        grouping: "g",
+        rules_version: "",
+    };
+    let (_, ids) = crate::review::record::add_run(&conn, &run, &[call]).unwrap();
+    crate::review::record::settle(&conn, ids[0][0], "confirmed", "real", 7, "me").unwrap();
+    crate::review::record::allow(&conn, ids[0][0], "the person: land it", 8, "me").unwrap();
+}
+
 #[test]
 fn each_stamp_names_one_schema_and_before_counts_the_stamp_and_older_ones() {
     let distinct: std::collections::BTreeSet<i64> = STAMPS.iter().copied().collect();
@@ -3095,7 +3214,7 @@ fn without_loads(schema: String) -> String {
 /// The schema text before builds recorded every `builds cargo` run with its
 /// start and subcommand, and the load of each app build run's host.
 fn schema_before_waits() -> String {
-    let schema = db::schema();
+    let schema = schema_before_allowed();
     assert_eq!(schema.matches(db::CARGO_RUNS_PART).count(), 1);
     without_loads(schema).replacen(db::CARGO_RUNS_PART, HOOK_CARGO_RUNS_PART, 1)
 }

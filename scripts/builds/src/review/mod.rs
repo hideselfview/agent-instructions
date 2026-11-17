@@ -7,6 +7,7 @@
 //! builds review writing WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review settle FINDING confirmed|dropped --why TEXT
 //! builds review settle FINDING --again --why TEXT
+//! builds review settle FINDING allowed --by-person --why TEXT
 //! builds review show LANDING
 //! builds review check-landing | landed DIR --project P SHA... [--landing KEY]
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
@@ -81,7 +82,7 @@ use crate::tool::Tool;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review writing WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review writing WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -628,18 +629,27 @@ fn brief_of(store: &Store, args: &Args, worktree: &Path) -> Result<Option<(Strin
     Ok(None)
 }
 
-/// `builds review settle FINDING confirmed|dropped --why TEXT`, or
+/// `builds review settle FINDING confirmed|dropped --why TEXT`;
 /// `builds review settle FINDING --again --why TEXT`, which changes a
 /// confirmed finding that no review closed to dropped and keeps its first
-/// settle.
+/// settle; or `builds review settle FINDING allowed --by-person --why TEXT`,
+/// which records that the person allowed an open confirmed finding to land.
 fn settle(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["why"], &["again"])?;
+    let args = Args::parse(args, &["why"], &["again", "by-person"])?;
     let again = args.switch("again");
+    let by_person = args.switch("by-person");
     let (finding, how) = match (args.positional(), again) {
         ([finding], true) => (finding, "dropped"),
         ([finding, how], false) => (finding, how.as_str()),
         _ => fail!("{USAGE}"),
     };
+    match (how == "allowed", by_person) {
+        (true, false) => fail!(
+            "allowing a finding to land is the person's: pass --by-person once they have said to land finding {finding} as it is, with their words in --why, never on your own judgment"
+        ),
+        (false, true) => fail!("--by-person goes with allowed: {USAGE}"),
+        _ => {}
+    }
     let id: i64 = finding
         .parse()
         .map_err(|_| Fail::Message(format!("'{finding}' is not a finding number")))?;
@@ -652,6 +662,15 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
         })?;
         println!(
             "You settled finding {id} again, as dropped; the finding keeps its first settle beside the second."
+        );
+        return Ok(());
+    }
+    if by_person {
+        store.write(&stamp, &format!("review allow {id}"), |db| {
+            record::allow(db, id, why, stamp.at, &stamp.by)
+        })?;
+        println!(
+            "finding {id} stays confirmed, and the person allowed it to land: builds land no longer waits on it"
         );
         return Ok(());
     }

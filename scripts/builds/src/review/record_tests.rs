@@ -222,6 +222,73 @@ fn a_later_run_closes_an_open_confirmed_finding_once_and_a_closed_one_stays_conf
             .text()
             .contains("builds refuses to settle a closed finding again")
     );
+    assert!(
+        allow(&db, finding, "the person: land it", 9, "me")
+            .unwrap_err()
+            .text()
+            .contains("closed finding")
+    );
+}
+
+#[test]
+fn the_person_allows_an_open_confirmed_finding_which_stays_confirmed_and_is_no_longer_open() {
+    let db = db();
+    let repo = first_repo(&db);
+    let landing = add_landing(&db, "k", &repo, 5).unwrap();
+    let (_, ids) = add_run(
+        &db,
+        &run(Some(landing), 6, "b", "h"),
+        &[
+            call("g1", Some(("r", true, None))),
+            call("g2", Some(("r", true, None))),
+            call("g3", Some(("r", true, Some("gone")))),
+        ],
+    )
+    .unwrap();
+    let (allowed, dropped, checked) = (ids[0][0], ids[1][0], ids[2][0]);
+    assert!(
+        allow(&db, allowed, "the person: land it", 7, "me")
+            .unwrap_err()
+            .text()
+            .contains("not settled")
+    );
+    assert!(
+        allow(&db, checked, "the person: land it", 7, "me")
+            .unwrap_err()
+            .text()
+            .contains("builds' own check dropped finding")
+    );
+    settle(&db, dropped, "dropped", "wrong", 7, "me").unwrap();
+    assert!(
+        allow(&db, dropped, "the person: land it", 8, "me")
+            .unwrap_err()
+            .text()
+            .contains("settled as dropped")
+    );
+    settle(&db, allowed, "confirmed", "real", 7, "me").unwrap();
+    assert!(allow(&db, allowed, "  ", 8, "me").is_err());
+    allow(&db, allowed, "the person: land it", 8, "me").unwrap();
+    let found = finding_of(&db, allowed).unwrap();
+    assert_eq!(
+        found.allowed,
+        Some(Allowed {
+            why: "the person: land it".to_string(),
+            by: "me".to_string(),
+        })
+    );
+    assert!(!found.is_open() && found.settled_as("confirmed"));
+    assert!(
+        allow(&db, allowed, "again", 9, "me")
+            .unwrap_err()
+            .text()
+            .contains("to land already")
+    );
+    assert!(
+        settle_again(&db, allowed, "wrong", 9, "me")
+            .unwrap_err()
+            .text()
+            .contains("stays confirmed")
+    );
 }
 
 #[test]

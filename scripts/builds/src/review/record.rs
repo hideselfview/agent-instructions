@@ -5,7 +5,8 @@
 //! the changes since that run, and one call per group; a call holds a verdict
 //! for every rule and the findings; the coordinator settles a finding as confirmed or dropped, and
 //! may settle an open confirmed finding again, as dropped. A later review run
-//! closes a confirmed finding when the changes it read fix it.
+//! closes a confirmed finding when the changes it read fix it, and the person
+//! may allow an open confirmed finding to land.
 
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -114,6 +115,16 @@ pub struct Finding {
     /// The review run that closed it, for a confirmed finding the changes that
     /// run read fix.
     pub closed_by: Option<i64>,
+    /// The person's words that allowed a confirmed finding to land.
+    pub allowed: Option<Allowed>,
+}
+
+/// The person's words that allowed a confirmed finding to land, and who
+/// recorded them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Allowed {
+    pub why: String,
+    pub by: String,
 }
 
 /// The settles of a finding: one, or a first settle and the second that
@@ -156,13 +167,14 @@ impl Finding {
             .is_some_and(|settled| settled.last().how == how)
     }
 
-    /// Whether it is an open confirmed finding of a review: confirmed, and no
-    /// review run closed it.
+    /// Whether it is an open confirmed finding of a review: confirmed, no
+    /// review run closed it, and the person did not allow it to land.
     pub fn is_open(&self) -> bool {
         self.kind == "review"
             && self.counts()
             && self.settled_as("confirmed")
             && self.closed_by.is_none()
+            && self.allowed.is_none()
     }
 }
 
@@ -426,6 +438,11 @@ pub fn settle_again(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> 
             "review run {run} closed finding {id}, so it stays confirmed: builds refuses to settle a closed finding again"
         );
     }
+    if finding.allowed.is_some() {
+        fail!(
+            "the person allowed finding {id} to land, so it stays confirmed: builds refuses to settle it again"
+        );
+    }
     db.execute(
         "INSERT INTO review_settle_again (finding_id, why, at, by) VALUES (?1, ?2, ?3, ?4)",
         params![id, why, now, by],
@@ -434,7 +451,50 @@ pub fn settle_again(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> 
     Ok(())
 }
 
-const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, a.why, a.by, z.run_id";
+/// Records that the person allowed open confirmed finding <id> to land, with
+/// <why> holding their words. The finding stays confirmed and is no longer
+/// open. allow refuses every other finding.
+pub fn allow(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> Result<()> {
+    if why.trim().is_empty() {
+        fail!("--why says nothing");
+    }
+    let finding = finding_of(db, id)?;
+    if let Some(reason) = &finding.check_failed {
+        fail!("builds' own check dropped finding {id} ({reason}); there is nothing to allow");
+    }
+    if finding.allowed.is_some() {
+        fail!("the person allowed finding {id} to land already");
+    }
+    match &finding.settled {
+        None => fail!(
+            "finding {id} is not settled; the person allows only a confirmed finding: builds review settle {id} confirmed --why TEXT"
+        ),
+        Some(settled) if settled.last().how != "confirmed" => {
+            fail!(
+                "finding {id} is settled as {}, so there is nothing to allow",
+                settled.last().how
+            )
+        }
+        Some(_) => {}
+    }
+    if let Some(run) = finding.closed_by {
+        fail!("review run {run} closed finding {id}; the person allows no closed finding");
+    }
+    if finding.kind != "review" {
+        fail!(
+            "finding {id} comes from a run of kind {}; builds land waits only on the findings of review runs",
+            finding.kind
+        );
+    }
+    db.execute(
+        "INSERT INTO review_allowed (finding_id, why, at, by) VALUES (?1, ?2, ?3, ?4)",
+        params![id, why, now, by],
+    )
+    .sql()?;
+    Ok(())
+}
+
+const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, a.why, a.by, z.run_id, w.why, w.by";
 
 fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
     let settled: Option<String> = row.get(13)?;
@@ -442,6 +502,8 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
     let by: Option<String> = row.get(15)?;
     let again_why: Option<String> = row.get(16)?;
     let again_by: Option<String> = row.get(17)?;
+    let allowed_why: Option<String> = row.get(19)?;
+    let allowed_by: Option<String> = row.get(20)?;
     let first = match (settled, why, by) {
         (Some(how), Some(why), Some(by)) => Some(Settle { how, why, by }),
         _ => None,
@@ -472,10 +534,13 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
         check_failed: row.get(12)?,
         settled,
         closed_by: row.get(18)?,
+        allowed: allowed_why
+            .zip(allowed_by)
+            .map(|(why, by)| Allowed { why, by }),
     })
 }
 
-const FINDING_FROM: &str = "FROM review_finding f JOIN review_call c ON c.id = f.call_id JOIN review_run r ON r.id = c.run_id LEFT JOIN review_settle_again a ON a.finding_id = f.id LEFT JOIN review_closed z ON z.finding_id = f.id";
+const FINDING_FROM: &str = "FROM review_finding f JOIN review_call c ON c.id = f.call_id JOIN review_run r ON r.id = c.run_id LEFT JOIN review_settle_again a ON a.finding_id = f.id LEFT JOIN review_closed z ON z.finding_id = f.id LEFT JOIN review_allowed w ON w.finding_id = f.id";
 
 /// Every finding of <run>, in the order raised.
 pub fn findings_of_run(db: &Connection, run: i64) -> Result<Vec<Finding>> {

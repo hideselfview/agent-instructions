@@ -741,6 +741,52 @@ fn settle_again_takes_no_verdict_and_always_drops() {
 }
 
 #[test]
+fn only_by_person_allows_a_confirmed_finding_to_land() {
+    let demo = demo("review-settle-allowed");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "real");
+    let words = |extra: &[&str]| -> Vec<String> {
+        let mut words = vec![finding.to_string()];
+        words.extend(extra.iter().map(|w| w.to_string()));
+        words.extend(
+            [
+                "--why",
+                "the person: land it",
+                "--project",
+                "demo",
+                "--by",
+                "tester",
+            ]
+            .iter()
+            .map(|w| w.to_string()),
+        );
+        words
+    };
+    assert!(
+        settle(&demo.tool, &words(&["allowed"]))
+            .unwrap_err()
+            .text()
+            .contains("never on your own judgment")
+    );
+    assert!(
+        settle(&demo.tool, &words(&["dropped", "--by-person"]))
+            .unwrap_err()
+            .text()
+            .contains("--by-person goes with allowed")
+    );
+    assert!(findings_of(&demo, landing)[0].is_open());
+    settle(&demo.tool, &words(&["allowed", "--by-person"])).unwrap();
+    let found = &findings_of(&demo, landing)[0];
+    assert!(!found.is_open() && found.settled_as("confirmed"));
+    assert_eq!(found.allowed.as_ref().unwrap().why, "the person: land it");
+}
+
+#[test]
 fn settling_records_who_and_why_and_refuses_a_second_settling() {
     let demo = demo("review-settle");
     let fake = fake(&demo.scratch.dir);

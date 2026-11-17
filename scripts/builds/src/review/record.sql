@@ -1,8 +1,9 @@
 -- Every review of a change against the rules (`builds review`): the landing it
 -- belongs to, each run with the net change it read, each reviewer call, its verdict
--- for every rule, each finding with how the coordinator settled it, and the
--- run that closed a confirmed finding. record.rs owns these tables and is the
--- only code that writes them.
+-- for every rule, each finding with how the coordinator settled it, the run
+-- that closed a confirmed finding, and each confirmed finding the person
+-- allowed to land. record.rs owns these tables and is the only code that
+-- writes them.
 
 -- A change under review: every review of it shares this landing, found by its
 -- key, until the change lands. landed_at is when `builds land` pushed the
@@ -158,9 +159,20 @@ CREATE TABLE review_settle_again (
 -- A confirmed finding that a later review run closed: the changes that run
 -- read fix it. builds gives each review the open confirmed findings of the
 -- groups it asks, and each reviewer names the ones the changes fix. A
--- confirmed finding that no run closed and the coordinator did not settle
--- again as dropped is open, and `builds land` refuses the branch while one is.
+-- confirmed finding that no run closed, that the coordinator did not settle
+-- again as dropped and that the person did not allow to land is open, and
+-- `builds land` refuses the branch while one is.
 CREATE TABLE review_closed (
     finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
     run_id INTEGER NOT NULL REFERENCES review_run (id)
+) STRICT;
+
+-- An open confirmed finding that the person allowed to land: the finding is
+-- true, and its code lands as it is. why holds the person's words, and by
+-- names who recorded them.
+CREATE TABLE review_allowed (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
+    why TEXT NOT NULL CONSTRAINT review_allowed_why_says_something CHECK (trim(why) <> ''),
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT review_allowed_by_says_something CHECK (trim(by) <> '')
 ) STRICT;

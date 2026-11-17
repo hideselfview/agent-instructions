@@ -708,3 +708,32 @@ fn a_confirmed_finding_settled_again_as_dropped_blocks_no_landing() {
         "{shown}"
     );
 }
+
+#[test]
+fn a_confirmed_finding_the_person_allowed_blocks_no_landing() {
+    let (demo, fake, side, first, second, finding) =
+        confirmed_on_the_second_commit("landing-allowed");
+    let shas = [first, second];
+    assert!(!check_landing(&demo, &fake, &side, &shas));
+    let stamp = stamp();
+    demo.store
+        .write(&stamp, "allow", |db| {
+            record::allow(
+                db,
+                finding,
+                "the person: land it as it is",
+                stamp.at,
+                "tester",
+            )
+        })
+        .unwrap();
+    assert!(check_landing(&demo, &fake, &side, &shas));
+    let shown = render::finding_text(&findings(&demo)[0]);
+    assert!(
+        shown.contains("settled confirmed by tester: judged")
+            && shown.contains(
+                "allowed to land by the person, recorded by tester: the person: land it as it is"
+            ),
+        "{shown}"
+    );
+}

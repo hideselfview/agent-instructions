@@ -19,6 +19,7 @@ fn finding(rule: &str, file: &str) -> Finding {
         check_failed: None,
         settled: None,
         closed_by: None,
+        allowed: None,
     }
 }
 

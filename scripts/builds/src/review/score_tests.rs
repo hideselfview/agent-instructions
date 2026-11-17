@@ -57,6 +57,7 @@ fn finding(
             })
         }),
         closed_by: None,
+        allowed: None,
     }
 }
 
@@ -386,9 +387,10 @@ fn the_store_scores_each_setup_from_settled_findings_and_confirmed_audit_misses(
 }
 
 /// A finding the coordinator settled again as dropped counts as an FP, and a
-/// confirmed finding that a later review closed stays a TP.
+/// confirmed finding that a later review closed or the person allowed to land
+/// stays a TP.
 #[test]
-fn a_finding_settled_again_counts_as_dropped_and_a_closed_one_as_confirmed() {
+fn a_finding_settled_again_counts_as_dropped_and_a_closed_or_allowed_one_as_confirmed() {
     let db = crate::lists::fixtures::db();
     let landing = record::add_landing(&db, "k", "bae", 5).unwrap();
     let raised = |code: &str| record::NewFinding {
@@ -414,7 +416,7 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_one_as_confirmed() {
         sites: None,
         failure: None,
         verdicts: vec![("r".to_string(), "finding".to_string())],
-        findings: vec![raised("wrong"), raised("gone")],
+        findings: vec![raised("wrong"), raised("gone"), raised("allowed")],
         closes: Vec::new(),
         exchanges: Vec::new(),
     };
@@ -430,11 +432,12 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_one_as_confirmed() {
         rules_version: "",
     };
     let (_, ids) = record::add_run(&db, &new_run, std::slice::from_ref(&call)).unwrap();
-    let (wrong, gone) = (ids[0][0], ids[0][1]);
-    for id in [wrong, gone] {
+    let (wrong, gone, allowed) = (ids[0][0], ids[0][1], ids[0][2]);
+    for id in [wrong, gone, allowed] {
         record::settle(&db, id, "confirmed", "real", 7, "me").unwrap();
     }
     record::settle_again(&db, wrong, "another crate uses it", 8, "me").unwrap();
+    record::allow(&db, allowed, "the person: land it", 8, "me").unwrap();
     let closing = record::NewCall {
         rules: Vec::new(),
         verdicts: Vec::new(),
@@ -454,7 +457,7 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_one_as_confirmed() {
     let scores = of_store(&db).unwrap();
     assert_eq!(
         tally_of(&scores.reviews, "words", "r"),
-        tally(1, 1, 0, 0, 0)
+        tally(2, 1, 0, 0, 0)
     );
 }
 

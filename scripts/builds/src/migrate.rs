@@ -244,9 +244,13 @@ const BEFORE_BLOCKS_FROM_WAITS_STAMP: i64 = 92_039_681;
 /// with its start and subcommand, and the load of each app build run's host.
 const BEFORE_WAITS_STAMP: i64 = 471_804_593;
 
+/// The stamp of the schema before the person could allow a confirmed finding
+/// to land.
+const BEFORE_ALLOWED_STAMP: i64 = 1_783_029_906;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 30] = [
+const STAMPS: [i64; 31] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -277,6 +281,7 @@ const STAMPS: [i64; 30] = [
     BEFORE_COUNTED_LINES_STAMP,
     BEFORE_BLOCKS_FROM_WAITS_STAMP,
     BEFORE_WAITS_STAMP,
+    BEFORE_ALLOWED_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -353,14 +358,16 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// the tables of fixes, of the commits each run read, of the commits each push
 /// landed and of findings whose code left their branch. A store from before a
 /// review's patch ids left out context lines keeps its old patch ids until the
-/// move drops them. The move makes `question` again in every store and
-/// clears the reason for blocking nothing (`blocks_nothing`) on each open
-/// question that an open item waits on. Every store gets `builds_cargo_runs`
+/// move drops them. In every store older than the question's reason for
+/// blocking nothing, the move makes `question` again and clears that reason
+/// (`blocks_nothing`) on each open question that an open item waits on. Every
+/// store gets `builds_cargo_runs`
 /// with each run's start and subcommand: the move gives each run that builds
 /// recorded before this move the start of the hook run whose check started
 /// it, and no subcommand. Every store gets `app_build_runs` with the load of
 /// each run's host, and the move gives each run that builds recorded before
-/// this move no load.
+/// this move no load. Every store gets the empty `review_allowed` table (the
+/// person has allowed no finding to land yet).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -640,9 +647,13 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             Ok(Some(crate::review::check::changed_lines(&diff.text)))
         })?;
     }
-    // The move makes `question` again in every store and clears the reason
-    // for blocking nothing on each open question that an open item waits on.
-    crate::lists::question::move_to_blocks_from_waits(&tx)?;
+    // The move makes `question` again in every store from before a question
+    // could give a reason for blocking nothing only while no open item waits
+    // on it, and clears that reason on each open question that an open item
+    // waits on.
+    if before(found, BEFORE_BLOCKS_FROM_WAITS_STAMP) {
+        crate::lists::question::move_to_blocks_from_waits(&tx)?;
+    }
     // A store from before builds kept the start and subcommand of each cargo
     // run has `builds_cargo_runs` with hook checks' runs alone, unless the
     // move made today's table above; each run starts when its hook run
@@ -654,6 +665,16 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     // above; every newer one has runs without their host's load.
     if !before(found, BEFORE_APP_TIMING_STAMP) && before(found, BEFORE_WAITS_STAMP) {
         crate::app_timing::move_to_loads(&tx)?;
+    }
+    // The review's tables the move made above include `review_allowed`; a
+    // store that had the review's tables gets it here.
+    if had_review_tables && before(found, BEFORE_ALLOWED_STAMP) {
+        tx.execute_batch(db::statement(
+            &db::schema(),
+            "CREATE TABLE review_allowed",
+            "STRICT;",
+        ))
+        .sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

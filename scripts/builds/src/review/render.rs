@@ -121,6 +121,13 @@ pub fn finding_text(finding: &Finding) -> String {
             "    closed by run {run}: the code at its place no longer has the problem\n"
         ));
     }
+    if let Some(allowed) = &finding.allowed {
+        out.push_str(&format!(
+            "    allowed to land by the person, recorded by {}: {}\n",
+            allowed.by,
+            one_line(&allowed.why)
+        ));
+    }
     out
 }
 
