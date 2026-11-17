@@ -135,6 +135,18 @@ pub struct Item {
     /// The audits or groups it came from (tag.rs), in the order of their text.
     pub tags: Vec<String>,
 }
+
+impl Item {
+    /// The item as a refusal names it, `#N "title"`, followed by ` of project
+    /// P` when <project> gives the item's project P.
+    pub fn named(&self, project: Option<&str>) -> String {
+        match project {
+            Some(project) => format!("{} \"{}\" of project {project}", self.id, self.title),
+            None => format!("{} \"{}\"", self.id, self.title),
+        }
+    }
+}
+
 /// An item as a request writes it. Every field but `brief` and `priority`
 /// is required: a draft says what the item waits on, even when nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -79,14 +79,7 @@ pub fn read(
 ) -> Result<Kept> {
     let top = checkout.top.display().to_string();
     let words = |lists: &Lists, item: &crate::lists::item::Item| {
-        if every.len() > 1 {
-            format!(
-                "{} \"{}\" of project {}",
-                item.id, item.title, lists.project
-            )
-        } else {
-            format!("{} \"{}\"", item.id, item.title)
-        }
+        item.named((every.len() > 1).then_some(lists.project.as_str()))
     };
     let running: Vec<(Id, String)> = crate::lists::running::running_in_any(every, &top)
         .into_iter()

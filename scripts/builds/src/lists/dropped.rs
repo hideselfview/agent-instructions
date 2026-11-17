@@ -128,14 +128,8 @@ pub fn require_alone<'a>(
                 if lists.project == project && item.id == id {
                     continue;
                 }
-                let words = if lists.project == project {
-                    format!("{} \"{}\"", item.id, item.title)
-                } else {
-                    format!(
-                        "{} \"{}\" of project {}",
-                        item.id, item.title, lists.project
-                    )
-                };
+                let words =
+                    item.named((lists.project != project).then_some(lists.project.as_str()));
                 if !others.contains(&words) {
                     others.push(words);
                 }
