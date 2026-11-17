@@ -262,7 +262,7 @@ pub type GivenEffect = (&'static str, u32, Effect);
 
 /// The effect of each question in this Mac's stores when questions began to
 /// name their effect, as each question's title and details support it.
-pub const EFFECTS: [GivenEffect; 87] = [
+pub const EFFECTS: [GivenEffect; 88] = [
     ("bae", 2, Effect::Cleanup),
     ("bae", 3, Effect::Cleanup),
     ("bae", 4, Effect::Cleanup),
@@ -339,6 +339,7 @@ pub const EFFECTS: [GivenEffect; 87] = [
     ("bae", 515, Effect::DataLoss),
     ("bae", 516, Effect::Cleanup),
     ("bae", 519, Effect::ProductDesign),
+    ("bae", 523, Effect::ProductDesign),
     ("builds", 65, Effect::SlowsAgents),
     ("builds", 66, Effect::SlowsAgents),
     ("builds", 67, Effect::SlowsAgents),
