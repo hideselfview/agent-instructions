@@ -1,2 +1,2 @@
 name = "Modules and calls"
-question = "Is the code in its domain's module, and does it get its dependencies from its caller, dispatch on the state it knows, check preconditions where it is called, and fix each bug where the wrong value is made?"
+question = "Is the code in its domain's module, and does it get its dependencies from its caller, dispatch on the state it knows, check preconditions where it is called, fix each bug where the wrong value is made, and hand out only handles that control, watch or guard?"
