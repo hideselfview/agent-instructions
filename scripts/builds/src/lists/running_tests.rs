@@ -1,7 +1,7 @@
 use super::*;
 use crate::checkout::Checkout;
-use crate::lists::Running;
 use crate::lists::fixtures::{NOON, db, item, read, stamp};
+use crate::lists::{Running, Wait};
 use crate::testing::Scratch;
 use std::path::PathBuf;
 
@@ -178,7 +178,191 @@ fn every_named_constraint_of_the_running_tables_refuses_its_row() {
         plant(&db, "running_place", &row(&place, &[("branch", v(" "))])),
     );
     plant(&db, "running_place", &place).unwrap();
+    let run = [
+        ("id", v(1)),
+        ("item_id", v(id.0)),
+        ("since_at", v(1)),
+        ("since_by", v("a")),
+        ("how", v("stopped")),
+        ("ended_at", v(2)),
+        ("ended_by", v("a")),
+    ];
+    for (name, change) in [
+        ("item_run_since_by_says_something", ("since_by", v(" "))),
+        ("item_run_how_known", ("how", v("landed"))),
+        ("item_run_ended_by_says_something", ("ended_by", v(" "))),
+        ("item_run_ends_after_it_starts", ("ended_at", v(0))),
+    ] {
+        refused.check(name, plant(&db, "item_run", &row(&run, &[change])));
+    }
+    plant(&db, "item_run", &run).unwrap();
+    let run_place = [
+        ("run_id", v(1)),
+        ("repo", v("bae")),
+        ("worktree", v("/d/bae-worktrees/side-2")),
+        ("branch", v("b")),
+    ];
+    refused.check(
+        "item_run_place_worktree_is_absolute",
+        plant(
+            &db,
+            "item_run_place",
+            &row(&run_place, &[("worktree", v("d"))]),
+        ),
+    );
+    refused.check(
+        "item_run_place_branch_says_something",
+        plant(
+            &db,
+            "item_run_place",
+            &row(&run_place, &[("branch", v(" "))]),
+        ),
+    );
+    plant(&db, "item_run_place", &run_place).unwrap();
+    let open = [
+        ("item_id", v(id.0)),
+        ("kind", v("held")),
+        ("since_at", v(1)),
+    ];
+    refused.check(
+        "running_span_kind_known",
+        plant(&db, "running_span", &row(&open, &[("kind", v("idle"))])),
+    );
+    plant(&db, "running_span", &open).unwrap();
+    let ended = [
+        ("item_id", v(id.0)),
+        ("kind", v("waiting")),
+        ("since_at", v(2)),
+        ("ended_at", v(3)),
+    ];
+    refused.check(
+        "item_span_kind_known",
+        plant(&db, "item_span", &row(&ended, &[("kind", v("idle"))])),
+    );
+    refused.check(
+        "item_span_ends_after_it_starts",
+        plant(&db, "item_span", &row(&ended, &[("ended_at", v(1))])),
+    );
+    plant(&db, "item_span", &ended).unwrap();
+    refused.check(
+        "spans_recorded_is_single",
+        plant(
+            &db,
+            "spans_recorded",
+            &[("singleton", v(2)), ("from_at", v(1))],
+        ),
+    );
     refused.done();
+}
+
+fn place(worktree: &str, branch: &str) -> Running {
+    Running {
+        worktree: worktree.into(),
+        branch: branch.into(),
+        brief: "b.md".into(),
+        since: stamp(NOON),
+    }
+}
+
+#[test]
+fn ending_a_run_keeps_it_with_how_it_ended_where_it_ran_and_its_spans() {
+    let db = db();
+    let id = item(&db, vec![]);
+    start(&db, &[id], &[place("/d/bae-worktrees/side-1", "work")]).unwrap();
+    open_span(&db, id, SpanKind::Held, NOON + 60).unwrap();
+    open_span(&db, id, SpanKind::Held, NOON + 90).unwrap();
+    end(&db, id, Ended::Stopped, &stamp(NOON + 600)).unwrap();
+    let lists = read(&db);
+    let item = &lists.items[0];
+    assert!(item.running.is_empty());
+    assert_eq!(
+        item.runs,
+        [Run {
+            since: stamp(NOON),
+            ended: stamp(NOON + 600),
+            how: Ended::Stopped,
+            places: vec![RunPlace {
+                repo: "bae".into(),
+                worktree: "/d/bae-worktrees/side-1".into(),
+                branch: "work".into(),
+            }],
+        }]
+    );
+    assert_eq!(
+        item.spans,
+        [Span {
+            kind: SpanKind::Held,
+            since: NOON + 60,
+            ended: Some(NOON + 600),
+        }]
+    );
+    assert_eq!(end(&db, id, Ended::Stopped, &stamp(NOON + 700)).unwrap(), 0);
+    assert!(open_span(&db, id, SpanKind::Held, NOON + 700).is_err());
+}
+
+#[test]
+fn a_waiting_span_follows_the_items_waits_on_the_person() {
+    use crate::lists::fixtures::question;
+    use crate::lists::item::{add_wait, remove_wait};
+    let db = db();
+    let asked = question(&db);
+    let id = item(&db, vec![]);
+    start(&db, &[id], &[place("/d/bae-worktrees/side-1", "work")]).unwrap();
+    follow_waits(&db, &read(&db), NOON + 10).unwrap();
+    assert!(read(&db).items[0].spans.is_empty());
+    add_wait(&db, id, Wait::Question(asked)).unwrap();
+    follow_waits(&db, &read(&db), NOON + 20).unwrap();
+    follow_waits(&db, &read(&db), NOON + 30).unwrap();
+    remove_wait(&db, id, &Wait::Question(asked)).unwrap();
+    follow_waits(&db, &read(&db), NOON + 40).unwrap();
+    add_wait(&db, id, Wait::Question(asked)).unwrap();
+    follow_waits(&db, &read(&db), NOON + 50).unwrap();
+    let waiting = |since, ended| Span {
+        kind: SpanKind::Waiting,
+        since,
+        ended,
+    };
+    assert_eq!(
+        read(&db).items[0].spans,
+        [
+            waiting(NOON + 20, Some(NOON + 40)),
+            waiting(NOON + 50, None)
+        ]
+    );
+}
+
+#[test]
+fn a_write_through_the_store_opens_and_ends_waiting_spans() {
+    use crate::lists::fixtures::question;
+    use crate::lists::item::add_wait;
+    let scratch = Scratch::new("running-follow");
+    let store = crate::lists::fixtures::make_store(&scratch.places(), &["bae"]);
+    let (asked, id) = store
+        .write(&stamp(NOON), "seed", |db| {
+            let asked = question(db);
+            let id = item(db, vec![]);
+            start(db, &[id], &[place("/d/bae-worktrees/side-1", "work")])?;
+            Ok((asked, id))
+        })
+        .unwrap();
+    store
+        .write(&stamp(NOON + 100), "wait", |db| {
+            add_wait(db, id, Wait::Question(asked))
+        })
+        .unwrap();
+    store
+        .write(&stamp(NOON + 400), "question done", |db| {
+            crate::lists::record::close(db, asked, crate::lists::How::Done, &stamp(NOON + 400))
+        })
+        .unwrap();
+    assert_eq!(
+        store.load().unwrap().items[0].spans,
+        [Span {
+            kind: SpanKind::Waiting,
+            since: NOON + 100,
+            ended: Some(NOON + 400),
+        }]
+    );
 }
 
 #[test]

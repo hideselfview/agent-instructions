@@ -262,9 +262,14 @@ const BEFORE_EFFECTS_STAMP: i64 = 1_123_945_986;
 /// effect's word, such as `{"515": "data-loss"}`.
 pub const QUESTION_EFFECTS: &str = "question-effects.json";
 
+/// The stamp of the schema before builds kept each run of an item that
+/// ended, and the spans of each run during which the worktree's claim note
+/// said held or the item waited on the person.
+const BEFORE_RUN_TIMES_STAMP: i64 = 726_402_770;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 33] = [
+const STAMPS: [i64; 34] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -298,6 +303,7 @@ const STAMPS: [i64; 33] = [
     BEFORE_ALLOWED_STAMP,
     BEFORE_ACK_STAMP,
     BEFORE_EFFECTS_STAMP,
+    BEFORE_RUN_TIMES_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -389,7 +395,10 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// open item waits on. The move makes `question` again in every store with
 /// the effect that the store's `QUESTION_EFFECTS` file gives each question,
 /// and refuses a store whose questions and file differ, or whose file is
-/// missing while the store holds a question.
+/// missing while the store holds a question. Every store gets the tables
+/// of ended runs and spans, with each ended run its write log tells of
+/// (`running::move_to_runs`) and the move's moment as the start of its
+/// spans.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -747,6 +756,27 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             };
             Fail::Message(format!("{}{missing}: {}", file.display(), fail.text()))
         })?;
+    // Every store from before builds kept the runs of items gets their
+    // tables, and the runs that its write log tells of.
+    if before(found, BEFORE_RUN_TIMES_STAMP) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("the clock is after 1970")
+            .as_secs() as i64;
+        let recovered = crate::lists::running::move_to_runs(&tx, now)?;
+        crate::text::note(format!(
+            "{}: builds read {} from the write log and left out {}, since the log does not tell when {}; \
+             the log names no run's branch, and the store records held and waiting time from now on",
+            path.display(),
+            crate::text::counted(recovered.runs, "ended run", "ended runs"),
+            crate::text::counted(recovered.unended, "run", "runs"),
+            if recovered.unended == 1 {
+                "it ended"
+            } else {
+                "they ended"
+            }
+        ));
+    }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))

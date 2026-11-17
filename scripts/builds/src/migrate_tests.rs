@@ -143,7 +143,7 @@ fn plant_run(conn: &Connection) {
 /// comment above it.
 fn schema_before_design_tip() -> String {
     let schema = without_design_fix(without_canvas(without_blocks_from_waits(without_effects(
-        db::schema_before_app_timing(),
+        without_run_times(db::schema_before_app_timing()),
     ))));
     let from = schema
         .find("\n-- The last commit of the range")
@@ -389,9 +389,9 @@ fn store_before_app_timing(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        without_blocks_from_waits(without_loads(without_effects(
+        without_blocks_from_waits(without_loads(without_effects(without_run_times(
             db::schema_before_app_timing(),
-        ))),
+        )))),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_APP_TIMING_STAMP)
@@ -421,9 +421,9 @@ fn a_store_from_before_app_timings_gains_their_tables_keeps_its_runs_and_equals_
 fn the_app_timing_stamp_is_the_schema_before_app_timings() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            without_blocks_from_waits(without_loads(without_effects(
+            without_blocks_from_waits(without_loads(without_effects(without_run_times(
                 db::schema_before_app_timing()
-            )))
+            ))))
         ))),
         BEFORE_APP_TIMING_STAMP
     );
@@ -436,9 +436,9 @@ fn store_before_design_session(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        without_blocks_from_waits(without_loads(without_effects(
+        without_blocks_from_waits(without_loads(without_effects(without_run_times(
             db::schema_before_design_session(),
-        ))),
+        )))),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_DESIGN_SESSION_STAMP)
@@ -469,9 +469,9 @@ fn a_store_from_before_design_sessions_gains_their_table_keeps_its_runs_and_equa
 fn the_design_session_stamp_is_the_schema_before_design_sessions() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            without_blocks_from_waits(without_loads(without_effects(
+            without_blocks_from_waits(without_loads(without_effects(without_run_times(
                 db::schema_before_design_session()
-            )))
+            ))))
         ))),
         BEFORE_DESIGN_SESSION_STAMP
     );
@@ -484,9 +484,9 @@ fn store_before_shot_findings(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        without_blocks_from_waits(without_loads(without_effects(
+        without_blocks_from_waits(without_loads(without_effects(without_run_times(
             db::schema_before_shot_findings(),
-        ))),
+        )))),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_SHOT_FINDINGS_STAMP)
@@ -516,9 +516,9 @@ fn a_store_from_before_shot_findings_gains_their_table_keeps_its_runs_and_equals
 fn the_shot_findings_stamp_is_the_schema_before_shot_findings() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            without_blocks_from_waits(without_loads(without_effects(
+            without_blocks_from_waits(without_loads(without_effects(without_run_times(
                 db::schema_before_shot_findings()
-            )))
+            ))))
         ))),
         BEFORE_SHOT_FINDINGS_STAMP
     );
@@ -531,7 +531,9 @@ fn store_before_review(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        without_blocks_from_waits(without_loads(without_effects(db::schema_before_review()))),
+        without_blocks_from_waits(without_loads(without_effects(without_run_times(
+            db::schema_before_review(),
+        )))),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_REVIEW_STAMP)
@@ -569,7 +571,9 @@ fn a_store_from_before_the_review_gains_its_tables_keeps_its_runs_and_equals_a_f
 fn the_review_stamp_is_the_schema_before_the_review() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            without_blocks_from_waits(without_loads(without_effects(db::schema_before_review())))
+            without_blocks_from_waits(without_loads(without_effects(without_run_times(
+                db::schema_before_review()
+            ))))
         ))),
         BEFORE_REVIEW_STAMP
     );
@@ -3193,7 +3197,7 @@ fn cleanups(ids: std::ops::RangeInclusive<u32>) -> Vec<(u32, &'static str)> {
 
 /// The schema text before each question named its effect.
 fn schema_before_effects() -> String {
-    without_effects(db::schema())
+    without_effects(schema_before_run_times())
 }
 
 /// <schema> without question.sql's `effect` column and the comment above it.
@@ -3561,4 +3565,118 @@ fn a_store_from_before_waits_keeps_its_cargo_runs_and_app_build_runs() {
         )
         .unwrap();
     assert_eq!(app, (4, 500, None, 1000));
+}
+
+/// The schema text before builds kept each run of an item that ended and the
+/// spans its runs were held or waited on the person: running.sql without
+/// its tables of ended runs and spans.
+fn schema_before_run_times() -> String {
+    without_run_times(db::schema())
+}
+
+/// <schema> with running.sql as it was before builds kept ended runs and
+/// spans: without the tables that end it today.
+fn without_run_times(schema: String) -> String {
+    let part = include_str!("lists/running.sql");
+    let before = &part[..part
+        .find("\n-- Each run of an item that ended")
+        .expect("running.sql's ended runs")];
+    assert_eq!(schema.matches(part).count(), 1);
+    schema.replacen(part, before, 1)
+}
+
+#[test]
+fn the_run_times_stamp_is_the_schema_before_run_times() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_run_times()),
+        BEFORE_RUN_TIMES_STAMP
+    );
+}
+
+/// A store from before builds kept ended runs gets each run its write log
+/// tells of, leaves the running item's run in `running`, writes no run whose
+/// end the log does not tell, and equals a fresh schema.
+#[test]
+fn a_store_from_before_run_times_gets_the_runs_its_write_log_tells_of() {
+    use crate::lists::fixtures::{item, sha, stamp};
+    use crate::lists::store::log_write;
+    use crate::lists::{How, Id, Running};
+    let scratch = Scratch::new("move-run-times");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_run_times()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_RUN_TIMES_STAMP)
+            .unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        crate::lists::project::init(
+            &conn,
+            &crate::lists::project::NewProject {
+                name: "bae".into(),
+                canvas: true,
+                repos: vec!["bae".into()],
+                places: Default::default(),
+                sources: Default::default(),
+                specs: Default::default(),
+            },
+        )
+        .unwrap();
+        crate::lists::area::add_area(&conn, "Alpha", None).unwrap();
+        for _ in 0..4 {
+            item(&conn, vec![]);
+        }
+        let log = |at: i64, words: &str| log_write(&conn, &stamp(at), words).unwrap();
+        log(100, "item take 1 2");
+        log(200, "item stop #1");
+        log(300, "item take 1");
+        crate::lists::record::close(&conn, Id(1), How::Landed(vec![sha('a')]), &stamp(400))
+            .unwrap();
+        log(400, &format!("item landed {}", sha('a')));
+        log(500, "item take 3");
+        crate::lists::running::start(
+            &conn,
+            &[Id(3)],
+            &[Running {
+                worktree: "/d/bae-worktrees/side-1".into(),
+                branch: "work".into(),
+                brief: "b.md".into(),
+                since: stamp(500),
+            }],
+        )
+        .unwrap();
+        log(600, "item park #2");
+        log(700, "item take 4");
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let runs: Vec<(u32, i64, String, i64)> = conn
+        .prepare("SELECT item_id, since_at, how, ended_at FROM item_run ORDER BY item_id, since_at")
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(
+        runs,
+        [
+            (1, 100, "stopped".to_string(), 200),
+            (1, 300, "closed".to_string(), 400),
+            (2, 100, "parked".to_string(), 600),
+        ]
+    );
+    let from: i64 = conn
+        .query_row("SELECT from_at FROM spans_recorded", [], |row| row.get(0))
+        .unwrap();
+    assert!(from > 700, "{from}");
 }

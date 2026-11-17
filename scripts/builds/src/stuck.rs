@@ -23,6 +23,7 @@ use crate::app_config::DEFAULT_STEP_LIMIT;
 use crate::health::Advice;
 use crate::host::{Host, Ssh};
 use crate::shells::{IDLE_MINUTES, IDLE_SHARE, basename, command_of, is_agent_argv, shown};
+use crate::text::duration;
 
 /// Busy now: over this share of a core and over BUSY_CPU_SECONDS of CPU time.
 const BUSY_PERCENT: f64 = 50.0;
@@ -494,18 +495,6 @@ fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Opti
             sample,
         )),
         _ => None,
-    }
-}
-
-/// <seconds> as `6d2h`, `3h05m` or `12m`.
-fn duration(seconds: i64) -> String {
-    let (days, hours, mins) = (seconds / 86_400, seconds / 3600 % 24, seconds / 60 % 60);
-    if days > 0 {
-        format!("{days}d{hours}h")
-    } else if hours > 0 {
-        format!("{hours}h{mins:02}m")
-    } else {
-        format!("{mins}m")
     }
 }
 

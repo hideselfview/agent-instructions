@@ -216,8 +216,10 @@ pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
 /// note to the rest of the arguments joined by spaces, with the state
 /// --state names or none, or clears note and state when there is no text. The
 /// claim's date stays. --state held is refused unless every item running in
-/// the worktree waits on an open record (lists/held.rs).
-pub fn cmd_note(places: &Places, args: &[String]) -> Result<()> {
+/// the worktree waits on an open record (lists/held.rs). A note that makes
+/// the worktree held, or ends its hold, starts or ends at <now> the `held`
+/// span of each item that runs there (lists/held.rs).
+pub fn cmd_note(places: &Places, args: &[String], now: i64) -> Result<()> {
     let usage = format!(
         "usage: builds note <checkout> [--state {}] [<text>]",
         NOTE_STATES.join("|")
@@ -264,12 +266,22 @@ pub fn cmd_note(places: &Places, args: &[String]) -> Result<()> {
         (None, false) => format!("noted on {top}'s claim: {text}"),
         (None, true) => format!("cleared the note on {top}'s claim"),
     };
-    Claim {
+    let was_held = claim.note_state.as_deref() == Some("held");
+    let held = state.as_deref() == Some("held");
+    let stamp = crate::lists::Stamp {
+        at: now,
+        by: claim.who.clone(),
+    };
+    let noted = Claim {
         note: if text.is_empty() { None } else { Some(text) },
         note_state: state,
         ..claim
+    };
+    if was_held == held {
+        noted.write(&file)?;
+    } else {
+        crate::lists::held::record_hold(places, &checkout, held, &stamp, || noted.write(&file))?;
     }
-    .write(&file)?;
     note(message);
     Ok(())
 }

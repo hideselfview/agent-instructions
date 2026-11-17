@@ -2,10 +2,12 @@
 //! state with the derived fields joined in, less the claim fields the daemon
 //! adds (agent, note, note state, commits waiting to land).
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 use crate::fail::Result;
-use crate::lists::derive::{self, FLOW_DAYS, FlowDay};
+use crate::lists::derive::{self, FLOW_DAYS, FlowDay, Times};
 use crate::lists::trail::{Trail, trail};
 use crate::lists::{
     Audience, DesignChange, Effect, Id, Item, LandedPart, Lists, Located, Note, Placement, PlanRef,
@@ -95,6 +97,9 @@ pub struct RunningView {
     pub branch: String,
     pub brief: String,
     pub since: Stamp,
+    /// What the runs on its branch add up to, the runs of other items on
+    /// the branch included.
+    pub times: Times,
     #[serde(flatten)]
     pub claim: Option<ClaimFacts>,
 }
@@ -120,6 +125,8 @@ pub struct ItemView {
     /// agent. Empty when it is not parked.
     pub parked: Vec<crate::lists::parked::Parked>,
     pub landed: Vec<LandedPart>,
+    /// What its runs add up to; None when it never ran.
+    pub times: Option<Times>,
     pub notes: Vec<Note>,
     pub opened: Stamp,
     /// Where it came from (trail.rs).
@@ -237,11 +244,14 @@ impl View {
                 })
                 .collect::<Result<_>>()?,
             areas: lists.areas.clone(),
-            items: lists
-                .items
-                .iter()
-                .map(|item| item_view(lists, item))
-                .collect::<Result<_>>()?,
+            items: {
+                let branches = derive::branch_times(lists);
+                lists
+                    .items
+                    .iter()
+                    .map(|item| item_view(lists, item, &branches))
+                    .collect::<Result<_>>()?
+            },
             designs: designs(lists, now),
             decisions: decisions(lists),
             flow: derive::flow(lists, now),
@@ -276,7 +286,13 @@ fn wait_view(lists: &Lists, wait: &Wait) -> WaitView {
     }
 }
 
-fn item_view(lists: &Lists, item: &Item) -> Result<ItemView> {
+/// The view of open <item>, with <branches> the times of every branch
+/// (`derive::branch_times`).
+fn item_view(
+    lists: &Lists,
+    item: &Item,
+    branches: &BTreeMap<(String, String), Times>,
+) -> Result<ItemView> {
     Ok(ItemView {
         id: item.id,
         title: item.title.clone(),
@@ -298,6 +314,7 @@ fn item_view(lists: &Lists, item: &Item) -> Result<ItemView> {
             .map(|running| {
                 let (repo, checkout) = side_worktree_parts(&running.worktree)
                     .expect("a stored running worktree passed the check on load");
+                let times = branches[&(repo.clone(), running.branch.clone())].clone();
                 RunningView {
                     worktree: running.worktree.clone(),
                     repo,
@@ -305,12 +322,14 @@ fn item_view(lists: &Lists, item: &Item) -> Result<ItemView> {
                     branch: running.branch.clone(),
                     brief: running.brief.clone(),
                     since: running.since.clone(),
+                    times,
                     claim: None,
                 }
             })
             .collect(),
         parked: item.parked.clone(),
         landed: item.landed.clone(),
+        times: derive::item_times(lists, item, None),
         notes: item.notes.clone(),
         opened: item.opened.clone(),
         trail: trail(lists, item.id)?,

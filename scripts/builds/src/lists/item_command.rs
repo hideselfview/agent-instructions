@@ -1,5 +1,5 @@
 //! `builds item add | edit | note | wait | take | handoff | stop | drop |
-//! defer | place | check-landing | landed | show | list`: the work queue's
+//! defer | place | check-landing | landed | show | list | times`: the work queue's
 //! commands. Each refuses a step that lacks what it needs, and every write is
 //! one `Store::write` made of the owners' operations (`item`, `running`,
 //! `landing`, `record`), so it lands whole or not at all. What reads the file
@@ -30,7 +30,7 @@ use crate::lists::{
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item park N --worktree W --branch B\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n(REF is item:N, question:N, design:N or condition:TEXT)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item park N --worktree W --branch B\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -54,6 +54,7 @@ pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
         "landed" => landing::landed(tool, rest),
         "show" => item_show::show(tool, rest, &cwd),
         "list" => item_show::list(tool, rest, &cwd),
+        "times" => item_show::times(tool, rest, &cwd),
         other => fail!("unknown item command {other}\n{USAGE}"),
     }
 }
@@ -351,7 +352,7 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, &format!("item stop {id}"), |db| {
         open_item(&store::read(db)?, id)?;
-        running::stop(db, id)?;
+        running::stop(db, id, &stamp)?;
         add_note(
             db,
             id,
@@ -431,7 +432,7 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         if let Some(item) = lists.item(id) {
             require_not_parked(item, "close")?;
         }
-        running::end(db, id)?;
+        running::end(db, id, running::Ended::Closed, &stamp)?;
         close(db, id, How::Finished(made.clone()), &stamp)
     })?;
     note(format!("closed {id} as finished"));
@@ -499,7 +500,7 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         let works = places
             .map(|(worktree, branch)| dropped::read(worktree, branch))
             .collect::<Result<Vec<_>>>()?;
-        running::end(db, id)?;
+        running::end(db, id, running::Ended::Closed, &stamp)?;
         parked::end(db, id)?;
         close(db, id, How::Dropped(why.clone()), &stamp)?;
         dropped::record(db, id, &works)?;

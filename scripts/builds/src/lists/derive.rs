@@ -1,6 +1,7 @@
 //! What is derived, never stored: met waits, an item's state, the stack's
-//! order and what each entry blocks, dispatch order, and flow. Shared by the
-//! commands and the daemon.
+//! order and what each entry blocks, dispatch order, flow, and what the runs
+//! of an item or a branch add up to. The commands and the daemon both use
+//! these functions.
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
@@ -8,8 +9,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use crate::lists::{
-    Audience, Closed, Decision, DesignChange, Id, Item, Kind, Level, Lists, Located, Position,
-    Question, Record, Standing, Wait, day,
+    Audience, Closed, Decision, DesignChange, Ended, How, Id, Item, Kind, Level, Lists, Located,
+    Position, Question, Record, Span, SpanKind, Standing, Wait, day, side_worktree_parts,
 };
 use crate::text::local_day;
 
@@ -323,6 +324,188 @@ pub fn flow(lists: &Lists, now: i64) -> Vec<FlowDay> {
         }
     }
     days
+}
+
+/// A time that adds up spans: the seconds of the spans that ended, and the
+/// start of the span that goes on, if one does. At the moment `now` the time
+/// is `seconds + (now - since)`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Total {
+    pub seconds: i64,
+    pub since: Option<i64>,
+}
+
+impl Total {
+    /// The time that <spans> cover, a moment that two of them cover counted
+    /// once. Each span is its start and its end, None while it goes on.
+    pub fn of(spans: impl IntoIterator<Item = (i64, Option<i64>)>) -> Total {
+        let mut ended = Vec::new();
+        let mut since: Option<i64> = None;
+        for (start, end) in spans {
+            match end {
+                Some(end) => ended.push((start, end)),
+                None => since = Some(since.map_or(start, |open| open.min(start))),
+            }
+        }
+        ended.sort();
+        let mut seconds = 0;
+        let mut reached = i64::MIN;
+        for (start, end) in ended {
+            // The span that goes on counts the time from its start.
+            let end = since.map_or(end, |open| end.min(open));
+            let start = start.max(reached);
+            if end > start {
+                seconds += end - start;
+            }
+            reached = reached.max(end);
+        }
+        Total { seconds, since }
+    }
+
+    /// The seconds at <now>.
+    pub fn at(&self, now: i64) -> i64 {
+        self.seconds + self.since.map_or(0, |since| (now - since).max(0))
+    }
+}
+
+/// What runs add up to: the runs of one item, or of every item that ran on
+/// one branch.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Times {
+    /// When the first run started.
+    pub first: i64,
+    /// How many runs, the one that goes on included.
+    pub runs: usize,
+    pub ran: Total,
+    /// The time the worktree's claim note carried the state held.
+    pub held: Total,
+    /// The time an item waited on a question or on a design change the
+    /// person had not approved.
+    pub waiting: Total,
+    /// When the work landed: the end of the last run, when that run ended
+    /// with its item's landing and no run goes on.
+    pub landed: Option<i64>,
+    /// When the store began to record spans, if that was after the first run
+    /// started: `held` and `waiting` leave out the time before it.
+    pub spans_from: Option<i64>,
+}
+
+/// A run as `Times` adds it up: its start, its end (None while it goes on),
+/// whether its item's landing ended it, the repo and branch of each place it
+/// ran in, and its item's spans that began within it.
+struct Ran<'a> {
+    since: i64,
+    ended: Option<i64>,
+    landed: bool,
+    branches: Vec<(String, String)>,
+    spans: Vec<&'a Span>,
+}
+
+/// The runs of <item>, ended ones first, then the one that goes on. <closed>
+/// is how the item closed, None while it is open.
+fn runs_of<'a>(item: &'a Item, closed: Option<&How>) -> Vec<Ran<'a>> {
+    let landing = matches!(closed, Some(How::Landed(_)));
+    let mut runs: Vec<Ran> = item
+        .runs
+        .iter()
+        .map(|run| Ran {
+            since: run.since.at,
+            ended: Some(run.ended.at),
+            landed: landing && run.how == Ended::Closed,
+            branches: run
+                .places
+                .iter()
+                .map(|place| (place.repo.clone(), place.branch.clone()))
+                .collect(),
+            spans: Vec::new(),
+        })
+        .collect();
+    if let Some(first) = item.running.first() {
+        runs.push(Ran {
+            since: first.since.at,
+            ended: None,
+            landed: false,
+            branches: item
+                .running
+                .iter()
+                .filter_map(|running| {
+                    side_worktree_parts(&running.worktree)
+                        .map(|(repo, _)| (repo, running.branch.clone()))
+                })
+                .collect(),
+            spans: Vec::new(),
+        });
+    }
+    for span in &item.spans {
+        let within = runs.iter_mut().rev().find(|run| run.since <= span.since);
+        if let Some(run) = within {
+            run.spans.push(span);
+        }
+    }
+    runs
+}
+
+/// What <runs> add up to, with <spans_from> the store's
+/// (`Lists::spans_from`). None when there are no runs.
+fn times_of(runs: &[&Ran], spans_from: Option<i64>) -> Option<Times> {
+    let first = runs.iter().map(|run| run.since).min()?;
+    let spans = |kind: SpanKind| {
+        Total::of(
+            runs.iter()
+                .flat_map(|run| run.spans.iter())
+                .filter(|span| span.kind == kind)
+                .map(|span| (span.since, span.ended)),
+        )
+    };
+    let goes_on = runs.iter().any(|run| run.ended.is_none());
+    let last = runs.iter().max_by_key(|run| run.ended);
+    Some(Times {
+        first,
+        runs: runs.len(),
+        ran: Total::of(runs.iter().map(|run| (run.since, run.ended))),
+        held: spans(SpanKind::Held),
+        waiting: spans(SpanKind::Waiting),
+        landed: last
+            .filter(|run| !goes_on && run.landed)
+            .and_then(|run| run.ended),
+        spans_from: spans_from.filter(|from| *from > first),
+    })
+}
+
+/// What the runs of <item> add up to; None when it never ran. <closed> is
+/// how it closed, None while it is open.
+pub fn item_times(lists: &Lists, item: &Item, closed: Option<&How>) -> Option<Times> {
+    let runs = runs_of(item, closed);
+    times_of(&runs.iter().collect::<Vec<_>>(), lists.spans_from)
+}
+
+/// What the runs on each branch add up to, by repo and branch: the runs of
+/// every item, open or closed, in a worktree of the repo on the branch. A
+/// run that a store move read from the write log names no branch, and no
+/// branch counts it.
+pub fn branch_times(lists: &Lists) -> BTreeMap<(String, String), Times> {
+    let open = lists.items.iter().map(|item| (item, None));
+    let closed = lists
+        .closed
+        .iter()
+        .filter_map(|closed| match &closed.record {
+            Record::Item(item) => Some((item, Some(&closed.how))),
+            _ => None,
+        });
+    let runs: Vec<Ran> = open
+        .chain(closed)
+        .flat_map(|(item, how)| runs_of(item, how))
+        .collect();
+    let mut by_branch: BTreeMap<(String, String), Vec<&Ran>> = BTreeMap::new();
+    for run in &runs {
+        for branch in &run.branches {
+            by_branch.entry(branch.clone()).or_default().push(run);
+        }
+    }
+    by_branch
+        .into_iter()
+        .filter_map(|(branch, runs)| Some((branch, times_of(&runs, lists.spans_from)?)))
+        .collect()
 }
 
 #[cfg(test)]

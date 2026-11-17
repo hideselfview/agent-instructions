@@ -1660,8 +1660,29 @@ function itemRow(it) {
     () => itemBody(it),
     "l-work");
 }
-// A running work is one line: its title with its worktree beside it; opened,
-// what is happening now and its items, agent, branch, plan and landed commits.
+// <seconds> as "6d2h", "3h05m" or "12m", as `builds item times` prints them.
+function duration(seconds) {
+  const days = Math.floor(seconds / 86400), hrs = Math.floor(seconds / 3600) % 24, mins = Math.floor(seconds / 60) % 60;
+  if (days > 0) return days + "d" + hrs + "h";
+  if (hrs > 0) return hrs + "h" + String(mins).padStart(2, "0") + "m";
+  return mins + "m";
+}
+// The seconds a total of spans (derive.rs `Total`) adds up to now: those of
+// the spans that ended, and the time since the open span began.
+function totalNow(total) {
+  return total.seconds + (total.since === null ? 0 : Math.max(0, Date.now() / 1000 - total.since));
+}
+// What the runs on a branch add up to (derive.rs `Times`), in words: how
+// long the runs ran, in how many runs and from when, how long the claim's
+// note carried the state held, and how long the work waited on the person.
+function timesWords(t) {
+  return "ran " + duration(totalNow(t.ran)) + " in " + t.runs + (t.runs === 1 ? " run" : " runs") +
+    " from " + stamp(t.first) + "; held the worktree " + duration(totalNow(t.held)) + "; waited on you " + duration(totalNow(t.waiting)) +
+    (t.spans_from === null ? "" : " (builds has recorded held and waiting time only since " + stamp(t.spans_from) + ")");
+}
+// A running work is one line: its title with its worktree and the time its
+// branch has run beside it; opened, what is happening now and its items,
+// agent, time, branch, plan and landed commits.
 // A work of one item starts with that item's id; a work of several starts
 // with how many items it holds, and when the reader opens it, it lists each
 // item on its own line.
@@ -1671,7 +1692,8 @@ function workRow(w) {
   const several = w.items.length > 1;
   return fold("i:" + first, first,
     [h("span", {class: "l-title"}, several ? h("span", {class: "l-pill"}, w.items.length + " items") : idChip(first), w.title, workTrail(w)),
-      h("span", {class: "l-wt"}, repoDisplayName(w.repo) + " " + w.checkout)],
+      h("span", {class: "l-wt"}, repoDisplayName(w.repo) + " " + w.checkout + " · ",
+        agoSpan(w.times.ran.since - w.times.ran.seconds, "", "", {title: "How long the runs on this branch have run"}))],
     () => h("div", {class: "l-plain"},
       w.now ? h("div", {class: "l-fact"}, inline(w.now)) : null,
       h("div", {class: "l-facts"},
@@ -1680,6 +1702,7 @@ function workRow(w) {
             h("ul", {class: "l-list l-items"}, w.items.map(i => h("li", {}, idChip(i.id), i.title))))
           : fact("Items", w.items[0].title),
         w.agent ? fact("Agent", w.agent + ", since " + stamp(w.since.at)) : null,
+        fact("Time", timesWords(w.times)),
         fact("Branch", mono(w.branch)),
         fact("Plan", mono(w.plan)),
         w.landed.length ? fact("Landed", mono(w.landed.join(" "))) : null)),

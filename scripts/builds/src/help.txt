@@ -314,7 +314,10 @@ cherry-picks it.
                               worktree waits on an open question, item, design
                               change or condition (`builds item wait N --on
                               REF`); note never refuses it for an app
-                              checkout, which runs no item
+                              checkout, which runs no item. A note that makes
+                              the worktree held, or ends its hold, starts or
+                              ends the held time of each item running there
+                              (`builds item times`)
   builds release <checkout>   remove its claim; refused while an item of any
                               project runs in the worktree, and while it holds
                               work origin/main lacks that no item holds: commits

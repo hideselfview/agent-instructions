@@ -47,6 +47,7 @@ fn held(demo: &Demo, top: &std::path::Path) -> Result<()> {
             "held",
             "waits on the lock",
         ]),
+        NOON,
     )
 }
 
@@ -117,8 +118,43 @@ fn other_states_need_no_wait() {
             "winding-down",
             "last item",
         ]),
+        NOON,
     )
     .unwrap();
+}
+
+#[test]
+fn noting_a_worktree_held_and_then_not_held_keeps_a_held_span_on_its_items() {
+    use crate::lists::{Span, SpanKind};
+    let demo = demo("held-span");
+    let top = demo.add_side(1, "agent", "work");
+    start(&demo, &top, |db| vec![Wait::Question(question(db))]);
+    let top_arg = top.display().to_string();
+    for (words, at) in [
+        (vec!["--state", "held", "waits on the lock"], NOON + 100),
+        (vec!["--state", "held", "still waits"], NOON + 200),
+        (vec!["back at work"], NOON + 300),
+    ] {
+        let mut note = vec![top_arg.as_str()];
+        note.extend(words);
+        cmd_note(&demo.tool.places, &args(&note), at).unwrap();
+    }
+    assert_eq!(
+        demo.store.load().unwrap().items[0].spans,
+        [
+            Span {
+                kind: SpanKind::Held,
+                since: NOON + 100,
+                ended: Some(NOON + 300),
+            },
+            Span {
+                kind: SpanKind::Waiting,
+                since: NOON,
+                ended: None,
+            },
+        ]
+    );
+    assert_eq!(claim_of(&top).note.as_deref(), Some("back at work"));
 }
 
 fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<String>) -> Worktree {
@@ -360,6 +396,18 @@ fn an_item_waiting_on_the_persons_question_is_taken_held_and_health_leaves_it() 
         crate::lists::running::running_in(&lists, &top.display().to_string()).len(),
         1
     );
+    let kinds: Vec<_> = lists.items[0]
+        .spans
+        .iter()
+        .map(|span| (span.kind, span.ended))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            (crate::lists::SpanKind::Held, None),
+            (crate::lists::SpanKind::Waiting, None)
+        ]
+    );
     let mut tree = worktree(&top, "agent", Some("held"), Vec::new());
     tree.repo = "demo".into();
     assert!(findings(&loaded(lists), &[tree]).is_empty());
@@ -407,7 +455,7 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
     running_in_db(&db, id, "/w/bae-worktrees/side-1");
     let tree = bae_worktree(None);
     assert!(findings(&loaded(read(&db)), std::slice::from_ref(&tree)).is_empty());
-    crate::lists::running::end(&db, id).unwrap();
+    crate::lists::running::end(&db, id, crate::lists::Ended::Closed, &stamp(NOON)).unwrap();
     let found = findings(&loaded(read(&db)), std::slice::from_ref(&tree));
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(

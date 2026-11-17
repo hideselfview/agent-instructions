@@ -354,3 +354,101 @@ fn flow_counts_the_last_fourteen_days_by_who_opened_and_how_closed() {
     let total: u32 = days.iter().flat_map(|d| d.opened.values()).sum();
     assert_eq!(total, 6);
 }
+
+#[test]
+fn a_total_counts_a_moment_two_spans_cover_once_and_the_open_span_from_its_start() {
+    let total = Total::of([
+        (10, Some(40)),
+        (30, Some(50)),
+        (100, Some(130)),
+        (120, None),
+    ]);
+    assert_eq!(
+        total,
+        Total {
+            seconds: 60,
+            since: Some(120)
+        }
+    );
+    assert_eq!(total.at(200), 140);
+    assert_eq!(Total::of([]).at(200), 0);
+}
+
+fn run_in(db: &Connection, id: Id, worktree: &str, branch: &str, at: i64) {
+    crate::lists::running::start(
+        db,
+        &[id],
+        &[Running {
+            worktree: worktree.into(),
+            branch: branch.into(),
+            brief: "b.md".into(),
+            since: stamp(at),
+        }],
+    )
+    .unwrap();
+}
+
+#[test]
+fn times_add_up_an_items_runs_and_spans_and_a_branch_counts_its_items_runs_once() {
+    use crate::lists::running::{end, open_span};
+    let db = db();
+    let first = item(&db, vec![]);
+    let second = item(&db, vec![]);
+    let side = "/d/bae-worktrees/side-1";
+    run_in(&db, first, side, "work", NOON);
+    open_span(&db, first, SpanKind::Held, NOON + 100).unwrap();
+    end(&db, first, Ended::Stopped, &stamp(NOON + 300)).unwrap();
+    run_in(&db, first, side, "work", NOON + 1000);
+    run_in(&db, second, side, "work", NOON + 1000);
+    open_span(&db, first, SpanKind::Waiting, NOON + 1100).unwrap();
+    end(&db, second, Ended::Closed, &stamp(NOON + 1500)).unwrap();
+    close(
+        &db,
+        second,
+        How::Landed(vec!["a".repeat(40)]),
+        &stamp(NOON + 1500),
+    )
+    .unwrap();
+    let lists = read(&db);
+    let times = item_times(&lists, &lists.items[0], None).unwrap();
+    assert_eq!(
+        times,
+        Times {
+            first: NOON,
+            runs: 2,
+            ran: Total {
+                seconds: 300,
+                since: Some(NOON + 1000)
+            },
+            held: Total {
+                seconds: 200,
+                since: None
+            },
+            waiting: Total {
+                seconds: 0,
+                since: Some(NOON + 1100)
+            },
+            landed: None,
+            spans_from: None,
+        }
+    );
+    let branch = &branch_times(&lists)[&("bae".to_string(), "work".to_string())];
+    assert_eq!(
+        (branch.runs, branch.ran, branch.landed),
+        (3, times.ran, None)
+    );
+    end(&db, first, Ended::Closed, &stamp(NOON + 2000)).unwrap();
+    close(
+        &db,
+        first,
+        How::Landed(vec!["b".repeat(40)]),
+        &stamp(NOON + 2000),
+    )
+    .unwrap();
+    let lists = read(&db);
+    let branch = &branch_times(&lists)[&("bae".to_string(), "work".to_string())];
+    assert_eq!(
+        (branch.ran.at(NOON + 9999), branch.landed),
+        (1300, Some(NOON + 2000))
+    );
+}

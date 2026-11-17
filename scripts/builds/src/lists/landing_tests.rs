@@ -174,7 +174,7 @@ fn landed_records_the_worktrees_claim_wherever_it_runs() {
 
 /// What `item show` prints for item <id>.
 fn shown(l: &Landing, id: u32) -> String {
-    crate::lists::item_show::render_item(&l.demo.store.load().unwrap(), Id(id)).unwrap()
+    crate::lists::item_show::render_item(&l.demo.store.load().unwrap(), Id(id), 0).unwrap()
 }
 
 #[test]
@@ -344,7 +344,7 @@ fn an_item_in_two_repos_is_taken_in_both_and_shown_in_both() {
             )
         ]
     );
-    let shown = crate::lists::item_show::render_item(&lists, Id(1)).unwrap();
+    let shown = crate::lists::item_show::render_item(&lists, Id(1), 0).unwrap();
     assert!(
         shown.contains("Running: agent A, demo side-1 work"),
         "{shown}"

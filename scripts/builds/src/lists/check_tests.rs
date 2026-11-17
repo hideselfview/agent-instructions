@@ -3,7 +3,7 @@ use crate::lists::fixtures::{NOON, blocks_something, db, item, question, sha, st
 use crate::lists::item::{add_wait, remove_wait};
 use crate::lists::landing::add_part;
 use crate::lists::record::close;
-use crate::lists::running::{Running, start};
+use crate::lists::running::{Ended, Running, start};
 use crate::lists::{How, LandedPart, Wait};
 
 fn faults_of(db: &Connection) -> Vec<String> {
@@ -218,13 +218,13 @@ fn a_parked_item_that_shares_its_worktree_runs_or_is_closed_is_a_fault() {
             "worktree /d/bae-worktrees/side-1 holds parked item {a} and item {b}"
         )]
     );
-    crate::lists::running::end(&db, b).unwrap();
+    crate::lists::running::end(&db, b, Ended::Stopped, &stamp(NOON)).unwrap();
     start(&db, &[a], &[running("/d/bae-worktrees/side-1", "work")]).unwrap();
     assert_eq!(
         faults_of(&db),
         [format!("item {a} is both running and parked")]
     );
-    crate::lists::running::end(&db, a).unwrap();
+    crate::lists::running::end(&db, a, Ended::Closed, &stamp(NOON)).unwrap();
     close(&db, a, How::Landed(vec![sha('a')]), &stamp(NOON)).unwrap();
     assert_eq!(
         faults_of(&db),
@@ -370,4 +370,28 @@ fn a_write_that_breaks_a_rule_is_refused_whole_and_naming_the_fault() {
         "{refused}"
     );
     assert_eq!(crate::lists::fixtures::state_of(&store), before);
+}
+
+#[test]
+fn a_run_that_ended_with_its_closing_ended_when_its_item_closed() {
+    let db = db();
+    let id = item(&db, vec![]);
+    start(&db, &[id], &[running("/d/bae-worktrees/side-1", "work")]).unwrap();
+    crate::lists::running::end(&db, id, Ended::Closed, &stamp(NOON + 5)).unwrap();
+    assert_eq!(
+        faults_of(&db),
+        [format!(
+            "item {id} has a run that ended with its closing at {}, but the item is open",
+            NOON + 5
+        )]
+    );
+    close(&db, id, How::Landed(vec![sha('a')]), &stamp(NOON + 6)).unwrap();
+    assert_eq!(
+        faults_of(&db),
+        [format!(
+            "item {id} has a run that ended with its closing at {}, but the item closed at {}",
+            NOON + 5,
+            NOON + 6
+        )]
+    );
 }

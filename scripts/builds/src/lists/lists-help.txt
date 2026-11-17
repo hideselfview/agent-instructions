@@ -81,8 +81,9 @@ question has an open item waiting on it or says why it is asked anyway, never
 both; no open
 item waits on a record that closed in a way that never meets a wait (dropped,
 deferred, moved to the stack); no open items wait on each other in a circle; a
-closed item runs nowhere; a worktree holds one branch of work; a landed closing
-or part has a commit; no chain of origins loops; no record carries a tag that
+closed item runs nowhere; a run that ended with its item's closing ended when
+the item closed; a worktree holds one branch of work; a landed closing or part
+has a commit; no chain of origins loops; no record carries a tag that
 an earlier record of its trail carries; and the project row names the folder's
 project. A store that fails the check makes every command fail, naming each
 fault, and nothing repairs it. The command that writes them checks the rest:
@@ -342,7 +343,29 @@ runs in (plans are in no commit); an absolute path is itself.
                                       [--tag T]
       list --running prints each running item's marker line, one per
       worktree it runs in (agent, repo, worktree, branch, brief); show prints
-      them all.
+      them all, and the item's times as `item times` prints them.
+
+  builds item times [N...]
+      How long items and branches ran. A run of an item lasts from `item
+      take` until someone stops it, parks it or closes it (a landing, `item
+      finished` or `item drop`), and the store keeps each run that ended, with
+      its worktrees and branches. Within a run, the store keeps the time the
+      worktree's claim note said held (`builds note --state held`, `item take
+      --held`) and the time the item waited on a question or on a design
+      change the person had not approved: every write starts or ends that
+      waiting time as it changes what the item waits on. For each item N,
+      times prints when its first run started, when it landed or that it runs
+      now, how long it ran and in how many runs, the time between runs, the
+      time held and the time it waited on the person. With no N, it prints
+      each running item, each item that landed in the last 14 days, and each
+      branch on which a run goes on or whose last run ended with a landing in
+      those days. For a branch, times adds up the runs of every item that
+      ran on it and counts only once a moment that two runs share. The
+      dashboard's Running rows show how long the runs on each row's branch
+      have run. When builds
+      install moved a store made before builds kept runs, it rebuilt the
+      runs that ended from the store's write log, which names no branch, so
+      those runs name none and have no held or waiting time.
 
   builds next
       The ready coordinator items in dispatch order: items placed first

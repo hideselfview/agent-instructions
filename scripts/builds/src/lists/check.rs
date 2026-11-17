@@ -95,7 +95,7 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
         )),
         _ => {}
     }
-    let queries: [(&str, String); 11] = [
+    let queries: [(&str, String); 12] = [
         // 1. A project has at least one repo: a parent that needs a child.
         ("repos", "SELECT 'the project has no repos' WHERE NOT EXISTS (SELECT 1 FROM repo)".to_string()),
         // 2. An open question has an open item waiting on it or gives the
@@ -215,6 +215,16 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
                  JOIN record_tag s ON s.record_id = e.earlier AND s.tag = t.tag \
                  ORDER BY t.record_id, t.tag, e.earlier"
             ),
+        ),
+        // 10. A run that ended with its item's closing ended when the item closed.
+        (
+            "runs",
+            "SELECT 'item #' || r.item_id || ' has a run that ended with its closing at ' || r.ended_at || \
+             ', but ' || CASE WHEN c.at IS NULL THEN 'the item is open' \
+             ELSE 'the item closed at ' || c.at END \
+             FROM item_run r LEFT JOIN closing c ON c.record_id = r.item_id \
+             WHERE r.how = 'closed' AND (c.at IS NULL OR c.at <> r.ended_at) ORDER BY r.item_id"
+                .to_string(),
         ),
     ];
     for (_, sql) in &queries {

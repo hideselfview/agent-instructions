@@ -211,7 +211,7 @@ fn a_brief_that_agrees_with_the_spec_passes_and_the_check_is_recorded() {
     );
     assert_eq!(check.repo, "demo");
     assert!(
-        crate::lists::item_show::render_item(&lists, Id(1))
+        crate::lists::item_show::render_item(&lists, Id(1), 0)
             .unwrap()
             .contains("spec check 1 of "),
         "item show lists the check"
@@ -275,7 +275,7 @@ fn the_decided_flag_records_its_ref_and_takes_the_item_despite_the_conflict() {
     let check = &item.spec_checks[0];
     assert_eq!((check.conflicts, check.decided), (1, Some(question)));
     assert!(
-        crate::lists::item_show::render_item(&lists, Id(1))
+        crate::lists::item_show::render_item(&lists, Id(1), 0)
             .unwrap()
             .contains(&format!("the person decided the conflicts in {question}")),
     );

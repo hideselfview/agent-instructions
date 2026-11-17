@@ -63,6 +63,18 @@ pub fn minutes_since(now: i64, then: i64) -> i64 {
     (now - then).max(0) / 60
 }
 
+/// <seconds> as `6d2h`, `3h05m` or `12m`.
+pub fn duration(seconds: i64) -> String {
+    let (days, hours, mins) = (seconds / 86_400, seconds / 3600 % 24, seconds / 60 % 60);
+    if days > 0 {
+        format!("{days}d{hours}h")
+    } else if hours > 0 {
+        format!("{hours}h{mins:02}m")
+    } else {
+        format!("{mins}m")
+    }
+}
+
 /// <text> on one line: each run of whitespace, line breaks included, as one
 /// space.
 pub fn one_line(text: &str) -> String {

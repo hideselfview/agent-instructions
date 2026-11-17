@@ -1,12 +1,15 @@
-//! Where an item runs. The agent is the claim of the item's worktree, never
-//! stored on the item, so the two can't disagree; `agent_of` reads the
-//! claim. builds refuses to release a worktree while an item runs in it
-//! (kept.rs). `findings` is what `builds health` says about the lists.
+//! Where an item runs, the runs of it that ended, and the spans of each run
+//! during which the worktree's claim note said held or the item waited on
+//! the person. The agent is the claim of
+//! the item's worktree, never stored on the item, so the two can't disagree;
+//! `agent_of` reads the claim. builds refuses to release a worktree while an
+//! item runs in it (kept.rs). `findings` is what `builds health` says about
+//! the lists.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::checkout::Checkout;
@@ -15,6 +18,7 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
+use crate::lists::derive::wait_on_person;
 use crate::lists::item::{self, Item};
 use crate::lists::store::Loaded;
 use crate::lists::{Id, Lists, Stamp};
@@ -31,6 +35,95 @@ pub struct Running {
     pub branch: String,
     pub brief: String,
     pub since: Stamp,
+}
+
+/// How a run ended: someone stopped the item, parked it, or closed it (the
+/// item's closing says how).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Ended {
+    Stopped,
+    Parked,
+    Closed,
+}
+
+impl Ended {
+    /// The word the database holds.
+    fn word(self) -> &'static str {
+        match self {
+            Ended::Stopped => "stopped",
+            Ended::Parked => "parked",
+            Ended::Closed => "closed",
+        }
+    }
+
+    fn from_word(word: &str) -> Ended {
+        match word {
+            "stopped" => Ended::Stopped,
+            "parked" => Ended::Parked,
+            "closed" => Ended::Closed,
+            other => unreachable!("item_run_how_known holds, but the database has {other:?}"),
+        }
+    }
+}
+
+/// A run of an item that ended.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Run {
+    pub since: Stamp,
+    pub ended: Stamp,
+    pub how: Ended,
+    /// The worktree and branch of each repo it ran in. A run that a store
+    /// move read from the write log has none.
+    pub places: Vec<RunPlace>,
+}
+
+/// The worktree and branch an ended run ran in, in one repo.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunPlace {
+    pub repo: String,
+    pub worktree: String,
+    pub branch: String,
+}
+
+/// What a span of a run is: the worktree's claim note said held, or the
+/// item waited on a question or on a design change the person had not
+/// approved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SpanKind {
+    Held,
+    Waiting,
+}
+
+impl SpanKind {
+    /// The word the database holds.
+    fn word(self) -> &'static str {
+        match self {
+            SpanKind::Held => "held",
+            SpanKind::Waiting => "waiting",
+        }
+    }
+
+    fn from_word(word: &str) -> SpanKind {
+        match word {
+            "held" => SpanKind::Held,
+            "waiting" => SpanKind::Waiting,
+            other => unreachable!("the span kind CHECKs hold, but the database has {other:?}"),
+        }
+    }
+}
+
+/// A span of a run, from <since> to <ended>, which is None while the span
+/// goes on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Span {
+    pub kind: SpanKind,
+    pub since: i64,
+    pub ended: Option<i64>,
 }
 
 /// The parent folder, repo and checkout name of a side worktree path,
@@ -151,20 +244,96 @@ pub fn handoff(db: &Connection, id: Id, brief: &str) -> Result<()> {
     Ok(())
 }
 
-/// Ends open item <id>'s running, everywhere. Refused when it does not run.
-pub fn stop(db: &Connection, id: Id) -> Result<()> {
+/// Ends open item <id>'s running, everywhere, as stopped by <stamp>. stop
+/// refuses an item that does not run.
+pub fn stop(db: &Connection, id: Id, stamp: &Stamp) -> Result<()> {
     item::require_open_item(db, id)?;
-    if end(db, id)? == 0 {
+    if end(db, id, Ended::Stopped, stamp)? == 0 {
         fail!("{id} is not running");
     }
     Ok(())
 }
 
-/// Ends item <id>'s running wherever it runs, if it runs; says how many
-/// items it ended (0 or 1): an item that is done runs nowhere.
-pub fn end(db: &Connection, id: Id) -> Result<usize> {
+/// Ends item <id>'s running wherever it runs, if it runs, as <how> says and
+/// at <stamp>: the run, its places and its open spans move to the tables of
+/// ended runs and spans. Says how many items it ended (0 or 1): an item that
+/// is done runs nowhere.
+pub fn end(db: &Connection, id: Id, how: Ended, stamp: &Stamp) -> Result<usize> {
+    let ended = db
+        .execute(
+            "INSERT INTO item_run (item_id, since_at, since_by, how, ended_at, ended_by) \
+             SELECT item_id, since_at, since_by, ?2, ?3, ?4 FROM running WHERE item_id = ?1",
+            params![id, how.word(), stamp.at, stamp.by],
+        )
+        .sql()?;
+    if ended == 0 {
+        return Ok(0);
+    }
+    db.execute(
+        "INSERT INTO item_run_place (run_id, repo, worktree, branch) \
+         SELECT ?1, repo, worktree, branch FROM running_place WHERE item_id = ?2",
+        params![db.last_insert_rowid(), id],
+    )
+    .sql()?;
+    db.execute(
+        "INSERT INTO item_span (item_id, kind, since_at, ended_at) \
+         SELECT item_id, kind, since_at, ?2 FROM running_span WHERE item_id = ?1",
+        params![id, stamp.at],
+    )
+    .sql()?;
+    db.execute("DELETE FROM running_span WHERE item_id = ?1", [id])
+        .sql()?;
     db.execute("DELETE FROM running WHERE item_id = ?1", [id])
         .sql()
+}
+
+/// Opens a span of <kind> on running item <id> at <at>, unless one is open:
+/// the open one keeps its start. The database refuses the span when the
+/// item does not run.
+pub fn open_span(db: &Connection, id: Id, kind: SpanKind, at: i64) -> Result<()> {
+    db.execute(
+        "INSERT OR IGNORE INTO running_span (item_id, kind, since_at) VALUES (?1, ?2, ?3)",
+        params![id, kind.word(), at],
+    )
+    .sql()?;
+    Ok(())
+}
+
+/// Ends item <id>'s open span of <kind> at <at>, if one is open.
+pub fn end_span(db: &Connection, id: Id, kind: SpanKind, at: i64) -> Result<()> {
+    db.execute(
+        "INSERT INTO item_span (item_id, kind, since_at, ended_at) \
+         SELECT item_id, kind, since_at, ?3 FROM running_span WHERE item_id = ?1 AND kind = ?2",
+        params![id, kind.word(), at],
+    )
+    .sql()?;
+    db.execute(
+        "DELETE FROM running_span WHERE item_id = ?1 AND kind = ?2",
+        params![id, kind.word()],
+    )
+    .sql()?;
+    Ok(())
+}
+
+/// Opens at <at> a `waiting` span on each running item of <lists> that waits
+/// on the person (`derive::wait_on_person`) and has none open, and ends the
+/// open one of each running item that no longer waits on the person. Every
+/// write runs this on the state it leaves (store.rs), so the spans start and
+/// end with the writes that change what an item waits on.
+pub fn follow_waits(db: &Connection, lists: &Lists, at: i64) -> Result<()> {
+    for item in lists.items.iter().filter(|item| !item.running.is_empty()) {
+        let waits = item.waits.iter().any(|wait| wait_on_person(lists, wait));
+        let open = item
+            .spans
+            .iter()
+            .any(|span| span.kind == SpanKind::Waiting && span.ended.is_none());
+        match (waits, open) {
+            (true, false) => open_span(db, item.id, SpanKind::Waiting, at)?,
+            (false, true) => end_span(db, item.id, SpanKind::Waiting, at)?,
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 /// Where every running item runs, by item.
@@ -197,6 +366,102 @@ pub fn read(db: &Connection) -> Result<BTreeMap<Id, Vec<Running>>> {
         all.entry(id).or_default().push(running);
     }
     Ok(all)
+}
+
+/// Every ended run, by item, oldest first.
+pub fn read_runs(db: &Connection) -> Result<BTreeMap<Id, Vec<Run>>> {
+    let mut places: BTreeMap<i64, Vec<RunPlace>> = BTreeMap::new();
+    let mut statement = db
+        .prepare("SELECT run_id, repo, worktree, branch FROM item_run_place ORDER BY run_id, repo")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                RunPlace {
+                    repo: row.get(1)?,
+                    worktree: row.get(2)?,
+                    branch: row.get(3)?,
+                },
+            ))
+        })
+        .sql()?
+    {
+        let (run, place) = row.sql()?;
+        places.entry(run).or_default().push(place);
+    }
+    let mut statement = db
+        .prepare(
+            "SELECT id, item_id, since_at, since_by, how, ended_at, ended_by FROM item_run \
+             ORDER BY item_id, since_at, id",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Id>(1)?,
+                Stamp {
+                    at: row.get(2)?,
+                    by: row.get(3)?,
+                },
+                row.get::<_, String>(4)?,
+                Stamp {
+                    at: row.get(5)?,
+                    by: row.get(6)?,
+                },
+            ))
+        })
+        .sql()?;
+    let mut all: BTreeMap<Id, Vec<Run>> = BTreeMap::new();
+    for row in rows {
+        let (run, id, since, how, ended) = row.sql()?;
+        all.entry(id).or_default().push(Run {
+            since,
+            ended,
+            how: Ended::from_word(&how),
+            places: places.remove(&run).unwrap_or_default(),
+        });
+    }
+    Ok(all)
+}
+
+/// Every span, by item: the ended ones oldest first, then the open ones.
+pub fn read_spans(db: &Connection) -> Result<BTreeMap<Id, Vec<Span>>> {
+    let mut statement = db
+        .prepare(
+            "SELECT item_id, kind, since_at, ended_at FROM \
+             (SELECT item_id, kind, since_at, ended_at, 0 AS open, id FROM item_span \
+              UNION ALL SELECT item_id, kind, since_at, NULL, 1, 0 FROM running_span) \
+             ORDER BY item_id, open, since_at, id, kind",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                Span {
+                    kind: SpanKind::from_word(&row.get::<_, String>(1)?),
+                    since: row.get(2)?,
+                    ended: row.get(3)?,
+                },
+            ))
+        })
+        .sql()?;
+    let mut all: BTreeMap<Id, Vec<Span>> = BTreeMap::new();
+    for row in rows {
+        let (id, span) = row.sql()?;
+        all.entry(id).or_default().push(span);
+    }
+    Ok(all)
+}
+
+/// When the store began to record spans, or None when the store has
+/// recorded spans since builds made it (running.sql's `spans_recorded`).
+pub fn read_spans_from(db: &Connection) -> Result<Option<i64>> {
+    db.query_row("SELECT from_at FROM spans_recorded", [], |row| row.get(0))
+        .optional()
+        .sql()
 }
 
 /// Who holds the worktree an item runs in.
@@ -336,9 +601,162 @@ pub fn findings(
     Ok(findings)
 }
 
+/// What `move_to_runs` read from a store's write log.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Recovered {
+    /// The ended runs it wrote.
+    pub runs: usize,
+    /// The runs whose end the log does not tell: a take of an item that is
+    /// neither running nor closed now, with no stop, park, drop, finish or
+    /// landing after it. The move writes none of them.
+    pub unended: usize,
+}
+
+/// The item ids a log line names after its first two words: `12` or `#12`.
+fn logged_ids<'a>(words: impl Iterator<Item = &'a str>) -> Vec<Id> {
+    words
+        .filter_map(|word| word.trim_start_matches('#').parse().ok().map(Id))
+        .collect()
+}
+
+/// Makes the tables of ended runs and spans (running.sql) in a store from
+/// before them, writes each run that ended that the write log tells of, and
+/// records <now> as the moment the store began to record spans. A run
+/// starts at an `item take` line and ends at the next `item stop` or `item
+/// park` line of its item, or at the item's closing when an `item drop`,
+/// `item finished` or `item landed` line closed it (an `item landed` line
+/// names commits, not items, so each item closed as landed at the line's
+/// moment ends there). The run of an item that runs now stays its `running`
+/// row. The log names no worktree, branch or span, so no run it gives has a
+/// place, and no span is older than <now>.
+pub fn move_to_runs(db: &Connection, now: i64) -> Result<Recovered> {
+    // The tables of ended runs and spans end running.sql.
+    const SQL: &str = include_str!("running.sql");
+    let start = SQL
+        .find("CREATE TABLE item_run (")
+        .expect("running.sql makes item_run");
+    db.execute_batch(&SQL[start..]).sql()?;
+    let mut closings: BTreeMap<Id, Stamp> = BTreeMap::new();
+    let mut landed: BTreeMap<i64, Vec<Id>> = BTreeMap::new();
+    let mut statement = db
+        .prepare(
+            "SELECT record_id, how, at, by FROM closing WHERE kind = 'item' ORDER BY record_id",
+        )
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                Stamp {
+                    at: row.get(2)?,
+                    by: row.get(3)?,
+                },
+            ))
+        })
+        .sql()?
+    {
+        let (id, how, stamp) = row.sql()?;
+        if how == "landed" {
+            landed.entry(stamp.at).or_default().push(id);
+        }
+        closings.insert(id, stamp);
+    }
+    let mut open: BTreeMap<Id, Stamp> = BTreeMap::new();
+    let mut ended: Vec<(Id, Stamp, Ended, Stamp)> = Vec::new();
+    let mut statement = db
+        .prepare("SELECT at, by, words FROM write_log ORDER BY version")
+        .sql()?;
+    let lines = statement
+        .query_map([], |row| {
+            Ok((
+                Stamp {
+                    at: row.get(0)?,
+                    by: row.get(1)?,
+                },
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .sql()?;
+    for line in lines {
+        let (stamp, words) = line.sql()?;
+        let mut words = words.split_whitespace();
+        if words.next() != Some("item") {
+            continue;
+        }
+        let verb = words.next().unwrap_or("");
+        let named = logged_ids(words);
+        let ends: Vec<(Id, Ended, Stamp)> = match verb {
+            "take" => {
+                for id in named {
+                    open.entry(id).or_insert_with(|| stamp.clone());
+                }
+                continue;
+            }
+            "stop" => named
+                .into_iter()
+                .map(|id| (id, Ended::Stopped, stamp.clone()))
+                .collect(),
+            "park" => named
+                .into_iter()
+                .map(|id| (id, Ended::Parked, stamp.clone()))
+                .collect(),
+            "drop" | "finished" => named
+                .into_iter()
+                .filter_map(|id| Some((id, Ended::Closed, closings.get(&id)?.clone())))
+                .collect(),
+            "landed" => landed
+                .get(&stamp.at)
+                .into_iter()
+                .flatten()
+                .map(|id| (*id, Ended::Closed, closings[id].clone()))
+                .collect(),
+            _ => continue,
+        };
+        for (id, how, at) in ends {
+            if let Some(since) = open.remove(&id) {
+                ended.push((id, since, how, at));
+            }
+        }
+    }
+    let running: Vec<Id> = db
+        .prepare("SELECT item_id FROM running")
+        .sql()?
+        .query_map([], |row| row.get(0))
+        .sql()?
+        .collect::<rusqlite::Result<_>>()
+        .sql()?;
+    let unended = open.keys().filter(|id| !running.contains(id)).count();
+    for (id, since, how, at) in &ended {
+        db.execute(
+            "INSERT INTO item_run (item_id, since_at, since_by, how, ended_at, ended_by) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, since.at, since.by, how.word(), at.at, at.by],
+        )
+        .sql()?;
+    }
+    db.execute(
+        "INSERT INTO spans_recorded (singleton, from_at) VALUES (1, ?1)",
+        [now],
+    )
+    .sql()?;
+    Ok(Recovered {
+        runs: ended.len(),
+        unended,
+    })
+}
+
 /// The tables running.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 2] = ["running", "running_place"];
+const TABLES: [&str; 7] = [
+    "running",
+    "running_place",
+    "item_run",
+    "item_run_place",
+    "running_span",
+    "item_span",
+    "spans_recorded",
+];
 
 /// Writes a row of one of running.rs's tables as given, the constraints
 /// still holding: for tests that need a row they refuse.

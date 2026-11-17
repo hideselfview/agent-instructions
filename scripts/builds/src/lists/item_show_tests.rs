@@ -28,25 +28,25 @@ fn render_item_shows_an_open_and_a_closed_item() {
         &["--wait", "item:1"],
     );
     let lists = demo.store.load().unwrap();
-    let one = render_item(&lists, Id(1)).unwrap();
+    let one = render_item(&lists, Id(1), 0).unwrap();
     assert!(
         one.contains("#1 Do the first thing now [ready]")
             && one.contains("area: Alpha; for: coordinator"),
         "{one}"
     );
-    let two = render_item(&lists, Id(2)).unwrap();
+    let two = render_item(&lists, Id(2), 0).unwrap();
     assert!(
         two.contains("[waiting]")
             && two.contains("waits on item #1 \"Do the first thing now\" (not met)"),
         "{two}"
     );
     cmd_item(&demo.tool, &words(&["drop", "2", "--why", "gone"])).unwrap();
-    let closed = render_item(&demo.store.load().unwrap(), Id(2)).unwrap();
+    let closed = render_item(&demo.store.load().unwrap(), Id(2), 0).unwrap();
     assert!(
         closed.contains("[closed, dropped: gone by tester"),
         "{closed}"
     );
-    assert!(refusal(render_item(&lists, Id(9))).contains("not a record"));
+    assert!(refusal(render_item(&lists, Id(9), 0)).contains("not a record"));
 }
 
 #[test]
@@ -171,21 +171,111 @@ fn a_closed_item_prints_no_running_marker() {
         })
         .unwrap();
     assert!(
-        render_item(&demo.store.load().unwrap(), Id(1))
+        render_item(&demo.store.load().unwrap(), Id(1), 0)
             .unwrap()
             .contains("Running:")
     );
     demo.store
         .write(&stamp, "item landed", |db| {
-            crate::lists::running::end(db, Id(1))?;
+            crate::lists::running::end(db, Id(1), crate::lists::Ended::Closed, &stamp)?;
             crate::lists::record::close(db, Id(1), How::Landed(vec!["a".repeat(40)]), &stamp)
         })
         .unwrap();
-    let text = render_item(&demo.store.load().unwrap(), Id(1)).unwrap();
+    let text = render_item(&demo.store.load().unwrap(), Id(1), 0).unwrap();
     assert!(
         text.contains("[closed, landed")
             && !text.contains("Running:")
             && !text.contains("running since"),
         "{text}"
+    );
+}
+
+#[test]
+fn times_say_how_long_each_item_and_branch_ran_and_was_held_or_waited() {
+    use crate::lists::fixtures::{NOON, stamp};
+    use crate::lists::running::{Ended, SpanKind, end, end_span, open_span, start};
+    use crate::lists::{Running, record::close};
+    let demo = demo("show-times");
+    add(&demo, "Do the first thing now", "Alpha", &[]);
+    add(&demo, "Do the second thing now", "Alpha", &[]);
+    add(&demo, "Do the third thing now", "Alpha", &[]);
+    let run = |branch: &str, n: usize, at: i64| Running {
+        worktree: demo
+            .scratch
+            .dir
+            .join(format!("demo-worktrees/side-{n}"))
+            .display()
+            .to_string(),
+        branch: branch.into(),
+        brief: "b.md".into(),
+        since: stamp(at),
+    };
+    demo.store
+        .write(&stamp(NOON + 3600), "seed", |db| {
+            start(db, &[Id(1)], &[run("work", 1, NOON)])?;
+            open_span(db, Id(1), SpanKind::Held, NOON + 60)?;
+            end_span(db, Id(1), SpanKind::Held, NOON + 660)?;
+            end(db, Id(1), Ended::Closed, &stamp(NOON + 3600))?;
+            close(
+                db,
+                Id(1),
+                How::Landed(vec!["a".repeat(40)]),
+                &stamp(NOON + 3600),
+            )?;
+            start(db, &[Id(2)], &[run("other", 2, NOON + 1000)])
+        })
+        .unwrap();
+    let lists = demo.store.load().unwrap();
+    let at = |t: i64| crate::text::local_minute(NOON + t);
+    let first = format!(
+        "first started {} and landed {}, 1h00m later; ran 1h00m in 1 run; held the worktree 10m; waited on you 0m",
+        at(0),
+        at(3600)
+    );
+    let second = format!(
+        "first started {} and runs now; ran 50m in 1 run; held the worktree 0m; waited on you 0m",
+        at(1000)
+    );
+    assert_eq!(
+        times_text(&lists, &[], NOON + 4000).unwrap(),
+        format!(
+            "running\n  #2 Do the second thing now: {second}\n\
+             landed in the last 14 days\n  #1 Do the first thing now: {first}\n\
+             branches\n  demo other: {second}\n  demo work: {first}\n"
+        )
+    );
+    assert_eq!(
+        times_text(&lists, &[Id(3), Id(1)], NOON + 4000).unwrap(),
+        format!("#3 Do the third thing now: no run recorded\n#1 Do the first thing now: {first}\n")
+    );
+    assert!(
+        render_item(&lists, Id(1), NOON + 4000)
+            .unwrap()
+            .contains(&format!("times: {first}\n"))
+    );
+    demo.store
+        .write(&stamp(NOON + 3600), "spans from", |db| {
+            crate::lists::running::plant(
+                db,
+                "spans_recorded",
+                &[("singleton", 1.into()), ("from_at", (NOON + 500).into())],
+            )
+            .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let lists = demo.store.load().unwrap();
+    let from = format!(
+        "builds has recorded held and waiting time only since {}",
+        at(500)
+    );
+    assert_eq!(
+        times_text(&lists, &[Id(1)], NOON + 4000).unwrap(),
+        format!("#1 Do the first thing now: {first}\n{from}\n")
+    );
+    assert!(
+        render_item(&lists, Id(1), NOON + 4000)
+            .unwrap()
+            .contains(&format!("times: {first} ({from})\n"))
     );
 }

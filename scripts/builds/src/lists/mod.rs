@@ -65,7 +65,7 @@ pub use item_command::{cmd_item, cmd_next};
 pub use landing::LandedPart;
 pub use question::{Effect, Placement, PlanRef, Position, Question, QuestionKind};
 pub use record::{Closed, How, Id, Kind, Located, Record, Stamp, Standing};
-pub use running::{Running, side_worktree_parts};
+pub use running::{Ended, Running, Span, SpanKind, side_worktree_parts};
 
 use std::collections::BTreeMap;
 
@@ -93,6 +93,9 @@ pub struct Lists {
     pub spec_files: BTreeMap<String, Vec<String>>,
     /// The last write's version.
     pub version: u64,
+    /// When the store began to record the spans of runs, or None when the
+    /// store has recorded them since builds made it.
+    pub spans_from: Option<i64>,
     /// In the order the sidebar shows them.
     pub areas: Vec<String>,
     pub questions: Vec<Question>,

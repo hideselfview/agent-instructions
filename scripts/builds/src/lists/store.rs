@@ -190,8 +190,10 @@ impl Store {
     }
 }
 
-/// Runs <apply> in a write transaction of <conn>, logs it, checks the whole
-/// state and commits.
+/// Runs <apply> in a write transaction of <conn>, then opens a `waiting`
+/// span on each running item that now waits on the person and ends the
+/// span of each that no longer does, logs the write, checks the whole state
+/// and commits.
 fn commit<T>(
     conn: &mut Connection,
     project: &str,
@@ -203,6 +205,7 @@ fn commit<T>(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .sql()?;
     let result = apply(&tx)?;
+    crate::lists::running::follow_waits(&tx, &read(&tx)?, stamp.at)?;
     log_write(&tx, stamp, words)?;
     refuse_faults(project, &faults(&tx, project)?)?;
     tx.commit().sql()?;
@@ -293,6 +296,7 @@ pub fn read(db: &Connection) -> Result<Lists> {
         design_sources: project.sources,
         spec_files: project.specs,
         version: version(db)?,
+        spans_from: crate::lists::running::read_spans_from(db)?,
         areas,
         questions: Vec::new(),
         items: Vec::new(),

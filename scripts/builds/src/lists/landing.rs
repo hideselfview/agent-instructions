@@ -33,7 +33,7 @@ use crate::fail::{Context, Result};
 use crate::lists::args::Args;
 use crate::lists::item::{self, open_item};
 use crate::lists::record::close;
-use crate::lists::running::{Running, end, side_worktree_parts};
+use crate::lists::running::{Ended, Running, end, side_worktree_parts};
 use crate::lists::store::{self, Store};
 use crate::lists::{Closed, How, Id, Kind, Located, Stamp, Standing};
 use crate::text::note;
@@ -333,7 +333,7 @@ fn record(
             }) => {
                 let item = lists.item(id).expect("located open");
                 if named.finishes {
-                    end(db, id)?;
+                    end(db, id, Ended::Closed, stamp)?;
                     close(db, id, How::Landed(commits.to_vec()), stamp)?;
                     did.push(format!("{id} landed"));
                 } else if item

@@ -263,7 +263,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "land" => land::cmd_land(args),
         "review" => review::cmd_review(&tool, args),
         "claim" => claim::cmd_claim(&tool.places, args, tool.now),
-        "note" => claim::cmd_note(&tool.places, args),
+        "note" => claim::cmd_note(&tool.places, args, tool.now),
         "release" => claim::cmd_release(&tool.places, args),
         "app-checkout" => worktree::cmd_app_checkout(&tool, args),
         "build-app" => build_app::cmd_build_app(&tool, args),

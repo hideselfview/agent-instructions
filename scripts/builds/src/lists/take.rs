@@ -28,7 +28,7 @@ use crate::lists::held::waits_on_open;
 use crate::lists::item::open_item;
 use crate::lists::item_command::blocking_words;
 use crate::lists::parked::{self, Parked, parked_in};
-use crate::lists::running::{Running, end, running_in, start};
+use crate::lists::running::{Ended, Running, SpanKind, end, open_span, running_in, start};
 use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
 use crate::lists::{Audience, Id, Kind, Lists, Stamp};
@@ -384,6 +384,9 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             start(db, &ids, &running)?;
             // Last, so a refusal above leaves the claims as they were.
             if let Some(why) = &held {
+                for id in &ids {
+                    open_span(db, *id, SpanKind::Held, stamp.at)?;
+                }
                 for place in &places {
                     let file = place.checkout.claim_file();
                     let claim = Claim::read(&file)?.expect("read above");
@@ -487,7 +490,7 @@ fn write_park(store: &Store, stamp: &Stamp, id: Id, places: &[Place]) -> Result<
                 );
             }
         }
-        end(db, id)?;
+        end(db, id, Ended::Parked, stamp)?;
         let parked: Vec<Parked> = places
             .iter()
             .map(|place| Parked {

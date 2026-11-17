@@ -1,6 +1,7 @@
-//! `builds item show`, `builds item list` and `builds next`: reading the
-//! work queue. `next` is the coordinator's dispatch list; `list --running`
-//! prints each running item's marker line, what to read after a compact.
+//! `builds item show`, `builds item list`, `builds item times` and `builds
+//! next`: reading the work queue. `next` is the coordinator's dispatch list;
+//! `list --running` prints each running item's marker line, what to read
+//! after a compact; `times` says how long items and branches ran.
 
 use std::fmt::Write;
 use std::path::Path;
@@ -8,14 +9,14 @@ use std::path::Path;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::args::Args;
-use crate::lists::derive::{self, ItemState};
+use crate::lists::derive::{self, FLOW_DAYS, ItemState, Times, branch_times, item_times};
 use crate::lists::item::open_item;
 use crate::lists::running::marker;
 use crate::lists::show::{item_line, parked_words, wait_words};
 use crate::lists::store::Store;
 use crate::lists::trail::{trail_line, trail_wanted};
-use crate::lists::{Audience, How, Id, Item, Kind, Level, Lists, Located, Standing, Wait};
-use crate::text::local_minute;
+use crate::lists::{Audience, Closed, How, Id, Item, Kind, Level, Lists, Located, Standing, Wait};
+use crate::text::{counted, duration, local_minute};
 use crate::tool::Tool;
 
 fn how_words(how: &How) -> String {
@@ -43,21 +44,66 @@ fn wait_line(lists: &Lists, wait: &Wait) -> String {
     format!("{} ({met})", wait_words(lists, wait))
 }
 
-/// Item <id>, open or closed, in full.
-pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
-    let (item, state, open) = match lists.locate(id) {
+/// <times> in words at <now>: when the first run started, when the work
+/// landed or whether it runs now, how long it ran and in how many runs, the
+/// time between runs when that is a minute or more, the time held and the
+/// time it waited on the person.
+pub fn times_words(times: &Times, now: i64) -> String {
+    let ran = times.ran.at(now);
+    let first = local_minute(times.first);
+    let (mut words, end) = match (times.landed, times.ran.since) {
+        (Some(landed), _) => (
+            format!(
+                "first started {first} and landed {}, {} later",
+                local_minute(landed),
+                duration(landed - times.first)
+            ),
+            Some(landed),
+        ),
+        (None, Some(_)) => (format!("first started {first} and runs now"), Some(now)),
+        (None, None) => (format!("first started {first}"), None),
+    };
+    let _ = write!(
+        words,
+        "; ran {} in {}",
+        duration(ran),
+        counted(times.runs, "run", "runs")
+    );
+    if let Some(end) = end
+        && end - times.first - ran >= 60
+    {
+        let _ = write!(
+            words,
+            " and {} between runs",
+            duration(end - times.first - ran)
+        );
+    }
+    let _ = write!(
+        words,
+        "; held the worktree {}; waited on you {}",
+        duration(times.held.at(now)),
+        duration(times.waiting.at(now))
+    );
+    words
+}
+
+/// The words that say when the store began to record held and waiting time,
+/// for times whose first run started before <from>.
+fn spans_from_words(from: i64) -> String {
+    format!(
+        "builds has recorded held and waiting time only since {}",
+        local_minute(from)
+    )
+}
+
+/// The item <id>, open or closed, with its closing (None while it is open).
+fn item_and_closing(lists: &Lists, id: Id) -> Result<(&Item, Option<&Closed>)> {
+    match lists.locate(id) {
         Some(Located {
             kind: Kind::Item,
             standing: Standing::Open,
             ..
-        }) => {
-            let item = open_item(lists, id)?;
-            (
-                item,
-                derive::item_state(lists, item).label().to_string(),
-                true,
-            )
-        }
+        }) => Ok((open_item(lists, id)?, None)),
         Some(Located {
             kind: Kind::Item,
             standing: Standing::Closed(closed),
@@ -66,16 +112,100 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
             let crate::lists::Record::Item(item) = &closed.record else {
                 unreachable!("an item's closed record")
             };
-            let text = format!(
+            Ok((item, Some(closed)))
+        }
+        Some(Located { kind, .. }) => fail!("{id} is a {}, not an item", kind.name()),
+        None => fail!("{id} is not a record"),
+    }
+}
+
+/// What `builds item times` prints at <now>: for each of <ids>, how long it
+/// ran; with no ids, each running item, each item that landed in the last
+/// `FLOW_DAYS` days, and each branch on which a run goes on or whose work
+/// landed in those days. When a run it shows started before the store
+/// began to record held and waiting time, a last line says from when the
+/// store records that time.
+pub fn times_text(lists: &Lists, ids: &[Id], now: i64) -> Result<String> {
+    let mut lines: Vec<(String, Option<Times>)> = Vec::new();
+    let item_line = |item: &Item, closed: Option<&How>, indent: &str| {
+        let times = item_times(lists, item, closed);
+        let words = times
+            .as_ref()
+            .map_or("no run recorded".to_string(), |times| {
+                times_words(times, now)
+            });
+        (
+            format!("{indent}{} {}: {words}", item.id, item.title),
+            times,
+        )
+    };
+    if ids.is_empty() {
+        let recent = now - FLOW_DAYS as i64 * 86400;
+        lines.push(("running".to_string(), None));
+        for item in lists.items.iter().filter(|item| !item.running.is_empty()) {
+            lines.push(item_line(item, None, "  "));
+        }
+        lines.push((format!("landed in the last {FLOW_DAYS} days"), None));
+        for closed in &lists.closed {
+            if let crate::lists::Record::Item(item) = &closed.record
+                && matches!(closed.how, How::Landed(_))
+                && closed.closed.at >= recent
+            {
+                lines.push(item_line(item, Some(&closed.how), "  "));
+            }
+        }
+        lines.push(("branches".to_string(), None));
+        for ((repo, branch), times) in branch_times(lists) {
+            if times.ran.since.is_some() || times.landed.is_some_and(|landed| landed >= recent) {
+                let line = format!("  {repo} {branch}: {}", times_words(&times, now));
+                lines.push((line, Some(times)));
+            }
+        }
+    }
+    for id in ids {
+        let (item, closed) = item_and_closing(lists, *id)?;
+        lines.push(item_line(item, closed.map(|closed| &closed.how), ""));
+    }
+    let mut out = String::new();
+    for (line, _) in &lines {
+        let _ = writeln!(out, "{line}");
+    }
+    let from = lines
+        .iter()
+        .find_map(|(_, times)| times.as_ref()?.spans_from);
+    if let Some(from) = from {
+        let _ = writeln!(out, "{}", spans_from_words(from));
+    }
+    Ok(out)
+}
+
+/// `builds item times [N...]`.
+pub fn times(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+    let args = Args::parse(args, &[], &[])?;
+    let ids: Vec<Id> = args
+        .positional()
+        .iter()
+        .map(|id| Id::parse(id))
+        .collect::<Result<_>>()?;
+    let store = Store::resolve(&tool.places, &args, cwd)?;
+    print!("{}", times_text(&store.load()?, &ids, tool.now)?);
+    Ok(())
+}
+
+/// Item <id>, open or closed, in full, its times as at <now>.
+pub fn render_item(lists: &Lists, id: Id, now: i64) -> Result<String> {
+    let (item, closed) = item_and_closing(lists, id)?;
+    let (state, open) = match closed {
+        None => (derive::item_state(lists, item).label().to_string(), true),
+        Some(closed) => (
+            format!(
                 "closed, {} by {} {}",
                 how_words(&closed.how),
                 closed.closed.by,
                 local_minute(closed.closed.at)
-            );
-            (item, text, false)
-        }
-        Some(Located { kind, .. }) => fail!("{id} is a {}, not an item", kind.name()),
-        None => fail!("{id} is not a record"),
+            ),
+            false,
+        ),
     };
     let mut out = String::new();
     let _ = writeln!(out, "{id} {} [{state}]", item.title);
@@ -135,6 +265,17 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
     for check in &item.spec_checks {
         let _ = writeln!(out, "{}", crate::lists::spec_check::line(check));
     }
+    if let Some(times) = item_times(lists, item, closed.map(|closed| &closed.how)) {
+        let _ = match times.spans_from {
+            Some(from) => writeln!(
+                out,
+                "times: {} ({})",
+                times_words(&times, now),
+                spans_from_words(from)
+            ),
+            None => writeln!(out, "times: {}", times_words(&times, now)),
+        };
+    }
     for part in &item.landed {
         let _ = writeln!(
             out,
@@ -172,7 +313,7 @@ pub fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         unreachable!("exactly one")
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
-    print!("{}", render_item(&store.load()?, Id::parse(id)?)?);
+    print!("{}", render_item(&store.load()?, Id::parse(id)?, tool.now)?);
     Ok(())
 }
 

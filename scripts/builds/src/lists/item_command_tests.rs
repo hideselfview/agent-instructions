@@ -550,7 +550,7 @@ fn tags_go_on_with_add_and_edit_open_or_closed_and_list_chooses_by_them() {
     // A closed item keeps its tags and still takes and loses them.
     item(&demo, &["drop", "2", "--why", "not needed"]).unwrap();
     item(&demo, &["edit", "2", "--tag", "coven-trust audit"]).unwrap();
-    let shown = crate::lists::item_show::render_item(&open(&demo), Id(2)).unwrap();
+    let shown = crate::lists::item_show::render_item(&open(&demo), Id(2), 0).unwrap();
     assert!(
         shown.contains("trail: coven-trust audit; screen-reads audit → #2"),
         "{shown}"
@@ -610,7 +610,7 @@ fn origins_go_on_with_add_and_edit_open_or_closed_and_the_trail_keeps_the_tags()
     let lists = open(&demo);
     assert_eq!(lists.items[2].origin, Some(Id(2)));
     assert_eq!(lists.items[2].tags, ["mac"]);
-    let shown = crate::lists::item_show::render_item(&lists, Id(3)).unwrap();
+    let shown = crate::lists::item_show::render_item(&lists, Id(3), 0).unwrap();
     assert!(
         shown.contains("trail: screen-reads audit; mac → #1 → #2 Do the second thing now → #3"),
         "{shown}"
@@ -634,7 +634,7 @@ fn origins_go_on_with_add_and_edit_open_or_closed_and_the_trail_keeps_the_tags()
     // A closed item still takes an origin.
     item(&demo, &["drop", "3", "--why", "not needed"]).unwrap();
     item(&demo, &["edit", "3", "--origin", "1"]).unwrap();
-    let shown = crate::lists::item_show::render_item(&open(&demo), Id(3)).unwrap();
+    let shown = crate::lists::item_show::render_item(&open(&demo), Id(3), 0).unwrap();
     assert!(
         shown.contains("trail: screen-reads audit; mac → #1 Do the first thing now → #3"),
         "{shown}"

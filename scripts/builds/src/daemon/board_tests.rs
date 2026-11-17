@@ -230,3 +230,45 @@ fn work_whose_item_waits_on_an_approved_design_change_is_not_held_on_the_person(
     // The work, and the approved change that waits to land.
     assert_eq!((board.waiting, board.running), (0, 2));
 }
+
+#[test]
+fn a_work_carries_the_times_of_its_branch() {
+    let db = db();
+    let earlier = item(&db, vec![]);
+    let now = item(&db, vec![]);
+    start(&db, earlier, "side-4");
+    crate::lists::running::end(
+        &db,
+        earlier,
+        crate::lists::Ended::Stopped,
+        &stamp(NOON + 600),
+    )
+    .unwrap();
+    crate::lists::running::start(
+        &db,
+        &[now],
+        &[Running {
+            worktree: "/d/bae-worktrees/side-4".into(),
+            branch: "side-4-branch".into(),
+            brief: "plans/briefs/x.md".into(),
+            since: stamp(NOON + 900),
+        }],
+    )
+    .unwrap();
+    let works = works(&View::build(&read(&db), NOON + 1000).unwrap());
+    assert_eq!(
+        (
+            works[0].times.first,
+            works[0].times.runs,
+            works[0].times.ran
+        ),
+        (
+            NOON,
+            2,
+            crate::lists::derive::Total {
+                seconds: 600,
+                since: Some(NOON + 900)
+            }
+        )
+    );
+}

@@ -16,6 +16,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::lists::check::item_title_fault;
 use crate::lists::parked::Parked;
+use crate::lists::running::{Run, Span};
 use crate::lists::{
     Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, area, landing, parked, record,
     running,
@@ -117,6 +118,12 @@ pub struct Item {
     /// Where an agent works on it: one worktree per repo the work spans, none
     /// when it is not running.
     pub running: Vec<Running>,
+    /// Its runs that ended, oldest first: the run that goes on is `running`.
+    pub runs: Vec<Run>,
+    /// The spans of its runs during which the worktree's claim note said
+    /// held or the item waited on the person: the ended ones oldest first,
+    /// then the open ones of the run that goes on.
+    pub spans: Vec<Span>,
     /// Where it holds a worktree with no agent while it waits in the queue:
     /// one worktree per repo the work spans, none when it is not parked. An
     /// item is never both running and parked.
@@ -605,6 +612,8 @@ pub fn read(
         notes.entry(item).or_default().push(note);
     }
     let mut running = running::read(db)?;
+    let mut runs = running::read_runs(db)?;
+    let mut spans = running::read_spans(db)?;
     let mut parked = parked::read(db)?;
     let mut landed = landing::read(db)?;
     let mut dropped = crate::lists::dropped::read_all(db)?;
@@ -642,6 +651,8 @@ pub fn read(
             priority: priorities.remove(&id),
             brief,
             running: running.remove(&id).unwrap_or_default(),
+            runs: runs.remove(&id).unwrap_or_default(),
+            spans: spans.remove(&id).unwrap_or_default(),
             parked: parked.remove(&id).unwrap_or_default(),
             landed: landed.remove(&id).unwrap_or_default(),
             dropped: dropped.remove(&id).unwrap_or_default(),

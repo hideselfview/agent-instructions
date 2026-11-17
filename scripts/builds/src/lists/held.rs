@@ -13,9 +13,9 @@ use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
 use crate::lists::design::{DesignChange, DesignCommit, design_commits};
-use crate::lists::running::running_in_any;
-use crate::lists::store::{Loaded, lists_of};
-use crate::lists::{Item, Lists, Located, Standing, Wait};
+use crate::lists::running::{SpanKind, end_span, open_span, running_in, running_in_any};
+use crate::lists::store::{Loaded, Store, lists_of};
+use crate::lists::{Id, Item, Lists, Located, Stamp, Standing, Wait};
 use crate::places::Places;
 
 /// Does <wait> still hold something: a condition, or an open question, item
@@ -83,6 +83,52 @@ pub fn require_hold_allowed(places: &Places, checkout: &Checkout) -> Result<()> 
             "{fault}; a held worktree waits on an open record. Make the running item wait on one with `builds item wait N --on REF` (REF is question:N, item:N, design:N or condition:TEXT), then note it held"
         ),
     }
+}
+
+/// Starts (when <held>) or ends the `held` span of each item of every
+/// project that runs in <checkout>, at <stamp>, in one write to each
+/// project's store, and calls <write_claim> to write the claim's new note
+/// within the write to the last store, so that a refusal of that write
+/// leaves the claim as it was. With no item running there, it only calls
+/// <write_claim>.
+pub fn record_hold(
+    places: &Places,
+    checkout: &Checkout,
+    held: bool,
+    stamp: &Stamp,
+    write_claim: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    let top = checkout.top.display().to_string();
+    let every = crate::lists::store::every_lists(places)?;
+    let running: Vec<(&str, Vec<Id>)> = every
+        .iter()
+        .map(|lists| {
+            let ids = running_in(lists, &top).iter().map(|item| item.id).collect();
+            (lists.project.as_str(), ids)
+        })
+        .filter(|(_, ids): &(&str, Vec<Id>)| !ids.is_empty())
+        .collect();
+    let Some(((last, last_ids), rest)) = running.split_last() else {
+        return write_claim();
+    };
+    let words = format!("note {top} {}", if held { "held" } else { "not held" });
+    let spans = |db: &rusqlite::Connection, ids: &[Id]| -> Result<()> {
+        for id in ids {
+            if held {
+                open_span(db, *id, SpanKind::Held, stamp.at)?;
+            } else {
+                end_span(db, *id, SpanKind::Held, stamp.at)?;
+            }
+        }
+        Ok(())
+    };
+    for (project, ids) in rest {
+        Store::named(places, project)?.write(stamp, &words, |db| spans(db, ids))?;
+    }
+    Store::named(places, last)?.write(stamp, &words, |db| {
+        spans(db, last_ids)?;
+        write_claim()
+    })
 }
 
 /// A claimed worktree as `builds health` read it.

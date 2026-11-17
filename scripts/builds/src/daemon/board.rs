@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::lists::Stamp;
+use crate::lists::derive::Times;
 use crate::lists::view::{ItemView, Named, View};
 
 /// The tab a running work is under.
@@ -45,6 +46,8 @@ pub struct Work {
     pub now: Option<String>,
     pub agent: Option<String>,
     pub since: Stamp,
+    /// What the runs on its branch add up to.
+    pub times: Times,
     pub tab: Tab,
     pub branch: String,
     /// The brief's path in the repo.
@@ -105,6 +108,7 @@ pub fn works(view: &View) -> Vec<Work> {
                     now: running.claim.as_ref().and_then(|c| c.note.clone()),
                     agent: running.claim.as_ref().and_then(|c| c.agent.clone()),
                     since: running.since.clone(),
+                    times: running.times.clone(),
                     tab: Tab::Running,
                     branch: running.branch.clone(),
                     plan: running.brief.clone(),
