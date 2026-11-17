@@ -14,11 +14,11 @@ lists are:
                   component, not a software plan) that wait on the person's
                   review or to land (builds design)
 
-Nothing edits the store by hand: every change is a command, and every command
-refuses a step that lacks what it needs. Every record (a question, an item, a
-decision or a design change) has an id from one counter per project, which
-builds prints as #N. Commands take ids as bare numbers (`builds item take 12`),
-because an unquoted #12 is a comment in the shell.
+No one edits the store directly: a builds command makes every change, and every
+command refuses a step that lacks what it needs. Every record (a question, an
+item, a decision or a design change) has an id from one counter per project,
+which builds prints as #N. Commands take ids as bare numbers
+(`builds item take 12`), because an unquoted #12 is a comment in the shell.
 
 
 WHO WRITES WHAT
