@@ -20,8 +20,10 @@ struct Volume {
 }
 
 /// The build: logs `start <label>`, starts a background sleep whose pid it
-/// writes down, waits for the gate file `go-<label>` to appear, then stops the
-/// sleep and logs `end <label>`. Stopped by SIGTERM it logs `stop <label>`.
+/// writes down in `background-<label>` (whole, through a rename, so a reader
+/// never sees half of it), waits for the gate file `go-<label>` to appear,
+/// then stops the sleep and logs `end <label>`. Stopped by SIGTERM it logs
+/// `stop <label>`.
 const BUILD: &str = r#"
 label=$0; dir=$1
 trap 'echo "stop $label" >> "$dir/log"; exit 1' TERM
@@ -30,7 +32,8 @@ sleep 300 &
 background=$!
 # Until it has become the sleep: a signal before that is lost.
 while [ "$(ps -o comm= -p $background)" != sleep ]; do :; done
-echo $background > "$dir/background-$label"
+echo $background > "$dir/background-$label.part"
+mv "$dir/background-$label.part" "$dir/background-$label"
 while [ ! -e "$dir/go-$label" ]; do sleep 0.05; done
 trap - TERM
 kill $background
@@ -240,8 +243,12 @@ impl Volume {
         self.log()
     }
 
+    /// The pid of build <label>'s background sleep, once the build has
+    /// written it: the build logs `start` before it starts the sleep.
     fn background(&self, label: &str) -> i32 {
-        std::fs::read_to_string(self.dir.join(format!("background-{label}")))
+        let file = self.dir.join(format!("background-{label}"));
+        until(&format!("build {label}'s background pid"), || file.exists());
+        std::fs::read_to_string(&file)
             .unwrap()
             .trim()
             .parse()
