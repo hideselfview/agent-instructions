@@ -68,9 +68,10 @@ use crate::places::Places;
 pub const VARIABLE: &str = "BUILDS_USE";
 
 /// The commands that take no use of the stores: install, which closes the
-/// gates and moves the stores, the dashboard, which install restarts, and
-/// the help.
-pub const STORELESS: [&str; 5] = ["install", "dashboard", "help", "-h", "--help"];
+/// gates and moves the stores, the dashboard, which install restarts, the
+/// help, and `agent`, which registers an agent outside the stores
+/// (ack/agent.rs).
+pub const STORELESS: [&str; 6] = ["install", "dashboard", "help", "-h", "--help", "agent"];
 
 /// Runs the program at this program's path with this process's arguments in
 /// its place; returns only when it cannot, with the error that says why.

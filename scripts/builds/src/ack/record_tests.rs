@@ -106,22 +106,24 @@ fn builds_keeps_only_the_versions_agents_acknowledged_last() {
 }
 
 #[test]
-fn the_last_who_is_the_newest_acknowledgement_or_reading_of_the_session() {
+fn forgetting_an_agent_deletes_its_acknowledgement_and_reading_only() {
     let db = crate::db::memory();
-    assert_eq!(last_who(&db, "s1").unwrap(), None);
-    acknowledge(&db, "s1", "coordinator", "v1", 5, &[]).unwrap();
+    acknowledge(&db, "s1", "a1", "v1", 5, &[]).unwrap();
+    acknowledge(&db, "s1", "a2", "v1", 6, &[]).unwrap();
     start_reading(
         &db,
         "s1",
-        "agent",
-        "v1",
+        "a1",
+        "v2",
         8,
         &names(&["builds help"]),
         &words(&[&["ka"]]),
     )
     .unwrap();
-    acknowledge(&db, "s2", "elsewhere", "v1", 9, &[]).unwrap();
-    assert_eq!(last_who(&db, "s1").unwrap().as_deref(), Some("agent"));
+    forget(&db, "s1", "a1").unwrap();
+    assert_eq!(last(&db, "s1", "a1").unwrap(), None);
+    assert_eq!(reading(&db, "s1", "a1").unwrap(), None);
+    assert!(last(&db, "s1", "a2").unwrap().is_some());
 }
 
 #[test]

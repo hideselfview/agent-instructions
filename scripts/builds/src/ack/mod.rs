@@ -7,18 +7,18 @@
 //! it in the shells of a session and of every agent the session dispatches,
 //! and the person's terminal lacks it, so builds never refuses the person's
 //! own commands. The agents a session dispatches share its session id, so
-//! builds names an agent by the session id and a name: `--by WHO`, else the
-//! claim of the worktree the command runs in, else the name the session last
-//! acknowledged or started a reading under.
+//! builds names an agent by the session id and the agent id that `--agent` or
+//! `BUILDS_AGENT` gives, which a hook registered when Claude Code started the
+//! agent (agent.rs).
 //!
 //! builds keeps the acknowledgement in the store of the project whose repo
 //! the command runs in, else of the project `--project` names. builds refuses
 //! an agent whose acknowledgement there is missing, is of another version of
-//! the text, or is more than `HOURS` hours old. After Claude Code compacts a
-//! session or one of its agents, its SessionStart hook runs `builds ack
-//! --compacted`, which deletes no acknowledgement and fails, saying why
-//! (`compacted`).
+//! the text, or is more than `HOURS` hours old. After Claude Code compacts an
+//! agent, its SessionStart hook runs `builds ack --compacted`, which deletes
+//! that agent's acknowledgements (`compacted`).
 
+pub mod agent;
 pub mod record;
 pub mod text;
 
@@ -27,7 +27,6 @@ use std::path::Path;
 use rusqlite::TransactionBehavior;
 
 use crate::checkout::Checkout;
-use crate::claim::Claim;
 use crate::db::{self, Make, Sql};
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -49,7 +48,7 @@ pub const PASSED: &str = "BUILDS_ACKNOWLEDGED";
 /// How many hours an acknowledgement holds.
 pub const HOURS: i64 = 12;
 
-const USAGE: &str = "usage: builds ack [--by WHO] [--project P]\n       builds ack PART [--by WHO] [--project P]\n       builds ack VERSION WORD... [--by WHO] [--project P]\n       builds ack --compacted";
+const USAGE: &str = "usage: builds ack [--agent ID] [--project P]\n       builds ack PART [--agent ID] [--project P]\n       builds ack VERSION WORD... [--agent ID] [--project P]\n       builds ack --compacted";
 
 /// Refuses `builds <command> <args>` when an agent runs it without a current
 /// acknowledgement. Passes the person's commands, `ack`, which records the
@@ -71,7 +70,7 @@ pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
     check(
         places,
         &session,
-        flag(args, "by"),
+        agent::from_env().as_deref(),
         flag(args, "project"),
         &current_dir()?,
         crate::app_timing::now(),
@@ -101,7 +100,8 @@ fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 /// An agent as builds names it, and where builds keeps its acknowledgement.
 struct Agent {
     session: String,
-    who: String,
+    /// The id Claude Code gives the agent (agent.rs).
+    id: String,
     store: Store,
     /// The checkout the command runs in, whose CLAUDE.md the text holds.
     checkout: Option<Checkout>,
@@ -110,15 +110,28 @@ struct Agent {
 }
 
 impl Agent {
-    /// The agent of <session> that runs a command in <cwd> with `--by` <by>
-    /// and `--project` <project>.
+    /// The agent <id> of <session> that runs a command in <cwd> with
+    /// `--project` <project>. Fails when no id names the agent, or when no
+    /// hook registered the id in <session>.
     fn resolve(
         places: &Places,
         session: &str,
-        by: Option<&str>,
+        id: Option<&str>,
         project: Option<&str>,
         cwd: &Path,
     ) -> Result<Agent> {
+        let how = format!(
+            "builds' hooks told you your id when Claude Code started you, in the line \"Your builds agent id is ...\"; the main agent's id is its session id, in {SESSION}"
+        );
+        let Some(id) = id else {
+            fail!(
+                "builds names each agent by the id Claude Code gives it, and this command names none: pass --agent ID to every builds command, or set {}=ID in front of a script that runs builds. {how}.",
+                agent::VARIABLE
+            );
+        };
+        if !agent::is_registered(places, session, id)? {
+            fail!("builds has registered no agent {id} in session {session}. {how}.");
+        }
         let checkout = Checkout::at(cwd)?;
         let of_checkout = match &checkout {
             Some(checkout) => project_of(places, checkout),
@@ -132,38 +145,22 @@ impl Agent {
                 cwd.display()
             ),
         };
-        let claimed = match &checkout {
-            Some(checkout) => Claim::read(&checkout.claim_file())?
-                .map(|claim| claim.who)
-                .filter(|who| !who.is_empty()),
-            None => None,
-        };
-        let who = match (by, claimed) {
-            (Some(by), _) if !by.trim().is_empty() => by.to_string(),
-            (Some(_), _) => fail!("--by is empty"),
-            (None, Some(claimed)) => claimed,
-            (None, None) => match db::open_reader(&store.database())? {
-                Some(db) => record::last_who(&db, session)?,
-                None => None,
-            }
-            .ok_or_else(|| {
-                fail::Fail::Message(
-                    "say who you are: run `builds ack --by WHO`, with the name your coordinator gave you or `coordinator`"
-                        .to_string(),
-                )
-            })?,
-        };
-        let mut flags = format!(" --by {}", shell_word(&who));
+        let mut flags = format!(" --agent {}", shell_word(id));
         if named {
             flags += &format!(" --project {}", shell_word(&store.project));
         }
         Ok(Agent {
             session: session.to_string(),
-            who,
+            id: id.to_string(),
             store,
             checkout,
             flags,
         })
+    }
+
+    /// The agent as messages name it.
+    fn name(&self) -> String {
+        format!("agent {}", self.id)
     }
 
     fn text(&self, places: &Places) -> Result<Text> {
@@ -172,7 +169,7 @@ impl Agent {
 
     fn last(&self) -> Result<Option<record::Ack>> {
         match db::open_reader(&self.store.database())? {
-            Some(db) => record::last(&db, &self.session, &self.who),
+            Some(db) => record::last(&db, &self.session, &self.id),
             None => Ok(None),
         }
     }
@@ -193,7 +190,7 @@ impl Agent {
         let Some(db) = db::open_reader(&database)? else {
             fail!(
                 "builds read {}'s acknowledgement from {}, and the file is gone now",
-                self.who,
+                self.name(),
                 database.display()
             );
         };
@@ -258,14 +255,14 @@ impl Scope {
 fn check(
     places: &Places,
     session: &str,
-    by: Option<&str>,
+    id: Option<&str>,
     project: Option<&str>,
     cwd: &Path,
     now: i64,
 ) -> Result<()> {
-    let agent = Agent::resolve(places, session, by, project, cwd)?;
+    let agent = Agent::resolve(places, session, id, project, cwd)?;
     let text = agent.text(places)?;
-    let who = &agent.who;
+    let who = agent.name();
     let why = match agent.scope(&text, agent.last()?, now)? {
         Scope::Whole(Whole::Current) => return Ok(()),
         Scope::Whole(Whole::NotAcknowledged) => {
@@ -304,7 +301,8 @@ pub fn cmd_ack(places: &Places, args: &[String]) -> Result<()> {
         let mut input = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)
             .context(|| "reading the hook's input".to_string())?;
-        return Err(compacted(&input));
+        println!("{}", compacted(places, &input)?);
+        return Ok(());
     }
     let Some(session) = session() else {
         fail!(
@@ -316,6 +314,7 @@ pub fn cmd_ack(places: &Places, args: &[String]) -> Result<()> {
         ack(
             places,
             &session,
+            agent::from_env().as_deref(),
             &args,
             &current_dir()?,
             crate::app_timing::now()
@@ -324,16 +323,17 @@ pub fn cmd_ack(places: &Places, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// What `builds ack` with <args> does for the agent of <session> in <cwd> at
-/// <now>, and the text it prints.
-fn ack(places: &Places, session: &str, args: &Args, cwd: &Path, now: i64) -> Result<String> {
-    let agent = Agent::resolve(
-        places,
-        session,
-        args.value("by")?,
-        args.value("project")?,
-        cwd,
-    )?;
+/// What `builds ack` with <args> does for agent <id> of <session> in <cwd>
+/// at <now>, and the text it prints.
+fn ack(
+    places: &Places,
+    session: &str,
+    id: Option<&str>,
+    args: &Args,
+    cwd: &Path,
+    now: i64,
+) -> Result<String> {
+    let agent = Agent::resolve(places, session, id, args.value("project")?, cwd)?;
     let text = agent.text(places)?;
     match args.positional() {
         [] => start(&agent, &text, now),
@@ -360,7 +360,7 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
     record::start_reading(
         &tx,
         &agent.session,
-        &agent.who,
+        &agent.id,
         &version,
         now,
         &shown,
@@ -376,7 +376,7 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
     if let Scope::Changed { since, sections } = &scope {
         out += &format!(
             "Since {} acknowledged version {} at {}, {} of the text's {} sections changed: {}. The reading holds only those sections, each in full.\n",
-            agent.who,
+            agent.name(),
             since.version,
             local_minute(since.at),
             sections.len(),
@@ -401,20 +401,20 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
 /// it started.
 fn reading_of(agent: &Agent, text: &Text) -> Result<record::Reading> {
     let reading = match db::open_reader(&agent.store.database())? {
-        Some(db) => record::reading(&db, &agent.session, &agent.who)?,
+        Some(db) => record::reading(&db, &agent.session, &agent.id)?,
         None => None,
     };
     let Some(reading) = reading else {
         fail!(
             "{} has no reading; run `builds ack{}` first, which draws each part's check words",
-            agent.who,
+            agent.name(),
             agent.flags
         );
     };
     if reading.version != text.version() {
         fail!(
             "the text changed since {} ran `builds ack`; run `builds ack{}` again",
-            agent.who,
+            agent.name(),
             agent.flags
         );
     }
@@ -452,7 +452,7 @@ fn acknowledge(
     if version != reading.version {
         fail!(
             "{} reads version {}, not {version}",
-            agent.who,
+            agent.name(),
             reading.version
         );
     }
@@ -481,18 +481,11 @@ fn acknowledge(
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .sql()?;
-    record::acknowledge(
-        &tx,
-        &agent.session,
-        &agent.who,
-        version,
-        now,
-        &text.hashes(),
-    )?;
+    record::acknowledge(&tx, &agent.session, &agent.id, version, now, &text.hashes())?;
     tx.commit().sql()?;
     Ok(format!(
-        "builds: {} acknowledged version {version}. The acknowledgement holds for {HOURS} hours, or until the text changes.\n",
-        agent.who
+        "builds: {} acknowledged version {version}. The acknowledgement holds for {HOURS} hours, until the text changes or Claude Code compacts this agent.\n",
+        agent.name()
     ))
 }
 
@@ -516,40 +509,47 @@ fn wrong_parts(expected: &[Vec<String>], given: &[String]) -> Vec<usize> {
         .collect()
 }
 
-/// What `builds ack --compacted` does with the input Claude Code's
-/// SessionStart hook passes after a compaction: it deletes no
-/// acknowledgement and returns the failure that says why. The input names the
-/// agent that compacted (`agent_id`, absent when the session's main agent
-/// compacted), but an agent's shell holds only the session id, which every
-/// agent of the session shares, so builds cannot tell which acknowledgement
-/// is that agent's, and deleting all of the session's would make every other
-/// agent read the text again.
-fn compacted(input: &str) -> fail::Fail {
-    #[derive(serde::Deserialize)]
-    struct HookInput {
-        session_id: String,
-        agent_id: Option<String>,
+/// What `builds ack --compacted` does with the input <input> Claude Code's
+/// SessionStart hook passes after it compacts an agent: deletes that agent's
+/// acknowledgement and reading in every store, and returns the hook's output,
+/// which tells the agent its id again. The input names the agent
+/// (`agent_id`, absent when the main agent compacted). Fails, deleting
+/// nothing, for an agent no hook registered.
+fn compacted(places: &Places, input: &str) -> Result<String> {
+    let hook = agent::HookInput::parse(input)?;
+    if hook.hook_event_name != "SessionStart" || hook.source.as_deref() != Some("compact") {
+        fail!(
+            "`builds ack --compacted` runs from the SessionStart hook after a compaction, and this input is of {} ({})",
+            hook.hook_event_name,
+            hook.source.as_deref().unwrap_or("no source")
+        );
     }
-    let hook: HookInput = match serde_json::from_str(input) {
-        Ok(hook) => hook,
-        Err(error) => {
-            return fail::Fail::Message(format!(
-                "the hook's input is not Claude Code's SessionStart input: {error}"
-            ));
-        }
-    };
-    let compacted = match &hook.agent_id {
-        Some(agent) => format!("agent {agent}"),
-        None => "the main agent".to_string(),
-    };
-    fail::Fail::Message(format!(
-        "builds deleted no acknowledgement: Claude Code compacted {compacted} of session {}, and builds cannot tell which acknowledgement is that agent's. Claude Code names the agent in this hook's input, but gives an agent's shell only the session id ({SESSION}), which the session and every agent it dispatches share, so builds keeps each acknowledgement under the session and a name. The agent keeps its acknowledgement until the text changes or {HOURS} hours pass; it reads the text again with `builds ack`.",
-        hook.session_id
+    let id = hook.agent();
+    if !agent::is_registered(places, &hook.session_id, id)? {
+        fail!(
+            "Claude Code compacted agent {id} of session {}, and no hook registered that agent, so builds deleted no acknowledgement",
+            hook.session_id
+        );
+    }
+    for store in stores(places)? {
+        let mut db = db::open(&store.database(), Make::Never)?;
+        let tx = db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .sql()?;
+        record::forget(&tx, &hook.session_id, id)?;
+        tx.commit().sql()?;
+    }
+    Ok(agent::hook_output(
+        "SessionStart",
+        &format!(
+            "Claude Code compacted your context, so builds ended your acknowledgement of the text every agent reads. {} Run `builds ack --agent {id}` before your next builds command.",
+            agent::told(id)
+        ),
     ))
 }
 
 /// Every project's acknowledgements as the dashboard reads them: each
-/// agent's name, session, version and time, and the hours an
+/// agent's id, version and time, and the hours an
 /// acknowledgement holds, from which the page tells which ones ended.
 pub fn dashboard_json(places: &Places) -> String {
     let value = match stores(places) {
@@ -565,7 +565,7 @@ pub fn dashboard_json(places: &Places) -> String {
                         Ok(acks) => serde_json::json!({
                             "project": store.project,
                             "acks": acks.iter().map(|ack| serde_json::json!({
-                                "who": ack.who,
+                                "agent": ack.agent,
                                 "version": ack.version,
                                 "at": ack.at,
                             })).collect::<Vec<_>>(),

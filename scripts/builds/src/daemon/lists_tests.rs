@@ -274,7 +274,7 @@ fn an_acknowledgement_reaches_the_feeds_acks_json_and_moves_no_version() {
         .recv_timeout(HANG_GUARD)
         .expect("the acknowledgement reached the feed");
     let after = feed.acks();
-    assert!(after.contains("\"who\":\"agent\""), "{after}");
+    assert!(after.contains("\"agent\":\"agent\""), "{after}");
     assert_eq!(feed.current().0, version);
 }
 

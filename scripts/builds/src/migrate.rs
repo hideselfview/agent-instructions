@@ -274,9 +274,10 @@ const BEFORE_WRITING_RUNS_STAMP: i64 = 1_268_800_089;
 /// on code comments and commit messages.
 const BEFORE_MESSAGE_STYLE_STAMP: i64 = 369_927_263;
 
-/// The stamp of the schema before builds kept the versions of the text that
-/// agents acknowledged, and before a reading recorded the sections it holds.
-const BEFORE_KEPT_VERSIONS_STAMP: i64 = 280_014_316;
+/// The stamp of the schema before builds named each agent by its Claude Code
+/// agent id, kept the versions of the text that agents acknowledged, and
+/// recorded the sections a reading holds.
+const BEFORE_AGENT_IDS_STAMP: i64 = 280_014_316;
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
@@ -317,7 +318,7 @@ const STAMPS: [i64; 37] = [
     BEFORE_RUN_TIMES_STAMP,
     BEFORE_WRITING_RUNS_STAMP,
     BEFORE_MESSAGE_STYLE_STAMP,
-    BEFORE_KEPT_VERSIONS_STAMP,
+    BEFORE_AGENT_IDS_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -418,11 +419,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// settles as dropped each finding of the writing group that a branch waits
 /// on and that is on the commit messages or on comment lines
 /// (`review::record::move_to_message_style`). Every store that has the
-/// acknowledgements' tables gets the tables of the versions that builds
-/// keeps, with each version its acknowledgements name, and of the sections a
-/// reading holds,
-/// and loses each acknowledgement's sections and every reading in progress
-/// (`ack::record::move_to_kept_versions`).
+/// acknowledgements' tables gets today's, empty: every acknowledgement and
+/// reading names an agent by its session and a name, not by its agent id, so
+/// every agent reads the whole text once (`ack::record::move_to_agent_ids`).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -815,10 +814,10 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
         ));
     }
     // A store from before the acknowledgements got today's tables above. Every
-    // newer store holds each acknowledgement's sections and no version, and
-    // the move turns those sections into the versions that builds keeps.
-    if !before(found, BEFORE_ACK_STAMP) && before(found, BEFORE_KEPT_VERSIONS_STAMP) {
-        crate::ack::record::move_to_kept_versions(&tx)?;
+    // newer store holds acknowledgements that name no agent id, and gets
+    // today's tables, empty.
+    if !before(found, BEFORE_ACK_STAMP) && before(found, BEFORE_AGENT_IDS_STAMP) {
+        crate::ack::record::move_to_agent_ids(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

@@ -33,9 +33,9 @@ it does in every repo (LANDING AND REVIEW). To try an edit to builds before
 
 ACKNOWLEDGING THE RULES
 
-builds refuses every command an agent runs, except `help`, `ack`, `install`
-and `dashboard`, until the agent has read the text every agent reads before
-it works and has acknowledged it with `builds ack`. The text is
+builds refuses every command an agent runs, except `help`, `ack`, `agent`,
+`install` and `dashboard`, until the agent has read the text every agent reads
+before it works and has acknowledged it with `builds ack`. The text is
 ~/.claude/CLAUDE.md, the CLAUDE.md of the repo the command runs in, `builds
 help workflow` (without its WHAT REVIEWS CONFIRM MOST OFTEN section, which
 changes with each settled finding), the overview that opens `builds help
@@ -45,7 +45,7 @@ edit of any of them changes the text's version. The rest of this help, and of
 `builds help lists` and `builds help briefs`, is for looking up what a command
 does.
 
-  builds ack [--by WHO] [--project P]
+  builds ack [--agent ID] [--project P]
       Start a reading: say the text's version and how many parts it comes
       in, and draw new check words for every part. builds keeps the
       sections of the 20 versions of the text that agents acknowledged most
@@ -53,36 +53,49 @@ does.
       and the agent acknowledged it at most 12 hours ago, the reading holds
       only the sections that changed since, each in full, and says which
       ones changed. Otherwise the reading holds the whole text.
-  builds ack PART [--by WHO] [--project P]
+  builds ack PART [--agent ID] [--project P]
       Print part PART of the reading. Each part shows three check words, on
       lines of their own, at its start, its middle and its end. Reading a
       part again shows the same words.
-  builds ack VERSION WORD... [--by WHO] [--project P]
+  builds ack VERSION WORD... [--agent ID] [--project P]
       Acknowledge version VERSION, giving every check word of every part,
       in order. When a word is missing or wrong, builds refuses the
       acknowledgement and names the parts to read again.
   builds ack --compacted
-      Claude Code's SessionStart hook runs this after Claude Code compacts a
-      session or one of its agents (claude/settings.json in
-      agent-instructions). builds deletes no acknowledgement and fails,
-      saying why: the hook's input names the agent that compacted, but
-      Claude Code gives an agent's shell only the session id, which the
-      session and every agent it dispatches share, so builds cannot tell
-      which acknowledgement is that agent's. The agent keeps its
-      acknowledgement until the text changes or 12 hours pass.
+      Claude Code's SessionStart hook runs this after Claude Code compacts
+      an agent (claude/settings.json in agent-instructions). builds deletes
+      that agent's acknowledgement and reading in every project's store, and
+      tells the agent its id again, so the agent reads the text again before
+      its next builds command and every other agent keeps its
+      acknowledgement. builds refuses an agent no hook registered, and
+      deletes nothing.
+  builds agent start
+      Claude Code's SessionStart hook (when a session starts, resumes,
+      clears or forks) and its SubagentStart hook run this. builds reads the
+      hook's input, registers the agent's id in the session, and adds "Your
+      builds agent id is ID. Pass --agent ID to every builds command ..." to
+      the agent's context.
 
 builds never refuses the person's own commands: it tells an agent's command by
-the Claude Code session id in its environment, which the person's terminal
-lacks. builds names an agent by its session and a name: --by WHO, else the
-claim of the worktree the command runs in, else the name the session last
-acknowledged or started a reading under. builds keeps the acknowledgement in
-the store of the project whose repo the command runs in, else of the project
---project names. builds refuses an agent whose acknowledgement there is
-missing, is of another version, or is more than 12 hours old, and names what
-changed since the agent's last acknowledgement. A builds command that passed
-lets the builds commands it runs pass too, such as a commit hook's checks or
-the install after a landing. The dashboard's Running tab lists each agent's
-last acknowledgement in the project.
+the Claude Code session id in its environment (CLAUDE_CODE_SESSION_ID), which
+the person's terminal lacks. The agents a session dispatches share its session
+id, and no shell of an agent sees anything that tells the agents apart, so
+builds names an agent by the session and the id Claude Code gives the agent. A
+subagent's id is the id the hooks' input names (agent_id); the main agent has
+none, and its id is its session id. `builds agent start` registers each id in
+<the lists folder's parent>/agents/<session>/<id>, which every project reads.
+An agent passes its id to every builds command with --agent ID, anywhere
+before a `--`, or sets BUILDS_AGENT=ID in front of a script that runs builds
+(BUILDS_AGENT=ID scripts/cargo.sh test). builds refuses a command that names
+no id, or an id no hook registered in the session, and says where the agent
+finds its id. builds keeps the acknowledgement in the store of the project
+whose repo the command runs in, else of the project --project names. builds
+refuses an agent whose acknowledgement there is missing, is of another
+version, or is more than 12 hours old, and names what changed since the
+agent's last acknowledgement. A builds command that passed lets the builds
+commands it runs pass too, such as a commit hook's checks or the install
+after a landing. The dashboard's Running tab lists each agent's last
+acknowledgement in the project.
 
 
 BUILD VOLUME

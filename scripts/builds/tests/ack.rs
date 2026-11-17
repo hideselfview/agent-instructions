@@ -7,7 +7,7 @@ use std::process::{Command, Output};
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 
-fn builds(dir: &PathBuf, session: Option<&str>, args: &[&str]) -> Output {
+fn command(dir: &PathBuf, session: Option<&str>, args: &[&str]) -> Command {
     let mut command = Command::new(BUILDS);
     command
         .current_dir(dir)
@@ -16,11 +16,40 @@ fn builds(dir: &PathBuf, session: Option<&str>, args: &[&str]) -> Output {
         .env("BUILDS_LISTS", dir.join("lists"))
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env_remove("BUILDS_ACKNOWLEDGED")
+        .env_remove("BUILDS_AGENT")
         .args(args);
     if let Some(session) = session {
         command.env("CLAUDE_CODE_SESSION_ID", session);
     }
-    command.output().unwrap()
+    command
+}
+
+fn builds(dir: &PathBuf, session: Option<&str>, args: &[&str]) -> Output {
+    command(dir, session, args).output().unwrap()
+}
+
+/// Runs `builds agent start` as Claude Code's SessionStart hook does when
+/// session <session> starts, which registers its main agent.
+fn start_session(dir: &PathBuf, session: &str) -> Output {
+    use std::io::Write;
+    let mut child = command(dir, Some(session), &["agent", "start"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            format!(
+                r#"{{"session_id": "{session}", "hook_event_name": "SessionStart", "source": "startup"}}"#
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    child.wait_with_output().unwrap()
 }
 
 #[test]
@@ -35,7 +64,17 @@ fn an_agents_command_waits_for_its_acknowledgement_and_the_persons_runs() {
     let person = builds(&dir, None, &["du", "home"]);
     assert!(person.status.success(), "{person:?}");
 
-    let agent = builds(&dir, Some("s1"), &["du", "home"]);
+    let started = start_session(&dir, "s1");
+    assert!(started.status.success(), "{started:?}");
+    let told = String::from_utf8_lossy(&started.stdout);
+    assert!(told.contains("Your builds agent id is s1."), "{told}");
+
+    let unnamed = builds(&dir, Some("s1"), &["du", "home"]);
+    assert!(!unnamed.status.success());
+    let said = String::from_utf8_lossy(&unnamed.stderr);
+    assert!(said.contains("pass --agent ID"), "{said}");
+
+    let agent = builds(&dir, Some("s1"), &["du", "home", "--agent", "s1"]);
     assert!(!agent.status.success());
     let said = String::from_utf8_lossy(&agent.stderr);
     assert!(said.contains("acknowledgement"), "{said}");
@@ -64,7 +103,9 @@ fn an_agent_runs_install_on_a_store_of_an_older_schema_and_builds_refuses_its_ot
         .unwrap()
         .pragma_update(None, "user_version", 1)
         .unwrap();
-    let agent = ["--project", "bae", "--by", "agent"];
+    let started = start_session(&dir, "s1");
+    assert!(started.status.success(), "{started:?}");
+    let agent = ["--project", "bae", "--agent", "s1"];
 
     // install refuses the extra arguments with its usage, which shows that
     // the gate let the command through to install.

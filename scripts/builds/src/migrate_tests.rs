@@ -2899,7 +2899,7 @@ fn a_store_from_before_ranks_ranks_the_questions_placed_first_newest_asked_on_to
 /// The schema text before builds kept the agents' acknowledgements: without
 /// their tables.
 fn schema_before_ack() -> String {
-    without_parts(schema_before_effects(), &[BEFORE_KEPT_VERSIONS_ACK_PART])
+    without_parts(schema_before_effects(), &[BEFORE_AGENT_IDS_ACK_PART])
 }
 
 /// The schema text before `blocks_nothing` could hold a reason only while no
@@ -3066,7 +3066,7 @@ fn schema_before_message_style() -> String {
         "    -- Why builds dropped it: its clause is not in the rule or its code is not in the diff.
 ",
     );
-    let schema = schema_before_kept_versions();
+    let schema = schema_before_agent_ids();
     assert_eq!(schema.matches(now).count(), 1, "{now}");
     schema.replacen(now, then, 1)
 }
@@ -3263,10 +3263,10 @@ fn a_store_from_before_writing_runs_moves_and_records_a_writing_check() {
     crate::review::writing::add_run(&conn, "bae", "branch:work", 5).unwrap();
 }
 
-/// ack/record.sql as it was before builds kept the versions of the text that
-/// agents acknowledged: each acknowledgement kept its own sections, and a
-/// reading did not record the sections it holds.
-const BEFORE_KEPT_VERSIONS_ACK_PART: &str = r#"-- `builds ack` records that an agent read the text builds asks every agent to
+/// ack/record.sql as it was before builds named each agent by its Claude Code
+/// agent id: each acknowledgement named its agent by a name and kept its own
+/// sections, and a reading did not record the sections it holds.
+const BEFORE_AGENT_IDS_ACK_PART: &str = r#"-- `builds ack` records that an agent read the text builds asks every agent to
 -- read before it runs a builds command. builds names an agent by its Claude
 -- Code session and its name (`who`): the agents a session dispatches share its
 -- session id, so the name tells them apart.
@@ -3315,43 +3315,40 @@ CREATE TABLE ack_word (
 ) STRICT, WITHOUT ROWID;
 "#;
 
-/// The schema text before builds kept the versions of the text that agents
-/// acknowledged.
-fn schema_before_kept_versions() -> String {
+/// The schema text before builds named each agent by its Claude Code agent
+/// id.
+fn schema_before_agent_ids() -> String {
     let schema = db::schema();
     assert_eq!(schema.matches(db::ACK_PART).count(), 1);
-    schema.replacen(db::ACK_PART, BEFORE_KEPT_VERSIONS_ACK_PART, 1)
+    schema.replacen(db::ACK_PART, BEFORE_AGENT_IDS_ACK_PART, 1)
 }
 
 #[test]
-fn the_kept_versions_stamp_is_the_schema_before_kept_versions() {
+fn the_kept_versions_stamp_is_the_schema_before_agent_ids() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_kept_versions()),
-        BEFORE_KEPT_VERSIONS_STAMP
+        db::stamp_of_text(&schema_before_agent_ids()),
+        BEFORE_AGENT_IDS_STAMP
     );
 }
 
-/// A store from before builds kept the versions of the text keeps each
-/// acknowledgement, keeps the sections of each version an acknowledgement
-/// names, deletes the reading in progress, and equals a fresh schema.
+/// A store from before builds named agents by their ids loses every
+/// acknowledgement and reading, equals a fresh schema, and then records an
+/// acknowledgement.
 #[test]
-fn a_store_from_before_kept_versions_keeps_each_acknowledged_versions_sections() {
-    let scratch = Scratch::new("move-kept-versions");
+fn a_store_from_before_agent_ids_loses_its_acknowledgements_and_records_one() {
+    let scratch = Scratch::new("move-agent-ids");
     let places = scratch.places();
     let dir = places.lists.join("bae");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&schema_before_kept_versions()).unwrap();
-        conn.pragma_update(None, "user_version", BEFORE_KEPT_VERSIONS_STAMP)
+        conn.execute_batch(&schema_before_agent_ids()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_AGENT_IDS_STAMP)
             .unwrap();
         conn.execute_batch(
-            "INSERT INTO ack (session, who, version, at) VALUES
-                 ('s1', 'agent', 'v1', 10), ('s1', 'coordinator', 'v1', 20), ('s2', 'other', 'v2', 30);
-             INSERT INTO ack_section (session, who, name, hash) VALUES
-                 ('s1', 'agent', 'builds help', 'aa'), ('s1', 'coordinator', 'builds help', 'aa'),
-                 ('s2', 'other', 'builds help', 'bb');
+            "INSERT INTO ack (session, who, version, at) VALUES ('s1', 'agent', 'v1', 10);
+             INSERT INTO ack_section (session, who, name, hash) VALUES ('s1', 'agent', 'builds help', 'aa');
              INSERT INTO ack_reading (session, who, version, started_at) VALUES ('s1', 'agent', 'v2', 40);
              INSERT INTO ack_word (session, who, part, position, word) VALUES ('s1', 'agent', 1, 1, 'kama');",
         )
@@ -3363,33 +3360,12 @@ fn a_store_from_before_kept_versions_keeps_each_acknowledged_versions_sections()
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    let section = |hash: &str| Some(vec![("builds help".to_string(), hash.to_string())]);
-    assert_eq!(
-        crate::ack::record::kept_sections(&conn, "v1").unwrap(),
-        section("aa")
-    );
-    assert_eq!(
-        crate::ack::record::kept_sections(&conn, "v2").unwrap(),
-        section("bb")
-    );
-    let acknowledged: i64 = conn
-        .query_row(
-            "SELECT acknowledged_at FROM ack_version WHERE version = 'v1'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(acknowledged, 20);
+    assert_eq!(crate::ack::record::all(&conn).unwrap(), Vec::new());
     assert_eq!(
         crate::ack::record::reading(&conn, "s1", "agent").unwrap(),
         None
     );
-    assert_eq!(
-        crate::ack::record::last(&conn, "s1", "agent")
-            .unwrap()
-            .map(|ack| ack.at),
-        Some(10)
-    );
+    crate::ack::record::acknowledge(&conn, "s1", "a1", "v3", 50, &[]).unwrap();
 }
 
 /// The schema text before the person could allow a confirmed finding to land:

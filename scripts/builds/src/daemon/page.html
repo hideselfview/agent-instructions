@@ -1775,9 +1775,10 @@ function projectAcks() {
   const now = Date.now() / 1000;
   return own.acks.map(a => ({...a, ended: now - a.at > acks.hours * 3600}));
 }
-// An agent's row says who acknowledged which version of the text, and when.
+// An agent's row says which agent acknowledged which version of the text, and
+// when.
 function ackRow(a) {
-  return h("div", {class: "l-rowfact"}, a.who + " acknowledged version " + a.version + ", " + stamp(a.at) +
+  return h("div", {class: "l-rowfact"}, "Agent " + a.agent + " acknowledged version " + a.version + ", " + stamp(a.at) +
     (a.ended ? " · more than " + acks.hours + " hours ago, so builds refuses this agent's commands" : ""));
 }
 // The items Queue shows while the reader has chosen no tag.

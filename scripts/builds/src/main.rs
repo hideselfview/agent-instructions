@@ -121,6 +121,10 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    let args = match ack::agent::take_flag(&args) {
+        Ok(args) => args,
+        Err(fail) => return exit_code(fail),
+    };
     let Some((command, rest)) = args.split_first() else {
         print!("{HELP}");
         return ExitCode::from(2);
@@ -238,6 +242,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         }
         "shots" => return shot_findings::cmd_shots(&Places::from_env()?, args),
         "ack" => return ack::cmd_ack(&Places::from_env()?, args),
+        "agent" => return ack::agent::cmd_agent(&Places::from_env()?, args),
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),
         "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
         "-h" | "--help" | "help" => {
@@ -291,7 +296,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "host" => host::cmd_host(&tool, &host::Ssh::from_env(), args),
         "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
         other => fail!(
-            "unknown command {other} (ack | setup | new | land | review | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | host | remote | prune | cargo | lock | app-build | shots | queue | takeover | build-app | install | checks | install-hook)"
+            "unknown command {other} (ack | agent | setup | new | land | review | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | host | remote | prune | cargo | lock | app-build | shots | queue | takeover | build-app | install | checks | install-hook)"
         ),
     }
 }

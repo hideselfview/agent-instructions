@@ -17,11 +17,32 @@
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "startup|resume|clear|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.local/bin/builds\" agent start",
+            "timeout": 30
+          }
+        ]
+      },
+      {
         "matcher": "compact",
         "hooks": [
           {
             "type": "command",
             "command": "\"$HOME/.local/bin/builds\" ack --compacted",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.local/bin/builds\" agent start",
             "timeout": 30
           }
         ]

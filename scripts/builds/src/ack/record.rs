@@ -21,7 +21,7 @@ pub struct Ack {
 /// An agent's last acknowledgement, as the dashboard lists it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentAck {
-    pub who: String,
+    pub agent: String,
     pub version: String,
     /// Seconds since 1970.
     pub at: i64,
@@ -38,11 +38,11 @@ pub struct Reading {
     pub words: Vec<Vec<String>>,
 }
 
-/// The last acknowledgement of <who> in <session>.
-pub fn last(db: &Connection, session: &str, who: &str) -> Result<Option<Ack>> {
+/// The last acknowledgement of <agent> in <session>.
+pub fn last(db: &Connection, session: &str, agent: &str) -> Result<Option<Ack>> {
     db.query_row(
-        "SELECT version, at FROM ack WHERE session = ?1 AND who = ?2",
-        params![session, who],
+        "SELECT version, at FROM ack WHERE session = ?1 AND agent = ?2",
+        params![session, agent],
         |row| {
             Ok(Ack {
                 version: row.get(0)?,
@@ -80,56 +80,40 @@ pub fn kept_sections(db: &Connection, version: &str) -> Result<Option<Vec<(Strin
     Ok(Some(sections))
 }
 
-/// The name <session> last acknowledged or started a reading under: the
-/// newest of its acknowledgements and readings. None when it has neither.
-pub fn last_who(db: &Connection, session: &str) -> Result<Option<String>> {
-    db.query_row(
-        "SELECT who FROM (
-             SELECT who, at FROM ack WHERE session = ?1
-             UNION ALL
-             SELECT who, started_at AS at FROM ack_reading WHERE session = ?1
-         ) ORDER BY at DESC LIMIT 1",
-        params![session],
-        |row| row.get(0),
-    )
-    .optional()
-    .sql()
-}
-
-/// Starts the reading of version <version> by <who> in <session> at <at>,
+/// Starts the reading of version <version> by <agent> in <session> at <at>,
 /// which holds the sections named <sections> in that order, with each part's
 /// check words, in place of the reading it had.
 pub fn start_reading(
     db: &Connection,
     session: &str,
-    who: &str,
+    agent: &str,
     version: &str,
     at: i64,
     sections: &[String],
     words: &[Vec<String>],
 ) -> Result<()> {
     db.execute(
-        "DELETE FROM ack_reading WHERE session = ?1 AND who = ?2",
-        params![session, who],
+        "DELETE FROM ack_reading WHERE session = ?1 AND agent = ?2",
+        params![session, agent],
     )
     .sql()?;
     db.execute(
-        "INSERT INTO ack_reading (session, who, version, started_at) VALUES (?1, ?2, ?3, ?4)",
-        params![session, who, version, at],
+        "INSERT INTO ack_reading (session, agent, version, started_at) VALUES (?1, ?2, ?3, ?4)",
+        params![session, agent, version, at],
     )
     .sql()?;
     for (position, name) in sections.iter().enumerate() {
         db.execute(
-            "INSERT INTO ack_reading_section (session, who, position, name) VALUES (?1, ?2, ?3, ?4)",
-            params![session, who, position as i64 + 1, name],
+            "INSERT INTO ack_reading_section (session, agent, position, name) VALUES (?1, ?2, ?3, ?4)",
+            params![session, agent, position as i64 + 1, name],
         )
         .sql()?;
     }
     for (part, part_words) in words.iter().enumerate() {
         for (position, word) in part_words.iter().enumerate() {
             db.execute(
-                "INSERT INTO ack_word (session, who, part, position, word) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![session, who, part as i64 + 1, position as i64 + 1, word],
+                "INSERT INTO ack_word (session, agent, part, position, word) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![session, agent, part as i64 + 1, position as i64 + 1, word],
             )
             .sql()?;
         }
@@ -137,12 +121,12 @@ pub fn start_reading(
     Ok(())
 }
 
-/// The reading <who> in <session> started, or None.
-pub fn reading(db: &Connection, session: &str, who: &str) -> Result<Option<Reading>> {
+/// The reading <agent> in <session> started, or None.
+pub fn reading(db: &Connection, session: &str, agent: &str) -> Result<Option<Reading>> {
     let Some(version) = db
         .query_row(
-            "SELECT version FROM ack_reading WHERE session = ?1 AND who = ?2",
-            params![session, who],
+            "SELECT version FROM ack_reading WHERE session = ?1 AND agent = ?2",
+            params![session, agent],
             |row| row.get::<_, String>(0),
         )
         .optional()
@@ -152,21 +136,21 @@ pub fn reading(db: &Connection, session: &str, who: &str) -> Result<Option<Readi
     };
     let mut statement = db
         .prepare(
-            "SELECT name FROM ack_reading_section WHERE session = ?1 AND who = ?2 ORDER BY position",
+            "SELECT name FROM ack_reading_section WHERE session = ?1 AND agent = ?2 ORDER BY position",
         )
         .sql()?;
     let sections = statement
-        .query_map(params![session, who], |row| row.get(0))
+        .query_map(params![session, agent], |row| row.get(0))
         .sql()?
         .collect::<rusqlite::Result<Vec<String>>>()
         .sql()?;
     let mut statement = db
         .prepare(
-            "SELECT part, word FROM ack_word WHERE session = ?1 AND who = ?2 ORDER BY part, position",
+            "SELECT part, word FROM ack_word WHERE session = ?1 AND agent = ?2 ORDER BY part, position",
         )
         .sql()?;
     let rows = statement
-        .query_map(params![session, who], |row| {
+        .query_map(params![session, agent], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
         })
         .sql()?
@@ -186,7 +170,7 @@ pub fn reading(db: &Connection, session: &str, who: &str) -> Result<Option<Readi
     }))
 }
 
-/// Records that <who> in <session> acknowledged version <version> at <at>,
+/// Records that <agent> in <session> acknowledged version <version> at <at>,
 /// whose sections had <sections> (name and hash), in place of its last
 /// acknowledgement, and ends its reading. builds keeps the version with its
 /// sections, and deletes each version that is no longer among the
@@ -194,19 +178,19 @@ pub fn reading(db: &Connection, session: &str, who: &str) -> Result<Option<Readi
 pub fn acknowledge(
     db: &Connection,
     session: &str,
-    who: &str,
+    agent: &str,
     version: &str,
     at: i64,
     sections: &[(String, String)],
 ) -> Result<()> {
     db.execute(
-        "DELETE FROM ack WHERE session = ?1 AND who = ?2",
-        params![session, who],
+        "DELETE FROM ack WHERE session = ?1 AND agent = ?2",
+        params![session, agent],
     )
     .sql()?;
     db.execute(
-        "INSERT INTO ack (session, who, version, at) VALUES (?1, ?2, ?3, ?4)",
-        params![session, who, version, at],
+        "INSERT INTO ack (session, agent, version, at) VALUES (?1, ?2, ?3, ?4)",
+        params![session, agent, version, at],
     )
     .sql()?;
     db.execute(
@@ -231,61 +215,54 @@ pub fn acknowledge(
     )
     .sql()?;
     db.execute(
-        "DELETE FROM ack_reading WHERE session = ?1 AND who = ?2",
-        params![session, who],
+        "DELETE FROM ack_reading WHERE session = ?1 AND agent = ?2",
+        params![session, agent],
     )
     .sql()?;
     Ok(())
 }
 
-/// Moves the acknowledgements' tables of a store from before builds kept the
-/// versions of the text to today's, inside the move's transaction <tx>, with
-/// foreign keys off. Each version that an acknowledgement names becomes a
-/// version that builds keeps, with the sections that its acknowledgements
-/// kept and the time an agent last acknowledged it, and the move keeps the
-/// `KEPT_VERSIONS` versions that agents acknowledged most recently. The move deletes every reading in
-/// progress, since an old reading held every section with the changed ones
-/// first, an order the new tables do not record: each agent that was reading
-/// starts again with `builds ack`.
-pub fn move_to_kept_versions(tx: &Connection) -> Result<()> {
-    let schema = crate::db::schema();
-    for table in ["ack_version", "ack_version_section", "ack_reading_section"] {
-        tx.execute_batch(crate::db::statement(
-            &schema,
-            &format!("CREATE TABLE {table} ("),
-            "WITHOUT ROWID;",
-        ))
-        .sql()?;
-    }
-    tx.execute(
-        "INSERT INTO ack_version (version, acknowledged_at)
-             SELECT version, MAX(at) FROM ack GROUP BY version
-             ORDER BY MAX(at) DESC, version LIMIT ?1",
-        params![KEPT_VERSIONS],
+/// Deletes the acknowledgement and the reading of agent <agent> of
+/// <session>, after Claude Code compacted that agent.
+pub fn forget(db: &Connection, session: &str, agent: &str) -> Result<()> {
+    db.execute(
+        "DELETE FROM ack WHERE session = ?1 AND agent = ?2",
+        params![session, agent],
     )
     .sql()?;
+    db.execute(
+        "DELETE FROM ack_reading WHERE session = ?1 AND agent = ?2",
+        params![session, agent],
+    )
+    .sql()?;
+    Ok(())
+}
+
+/// Moves the acknowledgements' tables of a store from before builds named
+/// each agent by its Claude Code agent id to today's, inside the move's
+/// transaction <tx>: the move drops the old tables, whose rows name no agent
+/// id, and makes today's empty, so every agent reads the whole text once.
+pub fn move_to_agent_ids(tx: &Connection) -> Result<()> {
     tx.execute_batch(
-        "INSERT INTO ack_version_section (version, name, hash)
-             SELECT DISTINCT ack.version, ack_section.name, ack_section.hash
-             FROM ack_section JOIN ack USING (session, who)
-             WHERE ack.version IN (SELECT version FROM ack_version);
+        "DROP TABLE ack_word;
+         DROP TABLE ack_reading;
          DROP TABLE ack_section;
-         DELETE FROM ack_word;
-         DELETE FROM ack_reading;",
+         DROP TABLE ack;",
     )
     .sql()?;
+    tx.execute_batch(crate::db::ACK_PART).sql()?;
     Ok(())
 }
 
 /// Every agent's last acknowledgement, newest first.
 pub fn all(db: &Connection) -> Result<Vec<AgentAck>> {
     let mut statement = db
-        .prepare("SELECT who, version, at FROM ack ORDER BY at DESC, who")
+        .prepare("SELECT agent, version, at FROM ack ORDER BY at DESC, agent")
         .sql()?;
     statement
         .query_map([], |row| {
             Ok(AgentAck {
-                who: row.get(0)?,
+                agent: row.get(0)?,
                 version: row.get(1)?,
                 at: row.get(2)?,
             })
