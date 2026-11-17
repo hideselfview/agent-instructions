@@ -190,7 +190,7 @@ impl Finding {
         }
         match &self.settled {
             None => Some(format!(
-                "finding {id} is not settled; settle it first: builds review settle {id} confirmed|dropped --why TEXT"
+                "the coordinator has not settled finding {id}; settle it first: builds review settle {id} confirmed|dropped --why TEXT"
             )),
             Some(Settled::Again { .. }) => Some(format!(
                 "the coordinator settled finding {id} again already, as dropped"
