@@ -59,6 +59,44 @@ fn install_program_copies_builds_to_the_host_and_makes_its_root() {
     assert!(message.contains("host gone"), "{message}");
 }
 
+/// Installs that run at the same time on one host, as two landings' installs
+/// do, each write their own temporary file, so each succeeds and leaves the
+/// whole program and its link.
+#[test]
+fn installs_at_the_same_time_on_one_host_all_succeed() {
+    let scratch = Scratch::new("host-setup-together");
+    let home = scratch.dir.join("remote-home");
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let m1 = host("m1");
+    let exe = std::env::current_exe().unwrap();
+    let results: Vec<Result<String>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|_| scope.spawn(|| install_program(&ssh, &m1, &exe)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect()
+    });
+    for result in results {
+        result.unwrap();
+    }
+    assert_eq!(
+        std::fs::read(home.join(".local/bin/builds")).unwrap(),
+        std::fs::read(&exe).unwrap()
+    );
+    assert_eq!(
+        std::fs::read_link(crate::linker::path(&home)).unwrap(),
+        Path::new("builds")
+    );
+    let left: Vec<String> = std::fs::read_dir(home.join(".local/bin"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name != "builds" && name != crate::linker::NAME)
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+}
+
 /// A builds command run on a host comes back with what it printed on stdout
 /// and stderr, and a failing one fails with all of that, naming the host.
 #[test]

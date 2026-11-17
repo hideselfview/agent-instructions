@@ -81,7 +81,10 @@ pub fn install_on_host(
 }
 
 /// Copies <program>, this Mac's `builds`, to `~/.local/bin/builds` on <host>
-/// and creates its builds root. The repo's own `scripts/build-layout.sh` and
+/// and creates its builds root. Each install writes the program and its
+/// linker's link under names of its own and renames them into place, so
+/// installs that run at the same time on one host, as two landings' do, each
+/// leave the whole program. The repo's own `scripts/build-layout.sh` and
 /// `scripts/cargo.sh` find the program there, so a repo's hooks and scripts
 /// work on the host as they do here. Both Macs run arm64 macOS, so the same
 /// program runs on both.
@@ -92,7 +95,7 @@ pub fn install_program(ssh: &Ssh, host: &Host, program: &Path) -> Result<String>
     };
     let program = std::fs::read(program).context(|| format!("reading {}", program.display()))?;
     let script = format!(
-        "{root}mkdir -p \"$HOME/.local/bin\" \"$BUILDS_ROOT\" && cat > \"$HOME/.local/bin/builds.part\" && chmod 755 \"$HOME/.local/bin/builds.part\" && mv \"$HOME/.local/bin/builds.part\" \"$HOME/.local/bin/builds\" && ln -sfn builds \"$HOME/.local/bin/{linker}\" && echo \"$BUILDS_ROOT\"",
+        "{root}bin=\"$HOME/.local/bin\" && mkdir -p \"$bin\" \"$BUILDS_ROOT\" && part=$(mktemp \"$bin/builds.XXXXXX\") && link=$(mktemp -u \"$bin/{linker}.XXXXXX\") && trap 'rm -f \"$part\" \"$link\"' EXIT && cat > \"$part\" && chmod 755 \"$part\" && mv \"$part\" \"$bin/builds\" && ln -s builds \"$link\" && mv \"$link\" \"$bin/{linker}\" && echo \"$BUILDS_ROOT\"",
         linker = crate::linker::NAME,
         root = crate::remote::root_script(host)
     );
