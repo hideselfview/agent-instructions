@@ -142,12 +142,11 @@ fn board_of(db: &rusqlite::Connection, claims: &[(&str, Option<&str>)]) -> Board
 #[test]
 fn each_tab_counts_what_it_holds() {
     use crate::lists::Wait;
-    use crate::lists::fixtures::{blocks_something, design, question};
+    use crate::lists::fixtures::{design, question};
     let db = db();
     // Waiting on you: a question, a design change to review, a worktree whose
     // note says so, and one whose item waits on a question.
     let asked = question(&db);
-    blocks_something(&db, asked);
     design(&db);
     let noted = item(&db, vec![]);
     start(&db, noted, "side-1");

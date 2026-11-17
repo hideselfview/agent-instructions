@@ -142,7 +142,7 @@ fn plant_run(conn: &Connection) {
 /// The schema's text before `design_tip`: today's without that table and the
 /// comment above it.
 fn schema_before_design_tip() -> String {
-    let schema = without_design_fix(without_canvas(db::schema_before_app_timing()));
+    let schema = without_design_fix(without_canvas(without_blocks_from_waits(db::schema_before_app_timing())));
     let from = schema
         .find("\n-- The last commit of the range")
         .expect("the table's comment");
@@ -387,7 +387,7 @@ fn store_before_app_timing(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        db::schema_before_app_timing(),
+        without_blocks_from_waits(db::schema_before_app_timing()),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_APP_TIMING_STAMP)
@@ -417,7 +417,7 @@ fn a_store_from_before_app_timings_gains_their_tables_keeps_its_runs_and_equals_
 fn the_app_timing_stamp_is_the_schema_before_app_timings() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            db::schema_before_app_timing()
+            without_blocks_from_waits(db::schema_before_app_timing())
         ))),
         BEFORE_APP_TIMING_STAMP
     );
@@ -430,7 +430,7 @@ fn store_before_design_session(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        db::schema_before_design_session(),
+        without_blocks_from_waits(db::schema_before_design_session()),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_DESIGN_SESSION_STAMP)
@@ -461,7 +461,7 @@ fn a_store_from_before_design_sessions_gains_their_table_keeps_its_runs_and_equa
 fn the_design_session_stamp_is_the_schema_before_design_sessions() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            db::schema_before_design_session()
+            without_blocks_from_waits(db::schema_before_design_session())
         ))),
         BEFORE_DESIGN_SESSION_STAMP
     );
@@ -474,7 +474,7 @@ fn store_before_shot_findings(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        db::schema_before_shot_findings(),
+        without_blocks_from_waits(db::schema_before_shot_findings()),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_SHOT_FINDINGS_STAMP)
@@ -504,7 +504,7 @@ fn a_store_from_before_shot_findings_gains_their_table_keeps_its_runs_and_equals
 fn the_shot_findings_stamp_is_the_schema_before_shot_findings() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            db::schema_before_shot_findings()
+            without_blocks_from_waits(db::schema_before_shot_findings())
         ))),
         BEFORE_SHOT_FINDINGS_STAMP
     );
@@ -517,7 +517,7 @@ fn store_before_review(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        db::schema_before_review(),
+        without_blocks_from_waits(db::schema_before_review()),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_REVIEW_STAMP)
@@ -555,7 +555,7 @@ fn a_store_from_before_the_review_gains_its_tables_keeps_its_runs_and_equals_a_f
 fn the_review_stamp_is_the_schema_before_the_review() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            db::schema_before_review()
+            without_blocks_from_waits(db::schema_before_review())
         ))),
         BEFORE_REVIEW_STAMP
     );
@@ -1961,7 +1961,7 @@ fn schema_before_counted_lines() -> String {
     -- on this Mac no longer held the run's commits as builds moved the store.
     changed_lines INTEGER CONSTRAINT review_run_changed_lines_not_negative CHECK (changed_lines >= 0),
 ";
-    let schema = db::schema();
+    let schema = schema_before_blocks_from_waits();
     assert_eq!(schema.matches(column).count(), 1, "{column}");
     schema.replacen(column, "", 1)
 }
@@ -2874,4 +2874,154 @@ fn a_store_from_before_ranks_ranks_the_questions_placed_first_newest_asked_on_to
         ranks,
         vec![(1, Some(2)), (2, Some(1)), (3, None), (4, Some(3))]
     );
+}
+
+/// The schema text before `blocks_nothing` could hold a reason only while no
+/// open item waits on the question.
+fn schema_before_blocks_from_waits() -> String {
+    without_blocks_from_waits(db::schema())
+}
+
+/// <schema> with question.sql's comment on `blocks_nothing` as it read before
+/// the column could hold a reason only while no open item waits on the
+/// question.
+fn without_blocks_from_waits(schema: String) -> String {
+    let (now, then) = (
+        "    -- The reason the question stays open though no open item waits on it.
+    -- The column holds a reason only while no open item waits on the
+    -- question (check.rs), and the write that makes an item wait on the
+    -- question sets the column to NULL.
+",
+        "    -- Why it is asked though nothing waits on it.
+",
+    );
+    assert_eq!(schema.matches(now).count(), 1, "{now}");
+    schema.replacen(now, then, 1)
+}
+
+#[test]
+fn the_blocks_from_waits_stamp_is_the_schema_before_blocks_from_waits() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_blocks_from_waits()),
+        BEFORE_BLOCKS_FROM_WAITS_STAMP
+    );
+}
+
+/// A store from before `blocks_nothing` held a reason only while no open item
+/// waits on the question keeps every question and item, and the move clears
+/// `blocks_nothing` on each open question that an open item waits on.
+#[test]
+fn a_store_from_before_blocks_from_waits_clears_the_why_of_each_question_an_open_item_waits_on() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-blocks-from-waits");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_blocks_from_waits())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_BLOCKS_FROM_WAITS_STAMP)
+            .unwrap();
+        crate::lists::area::plant(&conn, &[("name", v("Alpha")), ("position", v(0))]).unwrap();
+        // Question 1 has an open item waiting, question 2 only a closed one,
+        // question 3 none, and question 4 is closed with an open item waiting.
+        for (id, kind) in [
+            (1, "question"),
+            (2, "question"),
+            (3, "question"),
+            (4, "question"),
+            (5, "item"),
+            (6, "item"),
+            (7, "item"),
+        ] {
+            crate::lists::record::plant(
+                &conn,
+                "record",
+                &[
+                    ("id", v(id)),
+                    ("kind", v(kind)),
+                    ("opened_at", v(10)),
+                    ("opened_by", v("tester")),
+                ],
+            )
+            .unwrap();
+        }
+        for id in 1..=4 {
+            crate::lists::question::plant(
+                &conn,
+                "question",
+                &[
+                    ("id", v(id)),
+                    ("title", v("A question")),
+                    ("details", v("d")),
+                    ("kind", v("question")),
+                    ("blocks_nothing", v("asked anyway")),
+                ],
+            )
+            .unwrap();
+        }
+        for (id, on) in [(5, 1), (6, 2), (7, 4)] {
+            crate::lists::item::plant(
+                &conn,
+                "item",
+                &[
+                    ("id", v(id)),
+                    ("title", v("Do the work numbered five")),
+                    ("area", v("Alpha")),
+                    ("details", v("d")),
+                    ("audience", v("coordinator")),
+                ],
+            )
+            .unwrap();
+            crate::lists::item::plant(
+                &conn,
+                "item_wait_question",
+                &[("item_id", v(id)), ("on_question", v(on))],
+            )
+            .unwrap();
+        }
+        for id in [6, 4] {
+            crate::lists::record::plant(
+                &conn,
+                "closing",
+                &[
+                    ("record_id", v(id)),
+                    ("kind", v(if id == 6 { "item" } else { "question" })),
+                    ("how", v("dropped")),
+                    ("at", v(20)),
+                    ("by", v("tester")),
+                    ("reason", v("x")),
+                ],
+            )
+            .unwrap();
+        }
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let whys: Vec<(u32, Option<String>)> = conn
+        .prepare("SELECT id, blocks_nothing FROM question ORDER BY id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    let anyway = || Some("asked anyway".to_string());
+    assert_eq!(
+        whys,
+        vec![(1, None), (2, anyway()), (3, anyway()), (4, anyway())]
+    );
+    let waits: i64 = conn
+        .query_row("SELECT COUNT(*) FROM item_wait_question", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(waits, 3);
 }

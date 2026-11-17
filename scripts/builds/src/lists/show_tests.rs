@@ -1,5 +1,5 @@
 use super::*;
-use crate::lists::fixtures::{NOON, blocks_something, db, item, question, read, stamp};
+use crate::lists::fixtures::{NOON, db, item, question, read, stamp};
 use crate::lists::record::close;
 use crate::lists::{How, Priority};
 
@@ -13,7 +13,6 @@ fn the_text_lists_the_stack_then_the_queue() {
         &db,
         vec![Wait::Question(q), Wait::Condition("quiet".into())],
     );
-    blocks_something(&db, q);
     let first = item(&db, vec![]);
     crate::lists::item::set_priority(
         &db,

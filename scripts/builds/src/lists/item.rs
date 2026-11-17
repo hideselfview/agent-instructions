@@ -346,17 +346,22 @@ fn insert_priority(db: &Connection, id: Id, priority: &Priority) -> Result<()> {
     Ok(())
 }
 
-/// Writes the wait of item <id>, once.
+/// Writes the wait of item <id>, once. A wait on a question clears the
+/// question's why for blocking nothing in the same write, since the question
+/// blocks the item now.
 fn insert_wait(db: &Connection, id: Id, wait: &Wait) -> Result<()> {
     match wait {
         Wait::Item(on) => db.execute(
             "INSERT OR IGNORE INTO item_wait_item (item_id, on_item) VALUES (?1, ?2)",
             params![id, on],
         ),
-        Wait::Question(on) => db.execute(
-            "INSERT OR IGNORE INTO item_wait_question (item_id, on_question) VALUES (?1, ?2)",
-            params![id, on],
-        ),
+        Wait::Question(on) => {
+            crate::lists::question::clear_blocks_nothing(db, *on)?;
+            db.execute(
+                "INSERT OR IGNORE INTO item_wait_question (item_id, on_question) VALUES (?1, ?2)",
+                params![id, on],
+            )
+        }
         Wait::Design(on) => db.execute(
             "INSERT OR IGNORE INTO item_wait_design (item_id, on_design) VALUES (?1, ?2)",
             params![id, on],
@@ -485,11 +490,7 @@ pub fn move_waits_to_question(db: &Connection, from: Id, to: Id) -> Result<Vec<I
             params![id, from],
         )
         .sql()?;
-        db.execute(
-            "INSERT OR IGNORE INTO item_wait_question (item_id, on_question) VALUES (?1, ?2)",
-            params![id, to],
-        )
-        .sql()?;
+        insert_wait(db, *id, &Wait::Question(to))?;
     }
     Ok(moved)
 }

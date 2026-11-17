@@ -25,7 +25,6 @@ fn a_store_that_holds_everything_it_must_has_no_fault() {
     let q = question(&db);
     let a = item(&db, vec![Wait::Question(q)]);
     let b = item(&db, vec![Wait::Item(a)]);
-    blocks_something(&db, q);
     start(&db, &[b], &[running("/d/bae-worktrees/side-1", "work")]).unwrap();
     assert_eq!(faults_of(&db), Vec::<String>::new());
 }
@@ -65,6 +64,26 @@ fn a_question_that_blocks_nothing_and_says_nothing_of_why_is_a_fault_until_an_op
     // A closed item does not count as blocked.
     close(&db, waiting, How::Dropped("x".into()), &stamp(NOON)).unwrap();
     assert_eq!(faults_of(&db).len(), 1);
+}
+
+#[test]
+fn a_question_that_says_why_it_blocks_nothing_while_an_open_item_waits_on_it_is_a_fault() {
+    let db = db();
+    let q = question(&db);
+    let gone = item(&db, vec![Wait::Question(q)]);
+    close(&db, gone, How::Dropped("x".into()), &stamp(NOON)).unwrap();
+    crate::lists::fixtures::blocks_nothing_because(&db, q, "asked anyway");
+    // A closed item's wait does not count.
+    assert_eq!(faults_of(&db), Vec::<String>::new());
+    let waiting = item(&db, vec![]);
+    add_wait(&db, waiting, Wait::Question(q)).unwrap();
+    crate::lists::fixtures::blocks_nothing_because(&db, q, "asked anyway");
+    assert_eq!(
+        faults_of(&db),
+        [format!(
+            "question {q} says it blocks nothing (asked anyway) while open item {waiting} waits on it"
+        )]
+    );
 }
 
 #[test]

@@ -178,6 +178,64 @@ fn wait_adds_and_removes_and_refuses_a_cycle_or_a_closed_record() {
     assert!(open(&demo).items[1].waits.is_empty());
 }
 
+#[test]
+fn wait_off_the_last_item_a_question_blocks_takes_why_the_question_is_asked_anyway() {
+    let demo = demo("item-wait-question");
+    demo.store
+        .write(&crate::lists::fixtures::stamp(1), "seed", |db| {
+            let q = crate::lists::fixtures::question(db);
+            crate::lists::fixtures::item(db, vec![]);
+            crate::lists::fixtures::item(db, vec![]);
+            crate::lists::item::add_wait(db, Id(2), Wait::Question(q))
+        })
+        .unwrap();
+    item(&demo, &["wait", "3", "--on", "question:1"]).unwrap();
+    let before = demo.state();
+    assert!(
+        refusal(item(
+            &demo,
+            &["wait", "3", "--on", "item:2", "--blocks-nothing", "x"]
+        ))
+        .contains("--blocks-nothing goes with --off question:N")
+    );
+    let still = refusal(item(
+        &demo,
+        &["wait", "3", "--off", "question:1", "--blocks-nothing", "x"],
+    ));
+    assert!(
+        still.contains("#2 still waits on question #1, so question #1 blocks it"),
+        "{still}"
+    );
+    assert_eq!(demo.state(), before);
+    item(&demo, &["wait", "3", "--off", "question:1"]).unwrap();
+    let last = refusal(item(&demo, &["wait", "2", "--off", "question:1"]));
+    assert!(
+        last.contains("#2 is the last item question #1")
+            && last.contains("give --blocks-nothing WHY"),
+        "{last}"
+    );
+    item(
+        &demo,
+        &[
+            "wait",
+            "2",
+            "--off",
+            "question:1",
+            "--blocks-nothing",
+            "asked to know",
+        ],
+    )
+    .unwrap();
+    let lists = open(&demo);
+    assert_eq!(
+        lists.question(Id(1)).unwrap().blocks_nothing.as_deref(),
+        Some("asked to know")
+    );
+    assert!(lists.items.iter().all(|i| i.waits.is_empty()));
+    item(&demo, &["wait", "2", "--on", "question:1"]).unwrap();
+    assert_eq!(open(&demo).question(Id(1)).unwrap().blocks_nothing, None);
+}
+
 fn take_args<'a>(side: &'a str, brief: &'a str, ids: &[&'a str], branch: &'a str) -> Vec<&'a str> {
     let mut args = vec!["take"];
     args.extend_from_slice(ids);
@@ -383,7 +441,6 @@ fn drop_refuses_the_last_item_a_question_blocks() {
             let blocked = crate::lists::fixtures::item(db, vec![]);
             let q = crate::lists::fixtures::question(db);
             crate::lists::item::add_wait(db, blocked, Wait::Question(q))?;
-            crate::lists::fixtures::blocks_something(db, q);
             Ok(())
         })
         .unwrap();

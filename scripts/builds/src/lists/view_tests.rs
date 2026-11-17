@@ -1,8 +1,6 @@
 use super::*;
 use crate::lists::decision::{NewDecision, add_decision};
-use crate::lists::fixtures::{
-    NOON, blocks_something, db, design, design_place, draft, item, question, read, stamp,
-};
+use crate::lists::fixtures::{NOON, db, design, design_place, draft, item, question, read, stamp};
 use crate::lists::record::close;
 use crate::lists::{How, Resolution, Running, Wait};
 use serde_json::{Value, json};
@@ -19,7 +17,6 @@ fn the_json_has_the_pages_shape() {
         &db,
         vec![Wait::Question(q), Wait::Condition("a quiet machine".into())],
     );
-    blocks_something(&db, q);
     let running = item(&db, vec![]);
     crate::lists::running::start(
         &db,

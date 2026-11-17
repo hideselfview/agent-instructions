@@ -236,6 +236,10 @@ const BEFORE_CLOSED_STAMP: i64 = 1_421_793_655;
 /// diff adds and removes.
 const BEFORE_COUNTED_LINES_STAMP: i64 = 847_323_498;
 
+/// The stamp of the schema before a question could give a reason for blocking
+/// nothing only while no open item waits on it.
+const BEFORE_BLOCKS_FROM_WAITS_STAMP: i64 = 92_039_681;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -297,7 +301,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// the tables of fixes, of the commits each run read, of the commits each push
 /// landed and of findings whose code left their branch. A store from before a
 /// review's patch ids left out context lines keeps its old patch ids until the
-/// move drops them.
+/// move drops them. Every store gets `question` made again, and the move
+/// clears the reason for blocking nothing (`blocks_nothing`) on each open
+/// question that an open item waits on.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -427,11 +433,12 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_REVIEWED_RUN_STAMP,
         BEFORE_CLOSED_STAMP,
         BEFORE_COUNTED_LINES_STAMP,
+        BEFORE_BLOCKS_FROM_WAITS_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP}, {BEFORE_CHECK_STARTS_STAMP}, {BEFORE_CANVAS_STAMP}, {BEFORE_DESIGN_DROP_STAMP}, {BEFORE_PUSHED_STAMP}, {BEFORE_RANKS_STAMP}, {BEFORE_PARKED_STAMP}, {BEFORE_SPEC_CHECK_STAMP}, {BEFORE_CODE_LEFT_STAMP}, {BEFORE_NET_CHANGE_STAMP}, {BEFORE_REVIEWED_RUN_STAMP}, {BEFORE_CLOSED_STAMP} and {BEFORE_COUNTED_LINES_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP}, {BEFORE_CHECK_STARTS_STAMP}, {BEFORE_CANVAS_STAMP}, {BEFORE_DESIGN_DROP_STAMP}, {BEFORE_PUSHED_STAMP}, {BEFORE_RANKS_STAMP}, {BEFORE_PARKED_STAMP}, {BEFORE_SPEC_CHECK_STAMP}, {BEFORE_CODE_LEFT_STAMP}, {BEFORE_NET_CHANGE_STAMP}, {BEFORE_REVIEWED_RUN_STAMP}, {BEFORE_CLOSED_STAMP}, {BEFORE_COUNTED_LINES_STAMP} and {BEFORE_BLOCKS_FROM_WAITS_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -460,6 +467,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_REVIEWED_RUN_STAMP,
         BEFORE_CLOSED_STAMP,
         BEFORE_COUNTED_LINES_STAMP,
+        BEFORE_BLOCKS_FROM_WAITS_STAMP,
     ]
     .contains(&found);
     // Off for the moves, so a table made again keeps the references to it as
@@ -490,6 +498,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_REVIEWED_RUN_STAMP,
         BEFORE_CLOSED_STAMP,
         BEFORE_COUNTED_LINES_STAMP,
+        BEFORE_BLOCKS_FROM_WAITS_STAMP,
     ]
     .contains(&found)
     {
@@ -574,6 +583,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_REVIEWED_RUN_STAMP,
         BEFORE_CLOSED_STAMP,
         BEFORE_COUNTED_LINES_STAMP,
+        BEFORE_BLOCKS_FROM_WAITS_STAMP,
     ]
     .contains(&found)
     {
@@ -599,6 +609,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_REVIEWED_RUN_STAMP,
         BEFORE_CLOSED_STAMP,
         BEFORE_COUNTED_LINES_STAMP,
+        BEFORE_BLOCKS_FROM_WAITS_STAMP,
     ]
     .contains(&found)
     {
@@ -618,6 +629,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_REVIEWED_RUN_STAMP,
         BEFORE_CLOSED_STAMP,
         BEFORE_COUNTED_LINES_STAMP,
+        BEFORE_BLOCKS_FROM_WAITS_STAMP,
     ]
     .contains(&found)
     {
@@ -638,6 +650,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_REVIEWED_RUN_STAMP,
         BEFORE_CLOSED_STAMP,
         BEFORE_COUNTED_LINES_STAMP,
+        BEFORE_BLOCKS_FROM_WAITS_STAMP,
     ]
     .contains(&found)
     {
@@ -657,6 +670,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_REVIEWED_RUN_STAMP,
         BEFORE_CLOSED_STAMP,
         BEFORE_COUNTED_LINES_STAMP,
+        BEFORE_BLOCKS_FROM_WAITS_STAMP,
     ]
     .contains(&found)
     {
@@ -675,6 +689,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             BEFORE_REVIEWED_RUN_STAMP,
             BEFORE_CLOSED_STAMP,
             BEFORE_COUNTED_LINES_STAMP,
+            BEFORE_BLOCKS_FROM_WAITS_STAMP,
         ]
         .contains(&found)
     {
@@ -695,6 +710,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_REVIEWED_RUN_STAMP,
         BEFORE_CLOSED_STAMP,
         BEFORE_COUNTED_LINES_STAMP,
+        BEFORE_BLOCKS_FROM_WAITS_STAMP,
     ]
     .contains(&found)
     {
@@ -709,6 +725,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_REVIEWED_RUN_STAMP,
         BEFORE_CLOSED_STAMP,
         BEFORE_COUNTED_LINES_STAMP,
+        BEFORE_BLOCKS_FROM_WAITS_STAMP,
     ]
     .contains(&found)
     {
@@ -723,6 +740,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_REVIEWED_RUN_STAMP,
         BEFORE_CLOSED_STAMP,
         BEFORE_COUNTED_LINES_STAMP,
+        BEFORE_BLOCKS_FROM_WAITS_STAMP,
     ]
     .contains(&found)
     {
@@ -738,6 +756,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             BEFORE_REVIEWED_RUN_STAMP,
             BEFORE_CLOSED_STAMP,
             BEFORE_COUNTED_LINES_STAMP,
+            BEFORE_BLOCKS_FROM_WAITS_STAMP,
         ]
         .contains(&found)
     {
@@ -763,6 +782,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             BEFORE_REVIEWED_RUN_STAMP,
             BEFORE_CLOSED_STAMP,
             BEFORE_COUNTED_LINES_STAMP,
+            BEFORE_BLOCKS_FROM_WAITS_STAMP,
         ]
         .contains(&found)
     {
@@ -771,13 +791,22 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     // A store that had the review's tables from before landings named their
     // last review gets the last review of each landing; one that got the
     // tables above has no landing.
-    if had_review_tables && ![BEFORE_CLOSED_STAMP, BEFORE_COUNTED_LINES_STAMP].contains(&found) {
+    if had_review_tables
+        && ![
+            BEFORE_CLOSED_STAMP,
+            BEFORE_COUNTED_LINES_STAMP,
+            BEFORE_BLOCKS_FROM_WAITS_STAMP,
+        ]
+        .contains(&found)
+    {
         crate::review::record::move_to_reviewed_run(&tx)?;
     }
     // A store that had the review's tables has the tables of fixes and of read
     // and pushed commits: the last review of each landing closes each
     // confirmed finding with a fix, and the move drops those tables.
-    if had_review_tables && found != BEFORE_COUNTED_LINES_STAMP {
+    if had_review_tables
+        && ![BEFORE_COUNTED_LINES_STAMP, BEFORE_BLOCKS_FROM_WAITS_STAMP].contains(&found)
+    {
         crate::review::record::move_to_closed(&tx)?;
     }
     // A store from after net changes has `review_run` without the count of
@@ -793,10 +822,10 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     {
         crate::review::record::move_to_counted_lines(&tx)?;
     }
-    // Every review run that read a branch's whole net change gets the count
-    // of its changed lines, read from the clone `~/dev/<repo>` of the repo its
+    // In a store from before builds counted lines, every review run that read
+    // a branch's whole net change gets the count of its changed lines, read from the clone `~/dev/<repo>` of the repo its
     // landing names, when the clone still holds the run's commits.
-    if had_review_tables {
+    if had_review_tables && found != BEFORE_BLOCKS_FROM_WAITS_STAMP {
         crate::review::record::count_changed_lines(&tx, |repo, base, head| {
             let clone = places.home.join(crate::host::clone_path(repo));
             if !crate::review::commits::exists(&clone, base)
@@ -808,6 +837,9 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             Ok(Some(crate::review::check::changed_lines(&diff.text)))
         })?;
     }
+    // Every store gets `question` made again, and the move clears the reason
+    // for blocking nothing on each open question that an open item waits on.
+    crate::lists::question::move_to_blocks_from_waits(&tx)?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))

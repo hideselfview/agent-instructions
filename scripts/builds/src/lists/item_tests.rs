@@ -63,6 +63,25 @@ fn a_draft_waits_only_on_open_records() {
 }
 
 #[test]
+fn a_wait_on_a_question_clears_its_why_for_blocking_nothing() {
+    let db = db();
+    let by_draft = question(&db);
+    let by_wait = question(&db);
+    let untouched = question(&db);
+    let mut waiting = draft("One two three four five");
+    waiting.waits = vec![Wait::Question(by_draft)];
+    add_item(&db, &waiting, None, &stamp(NOON)).unwrap();
+    let later = item(&db, vec![]);
+    add_wait(&db, later, Wait::Question(by_wait)).unwrap();
+    let lists = read(&db);
+    let why = |id: Id| lists.question(id).unwrap().blocks_nothing.clone();
+    assert_eq!(
+        (why(by_draft), why(by_wait), why(untouched)),
+        (None, None, Some("nothing waits".to_string()))
+    );
+}
+
+#[test]
 fn add_item_makes_a_stamped_item_with_the_next_id() {
     let db = db();
     let decision = crate::lists::record::open(&db, Kind::Decision, &stamp(NOON)).unwrap();

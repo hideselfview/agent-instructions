@@ -76,7 +76,8 @@ pub fn item_line(lists: &Lists, item: &Item) -> Result<String> {
 /// What an entry of the stack blocks, worked out from the open items that
 /// wait on it, as lines: the count, then each item it blocks directly with
 /// its priority, how many items wait behind it and when it opened. When no
-/// open item waits on the entry, one line says why it is asked anyway.
+/// open item waits on the entry, one line gives the reason the entry stays
+/// open.
 pub fn blocks_lines(entry: &StackEntry<'_>) -> Vec<String> {
     if entry.blocks.is_empty() {
         let why = entry.question.blocks_nothing.as_deref().unwrap_or("?");

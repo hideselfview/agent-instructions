@@ -5,7 +5,7 @@ use crate::lists::area::add_area;
 use crate::lists::design::{Board, NewDesign, Resolution, ReviewSection, open_change, save};
 use crate::lists::item::{ItemDraft, ItemEdit, add_item, add_wait};
 use crate::lists::project::{self, NewProject};
-use crate::lists::question::{NewQuestion, ask, edit};
+use crate::lists::question::{NewQuestion, ask, clear_blocks_nothing, edit};
 use crate::lists::store::Store;
 use crate::lists::store::log_write;
 use crate::lists::{Audience, Id, Lists, QuestionKind, Stamp, Wait};
@@ -172,15 +172,16 @@ pub fn decision_answering(db: &Connection, question: Id) -> Id {
         .decision
 }
 
-/// Clears the why of open question <id> for blocking nothing: it must have
-/// an item waiting on it, or fail its check.
+/// Clears the why of open question <id> for blocking nothing, as a wait on
+/// it does: with no open item waiting on it, the question fails its check.
 pub fn blocks_something(db: &Connection, id: Id) {
-    edit(db, id, None, None, Some(None)).unwrap();
+    clear_blocks_nothing(db, id).unwrap();
 }
 
-/// Sets the why of open question <id> for blocking nothing.
+/// Sets the why of open question <id> for blocking nothing: with an open item
+/// waiting on it, the question fails its check.
 pub fn blocks_nothing_because(db: &Connection, id: Id, why: &str) {
-    edit(db, id, None, None, Some(Some(why.to_string()))).unwrap();
+    edit(db, id, None, None, Some(why.to_string())).unwrap();
 }
 
 pub fn design(db: &Connection) -> Id {

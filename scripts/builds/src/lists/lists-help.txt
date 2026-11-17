@@ -77,7 +77,8 @@ exists; a running item's worktrees are side worktrees
 leaves only the ways its kind can; and a decision has a YYYY-MM-DD date, a
 decider and a body, and replaces only an older decision. A check run on every
 read and before every commit holds the rest: the project has a repo; every open
-question has an open item waiting on it or says why it is asked anyway; no open
+question has an open item waiting on it or says why it is asked anyway, never
+both; no open
 item waits on a record that closed in a way that never meets a wait (dropped,
 deferred, moved to the stack); no open items wait on each other in a circle; a
 closed item runs nowhere; a worktree holds one branch of work; a landed closing
@@ -120,7 +121,8 @@ auto` takes it out of the ranked order.
       --first puts it on top of the ranked order, with why. --from-item N closes item N as moved
       to the stack (it was the person's work), every item that waited on N
       waits on the new entry instead, and the entry comes from N, so its trail
-      has N's tags; refused for a running item. --origin N names the record
+      has N's tags. ask refuses --from-item for a running item, and refuses
+      --blocks-nothing when an item waited on N. --origin N names the record
       the entry came from when no item moves. --plan and --plan-number tie it
       to a plan's open question, and its answer carries the link.
 
@@ -158,11 +160,13 @@ auto` takes it out of the ranked order.
       refuses --above and --below when M is not in the ranked order.
 
   builds question edit N [--title T] [--details-file F]
-                         [--blocks-nothing WHY | --blocks-something]
+                         [--blocks-nothing WHY]
                          [--origin N] [--tag T]... [--untag T]...
-      --blocks-something is refused when no open item waits on the entry: an
-      entry that blocks nothing needs a why. --untag refuses a tag the entry
-      does not carry.
+      --blocks-nothing replaces the why of an entry that no open item waits
+      on, and edit refuses it while one does (`item wait ITEM --off
+      question:N --blocks-nothing WHY` stops the last item waiting and gives
+      the why).
+      --untag refuses a tag the entry does not carry.
 
   builds question show N | builds question list [--tag T]
       One entry with its details and trail (a closed one shows how it left), or
@@ -198,9 +202,13 @@ runs in (plans are in no commit); an absolute path is itself.
   builds item note N TEXT
       A lasting progress line on the item (`builds note` is the claim's).
 
-  builds item wait N --on REF | --off REF
+  builds item wait N --on REF | --off REF [--blocks-nothing WHY]
       Refused when it would make items wait on each other in a circle, or on
-      a closed record.
+      a closed record. A wait on a question, from `item wait --on`, `item add
+      --wait` or an item draft, clears the reason the question blocks
+      nothing in the same write. --off question:N on the last open item that
+      waits on N needs --blocks-nothing WHY, the reason N stays open, and wait
+      refuses --blocks-nothing while another open item waits on N.
 
   builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2]
                     --brief P [--as design-session] [--held WHY]
@@ -267,7 +275,8 @@ runs in (plans are in no commit); an absolute path is itself.
   builds item drop N --why WHY | builds item defer N --issue URL
       drop and defer refuse an item while an open item waits on it (the
       message names them and the `item wait --off` that frees each), or when
-      it is the last item an open question blocks. defer also refuses an item
+      it is the last item an open question blocks (`item wait N --off
+      question:Q --blocks-nothing WHY` frees it). defer also refuses an item
       that runs or is parked, and needs an open GitHub issue. The person drops
       an item to throw its work away. drop refuses an item while another open
       item of any project runs or is parked in one of its worktrees, since the

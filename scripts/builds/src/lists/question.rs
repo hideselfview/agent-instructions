@@ -92,7 +92,8 @@ pub struct Question {
     pub title: String,
     pub details: String,
     pub kind: QuestionKind,
-    /// Why it is asked though nothing waits on it.
+    /// The reason the question stays open though no open item waits on it;
+    /// None while one does.
     pub blocks_nothing: Option<String>,
     pub placed: Option<Placement>,
     pub plan: Option<PlanRef>,
@@ -282,27 +283,31 @@ pub fn unplace(db: &Connection, id: Id) -> Result<()> {
     delete_placement(db, id)
 }
 
-/// Changes open question <id>: the title and details when given, and its
-/// blocks-nothing why: None leaves it, Some(None) clears it (the question
-/// blocks something), Some(Some(why)) sets it.
+/// Changes open question <id>: the title, the details and the reason it
+/// blocks nothing, each when given.
 pub fn edit(
     db: &Connection,
     id: Id,
     title: Option<String>,
     details: Option<String>,
-    blocks_nothing: Option<Option<String>>,
+    blocks_nothing: Option<String>,
 ) -> Result<()> {
     require_open_question(db, id)?;
     db.execute(
         "UPDATE question SET title = COALESCE(?2, title), details = COALESCE(?3, details), \
-         blocks_nothing = CASE WHEN ?4 THEN ?5 ELSE blocks_nothing END WHERE id = ?1",
-        params![
-            id,
-            title,
-            details,
-            blocks_nothing.is_some(),
-            blocks_nothing.flatten()
-        ],
+         blocks_nothing = COALESCE(?4, blocks_nothing) WHERE id = ?1",
+        params![id, title, details, blocks_nothing],
+    )
+    .sql()?;
+    Ok(())
+}
+
+/// Clears the reason question <id> blocks nothing, for the write that makes
+/// an item wait on it: the question blocks that item now.
+pub fn clear_blocks_nothing(db: &Connection, id: Id) -> Result<()> {
+    db.execute(
+        "UPDATE question SET blocks_nothing = NULL WHERE id = ?1",
+        [id],
     )
     .sql()?;
     Ok(())
@@ -497,6 +502,40 @@ pub fn move_to_origins(db: &Connection) -> Result<()> {
             db.execute_batch(
                 "INSERT INTO question (id, record_kind, title, details, kind, blocks_nothing)
     SELECT id, record_kind, title, details, kind, blocks_nothing FROM question_old;",
+            )
+            .sql()
+        },
+        &[crate::db::statement(
+            SQL,
+            "CREATE INDEX question_origin",
+            ";",
+        )],
+    )
+}
+
+/// Makes `question` again as question.sql writes it and copies the old rows
+/// into it. The copy clears the reason the question blocks nothing on
+/// each open question that an open item waits on, because the item's wait already says
+/// what the question blocks. The statements come from question.sql, so the table equals a fresh
+/// database's. migrate.rs runs this with the foreign keys off, and SQLite
+/// renames the old table under `legacy_alter_table`, so the tables that
+/// point at `question` keep naming it.
+pub fn move_to_blocks_from_waits(db: &Connection) -> Result<()> {
+    const SQL: &str = include_str!("question.sql");
+    crate::db::remake_table(
+        db,
+        "question",
+        crate::db::statement(SQL, "CREATE TABLE question (", "STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO question (id, record_kind, title, details, kind, blocks_nothing, origin)
+    SELECT q.id, q.record_kind, q.title, q.details, q.kind,
+        CASE WHEN NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = q.id)
+            AND EXISTS (SELECT 1 FROM item_wait_question w WHERE w.on_question = q.id
+                AND NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = w.item_id))
+        THEN NULL ELSE q.blocks_nothing END,
+        q.origin
+    FROM question_old q;",
             )
             .sql()
         },

@@ -33,7 +33,7 @@ const USAGE: &str = "usage: builds question ask --title T --kind question|your-s
        builds question drop N --why WHY
        builds question defer N --issue URL
        builds question place N (first|last|auto | --above M | --below M) --why WHY [--by-person]
-       builds question edit N [--title T] [--details-file F] [--blocks-nothing WHY | --blocks-something] [--origin N] [--tag T]... [--untag T]...
+       builds question edit N [--title T] [--details-file F] [--blocks-nothing WHY] [--origin N] [--tag T]... [--untag T]...
        builds question show N
        builds question list [--tag T]
   every command also takes --project P and --by WHO";
@@ -221,6 +221,15 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
         if waiting.is_empty() && blocks_nothing.is_none() {
             fail!(
                 "say what the question blocks: --blocks N[,N] (open items, which gain a wait on it), or --blocks-nothing WHY (why it is asked though nothing waits)"
+            );
+        }
+        if let Some(from) = from_item && blocks_nothing.is_some() && !waiting.is_empty() {
+            let named: Vec<String> = waiting.iter().map(Id::to_string).collect();
+            fail!(
+                "--blocks-nothing contradicts the items that waited on item {from}: {} wait{} on the new question instead, so the new question blocks {}",
+                named.join(", "),
+                if named.len() == 1 { "s" } else { "" },
+                if named.len() == 1 { "that item" } else { "those items" }
             );
         }
         for blocked in &waiting {
@@ -538,7 +547,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
             "tag",
             "untag",
         ],
-        &["blocks-something"],
+        &[],
     )?;
     let id = question_id(&args)?;
     let origin = args.id("origin")?;
@@ -559,15 +568,10 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
     {
         fail!("--blocks-nothing needs its why");
     }
-    let blocks_something = args.switch("blocks-something");
-    if blocks_nothing.is_some() && blocks_something {
-        fail!("--blocks-nothing and --blocks-something contradict each other");
-    }
-    let fields =
-        title.is_some() || details.is_some() || blocks_nothing.is_some() || blocks_something;
+    let fields = title.is_some() || details.is_some() || blocks_nothing.is_some();
     if !fields && origin.is_none() && tags.is_empty() && untags.is_empty() {
         fail!(
-            "the edit changes nothing: name --title, --details-file, --blocks-nothing, --blocks-something, --origin, --tag or --untag"
+            "the edit changes nothing: name --title, --details-file, --blocks-nothing, --origin, --tag or --untag"
         );
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
@@ -576,18 +580,20 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
         let lists = &store::read(db)?;
         if fields {
             open_question(lists, id)?;
-            let waited_on = lists.items.iter().any(|item| item.waits.contains(&Wait::Question(id)));
-            if blocks_something && !waited_on {
+            let waiting: Vec<String> = lists
+                .open_items_waiting_on(&Wait::Question(id))
+                .map(|item| item.id.to_string())
+                .collect();
+            if blocks_nothing.is_some() && !waiting.is_empty() {
                 fail!(
-                    "no open item waits on question {id}, so it would block nothing with no why: `builds item wait ITEM --on question:{}` makes an item wait, or give --blocks-nothing WHY",
+                    "{} wait{} on question {id}, so question {id} blocks {}; --blocks-nothing gives a reason only while no open item waits on the question. \
+                     `builds item wait ITEM --off question:{} --blocks-nothing WHY` stops the last item waiting and gives the reason",
+                    waiting.join(", "),
+                    if waiting.len() == 1 { "s" } else { "" },
+                    waiting.join(", "),
                     id.0
                 );
             }
-            let blocks_nothing = match (blocks_nothing, blocks_something) {
-                (Some(why), _) => Some(Some(why)),
-                (None, true) => Some(None),
-                (None, false) => None,
-            };
             question::edit(db, id, title, details, blocks_nothing)?;
         } else if !matches!(lists.locate(id), Some(Located { kind: Kind::Question, .. })) {
             // The edit gives an open or a closed question its origin and

@@ -67,12 +67,6 @@ fn closed_as(lists: &Lists, id: Id) -> &How {
         .how
 }
 
-fn blocking(db: &Connection) -> Id {
-    let id = question(db);
-    crate::lists::fixtures::blocks_something(db, id);
-    id
-}
-
 fn details(scratch: &Scratch) -> String {
     file(scratch, "details.md", "What is asked, and the facts.\n")
 }
@@ -222,7 +216,7 @@ fn ask_refuses_a_bad_title_kind_or_details() {
 fn ask_first_places_the_question_on_top() {
     let (scratch, tool, store, (a, other)) = setup("q-ask-first", |l| {
         let a = item(l, vec![]);
-        let other = blocking(l);
+        let other = question(l);
         crate::lists::item::add_wait(l, a, Wait::Question(other)).unwrap();
         (a, other)
     });
@@ -337,6 +331,26 @@ fn ask_from_an_item_needs_waiters_or_a_reason_and_refuses_a_running_item() {
     .unwrap();
 }
 
+#[test]
+fn ask_from_an_item_that_others_wait_on_refuses_a_why_for_blocking_nothing() {
+    let (scratch, tool, store, (moved, behind)) = setup("q-ask-from-waited", |l| {
+        let moved = item(l, vec![]);
+        (moved, item(l, vec![Wait::Item(moved)]))
+    });
+    let d = details(&scratch);
+    refuses(
+        &scratch,
+        &tool,
+        &store,
+        &format!(
+            "ask --title T --kind your-step --details-file {d} --from-item {moved} --blocks-nothing why"
+        ),
+        &format!(
+            "--blocks-nothing contradicts the items that waited on item {moved}: {behind} waits on the new question instead, so the new question blocks that item"
+        ),
+    );
+}
+
 // answer, settle, done
 
 fn answer_request(extra: &str) -> String {
@@ -423,9 +437,9 @@ fn answer_writes_the_decision_the_work_the_fates_and_the_close_in_one_step() {
 #[test]
 fn answer_prints_the_new_top_question_and_what_it_blocks() {
     let (scratch, tool, store, (q, next, nexts_item, qs_item)) = setup("q-answer-top", |l| {
-        let q = blocking(l);
+        let q = question(l);
         let qs_item = item(l, vec![Wait::Question(q)]);
-        let next = blocking(l);
+        let next = question(l);
         let nexts_item = item(l, vec![Wait::Question(next)]);
         (q, next, nexts_item, qs_item)
     });
@@ -448,7 +462,7 @@ fn answer_prints_the_new_top_question_and_what_it_blocks() {
 #[test]
 fn answer_leaving_out_a_waiting_item_changes_nothing() {
     let (scratch, tool, store, (q, a, b)) = setup("q-answer-leaves-out", |l| {
-        let q = blocking(l);
+        let q = question(l);
         (
             q,
             item(l, vec![Wait::Question(q)]),
@@ -474,7 +488,7 @@ fn answer_leaving_out_a_waiting_item_changes_nothing() {
 #[test]
 fn answer_refuses_what_it_is_not_given_correctly() {
     let (scratch, tool, store, (q, a, stranger, yours)) = setup("q-answer-refusals", |l| {
-        let q = blocking(l);
+        let q = question(l);
         let a = item(l, vec![Wait::Question(q)]);
         let stranger = item(l, vec![]);
         let yours = question_kind(l, QuestionKind::YourStep);
@@ -602,11 +616,10 @@ fn answer_refuses_what_it_is_not_given_correctly() {
 #[test]
 fn answer_that_drops_an_items_last_open_question_blocker_is_refused_whole() {
     let (scratch, tool, store, (q, a)) = setup("q-answer-orphans", |l| {
-        let q = blocking(l);
+        let q = question(l);
         let a = item(l, vec![Wait::Question(q)]);
-        let other = blocking(l);
+        let other = question(l);
         crate::lists::item::add_wait(l, a, Wait::Question(other)).unwrap();
-        crate::lists::fixtures::blocks_something(l, other);
         (q, a)
     });
     // Dropping `a` leaves `other` waited on by nothing: the check refuses the whole write.
@@ -629,7 +642,7 @@ fn answer_that_drops_an_items_last_open_question_blocker_is_refused_whole() {
 #[test]
 fn settle_records_no_decision_and_needs_a_rule() {
     let (scratch, tool, store, (q, a)) = setup("q-settle", |l| {
-        let q = blocking(l);
+        let q = question(l);
         (q, item(l, vec![Wait::Question(q)]))
     });
     let blocked = format!(r#""blocked": {{"{a}": "proceeds"}}"#);
@@ -687,7 +700,6 @@ fn done_closes_your_step_and_held_but_not_a_question() {
     let (scratch, tool, store, (step, held, plain, waiting)) = setup("q-done", |l| {
         let step = question_kind(l, QuestionKind::YourStep);
         let waiting = item(l, vec![Wait::Question(step)]);
-        crate::lists::fixtures::blocks_something(l, step);
         let held = question_kind(l, QuestionKind::Held);
         (step, held, question(l), waiting)
     });
@@ -740,7 +752,7 @@ fn done_closes_your_step_and_held_but_not_a_question() {
 #[test]
 fn drop_refuses_while_items_wait_and_names_the_command_that_frees_them() {
     let (scratch, tool, store, (q, a)) = setup("q-drop", |l| {
-        let q = blocking(l);
+        let q = question(l);
         (q, item(l, vec![Wait::Question(q)]))
     });
     refuses(
@@ -822,7 +834,7 @@ fn defer_asks_github_before_the_lock_and_needs_an_open_issue() {
 #[test]
 fn defer_refuses_while_items_wait_and_when_github_fails() {
     let (scratch, tool, store, (q, a)) = setup("q-defer-refused", |l| {
-        let q = blocking(l);
+        let q = question(l);
         (q, item(l, vec![Wait::Question(q)]))
     });
     let open = |_: &[&str]| -> Result<String> { Ok(r#"{"state":"OPEN"}"#.into()) };
@@ -870,9 +882,9 @@ fn defer_refuses_while_items_wait_and_when_github_fails() {
 #[test]
 fn place_sets_and_clears_where_a_question_sits() {
     let (scratch, tool, store, (low, high)) = setup("q-place", |l| {
-        let low = blocking(l);
+        let low = question(l);
         item(l, vec![Wait::Question(low)]);
-        let high = blocking(l);
+        let high = question(l);
         item(l, vec![Wait::Question(high)]);
         item(l, vec![Wait::Question(high)]);
         (low, high)
@@ -949,7 +961,7 @@ fn five_questions(name: &str) -> (Scratch, Tool, Store, [Id; 5]) {
     setup(name, |l| {
         let mut ids = [Id(0); 5];
         for (n, id) in ids.iter_mut().enumerate() {
-            *id = blocking(l);
+            *id = question(l);
             for _ in 0..=n {
                 item(l, vec![Wait::Question(*id)]);
             }
@@ -1060,11 +1072,11 @@ fn place_next_to_a_question_needs_one_in_the_ranked_order() {
 }
 
 #[test]
-fn edit_changes_the_fields_and_keeps_a_question_from_blocking_nothing_without_a_why() {
-    let (scratch, tool, store, (waited, free)) = setup("q-edit", |l| {
-        let waited = blocking(l);
-        item(l, vec![Wait::Question(waited)]);
-        (waited, question(l))
+fn edit_changes_the_fields_and_gives_a_why_only_while_no_item_waits() {
+    let (scratch, tool, store, (waited, a, free)) = setup("q-edit", |l| {
+        let waited = question(l);
+        let a = item(l, vec![Wait::Question(waited)]);
+        (waited, a, question(l))
     });
     let d = file(&scratch, "new.md", "New details.\n");
     go(
@@ -1085,13 +1097,6 @@ fn edit_changes_the_fields_and_keeps_a_question_from_blocking_nothing_without_a_
         &scratch,
         &tool,
         &store,
-        &format!("edit {free} --blocks-something"),
-        "block nothing with no why",
-    );
-    refuses(
-        &scratch,
-        &tool,
-        &store,
         &format!("edit {free}"),
         "changes nothing",
     );
@@ -1099,8 +1104,11 @@ fn edit_changes_the_fields_and_keeps_a_question_from_blocking_nothing_without_a_
         &scratch,
         &tool,
         &store,
-        &format!("edit {free} --blocks-nothing x --blocks-something"),
-        "contradict",
+        &format!("edit {waited} --blocks-nothing x"),
+        &format!(
+            "{a} waits on question {waited}, so question {waited} blocks {a}; --blocks-nothing gives a reason only while no open item waits on the question. `builds item wait ITEM --off question:{} --blocks-nothing WHY`",
+            waited.0
+        ),
     );
     go(
         &scratch,
@@ -1118,21 +1126,6 @@ fn edit_changes_the_fields_and_keeps_a_question_from_blocking_nothing_without_a_
             .as_deref(),
         Some("a_better_reason")
     );
-    go(
-        &scratch,
-        &tool,
-        &format!("edit {waited} --blocks-something"),
-    )
-    .unwrap();
-    assert_eq!(
-        store
-            .load()
-            .unwrap()
-            .question(waited)
-            .unwrap()
-            .blocks_nothing,
-        None
-    );
 }
 
 // show, list
@@ -1140,7 +1133,7 @@ fn edit_changes_the_fields_and_keeps_a_question_from_blocking_nothing_without_a_
 #[test]
 fn show_and_list_print_the_stack_and_a_closed_question() {
     let (scratch, tool, _store, (q, a, other)) = setup("q-show", |l| {
-        let q = blocking(l);
+        let q = question(l);
         let a = item(l, vec![Wait::Question(q)]);
         (q, a, question(l))
     });
@@ -1193,7 +1186,7 @@ fn an_unknown_command_and_no_command_are_refused() {
 #[test]
 fn decisions_made_by_answers_pass_the_whole_state_check_with_closed_records_kept() {
     let (scratch, tool, store, (q, a)) = setup("q-closed-kept", |l| {
-        let q = blocking(l);
+        let q = question(l);
         (q, item(l, vec![Wait::Question(q)]))
     });
     let r = file(

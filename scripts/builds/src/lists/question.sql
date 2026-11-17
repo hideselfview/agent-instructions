@@ -11,7 +11,10 @@ CREATE TABLE question (
     ),
     details TEXT NOT NULL CONSTRAINT question_details_say_something CHECK (trim(details) <> ''),
     kind TEXT NOT NULL CONSTRAINT question_kind_known CHECK (kind IN ('question', 'your-step', 'held')),
-    -- Why it is asked though nothing waits on it.
+    -- The reason the question stays open though no open item waits on it.
+    -- The column holds a reason only while no open item waits on the
+    -- question (check.rs), and the write that makes an item wait on the
+    -- question sets the column to NULL.
     blocks_nothing TEXT CONSTRAINT question_blocks_nothing_says_something CHECK (blocks_nothing IS NULL OR trim(blocks_nothing) <> ''),
     -- The record it came from, of any kind (trail.rs).
     origin INTEGER,

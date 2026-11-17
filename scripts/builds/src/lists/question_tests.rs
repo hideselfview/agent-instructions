@@ -1,7 +1,7 @@
 use super::*;
 use crate::fail::Fail;
 use crate::lists::Kind;
-use crate::lists::fixtures::{NOON, blocks_something, db, item, question, read, stamp};
+use crate::lists::fixtures::{NOON, db, item, question, read, stamp};
 use crate::lists::item::{ItemDraft, ItemEdit};
 use crate::lists::record::close;
 use rusqlite::Connection;
@@ -18,7 +18,6 @@ fn waiting_lists() -> (Connection, Id, Id, Id) {
     let q = question(&db);
     let a = item(&db, vec![Wait::Question(q)]);
     let b = item(&db, vec![Wait::Question(q)]);
-    blocks_something(&db, q);
     (db, q, a, b)
 }
 

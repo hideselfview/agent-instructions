@@ -1,7 +1,7 @@
 use super::*;
 use crate::lists::fixtures::{
-    NOON, blocks_something, db, decision_answering, design, item, item_opened, question, read,
-    set_area, set_audience, stamp,
+    NOON, db, decision_answering, design, item, item_opened, question, read, set_area,
+    set_audience, stamp,
 };
 use crate::lists::question::Spot;
 use crate::lists::record::close;
@@ -169,7 +169,6 @@ fn blocked_question(db: &Connection, blocks: usize) -> Id {
     for _ in 0..blocks {
         item(db, vec![Wait::Question(q)]);
     }
-    blocks_something(db, q);
     q
 }
 

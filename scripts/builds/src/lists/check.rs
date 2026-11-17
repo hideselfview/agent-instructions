@@ -98,14 +98,19 @@ pub fn faults(db: &Connection, project: &str) -> Result<Vec<String>> {
     let queries: [(&str, String); 11] = [
         // 1. A project has at least one repo: a parent that needs a child.
         ("repos", "SELECT 'the project has no repos' WHERE NOT EXISTS (SELECT 1 FROM repo)".to_string()),
-        // 2. A question that says nothing of why it blocks nothing has an open item waiting on it.
+        // 2. An open question has an open item waiting on it or says why it
+        // is asked anyway, never both.
         (
             "questions",
-            "SELECT 'question #' || q.id || ' blocks no open item and says nothing about why it is asked' FROM question q \
-             WHERE q.blocks_nothing IS NULL \
-             AND NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = q.id) \
-             AND NOT EXISTS (SELECT 1 FROM item_wait_question w WHERE w.on_question = q.id \
-                             AND NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = w.item_id)) \
+            "SELECT CASE WHEN q.blocks_nothing IS NULL \
+                 THEN 'question #' || q.id || ' blocks no open item and says nothing about why it is asked' \
+                 ELSE 'question #' || q.id || ' says it blocks nothing (' || q.blocks_nothing || ') while open item #' || \
+                     (SELECT MIN(w.item_id) FROM item_wait_question w WHERE w.on_question = q.id \
+                      AND NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = w.item_id)) || ' waits on it' \
+                 END FROM question q \
+             WHERE NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = q.id) \
+             AND (q.blocks_nothing IS NULL) = (NOT EXISTS (SELECT 1 FROM item_wait_question w WHERE w.on_question = q.id \
+                             AND NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = w.item_id))) \
              ORDER BY q.id"
                 .to_string(),
         ),
