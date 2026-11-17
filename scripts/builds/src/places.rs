@@ -159,6 +159,13 @@ impl Places {
         self.root.join(repo).join(lane.removed_file_name())
     }
 
+    /// The lock that every addition of an app checkout on <host> holds while
+    /// it counts the host's checkouts and adds one (lane_size.rs), across
+    /// repos and lanes.
+    pub fn app_host_guard_file(&self, host: &str) -> PathBuf {
+        self.root.join(".app-hosts").join(host)
+    }
+
     /// <lane>'s locks for <repo>: <root>/<repo>/app.locks for the mac lane.
     pub fn app_locks_dir(&self, repo: &str, lane: Lane) -> PathBuf {
         self.root.join(repo).join(lane.locks_dir_name())

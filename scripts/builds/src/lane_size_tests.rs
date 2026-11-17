@@ -69,6 +69,15 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' exec sh -c "$*"
         .unwrap();
     }
 
+    fn at(&self, lane: Lane) -> RepoLane<'_> {
+        RepoLane {
+            places: &self.places,
+            ssh: &self.ssh,
+            repo: "demo",
+            lane,
+        }
+    }
+
     fn set(&self) -> Vec<AppCheckout> {
         self.places
             .app_checkouts_recorded("demo", Lane::Android)
@@ -189,15 +198,7 @@ fn a_lane_at_its_cap_or_a_host_with_no_room_gets_no_checkout() {
     )
     .unwrap();
     assert_eq!(queue.waiting().len(), 2);
-    let grown = grow(
-        &world.places,
-        &world.ssh,
-        0,
-        "demo",
-        Lane::Android,
-        Need::Waits,
-    )
-    .unwrap();
+    let grown = grow(world.at(Lane::Android), 0, Need::Waits).unwrap();
     assert_eq!(grown, None, "the lane has its cap");
     assert_eq!(world.entries().len(), LANE_CAP);
 
@@ -207,26 +208,10 @@ fn a_lane_at_its_cap_or_a_host_with_no_room_gets_no_checkout() {
     )
     .unwrap();
     world.host_has(10, 9.5, 900_000_000);
-    let grown = grow(
-        &world.places,
-        &world.ssh,
-        0,
-        "demo",
-        Lane::Android,
-        Need::Waits,
-    )
-    .unwrap();
+    let grown = grow(world.at(Lane::Android), 0, Need::Waits).unwrap();
     assert_eq!(grown, None, "the host has under a core free");
     world.host_has(10, 2.0, 35 * 1024 * 1024);
-    let grown = grow(
-        &world.places,
-        &world.ssh,
-        30 * 1024 * 1024,
-        "demo",
-        Lane::Android,
-        Need::Waits,
-    )
-    .unwrap();
+    let grown = grow(world.at(Lane::Android), 30 * 1024 * 1024, Need::Waits).unwrap();
     assert_eq!(
         grown, None,
         "a checkout would take the host under its floor"
@@ -235,7 +220,50 @@ fn a_lane_at_its_cap_or_a_host_with_no_room_gets_no_checkout() {
 }
 
 #[test]
-fn a_host_that_holds_its_cap_of_checkouts_takes_no_more() {
+fn two_lanes_that_add_at_once_never_pass_the_host_cap() {
+    let world = World::new("size-host-cap", "");
+    let places = &world.places;
+    for round in 0..5 {
+        // m1 holds one checkout under its cap, and builds wait in both lanes.
+        std::fs::write(
+            places.app_checkouts_file("demo", Lane::Android),
+            "m1:app-1\nm1:app-2\n",
+        )
+        .unwrap();
+        let mac: String = (1..HOST_CAP - 2).map(|n| format!("m1:mac-{n}\n")).collect();
+        std::fs::write(places.app_checkouts_file("demo", Lane::Mac), mac).unwrap();
+        for lane in Lane::ALL {
+            let dir = places.root.join("demo").join(lane.queue_dir_name());
+            std::fs::create_dir_all(&dir).unwrap();
+            let order: String = (1..=HOST_CAP).map(|n| format!("{n}-{round}\n")).collect();
+            std::fs::write(dir.join("order"), order).unwrap();
+        }
+        let start = std::sync::Barrier::new(2);
+        let grown: Vec<Option<String>> = std::thread::scope(|scope| {
+            let threads: Vec<_> = Lane::ALL
+                .into_iter()
+                .map(|lane| {
+                    let start = &start;
+                    let at = world.at(lane);
+                    scope.spawn(move || {
+                        start.wait();
+                        grow(at, 0, Need::Waits).unwrap()
+                    })
+                })
+                .collect();
+            threads.into_iter().map(|t| t.join().unwrap()).collect()
+        });
+        assert_eq!(
+            grown.iter().filter(|added| added.is_some()).count(),
+            1,
+            "round {round}: {grown:?}"
+        );
+        assert_eq!(checkouts_on(places, "m1").unwrap(), HOST_CAP);
+    }
+}
+
+#[test]
+fn a_host_that_cannot_build_the_mac_lane_takes_no_mac_checkout() {
     let probes = vec![(
         Host {
             name: "m1".to_string(),
@@ -250,16 +278,11 @@ fn a_host_that_holds_its_cap_of_checkouts_takes_no_more() {
             git_fails: None,
         }),
     )];
-    let held = |count| HashMap::from([("m1".to_string(), count)]);
-    assert!(choose(Lane::Mac, 0, &probes, &held(HOST_CAP - 1), &[]).is_ok());
-    let Err(why) = choose(Lane::Mac, 0, &probes, &held(HOST_CAP), &[]) else {
-        panic!("m1 holds its cap");
-    };
-    assert!(why.contains("the most a host holds"), "{why}");
-    let Err(why) = choose(Lane::Mac, 0, &probes, &held(0), &["m1".to_string()]) else {
-        panic!("m1 cannot build the mac lane");
-    };
-    assert!(why.contains("cannot build the mac lane"), "{why}");
+    let (fits, _) = fitting_hosts(Lane::Mac, 0, &probes, &[]);
+    assert_eq!(fits.len(), 1);
+    let (fits, lacks) = fitting_hosts(Lane::Mac, 0, &probes, &["m1".to_string()]);
+    assert!(fits.is_empty());
+    assert!(lacks[0].contains("cannot build the mac lane"), "{lacks:?}");
 }
 
 #[test]
@@ -292,10 +315,10 @@ fn an_idle_checkout_builds_added_goes_and_a_persons_and_a_used_one_stay() {
     }
     std::fs::create_dir_all(places.root.join("demo/m1:builds-android-1/out")).unwrap();
 
-    shrink(places, &world.ssh, "demo", Lane::Android, Run::Dry).unwrap();
+    shrink(world.at(Lane::Android), Run::Dry).unwrap();
     assert_eq!(world.entries().len(), 3, "a dry run removes nothing");
 
-    shrink(places, &world.ssh, "demo", Lane::Android, Run::Real).unwrap();
+    shrink(world.at(Lane::Android), Run::Real).unwrap();
     assert_eq!(
         world.entries(),
         ["m1:app-1", "m1:builds-android-2"],
@@ -326,7 +349,7 @@ fn a_checkout_whose_host_removal_fails_stays_in_the_set() {
     // The host has no clone of demo, so git cannot remove the worktree there.
     let host_home = world.scratch.dir.join("host-home");
     std::fs::create_dir_all(host_home.join("dev/demo-worktrees/builds-android-1/.git")).unwrap();
-    shrink(&world.places, &world.ssh, "demo", Lane::Android, Run::Real).unwrap();
+    shrink(world.at(Lane::Android), Run::Real).unwrap();
     assert_eq!(world.entries(), ["m1:builds-android-1"]);
     assert!(
         world

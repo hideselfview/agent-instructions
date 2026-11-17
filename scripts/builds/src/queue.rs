@@ -144,6 +144,17 @@ impl Drop for Guard {
     }
 }
 
+/// The lock on the file <path>, made with its folder when missing, waiting
+/// until no other process holds it.
+pub fn guard_at(path: &Path) -> Result<Guard> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
+    }
+    open_with(path, libc::O_CREAT | libc::O_CLOEXEC)
+        .map(Guard)
+        .context(|| format!("locking {}", path.display()))
+}
+
 impl Queue {
     pub fn of(places: &Places, repo: &str, lane: Lane) -> Queue {
         Queue::in_repo_dir(&places.root.join(repo), lane)
@@ -187,12 +198,7 @@ impl Queue {
     }
 
     pub fn guard(&self) -> Result<Guard> {
-        std::fs::create_dir_all(&self.dir)
-            .context(|| format!("creating {}", self.dir.display()))?;
-        let path = self.dir.join(".next");
-        open_with(&path, libc::O_CREAT | libc::O_CLOEXEC)
-            .map(Guard)
-            .context(|| format!("locking {}", path.display()))
+        guard_at(&self.dir.join(".next"))
     }
 
     /// The tickets in line, next first. A write replaces the file whole, so a

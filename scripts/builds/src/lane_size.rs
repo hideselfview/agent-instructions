@@ -24,14 +24,14 @@
 //! Every read and change of the set that decides which checkouts there are
 //! happens under the lane's queue guard (queue.rs `Queue::guard`), as does
 //! every build's take of a lock (lock.rs), so two builds never add the same
-//! checkout and no build takes one that is being removed. The hosts are asked
-//! for their load and disk before the guard is taken, since asking takes a
-//! second or more, and the set is read again under it. The count of
-//! checkouts on a host is read under one lane's guard, so builds of two lanes
-//! that add at the same moment may each add one there and pass `HOST_CAP` by
-//! one.
-
-use std::collections::HashMap;
+//! checkout and no build takes one that is being removed. An addition on a
+//! host also holds the host's guard (`Places::app_host_guard_file`) while it
+//! counts the host's checkouts across repos and lanes and writes its own, so
+//! builds of two lanes never pass `HOST_CAP` together. A build takes the
+//! lane's guard first and the host's second, and nothing takes them the other
+//! way round. The hosts are asked for their load and disk before either guard
+//! is taken, since asking takes a second or more, and the set is read again
+//! under the lane's guard.
 
 use crate::app_remote::{RemoteApp, entry_of, split};
 use crate::fail;
@@ -81,6 +81,16 @@ pub fn checkout_kib(lane: Lane) -> u64 {
     }
 }
 
+/// One repo's app lane, and the program that reaches its hosts: what sizing
+/// reads and changes.
+#[derive(Clone, Copy)]
+pub struct RepoLane<'a> {
+    pub places: &'a Places,
+    pub ssh: &'a Ssh,
+    pub repo: &'a str,
+    pub lane: Lane,
+}
+
 /// Why a build asks for a checkout.
 #[derive(Clone, Copy, Debug)]
 pub enum Need {
@@ -91,18 +101,17 @@ pub enum Need {
     OnAHost,
 }
 
-/// Adds a checkout of <repo>'s <lane> on a host for a build that <need>s
-/// one, when a host and the caps allow it, and returns its entry. A host
-/// whose free disk would go under <floor_kib> takes none. When builds adds
-/// none, it says why.
-pub fn grow(
-    places: &Places,
-    ssh: &Ssh,
-    floor_kib: u64,
-    repo: &str,
-    lane: Lane,
-    need: Need,
-) -> Result<Option<String>> {
+/// Adds a checkout of <at>'s lane on a host for a build that <need>s one,
+/// when a host and the caps allow it, and returns its entry. A host whose
+/// free disk would go under <floor_kib> takes none. When builds adds none, it
+/// says why.
+pub fn grow(at: RepoLane, floor_kib: u64, need: Need) -> Result<Option<String>> {
+    let RepoLane {
+        places,
+        ssh,
+        repo,
+        lane,
+    } = at;
     if places.app_checkouts_of(repo, lane)?.len() >= LANE_CAP {
         note(format!(
             "{repo}'s {} lane has {LANE_CAP} app checkouts, the most it has, so builds adds none",
@@ -124,7 +133,7 @@ pub fn grow(
         Vec::new()
     };
     let queue = Queue::of(places, repo, lane);
-    let guard = queue.guard()?;
+    let lane_guard = queue.guard()?;
     let mut set = places.app_checkouts_recorded(repo, lane)?;
     let order = queue.order();
     let reason = match need {
@@ -155,69 +164,72 @@ pub fn grow(
     if set.len() >= LANE_CAP {
         return Ok(None);
     }
-    let mut on_host = HashMap::new();
-    for (host, _) in &probes {
-        on_host.insert(host.name.clone(), checkouts_on(places, &host.name)?);
-    }
-    let (host, probe) = match choose(lane, floor_kib, &probes, &on_host, &refusing) {
-        Ok(chosen) => chosen,
-        Err(why) => {
-            note(format!(
-                "no host can take another {} lane checkout of {repo}: {why}",
-                lane.word()
+    let (fits, mut lacks) = fitting_hosts(lane, floor_kib, &probes, &refusing);
+    for (host, probe) in fits {
+        let host_guard = queue::guard_at(&places.app_host_guard_file(&host.name))?;
+        let held = checkouts_on(places, &host.name)?;
+        if held >= HOST_CAP {
+            lacks.push(format!(
+                "{} holds {held} app checkouts, the most a host holds",
+                host.name
             ));
-            return Ok(None);
+            continue;
         }
-    };
-    let taken: Vec<String> = Lane::ALL
-        .into_iter()
-        .map(|lane| places.app_checkouts_of(repo, lane))
-        .collect::<Result<Vec<_>>>()?
-        .concat();
-    let entry = (1..)
-        .map(|n| entry_of(&host.name, &format!("builds-{}-{n}", lane.word())))
-        .find(|entry| !taken.contains(entry))
-        .expect("some number names no checkout");
-    let why = format!(
-        "{reason}, and host {} had {:.1} cores and {} of disk free",
-        host.name,
-        probe.room(),
-        human(probe.free_kib)
-    );
-    set.push(AppCheckout {
-        entry: entry.clone(),
-        added_by: AddedBy::Builds {
-            at: crate::app_timing::now(),
-            why: why.clone(),
-        },
-    });
-    places.write_app_checkouts(repo, lane, &set)?;
-    drop(guard);
-    queue::repoint(places, repo, lane);
+        let taken: Vec<String> = Lane::ALL
+            .into_iter()
+            .map(|lane| places.app_checkouts_of(repo, lane))
+            .collect::<Result<Vec<_>>>()?
+            .concat();
+        let entry = (1..)
+            .map(|n| entry_of(&host.name, &format!("builds-{}-{n}", lane.word())))
+            .find(|entry| !taken.contains(entry))
+            .expect("some number names no checkout");
+        let why = format!(
+            "{reason}, and host {} had {:.1} cores and {} of disk free",
+            host.name,
+            probe.room(),
+            human(probe.free_kib)
+        );
+        set.push(AppCheckout {
+            entry: entry.clone(),
+            added_by: AddedBy::Builds {
+                at: crate::app_timing::now(),
+                why: why.clone(),
+            },
+        });
+        places.write_app_checkouts(repo, lane, &set)?;
+        drop(host_guard);
+        drop(lane_guard);
+        queue::repoint(places, repo, lane);
+        note(format!(
+            "builds added {entry} to {repo}'s {} app checkouts: {why}; its first build makes it on host {}",
+            lane.word(),
+            host.name
+        ));
+        return Ok(Some(entry));
+    }
     note(format!(
-        "builds added {entry} to {repo}'s {} app checkouts: {why}; its first build makes it on host {}",
+        "no host can take another {} lane checkout of {repo}: {}",
         lane.word(),
-        host.name
+        lacks.join("; ")
     ));
-    Ok(Some(entry))
+    Ok(None)
 }
 
-/// The host to add a checkout of <lane> on: of the hosts in <probes> that
-/// answer, take jobs, are not in <refusing>, have `FREE_CORES` free, would
-/// keep their free disk above <floor_kib> with one more checkout of the lane,
-/// and hold fewer than `HOST_CAP` checkouts (<on_host>), the one with the
-/// most cores free. Otherwise what each host lacks.
-fn choose(
+/// The hosts that may take a checkout of <lane>, the one with the most cores
+/// free first: of the hosts in <probes>, those that answer, take jobs, are
+/// not in <refusing>, have `FREE_CORES` free and would keep their free disk
+/// above <floor_kib> with one more checkout of the lane. With them, what each
+/// other host lacks. The caller checks `HOST_CAP` under the host's guard.
+fn fitting_hosts(
     lane: Lane,
     floor_kib: u64,
     probes: &[(Host, std::result::Result<Probe, String>)],
-    on_host: &HashMap<String, usize>,
     refusing: &[String],
-) -> std::result::Result<(Host, Probe), String> {
-    let mut fits: Vec<(&Host, &Probe)> = Vec::new();
+) -> (Vec<(Host, Probe)>, Vec<String>) {
+    let mut fits: Vec<(Host, Probe)> = Vec::new();
     let mut lacks = Vec::new();
     for (host, probe) in probes {
-        let held = on_host.get(&host.name).copied().unwrap_or(0);
         if let Some(why) = host::passed_over(host, probe, floor_kib) {
             lacks.push(why);
             continue;
@@ -228,11 +240,6 @@ fn choose(
         if refusing.contains(&host.name) {
             lacks.push(format!(
                 "{} cannot build the mac lane (`builds health` says why)",
-                host.name
-            ));
-        } else if held >= HOST_CAP {
-            lacks.push(format!(
-                "{} holds {held} app checkouts, the most a host holds",
                 host.name
             ));
         } else if probe.room() < FREE_CORES {
@@ -251,14 +258,11 @@ fn choose(
                 human(floor_kib)
             ));
         } else {
-            fits.push((host, probe));
+            fits.push((host.clone(), probe.clone()));
         }
     }
     fits.sort_by(|a, b| b.1.room().total_cmp(&a.1.room()));
-    match fits.first() {
-        Some((host, probe)) => Ok(((*host).clone(), (*probe).clone())),
-        None => Err(lacks.join("; ")),
-    }
+    (fits, lacks)
 }
 
 /// How many app checkouts, of every repo's lanes on the volume, are on
@@ -284,11 +288,14 @@ fn checkouts_on(places: &Places, host_name: &str) -> Result<usize> {
     Ok(count)
 }
 
-/// When a build last used <entry>, a checkout builds added at <added_at>: the
-/// latest of that time, when the last build let its lock go, and the times in
-/// its last holder's record of its run (for a build that was killed before it
-/// could write when it let go). Seconds since 1970.
-fn last_use(places: &Places, repo: &str, lane: Lane, entry: &str, added_at: i64) -> Result<i64> {
+/// When a build last used <entry>, a checkout of <at>'s lane that builds
+/// added at <added_at>: the latest of that time, when the last build let its
+/// lock go, and the times in its last holder's record of its run (for a build
+/// that was killed before it could write when it let go). Seconds since 1970.
+fn last_use(at: RepoLane, entry: &str, added_at: i64) -> Result<i64> {
+    let RepoLane {
+        places, repo, lane, ..
+    } = at;
     let mut last = added_at;
     let ended = places.app_lock_ended_file(repo, lane, entry);
     match std::fs::read_to_string(&ended) {
@@ -308,14 +315,17 @@ fn last_use(places: &Places, repo: &str, lane: Lane, entry: &str, added_at: i64)
     Ok(last)
 }
 
-/// Removes each checkout of <repo>'s <lane> that builds added and no build
-/// has used for `IDLE_MINUTES`, or with <run> dry, says which it would
-/// remove. A checkout whose host does not answer, or whose removal there
-/// fails, stays in the set, said, and goes the next time.
-pub fn shrink(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, run: Run) -> Result<()> {
+/// Removes each checkout of <at>'s lane that builds added and no build has
+/// used for `IDLE_MINUTES`, or with <run> dry, says which it would remove. A
+/// checkout whose host does not answer, or whose removal there fails, stays
+/// in the set, said, and goes the next time.
+pub fn shrink(at: RepoLane, run: Run) -> Result<()> {
+    let RepoLane {
+        places, repo, lane, ..
+    } = at;
     let now = crate::app_timing::now();
     for checkout in places.app_checkouts_recorded(repo, lane)? {
-        let AddedBy::Builds { at, .. } = checkout.added_by else {
+        let AddedBy::Builds { at: added_at, .. } = checkout.added_by else {
             continue;
         };
         let dir = places.app_locks_dir(repo, lane);
@@ -326,27 +336,32 @@ pub fn shrink(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, run: Run) -> R
             // A build holds it.
             continue;
         };
-        let removed = remove_if_idle(places, ssh, repo, lane, &entry, at, now, run);
+        let removed = remove_if_idle(at, &entry, Idle { added_at, now }, run);
         unsafe { libc::close(lock) };
         removed?;
     }
     Ok(())
 }
 
-/// `shrink` for one checkout, <entry>, added at <added_at>, whose lock the
-/// caller holds.
-#[allow(clippy::too_many_arguments)]
-fn remove_if_idle(
-    places: &Places,
-    ssh: &Ssh,
-    repo: &str,
-    lane: Lane,
-    entry: &str,
+/// The times `shrink` judges a checkout builds added by, in seconds since
+/// 1970: when builds added it, and now.
+#[derive(Clone, Copy)]
+struct Idle {
     added_at: i64,
     now: i64,
-    run: Run,
-) -> Result<()> {
-    let idle = minutes_since(now, last_use(places, repo, lane, entry, added_at)?);
+}
+
+/// `shrink` for one checkout of <at>'s lane, <entry>, whose lock the caller
+/// holds.
+fn remove_if_idle(at: RepoLane, entry: &str, times: Idle, run: Run) -> Result<()> {
+    let RepoLane {
+        places,
+        ssh,
+        repo,
+        lane,
+    } = at;
+    let Idle { added_at, now } = times;
+    let idle = minutes_since(now, last_use(at, entry, added_at)?);
     if idle < IDLE_MINUTES {
         return Ok(());
     }
@@ -428,7 +443,13 @@ pub fn shrink_all(places: &Places, ssh: &Ssh, run: Run) -> Result<()> {
             continue;
         }
         for lane in Lane::ALL {
-            shrink(places, ssh, &name, lane, run)?;
+            let at = RepoLane {
+                places,
+                ssh,
+                repo: &name,
+                lane,
+            };
+            shrink(at, run)?;
         }
     }
     Ok(())

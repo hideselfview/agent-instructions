@@ -57,6 +57,9 @@ on it:
   <repo>/app-android-checkouts, app-android-checkouts-removed,
   app-android.locks/, app-android.queue/
                         the same for the android lane
+  .app-hosts/<host>     taken by each addition of an app checkout on the host
+                        while it counts the host's checkouts and adds one, so
+                        two lanes never pass the cap of checkouts on a host
   DerivedData/          Xcode's default DerivedData location
   caches/<name>/        the download caches every checkout shares
   .trash/               folders being deleted in the background
