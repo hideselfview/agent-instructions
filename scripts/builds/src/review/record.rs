@@ -513,6 +513,20 @@ pub fn calls_of_run(db: &Connection, run: i64) -> Result<Vec<Call>> {
     calls_where(db, "c.run_id = ?1", run)
 }
 
+/// The message each process of the call of <group> in <run> was sent, in
+/// the order sent.
+pub fn messages_of_call(db: &Connection, run: i64, group: &str) -> Result<Vec<String>> {
+    let mut statement = db
+        .prepare(
+            "SELECT t.text FROM review_exchange e JOIN review_call c ON c.id = e.call_id JOIN review_text t ON t.hash = e.message_hash WHERE c.run_id = ?1 AND c.group_name = ?2 ORDER BY e.id",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map(params![run, group], |row| row.get(0))
+        .sql()?;
+    rows.collect::<rusqlite::Result<Vec<String>>>().sql()
+}
+
 /// The calls of every run of <kind> (`review`, `replay` or `audit`).
 pub fn calls_of_kind(db: &Connection, kind: Kind) -> Result<Vec<Call>> {
     calls_where(db, "r.kind = ?1", kind.word())

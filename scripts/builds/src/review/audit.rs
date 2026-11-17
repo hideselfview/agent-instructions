@@ -17,8 +17,10 @@ use crate::fail::Result;
 use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::Store;
+use crate::review::files;
 use crate::review::groups::{Group, Groups};
 use crate::review::model_check;
+use crate::review::prompt;
 use crate::review::record::{self, Call, Finding, Kind, NewRun};
 use crate::review::render;
 use crate::review::rules::Rule;
@@ -333,15 +335,14 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
         &material,
         inputs.reviewer,
         model_check::MODEL,
-        &diff,
-        &fresh,
+        &fresh.iter().map(|miss| (*miss, &diff)).collect::<Vec<_>>(),
     )?;
     text.push_str(&settled);
     Ok(text)
 }
 
-/// Asks the model check about each of <misses>, which an audit raised over
-/// <diff>, and settles each one the model answers: confirmed, or dropped with
+/// Asks the model check about each of <misses>, each with the diff an audit
+/// raised it over, and settles each one the model answers: confirmed, or dropped with
 /// the model's reason. A miss whose check gave no answer stays unsettled.
 /// Returns what to print, and whether a check gave no answer.
 pub fn settle_misses(
@@ -350,16 +351,15 @@ pub fn settle_misses(
     material: &Material,
     program: &Path,
     model: &str,
-    diff: &Diff,
-    misses: &[&Finding],
+    misses: &[(&Finding, &Diff)],
 ) -> Result<(String, bool)> {
-    let checked = crate::checkout::parallel_map(misses, |miss| {
+    let checked = crate::checkout::parallel_map(misses, |(miss, diff)| {
         model_check::check(program, model, material, miss, diff)
     });
     let mut text = String::new();
     let mut failed = false;
     let mut settles = Vec::new();
-    for (miss, checked) in misses.iter().zip(&checked) {
+    for ((miss, _), checked) in misses.iter().zip(&checked) {
         text.push_str(&render::finding_text(miss));
         match checked.settle_why() {
             Some((how, why)) => {
@@ -396,70 +396,79 @@ pub fn settle_misses(
 pub struct OpenMisses<'a> {
     pub store: &'a Store,
     pub project: &'a str,
-    /// A checkout of the repo that holds the audited landings' commits.
-    pub repo_dir: &'a Path,
     pub root: &'a Path,
     pub reviewer: &'a Path,
     pub model: &'a str,
     pub stamp: &'a Stamp,
 }
 
+/// The diff the audit reviewer that raised <miss> read, from the message the
+/// store keeps; the commits it read may be gone from every repo.
+pub(super) fn diff_read(db: &Connection, miss: &Finding) -> std::result::Result<Diff, String> {
+    let messages =
+        record::messages_of_call(db, miss.run_id, &miss.group).map_err(|why| why.text())?;
+    let text = messages
+        .first()
+        .and_then(|message| prompt::diff_of_message(message))
+        .ok_or("the store keeps no diff of the call that raised it")?
+        .to_string();
+    Ok(Diff {
+        messages: String::new(),
+        source: None,
+        base: String::new(),
+        head: String::new(),
+        changed: files::paths(&text),
+        text,
+    })
+}
+
 /// Settles every candidate miss nobody has settled, as an audit settles the
-/// misses it raises (`settle_misses`), over the net change of the run each
-/// audited landing landed with. Returns what to print, and whether a diff
-/// could not be read or a check gave no answer.
+/// misses it raises (`settle_misses`), over the diff the audit reviewer that
+/// raised it read. Returns what to print, and whether a diff could not be
+/// read or a check gave no answer.
 pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
     let conn = inputs.store.open_existing()?;
     let material = Material::load(inputs.root, inputs.project)?;
     let mut text = String::new();
     let mut failed = false;
-    let mut count = 0;
+    let mut findings = Vec::new();
     for landing in record::audited_landings(&conn)? {
-        let findings = record::findings_of_landing(&conn, landing)?;
-        let open: Vec<&Finding> = candidate_misses(&findings)
-            .into_iter()
-            .filter(|f| f.settled.is_none())
-            .collect();
-        if open.is_empty() {
-            continue;
-        }
-        count += open.len();
-        text.push_str(&format!("landing {landing}:\n"));
-        let Some(last) = landed_run(&conn, landing)? else {
-            failed = true;
-            text.push_str("  has not landed, so builds has no net change to read\n");
-            continue;
-        };
-        let diff = match crate::review::rerun::net_change(inputs.repo_dir, &last)
-            .and_then(|(base, head)| run::diff_between(inputs.repo_dir, &base, &head))
-        {
-            Ok(diff) => diff,
+        findings.extend(record::findings_of_landing(&conn, landing)?);
+    }
+    let mut asked: Vec<(&Finding, Diff)> = Vec::new();
+    let open: Vec<&Finding> = candidate_misses(&findings)
+        .into_iter()
+        .filter(|f| f.settled.is_none())
+        .collect();
+    for miss in &open {
+        match diff_read(&conn, miss) {
+            Ok(diff) => asked.push((miss, diff)),
             Err(why) => {
                 failed = true;
-                text.push_str(&format!("  not checked: {}\n", why.text()));
-                continue;
+                text.push_str(&format!("finding {} not checked: {why}\n", miss.id));
             }
-        };
-        let (settled, check_failed) = settle_misses(
-            inputs.store,
-            inputs.stamp,
-            &material,
-            inputs.reviewer,
-            inputs.model,
-            &diff,
-            &open,
-        )?;
-        failed |= check_failed;
-        text.push_str(&settled);
+        }
     }
+    drop(conn);
+    let pairs: Vec<(&Finding, &Diff)> = asked.iter().map(|(miss, diff)| (*miss, diff)).collect();
+    let (settled, check_failed) = settle_misses(
+        inputs.store,
+        inputs.stamp,
+        &material,
+        inputs.reviewer,
+        inputs.model,
+        &pairs,
+    )?;
+    failed |= check_failed;
+    text.push_str(&settled);
     text.push_str(&format!(
         "{} unsettled before the check\n",
-        crate::text::counted(count, "candidate miss", "candidate misses")
+        crate::text::counted(open.len(), "candidate miss", "candidate misses")
     ));
     Ok((text, failed))
 }
 
-/// `builds review misses --check --repo-dir DIR [--model M]`: settles every
+/// `builds review misses --check [--model M]`: settles every
 /// candidate miss nobody has settled with the model check, and exits 1 when a
 /// diff could not be read or a check gave no answer.
 pub(super) fn check_misses_command(tool: &crate::tool::Tool, args: &Args) -> Result<()> {
@@ -470,7 +479,6 @@ pub(super) fn check_misses_command(tool: &crate::tool::Tool, args: &Args) -> Res
     let store = Store::resolve(&tool.places, args, &current_dir()?)?;
     let root = super::rules_root(args)?;
     let reviewer = std::path::PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
-    let repo_dir = std::path::PathBuf::from(args.require("repo-dir")?);
     let stamp = Stamp {
         at: tool.now,
         by: args
@@ -481,7 +489,6 @@ pub(super) fn check_misses_command(tool: &crate::tool::Tool, args: &Args) -> Res
     let (text, failed) = check_open_misses(&OpenMisses {
         store: &store,
         project: &store.project,
-        repo_dir: &repo_dir,
         root: &root,
         reviewer: &reviewer,
         model,

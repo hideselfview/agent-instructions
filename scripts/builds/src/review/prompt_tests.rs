@@ -116,3 +116,12 @@ fn the_setup_read_back_from_a_system_prompt_is_the_one_a_call_records() {
     assert_eq!(setup(&on_haiku, &[&rule]), recorded);
     assert_eq!(setup_of_system("no group part here", 1, false), None);
 }
+
+#[test]
+fn the_diff_a_message_held_reads_back_out_of_it() {
+    let rule = Rule::parse("r", "---\npaths: ['**']\n---\nBody.\n");
+    let diff = "diff --git a/a.rs b/a.rs\n+let x = 1;\n";
+    let parts = parts_of(&group("g", true), &rule, diff);
+    assert_eq!(diff_of_message(&parts.message), Some(diff.trim_end()));
+    assert_eq!(diff_of_message("no diff here"), None);
+}

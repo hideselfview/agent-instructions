@@ -187,7 +187,6 @@ fn an_audit_records_two_runs_names_the_misses_and_feeds_the_miss_rate() {
     let (text, failed) = check_open_misses(&OpenMisses {
         store: &demo.store,
         project: "demo",
-        repo_dir: &side,
         root: &fake.root,
         reviewer: &fake.program,
         model: "opus",

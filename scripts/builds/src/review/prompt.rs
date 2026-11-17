@@ -121,7 +121,7 @@ fn project_part(input: &Input) -> String {
 /// file around its hunks when the group reads one file at a time, and the
 /// open confirmed findings.
 fn change_part(input: &Input) -> String {
-    let mut out = format!("# Diff\n\n```diff\n{}\n```\n", input.diff.trim_end());
+    let mut out = format!("{DIFF_START}{}\n```\n", input.diff.trim_end());
     if !input.context.is_empty() {
         out.push_str(&format!(
             "\n# The file's new text around each hunk\n\n```\n{}\n```\n",
@@ -143,6 +143,18 @@ fn change_part(input: &Input) -> String {
         }
     }
     out
+}
+
+/// How the diff starts in a message `change_part` wrote.
+const DIFF_START: &str = "# Diff\n\n```diff\n";
+
+/// The diff a reviewer's message held, as `change_part` wrote it; None when
+/// the message holds no diff. Every line of a diff starts with its mark or a
+/// header word, so the first line of three backticks closes the diff.
+pub fn diff_of_message(message: &str) -> Option<&str> {
+    let rest = message.strip_prefix(DIFF_START)?;
+    let end = rest.find("\n```\n")?;
+    Some(&rest[..end])
 }
 
 /// How the group's part of a system prompt starts.

@@ -6,7 +6,7 @@
 //! confirms against its rule's text (`model_check.rs`) before the case joins
 //! the set. Its clean lines are the added lines no reviewer flagged, labelled
 //! `none`. Each confirmed candidate miss of an audit becomes a case over the
-//! net change the audit read, expecting the miss.
+//! diff the audit's reviewer read, which the store keeps, expecting the miss.
 
 use std::path::Path;
 
@@ -15,7 +15,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::Store;
-use crate::review::audit::candidate_misses;
+use crate::review::audit::{candidate_misses, diff_read};
 use crate::review::cases::{self, Addition, SiteLabel, same_code, same_file};
 use crate::review::check::{code_in, names_file, parse_diff, squash};
 use crate::review::files;
@@ -95,7 +95,7 @@ impl Candidate {
 }
 
 fn case_name(landing: i64, run: &RunRow) -> String {
-    format!("landing-{landing}-{}", &run.head[..run.head.len().min(10)])
+    format!("landing-{landing}-run-{}", run.id)
 }
 
 /// Whether the coordinator confirmed <finding> with a reason of its own.
@@ -355,8 +355,8 @@ fn change_of(
     Ok(Some((patch, diff)))
 }
 
-/// Writes a case for each confirmed candidate miss, over the net change of
-/// the run its landing landed with, which the audit read. Returns what to
+/// Writes a case for each confirmed candidate miss, over the diff the audit
+/// reviewer that raised it read, which the store keeps. Returns what to
 /// print.
 fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
     let mut text = String::new();
@@ -366,47 +366,55 @@ fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
             .into_iter()
             .filter(|f| f.settled_as("confirmed"))
             .collect();
-        if confirmed.is_empty() {
-            continue;
-        }
-        let Some(landed) = record::landing(conn, landing)?.landed_run else {
-            continue;
-        };
         let runs = record::runs_of_landing(conn, landing)?;
-        let Some(run) = runs.iter().find(|r| r.id == landed) else {
-            continue;
-        };
-        let Some((patch, diff)) = change_of(inputs.repo_dir, run, &mut text, landing)? else {
-            continue;
-        };
-        let mut found: Vec<(&Finding, String)> = Vec::new();
-        for miss in &confirmed {
-            match path_in(&diff, &patch, miss) {
-                Some(path) => found.push((miss, path)),
-                None => text.push_str(&format!(
-                    "landing {landing}: miss {} quotes code that is not in the change\n",
-                    miss.id
-                )),
+        for run in runs.iter().filter(|r| r.kind == "audit") {
+            let of_run: Vec<&Finding> = confirmed
+                .iter()
+                .copied()
+                .filter(|f| f.run_id == run.id)
+                .collect();
+            let Some(first) = of_run.first() else {
+                continue;
+            };
+            let diff = match diff_read(conn, first) {
+                Ok(diff) => diff,
+                Err(why) => {
+                    text.push_str(&format!(
+                        "landing {landing}: no case of run {}: {why}\n",
+                        run.id
+                    ));
+                    continue;
+                }
+            };
+            let mut found: Vec<(&Finding, String)> = Vec::new();
+            for miss in &of_run {
+                match path_in(&diff, &diff.text, miss) {
+                    Some(path) => found.push((miss, path)),
+                    None => text.push_str(&format!(
+                        "landing {landing}: miss {} quotes code that is not in the diff\n",
+                        miss.id
+                    )),
+                }
             }
+            let mut additions: Vec<Addition> = found
+                .iter()
+                .flat_map(|(miss, path)| expect(miss, path))
+                .collect();
+            if additions.is_empty() {
+                continue;
+            }
+            additions.extend(
+                clean_lines(&diff, &findings)
+                    .into_iter()
+                    .map(Addition::Site),
+            );
+            let name = case_name(landing, run);
+            cases::add(inputs.root, &name, inputs.project, &diff.text, &additions)?;
+            text.push_str(&format!(
+                "landing {landing}: case {name} expects {}\n",
+                crate::text::counted(found.len(), "confirmed miss", "confirmed misses")
+            ));
         }
-        let mut additions: Vec<Addition> = found
-            .iter()
-            .flat_map(|(miss, path)| expect(miss, path))
-            .collect();
-        if additions.is_empty() {
-            continue;
-        }
-        additions.extend(
-            clean_lines(&diff, &findings)
-                .into_iter()
-                .map(Addition::Site),
-        );
-        let name = case_name(landing, run);
-        cases::add(inputs.root, &name, inputs.project, &patch, &additions)?;
-        text.push_str(&format!(
-            "landing {landing}: case {name} expects {}\n",
-            crate::text::counted(confirmed.len(), "confirmed miss", "confirmed misses")
-        ));
     }
     Ok(text)
 }

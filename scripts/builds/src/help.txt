@@ -1732,13 +1732,14 @@ agent-instructions and run `review replay --rules-root` on it.
                               settles it. A confirmed miss becomes a case
                               (`review case propose`) and a fix item
   builds review misses        the candidate misses nobody has settled
-  builds review misses --check --repo-dir DIR [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
+  builds review misses --check [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
                               settle each of them as an audit settles the
-                              misses it raises, over the net change of the
-                              run its landing landed with, read in DIR's repo,
-                              with --model (default opus) as the check's
-                              model. Exits 1 when a diff could not be read or
-                              a check gave no answer
+                              misses it raises, over the diff the audit
+                              reviewer that raised it read (the store keeps
+                              each reviewer's message), with --model
+                              (default opus) as the check's model. Exits 1
+                              when the store keeps no such diff or a check
+                              gave no answer
   builds review rates [--rules-root DIR]
                               each group's audited miss rate: audits, confirmed
                               misses, and the latest 10 audits
@@ -1781,7 +1782,8 @@ agent-instructions and run `review replay --rules-root` on it.
                               all rejects gives no case, and a landing with a
                               case already keeps it and asks no model. Each
                               confirmed candidate miss becomes a case the
-                              same way, over the net change the audit read.
+                              same way, over the diff the audit reviewer that
+                              raised it read, which the store keeps.
                               Exits 1 when a check gave no answer, and writes
                               no case for that landing
   builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR [--name NAME]
