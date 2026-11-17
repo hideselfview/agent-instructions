@@ -1341,6 +1341,20 @@ whenever a matching file is staged.
                               on 14 cores. A run it can't
                               record says so on stderr and ends as the checks
                               decided; a repo in no project records nothing
+  builds checks run --since <rev> [<worktree>]
+                              run the check and fix lines that the files the
+                              branch changed since it left <rev> (git
+                              merge-base <rev> HEAD) match, over those files
+                              as HEAD has them, and leave HEAD, the index and
+                              the files as they were, so an agent checks a
+                              whole branch without moving HEAD. It refuses
+                              before any line runs, naming each file, when the
+                              working tree differs from HEAD in a file the
+                              branch changed. A fix line that would change a
+                              file fails, naming the file, and builds puts the
+                              file's bytes back. Each line prints as for
+                              `run`. builds records no range run, since the
+                              record is of commits
   builds checks whole [<worktree>]
                               run every `whole` line on the tree as it is (the
                               checks `builds land` runs on a landing), printing

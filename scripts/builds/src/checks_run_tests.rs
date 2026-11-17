@@ -485,3 +485,146 @@ fn tests_since_an_unknown_rev_runs_every_test_and_says_why() {
     assert_eq!(names(&picked), ["t-sh", "t-py", "t-all"]);
     assert!(why.unwrap().contains("not in the history"));
 }
+
+/// What `git <args>` prints in <top>.
+fn git_out(top: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(top)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}");
+    String::from_utf8(out.stdout).unwrap()
+}
+
+/// HEAD, the index's entries, the working tree's status and the files'
+/// contents in <top>: what a range check must leave as it found it.
+fn state(top: &Path) -> (String, String, String, Vec<(String, String)>) {
+    let mut files: Vec<(String, String)> = git_out(top, &["ls-files"])
+        .lines()
+        .map(|name| {
+            (
+                name.to_string(),
+                std::fs::read_to_string(top.join(name)).unwrap_or_default(),
+            )
+        })
+        .collect();
+    files.sort();
+    (
+        git_out(top, &["rev-parse", "HEAD"]),
+        git_out(top, &["ls-files", "-s"]),
+        git_out(top, &["status", "--porcelain"]),
+        files,
+    )
+}
+
+/// A repo of <checks> whose branch `work` starts at main, which then gains
+/// `main.sh`, and whose branch commits <files> (name and content) on top.
+fn branch(scratch: &Scratch, checks: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+    let top = repo(scratch, checks);
+    git(&top, &["checkout", "-q", "-b", "work"]);
+    git(&top, &["checkout", "-q", "main"]);
+    stage(&top, "main.sh", "x");
+    git(&top, &["commit", "-q", "-m", "Main moves on"]);
+    git(&top, &["checkout", "-q", "work"]);
+    for (name, content) in files {
+        stage(&top, name, content);
+        git(&top, &["commit", "-q", "-m", &format!("Add {name}")]);
+    }
+    top
+}
+
+#[test]
+fn a_range_check_finds_a_failing_file_the_branch_changed_and_leaves_head_the_index_and_the_files() {
+    let scratch = Scratch::new("range-fails");
+    let top = branch(
+        &scratch,
+        "check bad *.sh tools/fail.sh {files}\n",
+        &[("a.sh", "x"), ("b.sh", "y")],
+    );
+    let before = state(&top);
+    let error = run_range(&top, "main").unwrap_err().text();
+    assert!(error.contains("bad"), "{error}");
+    assert_eq!(log(&top), "fail a.sh b.sh\n");
+    std::fs::remove_file(top.join("log")).unwrap();
+    assert_eq!(state(&top), before);
+}
+
+#[test]
+fn a_range_check_hands_only_the_files_the_branch_changed() {
+    let scratch = Scratch::new("range-passes");
+    let top = branch(
+        &scratch,
+        "check sh *.sh tools/ok.sh {files}\n",
+        &[("a.sh", "x")],
+    );
+    run_range(&top, "main").unwrap();
+    assert_eq!(log(&top), "ok a.sh\n");
+}
+
+#[test]
+fn a_range_fix_that_would_change_a_file_fails_and_puts_the_file_back() {
+    let scratch = Scratch::new("range-fix");
+    let top = branch(
+        &scratch,
+        "fix fmt *.txt tools/format.sh {files}\n",
+        &[("a.txt", "ugly\n")],
+    );
+    let before = state(&top);
+    let error = run_range(&top, "main").unwrap_err().text();
+    assert!(error.contains("fmt"), "{error}");
+    assert_eq!(state(&top), before);
+    assert_eq!(
+        std::fs::read_to_string(top.join("a.txt")).unwrap(),
+        "ugly\n"
+    );
+}
+
+#[test]
+fn a_range_fix_that_changes_nothing_passes() {
+    let scratch = Scratch::new("range-fix-clean");
+    let top = branch(
+        &scratch,
+        "fix fmt *.txt tools/format.sh {files}\n",
+        &[("a.txt", "formatted\n")],
+    );
+    run_range(&top, "main").unwrap();
+}
+
+#[test]
+fn a_range_check_refuses_a_branch_file_with_uncommitted_changes_before_any_line_runs() {
+    let scratch = Scratch::new("range-dirty");
+    let top = branch(
+        &scratch,
+        "check sh *.sh tools/ok.sh {files}\n",
+        &[("a.sh", "x")],
+    );
+    std::fs::write(top.join("a.sh"), "edited").unwrap();
+    let error = run_range(&top, "main").unwrap_err().text();
+    assert!(error.contains("a.sh"), "{error}");
+    assert_eq!(log(&top), "");
+}
+
+#[test]
+fn a_range_check_of_an_unknown_rev_is_refused() {
+    let scratch = Scratch::new("range-unknown");
+    let top = branch(
+        &scratch,
+        "check sh *.sh tools/ok.sh {files}\n",
+        &[("a.sh", "x")],
+    );
+    let error = run_range(&top, "nowhere").unwrap_err().text();
+    assert!(error.contains("nowhere"), "{error}");
+}
+
+#[test]
+fn the_hook_worktree_is_none_for_a_range_run() {
+    let args: Vec<String> = ["run", "--since", "origin/main"]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+    assert_eq!(run_worktree(&args), None);
+    let args: Vec<String> = ["run", "--since"].iter().map(|a| a.to_string()).collect();
+    assert_eq!(run_worktree(&args), None);
+}

@@ -13,6 +13,14 @@
 //! changed a file has that file staged again (`run` refuses a staged file
 //! that also has unstaged changes before any line runs).
 //!
+//! `run --since <rev>` runs the same lines over the files the branch changed
+//! since it left <rev>, as HEAD has them, and leaves HEAD, the index and the
+//! files as they were: it refuses a changed file whose working tree differs
+//! from HEAD, and a `fix` that would change a file fails, and the run puts the
+//! file's bytes back. Agents check a whole branch this way without moving
+//! HEAD, so an app build started meanwhile builds the branch. A range run is
+//! no commit, so the hook database does not record it.
+//!
 //! Each `run` is recorded in the project's hook database (hook_stats.rs): the
 //! staged diff, every check run or skipped, and the timings. A run whose record
 //! can't be written says so on stderr and ends as the checks decided.
@@ -21,8 +29,6 @@
 //! index the commit uses. The programs get none of git's own variables: a
 //! linked worktree's `GIT_DIR` breaks SwiftPM's package clones.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -39,7 +45,7 @@ use crate::lists::store::{Store, database_of};
 use crate::places::Places;
 use crate::text::note;
 
-const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks whole [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]";
+const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks run --since <rev> [<worktree>] | builds checks whole [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]";
 
 /// The worktree `builds checks <args>` runs the pre-commit hook's checks in
 /// when <args> is `run [<worktree>]`: <worktree>, else the current
@@ -47,7 +53,9 @@ const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks whole
 pub fn run_worktree(args: &[String]) -> Option<&Path> {
     match args {
         [sub] if sub == "run" => Some(Path::new(".")),
-        [sub, worktree] if sub == "run" => Some(Path::new(worktree.as_str())),
+        [sub, worktree] if sub == "run" && !worktree.starts_with("--") => {
+            Some(Path::new(worktree.as_str()))
+        }
         _ => None,
     }
 }
@@ -57,6 +65,18 @@ pub fn cmd_checks(args: &[String]) -> Result<()> {
         return hook(&top_of(worktree)?);
     }
     match args {
+        [sub, rest @ ..] if sub == "run" => {
+            let args = Args::parse(rest, &["since"], &[])?;
+            let Some(since) = args.value("since")? else {
+                fail!("{USAGE}")
+            };
+            let worktree = match args.positional() {
+                [] => Path::new("."),
+                [worktree] => Path::new(worktree.as_str()),
+                _ => fail!("{USAGE}"),
+            };
+            run_range(&top_of(worktree)?, since)
+        }
         [sub] if sub == "whole" => whole(&top_of(Path::new("."))?),
         [sub, worktree] if sub == "whole" => whole(&top_of(Path::new(worktree))?),
         [sub, rest @ ..] if sub == "stats" => stats(rest),
@@ -215,13 +235,6 @@ fn unstaged_among(top: &Path, files: &[String]) -> Result<Vec<String>> {
         "list the unstaged changes",
     )?;
     Ok(z_list(&text))
-}
-
-fn fingerprint(top: &Path, file: &str) -> Option<u64> {
-    let bytes = std::fs::read(top.join(file)).ok()?;
-    let mut hasher = DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    Some(hasher.finish())
 }
 
 struct Ran {
@@ -445,31 +458,83 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
             })
         })
         .collect();
+    run_picked(top, &picked, &hook_checks, Fixes::Stage, run, started)
+}
+
+/// What a run does with the files a `fix` changed.
+#[derive(Clone, Copy)]
+enum Fixes {
+    /// The hook stages them again, and the commit takes them.
+    Stage,
+    /// A range run puts each file's bytes back and fails the fix, since the
+    /// branch's commits hold the files as they were.
+    PutBack,
+}
+
+/// Runs <picked> in <top>, each line with its value of <hook_checks>: the
+/// fixes first, one at a time in file order, doing with the files they change
+/// what <fixes> says, then every check at the same time. Records each line in
+/// <run> and fails, naming the lines that failed, when any did.
+fn run_picked(
+    top: &Path,
+    picked: &[Planned],
+    hook_checks: &[Option<String>],
+    fixes: Fixes,
+    mut run: Option<&mut Run>,
+    started: Instant,
+) -> Result<()> {
     let mut failed: Vec<&str> = Vec::new();
     // Run the fixes first, one at a time in file order. A fix may rewrite
-    // files; this loop stages them again, and the checks then read them.
-    for (planned, hook_check) in picked.iter().zip(&hook_checks) {
+    // files, and the checks then read what it left.
+    for (planned, hook_check) in picked.iter().zip(hook_checks) {
         if planned.line.kind != Kind::Fix {
             continue;
         }
-        let before: Vec<(String, Option<u64>)> = planned
+        let before: Vec<(String, Option<Vec<u8>>)> = planned
             .files
             .iter()
-            .map(|file| (file.clone(), fingerprint(top, file)))
+            .map(|file| (file.clone(), std::fs::read(top.join(file)).ok()))
             .collect();
         let load = Load::here();
-        let ran = execute(top, planned, false, hook_check.as_deref())?;
-        if ran.ok {
-            let changed: Vec<String> = before
-                .into_iter()
-                .filter(|(file, was)| fingerprint(top, file) != *was)
-                .map(|(file, _)| file)
-                .collect();
-            if !changed.is_empty() {
-                git_text(
-                    git(top).args(["add", "--"]).args(&changed),
-                    "stage the files a fix changed",
-                )?;
+        let mut ran = execute(top, planned, false, hook_check.as_deref())?;
+        let changed: Vec<&(String, Option<Vec<u8>>)> = before
+            .iter()
+            .filter(|(file, was)| std::fs::read(top.join(file)).ok() != *was)
+            .collect();
+        match fixes {
+            Fixes::Stage => {
+                let names: Vec<&str> = changed.iter().map(|(file, _)| file.as_str()).collect();
+                if ran.ok && !names.is_empty() {
+                    git_text(
+                        git(top).args(["add", "--"]).args(&names),
+                        "stage the files a fix changed",
+                    )?;
+                }
+            }
+            Fixes::PutBack => {
+                for (file, was) in &changed {
+                    let path = top.join(file);
+                    match was {
+                        Some(bytes) => std::fs::write(&path, bytes)
+                            .context(|| format!("putting back {}", path.display()))?,
+                        None => {
+                            if path.exists() {
+                                std::fs::remove_file(&path)
+                                    .context(|| format!("removing {}", path.display()))?;
+                            }
+                        }
+                    }
+                }
+                if !changed.is_empty() {
+                    let names: Vec<&str> = changed.iter().map(|(file, _)| file.as_str()).collect();
+                    ran.ok = false;
+                    ran.output = format!(
+                        "{} would change {}, so the branch's commits do not pass it; builds put the files back\n{}",
+                        planned.line.name,
+                        names.join(", "),
+                        ran.output
+                    );
+                }
             }
         }
         finish_line(planned, load, ran, run.as_deref_mut(), &mut failed);
@@ -479,7 +544,7 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
     // order.
     let checks: Vec<(&Planned, &Option<String>)> = picked
         .iter()
-        .zip(&hook_checks)
+        .zip(hook_checks)
         .filter(|(planned, _)| planned.line.kind == Kind::Check)
         .collect();
     let ran_all: Vec<(Load, Result<Ran>)> = std::thread::scope(|scope| {
@@ -511,6 +576,71 @@ fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result
     } else {
         Err(Fail::Message(format!("failed: {}", failed.join(", "))))
     }
+}
+
+/// `run --since <since>`: runs the check and fix lines that the files the
+/// branch at <top> changed since it left <since> match, over those files as
+/// HEAD has them, and leaves HEAD, the index and the files as they were.
+/// Refuses, before any line runs, a <since> that is no commit and a changed
+/// file whose working tree differs from HEAD. A fix that would change a file
+/// fails, and the run puts the file back (`Fixes::PutBack`).
+pub fn run_range(top: &Path, since: &str) -> Result<()> {
+    let started = Instant::now();
+    let lines = load(top)?;
+    let output = git(top)
+        .args(["merge-base", since, "HEAD"])
+        .stdin(Stdio::null())
+        .output()
+        .context(|| "running git merge-base".to_string())?;
+    if !output.status.success() {
+        fail!(
+            "{since} is no commit that HEAD shares history with: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let base = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let files = z_list(&git_text(
+        git(top).args([
+            "diff",
+            "--name-only",
+            "-z",
+            "--diff-filter=ACMR",
+            &base,
+            "HEAD",
+        ]),
+        "list the files the branch changed",
+    )?);
+    if files.is_empty() {
+        note(format!("the branch changed no file since {since}"));
+        return Ok(());
+    }
+    let edited = z_list(&git_text(
+        git(top)
+            .args(["diff", "--name-only", "-z", "HEAD", "--"])
+            .args(&files),
+        "list the changes since HEAD",
+    )?);
+    if !edited.is_empty() {
+        fail!(
+            "refusing to run: the branch changed {} and the working tree differs from HEAD there: {}. The checks read the working tree, so they would not check the branch's commits; commit the changes or put them aside (git restore -p), then run again",
+            if edited.len() == 1 {
+                "this file"
+            } else {
+                "these files"
+            },
+            edited.join(", ")
+        );
+    }
+    let picked = plan(
+        top,
+        &lines,
+        &[Kind::Check, Kind::Fix],
+        &files,
+        false,
+        Some(&base),
+    )?;
+    let hook_checks = vec![None; picked.len()];
+    run_picked(top, &picked, &hook_checks, Fixes::PutBack, None, started)
 }
 
 /// Prints how <planned> ran, prints its output and adds its name to <failed>
