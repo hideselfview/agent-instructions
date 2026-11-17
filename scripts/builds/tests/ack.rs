@@ -47,7 +47,7 @@ fn an_agents_command_waits_for_its_acknowledgement_and_the_persons_runs() {
 }
 
 #[test]
-fn an_agent_runs_install_on_a_store_of_an_older_schema_and_is_refused_other_commands() {
+fn an_agent_runs_install_on_a_store_of_an_older_schema_and_builds_refuses_its_other_commands() {
     let dir = std::fs::canonicalize(std::env::temp_dir())
         .unwrap()
         .join(format!("builds-test-ack-install-{}", std::process::id()));

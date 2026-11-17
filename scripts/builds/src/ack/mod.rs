@@ -53,10 +53,10 @@ const USAGE: &str = "usage: builds ack [--by WHO] [--project P]\n       builds a
 /// Refuses `builds <command> <args>` when an agent runs it without a current
 /// acknowledgement. Passes the person's commands, `ack`, which records the
 /// acknowledgement, and the commands a builds command that passed runs. The
-/// gate also passes the commands that take no use of the stores
+/// gate also passes the commands that do not use the stores
 /// (`install_gate::STORELESS`): the gate reads a store, and install must run
-/// while the stores still carry an older schema, because install moves them
-/// to its own.
+/// while the stores still have an older schema, because install migrates them
+/// to its schema.
 pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
     if command == "ack"
         || install_gate::STORELESS.contains(&command)
