@@ -157,8 +157,8 @@ impl Fake {
         std::fs::write(self.dir.join(format!("fail-{group}")), "").unwrap();
     }
 
-    /// The prompts the reviewer was run with since the last call of this, by
-    /// group, or by task for a prompt that names one.
+    /// The prompts the program sent the reviewer since the last call to
+    /// `prompts`, by group, or by task when a prompt names one.
     pub fn prompts(&self) -> Vec<(String, String)> {
         let mut prompts = Vec::new();
         for entry in std::fs::read_dir(self.dir.join("calls")).unwrap() {

@@ -452,7 +452,10 @@ pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
             Ok(diff) => asked.push((miss, diff)),
             Err(why) => {
                 failed = true;
-                text.push_str(&format!("finding {} not checked: {why}\n", miss.id));
+                text.push_str(&format!(
+                    "builds did not check finding {}: {why}\n",
+                    miss.id
+                ));
             }
         }
     }
@@ -469,7 +472,7 @@ pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
     failed |= check_failed;
     text.push_str(&settled);
     text.push_str(&format!(
-        "{} unsettled before the check\n",
+        "the check found {} that nobody had settled\n",
         crate::text::counted(open.len(), "candidate miss", "candidate misses")
     ));
     Ok((text, failed))

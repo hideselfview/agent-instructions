@@ -72,7 +72,8 @@ pub struct Inputs<'a> {
 
 pub struct Proposed {
     pub text: String,
-    /// Whether a check gave no answer, so its case was not written.
+    /// Whether a check gave no answer, so propose wrote no case for its
+    /// landing.
     pub failed: bool,
 }
 
@@ -272,8 +273,8 @@ fn expect<'a>(finding: &'a Finding, path: &'a str) -> [Addition<'a>; 2] {
 }
 
 /// Proposes cases from the store's landings and writes each one that passes
-/// the check in <inputs>' root. A landing that has a case already is left as
-/// it is, and its findings are not checked again.
+/// the check in <inputs>' root. propose skips a landing that has a case
+/// already and does not check its findings again.
 pub fn propose(inputs: &Inputs) -> Result<Proposed> {
     let conn = inputs.store.open_existing()?;
     let material = Material::load(inputs.root, inputs.project)?;
@@ -337,7 +338,7 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
         }
         if case_failed {
             failed = true;
-            text.push_str("  not written, since a check gave no answer\n");
+            text.push_str("  propose wrote no case, since a check gave no answer\n");
             continue;
         }
         if additions.is_empty() {

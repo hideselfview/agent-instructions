@@ -365,8 +365,8 @@ fn score_sites(
 }
 
 impl CaseResult {
-    /// Blocking findings on a rule the case keeps quiet, and findings on a
-    /// `none` site.
+    /// Blocking findings on a rule the case expects to raise none, and
+    /// findings on a `none` site.
     pub fn wrong_flags(&self) -> usize {
         self.false_blocking + self.sites.iter().map(|s| s.wrong).sum::<usize>()
     }
@@ -634,8 +634,8 @@ fn site_report(results: &[CaseResult]) -> String {
 }
 
 /// What one setup did over the test set: problems caught and missed, wrong
-/// flags (blocking findings on a rule a case keeps quiet, and findings on a
-/// `none` site), tokens and cost.
+/// flags (blocking findings on a rule the case expects to raise none, and
+/// findings on a `none` site), tokens and cost.
 fn setup_line(name: &str, results: &[CaseResult]) -> String {
     let t = totals(results);
     format!(

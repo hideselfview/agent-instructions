@@ -107,7 +107,7 @@ fn a_landing_becomes_a_case_of_its_specific_findings_the_check_confirms_and_its_
             .map(|(task, _)| task.as_str())
             .collect::<Vec<_>>(),
         ["model-check rule-a"],
-        "a finding settled with a generic reason is not checked"
+        "propose does not check a finding settled with a generic reason"
     );
     let all = cases::load(&fake.root).unwrap();
     assert_eq!(all.len(), 1, "{}", proposed.text);

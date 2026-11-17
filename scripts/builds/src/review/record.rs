@@ -513,8 +513,8 @@ pub fn calls_of_run(db: &Connection, run: i64) -> Result<Vec<Call>> {
     calls_where(db, "c.run_id = ?1", run)
 }
 
-/// The message each process of the call of <group> in <run> was sent, in
-/// the order sent.
+/// The messages builds sent to each process of the call of <group> in <run>,
+/// in the order it sent them.
 pub fn messages_of_call(db: &Connection, run: i64, group: &str) -> Result<Vec<String>> {
     let mut statement = db
         .prepare(
