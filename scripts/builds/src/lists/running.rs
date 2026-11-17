@@ -64,6 +64,45 @@ pub fn require_side_worktree(path: &str) -> Result<(String, String, String)> {
     }
 }
 
+/// The table of the worktrees an item holds: where it runs, or where it is
+/// parked (lists/parked.rs). Both have one row per worktree, with its repo,
+/// parent folder, checkout name and branch.
+pub enum PlaceTable {
+    Running,
+    Parked,
+}
+
+impl PlaceTable {
+    fn name(&self) -> &'static str {
+        match self {
+            PlaceTable::Running => "running_place",
+            PlaceTable::Parked => "parked_place",
+        }
+    }
+}
+
+/// Writes <places>, each a side worktree and its branch, as item <id>'s rows
+/// of <table>.
+pub fn insert_places<'a>(
+    db: &Connection,
+    table: PlaceTable,
+    id: Id,
+    places: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Result<()> {
+    for (worktree, branch) in places {
+        let (parent, repo, checkout) = require_side_worktree(worktree)?;
+        db.execute(
+            &format!(
+                "INSERT INTO {} (item_id, repo, parent, checkout, branch) VALUES (?1, ?2, ?3, ?4, ?5)",
+                table.name()
+            ),
+            params![id, repo, parent, checkout, branch],
+        )
+        .sql()?;
+    }
+    Ok(())
+}
+
 /// The repo and checkout name of a side worktree path.
 pub fn side_worktree_parts(path: &str) -> Option<(String, String)> {
     side_worktree_split(path).map(|(_, repo, checkout)| (repo, checkout))
@@ -82,14 +121,14 @@ pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
             params![id, first.brief, first.since.at, first.since.by],
         )
         .sql()?;
-        for place in places {
-            let (parent, repo, checkout) = require_side_worktree(&place.worktree)?;
-            db.execute(
-                "INSERT INTO running_place (item_id, repo, parent, checkout, branch) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![id, repo, parent, checkout, place.branch],
-            )
-            .sql()?;
-        }
+        insert_places(
+            db,
+            PlaceTable::Running,
+            *id,
+            places
+                .iter()
+                .map(|place| (place.worktree.as_str(), place.branch.as_str())),
+        )?;
     }
     Ok(())
 }

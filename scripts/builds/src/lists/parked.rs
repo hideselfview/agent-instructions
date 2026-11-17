@@ -15,7 +15,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
 use crate::lists::item::{self, Item};
-use crate::lists::running::require_side_worktree;
+use crate::lists::running::{PlaceTable, insert_places};
 use crate::lists::store::Loaded;
 use crate::lists::{Id, Lists, Stamp};
 
@@ -42,15 +42,14 @@ pub fn park(db: &Connection, id: Id, places: &[Parked]) -> Result<()> {
         params![id, first.since.at, first.since.by],
     )
     .sql()?;
-    for place in places {
-        let (parent, repo, checkout) = require_side_worktree(&place.worktree)?;
-        db.execute(
-            "INSERT INTO parked_place (item_id, repo, parent, checkout, branch) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, repo, parent, checkout, place.branch],
-        )
-        .sql()?;
-    }
-    Ok(())
+    insert_places(
+        db,
+        PlaceTable::Parked,
+        id,
+        places
+            .iter()
+            .map(|place| (place.worktree.as_str(), place.branch.as_str())),
+    )
 }
 
 /// Ends item <id>'s parking wherever it is parked, if it is.
