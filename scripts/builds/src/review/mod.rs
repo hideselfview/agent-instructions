@@ -375,7 +375,7 @@ fn later_asks(
     diff: &run::Diff,
     landing: i64,
 ) -> Result<Vec<Ask>> {
-    let coverage = landing::Coverage::of(conn, landing)?;
+    let coverage = landing::Coverage::of(conn, &record::landing(conn, landing)?)?;
     let calls = record::calls_of_landing(conn, landing)?;
     let read: Vec<&record::RunRow> = coverage.runs.iter().collect();
     let mut asks = Vec::new();

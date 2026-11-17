@@ -165,15 +165,16 @@ pub struct Coverage {
 }
 
 impl Coverage {
-    /// The coverage of the review of <landing>.
-    pub fn of(db: &Connection, landing: i64) -> Result<Coverage> {
-        let runs = review_runs(db, landing)?;
-        let Some(reviewed) = record::landing(db, landing)?.reviewed_run else {
-            fail!("review landing {landing} names no last review");
+    /// The coverage of the review of <landing>, a row the caller read.
+    pub fn of(db: &Connection, landing: &LandingRow) -> Result<Coverage> {
+        let runs = review_runs(db, landing.id)?;
+        let Some(reviewed) = landing.reviewed_run else {
+            fail!("review landing {} names no last review", landing.id);
         };
         let Some(last_review) = runs.iter().find(|run| run.id == reviewed) else {
             fail!(
-                "review landing {landing} names run {reviewed} as its last review, which is not a review run of it"
+                "review landing {} names run {reviewed} as its last review, which is not a review run of it",
+                landing.id
             );
         };
         Ok(Coverage {
@@ -228,7 +229,7 @@ fn assess(
     check: CodeCheck,
     groups_for: &dyn Fn(&[String]) -> Vec<String>,
 ) -> Result<(Covered, Unfinished)> {
-    let coverage = Coverage::of(db, landing.id)?;
+    let coverage = Coverage::of(db, landing)?;
     let last = &coverage.last_review;
     let findings = record::findings_of_landing(db, landing.id)?;
     let mut unfinished = Unfinished::default();
