@@ -89,10 +89,11 @@ pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
 /// the person's Claude Code session makes it, and the gate, which makes
 /// agents read the rules, does not apply to its hook.
 fn commits_in_main_checkout(command: &str, args: &[String]) -> Result<bool> {
-    let worktree = match (command, args) {
-        ("checks", [run]) if run == "run" => Path::new("."),
-        ("checks", [run, worktree]) if run == "run" => Path::new(worktree.as_str()),
-        _ => return Ok(false),
+    if command != "checks" {
+        return Ok(false);
+    }
+    let Some(worktree) = crate::checks_run::run_worktree(args) else {
+        return Ok(false);
     };
     Ok(Checkout::at(worktree)?.is_some_and(|checkout| checkout.is_main()))
 }

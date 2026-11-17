@@ -41,10 +41,22 @@ use crate::text::note;
 
 const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks whole [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]";
 
-pub fn cmd_checks(args: &[String]) -> Result<()> {
+/// The worktree `builds checks <args>` runs the pre-commit hook's checks in
+/// when <args> is `run [<worktree>]`: <worktree>, else the current
+/// directory. None for any other arguments.
+pub fn run_worktree(args: &[String]) -> Option<&Path> {
     match args {
-        [sub] if sub == "run" => hook(&top_of(Path::new("."))?),
-        [sub, worktree] if sub == "run" => hook(&top_of(Path::new(worktree))?),
+        [sub] if sub == "run" => Some(Path::new(".")),
+        [sub, worktree] if sub == "run" => Some(Path::new(worktree.as_str())),
+        _ => None,
+    }
+}
+
+pub fn cmd_checks(args: &[String]) -> Result<()> {
+    if let Some(worktree) = run_worktree(args) {
+        return hook(&top_of(worktree)?);
+    }
+    match args {
         [sub] if sub == "whole" => whole(&top_of(Path::new("."))?),
         [sub, worktree] if sub == "whole" => whole(&top_of(Path::new(worktree))?),
         [sub, rest @ ..] if sub == "stats" => stats(rest),
