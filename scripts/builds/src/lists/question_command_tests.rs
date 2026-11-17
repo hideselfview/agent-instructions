@@ -1106,7 +1106,7 @@ fn edit_changes_the_fields_and_gives_a_why_only_while_no_item_waits() {
         &store,
         &format!("edit {waited} --blocks-nothing x"),
         &format!(
-            "{a} waits on question {waited}, so question {waited} blocks {a}; --blocks-nothing gives a reason only while no open item waits on the question. `builds item wait ITEM --off question:{} --blocks-nothing WHY`",
+            "question {waited} gives a reason it blocks nothing (x) while open item {a} waits on it: a question gives that reason only while no open item waits on it, and `builds item wait ITEM --off question:{} --blocks-nothing WHY` gives the reason in the write that removes the last open item's wait on it",
             waited.0
         ),
     );

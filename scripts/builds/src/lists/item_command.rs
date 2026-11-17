@@ -307,8 +307,8 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                     fail!("{id} does not wait on {reference}; it waits on {current}");
                 }
                 remove_wait(db, id, &wait)?;
-                if let Wait::Question(asked) = wait {
-                    left_blocking_nothing(db, id, asked, blocks_nothing.clone())?;
+                if let (Wait::Question(asked), Some(why)) = (&wait, &blocks_nothing) {
+                    crate::lists::question::edit(db, *asked, None, None, Some(why.clone()))?;
                 }
             }
             require_state_holds(db, &format!("{id} cannot {verb} {reference}"))?;
@@ -326,43 +326,6 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         state.label()
     ));
     Ok(())
-}
-
-/// After item <id> stops waiting on question <asked>: gives the question
-/// <blocks_nothing> as its why when no open item waits on it any more, and
-/// refuses the why while one still does, or a missing why for an open
-/// question that now blocks nothing.
-fn left_blocking_nothing(
-    db: &Connection,
-    id: Id,
-    asked: Id,
-    blocks_nothing: Option<String>,
-) -> Result<()> {
-    let lists = store::read(db)?;
-    let Some(question) = lists.question(asked) else {
-        if blocks_nothing.is_some() {
-            fail!("question {asked} is closed, so it needs no why for blocking nothing");
-        }
-        return Ok(());
-    };
-    let still: Vec<String> = lists
-        .open_items_waiting_on(&Wait::Question(asked))
-        .map(|item| item.id.to_string())
-        .collect();
-    match (blocks_nothing, still.is_empty()) {
-        (Some(why), true) => crate::lists::question::edit(db, asked, None, None, Some(why)),
-        (Some(_), false) => fail!(
-            "{} still wait{} on question {asked}, so question {asked} blocks {}; leave out --blocks-nothing",
-            still.join(", "),
-            if still.len() == 1 { "s" } else { "" },
-            if still.len() == 1 { "it" } else { "them" }
-        ),
-        (None, true) => fail!(
-            "{id} is the last item question {asked} \"{}\" blocks; give --blocks-nothing WHY, the reason the question stays open, or answer or drop the question",
-            question.title
-        ),
-        (None, false) => Ok(()),
-    }
 }
 
 fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {

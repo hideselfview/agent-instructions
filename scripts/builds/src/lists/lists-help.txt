@@ -164,8 +164,8 @@ auto` takes it out of the ranked order.
                          [--origin N] [--tag T]... [--untag T]...
       --blocks-nothing replaces the why of an entry that no open item waits
       on, and edit refuses it while one does (`item wait ITEM --off
-      question:N --blocks-nothing WHY` stops the last item waiting and gives
-      the why).
+      question:N --blocks-nothing WHY` removes the last open item's wait on N
+      and gives the why).
       --untag refuses a tag the entry does not carry.
 
   builds question show N | builds question list [--tag T]

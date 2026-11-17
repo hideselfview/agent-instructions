@@ -183,11 +183,8 @@ pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
         .questions
         .iter()
         .map(|question| {
-            let direct: Vec<&Item> = lists
-                .items
-                .iter()
-                .filter(|item| item.waits.contains(&Wait::Question(question.id)))
-                .collect();
+            let asked = Wait::Question(question.id);
+            let direct: Vec<&Item> = lists.open_items_waiting_on(&asked).collect();
             let ids: Vec<Id> = direct.iter().map(|item| item.id).collect();
             let mut all = waiting_behind(lists, &ids);
             all.extend(&ids);

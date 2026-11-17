@@ -203,15 +203,17 @@ fn wait_off_the_last_item_a_question_blocks_takes_why_the_question_is_asked_anyw
         &["wait", "3", "--off", "question:1", "--blocks-nothing", "x"],
     ));
     assert!(
-        still.contains("#2 still waits on question #1, so question #1 blocks it"),
+        still.contains(
+            "question #1 gives a reason it blocks nothing (x) while open item #2 waits on it"
+        ),
         "{still}"
     );
     assert_eq!(demo.state(), before);
     item(&demo, &["wait", "3", "--off", "question:1"]).unwrap();
     let last = refusal(item(&demo, &["wait", "2", "--off", "question:1"]));
     assert!(
-        last.contains("#2 is the last item question #1")
-            && last.contains("give --blocks-nothing WHY"),
+        last.contains("question #1 blocks no open item and gives no reason it stays on the stack")
+            && last.contains("`builds item wait ITEM --off question:1 --blocks-nothing WHY`"),
         "{last}"
     );
     item(

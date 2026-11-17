@@ -172,14 +172,14 @@ pub fn decision_answering(db: &Connection, question: Id) -> Id {
         .decision
 }
 
-/// Clears the why of open question <id> for blocking nothing, as a wait on
+/// Clears the reason open question <id> blocks nothing, as adding a wait on
 /// it does: with no open item waiting on it, the question fails its check.
 pub fn blocks_something(db: &Connection, id: Id) {
     clear_blocks_nothing(db, id).unwrap();
 }
 
-/// Sets the why of open question <id> for blocking nothing: with an open item
-/// waiting on it, the question fails its check.
+/// Sets the reason open question <id> blocks nothing to <why>: with an open
+/// item waiting on it, the question fails its check.
 pub fn blocks_nothing_because(db: &Connection, id: Id, why: &str) {
     edit(db, id, None, None, Some(why.to_string())).unwrap();
 }

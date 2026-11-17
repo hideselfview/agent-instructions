@@ -77,11 +77,16 @@ pub fn item_line(lists: &Lists, item: &Item) -> Result<String> {
 /// wait on it, as lines: the count, then each item it blocks directly with
 /// its priority, how many items wait behind it and when it opened. When no
 /// open item waits on the entry, one line gives the reason the entry stays
-/// open.
-pub fn blocks_lines(entry: &StackEntry<'_>) -> Vec<String> {
+/// open. Fails for an entry with neither, which the check refuses.
+pub fn blocks_lines(entry: &StackEntry<'_>) -> Result<Vec<String>> {
     if entry.blocks.is_empty() {
-        let why = entry.question.blocks_nothing.as_deref().unwrap_or("?");
-        return vec![format!("blocks nothing: {why}")];
+        let Some(why) = &entry.question.blocks_nothing else {
+            crate::fail!(
+                "question {} blocks no open item and gives no reason it stays on the stack, which the check refuses",
+                entry.question.id
+            );
+        };
+        return Ok(vec![format!("blocks nothing: {why}")]);
     }
     let mut lines = vec![format!(
         "blocks {} ({} through chains):",
@@ -111,7 +116,7 @@ pub fn blocks_lines(entry: &StackEntry<'_>) -> Vec<String> {
             facts.join("; ")
         ));
     }
-    lines
+    Ok(lines)
 }
 
 /// An entry of the stack as lines: its place in the order, its title, who
@@ -138,7 +143,7 @@ pub fn stack_entry(lists: &Lists, number: usize, entry: &StackEntry<'_>) -> Resu
     if let Some(trail) = trail_line(lists, q.id)? {
         let _ = writeln!(out, "       {trail}");
     }
-    for line in blocks_lines(entry) {
+    for line in blocks_lines(entry)? {
         let _ = writeln!(out, "       {line}");
     }
     Ok(out)

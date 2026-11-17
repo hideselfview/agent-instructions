@@ -81,7 +81,10 @@ fn a_question_that_says_why_it_blocks_nothing_while_an_open_item_waits_on_it_is_
     assert_eq!(
         faults_of(&db),
         [format!(
-            "question {q} says it blocks nothing (asked anyway) while open item {waiting} waits on it"
+            "question {q} gives a reason it blocks nothing (asked anyway) while open item {waiting} waits on it: \
+             a question gives that reason only while no open item waits on it, and \
+             `builds item wait ITEM --off question:{} --blocks-nothing WHY` gives the reason in the write that removes the last open item's wait on it",
+            q.0
         )]
     );
 }

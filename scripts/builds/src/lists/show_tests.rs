@@ -1,5 +1,5 @@
 use super::*;
-use crate::lists::fixtures::{NOON, db, item, question, read, stamp};
+use crate::lists::fixtures::{NOON, blocks_something, db, item, question, read, stamp};
 use crate::lists::record::close;
 use crate::lists::{How, Priority};
 
@@ -75,4 +75,21 @@ fn a_question_shows_each_item_it_blocks_with_its_priority_what_waits_behind_it_a
         assert!(text.contains(&expected), "missing '{expected}' in:\n{text}");
     }
     assert!(!text.contains("blocks nothing"), "{text}");
+}
+
+#[test]
+fn a_question_with_no_waiting_item_and_no_reason_is_an_error() {
+    let db = db();
+    let q = question(&db);
+    blocks_something(&db, q);
+    let message = match render(&read(&db), None).unwrap_err() {
+        crate::fail::Fail::Message(message) => message,
+        crate::fail::Fail::Exit(code) => panic!("exit {code}"),
+    };
+    assert!(
+        message.contains(&format!(
+            "question {q} blocks no open item and gives no reason"
+        )),
+        "{message}"
+    );
 }

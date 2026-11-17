@@ -823,8 +823,9 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         crate::review::record::move_to_counted_lines(&tx)?;
     }
     // In a store from before builds counted lines, every review run that read
-    // a branch's whole net change gets the count of its changed lines, read from the clone `~/dev/<repo>` of the repo its
-    // landing names, when the clone still holds the run's commits.
+    // a branch's whole net change gets the count of its changed lines, read
+    // from the clone `~/dev/<repo>` of the repo its landing names, when the
+    // clone still holds the run's commits.
     if had_review_tables && found != BEFORE_BLOCKS_FROM_WAITS_STAMP {
         crate::review::record::count_changed_lines(&tx, |repo, base, head| {
             let clone = places.home.join(crate::host::clone_path(repo));

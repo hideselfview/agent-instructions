@@ -347,8 +347,8 @@ fn insert_priority(db: &Connection, id: Id, priority: &Priority) -> Result<()> {
 }
 
 /// Writes the wait of item <id>, once. A wait on a question clears the
-/// question's why for blocking nothing in the same write, since the question
-/// blocks the item now.
+/// reason the question blocks nothing in the same write, because the
+/// question now blocks the item.
 fn insert_wait(db: &Connection, id: Id, wait: &Wait) -> Result<()> {
     match wait {
         Wait::Item(on) => db.execute(
@@ -661,10 +661,7 @@ impl Lists {
     }
 
     /// The open items whose waits name <wait>.
-    pub fn open_items_waiting_on<'a>(
-        &'a self,
-        wait: &'a Wait,
-    ) -> impl Iterator<Item = &'a Item> + 'a {
+    pub fn open_items_waiting_on<'a>(&'a self, wait: &Wait) -> impl Iterator<Item = &'a Item> {
         self.items
             .iter()
             .filter(move |item| item.waits.contains(wait))

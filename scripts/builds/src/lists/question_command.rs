@@ -73,17 +73,17 @@ fn question_id(args: &Args) -> Result<Id> {
 }
 
 /// What follows from a write: the stack's top and what it blocks.
-fn stack_top(lists: &Lists) -> String {
-    match derive::stack_order(lists).first() {
+fn stack_top(lists: &Lists) -> Result<String> {
+    Ok(match derive::stack_order(lists).first() {
         None => "the stack is empty".to_string(),
         Some(entry) => format!(
             "the stack's top is {} {} [{}]: {}",
             entry.question.id,
             entry.question.title,
             kind_words(entry.question.kind),
-            blocks_lines(entry).join("\n  ")
+            blocks_lines(entry)?.join("\n  ")
         ),
-    }
+    })
 }
 
 fn open_question(lists: &Lists, id: Id) -> Result<&Question> {
@@ -247,7 +247,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
             "item {from} moved to the stack; what waited on it now waits on {id}\n"
         ));
     }
-    out.push_str(&format!("{}\n", stack_top(&lists)));
+    out.push_str(&format!("{}\n", stack_top(&lists)?));
     Ok(out)
 }
 
@@ -419,7 +419,7 @@ fn resolve(
         let title = lists.item(item).map(|i| i.title.as_str()).unwrap_or("?");
         out.push_str(&format!("ready now: {item} {title}\n"));
     }
-    out.push_str(&format!("{}\n", stack_top(&lists)));
+    out.push_str(&format!("{}\n", stack_top(&lists)?));
     Ok(out)
 }
 
@@ -476,7 +476,7 @@ fn leave(
     } else {
         "deferred"
     };
-    Ok(format!("{verb} question {id}\n{}\n", stack_top(&lists)))
+    Ok(format!("{verb} question {id}\n{}\n", stack_top(&lists)?))
 }
 
 fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
@@ -529,7 +529,7 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
     };
     Ok(format!(
         "placed question {id} {to}\n{}\n",
-        stack_top(&lists)
+        stack_top(&lists)?
     ))
 }
 
@@ -580,22 +580,14 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
         let lists = &store::read(db)?;
         if fields {
             open_question(lists, id)?;
-            let waiting: Vec<String> = lists
-                .open_items_waiting_on(&Wait::Question(id))
-                .map(|item| item.id.to_string())
-                .collect();
-            if blocks_nothing.is_some() && !waiting.is_empty() {
-                fail!(
-                    "{} wait{} on question {id}, so question {id} blocks {}; --blocks-nothing gives a reason only while no open item waits on the question. \
-                     `builds item wait ITEM --off question:{} --blocks-nothing WHY` stops the last item waiting and gives the reason",
-                    waiting.join(", "),
-                    if waiting.len() == 1 { "s" } else { "" },
-                    waiting.join(", "),
-                    id.0
-                );
-            }
             question::edit(db, id, title, details, blocks_nothing)?;
-        } else if !matches!(lists.locate(id), Some(Located { kind: Kind::Question, .. })) {
+        } else if !matches!(
+            lists.locate(id),
+            Some(Located {
+                kind: Kind::Question,
+                ..
+            })
+        ) {
             // The edit gives an open or a closed question its origin and
             // tags; for a record that is no question, open_question refuses
             // the edit and says what the record is.
@@ -608,7 +600,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
         tag::add_tags(db, id, &tags)
     })?;
     let lists = store.load()?;
-    Ok(format!("edited question {id}\n{}\n", stack_top(&lists)))
+    Ok(format!("edited question {id}\n{}\n", stack_top(&lists)?))
 }
 
 fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
