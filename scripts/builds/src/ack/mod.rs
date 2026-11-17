@@ -21,7 +21,7 @@
 pub mod record;
 pub mod text;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rusqlite::TransactionBehavior;
 
@@ -98,7 +98,7 @@ struct Agent {
     who: String,
     store: Store,
     /// The checkout the command runs in, whose CLAUDE.md the text holds.
-    top: Option<PathBuf>,
+    checkout: Option<Checkout>,
     /// The flags that name this agent to `builds ack` again.
     flags: String,
 }
@@ -118,11 +118,10 @@ impl Agent {
             Some(checkout) => project_of(places, checkout),
             None => Ok(None),
         };
-        let (store, named) = match (of_checkout, project) {
-            (Ok(Some(found)), _) => (Store::named(places, &found)?, false),
-            (_, Some(named)) => (Store::named(places, named)?, true),
-            (Err(error), None) => return Err(error),
-            (Ok(None), None) => fail!(
+        let (store, named) = match (of_checkout?, project) {
+            (Some(found), _) => (Store::named(places, &found)?, false),
+            (None, Some(named)) => (Store::named(places, named)?, true),
+            (None, None) => fail!(
                 "builds keeps an agent's acknowledgement in the store of the project it works in, and {} is in no repo of a project; run builds from a checkout of a project's repo, or name the project with --project",
                 cwd.display()
             ),
@@ -156,13 +155,13 @@ impl Agent {
             session: session.to_string(),
             who,
             store,
-            top: checkout.map(|checkout| checkout.top),
+            checkout,
             flags,
         })
     }
 
     fn text(&self, places: &Places) -> Result<Text> {
-        Text::read(places, &self.store.project, self.top.as_deref())
+        Text::read(places, &self.store.project, self.checkout.as_ref())
     }
 
     fn last(&self) -> Result<Option<record::Ack>> {

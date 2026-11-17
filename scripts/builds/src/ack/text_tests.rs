@@ -45,7 +45,7 @@ fn the_text_holds_the_helps_the_rules_for_every_file_and_both_claude_files() {
     let checkout = scratch.dir.join("bae");
     repo(&checkout, "target 1\n");
     write(&checkout.join("CLAUDE.md"), "bae's rules.\n");
-    let text = Text::read(&places, "bae", Some(&checkout)).unwrap();
+    let text = Text::read(&places, "bae", Checkout::at(&checkout).unwrap().as_ref()).unwrap();
     assert_eq!(
         names(&text),
         vec![
@@ -70,7 +70,7 @@ fn a_repo_whose_claude_file_is_the_global_one_adds_no_section() {
     let checkout = scratch.dir.join("agent-instructions-checkout");
     repo(&checkout, "target 1\n");
     write(&checkout.join("CLAUDE.md"), "Global rules.\n");
-    let text = Text::read(&places, "builds", Some(&checkout)).unwrap();
+    let text = Text::read(&places, "builds", Checkout::at(&checkout).unwrap().as_ref()).unwrap();
     assert_eq!(names(&text).last().unwrap(), "~/.claude/CLAUDE.md");
 }
 

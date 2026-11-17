@@ -1,6 +1,7 @@
 use super::*;
 use crate::lists::fixtures::{NOON, make_store_named};
 use crate::testing::{Scratch, repo};
+use std::path::PathBuf;
 
 const SESSION_ID: &str = "session-1";
 
@@ -260,4 +261,20 @@ fn the_dashboard_lists_each_agents_last_acknowledgement() {
     let acks = &json["projects"][0]["acks"];
     assert_eq!(acks[0]["who"], "agent");
     assert_eq!(acks[0]["at"], NOON);
+}
+
+#[test]
+fn a_claim_that_names_a_project_without_the_repo_is_refused_even_with_project() {
+    let world = world("ack-bad-claim");
+    let checkout = Checkout::at(&world.checkout).unwrap().unwrap();
+    std::fs::write(checkout.project_file(), "other\n").unwrap();
+    let refusal = message(check(
+        &world.places,
+        SESSION_ID,
+        None,
+        Some("bae"),
+        &world.checkout,
+        NOON,
+    ));
+    assert!(refusal.contains("does not hold repo bae"), "{refusal}");
 }

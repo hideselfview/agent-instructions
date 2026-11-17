@@ -11,6 +11,7 @@
 
 use std::path::Path;
 
+use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::Places;
@@ -45,13 +46,13 @@ pub struct Text {
 }
 
 impl Text {
-    /// The text for an agent whose work is in <project>, in the checkout at
-    /// <top> when it works in one: the help texts, the rules of the
+    /// The text for an agent whose work is in <project>, in <checkout> when
+    /// it works in one: the help texts, the rules of the
     /// agent-instructions checkout that install.sh links whose paths cover
     /// every file (those under `rules/` and under the project's
     /// `projects/<project>-rules/`), ~/.claude/CLAUDE.md, and the checkout's
     /// CLAUDE.md when it differs from ~/.claude/CLAUDE.md.
-    pub fn read(places: &Places, project: &str, top: Option<&Path>) -> Result<Text> {
+    pub fn read(places: &Places, project: &str, checkout: Option<&Checkout>) -> Result<Text> {
         let mut sections = vec![
             Section {
                 name: "builds help".to_string(),
@@ -86,15 +87,12 @@ impl Text {
                 text: text.clone(),
             });
         }
-        if let Some(top) = top
-            && let Some(text) = read_if_there(&top.join("CLAUDE.md"))?
+        if let Some(checkout) = checkout
+            && let Some(text) = read_if_there(&checkout.top.join("CLAUDE.md"))?
             && Some(&text) != home.as_ref()
         {
-            let repo = crate::checkout::Checkout::at(top)?
-                .map(|checkout| checkout.repo())
-                .unwrap_or_else(|| top.display().to_string());
             sections.push(Section {
-                name: format!("the CLAUDE.md of repo {repo}"),
+                name: format!("the CLAUDE.md of repo {}", checkout.repo()),
                 text,
             });
         }
