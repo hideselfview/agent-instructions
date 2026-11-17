@@ -64,17 +64,7 @@ impl Drop for Scratch {
 }
 
 pub fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .expect("git runs");
-    assert!(
-        status.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&status.stderr)
-    );
+    git_out(dir, args);
 }
 
 /// What `git <args>` prints in <dir>, trimmed; fails the test when git fails.
