@@ -1317,7 +1317,8 @@ builds records how long agents wait on four kinds of work. `builds waits`
 prints, and the dashboard's "waited today" figure opens, the time of each kind
 per local day and per band of load per core, with each row's count, median and
 total, so a person can see which kind of work agents wait on longest and how
-load changes each. Every wait counts, whatever its result. The kinds:
+load changes the wait for each kind. Every wait counts, whatever its result.
+The kinds:
 
   commit hook      each `builds checks run`, passed or failed, from its start
                    to its last check's end, with this Mac's load when its
@@ -1339,8 +1340,8 @@ load counts under "not recorded": a hook run from before builds kept each
 check's starting load, an app build run from before builds kept its host's
 load, or one whose host did not answer.
 
-What the figures can and cannot show about CPU priority, as measured on this
-Mac (14 cores, macOS 27) on 2026-11-17:
+An agent measured CPU priority on this Mac (14 cores, macOS 27) on
+2026-11-17, and found what the figures can and cannot show:
 
   - Every process an agent starts runs at nice 5, so a hook's checks, other
     agents' tests and app build steps all run at one priority.

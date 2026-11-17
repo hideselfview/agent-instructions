@@ -91,7 +91,7 @@ pub fn band_of(load: Option<Load>) -> Band {
 }
 
 /// Every wait in the database at <path> that started at or after <since>
-/// (seconds since 1970); empty when nothing was ever recorded there.
+/// (seconds since 1970); empty when builds never recorded anything there.
 pub fn read(path: &Path, since: i64) -> Result<Vec<Wait>> {
     let Some(conn) = crate::db::open_reader(path)? else {
         return Ok(Vec::new());
@@ -171,7 +171,7 @@ pub fn report(project: &str, since: Option<&str>, rows: &[Row]) -> String {
         None => format!("project {project}, all days"),
     };
     if rows.is_empty() {
-        return format!("{heading}: no wait recorded\n");
+        return format!("{heading}: builds recorded no wait\n");
     }
     let width = rows
         .iter()
@@ -200,8 +200,8 @@ pub fn report(project: &str, since: Option<&str>, rows: &[Row]) -> String {
 pub const DASHBOARD_DAYS: i64 = 2;
 
 /// The dashboard's JSON for the project store at <path> as of <now>: the
-/// rows of the waits since the start of yesterday, or `{"error"}` when the
-/// database can't be read.
+/// rows of the waits since the start of yesterday, or `{"error"}` when builds
+/// cannot read the database.
 pub fn dashboard_json(path: &Path, now: i64) -> serde_json::Value {
     let today = crate::text::local_day(now);
     let since = crate::text::local_start_of(&today).map(|midnight| {

@@ -603,8 +603,8 @@ impl Site {
         }
     }
 
-    /// The cores and load of the checkout's host now; None, said on stderr,
-    /// when the host does not answer.
+    /// The cores and load of the checkout's host now; None when the host does
+    /// not answer, and the function says so on stderr.
     fn load(&self, places: &Places, ssh: &Ssh) -> Option<crate::host::Load> {
         match self {
             Site::Local(_) => Some(crate::host::Load::here()),

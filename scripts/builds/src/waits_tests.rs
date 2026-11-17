@@ -191,7 +191,7 @@ fn the_report_prints_a_line_per_row_with_counts_medians_and_totals() {
     assert!(text.contains("under 1"), "{text}");
     assert_eq!(
         report("bae", None, &[]),
-        "project bae, all days: no wait recorded\n"
+        "project bae, all days: builds recorded no wait\n"
     );
 }
 

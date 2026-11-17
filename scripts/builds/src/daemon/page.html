@@ -1241,7 +1241,7 @@ function waitsDetails() {
     h("div", {class: "ho-head"}, h("b", {}, "Where agents waited"),
       h("span", {}, "today and yesterday, per kind of work and per load per core when the work started"),
       h("button", {type: "button", class: "ho-close", title: "Close", "aria-label": "Close", onclick: () => { openWaits = false; render(); }}, "×")),
-    projects.length ? null : h("div", {class: "l-empty"}, "No wait recorded today or yesterday."),
+    projects.length ? null : h("div", {class: "l-empty"}, "builds recorded no wait today or yesterday."),
     ...projects.map(p => h("div", {}, h("h3", {}, p.project),
       p.waits.error ? h("div", {class: "bad"}, p.waits.error)
         : h("table", {}, h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Day"), h("th", {}, "Load per core"),

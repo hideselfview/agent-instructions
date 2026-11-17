@@ -32,7 +32,7 @@ CREATE TABLE builds_cargo_runs (
     ms INTEGER NOT NULL CHECK (ms >= 0),
     -- The hook check that started the run: the start of the hook's run (its
     -- `started_at`) in the same worktree, and the check's position in it.
-    -- Both NULL for a run that no hook check started.
+    -- Both columns are NULL for a run that no hook check started.
     hook_started_at INTEGER CHECK (hook_started_at > 0),
     hook_position INTEGER CHECK (hook_position >= 0),
     CHECK ((hook_started_at IS NULL) = (hook_position IS NULL)),

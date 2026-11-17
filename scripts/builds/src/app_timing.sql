@@ -23,9 +23,9 @@ CREATE TABLE IF NOT EXISTS app_build_runs (
     wait_ms INTEGER NOT NULL CHECK (wait_ms >= 0),
     passed INTEGER NOT NULL CHECK (passed IN (0, 1)),
     -- The cores and the one-minute load average of the host of the checkout,
-    -- when the run took the checkout. Both NULL for a run that builds
-    -- recorded before it kept them, and for a run whose host did not answer
-    -- when builds asked it for its load.
+    -- when the run took the checkout. Both columns are NULL for a run that
+    -- builds recorded before it kept them, and for a run whose host did not
+    -- answer when builds asked it for its load.
     cores INTEGER CHECK (cores > 0),
     load REAL CHECK (load >= 0),
     CHECK ((cores IS NULL) = (load IS NULL))
