@@ -20,7 +20,7 @@ pub fn set_question_effect(
     id: u32,
     word: &str,
 ) -> Result<()> {
-    let effect = Effect::parse("the effect", word)?;
+    let effect: Effect = crate::lists::args::parse_named("the effect", word, Effect::NAMES)?;
     let store = Store::named(places, project)?;
     let stamp = Stamp {
         at: now,

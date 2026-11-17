@@ -193,7 +193,7 @@ fn ask_refuses_a_bad_title_kind_effect_or_details() {
         &tool,
         &store,
         &format!("ask --title T --kind held --effect big --details-file {d} --blocks-nothing why"),
-        "--effect is one of data-loss, bug, slows-agents, product-design, cleanup, not 'big'",
+        "--effect is data-loss, bug, slows-agents, product-design or cleanup, not 'big'",
     );
     refuses(
         &scratch,
@@ -1125,7 +1125,7 @@ fn edit_changes_the_fields_and_gives_a_why_only_while_no_item_waits() {
         &tool,
         &store,
         &format!("edit {waited} --effect worse"),
-        "--effect is one of",
+        "--effect is data-loss, bug,",
     );
     refuses(
         &scratch,

@@ -708,7 +708,7 @@ fn the_effect_control_works_only_from_the_page_at_this_mac() {
         r#"{"project": "demo", "id": 1, "effect": "worse"}"#,
     );
     assert_eq!(status, 500, "{reply}");
-    assert!(reply.contains("the effect is one of"), "{reply}");
+    assert!(reply.contains("the effect is data-loss, bug,"), "{reply}");
     let (status, reply) = s.post_to("/api/question-effect", &local, Some(&this_mac), body);
     assert_eq!((status, reply.as_str()), (200, "{}"));
     assert_eq!(effect(), crate::lists::Effect::Bug);

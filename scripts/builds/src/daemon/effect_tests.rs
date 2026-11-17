@@ -38,11 +38,11 @@ fn an_unknown_effect_or_question_is_refused() {
         .unwrap_err()
         .text();
     assert!(
-        refused.contains("the effect is one of data-loss"),
+        refused.contains("the effect is data-loss, bug,"),
         "{refused}"
     );
     let refused = set_question_effect(&places, NOON, "demo", 9, "bug")
         .unwrap_err()
         .text();
-    assert!(refused.contains("9 is not a record"), "{refused}");
+    assert!(refused.contains("#9 is not an open question"), "{refused}");
 }

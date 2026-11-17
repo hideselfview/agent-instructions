@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
+use crate::lists::args::parse_named;
 use crate::lists::item::ItemEdit;
 use crate::lists::record::{self, close};
 use crate::lists::{How, Id, Kind, Lists, Stamp, Wait};
@@ -37,7 +38,7 @@ pub enum QuestionKind {
 /// What a question affects, from the workflow's definition of critical work
 /// (`builds help workflow`, DISPATCH). The stack orders the questions no one
 /// placed by what they unblock, then by effect in this order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Effect {
     /// The person could lose music, edits or settings.
@@ -53,13 +54,9 @@ pub enum Effect {
 }
 
 impl Effect {
-    pub const ALL: [Effect; 5] = [
-        Effect::DataLoss,
-        Effect::Bug,
-        Effect::SlowsAgents,
-        Effect::ProductDesign,
-        Effect::Cleanup,
-    ];
+    /// The effects' words, as a refusal of an unknown word names them
+    /// (`args::parse_named`).
+    pub const NAMES: &str = "data-loss, bug, slows-agents, product-design or cleanup";
 
     /// The word the store and the commands use.
     pub fn word(self) -> &'static str {
@@ -69,23 +66,6 @@ impl Effect {
             Effect::SlowsAgents => "slows-agents",
             Effect::ProductDesign => "product-design",
             Effect::Cleanup => "cleanup",
-        }
-    }
-
-    /// The effect <word> names, None for a word no effect has.
-    pub fn named(word: &str) -> Option<Effect> {
-        Effect::ALL.into_iter().find(|effect| effect.word() == word)
-    }
-
-    /// The effect that flag <flag> names with <word>, or the refusal, which
-    /// lists every effect's word.
-    pub fn parse(flag: &str, word: &str) -> Result<Effect> {
-        match Effect::named(word) {
-            Some(effect) => Ok(effect),
-            None => {
-                let words: Vec<&str> = Effect::ALL.into_iter().map(Effect::word).collect();
-                fail!("{flag} is one of {}, not '{word}'", words.join(", "))
-            }
         }
     }
 
@@ -466,9 +446,8 @@ pub fn read(
     let mut questions = Vec::new();
     for row in rows {
         let (id, title, details, kind, effect, blocks_nothing, origin) = row.sql()?;
-        let Some(effect) = Effect::named(&effect) else {
-            fail!("question {id}'s effect is {effect}, which the question table refuses")
-        };
+        let effect: Effect =
+            parse_named(&format!("question {id}'s effect"), &effect, Effect::NAMES)?;
         questions.push(Question {
             id,
             title,

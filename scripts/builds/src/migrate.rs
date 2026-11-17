@@ -500,7 +500,11 @@ fn read_effects(file: &Path) -> Result<Option<BTreeMap<Id, Effect>>> {
         };
         effects.insert(
             Id(number),
-            Effect::parse(&format!("{}'s question {id}", file.display()), &word)?,
+            crate::lists::args::parse_named(
+                &format!("{}'s question {id}", file.display()),
+                &word,
+                Effect::NAMES,
+            )?,
         );
     }
     Ok(Some(effects))

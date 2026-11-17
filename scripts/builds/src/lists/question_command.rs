@@ -135,7 +135,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
         args.require("kind")?,
         "question, your-step or held",
     )?;
-    let effect = Effect::parse("--effect", args.require("effect")?)?;
+    let effect: Effect = parse_named("--effect", args.require("effect")?, Effect::NAMES)?;
     let details = read_input(args.require("details-file")?)?;
     if details.trim().is_empty() {
         fail!("details are empty; say what is asked");
@@ -569,7 +569,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
     }
     let effect = args
         .value("effect")?
-        .map(|word| Effect::parse("--effect", word))
+        .map(|word| parse_named::<Effect>("--effect", word, Effect::NAMES))
         .transpose()?;
     let blocks_nothing = args.value("blocks-nothing")?.map(str::to_string);
     if blocks_nothing
@@ -620,7 +620,6 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
 pub fn set_effect(store: &Store, id: Id, effect: Effect, stamp: &Stamp) -> Result<()> {
     let words = format!("question edit {} --effect {}", id.0, effect.word());
     store.write(stamp, &words, |db| {
-        open_question(&store::read(db)?, id)?;
         question::edit(db, id, None, None, Some(effect), None)
     })
 }

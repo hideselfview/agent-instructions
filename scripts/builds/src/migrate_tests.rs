@@ -3331,7 +3331,7 @@ fn a_store_whose_effects_file_is_missing_or_differs_is_refused_and_left_as_it_wa
     effects_file(&dir, &[(1, "bug"), (2, "worse"), (3, "bug")]);
     let refused = migrate_stores(&places).unwrap_err().text();
     assert!(
-        refused.contains(&format!("{file}'s question 2 is one of data-loss")),
+        refused.contains(&format!("{file}'s question 2 is data-loss, bug,")),
         "{refused}"
     );
     let conn = Connection::open(&path).unwrap();
