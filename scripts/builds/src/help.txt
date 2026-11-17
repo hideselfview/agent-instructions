@@ -1124,8 +1124,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               agents build)
   builds health [--json | --stop-junk]
                               what is stuck or needs acting on, from the
-                              daemon when one runs, except the busy processes,
-                              which it reads now (over ssh on other hosts). It
+                              daemon when one runs, except the busy processes
+                              and each host's load, which it reads now (over
+                              ssh on other hosts). It
                               exits 1 when something needs acting on, never
                               runs sudo, and stops a process only with
                               --stop-junk. It shows:
@@ -1221,7 +1222,14 @@ STATUS, HEALTH AND THE DASHBOARD
                               (`builds host setup <name>`, or `builds install`
                               here); a
                               build host that builds could not ask what it
-                              has installed, with what went wrong
+                              has installed, with what went wrong; cores idle
+                              on this Mac or a host, its 5-minute load under
+                              three quarters of its cores, while items of any
+                              project are ready to dispatch (`builds next`),
+                              when `builds cargo` can run there (start
+                              agents); this Mac or a host over its cores, its
+                              5-minute load over five quarters of them (start
+                              nothing new)
   builds dashboard [--port <port>] [--listen <address>]
                               run the daemon until it is killed. It follows
                               the volume, the checkouts and the lists through
@@ -1242,8 +1250,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               hook times; a Needs attention box with
                               the findings `builds health` lists under
                               "needs action", each followed by the command
-                              it suggests, except the disk finding, which
-                              the free space figure shows (the daemon reads
+                              it suggests, except the disk finding and the
+                              load findings, which the free space figure and
+                              the load figures show (the daemon reads
                               the busy processes and the hosts that refuse
                               jobs each time it asks the other hosts for
                               their load: every 5 seconds while a page is

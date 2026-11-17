@@ -34,6 +34,7 @@ mod hook_impact;
 mod hook_stats;
 mod host;
 mod host_installed;
+mod host_load;
 mod host_setup;
 mod install;
 mod install_gate;

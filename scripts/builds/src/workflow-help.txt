@@ -208,8 +208,10 @@ DISPATCH
   - Disk is a queue limit, never a question for the person: under the floor,
     start nothing new, and start the next work as agents finish and their
     build folders are pruned.
-  - While `builds health` shows load well over the core count, start nothing
-    new.
+  - Keep the cores of every build host busy while ready items wait: when
+    `builds health` lists idle cores on a host, start agents on the next
+    ready items. While a host's load is well over its core count, start
+    nothing new.
   - Flaky tests and speed work (profiling, benchmarks, timing a build) never go
     in the work queue. They need a quiet machine: on a loaded one, load hides
     the cause and skews every number, and repeated runs slow every other agent.
@@ -417,6 +419,10 @@ the person.
     no item names: check it out in a worktree (`builds new <repo> --resume
     <branch>`) and land or park it, or ask the person whether to drop it.
   - Disk under the floor: hold the queue.
+  - Cores idle on a host while items are ready: start agents on the next
+    ready items (`builds next`).
+  - A host over its cores: start nothing new until its load falls under its
+    core count.
   - An app lock held long, or with agents waiting: check that the holder is
     building, not stuck. A step past its time limit is killed and passes the
     lock on.

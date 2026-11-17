@@ -18,8 +18,10 @@
 //! jobs, whose Xcode cannot start, whose installed `builds` differs from this
 //! Mac's or whose sccache server launchd does not run (host_installed.rs), or
 //! that lacks a setting that UI tests need or whose UI tests timed out turning on
-//! automation mode (ui_test_settings.rs), or a project's main checkout whose
-//! main lacks commits that origin/main has (main_checkout.rs).
+//! automation mode (ui_test_settings.rs), a host whose cores sit idle while
+//! items are ready or whose load is well over its cores (host_load.rs), or a
+//! project's main checkout whose main lacks commits that origin/main has
+//! (main_checkout.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -79,6 +81,9 @@ pub enum FindingKind {
     /// A project's main checkout whose main lacks commits that origin/main
     /// has (main_checkout.rs).
     MainCheckout,
+    /// A host whose cores sit idle while items are ready, or whose load is
+    /// well over its cores (host_load.rs).
+    Load,
 }
 
 /// What a finding says, and the command it suggests running, if any. The
@@ -1371,15 +1376,30 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let lock = tool.places.daemon_lock();
     let dashboard = crate::daemon::live::daemon_pid(&lock)
         .context(|| format!("reading the dashboard's pid from {}", lock.display()))?;
-    let busy = parallel_map(&hosts, |host| {
-        crate::stuck::read(
-            &ssh,
-            host,
-            host.target.is_none().then_some(dashboard).flatten(),
+    // Each host's probe for its load, read with its busy processes: both
+    // wait on an ssh round trip.
+    let (busy, probes): (Vec<_>, Vec<_>) = parallel_map(&hosts, |host| {
+        (
+            crate::stuck::read(
+                &ssh,
+                host,
+                host.target.is_none().then_some(dashboard).flatten(),
+            ),
+            crate::host::probe(&tool.places, &ssh, host),
         )
-    });
+    })
+    .into_iter()
+    .unzip();
     health.findings.extend(dashboard_finding(dashboard));
-    // Read now: a probe in another command may have just written or removed one.
+    let ready = crate::host_load::ready_items(&crate::lists::store::load_all(&tool.places));
+    let probed: Vec<_> = hosts.iter().cloned().zip(probes).collect();
+    health.findings.extend(
+        crate::host_load::findings(&probed, ready, tool.rules.floor_kib)
+            .into_iter()
+            .map(|advice| Finding::new(FindingKind::Load, advice)),
+    );
+    // Read now: a probe in another command, or this one, may have just
+    // written or removed one.
     let refusals = crate::host::refusals(&tool.places)?;
     let installed = crate::host_installed::read_all_installed(&tool.places, &ssh, &hosts);
     health
