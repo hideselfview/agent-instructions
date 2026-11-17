@@ -496,7 +496,7 @@ fn a_worktree_whose_waits_the_daemon_cannot_read_says_so_and_never_working_or_re
         &running(&[(7, "Reopen a copied library")]),
         &[],
     );
-    assert_eq!(card.chip, Some("Can't read waits"));
+    assert_eq!(card.chip, Some("Can't read what this worktree waits on"));
     assert_eq!(card.pill, None);
     assert_eq!(card.note, None);
 }

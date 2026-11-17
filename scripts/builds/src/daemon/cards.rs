@@ -387,7 +387,11 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait])
         },
         Some("parked") => (Some("Parked"), None, String::new()),
         // The card's errors say why.
-        Some("waits-unread") => (Some("Can't read waits"), None, String::new()),
+        Some("waits-unread") => (
+            Some("Can't read what this worktree waits on"),
+            None,
+            String::new(),
+        ),
         Some("free") => (
             None,
             None,

@@ -1426,9 +1426,9 @@ fn unclaimed_of(
 ///     free            unclaimed, nothing waiting to land
 ///
 /// The page then turns an unclaimed worktree an open item is parked in into
-/// parked, whatever it holds (lists/parked.rs), and a worktree whose running
-/// items' waits the daemon could not read into waits-unread
-/// (cards::card_state).
+/// parked, whatever it holds (lists/parked.rs). The page also gives the state
+/// waits-unread to a worktree when the daemon could not read what its running
+/// items wait on (cards::card_state).
 pub fn worktree_state(claim: Option<&Claim>, git: Option<&SideGit>) -> &'static str {
     let ahead = git.is_some_and(|g| !g.ahead.is_empty());
     let Some(claim) = claim else {
