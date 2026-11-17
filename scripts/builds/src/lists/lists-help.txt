@@ -166,7 +166,8 @@ auto` takes it out of the ranked order.
 
   builds question show N | builds question list [--tag T]
       One entry with its details and trail (a closed one shows how it left), or
-      the stack in the order it is asked, one line per entry.
+      the stack in the order builds asks the person its entries, one line per
+      entry.
 
 
 WORK QUEUE
