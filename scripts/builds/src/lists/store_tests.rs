@@ -717,29 +717,3 @@ fn write_each_commits_every_store_or_none() {
     assert_eq!(first.load().unwrap().items.len(), 1);
     assert_eq!(second.load().unwrap().items.len(), 1);
 }
-
-#[test]
-fn who_wrote_passes_over_a_worktree_with_no_claim_and_fails_on_a_claim_it_cannot_read() {
-    let scratch = Scratch::new("lists-by-in");
-    let unclaimed = scratch.dir.join("bae");
-    let claimed = scratch.dir.join("coven");
-    repo(&unclaimed, "target 1\n");
-    repo(&claimed, "target 1\n");
-    Claim {
-        who: "agent".into(),
-        since: 1_790_000_000,
-        note: None,
-        note_state: None,
-    }
-    .write(&Checkout::at(&claimed).unwrap().unwrap().claim_file())
-    .unwrap();
-    let none = Args::parse(&[], &[], &[]).unwrap();
-    let outside = scratch.dir.join("volume");
-    assert_eq!(
-        resolve_by_in(&none, &[&outside, &unclaimed, &claimed]).unwrap(),
-        "agent"
-    );
-    let broken = Checkout::at(&unclaimed).unwrap().unwrap().claim_file();
-    std::fs::write(&broken, "not a claim").unwrap();
-    assert!(resolve_by_in(&none, &[&unclaimed, &claimed]).is_err());
-}

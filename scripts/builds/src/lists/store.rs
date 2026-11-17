@@ -667,27 +667,17 @@ fn choose_project(
 /// Who writes: `--by` when given, else the claim of the worktree <cwd> is in.
 /// Neither is refused.
 pub fn resolve_by(args: &Args, cwd: &Path) -> Result<String> {
-    resolve_by_in(args, &[cwd])
-}
-
-/// Who writes: `--by` when given, else the claim of the first worktree of
-/// <dirs> that has one. A directory in no worktree, or in a worktree with no
-/// claim, leaves the answer to the next; a worktree or a claim that builds
-/// cannot read fails. Neither `--by` nor a claim is refused.
-pub fn resolve_by_in(args: &Args, dirs: &[&Path]) -> Result<String> {
     if let Some(by) = args.value("by")? {
         if by.trim().is_empty() {
             fail!("--by is empty");
         }
         return Ok(by.to_string());
     }
-    for dir in dirs {
-        if let Some(checkout) = Checkout::at(dir)?
-            && let Some(claim) = Claim::read(&checkout.claim_file())?
-            && !claim.who.is_empty()
-        {
-            return Ok(claim.who);
-        }
+    if let Some(checkout) = Checkout::at(cwd)?
+        && let Some(claim) = Claim::read(&checkout.claim_file())?
+        && !claim.who.is_empty()
+    {
+        return Ok(claim.who);
     }
     fail!("say who you are with --by (this directory is in no claimed worktree)")
 }
