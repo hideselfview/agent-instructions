@@ -225,9 +225,9 @@ fn a_landing_whose_commits_the_repo_lost_gives_no_case_and_says_why() {
     run_git(&side, &["gc", "-q", "--prune=now"]);
     let proposed = propose_in(&fake, &side, &demo.store);
     assert!(
-        proposed
-            .text
-            .contains("landing 1: no case: the repo does not have the commits of run"),
+        proposed.text.contains(
+            "landing 1: propose wrote no case, since the repo does not have the commits of run"
+        ),
         "{}",
         proposed.text
     );

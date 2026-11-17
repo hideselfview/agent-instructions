@@ -159,7 +159,7 @@ fn candidates(
                 findings,
             }),
             Err(why) => lost.push_str(&format!(
-                "landing {}: no case: {}\n",
+                "landing {}: propose wrote no case, since {}\n",
                 landing.id,
                 why.text()
             )),
@@ -399,7 +399,7 @@ fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
                 Ok(diff) => diff,
                 Err(why) => {
                     text.push_str(&format!(
-                        "landing {landing}: no case of run {}: {why}\n",
+                        "landing {landing}: propose wrote no case for run {}, since {why}\n",
                         run.id
                     ));
                     continue;
