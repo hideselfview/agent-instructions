@@ -23,8 +23,8 @@
 //!                   events, with their output
 //!     POST /api/question-effect  `{"project", "id", "effect"}`: the same as
 //!                   `builds question edit <id> --effect <effect>` in that
-//!                   project, recorded as the person's; only from this Mac
-//!                   (effect.rs)
+//!                   project, and the daemon records the edit as the
+//!                   person's; only from this Mac (effect.rs)
 //!     POST /design/<project>/<design id>/approve  records the person's approval of that
 //!                   design change and tells the session that recorded it;
 //!                   only from this Mac (see `approve`)

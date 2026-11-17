@@ -14,7 +14,7 @@ use crate::lists::{Id, Stamp};
 use crate::places::Places;
 
 /// Who the log names for a write the person makes on the dashboard: an
-/// approval or a question's effect.
+/// approval, or the effect the person gives a question.
 pub const BY: &str = "person (dashboard)";
 
 /// Approves open design change <id> of project <project>, at <now>.
