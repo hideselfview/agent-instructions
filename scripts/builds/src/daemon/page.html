@@ -1699,8 +1699,8 @@ function runningItems() {
     h("div", {class: "l-works"}, agents.map(ackRow)))});
   return shown;
 }
-// The chosen project's acknowledgements, newest first, each marked when it is
-// older than the hours an acknowledgement holds.
+// The chosen project's acknowledgements, newest first. projectAcks sets
+// `ended` on each one older than the hours an acknowledgement stays valid.
 function projectAcks() {
   const own = acks && !acks.error && acks.projects.find(p => p.project === lists.project);
   if (!own || !own.acks) return [];
