@@ -3,19 +3,26 @@
 //! two other ways, and anything it raises that the landing's review did not
 //! becomes a candidate miss for the coordinator to settle: one reviewer per
 //! rule over every rule that covers a changed path, and one review with the
-//! rules shuffled into a different grouping. The record keeps each group's
-//! audited miss rate, which `builds review rates` prints.
+//! rules shuffled into a different grouping. A second model checks each
+//! candidate miss against its rule's text (`model_check.rs`), and the audit
+//! settles it with the model's answer: confirmed, or dropped with the model's
+//! reason. The record keeps each group's audited miss rate, which `builds
+//! review rates` prints.
 
 use std::path::Path;
 
 use rusqlite::Connection;
 
 use crate::fail::Result;
+use crate::lists::Stamp;
+use crate::lists::args::{Args, current_dir};
+use crate::lists::store::Store;
 use crate::review::groups::{Group, Groups};
+use crate::review::model_check;
 use crate::review::record::{self, Call, Finding, Kind, NewRun};
 use crate::review::render;
 use crate::review::rules::Rule;
-use crate::review::run::{self, Material};
+use crate::review::run::{self, Diff, Material};
 
 /// The share of landings audited when nothing says to audit more.
 pub const BASE_CHANCE: f64 = 0.05;
@@ -311,25 +318,178 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
                 }
                 Ok((runs, record::findings_of_landing(db, inputs.landing)?))
             })?;
-    let mut text = String::new();
     let fresh: Vec<&Finding> = candidate_misses(&findings)
         .into_iter()
         .filter(|f| runs.contains(&f.run_id))
         .collect();
-    text.push_str(&format!(
+    let mut text = format!(
         "audit of landing {} ({key}): {} candidate misses the review did not raise\n",
         inputs.landing,
         fresh.len()
-    ));
-    for finding in &fresh {
-        text.push_str(&render::finding_text(finding));
-    }
-    if !fresh.is_empty() {
-        text.push_str(
-            "Settle each: builds review settle <finding> confirmed|dropped --why TEXT. A confirmed miss becomes a case (builds review case add) and a fix item.\n",
-        );
-    }
+    );
+    let (settled, _) = settle_misses(
+        inputs.store,
+        stamp,
+        &material,
+        inputs.reviewer,
+        model_check::MODEL,
+        &diff,
+        &fresh,
+    )?;
+    text.push_str(&settled);
     Ok(text)
+}
+
+/// Asks the model check about each of <misses>, which an audit raised over
+/// <diff>, and settles each one the model answers: confirmed, or dropped with
+/// the model's reason. A miss whose check gave no answer stays unsettled.
+/// Returns what to print, and whether a check gave no answer.
+pub fn settle_misses(
+    store: &Store,
+    stamp: &Stamp,
+    material: &Material,
+    program: &Path,
+    model: &str,
+    diff: &Diff,
+    misses: &[&Finding],
+) -> Result<(String, bool)> {
+    let checked = crate::checkout::parallel_map(misses, |miss| {
+        model_check::check(program, model, material, miss, diff)
+    });
+    let mut text = String::new();
+    let mut failed = false;
+    let mut settles = Vec::new();
+    for (miss, checked) in misses.iter().zip(&checked) {
+        text.push_str(&render::finding_text(miss));
+        match checked.settle_why() {
+            Some((how, why)) => {
+                text.push_str(&format!("    settled {how}: {why}\n"));
+                settles.push((miss.id, how, why));
+            }
+            None => {
+                failed = true;
+                text.push_str(&format!(
+                    "    the check gave no answer ({}); settle it: builds review settle {} confirmed|dropped --why TEXT\n",
+                    checked.verdict.as_ref().err().map(String::as_str).unwrap_or(""),
+                    miss.id
+                ));
+            }
+        }
+    }
+    if !settles.is_empty() {
+        store.write(stamp, "review settle misses", |db| {
+            for (id, how, why) in &settles {
+                record::settle(db, *id, how, why, stamp.at, &stamp.by)?;
+            }
+            Ok(())
+        })?;
+    }
+    if settles.iter().any(|(_, how, _)| *how == "confirmed") {
+        text.push_str("A confirmed miss becomes a case (builds review case add) and a fix item.\n");
+    }
+    Ok((text, failed))
+}
+
+/// What `builds review misses --check` reads.
+pub struct OpenMisses<'a> {
+    pub store: &'a Store,
+    pub project: &'a str,
+    /// A checkout of the repo that holds the audited landings' commits.
+    pub repo_dir: &'a Path,
+    pub root: &'a Path,
+    pub reviewer: &'a Path,
+    pub model: &'a str,
+    pub stamp: &'a Stamp,
+}
+
+/// Settles every candidate miss nobody has settled, as an audit settles the
+/// misses it raises (`settle_misses`), over the net change of the run each
+/// audited landing landed with. Returns what to print, and whether a diff
+/// could not be read or a check gave no answer.
+pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
+    let conn = inputs.store.open_existing()?;
+    let material = Material::load(inputs.root, inputs.project)?;
+    let mut text = String::new();
+    let mut failed = false;
+    let mut count = 0;
+    for landing in record::audited_landings(&conn)? {
+        let findings = record::findings_of_landing(&conn, landing)?;
+        let open: Vec<&Finding> = candidate_misses(&findings)
+            .into_iter()
+            .filter(|f| f.settled.is_none())
+            .collect();
+        if open.is_empty() {
+            continue;
+        }
+        count += open.len();
+        text.push_str(&format!("landing {landing}:\n"));
+        let Some(last) = landed_run(&conn, landing)? else {
+            failed = true;
+            text.push_str("  has not landed, so builds has no net change to read\n");
+            continue;
+        };
+        let diff = match crate::review::rerun::net_change(inputs.repo_dir, &last)
+            .and_then(|(base, head)| run::diff_between(inputs.repo_dir, &base, &head))
+        {
+            Ok(diff) => diff,
+            Err(why) => {
+                failed = true;
+                text.push_str(&format!("  not checked: {}\n", why.text()));
+                continue;
+            }
+        };
+        let (settled, check_failed) = settle_misses(
+            inputs.store,
+            inputs.stamp,
+            &material,
+            inputs.reviewer,
+            inputs.model,
+            &diff,
+            &open,
+        )?;
+        failed |= check_failed;
+        text.push_str(&settled);
+    }
+    text.push_str(&format!(
+        "{} unsettled before the check\n",
+        render::plural(count, "candidate miss")
+    ));
+    Ok((text, failed))
+}
+
+/// `builds review misses --check --repo-dir DIR [--model M]`: settles every
+/// candidate miss nobody has settled with the model check, and exits 1 when a
+/// diff could not be read or a check gave no answer.
+pub(super) fn check_misses_command(tool: &crate::tool::Tool, args: &Args) -> Result<()> {
+    let model = args.value("model")?.unwrap_or(model_check::MODEL);
+    if !["opus", "sonnet", "haiku"].contains(&model) {
+        crate::fail!("--model is opus, sonnet or haiku, not {model}");
+    }
+    let store = Store::resolve(&tool.places, args, &current_dir()?)?;
+    let root = super::rules_root(args)?;
+    let reviewer = std::path::PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let repo_dir = std::path::PathBuf::from(args.require("repo-dir")?);
+    let stamp = Stamp {
+        at: tool.now,
+        by: args
+            .value("by")?
+            .unwrap_or("builds model check")
+            .to_string(),
+    };
+    let (text, failed) = check_open_misses(&OpenMisses {
+        store: &store,
+        project: &store.project,
+        repo_dir: &repo_dir,
+        root: &root,
+        reviewer: &reviewer,
+        model,
+        stamp: &stamp,
+    })?;
+    print!("{text}");
+    if failed {
+        return Err(crate::fail::Fail::Exit(1));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

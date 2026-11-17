@@ -1445,9 +1445,13 @@ project P" and asks no reviewer.
 After the push, land records the commits it pushed, and, once the branch has
 nothing left to land, the change's landing as landed, with its review run.
 `review landed` then starts an audit of a sample of the landed reviews, which
-looks for findings they missed. The person curates a confirmed miss into a case: a recorded change in
-the review/cases folder of an agent-instructions worktree, with the findings
-it must produce, which `review replay` runs a grouping over.
+looks for findings they missed. A second model (opus) checks each candidate
+miss the audit raises against the text of its rule, and the audit settles the
+miss with the model's answer: confirmed, or dropped with the model's reason.
+Nobody settles a candidate miss by hand. A confirmed miss becomes a case
+(`review case add`): a recorded change in the review/cases folder of an
+agent-instructions worktree, with the findings it must produce, which `review
+replay` runs a grouping over.
 
 The settled findings score the reviews. A confirmed finding is a true positive
 (TP), a dropped finding a false positive (FP), a candidate miss an audit raised
@@ -1710,10 +1714,22 @@ agent-instructions and run `review replay --rules-root` on it.
                               path, and one review with those rules shuffled
                               into other groups. A finding in a rule and file
                               that the landing's reviews did not raise is a
-                              candidate miss, printed with the command that
+                              candidate miss. The model check (opus) reads
+                              each candidate miss with its rule's text and
+                              the diff of its file, and the audit settles
+                              the miss confirmed, or dropped with the model's
+                              reason; a miss whose check gave no answer stays
+                              unsettled, printed with the command that
                               settles it. A confirmed miss becomes a case
                               (`review case add`) and a fix item
   builds review misses        the candidate misses nobody has settled
+  builds review misses --check --repo-dir DIR [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
+                              settle each of them as an audit settles the
+                              misses it raises, over the net change of the
+                              run its landing landed with, read in DIR's repo,
+                              with --model (default opus) as the check's
+                              model. Exits 1 when a diff could not be read or
+                              a check gave no answer
   builds review rates [--rules-root DIR]
                               each group's audited miss rate: audits, confirmed
                               misses, and the latest 10 audits

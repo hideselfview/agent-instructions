@@ -2,7 +2,7 @@ use super::*;
 use crate::db;
 use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::demo;
-use crate::review::fakes::{Raised, fake};
+use crate::review::fakes::{Fake, Raised, fake};
 use crate::review::record::Finding;
 use crate::review::{Inputs as ReviewInputs, review};
 
@@ -99,72 +99,110 @@ fn the_shuffle_is_the_same_for_a_seed_and_holds_every_rule_once() {
     assert_eq!(all, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"]);
 }
 
-#[test]
-fn an_audit_records_two_runs_names_the_misses_and_feeds_the_miss_rate() {
-    let demo = demo("review-audit");
-    let fake = fake(&demo.scratch.dir);
-    let side = demo.add_side(1, "agent", "work");
-    demo.commit(&side, "a.rs");
-    let stamp = crate::lists::Stamp {
+fn stamp() -> crate::lists::Stamp {
+    crate::lists::Stamp {
         at: NOON,
         by: "tester".to_string(),
-    };
+    }
+}
+
+/// A reviewed change of a.rs, landed with no finding; returns the landing.
+fn landed(demo: &crate::lists::item_fixtures::Demo, fake: &Fake, side: &Path) -> i64 {
+    demo.commit(side, "a.rs");
     let reviewed = review(&ReviewInputs {
         store: &demo.store,
         project: "demo",
         repo: "demo",
-        worktree: &side,
+        worktree: side,
         base: "main",
         head: None,
         key: "k",
         root: &fake.root,
         reviewer: &fake.program,
-        stamp: &stamp,
+        stamp: &stamp(),
         brief: None,
     })
     .unwrap();
     assert!(reviewed.refusal.is_none());
     let landing = reviewed.landing.unwrap();
-    land(&demo, landing, &stamp);
+    land(demo, landing, &stamp());
     fake.prompts();
-    // The audits raise a finding the review did not.
-    fake.answer("audit rule-a", &[("rule-a", Some(BAD))]);
-    fake.answer("shuffle 1", &[("rule-a", None)]);
-    let text = audit(&Inputs {
+    landing
+}
+
+fn audit_of(
+    demo: &crate::lists::item_fixtures::Demo,
+    fake: &Fake,
+    side: &Path,
+    landing: i64,
+) -> String {
+    audit(&Inputs {
         store: &demo.store,
         project: "demo",
-        repo_dir: &side,
+        repo_dir: side,
         landing,
         root: &fake.root,
         reviewer: &fake.program,
-        stamp: &stamp,
+        stamp: &stamp(),
         seed: 7,
     })
-    .unwrap();
+    .unwrap()
+}
+
+#[test]
+fn an_audit_records_two_runs_names_the_misses_and_feeds_the_miss_rate() {
+    let demo = demo("review-audit");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let landing = landed(&demo, &fake, &side);
+    // The audits raise a finding the review did not, and its check fails.
+    fake.answer("audit rule-a", &[("rule-a", Some(BAD))]);
+    fake.answer("shuffle 1", &[("rule-a", None)]);
+    fake.fail("model-check rule-a");
+    let text = audit_of(&demo, &fake, &side, landing);
     assert!(
         text.contains("1 candidate misses the review did not raise"),
         "{text}"
     );
-    assert!(text.contains("builds review settle"));
+    assert!(text.contains("the check gave no answer"), "{text}");
     let prompts = fake.prompts();
     assert_eq!(
-        prompts.len(),
+        prompts
+            .iter()
+            .filter(|(g, _)| g.starts_with("audit") || g.starts_with("shuffle"))
+            .count(),
         2,
         "one reviewer per rule, and one shuffled group"
     );
     let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
-    let findings = record::findings_of_landing(&conn, landing).unwrap();
-    let miss = candidate_misses(&findings)[0].id;
     let group_of_rule = |rule: &str| (rule == "rule-a").then(|| "alpha".to_string());
-    // Unsettled, it is no miss yet.
     assert_eq!(rates(&conn, &group_of_rule).unwrap()[0].misses, 0);
     drop(conn);
-    demo.store
-        .write(&stamp, "settle", |db| {
-            record::settle(db, miss, "confirmed", "a real miss", NOON, "tester")
-        })
-        .unwrap();
+    // The check of the open misses settles the one the audit left.
+    std::fs::remove_file(fake.dir.join("fail-model-check rule-a")).unwrap();
+    fake.answer_task(
+        "model-check rule-a",
+        serde_json::json!({"verdict": "confirmed", "why": "a.rs does the bad thing."}),
+    );
+    let (text, failed) = check_open_misses(&OpenMisses {
+        store: &demo.store,
+        project: "demo",
+        repo_dir: &side,
+        root: &fake.root,
+        reviewer: &fake.program,
+        model: "opus",
+        stamp: &stamp(),
+    })
+    .unwrap();
+    assert!(!failed, "{text}");
+    assert!(text.contains("confirmed"), "{text}");
     let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let findings = record::findings_of_landing(&conn, landing).unwrap();
+    let miss = candidate_misses(&findings)[0];
+    assert_eq!(
+        miss.settled.as_ref().unwrap().last().why,
+        "the opus check confirmed it: a.rs does the bad thing."
+    );
     let rate = &rates(&conn, &group_of_rule).unwrap()[0];
     assert_eq!(
         (rate.group.as_str(), rate.audits, rate.misses),
@@ -172,6 +210,30 @@ fn an_audit_records_two_runs_names_the_misses_and_feeds_the_miss_rate() {
     );
     // Under a grouping with one landing, every landing is audited.
     assert!(sampled(&conn, landing, &group_of_rule, 0.99).unwrap());
+}
+
+#[test]
+fn an_audit_drops_a_miss_the_check_rejects_with_the_models_reason() {
+    let demo = demo("review-audit-rejected");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let landing = landed(&demo, &fake, &side);
+    fake.answer("audit rule-a", &[("rule-a", Some(BAD))]);
+    fake.answer("shuffle 1", &[("rule-a", None)]);
+    fake.answer_task(
+        "model-check rule-a",
+        serde_json::json!({"verdict": "rejected", "why": "The clause does not cover a.rs."}),
+    );
+    let text = audit_of(&demo, &fake, &side, landing);
+    assert!(text.contains("dropped"), "{text}");
+    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let findings = record::findings_of_landing(&conn, landing).unwrap();
+    let settled = candidate_misses(&findings)[0].settled.clone().unwrap();
+    assert_eq!(settled.last().how, "dropped");
+    assert_eq!(
+        settled.last().why,
+        "the opus check rejected it: The clause does not cover a.rs."
+    );
 }
 
 /// Records <landing> as landed with its newest run, as `builds review landed`
