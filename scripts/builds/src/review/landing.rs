@@ -464,8 +464,9 @@ fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>
     let covered = match &verdict {
         Verdict::NotNeeded => return Ok(None),
         Verdict::NoRun => {
-            // A rerun after the landing was recorded finds no open review,
-            // and so does a key other than the one check-landing judged.
+            // A rerun after review landed recorded the landing finds no open
+            // review, and so does a key other than the one check-landing
+            // judged.
             crate::text::note(format!(
                 "review landed: no review of {} is open, so builds records no landing",
                 asked.key

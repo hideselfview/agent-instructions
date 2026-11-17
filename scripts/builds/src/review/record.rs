@@ -817,9 +817,9 @@ pub fn move_to_net_change(db: &Connection) -> Result<()> {
 /// the result equals a fresh database's. The move picks as each landing's last
 /// review the newest of two kinds of review run: the landing's first run, and
 /// a run that read the changes since an earlier review. The move skips a run
-/// whose base, head and earlier review an older run of the landing shares:
-/// such a run asked the groups that gave the older run no answer, over the
-/// same diff. The move also skips every other later run with no earlier
+/// that has the same base, head and earlier review as an older run of the
+/// landing: such a run asked the groups that gave the older run no answer,
+/// over the same diff. The move also skips every other later run with no earlier
 /// review. Before builds read the changes since the last review, such a run
 /// read only a stretch of the branch's commits. migrate.rs runs the move with
 /// the foreign keys off, and the rename runs under `legacy_alter_table`, so

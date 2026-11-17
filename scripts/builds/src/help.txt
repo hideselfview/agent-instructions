@@ -1589,9 +1589,9 @@ agent-instructions and run `review replay --rules-root` on it.
                               and keep the first settle beside the second
   builds review show <landing>
                               the review of a landing under review: its last
-                              review, each run's net change, for each later
-                              run the run whose net change it read the
-                              changes since, groups,
+                              review, each run's net change, the earlier run
+                              each later run diffed the branch against,
+                              groups,
                               findings, how each was settled (both settles of
                               one settled again) and the run that closed it,
                               and the run it landed with
@@ -1612,10 +1612,10 @@ agent-instructions and run `review replay --rules-root` on it.
                               wait to land, which keeps it under review;
                               written by --by, else the worktree's claim. A
                               key with no open landing has nothing to
-                              record, so the rerun that land prints is safe. Once it
-                              records the landing as landed, it decides
-                              whether to audit the landing and, when it
-                              does, starts `builds review audit` in the
+                              record, so the rerun that land prints is safe.
+                              Once `review landed` records the landing as
+                              landed, the command decides whether to audit
+                              the landing and, when it does, starts `builds review audit` in the
                               background, which never fails a landing. It
                               audits about 5% of landings; 25% when a group the
                               landing ran has missed more in its latest 10

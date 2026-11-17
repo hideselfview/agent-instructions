@@ -149,6 +149,6 @@ fn a_card_whose_commits_git_cannot_read_says_why_and_asks_git_again_next_time() 
     }
     assert!(
         reads.commits.lock().unwrap().is_empty(),
-        "the failure is not kept"
+        "Reads keeps no commits git could not read"
     );
 }

@@ -57,8 +57,8 @@ impl Reads {
     }
 
     /// The paths each of <shas> changes in <top>, or why git could not read
-    /// them. Only a read that succeeded is kept, so the next page build asks
-    /// git again after a failure.
+    /// them. Reads keeps only a read that succeeded, so the next page build
+    /// asks git again after a failure.
     fn commits(&self, top: &Path, shas: &[String]) -> Result<Read, String> {
         let key = (top.to_path_buf(), shas.to_vec());
         let mut known = self.commits.lock().expect("no panic holding it");
