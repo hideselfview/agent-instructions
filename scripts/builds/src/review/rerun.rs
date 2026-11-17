@@ -11,6 +11,7 @@
 
 use std::path::Path;
 
+use super::short;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::Stamp;
@@ -223,10 +224,6 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
     }
     text.push_str(&score::comparison(&in_use, &replayed));
     Ok(Replayed { text, failed })
-}
-
-fn short(rev: &str) -> &str {
-    &rev[..rev.len().min(10)]
 }
 
 /// The base and head of <run>'s net change in <repo>; fails when the repo

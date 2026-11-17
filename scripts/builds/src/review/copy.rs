@@ -96,8 +96,8 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
     let mut text = format!(
         "copy review of {} (run {run}) over {}...{}\n",
         inputs.label,
-        &change.base[..change.base.len().min(10)],
-        &change.head[..change.head.len().min(10)]
+        super::short(&change.base),
+        super::short(&change.head)
     );
     text.push_str(&render::run_report(&calls, &findings));
     Ok(Checked { text, clean })

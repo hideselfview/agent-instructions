@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
+use super::short;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -136,10 +137,6 @@ pub enum Verdict {
     NoRun,
     /// The change's review does not take the commits yet.
     Unfinished(Covered, Unfinished),
-}
-
-fn short(sha: &str) -> &str {
-    &sha[..sha.len().min(10)]
 }
 
 fn shas(needs: &[Need]) -> String {

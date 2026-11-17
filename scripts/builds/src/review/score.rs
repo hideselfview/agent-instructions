@@ -18,6 +18,7 @@
 
 use rusqlite::Connection;
 
+use super::short;
 use crate::fail::Result;
 use crate::review::audit::candidate_misses;
 use crate::review::cases::{same_code, same_file};
@@ -458,10 +459,6 @@ fn setup_text(setup: &Setup) -> String {
         setup.model,
         &setup.prompt[..setup.prompt.len().min(8)]
     )
-}
-
-fn short(rev: &str) -> &str {
-    &rev[..rev.len().min(10)]
 }
 
 /// The names of <groups>' groups, sorted, each once.
