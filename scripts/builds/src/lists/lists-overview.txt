@@ -1,10 +1,12 @@
-builds lists: a project's lists, kept in a store outside every repo.
+builds lists: the lists that builds keeps for a project, in a store outside
+every repo.
 
 A project is a set of repos that share lists (bae holds bae and coven). Its
 lists are:
 
   decision stack  what waits on the person: questions, work only they can
-                  do, and work held until they start it (builds question)
+                  do, and work that waits until they start it (builds
+                  question)
   work queue      what the coordinator and its agents can do (builds item,
                   builds next, builds area)
   decision log    every decision, with who made it and why (builds decision)
@@ -14,16 +16,16 @@ lists are:
 
 Nothing edits the store by hand: every change is a command, and every command
 refuses a step that lacks what it needs. Every record (a question, an item, a
-decision or a design change) has an id from one counter per project, printed
-#N. Commands take ids as bare numbers (`builds item take 12`), because an
-unquoted #12 is a comment in the shell.
+decision or a design change) has an id from one counter per project, which
+builds prints as #N. Commands take ids as bare numbers (`builds item take 12`),
+because an unquoted #12 is a comment in the shell.
 
 
 WHO WRITES WHAT
 
-Every write records who wrote it: `--by WHO` when given, else the claim of the
-worktree the command runs in. With neither, builds refuses the write ("say
-who you are with --by").
+Every write records who wrote it: the name you pass with `--by WHO`, else the
+claim of the worktree the command runs in. With neither, builds refuses the
+write ("say who you are with --by").
 
   - The stack holds only what waits on the person, a plan's open questions
     among them. Whoever asks an entry names its effect and what it blocks
@@ -55,9 +57,10 @@ workflow's definition of critical work (`builds help workflow`, DISPATCH):
   product-design  product design: behavior or a screen the person sees
   cleanup         cleanup or wording: nothing the person notices
 
-The stack is asked from the top, one entry at a time: first the entries placed
-first, in the person's ranked order, then the rest by how many open items each
-unblocks, directly or through chains of open items, then by effect in the order
-above, then oldest first, and last the entries placed last, in the same order
-among themselves. `builds question place` places an entry first or last, and
-ranks the entries placed first in the person's order (DECISION STACK).
+builds asks the person the stack's entries from the top, one at a time: first
+the entries that someone placed first, in the person's ranked order, then the
+rest by how many open items each unblocks, directly or through chains of open
+items, then by effect in the order above, then oldest first, and last the
+entries that someone placed last, in the same order among themselves. `builds
+question place` places an entry first or last, and ranks the entries that
+someone placed first in the person's order (DECISION STACK).

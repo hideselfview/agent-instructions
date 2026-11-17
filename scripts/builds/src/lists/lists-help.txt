@@ -2,8 +2,8 @@ STORE AND WRITES
 
 The store is ~/Library/Application Support/builds/lists/<project>/, or
 $BUILDS_LISTS/<project>/: builds.sqlite, one SQLite database, which also holds
-the hook's run records, the review records and the app build records. It is
-outside every repo, so no commit can carry it.
+the hook's run records, the review records and the app build records. The store
+is outside every repo, so no commit can carry it.
 
 The records builds land writes after its push (`item landed`, `design landed`,
 `review landed`) take the claim of the worktree they name in place of the

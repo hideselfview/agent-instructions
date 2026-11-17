@@ -71,11 +71,11 @@ FOLDERS and APP BUILDS). Run every cargo command through `builds cargo`, which
 bae's and coven's scripts/cargo.sh runs. Never set CARGO_TARGET_DIR or another
 CARGO_* variable, on a command or in a script: each checkout builds into its
 own folders on /Volumes/Builds, and sccache's key holds the path and every
-CARGO_* variable, so a build with another one gets no cache hits; a setting
-goes in a --config argument or in Cargo.toml. An app build (`builds app-build
-<repo> <branch>`) runs only the test classes and the shots of the screens the
-change touches (--test <Class>, --shots mac.welcome.), and CI runs the full
-suites.
+CARGO_* variable, so a build with another path or another CARGO_* variable gets
+no cache hits; a setting goes in a --config argument or in Cargo.toml. An app
+build (`builds app-build <repo> <branch>`) runs only the test classes and the
+shots of the screens the change touches (--test <Class>, --shots mac.welcome.),
+and CI runs the full suites.
 
 
 PLAN, BRIEF, EXECUTE
@@ -221,10 +221,10 @@ DISPATCH
     take it off the queue. Whoever works the issue does it on a quiet machine,
     and finds a flaky test's cause from its failure output and code. Logs that
     record the state at the failure, such as which process holds a lock, show
-    the cause; one test runs alone, filtered by name, never the whole suite in
-    a loop.
+    the cause; run one test alone, which you pick by name, never the whole
+    suite in a loop.
   - Another worktree may keep an app build while the work of several agents
-    needs it; clear it once that work moves on (`builds help`, APP BUILDS).
+    needs it; clear it once those agents finish (`builds help`, APP BUILDS).
   - When an agent finishes, land its commits and start the next work in the
     same turn, before writing up anything else.
 
@@ -244,18 +244,18 @@ both.
     only the one test that proves a fix. The landing's compile check still
     checks every landing. At the full-suite run the person sets, a fixer agent
     runs every suite and CI and fixes each failure with the commit that caused
-    it. A test that fails meanwhile is checked on origin/main first; when it
-    fails there too and isn't the agent's, the agent notes it and moves on.
+    it. The agent checks a test that fails meanwhile on origin/main first; when
+    it fails there too and isn't the agent's, the agent notes it and moves on.
 
 
 REVIEW
 
-In a repo of a project with lists, the coordinator reviews every branch
-against agent-instructions' rules with `builds review` before it lands the
-branch, and `builds land` refuses the branch until the review is finished.
-builds splits the rules into groups and runs one reviewer per group that
-covers a changed path. A review shows the changes since the last review, and
-nothing else: builds never sends a reviewer the same diff twice.
+In a repo of a project with lists, the coordinator reviews every branch against
+agent-instructions' rules with `builds review` before it lands the branch, and
+`builds land` refuses the branch until the review finishes. builds splits the
+rules into groups and runs one reviewer per group that covers a changed path. A
+review shows the changes since the last review, and nothing else: builds never
+sends a reviewer the same diff twice.
 
   1. The coordinator runs `builds review <worktree> --item N` on the branch,
      which gives the reviewers the item's brief. The first review reads the
@@ -286,20 +286,21 @@ agent's writing check (`builds review writing`) finds it before the agent
 reports. The run's report names each group that did not read a file, with the
 files it did not read.
 
-The changes since the last review are the lines the branch adds or removes
-that it did not then, the lines it no longer changes, and the commit messages
-it did not then hold. Run `builds review` in the branch's worktree again
-whenever the branch changed since the last review: a commit added after it, a
-fix, a squash that changed lines, a conflict's resolution or a reworded
-message. Main's own commits that a rebase brings in are no part of the
-changes, so a rebase that keeps every line the branch adds and removes keeps
-its review, even when the lines around them changed, and a rebase that
-resolves a conflict differently leaves only the lines of the resolution to
-read. After an agent rewords a message and changes no file, the run reads only
-the changed messages and closes each finding on the commit messages that they
-fix. When the agent drops the commit that held a confirmed finding's code, the
-next review reads that change and closes the finding. `builds review` refuses
-a run when the review lacks nothing.
+The changes since the last review are the lines the branch adds or removes that
+it did not add or remove at the last review, the lines it no longer changes,
+and the commit messages it did not hold at the last review. Run `builds review`
+in the branch's worktree again whenever the branch changed since the last
+review: a commit the agent added after the last review, a fix, a squash that
+changed lines, a conflict's resolution or a message the agent reworded. Main's
+own commits that a rebase brings in are no part of the changes, so a rebase
+that keeps every line the branch adds and removes keeps its review, even when
+the lines around them changed, and a rebase that resolves a conflict
+differently leaves only the lines of the resolution to read. After an agent
+rewords a message and changes no file, the run reads only the changed messages
+and closes each finding on the commit messages that they fix. When the agent
+drops the commit that held a confirmed finding's code, the next review reads
+that change and closes the finding. `builds review` refuses a run when the
+branch has no change that the review has not read.
 
 Each settle, with its --why, is the record that scores the reviews. The
 settled findings stay in the project's store as the record of what reviews
@@ -377,10 +378,10 @@ changes give each board's canvas link, and landing one ends with publishing the
 canvas. builds keeps its boards in the repo and publishes nothing, so its
 design changes take no canvas links and landing one has no publish step. A
 project's setting says which it does (`builds lists design-globs PROJECT
---canvas yes|no`). A fix that changes no design (boards made to follow the
-design system's measures, a drawing mistake corrected) is recorded with `fix`
-instead: it needs no review page or approval, and lands with `--design N` like
-any other.
+--canvas yes|no`). The design session records a fix that changes no design
+(boards it redrew to follow the design system's measures, a drawing mistake it
+corrected) with `fix` instead: such a fix needs no review page or approval, and
+lands with `--design N` like any other.
 
   1. While drawing, look at a board with `builds design render`, which draws
      it from the worktree as one page of HTML without publishing the canvas.
@@ -407,13 +408,13 @@ any other.
      the next design session runs `builds land` for the change. `builds design
      approve N --by-person` is for an approval the person gives in words. When
      a rule group covers a path the commits change, `builds land` refuses them
-     until the rules review is finished, as for any branch (REVIEW).
+     until the rules review finishes, as for any branch (REVIEW).
 
 In a project that publishes a canvas, the boards and design/mocks/canvas.json
 in the repo are the canvas's source. The published canvas and design system are
-copies that let anyone look at the landed boards. An edit made on the canvas
-page on claude.ai is an accident: publish the repo's version over it and merge
-nothing from it.
+copies that let anyone look at the landed boards. An edit that anyone makes on
+the canvas page on claude.ai is an accident: publish the repo's version over it
+and merge nothing from it.
 
 
 HEALTH CHECK
