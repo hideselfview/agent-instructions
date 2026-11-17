@@ -162,7 +162,9 @@ pub fn commit_message_file(messages: &str) -> Option<(FileDiff, crate::review::c
         text.push_str(line);
         text.push('\n');
     }
-    let quotes = crate::review::check::parse_diff(&text).pop()?;
+    let quotes = crate::review::check::parse_diff(&text)
+        .pop()
+        .expect("the commit messages' diff holds one file");
     Some((
         FileDiff {
             path: COMMIT_MESSAGE.to_string(),
