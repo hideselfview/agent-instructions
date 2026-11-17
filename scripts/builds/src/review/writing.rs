@@ -66,8 +66,7 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
             inputs.root.display()
         );
     };
-    let change = run::diff_of(inputs.worktree, inputs.base)?;
-    let diff = change.diff;
+    let diff = run::diff_of(inputs.worktree, inputs.base)?.diff;
     if diff.text.trim().is_empty() {
         return Ok(Checked {
             text: format!(
@@ -114,7 +113,7 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
         let run = inputs
             .store
             .write(stamp, &format!("review writing {}", inputs.key), |db| {
-                add_run(db, inputs.repo, inputs.key, &change.head, stamp.at)?;
+                add_run(db, inputs.repo, inputs.key, stamp.at)?;
                 runs_since_review(db, inputs.repo, inputs.key)
             })?;
         text.push_str(&format!(
@@ -137,13 +136,13 @@ fn runs_since_review(db: &Connection, repo: &str, key: &str) -> Result<i64> {
     .sql()
 }
 
-/// Records a writing check on <key> in <repo> that read the net change up to
-/// <head>, after the key's last review run.
-pub fn add_run(db: &Connection, repo: &str, key: &str, head: &str, at: i64) -> Result<()> {
+/// Records a writing check on <key> in <repo>, after the key's last review
+/// run.
+pub fn add_run(db: &Connection, repo: &str, key: &str, at: i64) -> Result<()> {
     let reviewed = record::last_review_run(db, repo, key)?;
     db.execute(
-        "INSERT INTO review_writing_run (key, repo, head, reviewed_run, at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![key, repo, head, reviewed, at],
+        "INSERT INTO review_writing_run (key, repo, reviewed_run, at) VALUES (?1, ?2, ?3, ?4)",
+        params![key, repo, reviewed, at],
     )
     .sql()?;
     Ok(())

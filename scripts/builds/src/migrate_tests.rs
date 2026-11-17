@@ -3100,7 +3100,7 @@ fn a_store_from_before_writing_runs_moves_and_records_a_writing_check() {
     let conn = Connection::open(&path).unwrap();
     conn.pragma_update(None, "foreign_keys", true).unwrap();
     crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
-    crate::review::writing::add_run(&conn, "bae", "branch:work", "h", 5).unwrap();
+    crate::review::writing::add_run(&conn, "bae", "branch:work", 5).unwrap();
 }
 
 /// The schema text before the person could allow a confirmed finding to land:
