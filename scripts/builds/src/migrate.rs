@@ -799,7 +799,7 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if had_review_tables && before(found, BEFORE_MESSAGE_STYLE_STAMP) {
         let settled = crate::review::record::move_to_message_style(&tx, now)?;
         crate::text::note(format!(
-            "{}: the person settled {} on a commit message or a comment as dropped",
+            "{}: builds settled {} on a commit message or a comment as dropped, in the person's name",
             path.display(),
             crate::text::counted(settled, "writing finding", "writing findings")
         ));
