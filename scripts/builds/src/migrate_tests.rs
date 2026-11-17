@@ -3382,7 +3382,8 @@ fn a_store_from_before_acknowledgements_gains_the_tables_and_records_one() {
         )
         .unwrap();
     }
-    migrate_stores(&places, &[("bae", 1, Effect::Cleanup)]).unwrap();
+    effects_file(&dir, &[(1, "cleanup")]);
+    migrate_stores(&places).unwrap();
     let conn = db::open(&path, db::Make::Never).unwrap();
     assert_eq!(
         db::schema_rows(&conn).unwrap(),
