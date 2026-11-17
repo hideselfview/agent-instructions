@@ -29,7 +29,7 @@ use rusqlite::TransactionBehavior;
 use crate::checkout::Checkout;
 use crate::db::{self, Make, Sql};
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::Result;
 use crate::install_gate;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of, stores};
@@ -70,7 +70,7 @@ pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
     check(
         places,
         &session,
-        agent::from_env().as_deref(),
+        agent::from_env()?.as_deref(),
         flag(args, "project"),
         &current_dir()?,
         crate::app_timing::now(),
@@ -174,10 +174,9 @@ impl Agent {
         }
     }
 
-    /// What the agent's reading of <text> at <now> holds, when <ack> is its
-    /// last acknowledgement.
-    fn scope(&self, text: &Text, ack: Option<record::Ack>, now: i64) -> Result<Scope> {
-        let Some(ack) = ack else {
+    /// What the agent's reading of <text> at <now> holds.
+    fn scope(&self, text: &Text, now: i64) -> Result<Scope> {
+        let Some(ack) = self.last()? else {
             return Ok(Scope::Whole(Whole::NotAcknowledged));
         };
         if now - ack.at > HOURS * 3600 {
@@ -263,7 +262,7 @@ fn check(
     let agent = Agent::resolve(places, session, id, project, cwd)?;
     let text = agent.text(places)?;
     let who = agent.name();
-    let why = match agent.scope(&text, agent.last()?, now)? {
+    let why = match agent.scope(&text, now)? {
         Scope::Whole(Whole::Current) => return Ok(()),
         Scope::Whole(Whole::NotAcknowledged) => {
             format!("{who} has not acknowledged it in this Claude Code session")
@@ -298,10 +297,7 @@ fn check(
 pub fn cmd_ack(places: &Places, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &[], &["compacted"])?;
     if args.switch("compacted") {
-        let mut input = String::new();
-        std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)
-            .context(|| "reading the hook's input".to_string())?;
-        println!("{}", compacted(places, &input)?);
+        println!("{}", compacted(places, agent::HookInput::from_stdin()?)?);
         return Ok(());
     }
     let Some(session) = session() else {
@@ -314,7 +310,7 @@ pub fn cmd_ack(places: &Places, args: &[String]) -> Result<()> {
         ack(
             places,
             &session,
-            agent::from_env().as_deref(),
+            agent::from_env()?.as_deref(),
             &args,
             &current_dir()?,
             crate::app_timing::now()
@@ -345,7 +341,7 @@ fn ack(
 /// Starts a reading: picks the sections it holds, draws each part's check
 /// words and says how to read the parts and acknowledge them.
 fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
-    let scope = agent.scope(text, agent.last()?, now)?;
+    let scope = agent.scope(text, now)?;
     let shown = scope.sections(text);
     let parts = text.parts(&shown);
     let mut words = Vec::new();
@@ -509,14 +505,13 @@ fn wrong_parts(expected: &[Vec<String>], given: &[String]) -> Vec<usize> {
         .collect()
 }
 
-/// What `builds ack --compacted` does with the input <input> Claude Code's
+/// What `builds ack --compacted` does with the input <hook> Claude Code's
 /// SessionStart hook passes after it compacts an agent: deletes that agent's
 /// acknowledgement and reading in every store, and returns the hook's output,
 /// which tells the agent its id again. The input names the agent
 /// (`agent_id`, absent when the main agent compacted). Fails, deleting
 /// nothing, for an agent no hook registered.
-fn compacted(places: &Places, input: &str) -> Result<String> {
-    let hook = agent::HookInput::parse(input)?;
+fn compacted(places: &Places, hook: agent::HookInput) -> Result<String> {
     if hook.hook_event_name != "SessionStart" || hook.source.as_deref() != Some("compact") {
         fail!(
             "`builds ack --compacted` runs from the SessionStart hook after a compaction, and this input is of {} ({})",

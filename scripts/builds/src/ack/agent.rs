@@ -22,13 +22,16 @@ use crate::places::Places;
 /// ID` sets it for the command (`take_flag`).
 pub const VARIABLE: &str = "BUILDS_AGENT";
 
-/// The folder of the registered agents, one folder per session.
-pub fn dir(places: &Places) -> PathBuf {
-    places
-        .lists
-        .parent()
-        .unwrap_or(&places.lists)
-        .join("agents")
+/// The folder of the registered agents, one folder per session, beside the
+/// lists folder. Fails when the lists folder has no parent.
+pub fn dir(places: &Places) -> Result<PathBuf> {
+    let Some(parent) = places.lists.parent() else {
+        fail!(
+            "builds keeps the registered agents beside the lists folder, and {} has no parent folder",
+            places.lists.display()
+        );
+    };
+    Ok(parent.join("agents"))
 }
 
 /// The file that registers agent <agent> of <session>. Fails for an id
@@ -44,7 +47,7 @@ fn file(places: &Places, session: &str, agent: &str) -> Result<PathBuf> {
             fail!("{id:?} is no {what}: an id holds only letters, digits, - and _");
         }
     }
-    Ok(dir(places).join(session).join(agent))
+    Ok(dir(places)?.join(session).join(agent))
 }
 
 /// Registers agent <agent> of <session>. Registering it again changes
@@ -70,7 +73,7 @@ pub fn is_registered(places: &Places, session: &str, agent: &str) -> Result<bool
 /// command and every command it runs. Fails as `split_flag` and `chosen` do.
 pub fn take_flag(args: &[String]) -> Result<Vec<String>> {
     let (rest, given) = split_flag(args)?;
-    if let Some(id) = chosen(given.as_deref(), from_env().as_deref())? {
+    if let Some(id) = chosen(given.as_deref(), from_env()?.as_deref())? {
         // SAFETY: no other thread runs yet, so none reads the environment
         // while set_var writes it.
         unsafe { std::env::set_var(VARIABLE, id) };
@@ -116,9 +119,21 @@ fn chosen(flag: Option<&str>, env: Option<&str>) -> Result<Option<String>> {
     }
 }
 
-/// The agent that runs this command, from `BUILDS_AGENT`, or None.
-pub fn from_env() -> Option<String> {
-    std::env::var(VARIABLE).ok().filter(|id| !id.is_empty())
+/// The agent that runs this command, from `BUILDS_AGENT`, or None when the
+/// variable is not set. Fails when it is set but empty or not Unicode.
+pub fn from_env() -> Result<Option<String>> {
+    match std::env::var(VARIABLE) {
+        Ok(id) if id.is_empty() => {
+            fail!("{VARIABLE} is set but empty; set it to your builds agent id, or unset it")
+        }
+        Ok(id) => Ok(Some(id)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            fail!(
+                "{VARIABLE} is set to a value that is not Unicode; set it to your builds agent id"
+            )
+        }
+    }
 }
 
 /// What Claude Code's hooks pass on standard input, as builds reads it.
@@ -133,6 +148,15 @@ pub struct HookInput {
 }
 
 impl HookInput {
+    /// Reads and parses the input Claude Code passes a hook on standard
+    /// input.
+    pub fn from_stdin() -> Result<HookInput> {
+        let mut input = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)
+            .context(|| "reading the hook's input".to_string())?;
+        HookInput::parse(&input)
+    }
+
     /// Parses a hook's standard input <input>.
     pub fn parse(input: &str) -> Result<HookInput> {
         serde_json::from_str(input).map_err(|error| {
@@ -178,17 +202,13 @@ pub fn cmd_agent(places: &Places, args: &[String]) -> Result<()> {
             "usage: builds agent start   (a Claude Code hook runs it, with the hook's input on standard input)"
         );
     }
-    let mut input = String::new();
-    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)
-        .context(|| "reading the hook's input".to_string())?;
-    println!("{}", start(places, &input)?);
+    println!("{}", start(places, HookInput::from_stdin()?)?);
     Ok(())
 }
 
-/// Registers the agent the hook input <input> names, and returns the hook's
+/// Registers the agent the hook input <hook> names, and returns the hook's
 /// output.
-pub(super) fn start(places: &Places, input: &str) -> Result<String> {
-    let hook = HookInput::parse(input)?;
+pub(super) fn start(places: &Places, hook: HookInput) -> Result<String> {
     match (hook.hook_event_name.as_str(), hook.source.as_deref()) {
         ("SubagentStart", _) if hook.agent_id.is_none() => {
             fail!("the SubagentStart hook's input names no agent_id")

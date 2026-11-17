@@ -132,9 +132,9 @@ impl World {
             .unwrap_or_default();
         compacted(
             &self.places,
-            &format!(
+            agent::HookInput::parse(&format!(
                 r#"{{"session_id": "{SESSION_ID}", "hook_event_name": "SessionStart", "source": "compact"{agent_id}}}"#
-            ),
+            ))?,
         )
     }
 }
@@ -374,9 +374,10 @@ fn the_main_agent_is_named_by_its_session_id_and_its_compaction_clears_it() {
     let world = world("ack-main-agent");
     let told = agent::start(
         &world.places,
-        &format!(
+        agent::HookInput::parse(&format!(
             r#"{{"session_id": "{SESSION_ID}", "hook_event_name": "SessionStart", "source": "startup"}}"#
-        ),
+        ))
+        .unwrap(),
     )
     .unwrap();
     assert!(

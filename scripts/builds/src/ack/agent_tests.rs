@@ -11,7 +11,7 @@ fn a_subagents_start_registers_its_id_and_tells_it_the_id() {
     let places = scratch.places();
     let told = start(
         &places,
-        r#"{"session_id": "s1", "hook_event_name": "SubagentStart", "agent_id": "a91fe7c601b214585", "agent_type": "general-purpose"}"#,
+        HookInput::parse(r#"{"session_id": "s1", "hook_event_name": "SubagentStart", "agent_id": "a91fe7c601b214585", "agent_type": "general-purpose"}"#).unwrap(),
     )
     .unwrap();
     let output: serde_json::Value = serde_json::from_str(&told).unwrap();
@@ -39,14 +39,17 @@ fn a_compaction_or_another_event_is_no_start() {
     assert!(
         start(
             &places,
-            r#"{"session_id": "s1", "hook_event_name": "SessionStart", "source": "compact"}"#
+            HookInput::parse(
+                r#"{"session_id": "s1", "hook_event_name": "SessionStart", "source": "compact"}"#
+            )
+            .unwrap(),
         )
         .is_err()
     );
     assert!(
         start(
             &places,
-            r#"{"session_id": "s1", "hook_event_name": "PreToolUse"}"#
+            HookInput::parse(r#"{"session_id": "s1", "hook_event_name": "PreToolUse"}"#).unwrap(),
         )
         .is_err()
     );
@@ -83,4 +86,12 @@ fn builds_agent_names_the_agent_as_the_flag_does() {
     );
     assert_eq!(chosen(None, None).unwrap(), None);
     assert!(chosen(Some("a1"), Some("a2")).is_err());
+}
+
+#[test]
+fn a_lists_folder_with_no_parent_has_no_place_for_the_agents() {
+    let scratch = Scratch::new("agent-no-parent");
+    let mut places = scratch.places();
+    places.lists = std::path::PathBuf::from("/");
+    assert!(register(&places, "s1", "a1").is_err());
 }
