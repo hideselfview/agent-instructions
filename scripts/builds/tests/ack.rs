@@ -1,6 +1,6 @@
 //! A whole `builds` run: builds refuses an agent's command (one with a Claude
-//! Code session id) until the agent acknowledges the text, and runs the
-//! person's command.
+//! Code session id) until the agent acknowledges the help texts and rules
+//! that `builds ack` prints, and runs the person's command.
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
