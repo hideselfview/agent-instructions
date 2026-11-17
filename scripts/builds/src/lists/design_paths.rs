@@ -36,6 +36,7 @@ use std::process::Stdio;
 use crate::checkout::{git, git_text};
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::glob::{Question, segments_match};
 use crate::lists::Lists;
 
 /// A repo's globs: its design places, its shared sources and its spec files.
@@ -168,19 +169,14 @@ impl Glob {
     fn place(&self, path: &str) -> Option<String> {
         let parts: Vec<&str> = path.split('/').collect();
         if !self.folder {
-            return segments_match(&self.segments, &parts).then(|| path.to_string());
+            return segments_match(&self.segments, &parts, Question::Wildcard)
+                .then(|| path.to_string());
         }
+        // A glob of folders holds no `**` (`glob_fault`), so its place is the
+        // path's first segments, one for each of the glob's.
         let n = self.segments.len();
-        if parts.len() <= n
-            || !self
-                .segments
-                .iter()
-                .zip(&parts)
-                .all(|(glob, part)| segment_matches(glob, part))
-        {
-            return None;
-        }
-        Some(format!("{}/", parts[..n].join("/")))
+        (parts.len() > n && segments_match(&self.segments, &parts[..n], Question::Wildcard))
+            .then(|| format!("{}/", parts[..n].join("/")))
     }
 
     /// Is <path> in this glob's place?
@@ -195,15 +191,7 @@ impl Glob {
             return false;
         }
         let parts: Vec<&str> = key.split('/').filter(|p| !p.is_empty()).collect();
-        if !self.folder {
-            return segments_match(&self.segments, &parts);
-        }
-        parts.len() == self.segments.len()
-            && self
-                .segments
-                .iter()
-                .zip(&parts)
-                .all(|(glob, part)| segment_matches(glob, part))
+        segments_match(&self.segments, &parts, Question::Wildcard)
     }
 
     /// The folder the design files live in: the glob's plain directory
@@ -249,35 +237,6 @@ pub fn glob_fault(glob: &str) -> Option<String> {
         ));
     }
     None
-}
-
-/// Does <parts>, a path's segments, match the segments <glob>, where a `**`
-/// segment matches any number of segments?
-fn segments_match(glob: &[String], parts: &[&str]) -> bool {
-    match glob.split_first() {
-        None => parts.is_empty(),
-        Some((first, rest)) if first == "**" => {
-            (0..=parts.len()).any(|skip| segments_match(rest, &parts[skip..]))
-        }
-        Some((first, rest)) => parts.split_first().is_some_and(|(part, others)| {
-            segment_matches(first, part) && segments_match(rest, others)
-        }),
-    }
-}
-
-fn segment_matches(glob: &str, text: &str) -> bool {
-    fn go(glob: &[char], text: &[char]) -> bool {
-        match glob.split_first() {
-            None => text.is_empty(),
-            Some(('*', rest)) => (0..=text.len()).any(|skip| go(rest, &text[skip..])),
-            Some(('?', rest)) => !text.is_empty() && go(rest, &text[1..]),
-            Some((c, rest)) => text.first() == Some(c) && go(rest, &text[1..]),
-        }
-    }
-    go(
-        &glob.chars().collect::<Vec<_>>(),
-        &text.chars().collect::<Vec<_>>(),
-    )
 }
 
 /// The design files among <paths>, by <globs>. A source wins over a place

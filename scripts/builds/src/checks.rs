@@ -23,6 +23,7 @@ use std::process::Command;
 use crate::checkout::git_local_env_vars;
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::glob::{Question, segment_matches, segments_match};
 
 pub const CONFIG: &str = ".checks";
 
@@ -132,37 +133,12 @@ pub fn parse(text: &str) -> Result<Vec<Line>> {
 pub fn glob_match(pattern: &str, path: &str) -> bool {
     let path: Vec<&str> = path.split('/').collect();
     if !pattern.contains('/') {
-        return path.last().is_some_and(|name| segment_match(pattern, name));
+        return path
+            .last()
+            .is_some_and(|name| segment_matches(pattern, name, Question::Plain));
     }
     let pattern: Vec<&str> = pattern.split('/').collect();
-    segments_match(&pattern, &path)
-}
-
-fn segments_match(pattern: &[&str], path: &[&str]) -> bool {
-    match pattern.split_first() {
-        None => path.is_empty(),
-        Some((&"**", rest)) => (0..=path.len()).any(|skip| segments_match(rest, &path[skip..])),
-        Some((first, rest)) => match path.split_first() {
-            Some((name, path_rest)) => {
-                segment_match(first, name) && segments_match(rest, path_rest)
-            }
-            None => false,
-        },
-    }
-}
-
-fn segment_match(pattern: &str, name: &str) -> bool {
-    match pattern.split_once('*') {
-        None => pattern == name,
-        Some((head, tail)) => {
-            let Some(after_head) = name.strip_prefix(head) else {
-                return false;
-            };
-            (0..=after_head.len()).any(|skip| {
-                after_head.is_char_boundary(skip) && segment_match(tail, &after_head[skip..])
-            })
-        }
-    }
+    segments_match(&pattern, &path, Question::Plain)
 }
 
 impl Line {

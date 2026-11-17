@@ -101,11 +101,14 @@ fn a_repo_with_no_globs_has_no_design_files() {
 
 #[test]
 fn star_and_question_mark_stay_within_a_segment() {
-    assert!(segment_matches("*.dc.html", "A.dc.html"));
-    assert!(!segment_matches("*.dc.html", "A.dc.htmlx"));
-    assert!(segment_matches("a?c", "abc"));
-    assert!(!segment_matches("a?c", "ac"));
-    assert!(segment_matches("*", ""));
+    let g = Globs {
+        places: vec!["design/a?c/*.dc.html".into()],
+        ..Globs::default()
+    };
+    assert!(g.names_place("design/abc/A.dc.html"));
+    assert!(!g.names_place("design/ac/A.dc.html"));
+    assert!(!g.names_place("design/abc/A.dc.htmlx"));
+    assert!(!g.names_place("design/abc/x/A.dc.html"));
 }
 
 fn commit(dir: &Path, files: &[(&str, &str)], message: &str) -> String {
