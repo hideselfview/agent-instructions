@@ -31,9 +31,11 @@
 //! did not answer, and reads the changes since the last review in a new run,
 //! which becomes the last review. Each reviewer also gets the open confirmed
 //! findings of its group's rules, checks the code at each one's place, and
-//! closes each one whose problem is gone. `landing::Coverage` says what the
-//! review read, for this run and for `builds land`. The run refuses when the
-//! review lacks nothing.
+//! closes each one whose problem is gone. Only the groups that hold open
+//! findings in a file read that file, and every group that covers any other
+//! changed file reads that file (`run::ask_groups`). `landing::Coverage` says
+//! what the review read, for this run and for `builds land`. The run refuses
+//! when the review lacks nothing.
 //!
 //! `writing` asks only the group that holds rule
 //! write-plain-literal-active-sentences over the same net change, prints its
@@ -345,6 +347,12 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         for group in &asked.nothing_to_read {
             text.push_str(&format!(
                 "{group}: the diff holds none of the files its rules cover (a commit changed one and a later commit changed it back), so it had nothing to read: its answer is no findings\n"
+            ));
+        }
+        for (group, paths) in &asked.not_read {
+            text.push_str(&format!(
+                "{group} did not read {}: other groups hold the open findings in those files, so only those groups read them\n",
+                paths.join(", ")
             ));
         }
         text.push_str(&render::run_report(calls, findings));

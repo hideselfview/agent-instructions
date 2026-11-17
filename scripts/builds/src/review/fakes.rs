@@ -33,6 +33,15 @@ pub fn group_file(root: &Path, dir: &str, name: &str, model: &str, extra: &str) 
     .unwrap();
 }
 
+/// Writes rule <slug> in folder <dir>, covering the paths <glob> matches.
+pub fn rule_file(root: &Path, dir: &str, slug: &str, glob: &str, blocking: bool, body: &str) {
+    std::fs::write(
+        root.join("rules").join(dir).join(format!("{slug}.md")),
+        format!("---\ndigest: d\npaths:\n  - '{glob}'\nblocking: {blocking}\n---\n\n{body}\n"),
+    )
+    .unwrap();
+}
+
 pub fn fake(scratch: &Path) -> Fake {
     let root = scratch.join("instructions");
     let dir = scratch.join("reviewer");
@@ -40,21 +49,16 @@ pub fn fake(scratch: &Path) -> Fake {
         std::fs::create_dir_all(root.join(sub)).unwrap();
     }
     std::fs::create_dir_all(dir.join("calls")).unwrap();
-    let rule = |group: &str, slug: &str, glob: &str, blocking: bool, body: &str| {
-        std::fs::write(
-            root.join("rules").join(group).join(format!("{slug}.md")),
-            format!("---\ndigest: d\npaths:\n  - '{glob}'\nblocking: {blocking}\n---\n\n{body}\n"),
-        )
-        .unwrap();
-    };
-    rule(
+    rule_file(
+        &root,
         "alpha",
         "rule-a",
         "**/*.rs",
         true,
         "**Rule A.** Never do the bad thing here.",
     );
-    rule(
+    rule_file(
+        &root,
         "beta",
         "rule-b",
         "**/*.swift",

@@ -1,7 +1,7 @@
 use super::*;
 use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::{Demo, demo};
-use crate::review::fakes::{Fake, Raised, fake, ten_lines};
+use crate::review::fakes::{Fake, Raised, fake, group_file, rule_file, ten_lines};
 
 fn stamp() -> Stamp {
     Stamp {
@@ -417,6 +417,166 @@ fn a_run_that_read_a_stretch_of_commits_is_not_the_last_review() {
         read.contains("+h.rs") && !read.contains("resolved") && !read.contains("+g.rs"),
         "{read}"
     );
+}
+
+/// What the reviewer of <group> answers: a finding of <rule>, quoting
+/// <clause>, in each of <files>.
+fn raise(fake: &Fake, group: &str, rule: &str, clause: &str, files: &[&str]) {
+    let findings: Vec<serde_json::Value> = files
+        .iter()
+        .map(|file| {
+            serde_json::json!({"clause": clause, "file": file, "line": 1, "code": file, "problem": "p"})
+        })
+        .collect();
+    let verdict = if findings.is_empty() {
+        "none"
+    } else {
+        "finding"
+    };
+    fake.answer_task(
+        group,
+        serde_json::json!({"rules": [{"rule": rule, "verdict": verdict, "findings": findings}]}),
+    );
+}
+
+/// A demo whose branch adds a.rs, b.rs and c.rs, which group writing covers
+/// beside group alpha, after a first review in which writing raised a finding
+/// in each of <writing> and alpha one in each of <alpha>, all confirmed.
+/// Returns the landing last.
+fn found_in(name: &str, writing: &[&str], alpha: &[&str]) -> (Demo, Fake, PathBuf, i64) {
+    let demo = demo(name);
+    let fake = fake(&demo.scratch.dir);
+    std::fs::create_dir_all(fake.root.join("rules/writing")).unwrap();
+    rule_file(
+        &fake.root,
+        "writing",
+        "rule-w",
+        "**/*.rs",
+        false,
+        "**Rule W.** Write plain sentences.",
+    );
+    group_file(&fake.root, "writing", "writing", "opus", "");
+    let side = demo.add_side(1, "agent", "work");
+    for file in ["a.rs", "b.rs", "c.rs"] {
+        demo.commit(&side, file);
+    }
+    raise(
+        &fake,
+        "writing",
+        "rule-w",
+        "Write plain sentences.",
+        writing,
+    );
+    raise(
+        &fake,
+        "alpha",
+        "rule-a",
+        "Never do the bad thing here.",
+        alpha,
+    );
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    for finding in findings_of(&demo, landing) {
+        settle_as(&demo, finding.id, "confirmed", "real");
+    }
+    fake.prompts();
+    fake.answer("writing", &[("rule-w", None)]);
+    fake.answer("alpha", &[("rule-a", None)]);
+    (demo, fake, side, landing)
+}
+
+/// Commits a change to each of <files>.
+fn fix(side: &Path, files: &[&str]) {
+    for file in files {
+        std::fs::write(side.join(file), format!("{file} fixed\n")).unwrap();
+        crate::testing::git(side, &["add", file]);
+    }
+    crate::testing::git(side, &["commit", "-q", "-m", "Fix the findings"]);
+}
+
+/// Each group whose reviewer ran since the last call, with the files of
+/// a.rs, b.rs and c.rs whose diff it read.
+fn read_by_group(fake: &Fake) -> Vec<(String, Vec<&'static str>)> {
+    fake.prompts()
+        .into_iter()
+        .map(|(group, prompt)| {
+            let read = ["a.rs", "b.rs", "c.rs"]
+                .into_iter()
+                .filter(|file| prompt.contains(&format!("diff --git a/{file} b/{file}")))
+                .collect();
+            (group, read)
+        })
+        .collect()
+}
+
+#[test]
+fn a_wording_fix_in_a_file_with_only_writing_findings_runs_only_the_writing_group() {
+    let (demo, fake, side, _) = found_in("review-finder-wording", &["a.rs"], &[]);
+    fix(&side, &["a.rs"]);
+    let read = run_review(&demo, &fake, &side, "k");
+    assert_eq!(
+        read_by_group(&fake),
+        vec![("writing".to_string(), vec!["a.rs"])],
+        "{}",
+        read.text
+    );
+    assert!(
+        read.text.contains("alpha did not read a.rs"),
+        "{}",
+        read.text
+    );
+}
+
+#[test]
+fn a_file_where_two_groups_hold_findings_is_read_by_both() {
+    let (demo, fake, side, _) = found_in("review-finder-both", &["a.rs"], &["a.rs"]);
+    fix(&side, &["a.rs"]);
+    run_review(&demo, &fake, &side, "k");
+    assert_eq!(
+        read_by_group(&fake),
+        vec![
+            ("alpha".to_string(), vec!["a.rs"]),
+            ("writing".to_string(), vec!["a.rs"])
+        ]
+    );
+}
+
+#[test]
+fn a_changed_file_with_no_open_finding_is_read_by_every_group_that_covers_it() {
+    let (demo, fake, side, _) = found_in("review-finder-other", &["a.rs"], &[]);
+    fix(&side, &["a.rs", "c.rs"]);
+    run_review(&demo, &fake, &side, "k");
+    assert_eq!(
+        read_by_group(&fake),
+        vec![
+            ("alpha".to_string(), vec!["c.rs"]),
+            ("writing".to_string(), vec!["a.rs", "c.rs"])
+        ]
+    );
+}
+
+#[test]
+fn each_group_reads_only_the_files_where_it_holds_findings_and_both_run_in_one_run() {
+    let (demo, fake, side, landing) =
+        found_in("review-finder-example", &["a.rs", "b.rs"], &["c.rs"]);
+    fix(&side, &["a.rs", "b.rs", "c.rs"]);
+    run_review(&demo, &fake, &side, "k");
+    assert_eq!(
+        read_by_group(&fake),
+        vec![
+            ("alpha".to_string(), vec!["c.rs"]),
+            ("writing".to_string(), vec!["a.rs", "b.rs"])
+        ]
+    );
+    let conn = demo.store.open_existing().unwrap();
+    let runs = landing::review_runs(&conn, landing).unwrap();
+    assert_eq!(runs.len(), 2);
+    let mut groups: Vec<String> = record::calls_of_run(&conn, runs[1].id)
+        .unwrap()
+        .into_iter()
+        .map(|call| call.group)
+        .collect();
+    groups.sort();
+    assert_eq!(groups, ["alpha", "writing"]);
 }
 
 #[test]

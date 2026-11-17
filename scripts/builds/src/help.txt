@@ -1308,7 +1308,9 @@ else:
   3. The coordinator has each confirmed finding fixed in a new commit.
   4. The coordinator runs `builds review` again. That review reads only the
      changes since the last review, the fixes among them, and closes each
-     open confirmed finding whose problem the code no longer has. The
+     open confirmed finding whose problem the code no longer has. Only the
+     groups that hold open findings in a file read that file, and
+     every group that covers any other changed file reads that file. The
      coordinator settles what that run finds.
   5. The coordinator lands the branch once nothing is unreviewed and no
      confirmed finding is open.
@@ -1333,6 +1335,20 @@ read, and a rebase that resolves a conflict differently leaves only the lines
 of the resolution. The run asks the groups that cover a changed path.
 `builds review` refuses the run when the review lacks nothing, naming the
 last review.
+
+When groups hold open findings in a file, only those groups read that file in
+a later run. Every group that covers any other changed file reads that file,
+as on a first review. The groups run at the same time, in the same run. For
+example, the writing group (Text people read) holds findings in a.rs and b.rs,
+and the errors group (Errors and invalid state) holds one in c.rs. After the
+fix, the writing group reads only a.rs and b.rs, and the errors group reads
+only c.rs. So a wording fix in a file where only the writing group holds
+findings runs only the writing group. The review then misses a passive
+sentence that a code fix adds to a file where only a code group holds
+findings; the agent's writing check (`builds review writing`) finds it before
+the agent reports. The run's report names each group that did not read a file,
+with the files it did not read. builds does not ask a group that reads none of
+the changed files.
 
 builds finds the changes since the last review by replaying the net change
 the last review read onto the branch's current common ancestor with main, in
@@ -1573,7 +1589,10 @@ agent-instructions and run `review replay --rules-root` on it.
                               diff they did not answer, and, as a new run, the
                               changes since the last review, and nothing
                               else; builds refuses the run when the review
-                              lacks nothing.
+                              lacks nothing. In a later run, only the groups
+                              that hold open findings in a file read that
+                              file, and every group that covers any other
+                              changed file reads that file.
                               --head SHA reviews the commits up to SHA from a
                               copy of their files, not the worktree. Prints
                               the findings by group and a total line, then
