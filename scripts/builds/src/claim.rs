@@ -78,7 +78,8 @@ impl Claim {
     }
 
     pub fn write(&self, file: &Path) -> Result<()> {
-        write_file(file, &self.line()?)
+        std::fs::write(file, self.line()?)
+            .map_err(|error| fail::Fail::Message(format!("writing {}: {error}", file.display())))
     }
 
     /// The claim file's line.
@@ -94,54 +95,16 @@ impl Claim {
         Ok(line)
     }
 
-    /// Writes the claim to a file beside <file>, which `Staged::put` moves
-    /// over <file>: a rename within one folder needs no new disk space, so
-    /// it does not fail where writing the file could.
-    pub fn stage(&self, file: &Path) -> Result<Staged> {
-        let mut name = file.as_os_str().to_owned();
-        name.push(".new");
-        let staged = Staged {
-            new: name.into(),
-            file: file.to_path_buf(),
-        };
-        write_file(&staged.new, &self.line()?)?;
-        Ok(staged)
+    /// Writes the claim beside <file>, for `Staged::put` to move over
+    /// <file> (`whole_file::stage`).
+    pub fn stage(&self, file: &Path) -> Result<crate::whole_file::Staged> {
+        crate::whole_file::stage(file, self.line()?)
     }
 
     /// `<who> since <since>`.
     pub fn text(&self) -> String {
         format!("{} since {}", self.who, local_minute(self.since))
     }
-}
-
-/// A claim written beside its claim file (`Claim::stage`).
-pub struct Staged {
-    new: std::path::PathBuf,
-    file: std::path::PathBuf,
-}
-
-impl Staged {
-    /// Moves the staged claim over the claim file.
-    pub fn put(self) -> Result<()> {
-        std::fs::rename(&self.new, &self.file).map_err(|error| {
-            fail::Fail::Message(format!(
-                "moving {} to {}: {error}",
-                self.new.display(),
-                self.file.display()
-            ))
-        })
-    }
-
-    /// Removes the staged claim and leaves the claim file as it was.
-    pub fn discard(self) -> Result<()> {
-        remove_if_present(&self.new)
-    }
-}
-
-/// Writes <text> as the whole of <file>.
-fn write_file(file: &Path, text: &str) -> Result<()> {
-    std::fs::write(file, text)
-        .map_err(|error| fail::Fail::Message(format!("writing {}: {error}", file.display())))
 }
 
 /// The claim's fields are tab-separated on one line, so none may hold either.
