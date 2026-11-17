@@ -55,7 +55,9 @@ branch, not the worktree, is the unit of work.
     `builds new` hands out no such worktree, and none where an item runs.
     Only the person throws work away, by dropping its item (`builds item
     drop`), which records the commits and files on the closed item, deletes
-    the branch and frees the worktree.
+    the branch and frees the worktree. Drop refuses an item that shares its
+    worktree with other items: stop it first (`builds item stop`), which
+    leaves the work to them.
   - `builds health` lists each local branch with commits origin/main lacks
     that no worktree checks out and no open item names. Check it out in a
     worktree with `builds new <repo> --resume <branch>` and land it, or ask
