@@ -640,7 +640,7 @@ fn a_park_whose_claim_stayed_finishes_when_run_again() {
     std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
     let failed = item(&demo, &park_args("1", &side_arg, "work"));
     std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(mode)).unwrap();
-    assert!(refusal(failed).contains("removing"));
+    assert!(refusal(failed).contains("moving"));
     assert_eq!(
         open(&demo).items[0].parked.len(),
         1,

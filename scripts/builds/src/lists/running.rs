@@ -1,7 +1,7 @@
 //! Where an item runs. The agent is the claim of the item's worktree, never
-//! stored on the item, so the two can't disagree; this reads it. A worktree
-//! can't be released while an item runs in it (kept.rs). `findings` is what
-//! `builds health` says about the lists.
+//! stored on the item, so the two can't disagree; `agent_of` reads the
+//! claim. builds refuses to release a worktree while an item runs in it
+//! (kept.rs). `findings` is what `builds health` says about the lists.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -289,8 +289,9 @@ pub fn running_in_any<'a>(lists: &'a [Lists], worktree: &str) -> Vec<(&'a Lists,
 /// and a running item whose worktree is gone or has no claim. `builds
 /// release` and a landing's release (kept.rs), `builds item park` and `builds
 /// item drop` each refuse to remove a claim while another item runs in the
-/// worktree, so only a hand edit reaches the second; it is named loudly,
-/// never repaired. One line per fault.
+/// worktree, so only a hand edit can leave a running item with no claim;
+/// `builds health` reports such an item and does not repair it. One line
+/// per fault.
 pub fn findings(
     places: &Places,
     loaded: &std::result::Result<Vec<Loaded>, String>,

@@ -1,6 +1,6 @@
 //! Work that origin/main lacks. `builds release` and `builds retire` refuse a
 //! worktree that holds such work which nothing else holds, and `builds new`
-//! hands out no such worktree (`in_worktree`, which kept.rs reads for all
+//! hands out no such worktree (`in_worktree`, which kept.rs calls for all
 //! three), so a session can't drop the work by releasing. `builds health`
 //! lists each local branch that holds such work while no worktree checks it
 //! out and no open item names it (`loose_branches`, `unheld`). Work leaves a

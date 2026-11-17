@@ -225,9 +225,10 @@ because landing rebases or cherry-picks it.
                               since its last claim began is on origin/main by
                               patch. new checks every worktree before it
                               changes one, and it moves and deletes no
-                              branch: -b refuses a branch name that exists. It claims the worktree for <who>
-                              (default "builds new") under a lock on the repo,
-                              so two calls never get the same worktree. When
+                              branch: -b refuses a branch name that exists.
+                              new claims the worktree for <who> (default
+                              "builds new") under a lock on the repo, so two
+                              calls never get the same worktree. When
                               the worktree's host target is empty, new fills
                               it with a copy-on-write clone of another
                               checkout's built target, taken while no build

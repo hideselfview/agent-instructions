@@ -414,8 +414,7 @@ fn new_refuses_to_resume_a_missing_or_checked_out_branch() {
 
 /// `new` hands out no worktree where an item runs, though the worktree has
 /// no claim, a clean tree and no commit missing from origin/main: the item's
-/// agent works there. On November 17 a drop removed bae/side-14's claim
-/// while other items ran there, and `new` handed the worktree out.
+/// agent works there.
 #[test]
 fn new_refuses_a_worktree_where_an_item_runs() {
     let demo = crate::lists::item_fixtures::demo("free-running");

@@ -171,8 +171,9 @@ impl Checkout {
     }
 
     /// The worktree's last claim, which `claim::unclaim` moves here when it
-    /// removes the claim. Its start bounds the branches the worktree left
-    /// that `builds new` checks while the worktree has no claim (kept.rs).
+    /// removes the claim. While the worktree has no claim, `builds new`
+    /// (kept.rs) checks only the branches that HEAD's reflog shows a checkout
+    /// moving away from after this claim began.
     pub fn last_claim_file(&self) -> PathBuf {
         self.git_dir.join("builds-last-claim")
     }

@@ -56,7 +56,7 @@ impl Kept {
                 .map(|(_, words)| words.as_str())
                 .collect();
             fail!(
-                "{what} refuses {}: it still runs {}. Land it (builds land --done {id}), stop it (builds item stop {id} --why WHY) or hand it to the next agent (builds item handoff {id} --brief PATH) first",
+                "{what} refuses {}: the worktree still runs {}. Land the item (builds land --done {id}), stop the item (builds item stop {id} --why WHY) or hand the item to the next agent (builds item handoff {id} --brief PATH) first",
                 top.display(),
                 named.join("; ")
             );
