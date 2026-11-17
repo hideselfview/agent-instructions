@@ -804,7 +804,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             {
                 return Ok(None);
             }
-            let diff = crate::review::run::diff_between(&clone, base, head)?;
+            let diff = crate::review::run::diff_between(&clone, base, head)?.diff;
             Ok(Some(crate::review::check::changed_lines(&diff.text)))
         })?;
     }

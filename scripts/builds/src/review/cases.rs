@@ -397,8 +397,6 @@ pub fn replay_case(
                 in_place: false,
             })
         }),
-        base: String::new(),
-        head: String::new(),
         text: case.patch.clone(),
         changed: files::paths(&case.patch),
     };

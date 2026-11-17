@@ -248,8 +248,9 @@ fn assess(
     if let CodeCheck::Branch(head) = check {
         let since = run::diff_since(dir, &last.base, &last.head, BRANCH_BASE, head)?;
         let branch = commits::paths(dir, &commits::in_range(dir, &since.base, &since.head)?)?;
-        let messages_unread = !material.commit_text_groups(&since, &branch).is_empty();
+        let messages_unread = !material.commit_text_groups(&since.diff, &branch).is_empty();
         unfinished.unreviewed = since
+            .diff
             .changed
             .into_iter()
             .filter(|path| !material.group_names(std::slice::from_ref(path)).is_empty())

@@ -256,7 +256,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
             inputs.landing
         );
     };
-    let diff = run::diff_between(inputs.repo_dir, &last.base, &last.head)?;
+    let diff = run::diff_between(inputs.repo_dir, &last.base, &last.head)?.diff;
     let material = Material::load(inputs.root, inputs.project)?;
     let matched: Vec<&Rule> = material
         .rules
@@ -415,8 +415,6 @@ pub(super) fn diff_read(db: &Connection, miss: &Finding) -> std::result::Result<
     Ok(Diff {
         messages: String::new(),
         source: None,
-        base: String::new(),
-        head: String::new(),
         changed: files::paths(&text),
         text,
     })

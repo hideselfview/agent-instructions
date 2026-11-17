@@ -100,16 +100,17 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
             };
             let label = format!("landing {landing} run {}", first.id);
             let all: Vec<&RunRow> = runs.iter().collect();
-            let diff = match run::diff_of_run(inputs.repo_dir, &all, first, |run| {
+            let change = match run::diff_of_run(inputs.repo_dir, &all, first, |run| {
                 net_change(inputs.repo_dir, run)
             }) {
-                Ok(diff) => diff,
+                Ok(change) => change,
                 Err(why) => {
                     text.push_str(&format!("{label} ({key}): not replayed: {}\n", why.text()));
                     failed = true;
                     continue;
                 }
             };
+            let diff = &change.diff;
             let picked: Vec<_> = material
                 .groups
                 .pick(&material.rules, &diff.changed)
@@ -130,7 +131,7 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                 .collect();
             let asks = |rule: &str| asked.iter().any(|a| a == rule);
             let new_calls =
-                run::ask_groups(&material, inputs.reviewer, &picked, &diff, None, &[]).calls;
+                run::ask_groups(&material, inputs.reviewer, &picked, diff, None, &[]).calls;
             let stamp = inputs.stamp;
             let (run_id, now_calls, now_findings, now_verdicts) =
                 inputs
@@ -143,8 +144,8 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                                 kind: Kind::Replay,
                                 label: Some(&label),
                                 at: stamp.at,
-                                base: &diff.base,
-                                head: &diff.head,
+                                base: &change.base,
+                                head: &change.head,
                                 since: None,
                                 grouping: &material.grouping,
                                 rules_version: &rules_version,
@@ -202,8 +203,8 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
             );
             text.push_str(&format!(
                 "{label} ({key}) over {}...{}: replay run {run_id}, {} settled findings to pair, {} new\n",
-                short(&diff.base),
-                short(&diff.head),
+                short(&change.base),
+                short(&change.head),
                 truths.len(),
                 new.len()
             ));

@@ -300,7 +300,7 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
             continue;
         }
         let patch = cases::patch_of(inputs.repo_dir, &candidate.base, &candidate.head)?;
-        let diff = run::diff_between(inputs.repo_dir, &candidate.base, &candidate.head)?;
+        let diff = run::diff_between(inputs.repo_dir, &candidate.base, &candidate.head)?.diff;
         text.push_str(&format!("landing {}:\n", candidate.landing));
         let mut asked: Vec<(&Finding, String)> = Vec::new();
         for finding in &candidate.specific {

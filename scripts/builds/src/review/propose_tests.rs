@@ -245,10 +245,10 @@ fn a_finding_whose_code_is_not_in_the_change_is_named_and_left_out() {
     drop(conn);
     let b = findings.iter_mut().find(|f| f.rule == "rule-b").unwrap();
     b.code = "not in it".to_string();
-    let diff = run::diff_between(&side, "main", "HEAD").unwrap();
-    let patch = cases::patch_of(&side, &diff.base, &diff.head).unwrap();
+    let change = run::diff_between(&side, "main", "HEAD").unwrap();
+    let patch = cases::patch_of(&side, &change.base, &change.head).unwrap();
     assert_eq!(
-        path_in(&diff, &patch, b),
+        path_in(&change.diff, &patch, b),
         Err("its code is not in the diff of b.swift".to_string())
     );
 }

@@ -43,7 +43,7 @@ pub fn check(
     else {
         fail!("no group of {} holds rule {WRITING_RULE}", root.display());
     };
-    let diff = run::diff_of(worktree, base)?;
+    let diff = run::diff_of(worktree, base)?.diff;
     if diff.text.trim().is_empty() {
         return Ok(Checked {
             text: format!("there are no changes past {base}, so there is nothing to check\n"),

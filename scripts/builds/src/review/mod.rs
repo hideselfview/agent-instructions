@@ -217,26 +217,26 @@ pub struct Reported {
 /// review lacks (`later_asks`), and refuses when it lacks nothing.
 pub fn review(inputs: &Inputs) -> Result<Reported> {
     let conn = inputs.store.open_existing()?;
-    let diff = match inputs.head {
+    let change = match inputs.head {
         Some(head) => {
-            let mut diff = run::diff_between(inputs.worktree, inputs.base, head)?;
-            if let Some(source) = &mut diff.source {
+            let mut change = run::diff_between(inputs.worktree, inputs.base, head)?;
+            if let Some(source) = &mut change.diff.source {
                 source.in_place = false;
             }
-            diff
+            change
         }
         None => run::diff_of(inputs.worktree, inputs.base)?,
     };
-    if diff.text.trim().is_empty() {
+    if change.diff.text.trim().is_empty() {
         return Ok(Reported {
             landing: None,
             text: format!("nothing to review: no changes past {}\n", inputs.base),
             refusal: None,
         });
     }
-    let shas = commits::in_range(inputs.worktree, &diff.base, &diff.head)?;
+    let shas = commits::in_range(inputs.worktree, &change.base, &change.head)?;
     let material = run::Material::load(inputs.root, inputs.project)?;
-    if material.group_names(&diff.changed).is_empty() {
+    if material.group_names(&change.diff.changed).is_empty() {
         return Ok(Reported {
             landing: None,
             text: "no group's rules cover the changed paths: nothing to review, and builds land needs no review\n".to_string(),
@@ -246,13 +246,13 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     let open = record::open_landing(&conn, inputs.key)?;
     let asks = match open {
         None => vec![Ask {
-            groups: material.group_names(&diff.changed),
-            diff,
+            groups: material.group_names(&change.diff.changed),
+            change,
             since: None,
             last_review: true,
             note: None,
         }],
-        Some(landing) => later_asks(&conn, inputs, &material, &diff, landing)?,
+        Some(landing) => later_asks(&conn, inputs, &material, &change, landing)?,
     };
     // The confirmed findings no review closed, which each reviewer checks
     // against the code as it is now.
@@ -266,16 +266,16 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     let mut running: Vec<(String, Running)> = Vec::new();
     let mut answers = Vec::new();
     for ask in &asks {
-        if !running.iter().any(|(head, _)| *head == ask.diff.head) {
-            let file = running_file(&inputs.store.dir, &ask.diff.head);
-            running.push((ask.diff.head.clone(), Running::start(file)?));
+        if !running.iter().any(|(head, _)| *head == ask.change.head) {
+            let file = running_file(&inputs.store.dir, &ask.change.head);
+            running.push((ask.change.head.clone(), Running::start(file)?));
         }
         let picked = material.groups.named(&material.rules, &ask.groups);
         answers.push(run::ask_groups(
             &material,
             inputs.reviewer,
             &picked,
-            &ask.diff,
+            &ask.change.diff,
             inputs.brief.as_ref(),
             &open_findings,
         ));
@@ -307,12 +307,12 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                     &record::NewRun {
                         landing: Some(landing),
                         kind: Kind::Review {
-                            changed_lines: check::changed_lines(&ask.diff.text),
+                            changed_lines: check::changed_lines(&ask.change.diff.text),
                         },
                         label: None,
                         at: stamp.at,
-                        base: &ask.diff.base,
-                        head: &ask.diff.head,
+                        base: &ask.change.base,
+                        head: &ask.change.head,
                         since: ask.since,
                         grouping: &material.grouping,
                         rules_version: &run::rules_version(inputs.root),
@@ -336,8 +336,8 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         text.push_str(&format!(
             "review of {} (landing {landing}, run {run_id}) over {}...{}\n",
             inputs.key,
-            short(&ask.diff.base),
-            short(&ask.diff.head)
+            short(&ask.change.base),
+            short(&ask.change.head)
         ));
         if let Some(note) = &ask.note {
             text.push_str(note);
@@ -386,7 +386,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
 
 /// One run of a review: the diff its reviewers read and the groups it asks.
 struct Ask {
-    diff: run::Diff,
+    change: run::NetChange,
     /// The run of the last review, when the diff holds the changes since that
     /// run; None for a diff of the whole net change.
     since: Option<i64>,
@@ -411,7 +411,7 @@ fn later_asks(
     conn: &rusqlite::Connection,
     inputs: &Inputs,
     material: &run::Material,
-    diff: &run::Diff,
+    change: &run::NetChange,
     landing: i64,
 ) -> Result<Vec<Ask>> {
     let coverage = landing::Coverage::of(conn, &record::landing(conn, landing)?)?;
@@ -420,7 +420,7 @@ fn later_asks(
     let mut asks = Vec::new();
     for (run, missing) in coverage.unanswered(&calls) {
         asks.push(Ask {
-            diff: run::diff_of_run(inputs.worktree, &read, run, |run| {
+            change: run::diff_of_run(inputs.worktree, &read, run, |run| {
                 Ok((run.base.clone(), run.head.clone()))
             })?,
             since: run.since,
@@ -438,14 +438,14 @@ fn later_asks(
         inputs.worktree,
         &last.base,
         &last.head,
-        &diff.base,
-        &diff.head,
+        &change.base,
+        &change.head,
     )?;
-    if let (Some(source), Some(read)) = (&mut since.source, &diff.source) {
+    if let (Some(source), Some(read)) = (&mut since.diff.source, &change.diff.source) {
         source.in_place = read.in_place;
     }
-    let mut groups = material.group_names(&since.changed);
-    for group in material.commit_text_groups(&since, &diff.changed) {
+    let mut groups = material.group_names(&since.diff.changed);
+    for group in material.commit_text_groups(&since.diff, &change.diff.changed) {
         if !groups.contains(&group) {
             groups.push(group);
         }
@@ -458,7 +458,7 @@ fn later_asks(
                 short(&last.base),
                 short(&last.head)
             )),
-            diff: since,
+            change: since,
             since: Some(last.id),
             last_review: true,
             groups,

@@ -100,13 +100,21 @@ pub struct Diff {
     pub messages: String,
     /// Where the new text of a changed file is read, when it can be.
     pub source: Option<Source>,
-    pub base: String,
-    pub head: String,
     pub text: String,
     /// The paths builds picks groups by: every path a commit of the change
     /// changes (`commits::paths`), or, for a diff since the net change an
     /// earlier run read (`diff_since`), every path where the two differ.
     pub changed: Vec<String>,
+}
+
+/// A diff builds read from a repo, with the commits of the net change it
+/// read it for: their common ancestor with the base, and the head. A diff
+/// read back from a reviewer's stored message, or from a test case's patch,
+/// has no such commits, and is a `Diff` alone.
+pub struct NetChange {
+    pub base: String,
+    pub head: String,
+    pub diff: Diff,
 }
 
 impl Diff {
@@ -140,8 +148,6 @@ impl Diff {
                 self.messages.clone()
             },
             source: self.source.clone(),
-            base: self.base.clone(),
-            head: self.head.clone(),
             text: kept.iter().map(|file| file.text.as_str()).collect(),
             changed: self
                 .changed
@@ -155,13 +161,13 @@ impl Diff {
 
 /// The change of the worktree's HEAD past <base> (from their common
 /// ancestor).
-pub fn diff_of(worktree: &Path, base: &str) -> Result<Diff> {
+pub fn diff_of(worktree: &Path, base: &str) -> Result<NetChange> {
     diff_between(worktree, base, "HEAD")
 }
 
 /// The change of <head> past <base> (from their common ancestor), in
 /// <worktree>'s repo, without the test cases (`commits::without_test_cases`).
-pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
+pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange> {
     let text_of = |args: &[&str]| commits::git_text(worktree, args);
     let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
     let range = format!("{merge_base}...{head}");
@@ -183,17 +189,19 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
     ])?;
     let head = text_of(&["rev-parse", head])?.trim().to_string();
     let changed = commits::paths(worktree, &commits::in_range(worktree, &merge_base, &head)?)?;
-    Ok(Diff {
-        messages,
-        source: Some(Source {
-            repo: worktree.to_path_buf(),
-            rev: head.clone(),
-            in_place: true,
-        }),
+    Ok(NetChange {
+        diff: Diff {
+            messages,
+            source: Some(Source {
+                repo: worktree.to_path_buf(),
+                rev: head.clone(),
+                in_place: true,
+            }),
+            text,
+            changed,
+        },
         base: merge_base,
         head,
-        text,
-        changed,
     })
 }
 
@@ -220,7 +228,7 @@ pub fn diff_since(
     read_head: &str,
     base: &str,
     head: &str,
-) -> Result<Diff> {
+) -> Result<NetChange> {
     let text_of = |args: &[&str]| commits::git_text(worktree, args);
     let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
     let head = text_of(&["rev-parse", head])?.trim().to_string();
@@ -275,17 +283,19 @@ pub fn diff_since(
         .into_iter()
         .filter(|message| !earlier.contains(message))
         .collect();
-    Ok(Diff {
-        messages: messages.join("\n"),
-        source: Some(Source {
-            repo: worktree.to_path_buf(),
-            rev: head.clone(),
-            in_place: true,
-        }),
+    Ok(NetChange {
+        diff: Diff {
+            messages: messages.join("\n"),
+            source: Some(Source {
+                repo: worktree.to_path_buf(),
+                rev: head.clone(),
+                in_place: true,
+            }),
+            text,
+            changed,
+        },
         base: merge_base,
         head,
-        text,
-        changed,
     })
 }
 
@@ -298,9 +308,9 @@ pub fn diff_of_run(
     runs: &[&RunRow],
     run: &RunRow,
     net_change: impl Fn(&RunRow) -> Result<(String, String)>,
-) -> Result<Diff> {
+) -> Result<NetChange> {
     let (base, head) = net_change(run)?;
-    let mut diff = match run.since {
+    let mut change = match run.since {
         None => diff_between(worktree, &base, &head)?,
         Some(since) => {
             let Some(earlier) = runs.iter().find(|r| r.id == since) else {
@@ -313,10 +323,10 @@ pub fn diff_of_run(
             diff_since(worktree, &read_base, &read_head, &base, &head)?
         }
     };
-    if let Some(source) = &mut diff.source {
+    if let Some(source) = &mut change.diff.source {
         source.in_place = false;
     }
-    Ok(diff)
+    Ok(change)
 }
 
 /// The tree of <read_base>..<read_head>'s change merged onto <base>, taking

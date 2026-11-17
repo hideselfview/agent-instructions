@@ -27,8 +27,6 @@ fn diff() -> Diff {
     Diff {
         messages: "Add a.rs\n".to_string(),
         source: None,
-        base: String::new(),
-        head: String::new(),
         text: text.to_string(),
         changed: vec!["a.rs".to_string()],
     }
