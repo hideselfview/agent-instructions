@@ -375,7 +375,7 @@ pub fn settle(db: &Connection, id: i64, how: &str, why: &str, now: i64, by: &str
     }
     if let Some(settled) = settled {
         fail!(
-            "finding {id} is settled already, as {settled}. A confirmed finding that names no fix can be settled again as dropped: builds review settle {id} dropped --why TEXT --again"
+            "finding {id} is settled already, as {settled}. A confirmed finding that names no fix can be settled again as dropped: builds review settle {id} --again --why TEXT"
         );
     }
     db.execute(
@@ -386,20 +386,10 @@ pub fn settle(db: &Connection, id: i64, how: &str, why: &str, now: i64, by: &str
     Ok(())
 }
 
-/// Settles finding <id> again, as <how>: only a confirmed finding that names
-/// no fix changes, and only to `dropped`. The finding keeps its first settle
-/// beside the second, and counts as the second from then on.
-pub fn settle_again(
-    db: &Connection,
-    id: i64,
-    how: &str,
-    why: &str,
-    now: i64,
-    by: &str,
-) -> Result<()> {
-    if how != "dropped" {
-        fail!("a second settle changes a confirmed finding to dropped, not to {how}");
-    }
+/// Settles finding <id> again, as dropped: only a confirmed finding that
+/// names no fix changes. The finding keeps its first settle beside the second,
+/// and counts as the second from then on.
+pub fn settle_again(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> Result<()> {
     if why.trim().is_empty() {
         fail!("--why says nothing");
     }

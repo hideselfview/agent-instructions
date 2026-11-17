@@ -178,7 +178,7 @@ fn settling_again_drops_a_confirmed_finding_and_keeps_both_settles() {
     .unwrap();
     let (again, unsettled) = (ids[0][0], ids[1][0]);
     assert!(
-        settle_again(&db, unsettled, "dropped", "wrong", 7, "me")
+        settle_again(&db, unsettled, "wrong", 7, "me")
             .unwrap_err()
             .text()
             .contains("not settled")
@@ -191,13 +191,7 @@ fn settling_again_drops_a_confirmed_finding_and_keeps_both_settles() {
             .contains("--again"),
         "a plain second settle names --again"
     );
-    assert!(
-        settle_again(&db, again, "confirmed", "still real", 8, "second")
-            .unwrap_err()
-            .text()
-            .contains("to dropped")
-    );
-    settle_again(&db, again, "dropped", "another crate calls it", 8, "second").unwrap();
+    settle_again(&db, again, "another crate calls it", 8, "second").unwrap();
     let found = finding_of(&db, again).unwrap();
     let settle_of = |how: &str, why: &str, by: &str| Settle {
         how: how.to_string(),
@@ -213,7 +207,7 @@ fn settling_again_drops_a_confirmed_finding_and_keeps_both_settles() {
     );
     assert!(found.settled_as("dropped") && !found.settled_as("confirmed"));
     assert!(
-        settle_again(&db, again, "dropped", "once more", 9, "third")
+        settle_again(&db, again, "once more", 9, "third")
             .unwrap_err()
             .text()
             .contains("settled again already")
@@ -239,7 +233,7 @@ fn a_finding_with_a_named_fix_cannot_be_settled_again() {
     };
     record_fix(&db, finding, &fix, 8, "me").unwrap();
     assert!(
-        settle_again(&db, finding, "dropped", "wrong", 9, "me")
+        settle_again(&db, finding, "wrong", 9, "me")
             .unwrap_err()
             .text()
             .contains("a finding with a named fix can't be settled again")

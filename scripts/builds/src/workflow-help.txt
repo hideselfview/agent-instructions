@@ -122,8 +122,8 @@ PLAN, BRIEF, EXECUTE, REVIEW
     prompts against it. So the coordinator settles each finding on what the
     code does, and its why says what makes the finding real or wrong.
     When it learns later that a confirmed finding with no fix is wrong, it
-    settles the finding again as dropped (`builds review settle N dropped
-    --why TEXT --again`), and the record keeps both settles. When the agent
+    settles the finding again as dropped (`builds review settle N --again
+    --why TEXT`), and the record keeps both settles. When the agent
     drops the commit that held a confirmed finding's code, nobody fixes the
     finding: `builds review` and `builds land` find that no line of the
     branch's change holds the code, record that it left the branch, and stop

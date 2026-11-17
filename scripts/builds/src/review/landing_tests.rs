@@ -754,14 +754,7 @@ fn a_confirmed_finding_settled_again_as_dropped_blocks_no_landing() {
     let stamp = stamp();
     demo.store
         .write(&stamp, "settle again", |db| {
-            record::settle_again(
-                db,
-                finding,
-                "dropped",
-                "the count is used",
-                stamp.at,
-                "tester",
-            )
+            record::settle_again(db, finding, "the count is used", stamp.at, "tester")
         })
         .unwrap();
     assert!(check_landing(&demo, &fake, &side, &shas));

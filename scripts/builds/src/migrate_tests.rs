@@ -2120,7 +2120,7 @@ fn a_store_from_before_code_left_gains_the_tables_and_records_both() {
     for id in &ids[0] {
         crate::review::record::settle(&conn, *id, "confirmed", "real", 7, "me").unwrap();
     }
-    crate::review::record::settle_again(&conn, ids[0][0], "dropped", "wrong", 8, "me").unwrap();
+    crate::review::record::settle_again(&conn, ids[0][0], "wrong", 8, "me").unwrap();
     crate::review::record::record_code_left(&conn, ids[0][1], "b", "h", 8, "me").unwrap();
 }
 

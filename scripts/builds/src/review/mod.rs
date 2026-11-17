@@ -4,7 +4,8 @@
 //!
 //! ```text
 //! builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
-//! builds review settle FINDING confirmed|dropped --why TEXT [--again]
+//! builds review settle FINDING confirmed|dropped --why TEXT
+//! builds review settle FINDING --again --why TEXT
 //! builds review fixed FINDING SHA
 //! builds review show LANDING
 //! builds review check-landing | landed DIR --project P SHA...
@@ -67,7 +68,7 @@ use crate::tool::Tool;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT [--again]\n       builds review fixed FINDING SHA\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review fixed FINDING SHA\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -565,13 +566,16 @@ fn brief_of(store: &Store, args: &Args, worktree: &Path) -> Result<Option<(Strin
     Ok(None)
 }
 
-/// `builds review settle FINDING confirmed|dropped --why TEXT [--again]`:
-/// with `--again`, changes a confirmed finding that names no fix to dropped
-/// and keeps its first settle.
+/// `builds review settle FINDING confirmed|dropped --why TEXT`, or
+/// `builds review settle FINDING --again --why TEXT`, which changes a
+/// confirmed finding that names no fix to dropped and keeps its first settle.
 fn settle(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["why"], &["again"])?;
-    let [finding, how] = args.exactly(2, USAGE)? else {
-        unreachable!("exactly two")
+    let again = args.switch("again");
+    let (finding, how) = match (args.positional(), again) {
+        ([finding], true) => (finding, "dropped"),
+        ([finding, how], false) => (finding, how.as_str()),
+        _ => fail!("{USAGE}"),
     };
     let id: i64 = finding
         .parse()
@@ -579,9 +583,9 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
     let why = args.why()?;
     let (store, _) = store_of(tool, &args)?;
     let stamp = Stamp::resolve(tool.now, &args, &current_dir()?)?;
-    if args.switch("again") {
+    if again {
         store.write(&stamp, &format!("review settle {id} again"), |db| {
-            record::settle_again(db, id, how, why, stamp.at, &stamp.by)
+            record::settle_again(db, id, why, stamp.at, &stamp.by)
         })?;
         println!("finding {id} settled again as {how}; the record keeps its first settle");
         return Ok(());

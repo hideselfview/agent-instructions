@@ -433,7 +433,7 @@ fn a_finding_settled_again_counts_as_dropped_and_one_whose_code_left_as_confirme
     for id in [wrong, gone] {
         record::settle(&db, id, "confirmed", "real", 7, "me").unwrap();
     }
-    record::settle_again(&db, wrong, "dropped", "another crate uses it", 8, "me").unwrap();
+    record::settle_again(&db, wrong, "another crate uses it", 8, "me").unwrap();
     record::record_code_left(&db, gone, "b", "h", 8, "me").unwrap();
     let scores = of_store(&db).unwrap();
     assert_eq!(

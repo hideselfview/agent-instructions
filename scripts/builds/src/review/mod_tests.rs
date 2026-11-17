@@ -300,6 +300,37 @@ fn a_reviewer_that_skips_a_rule_is_a_failed_review() {
 }
 
 #[test]
+fn settle_again_takes_no_verdict_and_always_drops() {
+    let demo = demo("review-settle-again");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "real");
+    let words = |extra: &[&str]| -> Vec<String> {
+        let mut words = vec![finding.to_string()];
+        words.extend(extra.iter().map(|w| w.to_string()));
+        words.extend(
+            ["--why", "wrong", "--project", "demo", "--by", "tester"]
+                .iter()
+                .map(|w| w.to_string()),
+        );
+        words
+    };
+    assert!(
+        settle(&demo.tool, &words(&["dropped", "--again"]))
+            .unwrap_err()
+            .text()
+            .contains("usage"),
+        "--again takes no verdict"
+    );
+    settle(&demo.tool, &words(&["--again"])).unwrap();
+    assert!(findings_of(&demo, landing)[0].settled_as("dropped"));
+}
+
+#[test]
 fn settling_records_who_and_why_and_refuses_a_second_settling() {
     let demo = demo("review-settle");
     let fake = fake(&demo.scratch.dir);

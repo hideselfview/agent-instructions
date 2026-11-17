@@ -518,7 +518,7 @@ pub fn refusal(commits: &[Commit], verdict: &Verdict) -> Option<String> {
     }
     for id in &unfinished.unfixed {
         text.push_str(&format!(
-            "finding {id} is confirmed and names no fix: fix it in a new commit, read the fix against the finding, and name it with builds review fixed {id} <sha>. When the finding is wrong, settle it again: builds review settle {id} dropped --why TEXT --again\n"
+            "finding {id} is confirmed and names no fix: fix it in a new commit, read the fix against the finding, and name it with builds review fixed {id} <sha>. When the finding is wrong, settle it again: builds review settle {id} --again --why TEXT\n"
         ));
     }
     for (id, sha) in &unfinished.fixed_elsewhere {

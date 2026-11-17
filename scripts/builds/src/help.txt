@@ -1307,7 +1307,7 @@ review; the coordinator reads the fixes for its confirmed findings:
 
 A confirmed finding that names no fix stops blocking a landing in two more ways.
 When the coordinator learns that the finding is wrong, it settles the finding
-again as dropped (`builds review settle N dropped --why TEXT --again`). The
+again as dropped (`builds review settle N --again --why TEXT`). The
 record keeps both settles, with who made each and why, and the finding counts
 as dropped from then on. A finding with a named fix can't be settled again.
 When an agent drops the commit that held the finding's code, the finding needs
@@ -1579,12 +1579,13 @@ agent-instructions and run `review replay --rules-root` on it.
                               it runs it holds a lock file named for the
                               reviewed commit in the store folder's
                               reviews-running, which the dashboard reads
-  builds review settle <finding> confirmed|dropped --why <text> [--again]
+  builds review settle <finding> confirmed|dropped --why <text>
                               the coordinator's verdict on a finding, kept with
-                              who and when. A settled finding is refused, except
-                              that --again changes a confirmed finding that
-                              names no fix to dropped and keeps the first
-                              settle beside the second
+                              who and when. A settled finding is refused
+  builds review settle <finding> --again --why <text>
+                              change a confirmed finding that names no fix to
+                              dropped, and keep the first settle beside the
+                              second
   builds review fixed <finding> <sha>
                               name commit <sha>, of the repo the command runs
                               in, as the fix of confirmed finding <finding>,
