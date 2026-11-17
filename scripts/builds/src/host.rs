@@ -725,6 +725,30 @@ pub fn choose(
     Ok((host.clone(), why))
 }
 
+/// Whether `builds cargo` may run a build on <host>, given its <probe>: its
+/// probe and its measured core speed when it may, else why not. A host may
+/// take one when `passed_over` finds nothing against it and `builds host
+/// setup` measured its core speed.
+pub fn takes_cargo<'a>(
+    host: &Host,
+    probe: &'a std::result::Result<Probe, String>,
+    floor_kib: u64,
+) -> std::result::Result<(&'a Probe, f64), String> {
+    if let Some(why) = passed_over(host, probe, floor_kib) {
+        return Err(why);
+    }
+    let Ok(probe) = probe else {
+        unreachable!("passed_over passes over a host that did not answer");
+    };
+    match host.speed {
+        Some(speed) => Ok((probe, speed)),
+        None => Err(format!(
+            "{} has no measured core speed (`builds host setup {}`)",
+            host.name, host.name
+        )),
+    }
+}
+
 /// The hosts a cargo build may run on, each with its probe, the one with the
 /// most room first: the reachable hosts above the free-disk floor with a
 /// measured core speed,
@@ -743,15 +767,9 @@ pub fn rank_by_room(
     let mut skipped = Vec::new();
     let mut fits: Vec<(&Host, &Probe, f64)> = Vec::new();
     for (host, probe) in hosts {
-        match (passed_over(host, probe, floor_kib), host.speed) {
-            (Some(why), _) => skipped.push(why),
-            (None, None) => skipped.push(format!(
-                "{} has no measured core speed (`builds host setup {}`)",
-                host.name, host.name
-            )),
-            (None, Some(speed)) => {
-                fits.extend(probe.as_ref().ok().map(|probe| (host, probe, speed)));
-            }
+        match takes_cargo(host, probe, floor_kib) {
+            Ok((probe, speed)) => fits.push((host, probe, speed)),
+            Err(why) => skipped.push(why),
         }
     }
     let runs = |host: &Host| recent.get(&host.name).copied().unwrap_or(0);

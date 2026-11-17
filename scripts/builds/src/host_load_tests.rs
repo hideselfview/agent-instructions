@@ -86,7 +86,7 @@ fn a_host_over_its_cores_asks_to_start_nothing_new() {
 
 /// Idle cores that `builds cargo` never uses ask for no agents: a host that
 /// refuses jobs, is under the free-disk floor or has no measured core speed
-/// (`host::rank_by_room` skips each).
+/// (`host::takes_cargo` says no to each).
 #[test]
 fn a_host_that_takes_no_cargo_job_asks_for_no_agents() {
     let refusing = Ok(Probe {

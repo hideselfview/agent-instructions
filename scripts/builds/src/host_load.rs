@@ -20,9 +20,8 @@ const OVER_SHARE: f64 = 1.25;
 /// The lines for <hosts>, each with its probe, while <ready> items are ready
 /// to dispatch: each host that did not answer, each host over its cores, and
 /// each host with idle cores while items are ready that `builds cargo` can
-/// give work to. `host::rank_by_room` skips a host that does not answer,
-/// refuses jobs, is under <floor_kib> of free disk or has no measured core
-/// speed, so agents started for its idle cores would build elsewhere.
+/// give work to (`host::takes_cargo`, with <floor_kib> of free disk): agents
+/// started for the idle cores of any other host would build elsewhere.
 pub fn findings(
     hosts: &[(Host, std::result::Result<Probe, String>)],
     ready: usize,
@@ -50,8 +49,7 @@ pub fn findings(
             )));
         } else if ready > 0
             && five < IDLE_SHARE * cores
-            && host.speed.is_some()
-            && crate::host::passed_over(host, probe, floor_kib).is_none()
+            && crate::host::takes_cargo(host, probe, floor_kib).is_ok()
         {
             found.push(Advice::said(format!(
                 "cores idle on {} while {}: {load}; start agents",
