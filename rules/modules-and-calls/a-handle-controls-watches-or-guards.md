@@ -1,5 +1,5 @@
 ---
-digest: A handle lets its holder control, watch or guard something its owner runs, across a boundary, and nothing more. It holds only state its owner made to share with it, never a capability or an owner, by value, through a shared or weak pointer, or by reference. Work that needs a capability runs in the owner.
+digest: A handle lets its holder control, watch or guard something its owner runs, across a boundary, and nothing more. A handle holds only state its owner made to share with it, never a capability or an owner, by value, through a shared or weak pointer, or by reference. Work that needs a capability runs in the owner.
 paths:
   - '**/*.rs'
   - '**/*.swift'
@@ -42,7 +42,7 @@ an owner returns for a holder across a boundary) that:
   that holds the whole files owner to clear one flag;
 - does work that needs a capability, instead of asking its owner.
 
-Example: a connection marker holds `Arc<FilesInner>` and, when dropped, clears
-the storage slot's `attempting` flag. Hold the storage slot's sender instead:
-that sender is the state the owner made to share, and the files owner's database
-and directory stay with the owner.
+Example: a connection marker holds `Arc<FilesInner>`, and when its holder drops
+it, the marker clears the storage slot's `attempting` flag. Hold the storage
+slot's sender instead: that sender is the state the owner made to share, and the
+files owner's database and directory stay with the owner.
