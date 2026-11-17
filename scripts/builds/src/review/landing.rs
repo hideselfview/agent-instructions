@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]
-//! builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR] [--roll N] [--reviewer PROGRAM]
+//! builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]
 //! ```
 //!
 //! DIR is the worktree builds land runs in, the SHAs are the commits its
@@ -509,22 +509,12 @@ fn record_landing(tool: &Tool, args: &Args) -> Result<Option<(Asked, i64)>> {
 /// the landing as landed unless commits of the branch still wait to land,
 /// then starts the audit of a sampled one. The audit never fails the landing.
 pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &["landing", "rules-root", "roll", "reviewer"],
-        &["more-to-land"],
-    )?;
+    let args = Args::parse(args, &["landing", "rules-root"], &["more-to-land"])?;
     let Some((asked, landing)) = record_landing(tool, &args)? else {
         return Ok(());
     };
-    let roll = match args.value("roll")? {
-        Some(roll) => roll
-            .parse::<f64>()
-            .map_err(|_| Fail::Message(format!("'{roll}' is not a number")))?,
-        None => (super::clock_bits() % 1_000_000) as f64 / 1_000_000.0,
-    };
-    let reviewer = args.value("reviewer")?.unwrap_or("claude");
-    if let Err(why) = start_audit(&asked, landing, roll, reviewer) {
+    let roll = (super::clock_bits() % 1_000_000) as f64 / 1_000_000.0;
+    if let Err(why) = start_audit(&asked, landing, roll) {
         eprintln!(
             "builds: the audit of review landing {landing} was not started: {}",
             why.text()
@@ -535,7 +525,7 @@ pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
 
 /// Starts `builds review audit` on <landing> in the background when the
 /// sample picks it.
-fn start_audit(asked: &Asked, landing: i64, roll: f64, reviewer: &str) -> Result<()> {
+fn start_audit(asked: &Asked, landing: i64, roll: f64) -> Result<()> {
     if !super::audit::sampled(
         &asked.conn,
         landing,
@@ -556,7 +546,6 @@ fn start_audit(asked: &Asked, landing: i64, roll: f64, reviewer: &str) -> Result
         .arg(&asked.dir)
         .arg("--rules-root")
         .arg(&asked.root)
-        .args(["--reviewer", reviewer])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

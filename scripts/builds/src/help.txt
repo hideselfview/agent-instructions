@@ -1604,7 +1604,7 @@ agent-instructions and run `review replay --rules-root` on it.
                               with no answer over a diff a run read, a branch
                               that changed since the last review, an
                               unsettled finding, an open confirmed finding
-  builds review landed <worktree> --project P <sha>... [--landing KEY] [--more-to-land] [--rules-root DIR] [--roll N] [--reviewer PROGRAM]
+  builds review landed <worktree> --project P <sha>... [--landing KEY] [--more-to-land] [--rules-root DIR]
                               what `builds land` records after the push: the
                               open landing of KEY (default the worktree's
                               branch) as landed, with its last review, unless
@@ -1620,8 +1620,7 @@ agent-instructions and run `review replay --rules-root` on it.
                               audits about 5% of landings; 25% when a group the
                               landing ran has missed more in its latest 10
                               audits than before; and every landing until the
-                              current groups have reviewed 20. --roll N (0 to
-                              1) replaces the random draw
+                              current groups have reviewed 20
   builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
                               list the groups of rules, and fail naming every
                               rule outside a group folder (one with no
