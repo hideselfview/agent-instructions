@@ -256,29 +256,6 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
 }
 
 #[test]
-fn an_acknowledgement_reaches_the_feeds_acks_json_and_moves_no_version() {
-    let scratch = Scratch::new("daemon-acks");
-    let places = scratch.places();
-    let store = make_store(&places, &["bae", "coven"]);
-    let feed = Feed::start_with_clock(places, Box::new(|| NOON));
-    let (version, _) = feed.current();
-    let before = feed.acks();
-    assert!(before.contains("\"acks\":[]"), "{before}");
-    let (sent, moved) = mpsc::channel();
-    feed.listen(Box::new(move || {
-        let _ = sent.send(());
-    }));
-    let db = crate::db::open(&store.database(), crate::db::Make::Never).unwrap();
-    crate::ack::record::acknowledge(&db, "s1", "agent", "v1", NOON, &[]).unwrap();
-    moved
-        .recv_timeout(HANG_GUARD)
-        .expect("the acknowledgement reached the feed");
-    let after = feed.acks();
-    assert!(after.contains("\"agent\":\"agent\""), "{after}");
-    assert_eq!(feed.current().0, version);
-}
-
-#[test]
 fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
     use crate::app_timing::{DATABASE, RunRecord, StepKind, StepRecord, StepResult, record};
     let scratch = Scratch::new("daemon-app-timing");

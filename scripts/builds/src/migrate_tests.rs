@@ -3360,7 +3360,10 @@ fn a_store_from_before_agent_ids_loses_its_acknowledgements_and_records_one() {
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    assert_eq!(crate::ack::record::all(&conn).unwrap(), Vec::new());
+    let acks: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ack", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(acks, 0);
     assert_eq!(
         crate::ack::record::reading(&conn, "s1", "agent").unwrap(),
         None

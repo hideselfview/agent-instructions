@@ -32,9 +32,6 @@
 //!                   claim facts), as the `lists` event carries it
 //!     /api/hooks    the hook runs' figures and latest runs (hook_stats.rs),
 //!                   as the `hooks` event carries them
-//!     /api/acks     each agent's last acknowledgement of the text builds
-//!                   asks agents to read (ack/mod.rs), as the `acks` event
-//!                   carries them
 //!     /design/<project>/<design id>
 //!                   the review page of an open design change, drawn now
 //!     /design/<project>/<design id>/board/<n>/now and /proposed
@@ -45,9 +42,7 @@
 //!     /events       `state` events: the whole state on connect and each time
 //!                   it changes, at most four a second; `lists` events: the
 //!                   lists JSON on connect and each time it changes, never
-//!                   with a `state` event that only repeats the processes;
-//!                   `acks` events: the acknowledgements' JSON on connect
-//!                   and each time it changes
+//!                   with a `state` event that only repeats the processes
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -213,12 +208,6 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             "200 OK",
             "application/json",
             model.hooks_json().as_bytes(),
-        ),
-        "/api/acks" => respond(
-            &mut stream,
-            "200 OK",
-            "application/json",
-            model.acks_json().as_bytes(),
         ),
         "/events" => events(stream, model),
         _ if path.starts_with("/design/") => {
@@ -523,7 +512,6 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
         // The lists last sent: another `Arc` means they changed.
         let mut sent_lists: Option<Arc<String>> = None;
         let mut sent_hooks: Option<Arc<String>> = None;
-        let mut sent_acks: Option<Arc<String>> = None;
         loop {
             let started = Instant::now();
             let page = match model.page() {
@@ -565,7 +553,6 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
                 }
             }
             send_if_changed(&mut stream, "hooks", model.hooks_json(), &mut sent_hooks)?;
-            send_if_changed(&mut stream, "acks", model.acks_json(), &mut sent_acks)?;
             stream.flush()?;
             if let Some(left) = EVENT_GAP.checked_sub(started.elapsed()) {
                 std::thread::sleep(left);

@@ -1,5 +1,5 @@
 //! The acknowledgements and readings in a project's store (record.sql): what
-//! `builds ack` writes and what the gate and the dashboard read.
+//! `builds ack` writes and what the gate reads.
 
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -13,15 +13,6 @@ pub const KEPT_VERSIONS: i64 = 20;
 /// An agent's last acknowledgement, as the gate reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ack {
-    pub version: String,
-    /// Seconds since 1970.
-    pub at: i64,
-}
-
-/// An agent's last acknowledgement, as the dashboard lists it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AgentAck {
-    pub agent: String,
     pub version: String,
     /// Seconds since 1970.
     pub at: i64,
@@ -252,24 +243,6 @@ pub fn move_to_agent_ids(tx: &Connection) -> Result<()> {
     .sql()?;
     tx.execute_batch(crate::db::ACK_PART).sql()?;
     Ok(())
-}
-
-/// Every agent's last acknowledgement, newest first.
-pub fn all(db: &Connection) -> Result<Vec<AgentAck>> {
-    let mut statement = db
-        .prepare("SELECT agent, version, at FROM ack ORDER BY at DESC, agent")
-        .sql()?;
-    statement
-        .query_map([], |row| {
-            Ok(AgentAck {
-                agent: row.get(0)?,
-                version: row.get(1)?,
-                at: row.get(2)?,
-            })
-        })
-        .sql()?
-        .collect::<rusqlite::Result<Vec<AgentAck>>>()
-        .sql()
 }
 
 #[cfg(test)]
