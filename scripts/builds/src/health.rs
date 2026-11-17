@@ -671,6 +671,9 @@ pub struct Claimed {
 pub struct Unclaimed {
     pub place: usize,
     pub git: SideGit,
+    /// Why builds cannot tell whether an item is parked there: a store that
+    /// does not load. None when builds read every store.
+    pub parked_unknown: Option<String>,
 }
 
 /// Work an agent left where no claim shows it: side worktrees with no claim
@@ -748,12 +751,23 @@ pub fn assess(
             ),
         ));
     }
-    for Unclaimed { place, git } in left.worktrees {
+    for Unclaimed {
+        place,
+        git,
+        parked_unknown,
+    } in left.worktrees
+    {
         if !git.ahead.is_empty() {
+            let unknown = match parked_unknown {
+                Some(fault) => {
+                    format!("; builds cannot tell whether an item is parked there, since {fault}")
+                }
+                None => String::new(),
+            };
             findings.push(Finding::new(
                 FindingKind::Unclaimed,
                 Advice::said(format!(
-                    "worktree: {} has no claim and {} waiting to land, so it is not retired",
+                    "worktree: {} has no claim and {} waiting to land, so it is not retired{unknown}",
                     places[place].label,
                     crate::text::counted(git.ahead.len(), "commit", "commits")
                 )),
@@ -1011,10 +1025,9 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let mut unclaimed = Vec::new();
     let mut unreadable = Vec::new();
     let loaded = crate::lists::store::load_all(&tool.places);
-    // A store that does not load is a finding of its own; until it loads,
-    // health names an unclaimed worktree with commits even when an item is
-    // parked there.
-    let parked = crate::lists::parked::parked_worktrees(&loaded).unwrap_or_default();
+    // While a store does not load, health names each unclaimed worktree
+    // with commits and says it cannot tell whether an item is parked there.
+    let parked = crate::lists::parked::parked_worktrees(&loaded);
     for (at, root) in live.iter().enumerate() {
         let checkout = root.live.as_ref().expect("live");
         if !checkout.is_side() {
@@ -1023,7 +1036,10 @@ pub fn health(tool: &Tool) -> Result<Health> {
         match Claim::read(&checkout.claim_file()) {
             Ok(Some(claim)) => claimed.push((at, checkout, claim)),
             Ok(None) if root.is_app_checkout(&tool.places)? => {}
-            Ok(None) if parked.contains(&checkout.top.display().to_string()) => {}
+            Ok(None)
+                if parked
+                    .as_ref()
+                    .is_ok_and(|parked| parked.contains(&checkout.top.display().to_string())) => {}
             Ok(None) => unclaimed.push((at, checkout)),
             Err(damaged) => unreadable.push(Finding::new(
                 FindingKind::Claim,
@@ -1037,7 +1053,11 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let unclaimed: Vec<Unclaimed> = unclaimed
         .into_iter()
         .zip(unclaimed_gits)
-        .map(|((place, _), git)| Unclaimed { place, git })
+        .map(|((place, _), git)| Unclaimed {
+            place,
+            git,
+            parked_unknown: parked.as_ref().err().cloned(),
+        })
         .collect();
     let gits = parallel_map(&claimed, |(_, checkout, _)| {
         crate::side_git::read(&checkout.top)
@@ -1854,10 +1874,12 @@ mod tests {
                     Unclaimed {
                         place: 0,
                         git: git(vec![commit]),
+                        parked_unknown: Some("project demo's lists: broken".to_string()),
                     },
                     Unclaimed {
                         place: 1,
                         git: git(Vec::new()),
+                        parked_unknown: None,
                     },
                 ],
                 branches: Vec::new(),
@@ -1870,6 +1892,13 @@ mod tests {
                 .advice
                 .text
                 .starts_with("worktree: demo/side-1 has no claim and 1 commit waiting to land"),
+            "{:?}",
+            health.findings
+        );
+        assert!(
+            health.findings[0].advice.text.ends_with(
+                "builds cannot tell whether an item is parked there, since project demo's lists: broken"
+            ),
             "{:?}",
             health.findings
         );

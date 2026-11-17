@@ -737,10 +737,7 @@ impl Model {
             &state.roots,
             &state.facts,
             &places,
-            // A store that does not load is a finding of its own; until it
-            // loads, health names an unclaimed worktree with commits even
-            // when an item is parked there.
-            &crate::lists::parked::parked_worktrees(&loaded).unwrap_or_default(),
+            &crate::lists::parked::parked_worktrees(&loaded),
         )?;
         let lists =
             crate::health::lists_findings(&self.places, &loaded, &places, &mut claimed, &held)?;
@@ -1371,20 +1368,23 @@ fn claimed_of(
 }
 
 /// The unclaimed side worktrees of <roots>, leaving out the app checkouts
-/// and the worktrees in <parked>, where open items are parked.
+/// and the worktrees in <parked>, where open items are parked. When <parked>
+/// is why builds cannot read the stores, each worktree carries that reason.
 fn unclaimed_of(
     tool_places: &Places,
     roots: &[Root],
     facts: &HashMap<PathBuf, Facts>,
     places: &[Place],
-    parked: &[String],
+    parked: &std::result::Result<Vec<String>, String>,
 ) -> crate::fail::Result<Vec<Unclaimed>> {
     let mut unclaimed = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
         if checkout.is_main()
             || root.is_app_checkout(tool_places)?
-            || parked.contains(&checkout.top.display().to_string())
+            || parked
+                .as_ref()
+                .is_ok_and(|parked| parked.contains(&checkout.top.display().to_string()))
         {
             continue;
         }
@@ -1400,6 +1400,7 @@ fn unclaimed_of(
         unclaimed.push(Unclaimed {
             place,
             git: git.clone(),
+            parked_unknown: parked.as_ref().err().cloned(),
         });
     }
     Ok(unclaimed)
