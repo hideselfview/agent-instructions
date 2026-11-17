@@ -240,6 +240,53 @@ const BEFORE_COUNTED_LINES_STAMP: i64 = 847_323_498;
 /// nothing only while no open item waits on it.
 const BEFORE_BLOCKS_FROM_WAITS_STAMP: i64 = 92_039_681;
 
+/// Every stamp a store can carry that `move_store` moves, oldest schema first.
+/// A new move adds the stamp of the schema before it at the end.
+const STAMPS: [i64; 29] = [
+    BEFORE_DESIGN_DELETED_STAMP,
+    BEFORE_CHECK_TIMES_STAMP,
+    BEFORE_DESIGN_TIP_STAMP,
+    BEFORE_APP_TIMING_STAMP,
+    BEFORE_DESIGN_SESSION_STAMP,
+    BEFORE_SHOT_FINDINGS_STAMP,
+    BEFORE_REVIEW_STAMP,
+    BEFORE_CARGO_RUNS_STAMP,
+    BEFORE_DESIGN_FIX_STAMP,
+    BEFORE_LANDING_REVIEW_STAMP,
+    BEFORE_SCORED_CALLS_STAMP,
+    BEFORE_TAGS_STAMP,
+    BEFORE_CARGO_RUNS_REMOVED_STAMP,
+    BEFORE_ORIGINS_STAMP,
+    BEFORE_FINISHED_STAMP,
+    BEFORE_CHANGED_LINES_STAMP,
+    BEFORE_CHECK_STARTS_STAMP,
+    BEFORE_CANVAS_STAMP,
+    BEFORE_DESIGN_DROP_STAMP,
+    BEFORE_PUSHED_STAMP,
+    BEFORE_RANKS_STAMP,
+    BEFORE_PARKED_STAMP,
+    BEFORE_SPEC_CHECK_STAMP,
+    BEFORE_CODE_LEFT_STAMP,
+    BEFORE_NET_CHANGE_STAMP,
+    BEFORE_REVIEWED_RUN_STAMP,
+    BEFORE_CLOSED_STAMP,
+    BEFORE_COUNTED_LINES_STAMP,
+    BEFORE_BLOCKS_FROM_WAITS_STAMP,
+];
+
+/// Whether a store stamped <found> comes before the move that follows the
+/// schema stamped <stamp>, so that move applies to it: <found> is <stamp> or
+/// an older stamp of `STAMPS`.
+fn before(found: i64, stamp: i64) -> bool {
+    let at = |s: i64| {
+        STAMPS
+            .iter()
+            .position(|known| *known == s)
+            .expect("move_store moves only stamps that STAMPS holds")
+    };
+    at(found) <= at(stamp)
+}
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -301,7 +348,7 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// the tables of fixes, of the commits each run read, of the commits each push
 /// landed and of findings whose code left their branch. A store from before a
 /// review's patch ids left out context lines keeps its old patch ids until the
-/// move drops them. Every store gets `question` made again, and the move
+/// move drops them. The move makes `question` again in every store and
 /// clears the reason for blocking nothing (`blocks_nothing`) on each open
 /// question that an open item waits on.
 /// The moves run in one transaction, the store
@@ -404,72 +451,18 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     if found == db::stamp() || found == 0 {
         return Ok(());
     }
-    if ![
-        BEFORE_DESIGN_DELETED_STAMP,
-        BEFORE_CHECK_TIMES_STAMP,
-        BEFORE_DESIGN_TIP_STAMP,
-        BEFORE_APP_TIMING_STAMP,
-        BEFORE_DESIGN_SESSION_STAMP,
-        BEFORE_SHOT_FINDINGS_STAMP,
-        BEFORE_REVIEW_STAMP,
-        BEFORE_CARGO_RUNS_STAMP,
-        BEFORE_DESIGN_FIX_STAMP,
-        BEFORE_LANDING_REVIEW_STAMP,
-        BEFORE_SCORED_CALLS_STAMP,
-        BEFORE_TAGS_STAMP,
-        BEFORE_CARGO_RUNS_REMOVED_STAMP,
-        BEFORE_ORIGINS_STAMP,
-        BEFORE_FINISHED_STAMP,
-        BEFORE_CHANGED_LINES_STAMP,
-        BEFORE_CHECK_STARTS_STAMP,
-        BEFORE_CANVAS_STAMP,
-        BEFORE_DESIGN_DROP_STAMP,
-        BEFORE_PUSHED_STAMP,
-        BEFORE_RANKS_STAMP,
-        BEFORE_PARKED_STAMP,
-        BEFORE_SPEC_CHECK_STAMP,
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-        BEFORE_CLOSED_STAMP,
-        BEFORE_COUNTED_LINES_STAMP,
-        BEFORE_BLOCKS_FROM_WAITS_STAMP,
-    ]
-    .contains(&found)
-    {
+    if !STAMPS.contains(&found) {
+        let known: Vec<String> = STAMPS.iter().map(i64::to_string).collect();
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP}, {BEFORE_CHECK_STARTS_STAMP}, {BEFORE_CANVAS_STAMP}, {BEFORE_DESIGN_DROP_STAMP}, {BEFORE_PUSHED_STAMP}, {BEFORE_RANKS_STAMP}, {BEFORE_PARKED_STAMP}, {BEFORE_SPEC_CHECK_STAMP}, {BEFORE_CODE_LEFT_STAMP}, {BEFORE_NET_CHANGE_STAMP}, {BEFORE_REVIEWED_RUN_STAMP}, {BEFORE_CLOSED_STAMP}, {BEFORE_COUNTED_LINES_STAMP} and {BEFORE_BLOCKS_FROM_WAITS_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {}, and today's {})",
             path.display(),
+            known.join(", "),
             db::stamp()
         );
     }
     // A store from just before the cargo runs' table, or after it, has the
     // review's tables; the move makes them in every older store.
-    let had_review_tables = [
-        BEFORE_CARGO_RUNS_STAMP,
-        BEFORE_DESIGN_FIX_STAMP,
-        BEFORE_LANDING_REVIEW_STAMP,
-        BEFORE_SCORED_CALLS_STAMP,
-        BEFORE_TAGS_STAMP,
-        BEFORE_CARGO_RUNS_REMOVED_STAMP,
-        BEFORE_ORIGINS_STAMP,
-        BEFORE_FINISHED_STAMP,
-        BEFORE_CHANGED_LINES_STAMP,
-        BEFORE_CHECK_STARTS_STAMP,
-        BEFORE_CANVAS_STAMP,
-        BEFORE_DESIGN_DROP_STAMP,
-        BEFORE_PUSHED_STAMP,
-        BEFORE_RANKS_STAMP,
-        BEFORE_PARKED_STAMP,
-        BEFORE_SPEC_CHECK_STAMP,
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-        BEFORE_CLOSED_STAMP,
-        BEFORE_COUNTED_LINES_STAMP,
-        BEFORE_BLOCKS_FROM_WAITS_STAMP,
-    ]
-    .contains(&found);
+    let had_review_tables = !before(found, BEFORE_REVIEW_STAMP);
     // Off for the moves, so a table made again keeps the references to it as
     // they are written; every reference is checked before the commit.
     conn.pragma_update(None, "foreign_keys", false).sql()?;
@@ -478,57 +471,17 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         .sql()?;
     // A store from before reviews ran before landing, or after, has every
     // other part.
-    if ![
-        BEFORE_LANDING_REVIEW_STAMP,
-        BEFORE_SCORED_CALLS_STAMP,
-        BEFORE_TAGS_STAMP,
-        BEFORE_CARGO_RUNS_REMOVED_STAMP,
-        BEFORE_ORIGINS_STAMP,
-        BEFORE_FINISHED_STAMP,
-        BEFORE_CHANGED_LINES_STAMP,
-        BEFORE_CHECK_STARTS_STAMP,
-        BEFORE_CANVAS_STAMP,
-        BEFORE_DESIGN_DROP_STAMP,
-        BEFORE_PUSHED_STAMP,
-        BEFORE_RANKS_STAMP,
-        BEFORE_PARKED_STAMP,
-        BEFORE_SPEC_CHECK_STAMP,
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-        BEFORE_CLOSED_STAMP,
-        BEFORE_COUNTED_LINES_STAMP,
-        BEFORE_BLOCKS_FROM_WAITS_STAMP,
-    ]
-    .contains(&found)
-    {
-        if found == BEFORE_DESIGN_DELETED_STAMP {
+    if before(found, BEFORE_DESIGN_FIX_STAMP) {
+        if before(found, BEFORE_DESIGN_DELETED_STAMP) {
             tx.execute_batch(DESIGN_DELETED).sql()?;
         }
-        let has_tip_and_times = [
-            BEFORE_APP_TIMING_STAMP,
-            BEFORE_DESIGN_SESSION_STAMP,
-            BEFORE_SHOT_FINDINGS_STAMP,
-            BEFORE_REVIEW_STAMP,
-            BEFORE_CARGO_RUNS_STAMP,
-            BEFORE_DESIGN_FIX_STAMP,
-        ]
-        .contains(&found);
-        if found != BEFORE_DESIGN_TIP_STAMP && !has_tip_and_times {
+        if before(found, BEFORE_CHECK_TIMES_STAMP) {
             tx.execute_batch(&check_times()).sql()?;
         }
-        if !has_tip_and_times {
+        if before(found, BEFORE_DESIGN_TIP_STAMP) {
             tx.execute_batch(&design_tip()).sql()?;
         }
-        if ![
-            BEFORE_DESIGN_SESSION_STAMP,
-            BEFORE_SHOT_FINDINGS_STAMP,
-            BEFORE_REVIEW_STAMP,
-            BEFORE_CARGO_RUNS_STAMP,
-            BEFORE_DESIGN_FIX_STAMP,
-        ]
-        .contains(&found)
-        {
+        if before(found, BEFORE_APP_TIMING_STAMP) {
             tx.execute_batch(db::APP_TIMING_PART).sql()?;
         }
         // Every part is `IF NOT EXISTS`, so a store that has one keeps it.
@@ -543,50 +496,17 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     }
     // A store that has the review's tables has them as they were before
     // reviews ran before landing; one that got them above has today's.
-    if [
-        BEFORE_CARGO_RUNS_STAMP,
-        BEFORE_DESIGN_FIX_STAMP,
-        BEFORE_LANDING_REVIEW_STAMP,
-    ]
-    .contains(&found)
-    {
+    if had_review_tables && before(found, BEFORE_LANDING_REVIEW_STAMP) {
         crate::review::record::move_to_landing_review(&tx)?;
     }
     // A store that has the review's tables has calls without their prompt
     // and cost; one that got them above has today's.
-    if [
-        BEFORE_CARGO_RUNS_STAMP,
-        BEFORE_DESIGN_FIX_STAMP,
-        BEFORE_LANDING_REVIEW_STAMP,
-        BEFORE_SCORED_CALLS_STAMP,
-    ]
-    .contains(&found)
-    {
+    if had_review_tables && before(found, BEFORE_SCORED_CALLS_STAMP) {
         crate::review::record::move_to_scored_calls(&tx)?;
     }
     // Of the stores this moves, only those stamped just before builds dropped
     // the cargo runs' table or after it already have the tags' table.
-    if ![
-        BEFORE_CARGO_RUNS_REMOVED_STAMP,
-        BEFORE_ORIGINS_STAMP,
-        BEFORE_FINISHED_STAMP,
-        BEFORE_CHANGED_LINES_STAMP,
-        BEFORE_CHECK_STARTS_STAMP,
-        BEFORE_CANVAS_STAMP,
-        BEFORE_DESIGN_DROP_STAMP,
-        BEFORE_PUSHED_STAMP,
-        BEFORE_RANKS_STAMP,
-        BEFORE_PARKED_STAMP,
-        BEFORE_SPEC_CHECK_STAMP,
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-        BEFORE_CLOSED_STAMP,
-        BEFORE_COUNTED_LINES_STAMP,
-        BEFORE_BLOCKS_FROM_WAITS_STAMP,
-    ]
-    .contains(&found)
-    {
+    if before(found, BEFORE_TAGS_STAMP) {
         tx.execute_batch(db::TAG_PART).sql()?;
     }
     // Stores stamped after builds added the cargo runs' table still have it;
@@ -594,105 +514,32 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     tx.execute_batch("DROP TABLE IF EXISTS cargo_runs;").sql()?;
     // Only a store from before an item could close as finished, or after, has
     // today's `item` and `question`.
-    if ![
-        BEFORE_FINISHED_STAMP,
-        BEFORE_CHANGED_LINES_STAMP,
-        BEFORE_CHECK_STARTS_STAMP,
-        BEFORE_CANVAS_STAMP,
-        BEFORE_DESIGN_DROP_STAMP,
-        BEFORE_PUSHED_STAMP,
-        BEFORE_RANKS_STAMP,
-        BEFORE_PARKED_STAMP,
-        BEFORE_SPEC_CHECK_STAMP,
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-        BEFORE_CLOSED_STAMP,
-        BEFORE_COUNTED_LINES_STAMP,
-        BEFORE_BLOCKS_FROM_WAITS_STAMP,
-    ]
-    .contains(&found)
-    {
+    if before(found, BEFORE_ORIGINS_STAMP) {
         crate::lists::item::move_to_origins(&tx)?;
         crate::lists::question::move_to_origins(&tx)?;
     }
     // Only a store from just before builds recorded the commits a landing
     // pushed, or after, has today's `closing`, where a design change may
     // close as dropped.
-    if ![
-        BEFORE_PUSHED_STAMP,
-        BEFORE_RANKS_STAMP,
-        BEFORE_PARKED_STAMP,
-        BEFORE_SPEC_CHECK_STAMP,
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-        BEFORE_CLOSED_STAMP,
-        BEFORE_COUNTED_LINES_STAMP,
-        BEFORE_BLOCKS_FROM_WAITS_STAMP,
-    ]
-    .contains(&found)
-    {
+    if before(found, BEFORE_DESIGN_DROP_STAMP) {
         crate::lists::record::remake_closing(&tx)?;
     }
     // A store stamped just before a project said whether it publishes a
     // canvas, or after, already has the `hook_check_starts` and
     // `builds_cargo_runs` tables; no older store has them.
-    if ![
-        BEFORE_CANVAS_STAMP,
-        BEFORE_DESIGN_DROP_STAMP,
-        BEFORE_PUSHED_STAMP,
-        BEFORE_RANKS_STAMP,
-        BEFORE_PARKED_STAMP,
-        BEFORE_SPEC_CHECK_STAMP,
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-        BEFORE_CLOSED_STAMP,
-        BEFORE_COUNTED_LINES_STAMP,
-        BEFORE_BLOCKS_FROM_WAITS_STAMP,
-    ]
-    .contains(&found)
-    {
+    if before(found, BEFORE_CHECK_STARTS_STAMP) {
         tx.execute_batch(db::HOOK_CHECK_STARTS_PART).sql()?;
         tx.execute_batch(db::CARGO_RUNS_PART).sql()?;
     }
     // A store from just before a design change could close as dropped, or
     // after, has `canvas` on its project; no older store has it.
-    if ![
-        BEFORE_DESIGN_DROP_STAMP,
-        BEFORE_PUSHED_STAMP,
-        BEFORE_RANKS_STAMP,
-        BEFORE_PARKED_STAMP,
-        BEFORE_SPEC_CHECK_STAMP,
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-        BEFORE_CLOSED_STAMP,
-        BEFORE_COUNTED_LINES_STAMP,
-        BEFORE_BLOCKS_FROM_WAITS_STAMP,
-    ]
-    .contains(&found)
-    {
+    if before(found, BEFORE_CANVAS_STAMP) {
         crate::lists::project::move_to_canvas(&tx)?;
     }
     // The review's tables the move made above include `review_pushed`; a
     // store that had them gets it here, except a store from after builds
     // recorded the commits a landing pushed, which has it already.
-    if had_review_tables
-        && ![
-            BEFORE_RANKS_STAMP,
-            BEFORE_PARKED_STAMP,
-            BEFORE_SPEC_CHECK_STAMP,
-            BEFORE_CODE_LEFT_STAMP,
-            BEFORE_NET_CHANGE_STAMP,
-            BEFORE_REVIEWED_RUN_STAMP,
-            BEFORE_CLOSED_STAMP,
-            BEFORE_COUNTED_LINES_STAMP,
-            BEFORE_BLOCKS_FROM_WAITS_STAMP,
-        ]
-        .contains(&found)
-    {
+    if had_review_tables && before(found, BEFORE_PUSHED_STAMP) {
         tx.execute_batch(db::statement(
             crate::review::record::BEFORE_CLOSED,
             "CREATE TABLE review_pushed",
@@ -702,64 +549,25 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     }
     // Only a store from just before builds could park an item, or after, has
     // a rank on its placements.
-    if ![
-        BEFORE_PARKED_STAMP,
-        BEFORE_SPEC_CHECK_STAMP,
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-        BEFORE_CLOSED_STAMP,
-        BEFORE_COUNTED_LINES_STAMP,
-        BEFORE_BLOCKS_FROM_WAITS_STAMP,
-    ]
-    .contains(&found)
-    {
+    if before(found, BEFORE_RANKS_STAMP) {
         crate::lists::question::move_to_ranks(&tx)?;
     }
     // Only a store from just before builds checked briefs against the spec,
     // or after, has the parked and dropped items' tables.
-    if ![
-        BEFORE_SPEC_CHECK_STAMP,
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-        BEFORE_CLOSED_STAMP,
-        BEFORE_COUNTED_LINES_STAMP,
-        BEFORE_BLOCKS_FROM_WAITS_STAMP,
-    ]
-    .contains(&found)
-    {
+    if before(found, BEFORE_PARKED_STAMP) {
         tx.execute_batch(db::PARKED_PART).sql()?;
         tx.execute_batch(db::DROPPED_PART).sql()?;
     }
     // Only a store from just before the coordinator could settle a finding
     // again, or after, has the spec checks' tables.
-    if ![
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-        BEFORE_CLOSED_STAMP,
-        BEFORE_COUNTED_LINES_STAMP,
-        BEFORE_BLOCKS_FROM_WAITS_STAMP,
-    ]
-    .contains(&found)
-    {
+    if before(found, BEFORE_SPEC_CHECK_STAMP) {
         tx.execute_batch(db::SPEC_CHECK_PART).sql()?;
     }
     // The review's tables the move made above include the tables of second
     // settles and of confirmed findings whose code is no longer in their
     // branch's change; a store that had the review's tables gets them here,
     // except a store from after builds recorded them, which has them already.
-    if had_review_tables
-        && ![
-            BEFORE_NET_CHANGE_STAMP,
-            BEFORE_REVIEWED_RUN_STAMP,
-            BEFORE_CLOSED_STAMP,
-            BEFORE_COUNTED_LINES_STAMP,
-            BEFORE_BLOCKS_FROM_WAITS_STAMP,
-        ]
-        .contains(&found)
-    {
+    if had_review_tables && before(found, BEFORE_CODE_LEFT_STAMP) {
         let schema = db::schema();
         tx.execute_batch(db::statement(
             &schema,
@@ -777,48 +585,27 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     // A store that had the review's tables from before net changes has runs
     // that each read a whole net change; one that got the tables above has
     // today's `review_run`.
-    if had_review_tables
-        && ![
-            BEFORE_REVIEWED_RUN_STAMP,
-            BEFORE_CLOSED_STAMP,
-            BEFORE_COUNTED_LINES_STAMP,
-            BEFORE_BLOCKS_FROM_WAITS_STAMP,
-        ]
-        .contains(&found)
-    {
+    if had_review_tables && before(found, BEFORE_NET_CHANGE_STAMP) {
         crate::review::record::move_to_net_change(&tx)?;
     }
     // A store that had the review's tables from before landings named their
     // last review gets the last review of each landing; one that got the
     // tables above has no landing.
-    if had_review_tables
-        && ![
-            BEFORE_CLOSED_STAMP,
-            BEFORE_COUNTED_LINES_STAMP,
-            BEFORE_BLOCKS_FROM_WAITS_STAMP,
-        ]
-        .contains(&found)
-    {
+    if had_review_tables && before(found, BEFORE_REVIEWED_RUN_STAMP) {
         crate::review::record::move_to_reviewed_run(&tx)?;
     }
     // A store that had the review's tables has the tables of fixes and of read
     // and pushed commits: the last review of each landing closes each
     // confirmed finding with a fix, and the move drops those tables.
-    if had_review_tables
-        && ![BEFORE_COUNTED_LINES_STAMP, BEFORE_BLOCKS_FROM_WAITS_STAMP].contains(&found)
-    {
+    if had_review_tables && before(found, BEFORE_CLOSED_STAMP) {
         crate::review::record::move_to_closed(&tx)?;
     }
     // A store from after net changes has `review_run` without the count of
     // each run's changed lines; an older store got today's `review_run` from
     // `move_to_net_change`.
     if had_review_tables
-        && [
-            BEFORE_REVIEWED_RUN_STAMP,
-            BEFORE_CLOSED_STAMP,
-            BEFORE_COUNTED_LINES_STAMP,
-        ]
-        .contains(&found)
+        && !before(found, BEFORE_NET_CHANGE_STAMP)
+        && before(found, BEFORE_COUNTED_LINES_STAMP)
     {
         crate::review::record::move_to_counted_lines(&tx)?;
     }
@@ -827,7 +614,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     // from the clone `~/dev/<repo>` of the repo its landing names, when the
     // clone still holds the run's commits. The move names each run whose
     // commits the clone lacks, since that run keeps no count.
-    if had_review_tables && found != BEFORE_BLOCKS_FROM_WAITS_STAMP {
+    if had_review_tables && before(found, BEFORE_COUNTED_LINES_STAMP) {
         crate::review::record::count_changed_lines(&tx, |repo, base, head| {
             let clone = places.home.join(crate::host::clone_path(repo));
             if !crate::review::commits::exists(&clone, base)?
@@ -843,7 +630,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             Ok(Some(crate::review::check::changed_lines(&diff.text)))
         })?;
     }
-    // Every store gets `question` made again, and the move clears the reason
+    // The move makes `question` again in every store and clears the reason
     // for blocking nothing on each open question that an open item waits on.
     crate::lists::question::move_to_blocks_from_waits(&tx)?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;

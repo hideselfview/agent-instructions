@@ -3027,3 +3027,12 @@ fn a_store_from_before_blocks_from_waits_clears_the_why_of_each_question_an_open
         .unwrap();
     assert_eq!(waits, 3);
 }
+
+#[test]
+fn each_stamp_names_one_schema_and_before_counts_the_stamp_and_older_ones() {
+    let distinct: std::collections::BTreeSet<i64> = STAMPS.iter().copied().collect();
+    assert_eq!(distinct.len(), STAMPS.len());
+    assert!(before(BEFORE_TAGS_STAMP, BEFORE_TAGS_STAMP));
+    assert!(before(BEFORE_REVIEW_STAMP, BEFORE_TAGS_STAMP));
+    assert!(!before(BEFORE_ORIGINS_STAMP, BEFORE_TAGS_STAMP));
+}
