@@ -230,6 +230,20 @@ fn a_reader_whose_version_builds_no_longer_keeps_reads_the_whole_text() {
 }
 
 #[test]
+fn a_reader_whose_text_lost_a_section_and_changed_no_other_reads_the_whole_text() {
+    let world = world("ack-section-left");
+    world.acknowledge(NOON);
+    std::fs::remove_file(world.places.home.join(".claude/CLAUDE.md")).unwrap();
+    let refusal = message(world.check(NOON + 60));
+    assert!(
+        refusal.contains("no section's text changed: sections moved or left the text"),
+        "{refusal}"
+    );
+    let started = world.ack(&[], NOON + 60).unwrap();
+    assert!(!started.contains("sections changed"), "{started}");
+}
+
+#[test]
 fn a_reader_whose_acknowledgement_is_older_than_twelve_hours_reads_the_whole_text() {
     let world = world("ack-old-whole");
     world.acknowledge(NOON);

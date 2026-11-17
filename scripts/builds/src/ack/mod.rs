@@ -177,27 +177,33 @@ impl Agent {
         }
     }
 
-    /// What the agent's reading of <text> at <now> holds.
-    fn scope(&self, text: &Text, now: i64) -> Result<Scope> {
-        let Some(ack) = self.last()? else {
-            return Ok(Scope::Whole);
+    /// What the agent's reading of <text> at <now> holds, when <ack> is its
+    /// last acknowledgement.
+    fn scope(&self, text: &Text, ack: Option<record::Ack>, now: i64) -> Result<Scope> {
+        let Some(ack) = ack else {
+            return Ok(Scope::Whole(Whole::NotAcknowledged));
         };
-        if ack.version == text.version() || now - ack.at > HOURS * 3600 {
-            return Ok(Scope::Whole);
+        if now - ack.at > HOURS * 3600 {
+            return Ok(Scope::Whole(Whole::TooOld(ack)));
         }
-        let kept = match db::open_reader(&self.store.database())? {
-            Some(db) => record::kept_sections(&db, &ack.version)?,
-            None => None,
+        if ack.version == text.version() {
+            return Ok(Scope::Whole(Whole::Current));
+        }
+        let database = self.store.database();
+        let Some(db) = db::open_reader(&database)? else {
+            fail!(
+                "builds read {}'s acknowledgement from {}, and the file is gone now",
+                self.who,
+                database.display()
+            );
         };
-        let Some(kept) = kept else {
-            return Ok(Scope::Whole);
+        let Some(kept) = record::kept_sections(&db, &ack.version)? else {
+            return Ok(Scope::Whole(Whole::NotKept(ack)));
         };
         let sections = text.changed_since(&kept);
-        // When only the order of the sections changed, or a section left the
-        // text, no section has text to read again, and the reading holds the
-        // whole text, since a reading of no parts has no check words to give.
+        // A reading of no parts has no check words to give.
         if sections.is_empty() {
-            return Ok(Scope::Whole);
+            return Ok(Scope::Whole(Whole::NoTextChanged(ack)));
         }
         Ok(Scope::Changed {
             since: ack,
@@ -208,11 +214,8 @@ impl Agent {
 
 /// What a reading holds.
 enum Scope {
-    /// Every section of the text: the agent has no acknowledgement, or
-    /// acknowledged the current version, or acknowledged more than `HOURS`
-    /// hours ago, or acknowledged a version builds no longer keeps, or no
-    /// section's text changed since.
-    Whole,
+    /// Every section of the text, for the reason the `Whole` gives.
+    Whole(Whole),
     /// Only <sections>, those that changed since the agent's last
     /// acknowledgement <since>, of a version builds keeps.
     Changed {
@@ -221,12 +224,29 @@ enum Scope {
     },
 }
 
+/// Why a reading holds every section of the text, with the agent's last
+/// acknowledgement where it has one.
+enum Whole {
+    /// The agent has not acknowledged the text in this session.
+    NotAcknowledged,
+    /// The agent acknowledged the text more than `HOURS` hours ago.
+    TooOld(record::Ack),
+    /// The agent acknowledged the current version at most `HOURS` hours ago,
+    /// and reads the text again.
+    Current,
+    /// builds no longer keeps the version the agent acknowledged.
+    NotKept(record::Ack),
+    /// The version changed, but no section's text did: sections moved, or
+    /// a section left the text.
+    NoTextChanged(record::Ack),
+}
+
 impl Scope {
     /// The names of the sections a reading of <text> holds, in the text's
     /// order.
     fn sections(&self, text: &Text) -> Vec<String> {
         match self {
-            Scope::Whole => text.sections.iter().map(|s| s.name.clone()).collect(),
+            Scope::Whole(_) => text.sections.iter().map(|s| s.name.clone()).collect(),
             Scope::Changed { sections, .. } => sections.clone(),
         }
     }
@@ -246,25 +266,30 @@ fn check(
     let agent = Agent::resolve(places, session, by, project, cwd)?;
     let text = agent.text(places)?;
     let who = &agent.who;
-    let why = match agent.last()? {
-        None => format!("{who} has not acknowledged it in this Claude Code session"),
-        Some(ack) if now - ack.at > HOURS * 3600 => format!(
-            "{who} acknowledged it at {}, more than {HOURS} hours ago, and `builds ack` shows the whole text",
+    let why = match agent.scope(&text, agent.last()?, now)? {
+        Scope::Whole(Whole::Current) => return Ok(()),
+        Scope::Whole(Whole::NotAcknowledged) => {
+            format!("{who} has not acknowledged it in this Claude Code session")
+        }
+        Scope::Whole(Whole::TooOld(ack)) => format!(
+            "{who} acknowledged it at {}, more than {HOURS} hours ago, so `builds ack` shows the whole text",
             local_minute(ack.at)
         ),
-        Some(ack) if ack.version != text.version() => match agent.scope(&text, now)? {
-            Scope::Changed { sections, .. } => format!(
-                "the text changed since {who} acknowledged it at {}: {} changed, and `builds ack` shows only those sections",
-                local_minute(ack.at),
-                sections.join(", ")
-            ),
-            Scope::Whole => format!(
-                "the text changed since {who} acknowledged version {} at {}, and builds no longer keeps that version, so `builds ack` shows the whole text",
-                ack.version,
-                local_minute(ack.at)
-            ),
-        },
-        Some(_) => return Ok(()),
+        Scope::Whole(Whole::NotKept(ack)) => format!(
+            "the text changed since {who} acknowledged version {} at {}, and builds no longer keeps that version, so `builds ack` shows the whole text",
+            ack.version,
+            local_minute(ack.at)
+        ),
+        Scope::Whole(Whole::NoTextChanged(ack)) => format!(
+            "the text changed since {who} acknowledged version {} at {}, but no section's text changed: sections moved or left the text, so `builds ack` shows the whole text",
+            ack.version,
+            local_minute(ack.at)
+        ),
+        Scope::Changed { since, sections } => format!(
+            "the text changed since {who} acknowledged it at {}: {} changed, and `builds ack` shows only those sections",
+            local_minute(since.at),
+            sections.join(", ")
+        ),
     };
     fail!(
         "builds refuses this command until you read the text every agent reads before it works, and acknowledge it: {why}. Run `builds ack{}`, read every part it lists, and acknowledge them; then run this command again.",
@@ -320,7 +345,7 @@ fn ack(places: &Places, session: &str, args: &Args, cwd: &Path, now: i64) -> Res
 /// Starts a reading: picks the sections it holds, draws each part's check
 /// words and says how to read the parts and acknowledge them.
 fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
-    let scope = agent.scope(text, now)?;
+    let scope = agent.scope(text, agent.last()?, now)?;
     let shown = scope.sections(text);
     let parts = text.parts(&shown);
     let mut words = Vec::new();
