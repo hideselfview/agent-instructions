@@ -446,7 +446,9 @@ fn open_finding(db: &Connection, id: i64) -> Result<Finding> {
     let finding = finding_of(db, id)?;
     match finding.why_not_open() {
         None => Ok(finding),
-        Some(why) => fail!("{why}: only an open confirmed finding is settled again or allowed"),
+        Some(why) => fail!(
+            "{why}. The coordinator settles again, and the person allows, only an open confirmed finding."
+        ),
     }
 }
 
@@ -506,7 +508,7 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
             return Err(rusqlite::Error::FromSqlConversionFailure(
                 16,
                 rusqlite::types::Type::Text,
-                "the finding is settled again and allowed to land, and a finding is only one of them".into(),
+                "the coordinator settled the finding again and the person allowed it to land, but a finding holds only one of these".into(),
             ));
         }
         (Some(first), Some(second), None) => Some(Settled::Again { first, second }),
