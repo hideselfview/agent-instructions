@@ -405,8 +405,10 @@ pub fn worktrees_of(top: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// Does branch <branch> exist in the repo of <dir>?
+/// `git rev-parse --verify --quiet` exits 1 for a ref that does not exist
+/// and with another code when git itself fails.
 pub fn branch_exists(dir: &Path, branch: &str) -> Result<bool> {
-    let status = git(dir)
+    let output = git(dir)
         .args([
             "rev-parse",
             "--verify",
@@ -414,11 +416,18 @@ pub fn branch_exists(dir: &Path, branch: &str) -> Result<bool> {
             &format!("refs/heads/{branch}"),
         ])
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+        .output()
         .context(|| format!("running git in {}", dir.display()))?;
-    Ok(status.success())
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => fail!(
+            "git could not tell whether {} has a branch {branch} ({}): {}",
+            dir.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+    }
 }
 
 /// One worktree of a repo and the branch it checks out.
@@ -449,4 +458,23 @@ pub fn worktree_list(top: &Path) -> Result<Vec<Listed>> {
         }
     }
     Ok(listed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// branch_exists says whether a repo has a branch, and fails when git
+    /// cannot tell, as in a folder that is no repo.
+    #[test]
+    fn branch_exists_tells_a_missing_branch_from_a_git_failure() {
+        let scratch = crate::testing::Scratch::new("branch-exists");
+        let repo = scratch.dir.join("repo");
+        crate::testing::repo(&repo, "target 1G\n");
+        assert!(branch_exists(&repo, "main").unwrap());
+        assert!(!branch_exists(&repo, "nope").unwrap());
+        let plain = scratch.dir.join("plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        assert!(branch_exists(&plain, "main").is_err());
+    }
 }
