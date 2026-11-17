@@ -1215,10 +1215,6 @@ function waitProjects() {
   if (!hooks || hooks.error) return [];
   return hooks.projects.filter(p => p.waits && (p.waits.error || p.waits.rows.length));
 }
-function localDay(date) {
-  const two = n => String(n).padStart(2, "0");
-  return date.getFullYear() + "-" + two(date.getMonth() + 1) + "-" + two(date.getDate());
-}
 function waitsFigure() {
   const today = localDay(new Date());
   const total = waitProjects().flatMap(p => p.waits.rows || [])
