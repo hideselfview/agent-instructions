@@ -14,6 +14,7 @@
 //! as before. The old names are removed once nothing uses them, which is the
 //! first move run after the builds end (`builds install` runs it each time).
 
+use std::collections::BTreeMap;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
@@ -256,102 +257,10 @@ const BEFORE_ACK_STAMP: i64 = 1_699_272_218;
 /// The stamp of the schema before each question named its effect.
 const BEFORE_EFFECTS_STAMP: i64 = 1_123_945_986;
 
-/// What the move gives one question: the project of the store that holds
-/// it, its id and its effect.
-pub type GivenEffect = (&'static str, u32, Effect);
-
-/// The effect of each question in this Mac's stores when questions began to
-/// name their effect, as each question's title and details support it.
-pub const EFFECTS: [GivenEffect; 88] = [
-    ("bae", 2, Effect::Cleanup),
-    ("bae", 3, Effect::Cleanup),
-    ("bae", 4, Effect::Cleanup),
-    ("bae", 5, Effect::Cleanup),
-    ("bae", 6, Effect::Cleanup),
-    ("bae", 7, Effect::Bug),
-    ("bae", 8, Effect::Cleanup),
-    ("bae", 9, Effect::Cleanup),
-    ("bae", 10, Effect::Cleanup),
-    ("bae", 11, Effect::Cleanup),
-    ("bae", 12, Effect::Cleanup),
-    ("bae", 13, Effect::Cleanup),
-    ("bae", 14, Effect::Cleanup),
-    ("bae", 15, Effect::Cleanup),
-    ("bae", 16, Effect::Cleanup),
-    ("bae", 17, Effect::Cleanup),
-    ("bae", 18, Effect::Cleanup),
-    ("bae", 19, Effect::Cleanup),
-    ("bae", 20, Effect::ProductDesign),
-    ("bae", 21, Effect::Cleanup),
-    ("bae", 22, Effect::Cleanup),
-    ("bae", 23, Effect::Bug),
-    ("bae", 24, Effect::Cleanup),
-    ("bae", 25, Effect::Cleanup),
-    ("bae", 26, Effect::Cleanup),
-    ("bae", 27, Effect::Cleanup),
-    ("bae", 28, Effect::Cleanup),
-    ("bae", 29, Effect::Bug),
-    ("bae", 30, Effect::Cleanup),
-    ("bae", 31, Effect::Cleanup),
-    ("bae", 32, Effect::Cleanup),
-    ("bae", 33, Effect::Bug),
-    ("bae", 37, Effect::Cleanup),
-    ("bae", 38, Effect::Cleanup),
-    ("bae", 39, Effect::Cleanup),
-    ("bae", 40, Effect::Cleanup),
-    ("bae", 41, Effect::Cleanup),
-    ("bae", 42, Effect::Cleanup),
-    ("bae", 43, Effect::Cleanup),
-    ("bae", 44, Effect::Bug),
-    ("bae", 45, Effect::Cleanup),
-    ("bae", 46, Effect::Cleanup),
-    ("bae", 47, Effect::Cleanup),
-    ("bae", 48, Effect::Cleanup),
-    ("bae", 51, Effect::Cleanup),
-    ("bae", 53, Effect::Cleanup),
-    ("bae", 71, Effect::ProductDesign),
-    ("bae", 74, Effect::Cleanup),
-    ("bae", 85, Effect::Cleanup),
-    ("bae", 86, Effect::Cleanup),
-    ("bae", 119, Effect::Cleanup),
-    ("bae", 120, Effect::Cleanup),
-    ("bae", 393, Effect::Cleanup),
-    ("bae", 394, Effect::Cleanup),
-    ("bae", 395, Effect::Cleanup),
-    ("bae", 396, Effect::Cleanup),
-    ("bae", 397, Effect::ProductDesign),
-    ("bae", 398, Effect::ProductDesign),
-    ("bae", 399, Effect::ProductDesign),
-    ("bae", 400, Effect::Cleanup),
-    ("bae", 401, Effect::ProductDesign),
-    ("bae", 402, Effect::ProductDesign),
-    ("bae", 403, Effect::Cleanup),
-    ("bae", 424, Effect::SlowsAgents),
-    ("bae", 438, Effect::ProductDesign),
-    ("bae", 443, Effect::ProductDesign),
-    ("bae", 444, Effect::ProductDesign),
-    ("bae", 448, Effect::SlowsAgents),
-    ("bae", 452, Effect::Cleanup),
-    ("bae", 454, Effect::Cleanup),
-    ("bae", 476, Effect::ProductDesign),
-    ("bae", 478, Effect::ProductDesign),
-    ("bae", 479, Effect::Cleanup),
-    ("bae", 515, Effect::DataLoss),
-    ("bae", 516, Effect::Cleanup),
-    ("bae", 519, Effect::ProductDesign),
-    ("bae", 523, Effect::ProductDesign),
-    ("builds", 65, Effect::SlowsAgents),
-    ("builds", 66, Effect::SlowsAgents),
-    ("builds", 67, Effect::SlowsAgents),
-    ("builds", 68, Effect::SlowsAgents),
-    ("builds", 69, Effect::SlowsAgents),
-    ("builds", 70, Effect::SlowsAgents),
-    ("builds", 71, Effect::SlowsAgents),
-    ("builds", 72, Effect::SlowsAgents),
-    ("builds", 73, Effect::SlowsAgents),
-    ("builds", 124, Effect::SlowsAgents),
-    ("builds", 135, Effect::SlowsAgents),
-];
+/// The file beside a store's builds.sqlite that gives the move to effects
+/// each question's effect: a JSON object that maps each question's id to its
+/// effect's word, such as `{"515": "data-loss"}`.
+pub const QUESTION_EFFECTS: &str = "question-effects.json";
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
@@ -478,16 +387,16 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// for blocking nothing only while no open item waits on the question, the
 /// move clears that reason (`blocks_nothing`) on each open question that an
 /// open item waits on. The move makes `question` again in every store with
-/// the effect that <effects> gives each question: an entry of <effects>
-/// names the store's project, the question's id and its effect, and the move
-/// refuses a store whose questions and entries differ.
+/// the effect that the store's `QUESTION_EFFECTS` file gives each question,
+/// and refuses a store whose questions and file differ, or whose file is
+/// missing while the store holds a question.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
 /// other stamp is refused. Delete this once it has run.
-pub fn migrate_stores(places: &Places, effects: &[GivenEffect]) -> Result<()> {
+pub fn migrate_stores(places: &Places) -> Result<()> {
     for store in stores(places)? {
-        move_store(places, &store, effects)?;
+        move_store(places, &store)?;
     }
     Ok(())
 }
@@ -569,7 +478,35 @@ fn design_fix() -> String {
     db::statement(&db::schema(), "CREATE TABLE design_fix", "STRICT;").to_string()
 }
 
-fn move_store(places: &Places, path: &Path, effects: &[GivenEffect]) -> Result<()> {
+/// The effects that the `QUESTION_EFFECTS` file <file> gives, or None when
+/// the file does not exist. Fails for a file that is no JSON object of
+/// question ids and effects' words.
+fn read_effects(file: &Path) -> Result<Option<BTreeMap<Id, Effect>>> {
+    let text = match std::fs::read_to_string(file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => fail!("reading {}: {error}", file.display()),
+    };
+    let words: BTreeMap<String, String> = serde_json::from_str(&text).map_err(|error| {
+        Fail::Message(format!(
+            "{} is not a JSON object of question ids and effects: {error}",
+            file.display()
+        ))
+    })?;
+    let mut effects = BTreeMap::new();
+    for (id, word) in words {
+        let Ok(number) = id.parse::<u32>() else {
+            fail!("{} names {id:?}, which is no question id", file.display())
+        };
+        effects.insert(
+            Id(number),
+            Effect::parse(&format!("{}'s question {id}", file.display()), &word)?,
+        );
+    }
+    Ok(Some(effects))
+}
+
+fn move_store(places: &Places, path: &Path) -> Result<()> {
     if !path.is_file() {
         return Ok(());
     }
@@ -793,20 +730,19 @@ fn move_store(places: &Places, path: &Path, effects: &[GivenEffect]) -> Result<(
     if before(found, BEFORE_BLOCKS_FROM_WAITS_STAMP) {
         crate::lists::question::move_to_blocks_from_waits(&tx)?;
     }
-    // The move makes `question` again in every store, with the effect
-    // <effects> gives each question of the store's project.
-    let project = path
-        .parent()
-        .and_then(Path::file_name)
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let given: std::collections::BTreeMap<Id, Effect> = effects
-        .iter()
-        .filter(|(of, _, _)| *of == project)
-        .map(|(_, id, effect)| (Id(*id), *effect))
-        .collect();
-    crate::lists::question::move_to_effects(&tx, &given)
-        .map_err(|fail| Fail::Message(format!("{}: {}", path.display(), fail.text())))?;
+    // The move makes `question` again in every store, with the effect the
+    // store's `QUESTION_EFFECTS` file gives each question.
+    let file = path.with_file_name(QUESTION_EFFECTS);
+    let given = read_effects(&file)?;
+    crate::lists::question::move_to_effects(&tx, given.as_ref().unwrap_or(&BTreeMap::new()))
+        .map_err(|fail| {
+            let missing = if given.is_none() {
+                ", which does not exist"
+            } else {
+                ""
+            };
+            Fail::Message(format!("{}{missing}: {}", file.display(), fail.text()))
+        })?;
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))

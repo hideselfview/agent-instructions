@@ -201,7 +201,7 @@ fn a_store_of_the_schema_before_deleted_boards_gains_the_table_keeps_its_runs_an
     let scratch = Scratch::new("move-deleted");
     let places = scratch.places();
     let path = store_before_design_deleted(&places.lists.join("bae"));
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -213,7 +213,7 @@ fn a_store_of_the_schema_before_deleted_boards_gains_the_table_keeps_its_runs_an
     assert_eq!(stats.runs, 1, "the old run is kept");
     // A second install changes nothing.
     let before = db::schema_rows(&conn).unwrap();
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     assert_eq!(
         db::schema_rows(&Connection::open(&path).unwrap()).unwrap(),
         before
@@ -233,7 +233,7 @@ fn a_store_with_a_stamp_the_deleted_boards_move_does_not_know_is_refused_and_lef
         .unwrap()
         .pragma_update(None, "user_version", 1234)
         .unwrap();
-    let refused = migrate_stores(&places, &[]).unwrap_err().text();
+    let refused = migrate_stores(&places).unwrap_err().text();
     assert!(
         refused.contains("stamp 1234") && refused.contains("does not know"),
         "{refused}"
@@ -251,7 +251,7 @@ fn a_deleted_boards_move_that_would_not_equal_a_fresh_schema_rolls_back() {
         .unwrap()
         .execute_batch("DROP INDEX idx_hook_runs_started")
         .unwrap();
-    let refused = migrate_stores(&places, &[]).unwrap_err().text();
+    let refused = migrate_stores(&places).unwrap_err().text();
     assert!(
         refused.contains("not the one this builds makes"),
         "{refused}"
@@ -307,7 +307,7 @@ fn a_store_from_before_check_times_loses_a_failed_checks_time_and_equals_a_fresh
     let scratch = Scratch::new("move-check-times");
     let places = scratch.places();
     let path = store_before_check_times(&places.lists.join("bae"));
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -358,7 +358,7 @@ fn a_store_of_the_schema_before_design_tips_gains_the_table_keeps_its_runs_and_e
     let scratch = Scratch::new("move-tip");
     let places = scratch.places();
     let path = store_before_design_tip(&places.lists.join("bae"));
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -405,7 +405,7 @@ fn a_store_from_before_app_timings_gains_their_tables_keeps_its_runs_and_equals_
     let scratch = Scratch::new("move-app-timing");
     let places = scratch.places();
     let path = store_before_app_timing(&places.lists.join("bae"));
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -453,7 +453,7 @@ fn a_store_from_before_design_sessions_gains_their_table_keeps_its_runs_and_equa
     let scratch = Scratch::new("move-design-session");
     let places = scratch.places();
     let path = store_before_design_session(&places.lists.join("bae"));
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -500,7 +500,7 @@ fn a_store_from_before_shot_findings_gains_their_table_keeps_its_runs_and_equals
     let scratch = Scratch::new("move-shot-findings");
     let places = scratch.places();
     let path = store_before_shot_findings(&places.lists.join("bae"));
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -545,7 +545,7 @@ fn a_store_from_before_the_review_gains_its_tables_keeps_its_runs_and_equals_a_f
     let scratch = Scratch::new("move-review");
     let places = scratch.places();
     let path = store_before_review(&places.lists.join("bae"));
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -594,7 +594,7 @@ fn a_store_from_before_cargo_runs_keeps_its_runs_and_equals_a_fresh_schema() {
     let scratch = Scratch::new("move-cargo-runs");
     let places = scratch.places();
     let path = store_before_cargo_runs(&places.lists.join("bae"));
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -705,7 +705,7 @@ fn a_store_from_before_design_fixes_gains_their_table_keeps_its_runs_and_equals_
     let scratch = Scratch::new("move-design-fix");
     let places = scratch.places();
     let path = store_before_design_fix(&places.lists.join("bae"));
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -787,7 +787,7 @@ fn a_store_from_before_landing_reviews_keeps_its_landings_with_the_run_each_pass
     let scratch = Scratch::new("move-landing-review");
     let places = scratch.places();
     let path = store_before_landing_review(&places.lists.join("bae"));
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -990,7 +990,7 @@ fn a_store_from_before_scored_calls_keeps_each_call_with_the_prompt_its_exchange
     let scratch = Scratch::new("move-scored-calls");
     let places = scratch.places();
     let path = store_before_scored_calls(&places.lists.join("bae"), true);
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -1038,7 +1038,7 @@ fn a_call_with_no_exchange_to_read_its_prompt_from_leaves_the_store_as_it_was() 
     let scratch = Scratch::new("move-scored-calls-bare");
     let places = scratch.places();
     let path = store_before_scored_calls(&places.lists.join("bae"), false);
-    let refused = migrate_stores(&places, &[]).unwrap_err().text();
+    let refused = migrate_stores(&places).unwrap_err().text();
     assert!(
         refused.contains("review call 21 has no exchange"),
         "{refused}"
@@ -1114,7 +1114,7 @@ fn a_store_from_before_tags_gains_their_table_keeps_its_records_and_equals_a_fre
         )
         .unwrap();
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -1202,7 +1202,7 @@ fn a_store_with_cargo_runs_loses_the_table_and_its_rows_keeps_the_rest_and_equal
         )
         .unwrap();
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -1337,7 +1337,8 @@ fn a_store_from_before_origins_keeps_each_item_its_origin_and_equals_a_fresh_sch
         .unwrap();
         plant_run(&conn);
     }
-    migrate_stores(&places, &[("bae", 3, Effect::Cleanup)]).unwrap();
+    effects_file(&dir, &[(3, "cleanup")]);
+    migrate_stores(&places).unwrap();
     let conn = db::open(&path, db::Make::Never).expect("opens under today's stamp");
     assert_eq!(
         db::schema_rows(&conn).unwrap(),
@@ -1462,7 +1463,7 @@ fn a_store_from_before_finished_keeps_its_closings_and_takes_a_finished_item() {
         )
         .unwrap();
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -1619,7 +1620,7 @@ fn a_store_from_before_changed_lines_moves_and_its_fixed_finding_is_closed() {
     let scratch = Scratch::new("move-changed-lines");
     let places = scratch.places();
     let path = store_before_changed_lines(&places.lists.join("demo"), "read", "fix");
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -1748,7 +1749,7 @@ fn a_store_from_before_design_drop_keeps_its_closings_and_takes_a_dropped_change
         )
         .unwrap();
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -1898,7 +1899,7 @@ fn a_store_from_before_canvas_publishes_one_only_when_its_changes_hold_a_link() 
     let places = scratch.places();
     let linked = store_before_canvas(&places, "bae", true);
     let unlinked = store_before_canvas(&places, "builds", false);
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     for (path, canvas) in [(linked, true), (unlinked, false)] {
         let conn = db::open_reader(&path)
             .unwrap()
@@ -1940,7 +1941,7 @@ fn a_store_from_before_check_starts_keeps_its_runs_and_gains_the_tables() {
             .unwrap();
         plant_run(&conn);
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -2054,7 +2055,7 @@ fn a_store_from_before_counted_lines_counts_the_lines_git_still_holds() {
             );
         }
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -2213,7 +2214,7 @@ fn a_store_from_before_closed_findings_closes_the_fixed_ones_with_the_last_revie
         )
         .unwrap();
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -2285,7 +2286,7 @@ fn a_store_from_before_reviewed_runs_names_each_landings_last_review() {
             .unwrap();
         }
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -2388,7 +2389,7 @@ fn a_store_from_before_net_changes_keeps_its_runs_each_reading_a_whole_net_chang
         )
         .unwrap();
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -2462,7 +2463,7 @@ fn a_store_from_before_code_left_moves_and_records_a_second_settle() {
             .unwrap();
         plant_run(&conn);
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -2607,7 +2608,7 @@ fn a_store_from_before_spec_checks_gains_the_tables_and_records_a_check() {
         )
         .unwrap();
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -2680,7 +2681,7 @@ fn a_store_from_before_parked_items_gains_the_tables_and_parks_an_item() {
         )
         .unwrap();
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -2759,7 +2760,7 @@ fn a_store_from_before_pushed_commits_keeps_its_runs() {
     let scratch = Scratch::new("move-pushed");
     let places = scratch.places();
     let path = store_before_pushed(&places.lists.join("bae"));
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -2869,7 +2870,8 @@ fn a_store_from_before_ranks_ranks_the_questions_placed_first_newest_asked_on_to
             }
         }
     }
-    migrate_stores(&places, &cleanups("bae", 1..=5)).unwrap();
+    effects_file(&dir, &cleanups(1..=5));
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -3018,7 +3020,8 @@ fn a_store_from_before_blocks_from_waits_clears_the_why_of_each_question_an_open
             .unwrap();
         }
     }
-    migrate_stores(&places, &cleanups("bae", 1..=4)).unwrap();
+    effects_file(&dir, &cleanups(1..=4));
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -3112,7 +3115,7 @@ fn a_store_from_before_allowed_moves_and_records_an_allowed_finding() {
             .unwrap();
         plant_run(&conn);
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -3169,10 +3172,23 @@ fn a_store_from_before_allowed_moves_and_records_an_allowed_finding() {
     crate::review::record::allow(&conn, ids[0][0], "the person: land it", 8, "me").unwrap();
 }
 
-/// An entry of the move's effects for each question <ids> of <project>, each
-/// a cleanup.
-fn cleanups(project: &'static str, ids: std::ops::RangeInclusive<u32>) -> Vec<GivenEffect> {
-    ids.map(|id| (project, id, Effect::Cleanup)).collect()
+/// Writes the `QUESTION_EFFECTS` file of the store in <dir>, giving each
+/// question id of <effects> its effect's word.
+fn effects_file(dir: &std::path::Path, effects: &[(u32, &str)]) {
+    let object: serde_json::Map<String, serde_json::Value> = effects
+        .iter()
+        .map(|(id, word)| (id.to_string(), serde_json::Value::from(*word)))
+        .collect();
+    std::fs::write(
+        dir.join(QUESTION_EFFECTS),
+        serde_json::Value::Object(object).to_string(),
+    )
+    .unwrap();
+}
+
+/// A cleanup for each question of <ids>.
+fn cleanups(ids: std::ops::RangeInclusive<u32>) -> Vec<(u32, &'static str)> {
+    ids.map(|id| (id, "cleanup")).collect()
 }
 
 /// The schema text before each question named its effect.
@@ -3251,20 +3267,15 @@ fn store_before_effects(places: &Places, project: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn a_store_from_before_effects_gives_each_question_its_projects_effect() {
+fn a_store_from_before_effects_gives_each_question_the_effect_its_file_names() {
     let scratch = Scratch::new("move-effects");
     let places = scratch.places();
     let path = store_before_effects(&places, "bae");
-    migrate_stores(
-        &places,
-        &[
-            ("bae", 1, Effect::DataLoss),
-            ("bae", 2, Effect::ProductDesign),
-            ("bae", 3, Effect::Cleanup),
-            ("builds", 1, Effect::SlowsAgents),
-        ],
-    )
-    .unwrap();
+    effects_file(
+        &places.lists.join("bae"),
+        &[(1, "data-loss"), (2, "product-design"), (3, "cleanup")],
+    );
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
@@ -3291,23 +3302,36 @@ fn a_store_from_before_effects_gives_each_question_its_projects_effect() {
 }
 
 #[test]
-fn a_store_whose_questions_and_effects_differ_is_refused_and_left_as_it_was() {
+fn a_store_whose_effects_file_is_missing_or_differs_is_refused_and_left_as_it_was() {
     let scratch = Scratch::new("move-effects-differ");
     let places = scratch.places();
     let path = store_before_effects(&places, "bae");
-    let refused = migrate_stores(&places, &[("bae", 1, Effect::Bug)])
-        .unwrap_err()
-        .text();
+    let dir = places.lists.join("bae");
+    let file = dir.join(QUESTION_EFFECTS).display().to_string();
+    let refused = migrate_stores(&places).unwrap_err().text();
     assert!(
-        refused.contains(&path.display().to_string())
-            && refused.contains("gives no effect to question #2, #3"),
+        refused.contains(&format!("{file}, which does not exist"))
+            && refused.contains("gives no effect to question #1, #2, #3"),
         "{refused}"
     );
-    let refused = migrate_stores(&places, &cleanups("bae", 1..=4))
-        .unwrap_err()
-        .text();
+    effects_file(&dir, &[(1, "bug")]);
+    let refused = migrate_stores(&places).unwrap_err().text();
+    assert!(
+        refused.contains(&format!(
+            "{file}: the move gives no effect to question #2, #3"
+        )),
+        "{refused}"
+    );
+    effects_file(&dir, &cleanups(1..=4));
+    let refused = migrate_stores(&places).unwrap_err().text();
     assert!(
         refused.contains("gives an effect to question #4, which the store does not hold"),
+        "{refused}"
+    );
+    effects_file(&dir, &[(1, "bug"), (2, "worse"), (3, "bug")]);
+    let refused = migrate_stores(&places).unwrap_err().text();
+    assert!(
+        refused.contains(&format!("{file}'s question 2 is one of data-loss")),
         "{refused}"
     );
     let conn = Connection::open(&path).unwrap();
@@ -3512,7 +3536,7 @@ fn a_store_from_before_waits_keeps_its_cargo_runs_and_app_build_runs() {
         )
         .unwrap();
     }
-    migrate_stores(&places, &[]).unwrap();
+    migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
         .expect("opens under today's stamp");
