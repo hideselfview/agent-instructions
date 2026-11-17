@@ -112,13 +112,6 @@ pub fn grow(at: RepoLane, floor_kib: u64, need: Need) -> Result<Option<String>> 
         repo,
         lane,
     } = at;
-    if places.app_checkouts_of(repo, lane)?.len() >= LANE_CAP {
-        note(format!(
-            "{repo}'s {} lane has {LANE_CAP} app checkouts, the most it has, so builds adds none",
-            lane.word()
-        ));
-        return Ok(None);
-    }
     let hosts = host::read_remote(places)?;
     if hosts.is_empty() {
         return Ok(None);
@@ -162,6 +155,10 @@ pub fn grow(at: RepoLane, floor_kib: u64, need: Need) -> Result<Option<String>> 
         }
     };
     if set.len() >= LANE_CAP {
+        note(format!(
+            "{repo}'s {} lane has {LANE_CAP} app checkouts, the most it has, so builds adds none",
+            lane.word()
+        ));
         return Ok(None);
     }
     let (fits, mut lacks) = fitting_hosts(lane, floor_kib, &probes, &refusing);
