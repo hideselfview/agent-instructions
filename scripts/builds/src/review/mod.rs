@@ -78,7 +78,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
-use crate::lists::store::{Store, project_of, resolve_by};
+use crate::lists::store::{Store, project_of, resolve_by_in};
 use crate::tool::Tool;
 
 use record::Kind;
@@ -520,7 +520,7 @@ fn copy_command(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let stamp = Stamp {
         at: tool.now,
-        by: resolve_by(&args, &checkout.top).or_else(|_| resolve_by(&args, &current_dir()?))?,
+        by: resolve_by_in(&args, &[&checkout.top, &current_dir()?])?,
     };
     let checked = copy::check(&copy::Inputs {
         store: &Store::named(&tool.places, &project)?,
@@ -577,7 +577,7 @@ fn run_review(tool: &Tool, args: &Args) -> Result<Reported> {
     };
     let stamp = Stamp {
         at: tool.now,
-        by: resolve_by(args, &worktree).or_else(|_| resolve_by(args, &current_dir()?))?,
+        by: resolve_by_in(args, &[&worktree, &current_dir()?])?,
     };
     let brief = brief_of(&store, args, &worktree)?;
     let root = rules_root(args)?;
