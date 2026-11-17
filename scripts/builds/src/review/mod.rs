@@ -937,7 +937,7 @@ fn misses(tool: &Tool, args: &[String]) -> Result<()> {
         print!("{}", render::finding_text(finding));
     }
     println!(
-        "{} that nobody has settled",
+        "builds found {} that nobody has settled",
         crate::text::counted(open.len(), "candidate miss", "candidate misses")
     );
     Ok(())
