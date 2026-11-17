@@ -128,8 +128,14 @@ pub fn record_hold(
     if let Err(refused) =
         crate::lists::store::write_each(&writes, stamp, &words, |db, ids| spans(db, ids))
     {
-        staged.discard()?;
-        return Err(refused);
+        return Err(match staged.discard() {
+            Ok(()) => refused,
+            Err(removal) => crate::fail::Fail::Message(format!(
+                "{}; removing the staged claim then failed too: {}",
+                refused.text(),
+                removal.text()
+            )),
+        });
     }
     staged.put()
 }
