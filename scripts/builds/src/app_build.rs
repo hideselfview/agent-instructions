@@ -911,33 +911,32 @@ fn who_asked() -> Option<String> {
     Some(claim.who).filter(|who| !who.is_empty())
 }
 
-/// Builds <commit> in <lane>'s app checkout on the lane's lock: <names> are
-/// the lane's steps to run, or all of them when none and no <picks>. The run
-/// and its steps are timed and recorded (app_timing.rs). A lane that adds a
-/// checkout on a host keeps the host's free disk above <floor_kib>.
+/// Builds what <request> asks for in <lane>'s app checkout on the lane's
+/// lock. The run and its steps are timed and recorded (app_timing.rs). A
+/// lane that adds a checkout on a host keeps the host's free disk above
+/// <floor_kib>.
 fn run_lane(
     places: &Places,
     floor_kib: u64,
     repo: &str,
     lane: Lane,
-    commit: &str,
-    names: &[String],
-    picks: &[Pick],
+    request: LaneRequest,
 ) -> Result<()> {
     let mut timing = Timing::start();
-    let result = build_lane(
-        places,
-        floor_kib,
-        repo,
-        lane,
-        commit,
-        names,
-        picks,
-        &mut timing,
-    );
+    let result = build_lane(places, floor_kib, repo, lane, request, &mut timing);
     let passed = result.is_ok();
-    timing.record(places, repo, lane, commit, passed);
+    timing.record(places, repo, lane, request.commit, passed);
     result
+}
+
+/// What a caller asked one lane to build: <commit>, with the lane's steps
+/// <names> (all of them when none and no <picks>), then the test classes and
+/// shots of <picks>.
+#[derive(Clone, Copy)]
+struct LaneRequest<'a> {
+    commit: &'a str,
+    names: &'a [String],
+    picks: &'a [Pick],
 }
 
 /// Takes the use of the stores a lane holds while it holds the lane's lock
@@ -959,17 +958,19 @@ fn hold_stores(
     Ok(held)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_lane(
     places: &Places,
     floor_kib: u64,
     repo: &str,
     lane: Lane,
-    commit: &str,
-    names: &[String],
-    picks: &[Pick],
+    request: LaneRequest,
     timing: &mut Timing,
 ) -> Result<()> {
+    let LaneRequest {
+        commit,
+        names,
+        picks,
+    } = request;
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
         lane.word()
@@ -1395,7 +1396,12 @@ pub fn cmd_app_build(places: &Places, floor_kib: u64, args: &[String]) -> Result
         let lane = Lane::parse_or_fail(word)?;
         // A lane's process always says why it ended badly: a bare exit status
         // from a path that noted nothing would reach the parent as no output.
-        return match run_lane(places, floor_kib, repo, lane, commit, &names, &picks) {
+        let request = LaneRequest {
+            commit,
+            names: &names,
+            picks: &picks,
+        };
+        return match run_lane(places, floor_kib, repo, lane, request) {
             Err(Fail::Exit(code)) => {
                 note(format!(
                     "the {} lane's build failed (exit {code})",
