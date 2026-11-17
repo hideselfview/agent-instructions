@@ -78,10 +78,10 @@ the builds store (`builds help lists`). The stack holds what waits on the
 person, asked one at a time from the top; a plan's open questions go there.
 Each entry names its effect: data loss (the person could lose music, edits or
 settings), a bug the person hits, slows the agents, product design, or cleanup
-or wording (nothing the person notices). The stack asks the entries placed
-first at the top and the entries placed last at the bottom, and orders the
-rest by how many open items each unblocks, then by effect in that order, then
-oldest first. Give each entry the effect its text supports, as DISPATCH
+or wording (nothing the person notices). builds asks the person the entries
+placed first, then the rest by how many open items each unblocks, then by
+effect in that order, then oldest first, and the entries placed last at the
+end. Give each entry the effect its text supports, as DISPATCH
 defines critical work. The queue holds only what agents can do, and `builds
 next` lists what is ready. The log holds each answer, and each standing
 choice about how work runs, with why.
