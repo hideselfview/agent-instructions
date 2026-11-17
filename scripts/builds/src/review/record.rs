@@ -713,9 +713,13 @@ const FIRST_RUNS: &str = "SELECT MIN(id) FROM review_run WHERE kind = 'review' G
 
 /// The first review run of each branch, oldest first. A finding counts as its
 /// last settle, so the list leaves out a finding settled again as dropped.
+/// <db> must not be inside a transaction: the read takes its own.
 pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
+    // One read transaction, so the runs, calls and findings come from one
+    // state of the store even when a review records a run meanwhile.
+    let read = db.unchecked_transaction().sql()?;
     let mut reviews: Vec<(i64, FirstReview)> = {
-        let mut statement = db
+        let mut statement = read
             .prepare(&format!(
                 "SELECT id, at, changed_lines FROM review_run WHERE id IN ({FIRST_RUNS}) ORDER BY id"
             ))
@@ -742,7 +746,7 @@ pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
             .expect("each call and finding read here belongs to a first review run")
     };
     let groups: Vec<(i64, String)> = {
-        let mut statement = db
+        let mut statement = read
             .prepare(&format!(
                 "SELECT run_id, group_name FROM review_call WHERE failure IS NULL AND run_id IN ({FIRST_RUNS}) ORDER BY id"
             ))
@@ -760,7 +764,7 @@ pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
         let sql = format!(
             "SELECT {FINDING_COLUMNS} {FINDING_FROM} WHERE c.run_id IN ({FIRST_RUNS}) ORDER BY f.id"
         );
-        let mut statement = db.prepare(&sql).sql()?;
+        let mut statement = read.prepare(&sql).sql()?;
         let rows = statement.query_map([], finding_from).sql()?;
         rows.map(|row| row.sql()).collect::<Result<_>>()?
     };
