@@ -364,7 +364,7 @@ fn a_run_that_read_a_stretch_of_commits_is_not_the_last_review() {
                 db,
                 &record::NewRun {
                     landing: Some(landing),
-                    kind: Kind::Review,
+                    kind: Kind::Review { changed_lines: 0 },
                     label: None,
                     at: stamp.at,
                     base: &changed,
@@ -372,7 +372,6 @@ fn a_run_that_read_a_stretch_of_commits_is_not_the_last_review() {
                     since: None,
                     grouping: "g",
                     rules_version: "",
-                    changed_lines: None,
                 },
                 &[],
             )

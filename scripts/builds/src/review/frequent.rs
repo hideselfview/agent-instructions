@@ -11,8 +11,9 @@ use rusqlite::Connection;
 
 use crate::fail::Result;
 use crate::review::check::{clause_in, squash};
-use crate::review::record;
+use crate::review::record::{self, FirstReview};
 use crate::review::rules::Rule;
+use crate::text::note;
 
 /// How many of the branches opened last the list counts.
 pub const BRANCHES: usize = 30;
@@ -41,27 +42,44 @@ pub struct Frequent {
     pub weight: f64,
 }
 
-/// The kinds of the findings of <reviews> (each first review's rule and
-/// clause pairs, newest branch first) with the most weight, heaviest first.
-/// A finding whose clause no paragraph of its rule in <rules> holds counts
-/// nowhere: its rule no longer has that text.
-pub fn frequent(reviews: &[Vec<(String, String)>], rules: &[Rule]) -> Vec<Frequent> {
+/// What `frequent` counted: the kinds with the most weight, heaviest first,
+/// and a line for each finding it left out of the counts, saying why.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Counted {
+    pub kinds: Vec<Frequent>,
+    pub left_out: Vec<String>,
+}
+
+/// Counts the kinds of the confirmed findings of <reviews>, the first reviews
+/// of the branches opened last, newest first. `frequent` leaves out a
+/// finding whose rule is not among <rules>, or whose clause no paragraph of
+/// its rule holds, since the rule no longer has that text.
+pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
     let mut found: Vec<(String, Frequent)> = Vec::new();
-    for (age, findings) in reviews.iter().enumerate() {
+    let mut left_out = Vec::new();
+    for (age, review) in reviews.iter().enumerate() {
         let weight = 0.5_f64.powf(age as f64 / HALF_LIFE);
-        for (slug, clause) in findings {
-            let Some(rule) = rules.iter().find(|rule| &rule.slug == slug) else {
+        for finding in review.calls.iter().flat_map(|call| &call.confirmed) {
+            let Some(rule) = rules.iter().find(|rule| rule.slug == finding.rule) else {
+                left_out.push(format!(
+                    "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding {}, whose rule {} the rules checkout no longer holds",
+                    finding.id, finding.rule
+                ));
                 continue;
             };
             let Some(piece) = pieces(rule.body())
                 .into_iter()
-                .find(|piece| clause_in(clause, piece))
+                .find(|piece| clause_in(&finding.clause, piece))
             else {
+                left_out.push(format!(
+                    "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding {}, whose clause no paragraph of rule {} holds",
+                    finding.id, finding.rule
+                ));
                 continue;
             };
             match found
                 .iter_mut()
-                .find(|(held, kind)| kind.rule == *slug && *held == piece)
+                .find(|(held, kind)| kind.rule == finding.rule && *held == piece)
             {
                 Some((_, kind)) => {
                     kind.findings += 1;
@@ -70,7 +88,7 @@ pub fn frequent(reviews: &[Vec<(String, String)>], rules: &[Rule]) -> Vec<Freque
                 None => found.push((
                     piece.clone(),
                     Frequent {
-                        rule: slug.clone(),
+                        rule: finding.rule.clone(),
                         text: opening(&piece),
                         findings: 1,
                         weight,
@@ -86,7 +104,7 @@ pub fn frequent(reviews: &[Vec<(String, String)>], rules: &[Rule]) -> Vec<Freque
         .collect();
     kinds.sort_by(|a, b| b.weight.total_cmp(&a.weight));
     kinds.truncate(SHOWN);
-    kinds
+    Counted { kinds, left_out }
 }
 
 /// The paragraphs and top-level list items of a rule's <body>, without its
@@ -141,7 +159,12 @@ fn opening(piece: &str) -> String {
 /// the coordinator confirmed most often on the first reviews of <project>'s
 /// recent branches.
 pub fn section(db: &Connection, project: &str, rules: &[Rule]) -> Result<String> {
-    let kinds = frequent(&record::confirmed_on_first_reviews(db, BRANCHES)?, rules);
+    let reviews = record::first_reviews(db)?;
+    let newest: Vec<&FirstReview> = reviews.iter().rev().take(BRANCHES).collect();
+    let Counted { kinds, left_out } = frequent(&newest, rules);
+    for why in left_out {
+        note(why);
+    }
     let mut out = String::from("\n\nWHAT REVIEWS CONFIRM MOST OFTEN\n\n");
     if kinds.is_empty() {
         out.push_str(&format!(

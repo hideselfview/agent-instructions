@@ -50,7 +50,7 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
 fn run<'a>(landing: Option<i64>, at: i64, base: &'a str, head: &'a str) -> NewRun<'a> {
     NewRun {
         landing,
-        kind: Kind::Review,
+        kind: Kind::Review { changed_lines: 0 },
         label: None,
         at,
         base,
@@ -58,7 +58,6 @@ fn run<'a>(landing: Option<i64>, at: i64, base: &'a str, head: &'a str) -> NewRu
         since: None,
         grouping: "g",
         rules_version: "",
-        changed_lines: None,
     }
 }
 

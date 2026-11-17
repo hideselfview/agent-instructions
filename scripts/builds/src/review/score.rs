@@ -520,40 +520,37 @@ pub fn first_reviews_report(reviews: &[record::FirstReview]) -> String {
     let mut out = String::from(
         "\nfirst reviews: confirmed findings per 100 changed lines on each branch's first review, by day and group\n",
     );
-    let counted: Vec<&record::FirstReview> = reviews
+    let counted: Vec<(&record::FirstReview, i64)> = reviews
         .iter()
-        .filter(|review| review.changed_lines.is_some())
+        .filter_map(|review| review.changed_lines.map(|lines| (review, lines)))
         .collect();
     let mut days: Vec<String> = counted
         .iter()
-        .map(|review| crate::text::local_day(review.at))
+        .map(|(review, _)| crate::text::local_day(review.at))
         .collect();
     days.dedup();
     for day in days {
-        let of_day: Vec<&&record::FirstReview> = counted
+        let of_day: Vec<&(&record::FirstReview, i64)> = counted
             .iter()
-            .filter(|review| crate::text::local_day(review.at) == day)
+            .filter(|(review, _)| crate::text::local_day(review.at) == day)
             .collect();
-        let lines: i64 = of_day
-            .iter()
-            .filter_map(|review| review.changed_lines)
-            .sum();
+        let lines: i64 = of_day.iter().map(|(_, lines)| lines).sum();
         out.push_str(&format!(
             "  {day}: {}, {lines} changed lines\n",
             crate::text::counted(of_day.len(), "branch", "branches")
         ));
         let mut groups: Vec<&str> = of_day
             .iter()
-            .flat_map(|review| review.groups.iter().map(|(group, _)| group.as_str()))
+            .flat_map(|(review, _)| review.calls.iter().map(|call| call.group.as_str()))
             .collect();
         groups.sort();
         groups.dedup();
         for group in groups {
             let (mut findings, mut group_lines) = (0, 0);
-            for review in &of_day {
-                if let Some((_, confirmed)) = review.groups.iter().find(|(g, _)| g == group) {
-                    findings += confirmed;
-                    group_lines += review.changed_lines.unwrap_or(0);
+            for (review, lines) in &of_day {
+                if let Some(call) = review.calls.iter().find(|call| call.group == group) {
+                    findings += call.confirmed.len();
+                    group_lines += lines;
                 }
             }
             let rate = match group_lines {

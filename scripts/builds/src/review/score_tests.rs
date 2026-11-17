@@ -420,7 +420,7 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_one_as_confirmed() {
     };
     let new_run = record::NewRun {
         landing: Some(landing),
-        kind: Kind::Review,
+        kind: Kind::Review { changed_lines: 0 },
         label: None,
         at: 6,
         base: "b",
@@ -428,7 +428,6 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_one_as_confirmed() {
         since: None,
         grouping: "g",
         rules_version: "",
-        changed_lines: None,
     };
     let (_, ids) = record::add_run(&db, &new_run, std::slice::from_ref(&call)).unwrap();
     let (wrong, gone) = (ids[0][0], ids[0][1]);
@@ -459,11 +458,24 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_one_as_confirmed() {
     );
 }
 
-fn first(at: i64, changed_lines: Option<i64>, groups: &[(&str, usize)]) -> record::FirstReview {
+fn first(at: i64, changed_lines: Option<i64>, groups: &[(&str, &[i64])]) -> record::FirstReview {
     record::FirstReview {
         at,
         changed_lines,
-        groups: groups.iter().map(|(g, n)| (g.to_string(), *n)).collect(),
+        calls: groups
+            .iter()
+            .map(|(group, ids)| record::FirstCall {
+                group: group.to_string(),
+                confirmed: ids
+                    .iter()
+                    .map(|id| record::Confirmed {
+                        id: *id,
+                        rule: "r".to_string(),
+                        clause: "c".to_string(),
+                    })
+                    .collect(),
+            })
+            .collect(),
     }
 }
 
@@ -471,10 +483,10 @@ fn first(at: i64, changed_lines: Option<i64>, groups: &[(&str, usize)]) -> recor
 fn first_reviews_show_confirmed_findings_per_100_changed_lines_by_day_and_group() {
     const DAY: i64 = 24 * 60 * 60;
     let text = first_reviews_report(&[
-        first(NOON, Some(200), &[("words", 3), ("code", 1)]),
-        first(NOON + 60, Some(300), &[("words", 2)]),
-        first(NOON + DAY, Some(50), &[("words", 0)]),
-        first(NOON + DAY, None, &[("words", 9)]),
+        first(NOON, Some(200), &[("words", &[1, 2, 3]), ("code", &[4])]),
+        first(NOON + 60, Some(300), &[("words", &[5, 6])]),
+        first(NOON + DAY, Some(50), &[("words", &[])]),
+        first(NOON + DAY, None, &[("words", &[7])]),
     ]);
     let today = crate::text::local_day(NOON);
     let tomorrow = crate::text::local_day(NOON + DAY);
@@ -524,7 +536,7 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
     };
     let new_run = record::NewRun {
         landing: Some(landing),
-        kind: Kind::Review,
+        kind: Kind::Review { changed_lines: 40 },
         label: None,
         at: NOON,
         base: "b",
@@ -532,7 +544,6 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
         since: None,
         grouping: "g",
         rules_version: "",
-        changed_lines: Some(40),
     };
     let calls = [
         call("words", vec![raised.clone(), raised.clone()]),
@@ -543,7 +554,7 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
     record::settle(&db, ids[0][1], "dropped", "wrong", 7, "me").unwrap();
     let later = record::NewRun {
         head: "h2",
-        changed_lines: Some(5),
+        kind: Kind::Review { changed_lines: 5 },
         ..new_run
     };
     let (_, later_ids) =
@@ -551,6 +562,10 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
     record::settle(&db, later_ids[0][0], "confirmed", "real", 8, "me").unwrap();
     assert_eq!(
         record::first_reviews(&db).unwrap(),
-        [first(NOON, Some(40), &[("words", 1), ("code", 0)])]
+        [first(
+            NOON,
+            Some(40),
+            &[("words", &[ids[0][0]]), ("code", &[])]
+        )]
     );
 }

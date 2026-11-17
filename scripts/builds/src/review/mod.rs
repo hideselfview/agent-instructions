@@ -90,9 +90,14 @@ fn rules_root(args: &Args) -> Result<PathBuf> {
 /// The checkout `install.sh` links at ~/.codex/agent-instructions.
 pub fn default_rules_root() -> Result<PathBuf> {
     match std::env::var_os("HOME") {
-        Some(home) => Ok(PathBuf::from(home).join(".codex/agent-instructions")),
+        Some(home) => Ok(installed_rules_root(Path::new(&home))),
         None => fail!("HOME is not set; name the checkout with --rules-root"),
     }
+}
+
+/// The checkout `install.sh` links at .codex/agent-instructions in <home>.
+pub fn installed_rules_root(home: &Path) -> PathBuf {
+    home.join(".codex/agent-instructions")
 }
 
 /// The section `builds help workflow` ends with: the kinds of findings the
@@ -107,7 +112,7 @@ pub fn workflow_section(places: &crate::places::Places, cwd: &Path) -> Result<St
         return Ok("\n\nWHAT REVIEWS CONFIRM MOST OFTEN\n\nRun `builds help workflow` in a repo of a project with lists, and this\nsection lists the kinds of findings the coordinator confirms most often\non its reviews.\n".to_string());
     };
     let conn = Store::named(places, &project)?.open_existing()?;
-    let rules = rules::load(&default_rules_root()?, Some(&project))?;
+    let rules = rules::load(&installed_rules_root(&places.home), Some(&project))?;
     frequent::section(&conn, &project, &rules)
 }
 
@@ -301,7 +306,9 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                     db,
                     &record::NewRun {
                         landing: Some(landing),
-                        kind: Kind::Review,
+                        kind: Kind::Review {
+                            changed_lines: check::changed_lines(&ask.diff.text),
+                        },
                         label: None,
                         at: stamp.at,
                         base: &ask.diff.base,
@@ -309,7 +316,6 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                         since: ask.since,
                         grouping: &material.grouping,
                         rules_version: &run::rules_version(inputs.root),
-                        changed_lines: Some(check::changed_lines(&ask.diff.text)),
                     },
                     &asked.calls,
                 )?;

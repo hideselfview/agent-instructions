@@ -304,7 +304,6 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
                             since: None,
                             grouping: &material.grouping,
                             rules_version: &run::rules_version(inputs.root),
-                            changed_lines: None,
                         },
                         calls,
                     )?;

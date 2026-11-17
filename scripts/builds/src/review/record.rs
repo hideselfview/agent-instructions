@@ -74,7 +74,10 @@ pub struct NewCall {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    Review,
+    /// A landing's review, with how many lines its diff adds and removes.
+    Review {
+        changed_lines: i64,
+    },
     Replay,
     Audit,
 }
@@ -82,7 +85,7 @@ pub enum Kind {
 impl Kind {
     pub fn word(self) -> &'static str {
         match self {
-            Kind::Review => "review",
+            Kind::Review { .. } => "review",
             Kind::Replay => "replay",
             Kind::Audit => "audit",
         }
@@ -260,9 +263,6 @@ pub struct NewRun<'a> {
     pub grouping: &'a str,
     /// The commit of the rules checkout the run read.
     pub rules_version: &'a str,
-    /// How many lines a review run's diff adds and removes; None for a replay
-    /// or an audit.
-    pub changed_lines: Option<i64>,
 }
 
 /// The hash <text> is kept under: its FNV-1a hash and its length.
@@ -290,9 +290,13 @@ fn keep_text(db: &Connection, text: &str) -> Result<String> {
 /// finding a call closes. Returns the run's id and, per call in order, the
 /// ids its findings got.
 pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64, Vec<Vec<i64>>)> {
+    let changed_lines = match run.kind {
+        Kind::Review { changed_lines } => Some(changed_lines),
+        Kind::Replay | Kind::Audit => None,
+    };
     db.execute(
         "INSERT INTO review_run (landing_id, kind, label, at, base, head, since_run, grouping, rules_version, changed_lines) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.since, run.grouping, run.rules_version, run.changed_lines],
+        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.since, run.grouping, run.rules_version, changed_lines],
     )
     .sql()?;
     let run_id = db.last_insert_rowid();
@@ -694,13 +698,29 @@ pub fn audited_landings(db: &Connection) -> Result<Vec<i64>> {
 }
 
 /// A branch's first review run: when it ran, how many lines its diff adds and
-/// removes (None for a run from before builds counted them), and each group
-/// that answered, with how many of its findings the coordinator confirmed.
+/// removes (None for a run from before builds counted them), and each call
+/// that answered, with the findings of it that the coordinator confirmed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FirstReview {
     pub at: i64,
     pub changed_lines: Option<i64>,
-    pub groups: Vec<(String, usize)>,
+    pub calls: Vec<FirstCall>,
+}
+
+/// A call of a first review that answered: its group and the findings of it
+/// that the coordinator confirmed, in the order raised.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FirstCall {
+    pub group: String,
+    pub confirmed: Vec<Confirmed>,
+}
+
+/// A confirmed finding as a first review's count of it needs it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Confirmed {
+    pub id: i64,
+    pub rule: String,
+    pub clause: String,
 }
 
 /// The first review run of each branch, oldest first. A finding counts as its
@@ -708,14 +728,13 @@ pub struct FirstReview {
 pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
     let mut statement = db
         .prepare(
-            "SELECT r.id, r.at, r.changed_lines, c.group_name,
-                    (SELECT COUNT(*) FROM review_finding f WHERE f.call_id = c.id
-                        AND f.settled = 'confirmed'
-                        AND f.id NOT IN (SELECT finding_id FROM review_settle_again))
-                FROM review_run r JOIN review_call c ON c.run_id = r.id
+            "SELECT r.id, r.at, r.changed_lines, c.id, c.group_name, f.id, f.rule, f.clause
+                FROM review_run r
+                LEFT JOIN review_call c ON c.run_id = r.id AND c.failure IS NULL
+                LEFT JOIN review_finding f ON f.call_id = c.id AND f.settled = 'confirmed'
+                    AND f.id NOT IN (SELECT finding_id FROM review_settle_again)
                 WHERE r.id IN (SELECT MIN(id) FROM review_run WHERE kind = 'review' GROUP BY landing_id)
-                    AND c.failure IS NULL
-                ORDER BY r.id, c.id",
+                ORDER BY r.id, c.id, f.id",
         )
         .sql()?;
     let rows = statement
@@ -724,74 +743,50 @@ pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
                 row.get::<_, i64>(0)?,
                 row.get::<_, i64>(1)?,
                 row.get::<_, Option<i64>>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, i64>(4)?,
+                row.get::<_, Option<i64>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<i64>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
             ))
         })
         .sql()?;
     let mut reviews: Vec<(i64, FirstReview)> = Vec::new();
+    let mut last_call: Option<i64> = None;
     for row in rows {
-        let (run, at, changed_lines, group, confirmed) = row.sql()?;
+        let (run, at, changed_lines, call, group, finding, rule, clause) = row.sql()?;
         if reviews.last().is_none_or(|(id, _)| *id != run) {
             reviews.push((
                 run,
                 FirstReview {
                     at,
                     changed_lines,
-                    groups: Vec::new(),
+                    calls: Vec::new(),
                 },
             ));
+            last_call = None;
         }
         let (_, review) = reviews.last_mut().expect("pushed above");
-        review.groups.push((group, confirmed as usize));
-    }
-    Ok(reviews.into_iter().map(|(_, review)| review).collect())
-}
-
-/// The rule and clause of each confirmed finding on the first review run of
-/// each of the <last> branches opened last, newest branch first. A branch
-/// whose first run has no confirmed finding gives an empty list. A finding
-/// counts as its last settle, so the list leaves out a finding settled again
-/// as dropped.
-pub fn confirmed_on_first_reviews(
-    db: &Connection,
-    last: usize,
-) -> Result<Vec<Vec<(String, String)>>> {
-    let mut statement = db
-        .prepare(
-            "SELECT r.id, f.rule, f.clause
-                FROM (SELECT MIN(id) AS id FROM review_run WHERE kind = 'review'
-                    GROUP BY landing_id ORDER BY id DESC LIMIT ?1) r
-                LEFT JOIN review_call c ON c.run_id = r.id
-                LEFT JOIN review_finding f ON f.call_id = c.id AND f.settled = 'confirmed'
-                    AND f.id NOT IN (SELECT finding_id FROM review_settle_again)
-                ORDER BY r.id DESC, f.id",
-        )
-        .sql()?;
-    let rows = statement
-        .query_map(params![last as i64], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-            ))
-        })
-        .sql()?;
-    let mut reviews: Vec<(i64, Vec<(String, String)>)> = Vec::new();
-    for row in rows {
-        let (run, rule, clause) = row.sql()?;
-        if reviews.last().is_none_or(|(id, _)| *id != run) {
-            reviews.push((run, Vec::new()));
+        let (Some(call), Some(group)) = (call, group) else {
+            continue;
+        };
+        if last_call != Some(call) {
+            review.calls.push(FirstCall {
+                group,
+                confirmed: Vec::new(),
+            });
+            last_call = Some(call);
         }
-        if let (Some(rule), Some(clause)) = (rule, clause) {
-            reviews
+        if let (Some(id), Some(rule), Some(clause)) = (finding, rule, clause) {
+            review
+                .calls
                 .last_mut()
                 .expect("pushed above")
-                .1
-                .push((rule, clause));
+                .confirmed
+                .push(Confirmed { id, rule, clause });
         }
     }
-    Ok(reviews.into_iter().map(|(_, findings)| findings).collect())
+    Ok(reviews.into_iter().map(|(_, review)| review).collect())
 }
 
 /// Moves a store's review tables from before reviews ran before landing to

@@ -2492,7 +2492,7 @@ fn a_store_from_before_code_left_moves_and_records_a_second_settle() {
     };
     let run = crate::review::record::NewRun {
         landing: Some(landing),
-        kind: crate::review::record::Kind::Review,
+        kind: crate::review::record::Kind::Review { changed_lines: 0 },
         label: None,
         at: 6,
         base: "b",
@@ -2500,7 +2500,6 @@ fn a_store_from_before_code_left_moves_and_records_a_second_settle() {
         since: None,
         grouping: "g",
         rules_version: "",
-        changed_lines: None,
     };
     let (_, ids) = crate::review::record::add_run(&conn, &run, &[call]).unwrap();
     for id in &ids[0] {

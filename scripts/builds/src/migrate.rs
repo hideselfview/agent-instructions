@@ -804,16 +804,8 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             {
                 return Ok(None);
             }
-            let diff = crate::review::commits::git_text(
-                &clone,
-                &[
-                    "diff",
-                    "--no-color",
-                    "--no-ext-diff",
-                    &format!("{base}...{head}"),
-                ],
-            )?;
-            Ok(Some(crate::review::check::changed_lines(&diff)))
+            let diff = crate::review::run::diff_between(&clone, base, head)?;
+            Ok(Some(crate::review::check::changed_lines(&diff.text)))
         })?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;

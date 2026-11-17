@@ -53,7 +53,7 @@ fn store(branches: &[Vec<Vec<&str>>]) -> rusqlite::Connection {
         for clauses in runs {
             let run = NewRun {
                 landing: Some(landing),
-                kind: Kind::Review,
+                kind: Kind::Review { changed_lines: 0 },
                 label: None,
                 at: at as i64,
                 base: "base",
@@ -61,7 +61,6 @@ fn store(branches: &[Vec<Vec<&str>>]) -> rusqlite::Connection {
                 since: None,
                 grouping: "g",
                 rules_version: "",
-                changed_lines: None,
             };
             let (_, ids) = add_run(&db, &run, &[call(clauses)]).unwrap();
             for id in ids.concat() {
@@ -109,31 +108,60 @@ fn a_kind_that_comes_back_on_a_recent_first_review_is_shown_again() {
     assert!(text.contains("Literal."), "{text}");
 }
 
+/// A first review whose one call confirmed <findings>, each a rule and a
+/// clause, numbered from 1.
+fn review(findings: &[(&str, &str)]) -> FirstReview {
+    FirstReview {
+        at: 0,
+        changed_lines: Some(1),
+        calls: vec![record::FirstCall {
+            group: "g".to_string(),
+            confirmed: findings
+                .iter()
+                .enumerate()
+                .map(|(at, (rule, clause))| record::Confirmed {
+                    id: at as i64 + 1,
+                    rule: rule.to_string(),
+                    clause: clause.to_string(),
+                })
+                .collect(),
+        }],
+    }
+}
+
 #[test]
 fn a_kind_is_the_paragraph_or_list_item_that_holds_the_clause() {
-    let reviews = vec![vec![
-        ("plain".to_string(), "Name what the code does.".to_string()),
-        ("plain".to_string(), "a clause no rule holds".to_string()),
-        ("gone".to_string(), "Name the actor".to_string()),
-    ]];
-    let found = frequent(&reviews, &rules());
-    assert_eq!(found.len(), 1, "{found:?}");
-    assert_eq!(found[0].text, "Name what the code does.");
-    assert_eq!(found[0].findings, 1);
+    let reviews = [review(&[
+        ("plain", "Name what the code does."),
+        ("plain", "a clause no rule holds"),
+        ("gone", "Name the actor"),
+    ])];
+    let counted = frequent(&reviews.iter().collect::<Vec<_>>(), &rules());
+    assert_eq!(counted.kinds.len(), 1, "{counted:?}");
+    assert_eq!(counted.kinds[0].text, "Name what the code does.");
+    assert_eq!(counted.kinds[0].findings, 1);
+    assert_eq!(
+        counted.left_out,
+        [
+            "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding 2, whose clause no paragraph of rule plain holds",
+            "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding 3, whose rule gone the rules checkout no longer holds",
+        ]
+    );
 }
 
 #[test]
 fn newer_first_reviews_count_more() {
-    let old = vec![("plain".to_string(), "Name the actor".to_string()); 2];
-    let new = vec![("plain".to_string(), "Use the words".to_string()); 1];
-    let mut reviews = vec![new];
-    reviews.extend(vec![Vec::new(); 2 * HALF_LIFE as usize - 1]);
-    reviews.push(old);
-    let found = frequent(&reviews, &rules());
-    assert_eq!(found[0].text, "Literal. Use the words for what happens.");
+    let mut reviews = vec![review(&[("plain", "Use the words")])];
+    reviews.extend(vec![review(&[]); 2 * HALF_LIFE as usize - 1]);
+    reviews.push(review(&[("plain", "Name the actor"); 2]));
+    let counted = frequent(&reviews.iter().collect::<Vec<_>>(), &rules());
     assert_eq!(
-        found.len(),
+        counted.kinds[0].text,
+        "Literal. Use the words for what happens."
+    );
+    assert_eq!(
+        counted.kinds.len(),
         1,
-        "frequent leaves out a kind whose findings weigh less than one: {found:?}"
+        "frequent leaves out a kind whose findings weigh less than one: {counted:?}"
     );
 }

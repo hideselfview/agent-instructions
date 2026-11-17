@@ -1699,10 +1699,10 @@ agent-instructions and run `review replay --rules-root` on it.
                               the same per rule; then what audits and
                               replays cost. A call made before builds
                               recorded cost counts as "cost not recorded".
-                              Last, per day and per group, the confirmed
-                              findings per 100 changed lines on each branch's
-                              first review, which shows whether agents' first
-                              drafts improve. A group's rate counts only the
+                              Last, the command prints, per day and per group,
+                              the confirmed findings per 100 changed lines on
+                              each branch's first review, which shows whether
+                              agents' first drafts improve. A group's rate counts only the
                               branches whose first review asked it, and the
                               rates leave out a first review from before
                               builds counted its changed lines
