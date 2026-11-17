@@ -226,13 +226,13 @@ pub fn show_part(
     out.join("\n") + "\n"
 }
 
-/// <count> new check words, drawn from the system's random source: each three
-/// syllables of a consonant and a vowel.
-pub fn new_words(count: usize) -> Result<Vec<String>> {
+/// A part's `WORDS_PER_PART` new check words, drawn from the system's random
+/// source: each three syllables of a consonant and a vowel.
+pub fn new_words() -> Result<Vec<String>> {
     use std::io::Read;
     const CONSONANTS: &[u8] = b"bdfgklmnprstvz";
     const VOWELS: &[u8] = b"aeiou";
-    let mut bytes = vec![0u8; count * 6];
+    let mut bytes = vec![0u8; WORDS_PER_PART * 6];
     std::fs::File::open("/dev/urandom")
         .and_then(|mut file| file.read_exact(&mut bytes))
         .context(|| "reading /dev/urandom".to_string())?;

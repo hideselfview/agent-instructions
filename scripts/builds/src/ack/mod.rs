@@ -270,7 +270,7 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
     let parts = text.parts(&changed);
     let mut words = Vec::new();
     for _ in &parts {
-        words.push(new_words(WORDS_PER_PART)?);
+        words.push(new_words()?);
     }
     let version = text.version();
     let mut db = db::open(&agent.store.database(), Make::Never)?;
@@ -470,7 +470,6 @@ pub fn dashboard_json(places: &Places) -> String {
                             "project": store.project,
                             "acks": acks.iter().map(|ack| serde_json::json!({
                                 "who": ack.who,
-                                "session": ack.session,
                                 "version": ack.version,
                                 "at": ack.at,
                             })).collect::<Vec<_>>(),

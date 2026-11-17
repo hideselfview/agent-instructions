@@ -143,12 +143,12 @@ fn a_part_shows_its_words_at_its_start_middle_and_end() {
 
 #[test]
 fn new_words_differ_on_each_draw_and_hold_only_lowercase_letters() {
-    let first = new_words(6).unwrap();
-    assert_eq!(first.len(), 6);
+    let first = new_words().unwrap();
+    assert_eq!(first.len(), WORDS_PER_PART);
     assert!(
         first
             .iter()
             .all(|word| word.len() == 6 && word.chars().all(|c| c.is_ascii_lowercase()))
     );
-    assert_ne!(first, new_words(6).unwrap());
+    assert_ne!(first, new_words().unwrap());
 }

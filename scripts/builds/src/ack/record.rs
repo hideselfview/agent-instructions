@@ -6,16 +6,23 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::db::Sql;
 use crate::fail::Result;
 
-/// An agent's last acknowledgement.
+/// An agent's last acknowledgement, as the gate reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ack {
-    pub session: String,
-    pub who: String,
     pub version: String,
     /// Seconds since 1970.
     pub at: i64,
     /// Each section the text held, by name, with its hash.
     pub sections: Vec<(String, String)>,
+}
+
+/// An agent's last acknowledgement, as the dashboard lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentAck {
+    pub who: String,
+    pub version: String,
+    /// Seconds since 1970.
+    pub at: i64,
 }
 
 /// The reading an agent started with `builds ack`.
@@ -48,8 +55,6 @@ pub fn last(db: &Connection, session: &str, who: &str) -> Result<Option<Ack>> {
         .collect::<rusqlite::Result<Vec<(String, String)>>>()
         .sql()?;
     Ok(Some(Ack {
-        session: session.to_string(),
-        who: who.to_string(),
         version,
         at,
         sections,
@@ -176,36 +181,33 @@ pub fn acknowledge(
 }
 
 /// Deletes every acknowledgement and reading of <session>, after Claude Code
-/// compacted it. Returns how many acknowledgements it deleted.
-pub fn forget_session(db: &Connection, session: &str) -> Result<usize> {
-    let deleted = db
-        .execute("DELETE FROM ack WHERE session = ?1", params![session])
+/// compacted it.
+pub fn forget_session(db: &Connection, session: &str) -> Result<()> {
+    db.execute("DELETE FROM ack WHERE session = ?1", params![session])
         .sql()?;
     db.execute(
         "DELETE FROM ack_reading WHERE session = ?1",
         params![session],
     )
     .sql()?;
-    Ok(deleted)
+    Ok(())
 }
 
-/// Every agent's last acknowledgement, newest first, without the sections.
-pub fn all(db: &Connection) -> Result<Vec<Ack>> {
+/// Every agent's last acknowledgement, newest first.
+pub fn all(db: &Connection) -> Result<Vec<AgentAck>> {
     let mut statement = db
-        .prepare("SELECT session, who, version, at FROM ack ORDER BY at DESC, who")
+        .prepare("SELECT who, version, at FROM ack ORDER BY at DESC, who")
         .sql()?;
     statement
         .query_map([], |row| {
-            Ok(Ack {
-                session: row.get(0)?,
-                who: row.get(1)?,
-                version: row.get(2)?,
-                at: row.get(3)?,
-                sections: Vec::new(),
+            Ok(AgentAck {
+                who: row.get(0)?,
+                version: row.get(1)?,
+                at: row.get(2)?,
             })
         })
         .sql()?
-        .collect::<rusqlite::Result<Vec<Ack>>>()
+        .collect::<rusqlite::Result<Vec<AgentAck>>>()
         .sql()
 }
 

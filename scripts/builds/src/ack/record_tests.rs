@@ -50,8 +50,6 @@ fn an_acknowledgement_replaces_the_last_one_and_ends_the_reading() {
     assert_eq!(
         last(&db, "s1", "agent").unwrap(),
         Some(Ack {
-            session: "s1".to_string(),
-            who: "agent".to_string(),
             version: "v2".to_string(),
             at: 12,
             sections: sections(),
@@ -77,7 +75,8 @@ fn forgetting_a_session_deletes_its_acknowledgements_and_readings_only() {
     acknowledge(&db, "s1", "agent", "v1", 6, &[]).unwrap();
     start_reading(&db, "s1", "agent", "v1", 8, &words(&[&["ka"]])).unwrap();
     acknowledge(&db, "s2", "elsewhere", "v1", 9, &[]).unwrap();
-    assert_eq!(forget_session(&db, "s1").unwrap(), 2);
+    forget_session(&db, "s1").unwrap();
+    assert_eq!(last(&db, "s1", "agent").unwrap(), None);
     assert_eq!(last(&db, "s1", "coordinator").unwrap(), None);
     assert_eq!(reading(&db, "s1", "agent").unwrap(), None);
     assert!(last(&db, "s2", "elsewhere").unwrap().is_some());
