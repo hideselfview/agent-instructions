@@ -24,14 +24,14 @@
 //! `claude -p`. The run
 //! records the net change it read, with the patch ids of its commits, under
 //! the change's KEY, then says what `builds land` would say of the branch's
-//! commits (`landing.rs`), and exits 1 unless land would take them. A KEY
-//! reviewed already gets no second review of a diff: the run asks only the
-//! groups that gave the review no answer, over the diff they did not answer,
-//! and reads in a new run only how the branch's net change now differs from
-//! the net change the review read last (`run::diff_since`): the lines the
-//! branch adds or removes that it did not then, fix commits included, and the
-//! lines it no longer changes, without the commits a rebase brings in from
-//! the base. `landing::Coverage` says what the review read, for this run and
+//! commits (`landing.rs`), and exits 1 unless land would take them. The
+//! change's landing names the run of its last review, and a review shows the
+//! changes since the last review, and nothing else (`run::diff_since`): fix
+//! commits are part of them, and main's own commits that a rebase brings in
+//! are not. A run on a KEY reviewed already asks the groups that gave the
+//! review no answer, over the diff they did not answer, and reads the
+//! changes since the last review in a new run, which becomes the last
+//! review. `landing::Coverage` says what the review read, for this run and
 //! for `builds land`. The run refuses when the review lacks nothing.
 //!
 //! Every call records its setup (its group's model and prompt), its tokens and
@@ -219,6 +219,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             groups: material.group_names(&diff.changed),
             diff,
             since: None,
+            last_review: true,
             commits: commits.clone(),
             note: None,
         }],
@@ -271,6 +272,9 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                     },
                     &asked.calls,
                 )?;
+                if ask.last_review {
+                    record::record_reviewed(db, landing, run_id)?;
+                }
                 runs.push((
                     run_id,
                     record::calls_of_run(db, run_id)?,
@@ -328,8 +332,12 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
 /// change it read, and the groups it asks.
 struct Ask {
     diff: run::Diff,
-    /// The earlier run whose net change the diff is the difference from.
+    /// The last review whose changes since the diff holds.
     since: Option<i64>,
+    /// Whether the run reads the branch's net change as it is now, so the
+    /// landing records the run as its last review. A run that asks again the
+    /// groups that gave an earlier run no answer reads that run's diff.
+    last_review: bool,
     commits: Vec<commits::Commit>,
     groups: Vec<String>,
     /// What the run asked, for a run of a change that has a review already.
@@ -339,11 +347,10 @@ struct Ask {
 /// The runs a change whose review <landing> holds gets now, so that the
 /// review reads <diff>, the branch's net change of <commits>: for each diff a
 /// run read, the groups asked over it that gave no answer over it, asked over
-/// that diff again; and, when the net change differs from the net change the
-/// review read last on a path a group covers, the groups that cover a path
-/// where it differs, asked over that difference (`run::diff_since`). No
-/// reviewer reads a diff twice. Fails with why builds review reviews no change
-/// twice when the review lacks nothing.
+/// that diff again; and, when the changes since the last review touch a path
+/// a group covers, the groups that cover a changed path, asked over those
+/// changes (`run::diff_since`). No reviewer reads a diff twice. Fails with why
+/// builds review reviews no change twice when the review lacks nothing.
 fn later_asks(
     conn: &rusqlite::Connection,
     inputs: &Inputs,
@@ -362,6 +369,7 @@ fn later_asks(
                 Ok((run.base.clone(), run.head.clone()))
             })?,
             since: run.since,
+            last_review: false,
             commits: coverage.commits_of(run.id)?.to_vec(),
             note: Some(format!(
                 "asked only the groups that gave run {} no answer, over the diff it read: {}\n",
@@ -371,9 +379,7 @@ fn later_asks(
             groups: missing,
         });
     }
-    let last = coverage
-        .last_read()
-        .expect("builds review opens every landing with its review run");
+    let last = &coverage.last_review;
     let mut since = run::diff_since(
         inputs.worktree,
         &last.base,
@@ -388,20 +394,21 @@ fn later_asks(
     if !groups.is_empty() {
         asks.push(Ask {
             note: Some(format!(
-                "read only how the branch's net change differs from the net change run {} read over {}...{}\n",
+                "read only the changes since the last review, run {} over {}...{}\n",
                 last.id,
                 short(&last.base),
                 short(&last.head)
             )),
             diff: since,
             since: Some(last.id),
+            last_review: true,
             commits: commits.to_vec(),
             groups,
         });
     }
     if asks.is_empty() {
         fail!(
-            "{}\nrun {} of review landing {landing} ({}) read the branch's net change over {}...{}, every group answered, and the branch's net change differs from it on no path a group's rules cover, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
+            "{}\nrun {} of review landing {landing} ({}) is the last review, over {}...{}; every group answered, and nothing changed since the last review on a path a group's rules cover, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
             landing::ONE_REVIEW,
             last.id,
             inputs.key,
@@ -595,9 +602,13 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
     let (_, conn) = store_of(tool, &args)?;
     let landing = record::landing(&conn, id)?;
     println!(
-        "landing {id}: {} ({}), {}",
+        "landing {id}: {} ({}), last review: {}, {}",
         landing.key,
         landing.repo,
+        match landing.reviewed_run {
+            Some(run) => format!("run {run}"),
+            None => "none".to_string(),
+        },
         match landing.landed_run {
             Some(run) => format!("landed with run {run}"),
             None => "not landed".to_string(),
@@ -614,7 +625,7 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
     {
         match since {
             Some(since) => println!(
-                "{kind} {run} over {}...{}, read as how it differs from the net change run {since} read",
+                "{kind} {run} over {}...{}, read as the changes since the last review, run {since}",
                 short(&base),
                 short(&head)
             ),

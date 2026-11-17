@@ -138,10 +138,11 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
     })
 }
 
-/// How the net change of <head> past <base> (from their common ancestor), in
-/// <worktree>'s repo, differs from the net change from <read_base> to
-/// <read_head>, which an earlier run read: the lines the branch now adds or
-/// removes that it did not then, and the lines it no longer changes.
+/// The changes since the last review: how the net change of <head> past
+/// <base> (from their common ancestor), in <worktree>'s repo, differs from
+/// the net change from <read_base> to <read_head>, which the last review
+/// read. They are the lines the branch now adds or removes that it did not
+/// then, and the lines it no longer changes, and nothing else.
 ///
 /// builds merges the net change the run read onto the common ancestor in a
 /// tree of git's own (`git merge-tree`, which checks nothing out), taking
@@ -225,8 +226,8 @@ pub fn diff_since(
 }
 
 /// The diff <run> read, in <worktree>'s repo, from a copy of its head's
-/// files: its whole net change, or how its net change differs from the net
-/// change of the earlier run it names, one of <runs>. <net_change> gives the
+/// files: its whole net change, or the changes since the last review it
+/// names, one of <runs>. <net_change> gives the
 /// base and head of a run's net change in that repo.
 pub fn diff_of_run(
     worktree: &Path,

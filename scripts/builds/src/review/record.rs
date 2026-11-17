@@ -1,8 +1,9 @@
 //! What reviews wrote down, in the tables of `record.sql`: this file is the
 //! only code that writes them. A change under review keeps one landing, found
-//! by its key, until it lands; a run holds the net change it read, the
-//! earlier run whose net change it read the difference from, the commits of
-//! that net change and one call per group, a call holds a verdict for every rule and the
+//! by its key, until it lands, and names the run of its last review; a run
+//! holds the net change it read, the last review it read the changes since,
+//! the commits of that net change and one call per group, a call holds a
+//! verdict for every rule and the
 //! findings; the coordinator settles a finding as confirmed or dropped, names
 //! the commit that fixed a confirmed one, and may settle a confirmed finding
 //! with no fix again, as dropped. builds records a confirmed finding with no
@@ -215,6 +216,22 @@ pub fn add_landing(db: &Connection, key: &str, repo: &str, now: i64) -> Result<i
     Ok(db.last_insert_rowid())
 }
 
+/// Records <run> as the last review of <landing>: the next review shows the
+/// changes since the net change <run> read. A landing whose change landed is
+/// refused.
+pub fn record_reviewed(db: &Connection, landing: i64, run: i64) -> Result<()> {
+    let changed = db
+        .execute(
+            "UPDATE review_landing SET reviewed_run = ?2 WHERE id = ?1 AND landed_at IS NULL",
+            params![landing, run],
+        )
+        .sql()?;
+    if changed == 0 {
+        fail!("review landing {landing} is not open: it landed already or does not exist");
+    }
+    Ok(())
+}
+
 /// Records that <landing>'s change landed, with <run> the run that covered
 /// the commits pushed. A landing recorded as landed already is refused.
 pub fn record_landed(db: &Connection, landing: i64, run: i64, now: i64) -> Result<()> {
@@ -263,8 +280,8 @@ pub struct NewRun<'a> {
     pub at: i64,
     pub base: &'a str,
     pub head: &'a str,
-    /// For a review run that reads only how the net change from base to head
-    /// differs from the net change an earlier run read, that earlier run.
+    /// For a review run that reads only the changes since the last review,
+    /// the run of that last review.
     pub since: Option<i64>,
     /// The commits of the net change a review read, with their patch ids;
     /// none for a replay or an audit.
@@ -678,7 +695,7 @@ fn verdicts_where(db: &Connection, condition: &str, value: i64) -> Result<Vec<Ve
 /// Every landing under review, oldest first.
 pub fn all_landings(db: &Connection) -> Result<Vec<LandingRow>> {
     let mut statement = db
-        .prepare("SELECT id, key, repo, landed_run FROM review_landing ORDER BY id")
+        .prepare("SELECT id, key, repo, reviewed_run, landed_run FROM review_landing ORDER BY id")
         .sql()?;
     let rows = statement
         .query_map([], |row| {
@@ -686,7 +703,8 @@ pub fn all_landings(db: &Connection) -> Result<Vec<LandingRow>> {
                 id: row.get(0)?,
                 key: row.get(1)?,
                 repo: row.get(2)?,
-                landed_run: row.get(3)?,
+                reviewed_run: row.get(3)?,
+                landed_run: row.get(4)?,
             })
         })
         .sql()?;
@@ -699,6 +717,8 @@ pub struct LandingRow {
     pub id: i64,
     pub key: String,
     pub repo: String,
+    /// The run of the last review, whose net change the review has read.
+    pub reviewed_run: Option<i64>,
     /// The run that covered the commits pushed, once the change landed.
     pub landed_run: Option<i64>,
 }
@@ -706,14 +726,15 @@ pub struct LandingRow {
 /// <landing> as the store holds it.
 pub fn landing(db: &Connection, landing: i64) -> Result<LandingRow> {
     db.query_row(
-        "SELECT id, key, repo, landed_run FROM review_landing WHERE id = ?1",
+        "SELECT id, key, repo, reviewed_run, landed_run FROM review_landing WHERE id = ?1",
         params![landing],
         |row| {
             Ok(LandingRow {
                 id: row.get(0)?,
                 key: row.get(1)?,
                 repo: row.get(2)?,
-                landed_run: row.get(3)?,
+                reviewed_run: row.get(3)?,
+                landed_run: row.get(4)?,
             })
         },
     )
@@ -731,8 +752,8 @@ pub struct RunRow {
     pub kind: String,
     pub base: String,
     pub head: String,
-    /// The earlier run whose net change a review run read the difference
-    /// from; None for a run that read the whole net change.
+    /// The last review whose changes since a review run read; None for a run
+    /// that read the whole net change.
     pub since: Option<i64>,
     pub grouping: String,
     /// The commit of the rules checkout the run read.
@@ -773,7 +794,7 @@ pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
 pub fn landings_of_repo(db: &Connection, repo: &str, landed: bool) -> Result<Vec<LandingRow>> {
     let mut statement = db
         .prepare(
-            "SELECT id, key, repo, landed_run FROM review_landing WHERE repo = ?1 AND (landed_at IS NOT NULL) = ?2 ORDER BY id DESC",
+            "SELECT id, key, repo, reviewed_run, landed_run FROM review_landing WHERE repo = ?1 AND (landed_at IS NOT NULL) = ?2 ORDER BY id DESC",
         )
         .sql()?;
     let rows = statement
@@ -782,7 +803,8 @@ pub fn landings_of_repo(db: &Connection, repo: &str, landed: bool) -> Result<Vec
                 id: row.get(0)?,
                 key: row.get(1)?,
                 repo: row.get(2)?,
-                landed_run: row.get(3)?,
+                reviewed_run: row.get(3)?,
+                landed_run: row.get(4)?,
             })
         })
         .sql()?;
@@ -937,6 +959,48 @@ pub fn move_to_net_change(db: &Connection) -> Result<()> {
             db.execute_batch(
                 "INSERT INTO review_run (id, landing_id, kind, label, at, base, head, since_run, grouping, rules_version)
     SELECT id, landing_id, kind, label, at, base, head, NULL, grouping, rules_version FROM review_run_old;",
+            )
+            .sql()
+        },
+        &[index],
+    )
+}
+
+/// Moves a store's `review_landing` from before each landing named the run of
+/// its last review to today's, with the statements taken from record.sql so
+/// the result equals a fresh database's. The last review of each landing is
+/// its newest review run that read a branch's net change (merge-base...head)
+/// no earlier run of the landing read: its first run, or a run that read the
+/// changes since an earlier review. A run that asked again the groups that
+/// gave an earlier run no answer read that run's net change again, and a run
+/// from before builds read the changes since the last review read only a
+/// stretch of commits, so neither is the last review. migrate.rs runs it with
+/// the foreign keys off, and the rename runs under `legacy_alter_table`, so
+/// `review_run`'s reference keeps naming `review_landing`.
+pub fn move_to_reviewed_run(db: &Connection) -> Result<()> {
+    let schema = crate::db::REVIEW_PART;
+    let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
+    let landing = slice("CREATE TABLE review_landing", "STRICT;");
+    let index = slice("CREATE INDEX review_landing_key", ";");
+    crate::db::remake_table(
+        db,
+        "review_landing",
+        landing,
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_landing (id, key, repo, opened_at, reviewed_run, landed_at, landed_run)
+    SELECT o.id, o.key, o.repo, o.opened_at,
+        (SELECT MAX(r.id) FROM review_run r
+            WHERE r.landing_id = o.id AND r.kind = 'review'
+            AND (r.since_run IS NOT NULL OR NOT EXISTS (
+                SELECT 1 FROM review_run e
+                WHERE e.landing_id = o.id AND e.kind = 'review' AND e.id < r.id))
+            AND NOT EXISTS (
+                SELECT 1 FROM review_run e
+                WHERE e.landing_id = o.id AND e.kind = 'review' AND e.id < r.id
+                AND e.base = r.base AND e.head = r.head AND e.since_run IS r.since_run)),
+        o.landed_at, o.landed_run
+    FROM review_landing_old o;",
             )
             .sql()
         },

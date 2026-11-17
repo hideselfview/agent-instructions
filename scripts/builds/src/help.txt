@@ -205,9 +205,9 @@ the card shows the review's progress instead: Needs review (no review read
 these commits, or a group still has to answer: the coordinator runs `builds
 review`), Reviewing (a review of the branch's newest commit runs), Findings to
 settle (with the count), Waiting on fixes (confirmed findings with no fixing
-commit among them) or Unreviewed changes (with the count of files where the
-branch's net change differs from the one the review read last, which `builds
-review` reads as a new run of the review). A commit waits to land while
+commit among them) or Unreviewed changes (with the count of files that
+changed since the last review, which `builds review` reads as a new run of
+the review). A commit waits to land while
 origin/main has no commit with the same change (`git log --cherry-pick
 --right-only origin/main...HEAD`), because landing rebases or cherry-picks it.
 
@@ -1303,8 +1303,7 @@ review; the coordinator reads the fixes for its confirmed findings:
   3. It has each confirmed finding fixed in a new commit, reads that commit
      against its finding, and names it (`builds review fixed`).
   4. The coordinator runs `builds review` again, which reads the fixes as part
-     of how the branch's net change differs from the one the review read, and
-     settles what that run finds.
+     of the changes since the last review, and settles what that run finds.
   5. The coordinator lands the branch with its fixes.
 
 A confirmed finding that names no fix stops blocking a landing in two more ways.
@@ -1321,36 +1320,36 @@ and head commits. The finding then blocks no landing, and nobody names a
 fix for it. A finding on the commit messages still takes the reworded commit
 as its fix.
 
-`builds review` reads no diff twice. The first run of a change (one key)
-reads the branch's net change: `git diff` from the branch's common ancestor
-with the base to its head. A later run asks only what its review lacks: the
+A review shows the changes since the last review, and nothing else. The
+change's landing names its last review: the run whose net change (`git diff`
+from the branch's common ancestor with the base to its head) the review has
+read. The first run of a change (one key) reads the branch's whole net change
+and becomes the last review. A later run asks only what the review lacks: the
 groups that gave no answer (their reviewer failed), over the diff they did
-not answer, and, as a new run of the review, how the branch's net change now
-differs from the net change the review's last run read: the lines the branch
-adds or removes that it did not then, and the lines it no longer changes.
-Fix commits are part of that difference, so the run reads them; the
-coordinator still settles each finding and names its fix. The commits a
-rebase brings in from main are no part of it, so a rebase that keeps every
-line the branch adds and removes leaves nothing to read, and a rebase that
-resolves a conflict differently leaves only the lines of the resolution. The
-run asks the groups that cover a path where the two differ. `builds review`
-refuses the run when the review lacks nothing, naming the run that read the
-branch's net change last.
+not answer, and, in a new run that becomes the last review, the changes since
+the last review: the lines the branch adds or removes that it did not then,
+and the lines it no longer changes. Fix commits are part of those changes, so
+the run reads them; the coordinator still settles each finding and names its
+fix. Main's own commits that a rebase brings in are no part of them, so a
+rebase that keeps every line the branch adds and removes leaves nothing to
+read, and a rebase that resolves a conflict differently leaves only the lines
+of the resolution. The run asks the groups that cover a changed path.
+`builds review` refuses the run when the review lacks nothing, naming the
+last review.
 
-builds finds that difference by merging the net change the last run read
-onto the branch's current common ancestor with the base, in a tree of git's
-own (`git merge-tree`, which checks nothing out), taking the lines of that
-net change where the base changed the same lines, and diffing that tree
-against the branch's head. A file the merge cannot write (one side deleted
-it, for example) shows its whole net change, and so does every file when the
-repo no longer has the commits the last run read. The commit messages the
-run reads are those the earlier net change did not hold.
+builds finds the changes since the last review by merging the net change the
+last review read onto the branch's current common ancestor with the base, in
+a tree of git's own (`git merge-tree`, which checks nothing out), taking the
+lines of that net change where the base changed the same lines, and diffing
+that tree against the branch's head. A file the merge cannot write (one side
+deleted it, for example) shows its whole net change, and so does every file
+when the repo no longer has the commits the last review read. The commit
+messages the run reads are those the last review's net change did not hold.
 
 `builds land` refuses commits that lack this step. It takes them when one
-change's review covers them: the review's runs have read the branch's net
-change as it is now (the net change of the worktree's HEAD past origin/main
-differs from the net change the review's last run read on no path a group's
-rules cover); every group asked over a diff a run read answered over it;
+change's review covers them: nothing on a path a group's rules cover changed
+since the last review (the net change of the worktree's HEAD past
+origin/main against the net change the last review read); every group asked over a diff a run read answered over it;
 every finding is settled; and every confirmed finding on the commits landed
 names a fix among them, or builds recorded that its code is on no line of the
 branch's change. Land checks the branch's net change, not each commit. A
@@ -1377,13 +1376,13 @@ that keeps a commit's added and removed lines keeps its patch id. Land
 matches a fix the same way: `builds review fixed` records the patch id of the
 fixing commit, which must be among the commits landed.
 
-When the branch's net change differs from the one the review read last on a
-path a group covers (a commit added after the review, a fix, a squash that
-changed lines, or a conflict's resolution), land refuses and names those
-paths. `builds review` on the branch reads that difference, and only it, in a
-new run of the change's review; land then takes the branch once the
-coordinator settles its findings and names a fix for each confirmed one, as
-for the rest. `builds review` and land find the difference with one function,
+When the branch changed since the last review on a path a group covers (a
+commit added after the review, a fix, a squash that changed lines, or a
+conflict's resolution), land refuses and names those paths. `builds review`
+on the branch reads those changes, and only them, in a new run of the
+change's review; land then takes the branch once the coordinator settles its
+findings and names a fix for each confirmed one, as for the rest. `builds
+review` and land find the changes since the last review with one function,
 so they never disagree. Once a change has landed, `builds review` on the
 branch opens a new change under the same key, and reads the branch's net
 change past origin/main.
@@ -1586,10 +1585,10 @@ agent-instructions and run `review replay --rules-root` on it.
                               for its confirmed findings. A run on a key
                               reviewed already asks only what the review
                               lacks: the groups that gave no answer, over the
-                              diff they did not answer, and, as a new run, how
-                              the branch's net change differs from the one the
-                              review read last; builds refuses the run when
-                              the review lacks nothing.
+                              diff they did not answer, and, as a new run, the
+                              changes since the last review, and nothing
+                              else; builds refuses the run when the review
+                              lacks nothing.
                               --head SHA reviews the commits up to SHA from a
                               copy of their files, not the worktree. Prints
                               the findings by group and a total line, then
@@ -1620,9 +1619,10 @@ agent-instructions and run `review replay --rules-root` on it.
                               longer in the branch's change, or whose fix
                               landed with a part of the change
   builds review show <landing>
-                              the review of a landing under review: each run's
-                              net change and its commits, the earlier run a
-                              later run read the difference from, groups,
+                              the review of a landing under review: its last
+                              review, each run's net change and its commits,
+                              the last review a later run read the changes
+                              since, groups,
                               findings, how each was
                               settled (both settles of one settled again),
                               fixed, or recorded as no longer in the branch's
@@ -1637,8 +1637,8 @@ agent-instructions and run `review replay --rules-root` on it.
                               change's review takes them, or why the review
                               does not take them yet (exit 1): no review read
                               any of them, a group with no answer over a diff
-                              a run read, a branch whose net change differs
-                              from the one the review read last, an unsettled
+                              a run read, a branch that changed since the
+                              last review, an unsettled
                               finding, a confirmed
                               finding on the commits with no fix or with a
                               fix outside them

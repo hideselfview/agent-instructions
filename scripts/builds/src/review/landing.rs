@@ -12,13 +12,13 @@
 //! findings. A change's review is the one whose runs read one of the
 //! commits, matched by the patch id of its added and removed lines
 //! (`commits.rs`), or name one as a fix. check-landing takes the commits when
-//! the review's runs have read the branch's net change as it is now: the net
-//! change of DIR's HEAD past origin/main differs from the net change the
-//! review's last run read on no path a group's rules cover (`run::diff_since`,
-//! which `builds review` reads as its next run). So a rebase that keeps every
-//! line the branch adds and removes keeps the review, and so does a cherry-pick
-//! of the reviewed commits onto a moved main. land checks the net change, not
-//! each commit. Every group asked over a diff a run read must have answered
+//! nothing on a path a group's rules cover changed since the last review: the
+//! net change of DIR's HEAD past origin/main, without main's own commits that
+//! a rebase brings in, against the net change the last review read
+//! (`run::diff_since`, which `builds review` reads as its next run). So a
+//! rebase that keeps every line the branch adds and removes keeps the review,
+//! and so does a cherry-pick of the reviewed commits onto a moved main. land
+//! checks the net change, not each commit. Every group asked over a diff a run read must have answered
 //! over it (`Coverage`, which `builds review` uses too), the coordinator must
 //! have settled every finding, and every confirmed finding on the commits
 //! landed must name a fix among them. A finding is on a commit that changes
@@ -33,8 +33,8 @@
 //!
 //! `landed` records the commits pushed. A branch lands in parts: while its
 //! commits still wait to land (`--more-to-land`), its landing stays open, so
-//! a later review of the branch reads only how its net change differs from
-//! the one the review read last, and a finding on a commit not yet landed
+//! a later review of the branch reads only the changes since the last review,
+//! and a finding on a commit not yet landed
 //! still takes a fix. A finding whose fix a
 //! push landed needs no fix in a later part. The push that leaves the branch
 //! nothing to land records the landing as landed with the change's review
@@ -115,8 +115,8 @@ pub enum CodeCheck<'a> {
     /// Only the records: `review landed` runs after the push, which moved
     /// origin/main, and check-landing read the branch before the push.
     Records,
-    /// The net change of this commit past origin/main too: whether it differs
-    /// from the net change the review read last, and whether it still holds
+    /// The net change of this commit past origin/main too: whether it changed
+    /// since the last review, and whether it still holds
     /// the quoted code of each confirmed finding on a changed file that names
     /// no fix. A finding whose code no line of that change holds needs no fix.
     Branch(&'a str),
@@ -140,8 +140,7 @@ pub struct Unfinished {
     /// Groups that the review asked over a diff a run read and that gave no
     /// answer over it.
     pub unanswered: Vec<String>,
-    /// The paths a group's rules cover where the branch's net change differs
-    /// from the net change the review's last run read.
+    /// The paths a group's rules cover that changed since the last review.
     pub unreviewed: Vec<String>,
     /// Findings nobody settled.
     pub unsettled: Vec<record::Finding>,
@@ -207,6 +206,9 @@ pub struct Coverage {
     /// The review runs, oldest first, each with the commits of the net change
     /// it read.
     pub runs: Vec<(record::RunRow, Vec<Commit>)>,
+    /// The run of the last review: a review shows the changes since the net
+    /// change it read.
+    pub last_review: record::RunRow,
     /// The patch id of each confirmed finding's named fix.
     fixes: Vec<String>,
 }
@@ -219,8 +221,18 @@ impl Coverage {
             .filter(|f| f.kind == "review" && f.counts() && f.settled_as("confirmed"))
             .filter_map(|f| f.fix.map(|fix| fix.patch_id))
             .collect();
+        let runs = review_runs(db, landing)?;
+        let Some(reviewed) = record::landing(db, landing)?.reviewed_run else {
+            fail!("review landing {landing} names no last review");
+        };
+        let Some((last_review, _)) = runs.iter().find(|(run, _)| run.id == reviewed) else {
+            fail!(
+                "review landing {landing} names run {reviewed} as its last review, which is not a review run of it"
+            );
+        };
         Ok(Coverage {
-            runs: review_runs(db, landing)?,
+            last_review: last_review.clone(),
+            runs,
             fixes,
         })
     }
@@ -233,24 +245,6 @@ impl Coverage {
             .iter()
             .any(|(_, read)| read.iter().any(|c| c.patch_id == commit.patch_id))
             || self.fixes.contains(&commit.patch_id)
-    }
-
-    /// The runs that read a diff no earlier run read, oldest first. A run that
-    /// asks only the groups that gave an earlier run no answer reads that
-    /// run's diff again.
-    fn first_reads(&self) -> impl Iterator<Item = &record::RunRow> {
-        self.runs.iter().enumerate().filter_map(|(at, (run, _))| {
-            (!self.runs[..at]
-                .iter()
-                .any(|(earlier, _)| earlier.same_diff(run)))
-            .then_some(run)
-        })
-    }
-
-    /// The run whose net change the review read last: the newest run that
-    /// read a diff no earlier run read.
-    pub fn last_read(&self) -> Option<&record::RunRow> {
-        self.first_reads().last()
     }
 
     /// The commits of the net change <run> read. Fails when <run> is not a
@@ -267,7 +261,13 @@ impl Coverage {
     /// that diff answered for, oldest first. <calls> are the review's calls.
     pub fn unanswered(&self, calls: &[record::Call]) -> Vec<(&record::RunRow, Vec<String>)> {
         let mut found = Vec::new();
-        for first in self.first_reads() {
+        for (at, (first, _)) in self.runs.iter().enumerate() {
+            if self.runs[..at]
+                .iter()
+                .any(|(earlier, _)| earlier.same_diff(first))
+            {
+                continue;
+            }
             let over: Vec<&record::Call> = calls
                 .iter()
                 .filter(|c| {
@@ -349,9 +349,7 @@ fn assess(
         return Ok(None);
     }
     let runs = &coverage.runs;
-    let Some(last) = coverage.last_read() else {
-        return Ok(None);
-    };
+    let last = &coverage.last_review;
     let findings: Vec<record::Finding> = record::findings_of_landing(db, landing.id)?
         .into_iter()
         .filter(|f| f.kind == "review" && f.counts())
@@ -523,12 +521,12 @@ pub fn refusal(commits: &[Commit], verdict: &Verdict) -> Option<String> {
     }
     if !unfinished.unreviewed.is_empty() {
         text.push_str(&format!(
-            "the branch's net change differs from the net change run {} read in {}\n",
+            "the branch changed since the last review, run {}, in {}\n",
             covered.run,
             unfinished.unreviewed.join(", ")
         ));
         text.push_str(&format!(
-            "{ONE_REVIEW} Run builds review in the branch's worktree: as a new run of the review, it reads only how the branch's net change differs from the one the review read last, fix commits included. A rebase that keeps every line the branch adds and removes leaves nothing to read.\n"
+            "{ONE_REVIEW} Run builds review in the branch's worktree: a review shows the changes since the last review, and nothing else, fix commits included. A rebase that keeps every line the branch adds and removes leaves nothing to read.\n"
         ));
     }
     if !unfinished.unsettled.is_empty() {

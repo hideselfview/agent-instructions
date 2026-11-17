@@ -112,8 +112,8 @@ PLAN, BRIEF, EXECUTE, REVIEW
     sends each confirmed one back to the agent that made it. The agent fixes
     it in a new commit. The coordinator reads that commit against its
     finding, names it (`builds review fixed`) and runs `builds review`
-    again. That run reads only how the branch's net change differs from the
-    one the review read, the fixes included. The coordinator settles what
+    again. A review shows the changes since the last review, and nothing
+    else, the fixes included. The coordinator settles what
     that run finds, and runs `builds land` with the reviewed commits and
     their fixes in the branch's worktree once the agent is done there
     (LANDING). `builds land` refuses
@@ -164,8 +164,7 @@ WHAT AN IMPLEMENTING AGENT DOES
      rules/text-people-read/write-plain-literal-active-sentences.md, and
      fix what it finds. The coordinator reads a fix commit for a review
      finding against its finding, and the next run of the review reads it as
-     part of how the branch's net change differs from the one the review
-     read.
+     part of the changes since the last review.
   7. Commit, and report the SHA, the base and the checks. Leave nothing
      uncommitted: the coordinator runs `builds land` in this worktree, which
      refuses a worktree with uncommitted changes.
@@ -289,11 +288,11 @@ net change as it is now.
     with its named fixes once the review's runs have read its net change as
     it is now. A rebase that keeps every line the branch adds and removes
     keeps its review, even when the lines around them changed. When the
-    branch's net change differs from the one the review read last (a commit
-    added after the review, a fix, a squash that changed lines, or a
-    conflict's resolution), run `builds review` in the branch's worktree
-    again: as a new run of the review, it reads only that difference, and
-    never main's commits that a rebase brings in. Settle the new run's
+    branch changed since the last review (a commit added after the review, a
+    fix, a squash that changed lines, or a conflict's resolution), run
+    `builds review` in the branch's worktree again: a review shows the
+    changes since the last review, and nothing else, never main's own
+    commits that a rebase brings in. Settle the new run's
     findings and name their fixes as for the first run.
   - A CI run on main that fails or stalls is the coordinator's to run down.
   - After each landing, `builds land` fast-forwards the repo's main checkout

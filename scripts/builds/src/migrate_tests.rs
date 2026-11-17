@@ -2011,11 +2011,83 @@ fn without_parts(mut schema: String, parts: &[&str]) -> String {
     schema
 }
 
+/// The schema text before each landing named the run of its last review:
+/// `review_landing` without `reviewed_run`.
+fn schema_before_reviewed_run() -> String {
+    let column = "    -- The last review: the run whose net change (base...head) the review has
+    -- read. A review shows the changes since the last review, and nothing
+    -- else. builds review writes a landing together with its first run, which
+    -- it records here in the same write.
+    reviewed_run INTEGER REFERENCES review_run (id),
+";
+    let schema = db::schema();
+    assert_eq!(schema.matches(column).count(), 1, "{column}");
+    schema.replacen(column, "", 1)
+}
+
+#[test]
+fn the_reviewed_run_stamp_is_the_schema_before_reviewed_runs() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_reviewed_run()),
+        BEFORE_REVIEWED_RUN_STAMP
+    );
+}
+
+/// A store from before each landing named its last review moves with each
+/// landing's newest run that read a net change no earlier run of it read: not
+/// a run that read a stretch of commits, and not a run that asked the groups
+/// that gave an earlier run no answer.
+#[test]
+fn a_store_from_before_reviewed_runs_names_each_landings_last_review() {
+    let scratch = Scratch::new("move-reviewed-run");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_reviewed_run()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_REVIEWED_RUN_STAMP)
+            .unwrap();
+        crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+        let first = crate::review::record::add_landing(&conn, "k", "bae", 5).unwrap();
+        let second = crate::review::record::add_landing(&conn, "k2", "bae", 5).unwrap();
+        for (id, landing, base, head, since) in [
+            (7, first, "m", "h1", None),
+            (8, first, "h1", "h2", None),
+            (9, first, "m", "h3", Some(8)),
+            (10, first, "m", "h1", None),
+            (11, second, "m", "h1", None),
+            (12, second, "h1", "h2", None),
+        ] {
+            conn.execute(
+                "INSERT INTO review_run (id, landing_id, kind, at, base, head, since_run, grouping, rules_version) VALUES (?1, ?2, 'review', 6, ?3, ?4, ?5, 'g', '')",
+                rusqlite::params![id, landing, base, head, since],
+            )
+            .unwrap();
+        }
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let reviewed = |landing| {
+        crate::review::record::landing(&conn, landing)
+            .unwrap()
+            .reviewed_run
+    };
+    assert_eq!((reviewed(1), reviewed(2)), (Some(9), Some(11)));
+}
+
 /// The schema text before a later review run read only how the branch's net
 /// change differs from the net change an earlier run read: `review_run`
 /// without `since_run`, and the review's comments as they read then.
 fn schema_before_net_change() -> String {
-    let mut schema = db::schema();
+    let mut schema = schema_before_reviewed_run();
     for (now, then) in [
         (
             "-- belongs to, each run with the net change it read, each reviewer call, its verdict",

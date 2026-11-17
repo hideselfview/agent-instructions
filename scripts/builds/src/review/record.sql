@@ -14,6 +14,11 @@ CREATE TABLE review_landing (
     key TEXT NOT NULL CONSTRAINT review_landing_key_says_something CHECK (trim(key) <> ''),
     repo TEXT NOT NULL REFERENCES repo (name),
     opened_at INTEGER NOT NULL,
+    -- The last review: the run whose net change (base...head) the review has
+    -- read. A review shows the changes since the last review, and nothing
+    -- else. builds review writes a landing together with its first run, which
+    -- it records here in the same write.
+    reviewed_run INTEGER REFERENCES review_run (id),
     landed_at INTEGER,
     landed_run INTEGER REFERENCES review_run (id),
     CONSTRAINT review_landing_landed_whole CHECK ((landed_at IS NULL) = (landed_run IS NULL))

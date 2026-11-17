@@ -161,7 +161,7 @@ fn a_fix_commit_is_read_by_a_new_run_once_and_lands_with_the_reviewed_commits() 
     fix(&demo, &side, finding, &b);
     let asked = verdict_of(&demo, &fake, &side, &[a.clone(), b.clone()]);
     assert!(
-        refused(&asked).contains("the branch's net change differs from the net change run"),
+        refused(&asked).contains("the branch changed since the last review, run"),
         "{asked:?}"
     );
     let asked = verdict_of(&demo, &fake, &side, std::slice::from_ref(&a));
@@ -258,7 +258,7 @@ fn land_refuses_a_branch_whose_net_change_no_run_read() {
     assert_eq!(unfinished.unreviewed, ["b.rs"]);
     assert!(
         refused(&asked).contains(&format!(
-            "the branch's net change differs from the net change run {} read in b.rs",
+            "the branch changed since the last review, run {}, in b.rs",
             covered.run
         )),
         "{asked:?}"

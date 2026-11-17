@@ -281,7 +281,7 @@ fn a_rebase_whose_conflict_resolution_changes_lines_reads_only_those_lines() {
     assert!(
         second
             .text
-            .contains("read only how the branch's net change differs"),
+            .contains("read only the changes since the last review"),
         "{}",
         second.text
     );
@@ -289,6 +289,90 @@ fn a_rebase_whose_conflict_resolution_changes_lines_reads_only_those_lines() {
     let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
     assert!(fake.prompts().is_empty());
     assert!(refused.contains(landing::ONE_REVIEW), "{refused}");
+}
+
+/// A run from before builds read the changes since the last review read a
+/// stretch of the branch's commits, and the landing does not count it as its
+/// last review.
+#[test]
+fn a_run_that_read_a_stretch_of_commits_is_not_the_last_review() {
+    let demo = demo("review-stretch");
+    let fake = fake(&demo.scratch.dir);
+    commit_f(&demo.main, &ten_lines(&[]), "Add f");
+    crate::testing::git(&demo.main, &["push", "-q", "origin", "main"]);
+    let side = demo.add_side(1, "agent", "work");
+    let change_f = || {
+        commit_f(
+            &side,
+            &ten_lines(&[(2, "two-branch"), (8, "eight-branch")]),
+            "Change f",
+        )
+    };
+    let changed = change_f();
+    let g = demo.commit(&side, "g.rs");
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    fake.prompts();
+    let stamp = stamp();
+    demo.store
+        .write(&stamp, "stretch", |db| {
+            record::add_run(
+                db,
+                &record::NewRun {
+                    landing: Some(landing),
+                    kind: Kind::Review,
+                    label: None,
+                    at: stamp.at,
+                    base: &changed,
+                    head: &g,
+                    since: None,
+                    commits: &[landing::fix_commit(&side, &g)?],
+                    grouping: "g",
+                    rules_version: "",
+                },
+                &[],
+            )
+            .map(|_| ())
+        })
+        .unwrap();
+    commit_f(
+        &demo.main,
+        &ten_lines(&[(5, "five-main")]),
+        "Change f on main",
+    );
+    crate::testing::git(&demo.main, &["push", "-q", "origin", "main"]);
+    crate::testing::git(&side, &["rebase", "-q", "origin/main"]);
+    let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(fake.prompts().is_empty());
+    assert!(refused.contains(landing::ONE_REVIEW), "{refused}");
+    // A rebase whose resolution changes line 8 reads only that line.
+    crate::testing::git(&side, &["reset", "-q", "--hard", "origin/main"]);
+    commit_f(
+        &side,
+        &ten_lines(&[(2, "two-branch"), (5, "five-main"), (8, "resolved")]),
+        "Change f",
+    );
+    demo.commit(&side, "g.rs");
+    run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{prompts:?}");
+    let read = &prompts[0].1;
+    assert!(
+        read.contains("-eight-branch")
+            && read.contains("+resolved")
+            && !read.contains("two-branch")
+            && !read.contains("+g.rs"),
+        "{read}"
+    );
+    // A commit added after that reads only its own change.
+    demo.commit(&side, "h.rs");
+    run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{prompts:?}");
+    let read = &prompts[0].1;
+    assert!(
+        read.contains("+h.rs") && !read.contains("resolved") && !read.contains("+g.rs"),
+        "{read}"
+    );
 }
 
 #[test]

@@ -40,13 +40,12 @@ changed paths no rule group covers need no review. Review each branch this way:
   - Name it with `builds review fixed <finding> <sha>`, run in a checkout of the
     repo.
 - Run `builds review` in the branch's worktree again once the fixes are in, or
-  whenever land says the branch's net change differs from the one the review
-  read last (a commit added after the review, a squash that changed lines, or a
-  conflict's resolution).
-  - As a new run of the review, it reads only how the branch's net change
-    differs from the one the review's last run read, fix commits included, and
-    never main's commits that a rebase brings in. A rebase that keeps every line
-    the branch adds and removes leaves nothing to read.
+  whenever land says the branch changed since the last review (a commit added
+  after the review, a squash that changed lines, or a conflict's resolution).
+  - A review shows the changes since the last review, and nothing else: fix
+    commits are part of them, and main's own commits that a rebase brings in are
+    not. A rebase that keeps every line the branch adds and removes leaves
+    nothing to read.
   - Settle that run's findings and name their fixes as for the first run.
 - Run `builds land` with the branch's commits in its own worktree, once its
   agent is done there.

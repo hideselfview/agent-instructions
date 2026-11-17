@@ -526,7 +526,7 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
             "Unreviewed changes",
             pill(
                 "2 files",
-                "The branch's change differs in 2 files from the change the review read: builds review reads that difference in a new run."
+                "2 files changed since the last review: builds review reads the changes in a new run."
             )
         )
     );

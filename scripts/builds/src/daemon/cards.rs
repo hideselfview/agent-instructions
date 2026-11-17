@@ -46,9 +46,8 @@ pub enum ReviewWait {
     ToSettle(usize),
     /// This many confirmed findings wait on a commit that fixes them.
     Unfixed(usize),
-    /// The branch's net change differs in this many files from the net change
-    /// the review read last: `builds review` reads that difference in a new
-    /// run.
+    /// This many files changed since the last review: `builds review` reads
+    /// those changes in a new run.
     Unreviewed(usize),
 }
 
@@ -99,9 +98,9 @@ impl ReviewWait {
                 findings(n, "confirmed review"),
                 if n == 1 { "it" } else { "them" }
             ),
-            ReviewWait::Unreviewed(1) => "The branch's change differs in 1 file from the change the review read: builds review reads that difference in a new run.".to_string(),
+            ReviewWait::Unreviewed(1) => "1 file changed since the last review: builds review reads the changes in a new run.".to_string(),
             ReviewWait::Unreviewed(n) => format!(
-                "The branch's change differs in {n} files from the change the review read: builds review reads that difference in a new run."
+                "{n} files changed since the last review: builds review reads the changes in a new run."
             ),
         }
     }
