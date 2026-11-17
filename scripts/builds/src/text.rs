@@ -98,6 +98,19 @@ pub fn local_day(epoch: i64) -> String {
     strftime(epoch, c"%Y-%m-%d")
 }
 
+/// Local midnight at the start of the day that a `--since` flag names
+/// (<day>, as `YYYY-MM-DD`); None when the command got no `--since`. A day
+/// that is not a real one fails, naming the flag.
+pub fn since_start(day: Option<&str>) -> Result<Option<i64>> {
+    match day {
+        None => Ok(None),
+        Some(day) => match local_start_of(day) {
+            Some(start) => Ok(Some(start)),
+            None => crate::fail!("--since takes a day as YYYY-MM-DD, not {day:?}"),
+        },
+    }
+}
+
 /// Local midnight at the start of <day> (`YYYY-MM-DD`) as seconds since 1970;
 /// None unless it is a real day.
 pub fn local_start_of(day: &str) -> Option<i64> {
@@ -230,6 +243,17 @@ pub fn file_end(path: &Path, cap: u64) -> std::io::Result<(String, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_since_flag_names_a_real_day_or_fails() {
+        assert_eq!(since_start(None).unwrap(), None);
+        assert_eq!(
+            since_start(Some("2026-11-13")).unwrap(),
+            local_start_of("2026-11-13")
+        );
+        let refused = since_start(Some("yesterday")).unwrap_err().text();
+        assert!(refused.contains("--since"), "{refused}");
+    }
 
     #[test]
     fn human_sizes() {

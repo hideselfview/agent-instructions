@@ -123,13 +123,7 @@ fn stats(args: &[String]) -> Result<()> {
         fail!("{USAGE}");
     }
     let since = args.value("since")?;
-    let start = match since {
-        Some(day) => match crate::text::local_start_of(day) {
-            Some(start) => Some(start),
-            None => fail!("--since takes a day as YYYY-MM-DD, not {day:?}"),
-        },
-        None => None,
-    };
+    let start = crate::text::since_start(since)?;
     let places = Places::from_env()?;
     let store = Store::resolve(&places, &args, Path::new("."))?;
     if let Some(rev) = args.value("change")? {
