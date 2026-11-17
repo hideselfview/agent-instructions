@@ -725,7 +725,7 @@ fn runs_where(
                     passed,
                     handed: (handed.0 as u32, handed.1 as u32),
                     ms: ms.map(|ms| ms as u64),
-                    started: load_of(cores, load),
+                    started: Load::from_columns(cores, load),
                     cargo: cargo.remove(&(position as u32)).map(Box::new),
                 },
                 name,
@@ -755,19 +755,11 @@ pub fn waits(conn: &Connection, since: i64, path: &Path) -> Result<Vec<crate::wa
                 kind: crate::waits::Kind::Hook,
                 started_at: row.get(0)?,
                 ms: row.get::<_, i64>(1)? as u64,
-                load: load_of(row.get(2)?, row.get(3)?),
+                load: Load::from_columns(row.get(2)?, row.get(3)?),
             })
         })
         .context(what)?;
     rows.map(|row| row.context(what)).collect()
-}
-
-/// The load that a row's cores and load average make, when the row has both.
-pub(crate) fn load_of(cores: Option<i64>, one_minute: Option<f64>) -> Option<Load> {
-    cores.zip(one_minute).map(|(cores, one_minute)| Load {
-        cores: cores as u32,
-        one_minute,
-    })
 }
 
 /// <ms> as `12.3s`.

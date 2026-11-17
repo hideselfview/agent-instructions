@@ -174,6 +174,15 @@ impl Load {
         }
     }
 
+    /// The load that a store row's `cores` and `load` columns hold, when the
+    /// row has both.
+    pub fn from_columns(cores: Option<i64>, one_minute: Option<f64>) -> Option<Load> {
+        cores.zip(one_minute).map(|(cores, one_minute)| Load {
+            cores: cores as u32,
+            one_minute,
+        })
+    }
+
     /// `load 21/14`: the load average, rounded, over the cores.
     pub fn text(&self) -> String {
         format!("load {:.0}/{}", self.one_minute, self.cores)

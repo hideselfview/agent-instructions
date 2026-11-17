@@ -274,7 +274,7 @@ pub fn waits(conn: &Connection, since: i64, path: &Path) -> Result<Vec<crate::wa
                     kind,
                     started_at: row.get(0)?,
                     ms: row.get::<_, i64>(1)? as u64,
-                    load: crate::hook_stats::load_of(row.get(2)?, row.get(3)?),
+                    load: crate::host::Load::from_columns(row.get(2)?, row.get(3)?),
                 })
             })
             .context(what)?;
