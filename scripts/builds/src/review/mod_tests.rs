@@ -933,4 +933,13 @@ fn no_group_reviews_the_test_cases() {
     assert_eq!(prompts.len(), 1, "{prompts:?}");
     assert!(prompts[0].1.contains("+a.rs"));
     assert!(!prompts[0].1.contains(cases::DIR), "{}", prompts[0].1);
+    // A later commit that changes only a case gives the review nothing to read.
+    std::fs::write(case.join("old.rs"), "older code\n").unwrap();
+    crate::testing::git(&side, &["commit", "-q", "-am", "Change the case"]);
+    let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(
+        refused.contains("nothing changed since the last review"),
+        "{refused}"
+    );
+    assert!(fake.prompts().is_empty());
 }
