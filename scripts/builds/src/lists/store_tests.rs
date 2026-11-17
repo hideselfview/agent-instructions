@@ -680,3 +680,40 @@ fn the_lists_of_a_repo_two_projects_hold_are_those_of_the_project_a_claim_names(
         Err("the lists of project builds fail their check: ids repeat".to_string())
     );
 }
+
+#[test]
+fn write_each_commits_every_store_or_none() {
+    use crate::lists::fixtures::{item, make_store_named};
+    let scratch = Scratch::new("store-write-each");
+    let places = scratch.places();
+    let first = make_store_named(&places, "first", &["bae"]);
+    let second = make_store_named(&places, "second", &["bae"]);
+    let before = (held(&first), held(&second));
+    let refused = write_each(
+        &[(second.clone(), false), (first.clone(), true)],
+        &stamp(NOON),
+        "item add",
+        |db, adds| {
+            if *adds {
+                item(db, vec![]);
+                Ok(())
+            } else {
+                crate::fail!("the second store refuses")
+            }
+        },
+    );
+    assert_eq!(message(refused), "the second store refuses");
+    assert_eq!((held(&first), held(&second)), before);
+    write_each(
+        &[(second.clone(), ()), (first.clone(), ())],
+        &stamp(NOON),
+        "item add",
+        |db, ()| {
+            item(db, vec![]);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(first.load().unwrap().items.len(), 1);
+    assert_eq!(second.load().unwrap().items.len(), 1);
+}

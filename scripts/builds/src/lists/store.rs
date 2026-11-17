@@ -175,10 +175,17 @@ impl Store {
         words: &str,
         apply: impl FnOnce(&Connection) -> Result<T>,
     ) -> Result<T> {
+        let mut conn = self.writer()?;
+        commit(&mut conn, &self.project, stamp, words, apply)
+    }
+
+    /// The database for writing: fails when the project has no store, or
+    /// the store holds another project's lists.
+    fn writer(&self) -> Result<db::Held> {
         if !self.database().is_file() {
             return Err(self.no_lists());
         }
-        let mut conn = db::open(&self.database(), Make::Never)?;
+        let conn = db::open(&self.database(), Make::Never)?;
         let held: i64 = conn
             .query_row("SELECT COUNT(*) FROM project", [], |row| row.get(0))
             .sql()?;
@@ -186,14 +193,47 @@ impl Store {
             return Err(self.no_lists());
         }
         self.verify(&conn)?;
-        commit(&mut conn, &self.project, stamp, words, apply)
+        Ok(conn)
     }
 }
 
-/// Runs <apply> in a write transaction of <conn>, then opens a `waiting`
-/// span on each running item that now waits on the person and ends the
-/// span of each that no longer does, logs the write, checks the whole state
-/// and commits.
+/// Applies <apply> to each of <writes>, a store and what to write there,
+/// each in a write transaction of its store, and commits the stores only
+/// once every write has passed the check, so that a refusal leaves every
+/// store as it was. It takes the stores' write locks in the order of their
+/// projects' names, so two such writes never wait on each other. Each log
+/// gains a line for <words> by <stamp>. Once every check has passed, only a
+/// failure of SQLite's own commit, which the disk causes, can leave the
+/// stores committed before it changed and the rest as they were.
+pub fn write_each<D>(
+    writes: &[(Store, D)],
+    stamp: &Stamp,
+    words: &str,
+    apply: impl Fn(&Connection, &D) -> Result<()>,
+) -> Result<()> {
+    let mut ordered: Vec<&(Store, D)> = writes.iter().collect();
+    ordered.sort_by(|a, b| a.0.project.cmp(&b.0.project));
+    let mut conns = ordered
+        .iter()
+        .map(|(store, _)| store.writer())
+        .collect::<Result<Vec<_>>>()?;
+    let mut done = Vec::new();
+    for (conn, (store, data)) in conns.iter_mut().zip(&ordered) {
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .sql()?;
+        apply(&tx, data)?;
+        finish(&tx, &store.project, stamp, words)?;
+        done.push(tx);
+    }
+    for tx in done {
+        tx.commit().sql()?;
+    }
+    Ok(())
+}
+
+/// Runs <apply> in a write transaction of <conn>, then `finish`, and
+/// commits.
 fn commit<T>(
     conn: &mut Connection,
     project: &str,
@@ -205,11 +245,19 @@ fn commit<T>(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .sql()?;
     let result = apply(&tx)?;
-    crate::lists::running::follow_waits(&tx, &read(&tx)?, stamp.at)?;
-    log_write(&tx, stamp, words)?;
-    refuse_faults(project, &faults(&tx, project)?)?;
+    finish(&tx, project, stamp, words)?;
     tx.commit().sql()?;
     Ok(result)
+}
+
+/// What every write of <project>'s store does after its own changes in
+/// <tx>: opens a `waiting` span on each running item that now waits on the
+/// person and ends the span of each that no longer does, logs the write as
+/// <words> by <stamp>, and checks the whole state.
+fn finish(tx: &Connection, project: &str, stamp: &Stamp, words: &str) -> Result<()> {
+    crate::lists::running::follow_waits(tx, &read(tx)?, stamp.at)?;
+    log_write(tx, stamp, words)?;
+    refuse_faults(project, &faults(tx, project)?)
 }
 
 fn refuse_faults(project: &str, found: &[String]) -> Result<()> {

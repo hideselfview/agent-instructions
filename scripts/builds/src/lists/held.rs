@@ -85,18 +85,19 @@ pub fn require_hold_allowed(places: &Places, checkout: &Checkout) -> Result<()> 
     }
 }
 
-/// Starts (when <held>) or ends the `held` span of each item of every
-/// project that runs in <checkout>, at <stamp>, in one write to each
-/// project's store, and calls <write_claim> to write the claim's new note
-/// within the write to the last store, so that a refusal of that write
-/// leaves the claim as it was. With no item running there, it only calls
-/// <write_claim>.
+/// Starts (when <held>) or ends at <stamp> the `held` span of each item of
+/// every project that runs in <checkout>, and writes <noted>, the claim with
+/// its new note, as the worktree's claim. The spans change in every store
+/// or in none (`store::write_each`). The claim goes to a file beside the
+/// claim file before the stores commit, and moves over the claim file once
+/// they have, so a refused write leaves the claim as it was, and a claim
+/// that the stores' commits changed follows them.
 pub fn record_hold(
     places: &Places,
     checkout: &Checkout,
     held: bool,
     stamp: &Stamp,
-    write_claim: impl FnOnce() -> Result<()>,
+    noted: &Claim,
 ) -> Result<()> {
     let top = checkout.top.display().to_string();
     let every = crate::lists::store::every_lists(places)?;
@@ -108,9 +109,11 @@ pub fn record_hold(
         })
         .filter(|(_, ids): &(&str, Vec<Id>)| !ids.is_empty())
         .collect();
-    let Some(((last, last_ids), rest)) = running.split_last() else {
-        return write_claim();
-    };
+    let writes = running
+        .into_iter()
+        .map(|(project, ids)| Ok((Store::named(places, project)?, ids)))
+        .collect::<Result<Vec<_>>>()?;
+    let staged = noted.stage(&checkout.claim_file())?;
     let words = format!("note {top} {}", if held { "held" } else { "not held" });
     let spans = |db: &rusqlite::Connection, ids: &[Id]| -> Result<()> {
         for id in ids {
@@ -122,13 +125,13 @@ pub fn record_hold(
         }
         Ok(())
     };
-    for (project, ids) in rest {
-        Store::named(places, project)?.write(stamp, &words, |db| spans(db, ids))?;
+    if let Err(refused) =
+        crate::lists::store::write_each(&writes, stamp, &words, |db, ids| spans(db, ids))
+    {
+        staged.discard()?;
+        return Err(refused);
     }
-    Store::named(places, last)?.write(stamp, &words, |db| {
-        spans(db, last_ids)?;
-        write_claim()
-    })
+    staged.put()
 }
 
 /// A claimed worktree as `builds health` read it.
