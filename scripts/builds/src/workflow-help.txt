@@ -27,9 +27,8 @@ Each repo keeps a main checkout and one long-lived side worktree, side-1. The
 branch, not the worktree, is the unit of work.
 
   - The main checkout stays on main, for iterative work and edits made with
-    the person. `builds land` fast-forwards it to origin/main after each
-    landing, so the person and the agents who read code there see what
-    landed, but no agent edits, builds or commits there (LANDING).
+    the person. No agent edits, builds or commits there, and `builds land`
+    fast-forwards it after each landing (LANDING).
   - side-1 is for background work: each feature or fix is a new branch from
     origin/main there. It stays built, so never delete or recreate it.
   - Extra side worktrees (side-2 and on) are for agents that work at the same
@@ -188,12 +187,11 @@ DISPATCH
     item is ready.
   - Take items from `builds next`. Claim the worktree (`builds claim`), mark
     the items running (`builds item take`), keep the worktree's note current
-    (`builds note`) on every dispatch and handoff. A landing that leaves
-    nothing to land releases the worktree. When an agent stops before its
-    work lands, park its item where the work is (`builds item park`); release
-    a worktree by hand only when it holds nothing origin/main lacks (release
-    refuses the rest). `builds item list --running` shows what runs after a
-    compact.
+    (`builds note`) on every dispatch and handoff. When an agent stops before
+    its work lands, park its item where the work is (`builds item park`);
+    release a worktree by hand only when it holds nothing origin/main lacks
+    (release refuses the rest). `builds item list --running` shows what runs
+    after a compact.
   - `builds item take` checks the brief against the product spec before it
     marks the items running. When the check finds a conflict, take refuses
     and quotes the brief's sentence and the spec's text: put the conflict on
@@ -358,17 +356,16 @@ commits unless a finished review read the branch's net change as it is now.
   - A CI run on main that fails or stalls is the coordinator's to run down.
   - After each landing, `builds land` fast-forwards the repo's main checkout to
     origin/main, so the person and the agents who read code there see what
-    landed. Agents still never edit, build or commit in a main checkout. In
-    agent-instructions, the main checkout's post-merge hook then runs
-    install.sh, which installs the landed builds and links the landed rules and
-    skills. When the landed builds changes a store's schema, install waits for
-    every running hook run, review and app build lane, and every hook run and
-    review that starts meanwhile waits for install, so commits in every project
-    wait until it ends (`builds help`, INSTALLING). An install that changes no
-    store's schema waits for none. When land prints MAIN CHECKOUT BEHIND (the
-    checkout is not on main, or the person's commits or uncommitted edits there
-    stop the fast-forward), tell the person and give them the command it
-    prints; never stash or reset their edits.
+    landed. In agent-instructions, the main checkout's post-merge hook then
+    runs install.sh, which installs the landed builds and links the landed
+    rules and skills. When the landed builds changes a store's schema, install
+    waits for every running hook run, review and app build lane, and every hook
+    run and review that starts meanwhile waits for install, so commits in every
+    project wait until it ends (`builds help`, INSTALLING). An install that
+    changes no store's schema waits for none. When land prints MAIN CHECKOUT
+    BEHIND (the checkout is not on main, or the person's commits or uncommitted
+    edits there stop the fast-forward), tell the person and give them the
+    command it prints; never stash or reset their edits.
 
 
 DESIGN CHANGES
