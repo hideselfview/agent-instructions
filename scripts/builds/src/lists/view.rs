@@ -108,6 +108,9 @@ pub struct ItemView {
     pub r#for: Audience,
     pub state: derive::ItemState,
     pub priority: Option<Priority>,
+    /// How many open items wait on it directly or through a chain of open
+    /// items.
+    pub behind: usize,
     pub brief: Option<String>,
     pub waits: Vec<WaitView>,
     /// One per repo the item runs in; empty when it is not running.
@@ -280,6 +283,7 @@ fn item_view(lists: &Lists, item: &Item) -> Result<ItemView> {
         r#for: item.r#for,
         state: derive::item_state(lists, item),
         priority: item.priority.clone(),
+        behind: derive::behind(lists, item.id),
         brief: item.brief.clone(),
         waits: item
             .waits

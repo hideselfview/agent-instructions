@@ -1179,10 +1179,29 @@ STATUS, HEALTH AND THE DASHBOARD
                               and item row shows its trail on one line: the
                               tags of the records on it, then the numbers of
                               the earlier records, with the title of the
-                              record it came from (`builds help lists`); a
-                              tag on a row, or in the bar of every tag above
-                              the lists, shows that tag's entries alone on
-                              each tab, and All shows every entry again
+                              record it came from, and never the row's own
+                              record (`builds help lists`); a tag on a row,
+                              or in the bar of every tag above the lists,
+                              shows that tag's entries alone on each tab,
+                              and All shows every entry again. Each item row
+                              shows the item's priority (first, last or
+                              none) and, when the pointer rests on the
+                              priority, the reason for it; then how many
+                              items wait behind it, where it is parked and
+                              what it waits on. Under the tag bar, Waiting
+                              on you sorts its questions by the stack's
+                              order (the default), by what they block (most
+                              items waiting first), by age (oldest first)
+                              or by kind. Queue sorts its items by the
+                              order the queue runs (the default), by what
+                              they block, by age or by area. Waiting on you
+                              can show the questions of one kind alone, and
+                              Queue the items of one area or one state
+                              alone: ready, waiting, or for the design
+                              session, which draws the boards. The page
+                              keeps each list's sort and filters in its
+                              URL, so a reload keeps them, and the lists
+                              keep nothing about them
 
 
 COMMIT CHECKS

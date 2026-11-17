@@ -299,6 +299,12 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-tagbar button .l-count { font: 500 11px var(--mono); white-space: nowrap; opacity: 0.85; }
 .l-tagbar button[aria-pressed="true"] { background: var(--on); border-color: var(--on); color: var(--on-text); }
 .l-tagbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The sort and filters of the chosen list, under the tag bar. */
+.l-controls { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.l-controls[hidden] { display: none; }
+.l-controls label { display: inline-flex; align-items: baseline; gap: 6px; }
+.l-controls select { font: 500 12px var(--sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+.l-controls select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* A row's trail: the tags of the records on it, then each record from the first to the row's own, on one line. */
 .l-trail { display: inline-block; max-width: 100%; margin-left: 4px; vertical-align: bottom; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 500 11px var(--sans); color: var(--muted); }
 .l-trail a.l-ref { color: var(--muted); }
@@ -318,7 +324,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-work > summary .l-wt { font: 400 12px var(--mono); color: var(--muted-2); white-space: nowrap; margin-left: auto; }
 .l-work > :not(summary) { background: var(--bg); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; }
 .l-plain { display: flex; flex-direction: column; gap: 8px; }
-/* A question's closed row: its title, then a line each for who asked it, its place and what it blocks. */
+/* A question's or an item's closed row: its title, then its facts, a line each. */
 .l-rowmain { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
 .l-rowfact { font-size: 12px; font-weight: 400; color: var(--muted); overflow-wrap: anywhere; }
 .l-rowfact .l-list { font-size: 12px; color: var(--text-2); }
@@ -402,6 +408,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
       <button type="button" role="tab" data-tab="queue"><span class="l-name">Queue</span><span class="l-count"></span></button>
     </div>
     <div class="l-tagbar" id="l-tags" role="group" aria-label="Show the entries of one tag" hidden></div>
+    <div class="l-controls" id="l-controls" role="group" aria-label="Sort and filter the list" hidden></div>
   </div>
   <div class="l-body" id="l-body"><div class="l-empty">Reading the lists</div></div>
 </aside>
@@ -1283,6 +1290,25 @@ try {
 } catch (e) { /* no storage: nothing open */ }
 try { tagFilter = localStorage.getItem(TAG_KEY) || ""; } catch (e) { /* no storage: every entry */ }
 function saveOpen() { try { sessionStorage.setItem(OPEN_KEY, JSON.stringify([...openRecs])); } catch (e) { /* kept for this page only */ } }
+// The sort and filters of Waiting on you and Queue. The page keeps them in its
+// URL's query, so a reload keeps them; "" is the default, and the lists keep
+// nothing about them.
+const STACK_SORTS = [["", "Stack order"], ["blocks", "Most items blocked first"], ["age", "Oldest first"], ["kind", "Kind"]];
+const QUEUE_SORTS = [["", "Queue order"], ["blocks", "Most items blocked first"], ["age", "Oldest first"], ["area", "Area"]];
+const KINDS = [["question", "Questions"], ["your-step", "For you to do"], ["held", "Held until you start it"]];
+const STATES = [["ready", "Ready"], ["waiting", "Waiting"], ["design-session", "For the design session"]];
+const VIEW_KEYS = ["stack-sort", "stack-kind", "queue-sort", "queue-area", "queue-state"];
+const view = {};
+for (const k of VIEW_KEYS) view[k] = new URLSearchParams(location.search).get(k) || "";
+// The value of <key> when <options> ([value, label] pairs) hold it, else "".
+function chosen(key, options) { return options.some(([v]) => v === view[key]) ? view[key] : ""; }
+function setView(key, value) {
+  view[key] = value;
+  const params = new URLSearchParams(location.search);
+  if (value) params.set(key, value); else params.delete(key);
+  const text = params.toString();
+  history.replaceState(null, "", location.pathname + (text ? "?" + text : "") + location.hash);
+}
 
 // A link to a record in the sidebar; text only when the record is not there (closed).
 function recLink(id, label) {
@@ -1354,19 +1380,15 @@ function empty(text) { return {key: "none", data: text, make: () => h("div", {cl
 // show their numbers, and the record it came from also shows its title, so
 // the trail stays on one line. Each tag names the audit or group the trail
 // began in. Choosing a tag on a row shows that tag's entries alone, and so
-// does choosing it in the tag bar, whose All shows every entry again.
-// <id> is the row's record, which ends the trail; null for tags alone.
-function trailRow(id, trail) {
+// does choosing it in the tag bar, whose All shows every entry again. The
+// trail leaves out the row's own record, since the row already shows it.
+function trailRow(trail) {
   if (!trail.tags.length && !trail.earlier.length) return null;
   const kids = trail.tags.map(t => h("button", {type: "button", class: "l-tag", "data-tag": t, title: "Show only the entries tagged " + t}, t));
   trail.earlier.forEach((r, i) => {
     if (kids.length) kids.push(" → ");
     kids.push(recLink(r.id, i === trail.earlier.length - 1 ? "#" + r.id + " " + r.title : null));
   });
-  if (id !== null) {
-    kids.push(" → ");
-    kids.push("#" + id);
-  }
   return h("span", {class: "l-trail"}, kids);
 }
 function tagged(tags) { return !tagFilter || (tags || []).includes(tagFilter); }
@@ -1376,9 +1398,9 @@ function workTags(w) { return [...new Set(w.items.flatMap(i => itemTags(i.id)))]
 // A running work of one item shows that item's trail; one of several items
 // shows the tags on their trails.
 function workTrail(w) {
-  if (w.items.length !== 1) return trailRow(null, {tags: workTags(w), earlier: []});
+  if (w.items.length !== 1) return trailRow({tags: workTags(w), earlier: []});
   const it = lists.items.find(i => i.id === w.items[0].id);
-  return it ? trailRow(it.id, it.trail) : null;
+  return it ? trailRow(it.trail) : null;
 }
 // Does an open question or item carry <tag> on its trail?
 function tagIsOpen(tag) { return [...lists.stack, ...lists.items].some(rec => rec.trail.tags.includes(tag)); }
@@ -1419,15 +1441,19 @@ function renderTags() {
 }
 
 // ---- Waiting on you
-// An item a question blocks directly: its priority (first, last or none, with
-// the priority's why on hover), how many items wait behind it and when it
-// opened.
+// An item's priority as its row shows it: first, last or none, with the
+// priority's why on hover.
+function priorityWords(priority) {
+  return priority ? h("span", {title: priority.why}, "priority " + priority.level) : "priority none";
+}
+// How many open items wait on an item, directly or through chains.
+function behindWords(n) {
+  return n ? plural(n, "item waits", "items wait") + " behind it" : "no item waits behind it";
+}
+// An item a question blocks directly: its priority, how many items wait
+// behind it and when it opened.
 function blockedItem(b) {
-  const priority = b.priority
-    ? h("span", {title: b.priority.why}, "priority " + b.priority.level)
-    : "priority none";
-  const behind = b.behind ? plural(b.behind, "item waits", "items wait") + " behind it" : "no item waits behind it";
-  return h("li", {}, recLink(b.id, "#" + b.id + " " + b.title), " (", priority, "; " + behind + "; ",
+  return h("li", {}, recLink(b.id, "#" + b.id + " " + b.title), " (", priorityWords(b.priority), "; " + behindWords(b.behind) + "; ",
     agoSpan(b.opened.at, "opened ", " ago"), ")");
 }
 // Why a question sits where it does on the stack, as `question list` words it.
@@ -1449,7 +1475,7 @@ function questionBlocks(q) {
 function questionRow(q) {
   return fold("q:" + q.id, q.id,
     [h("div", {class: "l-rowmain"},
-      h("span", {class: "l-title"}, idChip(q.id), q.title, trailRow(q.id, q.trail)),
+      h("span", {class: "l-title"}, idChip(q.id), q.title, trailRow(q.trail)),
       h("div", {class: "l-rowfact"}, "Asked by " + openerWord(q.opened.by) + ", " + stamp(q.opened.at) + " · " + placeWords(q)),
       questionBlocks(q))],
     () => h("div", {class: "l-plain"},
@@ -1463,26 +1489,39 @@ function heldWorks() { return lists.board.works.filter(w => w.tab === "waiting")
 // The questions and held work Waiting on you shows while the reader has chosen no tag.
 function stackEntries() { return {own: lists.stack, held: heldWorks()}; }
 // With a tag chosen, only the questions and held work that carry it; design
-// changes carry no tags.
+// changes carry no tags. With a kind chosen, only the questions of that kind.
 function stackShown() {
   const {own, held} = stackEntries();
+  const kind = chosen("stack-kind", KINDS);
   return {
-    own: own.filter(q => tagged(q.trail.tags)),
-    review: tagFilter ? [] : reviews(),
-    held: held.filter(w => tagged(workTags(w))),
+    own: own.filter(q => tagged(q.trail.tags) && (!kind || q.kind === kind)),
+    review: tagFilter || kind ? [] : reviews(),
+    held: kind ? [] : held.filter(w => tagged(workTags(w))),
   };
+}
+// The questions in the chosen sort: the order the stack asks them, what they
+// block (most items waiting first), age (oldest first), or kind.
+function questionSections(own) {
+  const sort = chosen("stack-sort", STACK_SORTS);
+  const part = (key, title, qs) => qs.length
+    ? [{key: sort + ":" + key, data: qs, make: () => section(title, qs.length, h("div", {class: "l-works"}, qs.map(questionRow)))}] : [];
+  if (sort === "kind") return KINDS.flatMap(([kind, title]) => part(kind, title, own.filter(q => q.kind === kind)));
+  if (sort === "blocks") return part("questions", "Questions", [...own].sort((a, b) => b.blocked_count - a.blocked_count));
+  if (sort === "age") return part("questions", "Questions", [...own].sort((a, b) => a.opened.at - b.opened.at || a.id - b.id));
+  return part("questions", "Questions", own);
 }
 function stackItems() {
   const {own, review, held} = stackShown();
-  if (!own.length && !review.length && !held.length) return [empty(tagFilter ? "Nothing tagged " + tagFilter + " waits on you." : "Nothing waits on you.")];
+  if (!own.length && !review.length && !held.length) {
+    return [empty(chosen("stack-kind", KINDS) ? "No entry of the chosen kind waits on you."
+      : tagFilter ? "Nothing tagged " + tagFilter + " waits on you." : "Nothing waits on you.")];
+  }
   const out = [];
   if (review.length) out.push({key: "reviews", data: review, make: () => section("Design changes to review", review.length,
     h("div", {class: "l-works"}, review.map(designRow)))});
   if (held.length) out.push({key: "held", data: held, make: () => section("Running work held on you", held.length,
     h("div", {class: "l-works"}, held.map(workRow)))});
-  if (own.length) out.push({key: "questions", data: own, make: () => section("Questions", own.length,
-    h("div", {class: "l-works"}, own.map(questionRow)))});
-  return out;
+  return [...out, ...questionSections(own)];
 }
 
 // ---- Work
@@ -1491,14 +1530,14 @@ function isReady(it) { return !isRunning(it) && it.for === "coordinator" && it.s
 function unmet(it) { return it.waits.filter(w => !w.met); }
 function waitName(w) { return w.kind === "condition" ? w.text : w.title + " #" + w.id; }
 function waitLink(w) { return w.kind === "condition" ? document.createTextNode(w.text) : recLink(w.id, w.title + " #" + w.id); }
-// An item's second line: where it is parked, then what it waits on or its
-// priority.
-function itemSub(it) {
-  const parts = it.parked.map(p => "parked in " + p.worktree.split("/").slice(-2).join("/") + " on " + p.branch);
+// An item's row line: its priority, how many items wait behind it, where it
+// is parked and what it waits on.
+function itemFacts(it) {
+  const parts = [behindWords(it.behind),
+    ...it.parked.map(p => "parked in " + p.worktree.split("/").slice(-2).join("/") + " on " + p.branch)];
   const waits = unmet(it);
   if (waits.length) parts.push("waits on " + waits.map(waitName).join("; "));
-  else if (it.priority) parts.push("priority " + it.priority.level + ": " + it.priority.why);
-  return parts.length ? parts.join("; ") : null;
+  return h("div", {class: "l-rowfact"}, priorityWords(it.priority), " · " + parts.join(" · "));
 }
 function itemBody(it) {
   const facts = [];
@@ -1513,11 +1552,13 @@ function itemBody(it) {
   return h("div", {class: "l-plain"},
     md(it.details), facts.length ? h("div", {class: "l-facts"}, facts) : null, notes, opened(it, "Added"));
 }
+// An item's row shows, closed, its title and trail, then its priority, what
+// waits behind it, where it is parked and what it waits on; opened, it adds
+// the rest of the item.
 function itemRow(it) {
-  const sub = itemSub(it);
   return fold("i:" + it.id, it.id,
-    [h("span", {class: "l-title"}, idChip(it.id), it.title, trailRow(it.id, it.trail))],
-    () => h("div", {class: "l-plain"}, sub ? h("span", {class: "l-sub"}, sub) : null, itemBody(it)),
+    [h("div", {class: "l-rowmain"}, h("span", {class: "l-title"}, idChip(it.id), it.title, trailRow(it.trail)), itemFacts(it))],
+    () => itemBody(it),
     "l-work");
 }
 // A running work is one line: its title with its worktree beside it; opened,
@@ -1570,7 +1611,7 @@ function workHead() {
     flowColumn("Today", lists.flow.filter(d => d.day === today)),
     flowColumn("Last " + RECENT_DAYS + " days", lists.flow));
 }
-function rows(its, one) { return h("div", {class: "l-works"}, its.map(one || itemRow)); }
+function rows(its) { return h("div", {class: "l-works"}, its.map(itemRow)); }
 // A running work whose worktree has commits waiting to land is Ready to land
 // once builds land would take them, and In review while their rules review is
 // not finished; the rest are Working.
@@ -1606,22 +1647,39 @@ function runningItems() {
 }
 // The items Queue shows while the reader has chosen no tag.
 function queueEntries() { return lists.items.filter(it => !isRunning(it)); }
-// With a tag chosen, only the items that carry it.
-function queueShown() { return queueEntries().filter(it => tagged(it.trail.tags)); }
+// With a tag, an area or a state chosen, only the items that match each.
+function queueShown() {
+  const area = chosen("queue-area", lists.areas.map(a => [a, a]));
+  const st = chosen("queue-state", STATES);
+  return queueEntries().filter(it => tagged(it.trail.tags) && (!area || it.area === area) && (!st || it.state === st));
+}
+// The queue in the chosen sort: the order the queue runs (the items placed
+// first, then each area, then the design session's), what the items block
+// (most items waiting first), age (oldest first), or area.
 function queueItems() {
   const all = queueShown();
+  const sort = chosen("queue-sort", QUEUE_SORTS);
   const out = [{key: "head", data: [lists.flow], make: workHead}];
-  const design = all.filter(it => !isRunning(it) && it.for === "design-session");
-  const mine = all.filter(it => !isRunning(it) && it.for !== "design-session");
-  const first = mine.filter(it => it.priority && it.priority.level === "first").sort((a, b) => a.opened.at - b.opened.at);
-  const rest = mine.filter(it => !first.includes(it));
-  const part = (key, title, its, one) => {
-    if (its.length) out.push({key, data: its, make: () => section(title, its.length, rows(its, one))});
+  const part = (key, title, its) => {
+    if (its.length) out.push({key: sort + ":" + key, data: its, make: () => section(title, its.length, rows(its))});
   };
-  part("first", "First", first);
-  for (const area of lists.areas) part("area:" + area, area, rest.filter(it => it.area === area));
-  part("design-session", "Design session’s", design);
-  if (out.length === 1) out.push(empty(tagFilter ? "No item in the queue is tagged " + tagFilter + "." : "The work queue is empty."));
+  if (sort === "blocks") part("items", "Items", [...all].sort((a, b) => b.behind - a.behind));
+  else if (sort === "age") part("items", "Items", [...all].sort((a, b) => a.opened.at - b.opened.at || a.id - b.id));
+  else if (sort === "area") for (const area of lists.areas) part("area:" + area, area, all.filter(it => it.area === area));
+  else {
+    const design = all.filter(it => it.for === "design-session");
+    const mine = all.filter(it => it.for !== "design-session");
+    const first = mine.filter(it => it.priority && it.priority.level === "first").sort((a, b) => a.opened.at - b.opened.at);
+    const rest = mine.filter(it => !first.includes(it));
+    part("first", "First", first);
+    for (const area of lists.areas) part("area:" + area, area, rest.filter(it => it.area === area));
+    part("design-session", "Design session’s", design);
+  }
+  if (out.length === 1) {
+    out.push(empty(chosen("queue-area", lists.areas.map(a => [a, a])) || chosen("queue-state", STATES)
+      ? "No item in the queue matches the chosen area and state."
+      : tagFilter ? "No item in the queue is tagged " + tagFilter + "." : "The work queue is empty."));
+  }
   return out;
 }
 
@@ -1685,10 +1743,39 @@ function renderProjects() {
     h("span", {class: "l-name"}, p.project || "none"),
     h("span", {class: "l-count"}, p.error ? "!" : String(p.board.waiting)))));
 }
-// The tabs' counts: the board's, or with a tag chosen what each tab shows.
+// A select of the controls bar: <label>, then the default's <all> and each of
+// <options>.
+function viewSelect(key, label, all, options) {
+  const el = h("select", {"data-view": key}, [["", all], ...options].map(([v, t]) => h("option", {value: v}, t)));
+  el.value = chosen(key, options);
+  return h("label", {}, label, el);
+}
+// The sort and filters of the chosen tab; Running has none. renderControls
+// makes the bar again only when what it shows changes, so an open select
+// stays open.
+function renderControls() {
+  const bar = document.getElementById("l-controls");
+  const areas = lists.areas.map(a => [a, a]);
+  const make = {
+    stack: () => [viewSelect("stack-sort", "Sort", STACK_SORTS[0][1], STACK_SORTS.slice(1)),
+      viewSelect("stack-kind", "Kind", "Every kind", KINDS)],
+    queue: () => [viewSelect("queue-sort", "Sort", QUEUE_SORTS[0][1], QUEUE_SORTS.slice(1)),
+      viewSelect("queue-area", "Area", "Every area", areas), viewSelect("queue-state", "State", "Every state", STATES)],
+  }[tab];
+  bar.hidden = !make;
+  const sig = JSON.stringify([tab, view, lists.areas]);
+  if (!make || bar.dataset.sig === sig) return;
+  bar.dataset.sig = sig;
+  bar.replaceChildren(...make());
+}
+// Whether the reader has chosen a tag, a kind, an area or a state.
+function filtered() {
+  return !!(tagFilter || chosen("stack-kind", KINDS) || chosen("queue-area", lists.areas.map(a => [a, a])) || chosen("queue-state", STATES));
+}
+// The tabs' counts: the board's, or with a filter chosen what each tab shows.
 function tabCounts() {
   const b = lists.board;
-  if (!tagFilter) return {stack: String(b.waiting), running: String(b.running), queue: String(b.queue)};
+  if (!filtered()) return {stack: String(b.waiting), running: String(b.running), queue: String(b.queue)};
   const stack = stackShown(), running = runningShown();
   return {stack: String(stack.own.length + stack.held.length), running: String(running.works.length), queue: String(queueShown().length)};
 }
@@ -1698,6 +1785,7 @@ function renderLists() {
   if (!lists || lists.error) {
     tabs.hidden = true;
     document.getElementById("l-tags").hidden = true;
+    document.getElementById("l-controls").hidden = true;
     body.dataset.tab = "";
     body.replaceChildren(lists ? h("div", {class: "error"}, "The lists store of " + (lists.project || "the projects") + " failed its check: " + lists.error)
       : h("div", {class: "l-empty"}, listsNote));
@@ -1705,6 +1793,7 @@ function renderLists() {
   }
   tabs.hidden = false;
   renderTags();
+  renderControls();
   const counts = tabCounts();
   for (const b of tabs.querySelectorAll("button")) {
     b.setAttribute("aria-selected", String(b.dataset.tab === tab));
@@ -1718,17 +1807,19 @@ function renderLists() {
 function showRecord(id) {
   const rec = index.get(id);
   if (!rec) return;
-  // A record the chosen tag hides shows with every entry.
-  const own = lists.stack.find(q => q.id === id) || lists.items.find(i => i.id === id);
-  if (tagFilter && !(own && tagged(own.trail.tags))) {
-    tagFilter = "";
-    try { localStorage.setItem(TAG_KEY, tagFilter); } catch (e) { /* kept for this page only */ }
-  }
   tab = rec.tab;
   try { localStorage.setItem(TAB_KEY, tab); } catch (e) { /* kept for this page only */ }
   openRecs.add(rec.key); saveOpen();
   renderLists();
-  const el = document.getElementById("l-body").querySelector('[data-rec="' + id + '"]');
+  const row = () => document.getElementById("l-body").querySelector('[data-rec="' + id + '"]');
+  // A record the chosen filters hide shows with every entry.
+  if (!row() && filtered()) {
+    tagFilter = "";
+    try { localStorage.setItem(TAG_KEY, tagFilter); } catch (e) { /* kept for this page only */ }
+    for (const k of VIEW_KEYS) if (!k.endsWith("-sort")) setView(k, "");
+    renderLists();
+  }
+  const el = row();
   if (!el) return;
   const fold = el.tagName === "DETAILS" ? el : el.querySelector("details");
   if (fold) fold.open = true;
@@ -1750,6 +1841,12 @@ document.getElementById("l-tabs").addEventListener("click", e => {
   if (!b) return;
   tab = b.dataset.tab;
   try { localStorage.setItem(TAB_KEY, tab); } catch (err) { /* kept for this page only */ }
+  renderLists();
+});
+document.getElementById("l-controls").addEventListener("change", e => {
+  const select = e.target.closest("select[data-view]");
+  if (!select) return;
+  setView(select.dataset.view, select.value);
   renderLists();
 });
 document.getElementById("l-tags").addEventListener("click", e => {

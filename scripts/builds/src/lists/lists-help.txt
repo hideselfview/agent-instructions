@@ -56,8 +56,8 @@ record every tag that an earlier record of its trail now carries. `question
 show`, `item show`, `question list`, `item list` and `lists show` print each
 record's trail, and the list commands take `--tag T` to show only the records
 whose trail has T, each question keeping its place in the stack. The dashboard
-shows each row's trail, and a bar of every tag, where choosing a tag shows that
-tag's entries together. A record keeps its origin and its tags when it closes,
+shows each row's trail, without the row's own record, and a bar of every tag,
+where choosing a tag shows that tag's entries together. A record keeps its origin and its tags when it closes,
 and `edit --origin N`, `edit --tag T` and `edit --untag T` change those of an
 open or a closed record; an edit of any other field needs an open one.
 

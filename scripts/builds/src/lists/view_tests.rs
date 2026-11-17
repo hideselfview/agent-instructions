@@ -261,3 +261,19 @@ fn each_question_and_item_carries_its_trail() {
         json!({"tags": ["screen-reads audit"], "earlier": []})
     );
 }
+
+#[test]
+fn each_item_counts_the_open_items_that_wait_behind_it() {
+    let db = db();
+    let first = item(&db, vec![]);
+    let second = item(&db, vec![Wait::Item(first)]);
+    item(&db, vec![Wait::Item(second)]);
+    let json = view_json(&read(&db));
+    let behind: Vec<&Value> = json["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| &i["behind"])
+        .collect();
+    assert_eq!(behind, [&json!(2), &json!(1), &json!(0)]);
+}

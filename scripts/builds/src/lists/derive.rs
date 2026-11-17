@@ -173,6 +173,12 @@ fn waiting_behind(lists: &Lists, ids: &[Id]) -> BTreeSet<Id> {
     all
 }
 
+/// How many open items wait behind item <id>: on it directly or through a
+/// chain of open items.
+pub fn behind(lists: &Lists, id: Id) -> usize {
+    waiting_behind(lists, &[id]).len()
+}
+
 /// The stack in the order in which builds asks the person its questions: the
 /// entries placed first in the person's ranked order, highest rank on top;
 /// then by how many open items wait on each directly or through a chain of
@@ -194,7 +200,7 @@ pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
                     .into_iter()
                     .map(|item| BlockedItem {
                         item,
-                        behind: waiting_behind(lists, &[item.id]).len(),
+                        behind: behind(lists, item.id),
                     })
                     .collect(),
                 blocked_count: all.len(),
