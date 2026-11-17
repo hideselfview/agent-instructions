@@ -30,7 +30,7 @@ fn the_text_lists_the_stack_then_the_queue() {
     for expected in [
         "Waiting on you (1)",
         &format!("  1. {q} Which way for number {} [question]", q.0),
-        "placed last by you: later",
+        "you placed it last: later",
         "blocks 1 (1 through chains):",
         &format!("  {blocked} Do the work numbered {}", blocked.0),
         "Work (1 ready, 0 running)",

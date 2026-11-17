@@ -125,8 +125,8 @@ pub fn blocks_lines(entry: &StackEntry<'_>) -> Result<Vec<String>> {
 pub fn place_words(question: &Question) -> String {
     match &question.placed {
         Some(placed) => {
-            let by = if placed.by_person { " by you" } else { "" };
-            format!("placed {}{by}: {}", placed.at.word(), placed.why)
+            let who = if placed.by_person { "you" } else { "an agent" };
+            format!("{who} placed it {}: {}", placed.at.word(), placed.why)
         }
         None => "the stack orders it by what it unblocks".to_string(),
     }

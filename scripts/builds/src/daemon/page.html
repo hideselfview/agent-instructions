@@ -1433,7 +1433,7 @@ function blockedItem(b) {
 // Why a question sits where it does on the stack, as `question list` words it.
 function placeWords(q) {
   if (!q.placed) return "the stack orders it by what it unblocks";
-  return "placed " + q.placed.at + (q.placed.by_person ? " by you" : "") + ": " + q.placed.why;
+  return (q.placed.by_person ? "you" : "an agent") + " placed it " + q.placed.at + ": " + q.placed.why;
 }
 // What a question blocks, from the items that wait on it, or why it is on
 // the stack though nothing waits on it.
