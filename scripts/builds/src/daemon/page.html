@@ -1673,7 +1673,7 @@ function totalNow(total) {
 // note carried the state held, and how long the work waited on the person.
 function timesWords(t) {
   return "ran " + duration(totalNow(t.ran)) + " in " + t.runs + (t.runs === 1 ? " run" : " runs") +
-    " from " + stamp(t.first) + "; held the worktree " + duration(totalNow(t.held)) + "; waited on you " + duration(totalNow(t.waiting)) +
+    " from " + stamp(t.first) + "; paused " + duration(totalNow(t.held)) + "; waited on you " + duration(totalNow(t.waiting)) +
     (t.spans_from === null ? "" : " (builds has recorded held and waiting time only since " + stamp(t.spans_from) + ")");
 }
 // A running work is one line: its title with its worktree and the time its

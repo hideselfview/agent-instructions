@@ -356,7 +356,8 @@ runs in (plans are in no commit); an absolute path is itself.
       waiting time as it changes what the item waits on. For each item N,
       times prints when its first run started, when it landed or that it runs
       now, how long it ran and in how many runs, the time between runs, the
-      time held and the time it waited on the person. With no N, it prints
+      time its worktree's claim note said held (printed as paused) and the
+      time it waited on the person. With no N, it prints
       each running item, each item that landed in the last 14 days, and each
       branch on which a run goes on or whose last run ended with a landing in
       those days. For a branch, times adds up the runs of every item that

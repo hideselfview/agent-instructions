@@ -228,12 +228,12 @@ fn times_say_how_long_each_item_and_branch_ran_and_was_held_or_waited() {
     let lists = demo.store.load().unwrap();
     let at = |t: i64| crate::text::local_minute(NOON + t);
     let first = format!(
-        "first started {} and landed {}, 1h00m later; ran 1h00m in 1 run; held the worktree 10m; waited on you 0m",
+        "first started {} and landed {}, 1h00m later; ran 1h00m in 1 run; paused 10m; waited on you 0m",
         at(0),
         at(3600)
     );
     let second = format!(
-        "first started {} and runs now; ran 50m in 1 run; held the worktree 0m; waited on you 0m",
+        "first started {} and runs now; ran 50m in 1 run; paused 0m; waited on you 0m",
         at(1000)
     );
     assert_eq!(
@@ -246,7 +246,9 @@ fn times_say_how_long_each_item_and_branch_ran_and_was_held_or_waited() {
     );
     assert_eq!(
         times_text(&lists, &[Id(3), Id(1)], NOON + 4000).unwrap(),
-        format!("#3 Do the third thing now: no run recorded\n#1 Do the first thing now: {first}\n")
+        format!(
+            "#3 Do the third thing now: builds has recorded no run\n#1 Do the first thing now: {first}\n"
+        )
     );
     assert!(
         render_item(&lists, Id(1), NOON + 4000)

@@ -630,7 +630,7 @@ fn logged_ids<'a>(words: impl Iterator<Item = &'a str>) -> Vec<Id> {
 /// row. The log names no worktree, branch or span, so no run it gives has a
 /// place, and no span is older than <now>.
 pub fn move_to_runs(db: &Connection, now: i64) -> Result<Recovered> {
-    // The tables of ended runs and spans end running.sql.
+    // running.sql makes the tables of ended runs and spans last.
     const SQL: &str = include_str!("running.sql");
     let start = SQL
         .find("CREATE TABLE item_run (")

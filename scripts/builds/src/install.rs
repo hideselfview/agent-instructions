@@ -482,8 +482,9 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
     Ok(())
 }
 
-/// Moves the stores to this program's schema, as install does at <now>, and
-/// puts this program on PATH with <put>, which returns whether it replaced the installed one. <holder>
+/// Moves the stores to this program's schema, with <now>, the moment of the
+/// move, as the moment each store begins to record spans, and puts this
+/// program on PATH with <put>, which returns whether it replaced the installed one. <holder>
 /// names the builds process whose use of the stores covers this one
 /// (`install_gate::VARIABLE`), if any. Gives <say> each line it has for the
 /// person.

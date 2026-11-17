@@ -80,7 +80,7 @@ pub fn times_words(times: &Times, now: i64) -> String {
     }
     let _ = write!(
         words,
-        "; held the worktree {}; waited on you {}",
+        "; paused {}; waited on you {}",
         duration(times.held.at(now)),
         duration(times.waiting.at(now))
     );
@@ -131,7 +131,7 @@ pub fn times_text(lists: &Lists, ids: &[Id], now: i64) -> Result<String> {
         let times = item_times(lists, item, closed)?;
         let words = times
             .as_ref()
-            .map_or("no run recorded".to_string(), |times| {
+            .map_or("builds has recorded no run".to_string(), |times| {
                 times_words(times, now)
             });
         Ok((

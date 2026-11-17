@@ -200,11 +200,12 @@ impl Store {
 /// Applies <apply> to each of <writes>, a store and what to write there,
 /// each in a write transaction of its store, and commits the stores only
 /// once every write has passed the check, so that a refusal leaves every
-/// store as it was. It takes the stores' write locks in the order of their
-/// projects' names, so two such writes never wait on each other. Each log
-/// gains a line for <words> by <stamp>. Once every check has passed, only a
-/// failure of SQLite's own commit, which the disk causes, can leave the
-/// stores committed before it changed and the rest as they were.
+/// store as it was. write_each takes the stores' write locks in the order
+/// of their projects' names, so two such writes never wait on each other.
+/// Each log gains a line for <words> by <stamp>. Once every check has
+/// passed, only a failure of SQLite's own commit, which the disk causes,
+/// can leave the stores that committed before the failure changed and the
+/// rest as they were.
 pub fn write_each<D>(
     writes: &[(Store, D)],
     stamp: &Stamp,

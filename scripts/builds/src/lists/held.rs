@@ -88,10 +88,10 @@ pub fn require_hold_allowed(places: &Places, checkout: &Checkout) -> Result<()> 
 /// Starts (when <held>) or ends at <stamp> the `held` span of each item of
 /// every project that runs in <checkout>, and writes <noted>, the claim with
 /// its new note, as the worktree's claim. The spans change in every store
-/// or in none (`store::write_each`). The claim goes to a file beside the
-/// claim file before the stores commit, and moves over the claim file once
-/// they have, so a refused write leaves the claim as it was, and a claim
-/// that the stores' commits changed follows them.
+/// or in none (`store::write_each`). record_hold writes the new claim to a
+/// file beside the claim file before the stores commit, and moves it over
+/// the claim file only after every store has committed, so a refused write
+/// leaves the claim file as it was.
 pub fn record_hold(
     places: &Places,
     checkout: &Checkout,
