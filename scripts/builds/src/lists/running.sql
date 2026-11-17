@@ -55,8 +55,9 @@ CREATE TABLE item_run_place (
 -- The spans of the run that goes on, each from when it began: `held` while
 -- the worktree's claim note says held (`builds note --state held`, `item
 -- take --held`), and `waiting` while the item waits on a question or on a design
--- change the person has not approved. Each write opens or ends the
--- `waiting` span of each item whose wait on the person it starts or ends.
+-- change the person has not approved. When a write starts an item's wait
+-- on the person, builds opens the item's `waiting` span, and when a write
+-- ends that wait, builds ends the span.
 CREATE TABLE running_span (
     item_id INTEGER NOT NULL REFERENCES running (item_id),
     kind TEXT NOT NULL CONSTRAINT running_span_kind_known CHECK (kind IN ('held', 'waiting')),

@@ -3567,9 +3567,9 @@ fn a_store_from_before_waits_keeps_its_cargo_runs_and_app_build_runs() {
     assert_eq!(app, (4, 500, None, 1000));
 }
 
-/// The schema text before builds kept each run of an item that ended and the
-/// spans its runs were held or waited on the person: running.sql without
-/// its tables of ended runs and spans.
+/// The schema text before builds kept each run of an item that ended and
+/// the spans in which the worktree's claim note said held or the item waited
+/// on the person: running.sql without its tables of ended runs and spans.
 fn schema_before_run_times() -> String {
     without_run_times(db::schema())
 }
