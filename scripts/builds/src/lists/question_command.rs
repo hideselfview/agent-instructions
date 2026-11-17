@@ -22,18 +22,19 @@ use crate::lists::show::{blocks_lines, kind_words, stack_entry};
 use crate::lists::store::{self, Store};
 use crate::lists::trail::{self, trail_line, trail_wanted};
 use crate::lists::{
-    How, Id, Kind, Lists, Located, PlanRef, Question, QuestionKind, Stamp, Standing, Wait, tag,
+    Effect, How, Id, Kind, Lists, Located, PlanRef, Question, QuestionKind, Stamp, Standing, Wait,
+    tag,
 };
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds question ask --title T --kind question|your-step|held --details-file F (--blocks N[,N] | --blocks-nothing WHY) [--from-item N | --origin N] [--first WHY] [--plan PATH --plan-number Qn] [--tag T]...
+const USAGE: &str = "usage: builds question ask --title T --kind question|your-step|held --effect E --details-file F (--blocks N[,N] | --blocks-nothing WHY) [--from-item N | --origin N] [--first WHY] [--plan PATH --plan-number Qn] [--tag T]...
        builds question answer N --request F
        builds question settle N --request F
        builds question done N --request F
        builds question drop N --why WHY
        builds question defer N --issue URL
        builds question place N (first|last|auto | --above M | --below M) --why WHY [--by-person]
-       builds question edit N [--title T] [--details-file F] [--blocks-nothing WHY] [--origin N] [--tag T]... [--untag T]...
+       builds question edit N [--title T] [--details-file F] [--effect E] [--blocks-nothing WHY] [--origin N] [--tag T]... [--untag T]...
        builds question show N
        builds question list [--tag T]
   every command also takes --project P and --by WHO";
@@ -77,10 +78,11 @@ fn stack_top(lists: &Lists) -> Result<String> {
     Ok(match derive::stack_order(lists).first() {
         None => "the stack is empty".to_string(),
         Some(entry) => format!(
-            "the stack's top is {} {} [{}]: {}",
+            "the stack's top is {} {} [{}, {}]: {}",
             entry.question.id,
             entry.question.title,
             kind_words(entry.question.kind),
+            entry.question.effect.words(),
             blocks_lines(entry)?.join("\n  ")
         ),
     })
@@ -109,6 +111,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
         &[
             "title",
             "kind",
+            "effect",
             "details-file",
             "blocks",
             "blocks-nothing",
@@ -132,6 +135,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
         args.require("kind")?,
         "question, your-step or held",
     )?;
+    let effect = Effect::parse("--effect", args.require("effect")?)?;
     let details = read_input(args.require("details-file")?)?;
     if details.trim().is_empty() {
         fail!("details are empty; say what is asked");
@@ -188,6 +192,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
             title: title.clone(),
             details: details.clone(),
             kind,
+            effect,
             blocks_nothing: blocks_nothing.clone(),
             first: first.clone(),
             plan: plan.clone(),
@@ -506,7 +511,7 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
     let by_person = args.switch("by-person");
     if spot.is_none() && by_person {
         fail!(
-            "--by-person goes with first, last, --above or --below; with auto, the stack orders the question by what it unblocks"
+            "--by-person goes with first, last, --above or --below; with auto, the stack orders the question by what it unblocks and its effect"
         );
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
@@ -525,7 +530,7 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
         Some(Spot::Last) => "last".to_string(),
         Some(Spot::Above(next)) => format!("above {next}"),
         Some(Spot::Below(next)) => format!("below {next}"),
-        None => "by what it unblocks".to_string(),
+        None => "by what it unblocks and its effect".to_string(),
     };
     Ok(format!(
         "placed question {id} {to}\n{}\n",
@@ -542,6 +547,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
         &[
             "title",
             "details-file",
+            "effect",
             "blocks-nothing",
             "origin",
             "tag",
@@ -561,6 +567,10 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
     if details.as_deref().is_some_and(|d| d.trim().is_empty()) {
         fail!("details are empty; say what is asked");
     }
+    let effect = args
+        .value("effect")?
+        .map(|word| Effect::parse("--effect", word))
+        .transpose()?;
     let blocks_nothing = args.value("blocks-nothing")?.map(str::to_string);
     if blocks_nothing
         .as_deref()
@@ -568,10 +578,11 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
     {
         fail!("--blocks-nothing needs its why");
     }
-    let fields = title.is_some() || details.is_some() || blocks_nothing.is_some();
+    let fields =
+        title.is_some() || details.is_some() || effect.is_some() || blocks_nothing.is_some();
     if !fields && origin.is_none() && tags.is_empty() && untags.is_empty() {
         fail!(
-            "the edit changes nothing: name --title, --details-file, --blocks-nothing, --origin, --tag or --untag"
+            "the edit changes nothing: name --title, --details-file, --effect, --blocks-nothing, --origin, --tag or --untag"
         );
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
@@ -580,7 +591,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
         let lists = &store::read(db)?;
         if fields {
             open_question(lists, id)?;
-            question::edit(db, id, title, details, blocks_nothing)?;
+            question::edit(db, id, title, details, effect, blocks_nothing)?;
         } else if !matches!(
             lists.locate(id),
             Some(Located {

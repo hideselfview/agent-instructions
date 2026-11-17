@@ -81,7 +81,7 @@ fn ask_with_blocks_makes_the_question_and_the_items_wait_on_it() {
     let out = go(
         &scratch,
         &tool,
-        &format!("ask --title Which_way --kind question --details-file {d} --blocks {a},{b}"),
+        &format!("ask --title Which_way --kind question --effect data-loss --details-file {d} --blocks {a},{b}"),
     )
     .unwrap();
     let lists = store.load().unwrap();
@@ -89,9 +89,10 @@ fn ask_with_blocks_makes_the_question_and_the_items_wait_on_it() {
     assert_eq!(
         (
             lists.questions[0].kind,
+            lists.questions[0].effect,
             lists.questions[0].blocks_nothing.clone()
         ),
-        (QuestionKind::Question, None)
+        (QuestionKind::Question, Effect::DataLoss, None)
     );
     assert_eq!(
         lists.questions[0].details,
@@ -102,18 +103,19 @@ fn ask_with_blocks_makes_the_question_and_the_items_wait_on_it() {
         assert_eq!(lists.item(id).unwrap().waits, [Wait::Question(q)]);
     }
     assert!(
-        out.contains(&format!("asked question {q}")) && out.contains("blocks 2 (2 through chains)"),
+        out.contains(&format!("asked question {q}"))
+            && out.contains("[question, data loss]: blocks 2 (2 through chains)"),
         "{out}"
     );
     let db = crate::db::open_reader(&store.database()).unwrap().unwrap();
-    assert_eq!(crate::lists::store::read_log(&db).unwrap().pop().unwrap().3, format!("question ask --title Which_way --kind question --details-file {d} --blocks {a},{b} {AS}").replace('#', ""));
+    assert_eq!(crate::lists::store::read_log(&db).unwrap().pop().unwrap().3, format!("question ask --title Which_way --kind question --effect data-loss --details-file {d} --blocks {a},{b} {AS}").replace('#', ""));
 }
 
 #[test]
 fn ask_needs_what_it_blocks_or_why_it_blocks_nothing() {
     let (scratch, tool, store, a) = setup("q-ask-needs", |l| item(l, vec![]));
     let d = details(&scratch);
-    let base = format!("ask --title Which_way --kind question --details-file {d}");
+    let base = format!("ask --title Which_way --kind question --effect cleanup --details-file {d}");
     refuses(
         &scratch,
         &tool,
@@ -145,7 +147,7 @@ fn ask_refuses_blocks_that_are_not_open_items() {
         (gone, question(l))
     });
     let d = details(&scratch);
-    let base = format!("ask --title Which_way --kind question --details-file {d}");
+    let base = format!("ask --title Which_way --kind question --effect cleanup --details-file {d}");
     refuses(
         &scratch,
         &tool,
@@ -163,30 +165,50 @@ fn ask_refuses_blocks_that_are_not_open_items() {
 }
 
 #[test]
-fn ask_refuses_a_bad_title_kind_or_details() {
+fn ask_refuses_a_bad_title_kind_effect_or_details() {
     let (scratch, tool, store, _) = setup("q-ask-bad", |_| ());
     let d = details(&scratch);
     let empty = file(&scratch, "empty.md", "  \n");
-    let ok = format!("--title T --kind question --details-file {d} --blocks-nothing why");
+    let ok = format!(
+        "--title T --kind question --effect cleanup --details-file {d} --blocks-nothing why"
+    );
     refuses(
         &scratch,
         &tool,
         &store,
-        &format!("ask --title T --kind other --details-file {d} --blocks-nothing why"),
+        &format!(
+            "ask --title T --kind other --effect cleanup --details-file {d} --blocks-nothing why"
+        ),
         "--kind is question, your-step or held, not 'other'",
     );
     refuses(
         &scratch,
         &tool,
         &store,
-        &format!("ask --title T --kind held --details-file {empty} --blocks-nothing why"),
+        &format!("ask --title T --kind held --details-file {d} --blocks-nothing why"),
+        "--effect is required",
+    );
+    refuses(
+        &scratch,
+        &tool,
+        &store,
+        &format!("ask --title T --kind held --effect big --details-file {d} --blocks-nothing why"),
+        "--effect is one of data-loss, bug, slows-agents, product-design, cleanup, not 'big'",
+    );
+    refuses(
+        &scratch,
+        &tool,
+        &store,
+        &format!(
+            "ask --title T --kind held --effect cleanup --details-file {empty} --blocks-nothing why"
+        ),
         "details are empty",
     );
     refuses(
         &scratch,
         &tool,
         &store,
-        "ask --kind held --details-file x --blocks-nothing why",
+        "ask --kind held --effect cleanup --details-file x --blocks-nothing why",
         "--title is required",
     );
     refuses(
@@ -207,7 +229,7 @@ fn ask_refuses_a_bad_title_kind_or_details() {
         &scratch,
         &tool,
         &store,
-        "ask --title T --kind held --details-file /nonexistent/x --blocks-nothing why",
+        "ask --title T --kind held --effect cleanup --details-file /nonexistent/x --blocks-nothing why",
         "reading /nonexistent/x",
     );
 }
@@ -221,7 +243,7 @@ fn ask_first_places_the_question_on_top() {
         (a, other)
     });
     let d = details(&scratch);
-    let out = go(&scratch, &tool, &format!("ask --title Look_first --kind your-step --details-file {d} --blocks {a} --first no_idea_if_needed")).unwrap();
+    let out = go(&scratch, &tool, &format!("ask --title Look_first --kind your-step --effect cleanup --details-file {d} --blocks {a} --first no_idea_if_needed")).unwrap();
     let lists = store.load().unwrap();
     let placed = lists.questions.last().unwrap().placed.clone().unwrap();
     assert_eq!(
@@ -239,7 +261,7 @@ fn ask_first_places_the_question_on_top() {
 fn ask_with_a_plan_keeps_its_link() {
     let (scratch, tool, store, _) = setup("q-ask-plan", |_| ());
     let d = details(&scratch);
-    go(&scratch, &tool, &format!("ask --title T --kind question --details-file {d} --blocks-nothing why --plan plans/x.md --plan-number Q3")).unwrap();
+    go(&scratch, &tool, &format!("ask --title T --kind question --effect cleanup --details-file {d} --blocks-nothing why --plan plans/x.md --plan-number Q3")).unwrap();
     let plan = store.load().unwrap().questions[0].plan.clone().unwrap();
     assert_eq!(
         (plan.path.as_str(), plan.number.as_str()),
@@ -256,7 +278,7 @@ fn ask_from_an_item_moves_it_to_the_stack_and_its_waiters_follow() {
         (mine, waiter, other)
     });
     let d = details(&scratch);
-    let out = go(&scratch, &tool, &format!("ask --title Do_it_yourself --kind your-step --details-file {d} --from-item {mine} --blocks {other}")).unwrap();
+    let out = go(&scratch, &tool, &format!("ask --title Do_it_yourself --kind your-step --effect cleanup --details-file {d} --from-item {mine} --blocks {other}")).unwrap();
     let lists = store.load().unwrap();
     let q = lists.questions[0].id;
     assert_eq!(closed_as(&lists, mine), &How::MovedToStack(q));
@@ -293,7 +315,7 @@ fn ask_from_an_item_needs_waiters_or_a_reason_and_refuses_a_running_item() {
         (lonely, running)
     });
     let d = details(&scratch);
-    let base = format!("ask --title T --kind your-step --details-file {d}");
+    let base = format!("ask --title T --kind your-step --effect cleanup --details-file {d}");
     refuses(
         &scratch,
         &tool,
@@ -343,7 +365,7 @@ fn ask_from_an_item_that_others_wait_on_refuses_a_why_for_blocking_nothing() {
         &tool,
         &store,
         &format!(
-            "ask --title T --kind your-step --details-file {d} --from-item {moved} --blocks-nothing why"
+            "ask --title T --kind your-step --effect cleanup --details-file {d} --from-item {moved} --blocks-nothing why"
         ),
         &format!(
             "--blocks-nothing contradicts the items that waited on item {moved}: {behind} waits on the new question instead, so the new question blocks that item"
@@ -1093,6 +1115,18 @@ fn edit_changes_the_fields_and_gives_a_why_only_while_no_item_waits() {
         ),
         ("New_title", "New details.\n")
     );
+    go(&scratch, &tool, &format!("edit {waited} --effect bug")).unwrap();
+    assert_eq!(
+        store.load().unwrap().question(waited).unwrap().effect,
+        Effect::Bug
+    );
+    refuses(
+        &scratch,
+        &tool,
+        &store,
+        &format!("edit {waited} --effect worse"),
+        "--effect is one of",
+    );
     refuses(
         &scratch,
         &tool,
@@ -1140,6 +1174,7 @@ fn show_and_list_print_the_stack_and_a_closed_question() {
     let shown = go(&scratch, &tool, &format!("show {q}")).unwrap();
     assert!(
         shown.contains(&format!("1. {q} "))
+            && shown.contains("effect: cleanup or wording")
             && shown.contains("blocks 1 (1 through chains):")
             && shown.contains(&format!("  {a} Do the work numbered {}", a.0))
             && shown.contains("details"),
@@ -1214,6 +1249,7 @@ fn blocking_with_plan(db: &Connection, plan: PlanRef) -> Id {
             title: format!("Which way for number {}", id.0),
             details: "details".into(),
             kind: QuestionKind::Question,
+            effect: Effect::Cleanup,
             blocks_nothing: None,
             first: None,
             plan: Some(plan),
@@ -1241,6 +1277,8 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
             title,
             "--kind",
             "question",
+            "--effect",
+            "cleanup",
             "--details-file",
             &details,
             "--tag",
@@ -1346,7 +1384,7 @@ fn ask_and_edit_give_a_question_its_origin_and_the_trail_shows_it() {
     });
     let d = details(&scratch);
     let base = format!(
-        "ask --title Sort_records --kind question --details-file {d} --blocks-nothing asked"
+        "ask --title Sort_records --kind question --effect cleanup --details-file {d} --blocks-nothing asked"
     );
     go(&scratch, &tool, &format!("{base} --origin {work}")).unwrap();
     let lists = store.load().unwrap();

@@ -8,7 +8,7 @@ use crate::lists::project::{self, NewProject};
 use crate::lists::question::{NewQuestion, ask, clear_blocks_nothing, edit};
 use crate::lists::store::Store;
 use crate::lists::store::log_write;
-use crate::lists::{Audience, Id, Lists, QuestionKind, Stamp, Wait};
+use crate::lists::{Audience, Effect, Id, Lists, QuestionKind, Stamp, Wait};
 use rusqlite::Connection;
 use std::collections::BTreeMap;
 
@@ -120,6 +120,7 @@ pub fn question(db: &Connection) -> Id {
         title: format!("Which way for number {}", id.0),
         details: "details".into(),
         kind: QuestionKind::Question,
+        effect: Effect::Cleanup,
         blocks_nothing: Some("nothing waits".into()),
         first: None,
         plan: None,
@@ -135,12 +136,20 @@ pub fn question_kind(db: &Connection, kind: QuestionKind) -> Id {
         title: format!("Which way for number {}", id.0),
         details: "details".into(),
         kind,
+        effect: Effect::Cleanup,
         blocks_nothing: Some("nothing waits".into()),
         first: None,
         plan: None,
         origin: None,
     };
     ask(db, new, &stamp(NOON + i64::from(id.0))).unwrap()
+}
+
+/// An open question of <effect> that blocks nothing, opened at `NOON + id`.
+pub fn question_effect(db: &Connection, effect: Effect) -> Id {
+    let id = question(db);
+    edit(db, id, None, None, Some(effect), None).unwrap();
+    id
 }
 
 /// Everything <store> holds, for comparing before and after a command: the
@@ -181,7 +190,7 @@ pub fn blocks_something(db: &Connection, id: Id) {
 /// Sets the reason open question <id> blocks nothing to <why>: with an open
 /// item waiting on it, the question fails its check.
 pub fn blocks_nothing_because(db: &Connection, id: Id, why: &str) {
-    edit(db, id, None, None, Some(why.to_string())).unwrap();
+    edit(db, id, None, None, None, Some(why.to_string())).unwrap();
 }
 
 pub fn design(db: &Connection) -> Id {

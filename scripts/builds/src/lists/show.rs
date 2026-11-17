@@ -121,20 +121,20 @@ pub fn blocks_lines(entry: &StackEntry<'_>) -> Result<Vec<String>> {
 }
 
 /// Why a question sits where it does on the stack: who placed it where and
-/// why, or that the stack orders it by what it unblocks.
+/// why, or that the stack orders it by what it unblocks and its effect.
 pub fn place_words(question: &Question) -> String {
     match &question.placed {
         Some(placed) => {
             let who = if placed.by_person { "you" } else { "an agent" };
             format!("{who} placed it {}: {}", placed.at.word(), placed.why)
         }
-        None => "the stack orders it by what it unblocks".to_string(),
+        None => "the stack orders it by what it unblocks and its effect".to_string(),
     }
 }
 
 /// An entry of the stack as lines: its place in the order and its title,
-/// then who asked it and when, why it sits where it does, what it blocks,
-/// and its trail.
+/// then who asked it and when, its effect, why it sits where it does, what
+/// it blocks, and its trail.
 pub fn stack_entry(lists: &Lists, number: usize, entry: &StackEntry<'_>) -> Result<String> {
     let q = entry.question;
     let mut out = format!(
@@ -149,6 +149,7 @@ pub fn stack_entry(lists: &Lists, number: usize, entry: &StackEntry<'_>) -> Resu
         q.opened.by,
         local_minute(q.opened.at)
     );
+    let _ = writeln!(out, "       effect: {}", q.effect.words());
     let _ = writeln!(out, "       {}", place_words(q));
     for line in blocks_lines(entry)? {
         let _ = writeln!(out, "       {line}");

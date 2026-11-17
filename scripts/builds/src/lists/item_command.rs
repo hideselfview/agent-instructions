@@ -308,7 +308,7 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 }
                 remove_wait(db, id, &wait)?;
                 if let (Wait::Question(asked), Some(why)) = (&wait, &blocks_nothing) {
-                    crate::lists::question::edit(db, *asked, None, None, Some(why.clone()))?;
+                    crate::lists::question::edit(db, *asked, None, None, None, Some(why.clone()))?;
                 }
             }
             require_state_holds(db, &format!("{id} cannot {verb} {reference}"))?;

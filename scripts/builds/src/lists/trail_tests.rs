@@ -177,6 +177,7 @@ fn the_check_names_a_loop_of_origins_and_a_tag_the_trail_already_shows() {
                 ("title", v("A loop")),
                 ("details", v("d")),
                 ("kind", v("question")),
+                ("effect", v("cleanup")),
                 ("blocks_nothing", v("nothing waits")),
                 ("origin", v(origin)),
             ],

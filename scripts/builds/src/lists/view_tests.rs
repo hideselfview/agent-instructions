@@ -70,8 +70,18 @@ fn the_json_has_the_pages_shape() {
     );
     let stack = &json["stack"][0];
     assert_eq!(
-        (&stack["id"], &stack["kind"], &stack["blocked_count"]),
-        (&json!(q.0), &json!("question"), &json!(1))
+        (
+            &stack["id"],
+            &stack["kind"],
+            &stack["effect"],
+            &stack["blocked_count"]
+        ),
+        (
+            &json!(q.0),
+            &json!("question"),
+            &json!("cleanup"),
+            &json!(1)
+        )
     );
     assert_eq!(
         stack["blocks"],

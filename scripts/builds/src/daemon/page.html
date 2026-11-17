@@ -1506,9 +1506,12 @@ function blockedItem(b) {
   return h("li", {}, recLink(b.id, "#" + b.id + " " + b.title), " (", priorityWords(b.priority), "; " + behindWords(b.behind) + "; ",
     agoSpan(b.opened.at, "opened ", " ago"), ")");
 }
+// What a question affects, as `question list` words it (Effect::words).
+const EFFECT_WORDS = {"data-loss": "data loss", "bug": "a bug you hit", "slows-agents": "slows the agents",
+  "product-design": "product design", "cleanup": "cleanup or wording"};
 // Why a question sits where it does on the stack, as `question list` words it.
 function placeWords(q) {
-  if (!q.placed) return "the stack orders it by what it unblocks";
+  if (!q.placed) return "the stack orders it by what it unblocks and its effect";
   return (q.placed.by_person ? "you" : "an agent") + " placed it " + q.placed.at + ": " + q.placed.why;
 }
 // What a question blocks, from the items that wait on it, or why it is on
@@ -1520,13 +1523,14 @@ function questionBlocks(q) {
     (q.blocked_count > direct ? ", " + direct + " directly:" : ":");
   return h("div", {class: "l-rowfact"}, "Blocks " + count, h("ul", {class: "l-list"}, q.blocks.map(blockedItem)));
 }
-// A question's row shows, closed, who asked it and when, why it sits where it
-// does and what it blocks; opened, it adds its plan and details.
+// A question's row shows, closed, who asked it and when, its effect, why it
+// sits where it does and what it blocks; opened, it adds its plan and details.
 function questionRow(q) {
   return fold("q:" + q.id, q.id,
     [h("div", {class: "l-rowmain"},
       h("span", {class: "l-title"}, idChip(q.id), q.title, trailRow(q.trail)),
-      h("div", {class: "l-rowfact"}, "Asked by " + openerWord(q.opened.by) + ", " + stamp(q.opened.at) + " · " + placeWords(q)),
+      h("div", {class: "l-rowfact"}, "Asked by " + openerWord(q.opened.by) + ", " + stamp(q.opened.at) +
+        " · effect: " + EFFECT_WORDS[q.effect] + " · " + placeWords(q)),
       questionBlocks(q))],
     () => h("div", {class: "l-plain"},
       q.plan ? fact("Plan", mono(q.plan.path), " " + q.plan.number) : null,

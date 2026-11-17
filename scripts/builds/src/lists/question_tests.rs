@@ -122,6 +122,7 @@ fn every_named_constraint_of_the_question_tables_refuses_its_row() {
         ("title", v("A title")),
         ("details", v("d")),
         ("kind", v("question")),
+        ("effect", v("bug")),
     ];
     plant(&db, "question", &question).unwrap();
     let mut refused = Refusals::new(include_str!("question.sql"));
@@ -145,6 +146,10 @@ fn every_named_constraint_of_the_question_tables_refuses_its_row() {
     refused.check(
         "question_kind_known",
         plant(&db, "question", &spare_row(&[("kind", v("riddle"))])),
+    );
+    refused.check(
+        "question_effect_known",
+        plant(&db, "question", &spare_row(&[("effect", v("data loss"))])),
     );
     refused.check(
         "question_blocks_nothing_says_something",

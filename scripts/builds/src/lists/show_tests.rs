@@ -92,7 +92,7 @@ fn a_question_with_no_waiting_item_and_no_reason_is_an_error() {
 }
 
 #[test]
-fn a_stack_entry_starts_with_who_asked_it_where_it_sits_and_what_it_blocks() {
+fn a_stack_entry_starts_with_who_asked_it_its_effect_where_it_sits_and_what_it_blocks() {
     let db = db();
     let q = question(&db);
     let blocked = item(&db, vec![Wait::Question(q)]);
@@ -108,7 +108,8 @@ fn a_stack_entry_starts_with_who_asked_it_where_it_sits_and_what_it_blocks() {
                 "       asked by coordinator, {}",
                 local_minute(NOON + i64::from(q.0))
             ),
-            "       the stack orders it by what it unblocks".to_string(),
+            "       effect: cleanup or wording".to_string(),
+            "       the stack orders it by what it unblocks and its effect".to_string(),
             "       blocks 1 (1 through chains):".to_string(),
             format!(
                 "         {blocked} Do the work numbered {} (priority none; no item waits behind it; opened {})",

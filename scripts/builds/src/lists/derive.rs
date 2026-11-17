@@ -182,8 +182,9 @@ pub fn behind(lists: &Lists, id: Id) -> usize {
 /// The stack in the order in which builds asks the person its questions: the
 /// entries placed first in the person's ranked order, highest rank on top;
 /// then by how many open items wait on each directly or through a chain of
-/// open items, most first, ties oldest first; then `placed last` (by the same
-/// count and age). The first entry is the question builds asks now.
+/// open items, most first, then by effect in `Effect`'s order, then oldest
+/// first; then `placed last` (by the same count, effect and age). The first
+/// entry is the question builds asks now.
 pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
     let mut entries: Vec<StackEntry<'_>> = lists
         .questions
@@ -208,8 +209,8 @@ pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
         })
         .collect();
     entries.sort_by_key(|entry| {
-        // Ranks are unique, so the count and age order only the entries
-        // outside the ranked order, which all take rank 0 here.
+        // Ranks are unique, so the count, effect and age order only the
+        // entries outside the ranked order, which all take rank 0 here.
         let (group, rank) = match entry.question.placed.as_ref().map(|p| p.at) {
             Some(Position::First { rank }) => (0, rank),
             None => (1, 0),
@@ -219,6 +220,7 @@ pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
             group,
             Reverse(rank),
             Reverse(entry.blocked_count),
+            entry.question.effect,
             entry.question.opened.at,
             entry.question.id,
         )

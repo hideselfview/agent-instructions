@@ -519,7 +519,7 @@ fn replace_program(
     // program is on PATH, so none writes a store of another schema.
     let closed = installing.close(say)?;
     crate::migrate::migrate_app_files(places)?;
-    crate::migrate::migrate_stores(places)?;
+    crate::migrate::migrate_stores(places, &crate::migrate::EFFECTS)?;
     let replaced = put()?;
     drop(closed);
     Ok(replaced)
@@ -824,7 +824,10 @@ mod tests {
     fn an_install_that_changes_a_schema_waits_for_the_commands_that_use_the_stores() {
         let scratch = crate::testing::Scratch::new("install-older-schema");
         let places = scratch.places();
-        let store = crate::migrate::tests::store_before_pushed(&places.lists.join("bae"));
+        // Install gives each question of the bae and builds stores the
+        // effect that migrate.rs's EFFECTS names, and refuses a bae store
+        // without those questions, so this store belongs to another project.
+        let store = crate::migrate::tests::store_before_pushed(&places.lists.join("demo"));
         let held = hook_run(&places, 11);
         let (install, events) = installing(&places);
         assert_eq!(

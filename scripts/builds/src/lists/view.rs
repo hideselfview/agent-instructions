@@ -8,7 +8,7 @@ use crate::fail::Result;
 use crate::lists::derive::{self, FLOW_DAYS, FlowDay};
 use crate::lists::trail::{Trail, trail};
 use crate::lists::{
-    Audience, DesignChange, Id, Item, LandedPart, Lists, Located, Note, Placement, PlanRef,
+    Audience, DesignChange, Effect, Id, Item, LandedPart, Lists, Located, Note, Placement, PlanRef,
     Priority, QuestionKind, Resolution, Stamp, Standing, Wait, side_worktree_parts,
 };
 
@@ -38,6 +38,7 @@ pub struct StackView {
     pub id: Id,
     pub title: String,
     pub kind: QuestionKind,
+    pub effect: Effect,
     pub details: String,
     /// The open items that wait on it directly.
     pub blocks: Vec<BlockedView>,
@@ -213,6 +214,7 @@ impl View {
                         id: entry.question.id,
                         title: entry.question.title.clone(),
                         kind: entry.question.kind,
+                        effect: entry.question.effect,
                         details: entry.question.details.clone(),
                         blocks: entry
                             .blocks

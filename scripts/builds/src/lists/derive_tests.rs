@@ -1,11 +1,11 @@
 use super::*;
 use crate::lists::fixtures::{
-    NOON, db, decision_answering, design, item, item_opened, question, read, set_area,
-    set_audience, stamp,
+    NOON, db, decision_answering, design, item, item_opened, question, question_effect, read,
+    set_area, set_audience, stamp,
 };
 use crate::lists::question::Spot;
 use crate::lists::record::close;
-use crate::lists::{Audience, How, Priority, Running, Stamp};
+use crate::lists::{Audience, Effect, How, Priority, Running, Stamp};
 use rusqlite::Connection;
 
 const DAY: i64 = 86400;
@@ -213,6 +213,21 @@ fn chains_of_open_items_count_and_each_item_counts_once() {
 }
 
 #[test]
+fn the_stack_orders_ties_in_what_they_unblock_by_effect_then_oldest_first() {
+    let db = db();
+    let cleanup = question_effect(&db, Effect::Cleanup);
+    let design = question_effect(&db, Effect::ProductDesign);
+    let loss = question_effect(&db, Effect::DataLoss);
+    let design_again = question_effect(&db, Effect::ProductDesign);
+    let blocking = blocked_question(&db, 1);
+    let ids: Vec<Id> = stack_order(&read(&db))
+        .iter()
+        .map(|e| e.question.id)
+        .collect();
+    assert_eq!(ids, vec![blocking, loss, design, design_again, cleanup]);
+}
+
+#[test]
 fn placements_sit_outside_the_count() {
     let db = db();
     let big = blocked_question(&db, 3);
@@ -220,17 +235,20 @@ fn placements_sit_outside_the_count() {
     let first_old = question(&db);
     let first_new = question(&db);
     let last = blocked_question(&db, 5);
+    let loss = question_effect(&db, Effect::DataLoss);
     place(&db, first_new, Spot::First);
     place(&db, first_old, Spot::First);
     place(&db, last, Spot::Last);
+    place(&db, loss, Spot::Last);
     let ids: Vec<Id> = stack_order(&read(&db))
         .iter()
         .map(|e| e.question.id)
         .collect();
     // The stack puts the questions placed first on top, newest placement
     // first, whatever they block and whenever someone asked them. Then it
-    // orders the rest by count and puts the questions placed last at the end.
-    assert_eq!(ids, vec![first_old, first_new, big, small, last]);
+    // orders the rest by count and puts the questions placed last at the end,
+    // whatever their effect.
+    assert_eq!(ids, vec![first_old, first_new, big, small, last, loss]);
 }
 
 #[test]

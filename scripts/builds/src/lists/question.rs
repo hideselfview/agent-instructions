@@ -34,6 +34,73 @@ pub enum QuestionKind {
     Held,
 }
 
+/// What a question affects, from the workflow's definition of critical work
+/// (`builds help workflow`, DISPATCH). The stack orders the questions no one
+/// placed by what they unblock, then by effect in this order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Effect {
+    /// The person could lose music, edits or settings.
+    DataLoss,
+    /// Something in the apps works wrong.
+    Bug,
+    /// builds or other tooling slows the agents.
+    SlowsAgents,
+    /// Behavior or a screen the person sees.
+    ProductDesign,
+    /// A cleanup or wording that the person never notices.
+    Cleanup,
+}
+
+impl Effect {
+    pub const ALL: [Effect; 5] = [
+        Effect::DataLoss,
+        Effect::Bug,
+        Effect::SlowsAgents,
+        Effect::ProductDesign,
+        Effect::Cleanup,
+    ];
+
+    /// The word the store and the commands use.
+    pub fn word(self) -> &'static str {
+        match self {
+            Effect::DataLoss => "data-loss",
+            Effect::Bug => "bug",
+            Effect::SlowsAgents => "slows-agents",
+            Effect::ProductDesign => "product-design",
+            Effect::Cleanup => "cleanup",
+        }
+    }
+
+    /// The effect <word> names, None for a word no effect has.
+    pub fn named(word: &str) -> Option<Effect> {
+        Effect::ALL.into_iter().find(|effect| effect.word() == word)
+    }
+
+    /// The effect that flag <flag> names with <word>, or the refusal, which
+    /// lists every effect's word.
+    pub fn parse(flag: &str, word: &str) -> Result<Effect> {
+        match Effect::named(word) {
+            Some(effect) => Ok(effect),
+            None => {
+                let words: Vec<&str> = Effect::ALL.into_iter().map(Effect::word).collect();
+                fail!("{flag} is one of {}, not '{word}'", words.join(", "))
+            }
+        }
+    }
+
+    /// The words every view shows to the person.
+    pub fn words(self) -> &'static str {
+        match self {
+            Effect::DataLoss => "data loss",
+            Effect::Bug => "a bug you hit",
+            Effect::SlowsAgents => "slows the agents",
+            Effect::ProductDesign => "product design",
+            Effect::Cleanup => "cleanup or wording",
+        }
+    }
+}
+
 /// Where a placed question sits in the stack.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "at", rename_all = "lowercase")]
@@ -92,6 +159,7 @@ pub struct Question {
     pub title: String,
     pub details: String,
     pub kind: QuestionKind,
+    pub effect: Effect,
     /// The reason the question stays open though no open item waits on it;
     /// None while one does.
     pub blocks_nothing: Option<String>,
@@ -122,6 +190,7 @@ pub struct NewQuestion {
     pub title: String,
     pub details: String,
     pub kind: QuestionKind,
+    pub effect: Effect,
     /// Why it is asked though nothing waits on it.
     pub blocks_nothing: Option<String>,
     /// Why it goes on top of the ranked order, when it does.
@@ -245,8 +314,8 @@ pub fn ask(db: &Connection, new: NewQuestion, stamp: &Stamp) -> Result<Id> {
 /// The question's own rows, for the record <id> already opened.
 fn insert(db: &Connection, id: Id, new: &NewQuestion) -> Result<()> {
     db.execute(
-        "INSERT INTO question (id, title, details, kind, blocks_nothing, origin) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, new.title, new.details, kind_word(new.kind), new.blocks_nothing, new.origin],
+        "INSERT INTO question (id, title, details, kind, effect, blocks_nothing, origin) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![id, new.title, new.details, kind_word(new.kind), new.effect.word(), new.blocks_nothing, new.origin],
     )
     .sql()?;
     if let Some(why) = &new.first {
@@ -277,26 +346,28 @@ pub fn place(db: &Connection, id: Id, spot: Spot, why: &str, by_person: bool) ->
     put(db, id, spot, why, by_person)
 }
 
-/// Removes open question <id>'s placement, so what it unblocks orders it.
+/// Removes open question <id>'s placement, so what it unblocks and its effect
+/// order it.
 pub fn unplace(db: &Connection, id: Id) -> Result<()> {
     require_open_question(db, id)?;
     delete_placement(db, id)
 }
 
-/// Changes open question <id>: the title, the details and the reason it
-/// blocks nothing, each when given.
+/// Changes open question <id>: the title, the details, the effect and the
+/// reason it blocks nothing, each when given.
 pub fn edit(
     db: &Connection,
     id: Id,
     title: Option<String>,
     details: Option<String>,
+    effect: Option<Effect>,
     blocks_nothing: Option<String>,
 ) -> Result<()> {
     require_open_question(db, id)?;
     db.execute(
         "UPDATE question SET title = COALESCE(?2, title), details = COALESCE(?3, details), \
-         blocks_nothing = COALESCE(?4, blocks_nothing) WHERE id = ?1",
-        params![id, title, details, blocks_nothing],
+         effect = COALESCE(?4, effect), blocks_nothing = COALESCE(?5, blocks_nothing) WHERE id = ?1",
+        params![id, title, details, effect.map(Effect::word), blocks_nothing],
     )
     .sql()?;
     Ok(())
@@ -376,7 +447,7 @@ pub fn read(
     }
     let mut statement = db
         .prepare(
-            "SELECT id, title, details, kind, blocks_nothing, origin FROM question ORDER BY id",
+            "SELECT id, title, details, kind, effect, blocks_nothing, origin FROM question ORDER BY id",
         )
         .sql()?;
     let rows = statement
@@ -386,14 +457,18 @@ pub fn read(
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<Id>>(5)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<Id>>(6)?,
             ))
         })
         .sql()?;
     let mut questions = Vec::new();
     for row in rows {
-        let (id, title, details, kind, blocks_nothing, origin) = row.sql()?;
+        let (id, title, details, kind, effect, blocks_nothing, origin) = row.sql()?;
+        let Some(effect) = Effect::named(&effect) else {
+            fail!("question {id}'s effect is {effect}, which the question table refuses")
+        };
         questions.push(Question {
             id,
             title,
@@ -403,6 +478,7 @@ pub fn read(
                 "your-step" => QuestionKind::YourStep,
                 _ => QuestionKind::Held,
             },
+            effect,
             blocks_nothing,
             placed: placements.remove(&id),
             plan: plans.remove(&id),
@@ -486,58 +562,79 @@ pub fn apply_blocked(
     Ok(())
 }
 
-/// Rebuilds a store's `question` table with the origin column and its index
-/// from question.sql, and copies the old rows into it with no origin. The
-/// statements come from question.sql, so the table equals a fresh database's.
-/// migrate.rs runs this with the foreign keys off, and SQLite renames the old
-/// table under `legacy_alter_table`, so the tables that point at `question`
-/// keep naming it.
+/// Adds the origin column to a store's `question` table, with no origin on
+/// any question. migrate.rs runs `move_to_effects` on every store after this
+/// move, and `move_to_effects` makes the table again as question.sql writes
+/// it, with the column's constraints and its index.
 pub fn move_to_origins(db: &Connection) -> Result<()> {
-    const SQL: &str = include_str!("question.sql");
-    crate::db::remake_table(
-        db,
-        "question",
-        crate::db::statement(SQL, "CREATE TABLE question (", "STRICT;"),
-        |db| {
-            db.execute_batch(
-                "INSERT INTO question (id, record_kind, title, details, kind, blocks_nothing)
-    SELECT id, record_kind, title, details, kind, blocks_nothing FROM question_old;",
-            )
-            .sql()
-        },
-        &[crate::db::statement(
-            SQL,
-            "CREATE INDEX question_origin",
-            ";",
-        )],
-    )
+    db.execute_batch("ALTER TABLE question ADD COLUMN origin INTEGER;")
+        .sql()
 }
 
-/// Makes `question` again as question.sql writes it and copies the old rows
-/// into it. The copy clears the reason the question blocks nothing on
-/// each open question that an open item waits on, because the item's wait already says
-/// what the question blocks. The statements come from question.sql, so the table equals a fresh
-/// database's. migrate.rs runs this with the foreign keys off, and SQLite
-/// renames the old table under `legacy_alter_table`, so the tables that
-/// point at `question` keep naming it.
+/// Clears the reason a question blocks nothing (`blocks_nothing`) on each
+/// open question that an open item waits on, because the item's wait already
+/// says what the question blocks.
 pub fn move_to_blocks_from_waits(db: &Connection) -> Result<()> {
+    db.execute_batch(
+        "UPDATE question SET blocks_nothing = NULL
+    WHERE NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = question.id)
+        AND EXISTS (SELECT 1 FROM item_wait_question w WHERE w.on_question = question.id
+            AND NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = w.item_id));",
+    )
+    .sql()
+}
+
+/// Makes `question` again as question.sql writes it and copies each old row
+/// into it with the effect that <effects> gives the question. The move
+/// refuses the store when <effects> gives a question no effect, or names a
+/// question the store does not hold, and names each such question. The
+/// statements come from question.sql, so the table
+/// equals a fresh database's. migrate.rs runs this with the foreign keys
+/// off, and SQLite renames the old table under `legacy_alter_table`, so the
+/// tables that point at `question` keep naming it.
+pub fn move_to_effects(db: &Connection, effects: &BTreeMap<Id, Effect>) -> Result<()> {
     const SQL: &str = include_str!("question.sql");
+    let held: Vec<Id> = db
+        .prepare("SELECT id FROM question ORDER BY id")
+        .sql()?
+        .query_map([], |row| row.get(0))
+        .sql()?
+        .collect::<rusqlite::Result<_>>()
+        .sql()?;
+    let named = |ids: Vec<&Id>| {
+        ids.iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let missing: Vec<&Id> = held.iter().filter(|id| !effects.contains_key(id)).collect();
+    if !missing.is_empty() {
+        fail!(
+            "the move gives no effect to question {}; give each question the effect its text supports",
+            named(missing)
+        );
+    }
+    let stray: Vec<&Id> = effects.keys().filter(|id| !held.contains(id)).collect();
+    if !stray.is_empty() {
+        fail!(
+            "the move gives an effect to question {}, which the store does not hold",
+            named(stray)
+        );
+    }
     crate::db::remake_table(
         db,
         "question",
         crate::db::statement(SQL, "CREATE TABLE question (", "STRICT;"),
         |db| {
-            db.execute_batch(
-                "INSERT INTO question (id, record_kind, title, details, kind, blocks_nothing, origin)
-    SELECT q.id, q.record_kind, q.title, q.details, q.kind,
-        CASE WHEN NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = q.id)
-            AND EXISTS (SELECT 1 FROM item_wait_question w WHERE w.on_question = q.id
-                AND NOT EXISTS (SELECT 1 FROM closing c WHERE c.record_id = w.item_id))
-        THEN NULL ELSE q.blocks_nothing END,
-        q.origin
-    FROM question_old q;",
-            )
-            .sql()
+            for (id, effect) in effects {
+                db.execute(
+                    "INSERT INTO question (id, record_kind, title, details, kind, effect, blocks_nothing, origin)
+    SELECT id, record_kind, title, details, kind, ?2, blocks_nothing, origin FROM question_old WHERE id = ?1;",
+                    params![id, effect.word()],
+                )
+                .sql()?;
+            }
+            Ok(())
         },
         &[crate::db::statement(
             SQL,

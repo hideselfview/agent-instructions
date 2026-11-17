@@ -63,7 +63,7 @@ pub use design_command::cmd_design;
 pub use item::{Audience, Item, Level, Note, Priority, Wait};
 pub use item_command::{cmd_item, cmd_next};
 pub use landing::LandedPart;
-pub use question::{Placement, PlanRef, Position, Question, QuestionKind};
+pub use question::{Effect, Placement, PlanRef, Position, Question, QuestionKind};
 pub use record::{Closed, How, Id, Kind, Located, Record, Stamp, Standing};
 pub use running::{Running, side_worktree_parts};
 
