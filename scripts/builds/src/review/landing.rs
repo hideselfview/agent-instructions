@@ -252,13 +252,13 @@ impl Coverage {
         self.first_reads().last()
     }
 
-    /// The commits of the net change <run> read.
-    pub fn commits_of(&self, run: i64) -> &[Commit] {
-        self.runs
-            .iter()
-            .find(|(r, _)| r.id == run)
-            .map(|(_, read)| read.as_slice())
-            .unwrap_or_default()
+    /// The commits of the net change <run> read. Fails when <run> is not a
+    /// run of this review.
+    pub fn commits_of(&self, run: i64) -> Result<&[Commit]> {
+        match self.runs.iter().find(|(r, _)| r.id == run) {
+            Some((_, read)) => Ok(read),
+            None => fail!("run {run} is not a review run of this landing"),
+        }
     }
 
     /// For each diff a run read whose groups did not all answer over it, the

@@ -358,7 +358,7 @@ fn later_asks(
         asks.push(Ask {
             diff: coverage.diff_of(inputs.worktree, run)?,
             since: run.since,
-            commits: coverage.commits_of(run.id).to_vec(),
+            commits: coverage.commits_of(run.id)?.to_vec(),
             note: Some(format!(
                 "asked only the groups that gave run {} no answer, over the diff it read: {}\n",
                 run.id,
