@@ -141,16 +141,21 @@ impl Places {
     /// The file `builds host setup-here` writes on a host, beside the lists
     /// folder: this Mac runs the jobs another Mac sends it, gets its `builds`
     /// from that Mac's install, and never runs install.sh.
-    fn host_file(&self) -> PathBuf {
-        self.lists.parent().unwrap_or(&self.lists).join("host")
+    fn host_file(&self) -> Result<PathBuf> {
+        match self.lists.parent() {
+            Some(dir) => Ok(dir.join("host")),
+            None => fail!(
+                "the lists folder {} has no parent folder to hold the file that marks this Mac as a host",
+                self.lists.display()
+            ),
+        }
     }
 
     /// Records that this Mac is a host (`host_file`).
     pub fn mark_host(&self) -> Result<()> {
-        let file = self.host_file();
-        if let Some(dir) = file.parent() {
-            std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
-        }
+        let file = self.host_file()?;
+        let dir = file.parent().expect("host_file names a file in a folder");
+        std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
         std::fs::write(
             &file,
             "builds host setup-here wrote this file: this Mac is a host of builds' jobs\n",
@@ -160,7 +165,7 @@ impl Places {
 
     /// Is this Mac a host (`host_file`)?
     pub fn is_host(&self) -> Result<bool> {
-        let file = self.host_file();
+        let file = self.host_file()?;
         match std::fs::metadata(&file) {
             Ok(_) => Ok(true),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
