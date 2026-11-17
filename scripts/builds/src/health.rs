@@ -589,9 +589,8 @@ pub fn sample(
                 minutes: minutes_since(now, process.started),
                 command: command_line(process.pid),
                 started_from: started_from(places, process.pid),
-                commit: args(process.pid).and_then(|argv| {
-                    crate::app_build::lane_requested(&argv).map(|(_, commit)| commit.to_string())
-                }),
+                commit: args(process.pid)
+                    .and_then(|argv| crate::app_build::lane_requested(&argv).map(str::to_string)),
             })
             .collect();
         queues.push(LaneQueue {
