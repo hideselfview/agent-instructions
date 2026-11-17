@@ -120,3 +120,45 @@ fn an_agent_runs_install_on_a_store_of_an_older_schema_and_builds_refuses_its_ot
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_commits_hook_in_the_main_checkout_of_a_repo_two_projects_hold_passes() {
+    let dir = std::fs::canonicalize(std::env::temp_dir())
+        .unwrap()
+        .join(format!("builds-test-ack-main-hook-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("volume")).unwrap();
+    std::fs::create_dir_all(dir.join("home")).unwrap();
+    for project in ["one", "two"] {
+        let made = builds(
+            &dir,
+            None,
+            &[
+                "lists", "init", project, "--repos", "demo", "--by", "person",
+            ],
+        );
+        assert!(made.status.success(), "{made:?}");
+    }
+    let repo = dir.join("demo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let status = Command::new("git")
+            .current_dir(&repo)
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    std::fs::write(repo.join(".checks"), "check true *.txt true\n").unwrap();
+    std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+    git(&["add", ".checks", "a.txt"]);
+
+    let hook = builds(&repo, Some("s1"), &["checks", "run"]);
+    assert!(hook.status.success(), "{hook:?}");
+
+    let other = builds(&repo, Some("s1"), &["du", "a.txt"]);
+    assert!(!other.status.success(), "{other:?}");
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}

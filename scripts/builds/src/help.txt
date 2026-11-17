@@ -78,7 +78,9 @@ does.
 
 builds never refuses the person's own commands: it tells an agent's command by
 the Claude Code session id in its environment (CLAUDE_CODE_SESSION_ID), which
-the person's terminal lacks. The agents a session dispatches share its session
+the person's terminal lacks. No agent commits in a repo's main checkout, so
+builds also passes the pre-commit hook's `builds checks run` there, even when
+the person's Claude Code session makes the commit. The agents a session dispatches share its session
 id, and no shell of an agent sees anything that tells the agents apart, so
 builds names an agent by the session and the id Claude Code gives the agent. A
 subagent's id is the id the hooks' input names (agent_id); the main agent has

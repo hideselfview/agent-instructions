@@ -56,11 +56,13 @@ const USAGE: &str = "usage: builds ack [--agent ID] [--project P]\n       builds
 /// gate also passes the commands that do not use the stores
 /// (`install_gate::STORELESS`): the gate reads a store, and install must run
 /// while the stores still have an older schema, because install migrates them
-/// to its schema.
+/// to its schema. The gate passes the pre-commit hook's checks in a main
+/// checkout too (`commits_in_main_checkout`).
 pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
     if command == "ack"
         || install_gate::STORELESS.contains(&command)
         || std::env::var_os(PASSED).is_some()
+        || commits_in_main_checkout(command, args)?
     {
         return Ok(());
     }
@@ -79,6 +81,20 @@ pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
     // set_var writes it.
     unsafe { std::env::set_var(PASSED, "1") };
     Ok(())
+}
+
+/// Whether `builds <command> <args>` is the pre-commit hook's `checks run`
+/// in a repo's main checkout. No agent commits in a main checkout (`builds
+/// help workflow`, WORKTREES), so a commit there is the person's, even when
+/// the person's Claude Code session makes it, and the gate, which makes
+/// agents read the rules, does not apply to its hook.
+fn commits_in_main_checkout(command: &str, args: &[String]) -> Result<bool> {
+    let worktree = match (command, args) {
+        ("checks", [run]) if run == "run" => Path::new("."),
+        ("checks", [run, worktree]) if run == "run" => Path::new(worktree.as_str()),
+        _ => return Ok(false),
+    };
+    Ok(Checkout::at(worktree)?.is_some_and(|checkout| checkout.is_main()))
 }
 
 /// The session id of the agent that runs this command, or None for the
