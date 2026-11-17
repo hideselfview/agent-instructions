@@ -1,6 +1,7 @@
 -- Each check of a brief against a repo's product spec, which `builds item
--- take` runs before items start with the brief: the items, what the reviewer
--- was sent and answered, and each conflict and unstated behavior it found.
+-- take` runs before items start with the brief: the items, what builds sent
+-- the reviewer and what the reviewer answered, and each conflict and
+-- unstated behavior it found.
 -- spec_check.rs owns these tables and is the only code that writes them.
 
 -- One reviewer process, run in one worktree the take names, over the spec

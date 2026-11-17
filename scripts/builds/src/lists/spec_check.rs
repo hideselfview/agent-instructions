@@ -432,8 +432,9 @@ fn spec_line(target: &Target, file: &str, quote: &str) -> std::result::Result<i6
     line_of(&text, quote).ok_or_else(|| format!("{file} holds no such text"))
 }
 
-/// The line of <text> where <quote> starts, matched as `review::check`
-/// matches a clause: whitespace runs as one space, markdown marks left out.
+/// The line of <text> where <quote> starts. line_of matches the quote as
+/// `review::check` matches a clause: it treats each run of whitespace as one
+/// space and skips markdown marks.
 pub fn line_of(text: &str, quote: &str) -> Option<i64> {
     let quote = squash(quote);
     if quote.is_empty() {
@@ -469,7 +470,7 @@ pub fn decided_ref(lists: &Lists, text: &str) -> Result<(Id, Kind)> {
             Ok((id, found.kind))
         }
         Some(found) => fail!(
-            "--spec-decided {} names the {} {id}; it names the decision or question that records the person's choice on the conflict",
+            "--spec-decided {} names the {} {id}, and --spec-decided must name the decision or question that records the person's choice on the conflict",
             id.0,
             found.kind.name()
         ),

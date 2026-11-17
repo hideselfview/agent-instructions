@@ -215,19 +215,21 @@ runs in (plans are in no commit); an absolute path is itself.
       with a reviewer that runs in W with read-only tools, as `builds review`
       runs one (LANDING AND REVIEW in `builds help`). The reviewer lists each
       sentence of P that states a behavior the spec states otherwise (a
-      conflict) or doesn't state (unstated). A conflict refuses the take, and
-      the refusal quotes the brief's sentence and the spec's text with its file
-      and line: the person decides each conflict. Once they have, take the
+      conflict) or doesn't state (unstated). When the reviewer finds a
+      conflict, take refuses the items and quotes the brief's sentence and
+      the spec's text with its file and line: the person decides each
+      conflict. Once they have, take the
       items again with --spec-decided N, the decision or question that records
       their choice, and take records N on the check. take prints each unstated
       behavior and takes the items: the coordinator tells the agent to add it
-      to the spec. A check that gives no usable answer refuses the take. take
+      to the spec. When the check gives no usable answer, take refuses the
+      items. take
       records every check in the project's store, and `item show` lists the
       checks of each item. A take in a project with no spec files for W's repo
       runs no check and refuses --spec-decided. --rules-root names the
       agent-instructions checkout that holds the spec rule (default
-      ~/.codex/agent-instructions), and --reviewer the program run in place of
-      claude.
+      ~/.codex/agent-instructions), and --reviewer the program take runs in
+      place of claude.
 
   builds item park N --worktree W --branch B [--worktree W2 --branch B2]
       The item keeps its work in W on B with no agent, and waits in the queue

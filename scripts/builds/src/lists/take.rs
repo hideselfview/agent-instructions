@@ -165,9 +165,9 @@ fn require_places_free(lists: &Lists, places: &[Place], ids: &[Id]) -> Result<()
 }
 
 /// Refuses <ids> that cannot run in <places>: an item that runs already, one
-/// parked elsewhere, one of the other audience than <design_session> says,
-/// and one that waits on something not met, or, when <held>, one that waits
-/// on nothing open.
+/// parked elsewhere, an item meant for the other audience than
+/// <design_session> names, and one that waits on something not met, or, when
+/// <held>, one that waits on nothing open.
 fn require_takeable(
     lists: &Lists,
     places: &[Place],
@@ -180,7 +180,7 @@ fn require_takeable(
         let item = open_item(lists, *id)?;
         if let Some(running) = item.running.first() {
             fail!(
-                "{id} already runs in {} on {}; `builds item stop {} --why WHY` first",
+                "{id} already runs in {} on {}; run `builds item stop {} --why WHY` first",
                 running.worktree,
                 running.branch,
                 id.0
@@ -213,7 +213,7 @@ fn require_takeable(
         let blocking = blocking_words(lists, item);
         if !blocking.is_empty() {
             fail!(
-                "{id} waits on {}; it can be taken once they are met",
+                "{id} waits on {}; take it once those are done",
                 blocking.join("; ")
             );
         }

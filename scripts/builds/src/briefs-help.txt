@@ -64,8 +64,8 @@ WRITE ONE BRIEF PER ITEM
   - Spec: the spec text that states each behavior the change touches, with
     file and line, and the sections to edit in the same commit, or "none"
     with why. Name each behavior the spec doesn't state yet, so the agent
-    adds it to the spec in its commit; the take's check prints each one it
-    finds.
+    adds it to the spec in its commit; `builds item take` prints each one
+    it finds.
   - Locales: say which new user-visible strings go into every locale.
   - Model: a faster, cheaper model executes. Only a software plan too large
     for the coordinator to hold goes to the strongest model, which writes a

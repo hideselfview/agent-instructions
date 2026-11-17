@@ -122,7 +122,7 @@ impl Bench {
         self.demo.store.load().unwrap()
     }
 
-    /// The prompts the reviewer was run with.
+    /// The prompts the take gave the reviewer.
     fn prompts(&self) -> Vec<String> {
         std::fs::read_dir(self.fake.dir.join("calls"))
             .unwrap()
@@ -173,7 +173,11 @@ fn a_brief_that_contradicts_the_spec_refuses_the_take_quoting_both_texts() {
     let lists = b.lists();
     let item = &lists.items[0];
     assert!(item.running.is_empty(), "a refused take starts nothing");
-    assert_eq!(item.spec_checks.len(), 1, "the refused check is recorded");
+    assert_eq!(
+        item.spec_checks.len(),
+        1,
+        "the take records the refused check"
+    );
     let check = &item.spec_checks[0];
     assert_eq!(
         (check.conflicts, check.unstated, check.decided),

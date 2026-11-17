@@ -1370,11 +1370,12 @@ behavior the spec states otherwise (a conflict), with the spec file and the
 spec's text, and each sentence that states a behavior the spec doesn't state
 (unstated). builds
 looks for each quote in the brief and in the spec file, finds the line the
-spec's text starts on, and sets aside a finding whose quote it does not find. A
-conflict refuses the take unless --spec-decided names the decision or question
-that records the person's choice; take prints each unstated behavior and takes
-the items. take records every check in the project's store: the brief's text,
-the spec files and the commit they were read at, the model, prompt, answer,
+spec's text starts on, and sets aside a finding whose quote it does not find.
+When the reviewer finds a conflict, take refuses the items unless
+--spec-decided names the decision or question that records the person's
+choice; take prints each unstated behavior and takes the items. take records
+every check in the project's store: the brief's text, the spec files and the
+commit the reviewer read them at, the model, prompt, answer,
 tokens and cost, each finding, and the --spec-decided record (`builds help
 lists`, item take).
 
