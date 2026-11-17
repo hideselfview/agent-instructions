@@ -21,8 +21,8 @@ pub struct Installed {
     /// Whether launchd runs the host's sccache server from the plist builds
     /// writes (`install::run_sccache_under_launchd`), so the server keeps the
     /// cache under the size limit builds sets and does not exit when idle:
-    /// the plist is there, and the process listening on sccache's port is
-    /// launchd's job (`sccache::launchd_serves`, the same check that setup
+    /// the plist is there, and the sccache server listening on sccache's port
+    /// is launchd's job (`sccache::launchd_serves`, the same check that setup
     /// uses).
     pub sccache_under_launchd: bool,
     /// Whether the host's sccache config holds builds' cap
@@ -36,8 +36,8 @@ pub struct Installed {
 
 /// Runs on a host, and on this Mac, to print what `parse_installed` reads:
 /// the builds digest, whether builds' plist is there, each line of the
-/// sccache config after `sccache_config:`, the pid listening on sccache's
-/// port, the settings that UI tests need, and last, after `job=loaded`, what
+/// sccache config after `sccache_config:`, the processes listening on
+/// sccache's port, the settings that UI tests need, and last, after `job=loaded`, what
 /// `launchctl print` says about launchd's job.
 fn installed_script() -> String {
     let label = crate::install::SCCACHE_LABEL;

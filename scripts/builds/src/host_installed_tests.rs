@@ -21,7 +21,7 @@ fn config_lines(cap_kib: u64) -> String {
 }
 
 /// What `installed_script` prints for a host with builds' plist, an sccache
-/// config with builds' cap, the pid <listener> on sccache's port, the
+/// config with builds' cap, the server <listener> on sccache's port, the
 /// settings that UI tests need all on, and launchd's job as `launchctl print`
 /// printed <job>, or no job.
 fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> String {
@@ -29,9 +29,16 @@ fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> Strin
         Some(printed) => format!("job=loaded\n{printed}"),
         None => "job=none\n".to_string(),
     };
-    let status = if listener.is_empty() { 1 } else { 0 };
+    let (status, lsof) = if listener.is_empty() {
+        (1, "listener=\n".to_string())
+    } else {
+        (
+            0,
+            format!("listener=p{listener}\nlistener=R1\nlistener=f5\n"),
+        )
+    };
     format!(
-        "builds={builds}\nplist={plist}\n{config}listener_status={status}\nlistener={listener}\nlistener_said=\n{UI_TESTS}{job}",
+        "builds={builds}\nplist={plist}\n{config}listener_status={status}\n{lsof}listener_said=\n{UI_TESTS}{job}",
         config = config_lines(crate::install::sccache_cap_kib())
     )
 }

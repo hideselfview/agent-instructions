@@ -16,45 +16,104 @@ pub const PORT: u16 = 4226;
 /// How often the waits below look again.
 const POLL: Duration = Duration::from_millis(250);
 
-/// The arguments of the lsof that prints the pid listening on sccache's
-/// port.
+/// The arguments of the lsof that prints, for each process listening on
+/// sccache's port, its pid and its parent's pid.
 fn listener_args() -> [String; 4] {
     [
         "-nP".to_string(),
         format!("-iTCP:{PORT}"),
         "-sTCP:LISTEN".to_string(),
-        "-t".to_string(),
+        "-FpR".to_string(),
     ]
 }
 
+/// A process listening on sccache's port, and its parent.
+struct Listener {
+    pid: u32,
+    parent: u32,
+}
+
+/// Reads the processes that the lsof of `listener_args` printed. lsof prints
+/// a `p` line with each pid, an `R` line with its parent's pid, and an `f`
+/// line for each listening socket the process holds. Returns None when a
+/// line is not one of these or a pid has no parent.
+fn parse_listeners(stdout: &str) -> Option<Vec<Listener>> {
+    let mut listeners = Vec::new();
+    let mut pid = None;
+    for line in stdout.lines().filter(|line| !line.is_empty()) {
+        if let Some(value) = line.strip_prefix('p') {
+            if pid.is_some() {
+                return None;
+            }
+            pid = Some(value.parse().ok()?);
+        } else if let Some(value) = line.strip_prefix('R') {
+            listeners.push(Listener {
+                pid: pid.take()?,
+                parent: value.parse().ok()?,
+            });
+        } else if !line.starts_with('f') {
+            return None;
+        }
+    }
+    pid.is_none().then_some(listeners)
+}
+
+/// The pid of the sccache server among <listeners>. The server runs each
+/// compile as a child process, and each child holds the server's listening
+/// socket, so lsof lists the server and its compiles. The server is the one
+/// listener whose parent does not listen. Fails when lsof lists no such
+/// listener or several.
+fn server(listeners: &[Listener]) -> Result<u32> {
+    let servers: Vec<u32> = listeners
+        .iter()
+        .filter(|listener| !listeners.iter().any(|other| other.pid == listener.parent))
+        .map(|listener| listener.pid)
+        .collect();
+    match servers[..] {
+        [pid] => Ok(pid),
+        _ => fail!(
+            "builds reads the sccache server as the one process on port {PORT} whose parent does not listen there, but lsof lists {} such processes among pids {}",
+            servers.len(),
+            listeners
+                .iter()
+                .map(|listener| listener.pid.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+    }
+}
+
 /// Reads what the lsof of `listener_args` did, from its exit status and
-/// what it printed: the pid it printed, or None when it found no listener,
-/// which lsof reports by exiting 1 and printing nothing. Any other result is
-/// a failure that says what lsof said.
+/// what it printed: the pid of the sccache server among the processes it
+/// printed, or None when it found no listener, which lsof reports by exiting
+/// 1 and printing nothing. Any other result is a failure that says what lsof
+/// said.
 fn read_listener(status: Option<i32>, stdout: &str, stderr: &str) -> Result<Option<u32>> {
-    let pid = stdout.lines().find_map(|line| line.trim().parse().ok());
-    match (status, pid) {
-        (Some(0), Some(pid)) => Ok(Some(pid)),
-        (Some(1), None) if stdout.trim().is_empty() && stderr.trim().is_empty() => Ok(None),
+    match (status, parse_listeners(stdout)) {
+        (Some(0), Some(listeners)) if !listeners.is_empty() => server(&listeners).map(Some),
+        (Some(1), Some(listeners)) if listeners.is_empty() && stderr.trim().is_empty() => Ok(None),
         _ => fail!(
             "lsof {} failed ({}): {}",
             listener_args().join(" "),
             status.map_or("no exit status".to_string(), |code| format!("exit {code}")),
-            format!("{stdout} {stderr}").trim()
+            format!("{stdout} {stderr}")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
         ),
     }
 }
 
 /// A shell script, for a host, that runs the lsof of `listener_args` and
-/// prints its exit status, stdout and stderr on the lines
-/// `listener_status=`, `listener=` and `listener_said=` that
-/// `parse_listener_lines` reads.
+/// prints its exit status on the line `listener_status=`, each line of its
+/// stdout after `listener=`, and its stderr on the line `listener_said=`.
+/// `parse_listener_lines` reads these lines.
 pub fn listener_script() -> String {
     format!(
         r#"listener_err=$(mktemp)
 listener=$(lsof {args} 2>"$listener_err")
 echo "listener_status=$?"
-echo "listener=$(printf '%s' "$listener" | tr '\n' ' ')"
+printf '%s\n' "$listener" | sed 's/^/listener=/'
 echo "listener_said=$(tr '\n' ' ' <"$listener_err")"
 rm -f "$listener_err""#,
         args = listener_args().join(" ")
@@ -67,18 +126,23 @@ pub fn parse_listener_lines(text: &str) -> Result<Option<u32>> {
         text.lines()
             .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
     };
-    let (Some(status), Some(stdout), Some(stderr)) = (
+    let stdout: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("listener="))
+        .collect();
+    let (Some(status), false, Some(stderr)) = (
         value("listener_status"),
-        value("listener"),
+        stdout.is_empty(),
         value("listener_said"),
     ) else {
         fail!("the answer has no lsof lines for sccache's port: {text:?}");
     };
-    read_listener(status.trim().parse().ok(), stdout, stderr)
+    read_listener(status.trim().parse().ok(), &stdout.join("\n"), stderr)
 }
 
-/// The pid of the process listening on sccache's port, or None when no
-/// process listens there. Fails when lsof fails.
+/// The pid of the sccache server, the process that listens on sccache's
+/// port and whose parent does not, or None when no process listens there.
+/// Fails when lsof fails.
 pub fn listener() -> Result<Option<u32>> {
     let output = Command::new("lsof")
         .args(listener_args())
@@ -404,7 +468,10 @@ pub mod tests {
     /// failure of lsof is an error, never "nothing listens".
     #[test]
     fn reads_what_lsof_said_about_the_port() {
-        assert_eq!(read_listener(Some(0), "2914\n", "").unwrap(), Some(2914));
+        assert_eq!(
+            read_listener(Some(0), "p2914\nR1\nf12\n", "").unwrap(),
+            Some(2914)
+        );
         assert_eq!(read_listener(Some(1), "", "").unwrap(), None);
         let failed = |status, stdout, stderr| match read_listener(status, stdout, stderr) {
             Err(crate::fail::Fail::Message(message)) => message,
@@ -415,7 +482,9 @@ pub mod tests {
         assert!(failed(Some(127), "", "sh: lsof: not found").contains("exit 127"));
         assert!(failed(None, "", "").contains("no exit status"));
         assert!(failed(Some(0), "garbage", "").contains("garbage"));
-        let printed = "x=1\nlistener_status=0\nlistener=2914 \nlistener_said=\n";
+        assert!(failed(Some(0), "p2914\n", "").contains("p2914"));
+        let printed =
+            "x=1\nlistener_status=0\nlistener=p2914\nlistener=R1\nlistener=f12\nlistener_said=\n";
         assert_eq!(parse_listener_lines(printed).unwrap(), Some(2914));
         assert_eq!(
             parse_listener_lines("listener_status=1\nlistener=\nlistener_said=\n").unwrap(),
@@ -426,6 +495,44 @@ pub mod tests {
                 .is_err()
         );
         assert!(parse_listener_lines("listener=2914\n").is_err());
+    }
+
+    /// What lsof prints while the server (pid 44790) runs two compiles, which
+    /// hold its listening socket too.
+    const COMPILING: &str = "p71743\nR44790\nf5\np44790\nR1\nf5\np71754\nR44790\nf5\n";
+
+    #[test]
+    fn reads_the_server_among_its_compiles() {
+        assert_eq!(read_listener(Some(0), COMPILING, "").unwrap(), Some(44790));
+        assert_eq!(
+            read_listener(Some(0), "p600\nR500\nf5\np500\nR400\nf5\n", "").unwrap(),
+            Some(500),
+            "a client's server, whose parent is the client"
+        );
+        let Err(crate::fail::Fail::Message(message)) =
+            read_listener(Some(0), "p500\nR1\nf5\np600\nR1\nf5\n", "")
+        else {
+            panic!("expected a failure");
+        };
+        assert!(message.contains("500 600"), "{message}");
+    }
+
+    #[test]
+    fn reads_a_hosts_server_among_its_compiles() {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = crate::testing::Scratch::new("sccache-listeners");
+        let lsof = scratch.dir.join("lsof");
+        std::fs::write(&lsof, format!("#!/bin/sh\ncat <<'EOF'\n{COMPILING}EOF\n")).unwrap();
+        std::fs::set_permissions(&lsof, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let output = Command::new("sh")
+            .args(["-c", &listener_script()])
+            .env("PATH", format!("{}:/usr/bin:/bin", scratch.dir.display()))
+            .output()
+            .unwrap();
+        assert_eq!(
+            parse_listener_lines(&String::from_utf8_lossy(&output.stdout)).unwrap(),
+            Some(44790)
+        );
     }
 
     #[test]
