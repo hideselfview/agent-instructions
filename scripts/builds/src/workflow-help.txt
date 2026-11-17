@@ -75,18 +75,17 @@ LISTS
 
 A project's decision stack, work queue, decision log and design changes are in
 the builds store (`builds help lists`). The stack holds what waits on the
-person, asked one at a time from the top; a plan's open questions go there.
-Each entry names its effect: data loss (the person could lose music, edits or
-settings), a bug the person hits, slows the agents (builds or other tooling
-that slows the agents' work), product design, or cleanup or wording (nothing
-the person notices). builds asks the person first the entries that someone
-placed first with `builds question place`, then the rest by how many open
-items each unblocks, then by effect in that order, then oldest first, and
-last the entries that someone placed last. Choose each entry's effect from
-what its text says, using the definition of critical work in DISPATCH. The
-queue holds only what agents can do, and `builds next` lists what is ready.
-The log holds each answer, and each standing choice about how work runs, with
-why.
+person; a plan's open questions go there. Each entry names its effect: data
+loss (the person could lose music, edits or settings), a bug the person hits,
+slows the agents (builds or other tooling that slows the agents' work),
+product design, or cleanup or wording (nothing the person notices). builds
+asks the person first the entries that someone placed first with `builds
+question place`, then the rest by how many open items each unblocks, then by
+effect in that order, then oldest first, and last the entries that someone
+placed last. Choose each entry's effect from what its text says, using the
+definition of critical work in DISPATCH. The queue holds only what agents can
+do, and `builds next` lists what is ready. The log holds each answer, and
+each standing choice about how work runs, with why.
 When you make an entry from another record, name that record with `--origin
 N`, so the entry's trail shows where the entry came from. Put an audit's tag
 only on the first entry of a trail: every later entry's trail has the tag.

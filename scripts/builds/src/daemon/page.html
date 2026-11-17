@@ -1557,7 +1557,7 @@ async function writeEffect(q, select) {
 function effectControl(q) {
   const key = lists.project + ":" + q.id;
   if (effectWrites.get(key) === q.effect) effectWrites.delete(key);
-  if (!here) return fact("Effect", EFFECT_WORDS[q.effect] + " · change: " + ONLY_HERE.toLowerCase());
+  if (!here) return fact("Effect", EFFECT_WORDS[q.effect] + ". You can change the effect only on this Mac.");
   const writing = effectWrites.get(key);
   const select = h("select", {"aria-label": "Effect of #" + q.id},
     Object.entries(EFFECT_WORDS).map(([word, words]) => h("option", {value: word}, words)));
