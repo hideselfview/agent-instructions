@@ -405,7 +405,7 @@ pub fn landed(tool: &Tool, args: &[String]) -> Result<()> {
 }
 
 /// Releases each worktree of <ran_in> that no item of any project runs in
-/// any more and that holds no work origin/main lacks (unlanded.rs): its
+/// any more and that holds no work origin/main lacks (kept.rs): its
 /// agent has no work left there, so its claim and its note would only
 /// mislead. A worktree that is gone, has no claim, still runs an item or
 /// still holds such work keeps its claim.
@@ -419,16 +419,14 @@ fn release_finished(places: &crate::places::Places, ran_in: &[String]) -> Result
         }
     }
     for worktree in done {
-        if !Path::new(worktree).is_dir()
-            || !crate::lists::running::running_in_any(&every, worktree).is_empty()
-        {
+        if !Path::new(worktree).is_dir() {
             continue;
         }
         let checkout = Checkout::find(worktree)?;
-        let Some(claim) = crate::claim::Claim::read(&checkout.claim_file())? else {
+        if crate::claim::Claim::read(&checkout.claim_file())?.is_none() {
             continue;
-        };
-        if !crate::unlanded::unheld_in(places, &checkout, claim.since, &commits)?.is_empty() {
+        }
+        if !crate::kept::read(&every, &checkout, &commits)?.is_leavable() {
             continue;
         }
         if let Some(claim) = crate::claim::forget(&checkout)? {

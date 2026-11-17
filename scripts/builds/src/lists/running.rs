@@ -1,7 +1,7 @@
 //! Where an item runs. The agent is the claim of the item's worktree, never
-//! stored on the item, so the two can't disagree; this reads it. The release
-//! guard also lives here: a worktree can't be released while an item runs in
-//! it. `findings` is what `builds health` says about the lists.
+//! stored on the item, so the two can't disagree; this reads it. A worktree
+//! can't be released while an item runs in it (kept.rs). `findings` is what
+//! `builds health` says about the lists.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -284,36 +284,13 @@ pub fn running_in_any<'a>(lists: &'a [Lists], worktree: &str) -> Vec<(&'a Lists,
         .collect()
 }
 
-/// `builds release` refuses while an item of any project runs in the
-/// worktree: the claim names the agent, so releasing it under a running
-/// item would leave the item running with no agent named for it.
-pub fn require_release_allowed(places: &Places, checkout: &Checkout) -> Result<()> {
-    let every = crate::lists::store::every_lists(places)?;
-    let top = checkout.top.display().to_string();
-    let running: Vec<&Item> = running_in_any(&every, &top)
-        .into_iter()
-        .map(|(_, item)| item)
-        .collect();
-    if running.is_empty() {
-        return Ok(());
-    }
-    let named: Vec<String> = running
-        .iter()
-        .map(|item| format!("{} \"{}\"", item.id, item.title))
-        .collect();
-    let first = running[0].id.0;
-    fail!(
-        "{top} still runs {}: land it (builds land --done {first}), stop it (builds item stop {first} --why WHY) or hand it \
-         to the next agent (builds item handoff {first} --brief PATH) before releasing the worktree",
-        named.join("; ")
-    );
-}
-
 /// What `builds health` says about the lists: a store whose database fails
 /// SQLite's integrity checks, a store that fails its check,
-/// and a running item whose worktree is gone or has no claim. `builds release`
-/// refuses while an item runs in the worktree, so only a hand edit reaches the
-/// second; it is named loudly, never repaired. One line per fault.
+/// and a running item whose worktree is gone or has no claim. `builds
+/// release` and a landing's release (kept.rs), `builds item park` and `builds
+/// item drop` each refuse to remove a claim while another item runs in the
+/// worktree, so only a hand edit reaches the second; it is named loudly,
+/// never repaired. One line per fault.
 pub fn findings(
     places: &Places,
     loaded: &std::result::Result<Vec<Loaded>, String>,

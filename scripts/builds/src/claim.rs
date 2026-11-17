@@ -274,26 +274,18 @@ pub fn cmd_note(places: &Places, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// `builds release <checkout>`, refused while an item of the lists runs in
+/// `builds release <checkout>`, refused while an item of any project runs in
 /// the worktree, since the claim names the item's agent, and while the
-/// worktree holds work origin/main lacks that no item holds
-/// (`require_nothing_unlanded`).
+/// worktree holds work origin/main lacks that no item holds. `builds new`
+/// reads the same facts (kept.rs).
 pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
     let [checkout] = args else {
         fail!("usage: builds release <checkout>")
     };
     let checkout = Checkout::find(checkout)?;
-    crate::lists::running::require_release_allowed(places, &checkout)?;
-    if let Some(claim) = Claim::read(&checkout.claim_file())? {
-        let commits = crate::procs::git_commits(&crate::procs::Processes::read());
-        let held = crate::unlanded::unheld_in(places, &checkout, claim.since, &commits)?;
-        if !held.is_empty() {
-            fail!(
-                "{}",
-                crate::unlanded::refusal("release", &checkout.top, &held)
-            );
-        }
-    }
+    let every = crate::lists::store::every_lists(places)?;
+    let commits = crate::procs::git_commits(&crate::procs::Processes::read());
+    crate::kept::read(&every, &checkout, &commits)?.require_leavable("release", &checkout.top)?;
     match forget(&checkout)? {
         Some(claim) => note(format!(
             "released {} (was {})",
@@ -317,12 +309,17 @@ pub fn forget(checkout: &Checkout) -> Result<Option<Claim>> {
 
 /// Removes <checkout>'s claim and keeps its project file, and returns the
 /// claim, or None when there was none: an item parked there (lists/parked.rs)
-/// keeps the worktree in its project for the agent that takes it next.
+/// keeps the worktree in its project for the agent that takes it next. The
+/// claim moves to the worktree's last claim file, whose start kept.rs reads
+/// while the worktree has no claim.
 pub fn unclaim(checkout: &Checkout) -> Result<Option<Claim>> {
     let file = checkout.claim_file();
-    let claim = Claim::read(&file)?;
-    remove_if_present(&file)?;
-    Ok(claim)
+    let Some(claim) = Claim::read(&file)? else {
+        return Ok(None);
+    };
+    std::fs::rename(&file, checkout.last_claim_file())
+        .map_err(|error| fail::Fail::Message(format!("removing {}: {error}", file.display())))?;
+    Ok(Some(claim))
 }
 
 /// Removes the file at <path>; a file that is already gone is no error.

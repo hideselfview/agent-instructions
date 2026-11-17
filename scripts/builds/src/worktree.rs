@@ -253,8 +253,8 @@ pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
     retire_checkout(tool, &checkout)
 }
 
-/// Removes the clean, unclaimed side worktree <checkout> that no item is
-/// parked in, and its build root.
+/// Removes the unclaimed side worktree <checkout> that nothing keeps
+/// (kept.rs), and its build root.
 pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
     let top = checkout.top.display();
     let root = checkout.build_root(&tool.places);
@@ -264,24 +264,15 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
             claim.text()
         );
     }
-    if crate::lists::parked::parked_worktrees_now(&tool.places)?
-        .contains(&checkout.top.display().to_string())
-    {
-        fail!(
-            "{top} holds a parked item's work; take the item there (`builds item take`) to work on it"
-        );
-    }
-    // With no claim to start from, unheld_in ignores the branches this
-    // worktree left. Those branches stay, and `builds health` lists them
-    // while they hold work.
+    let every = crate::lists::store::every_lists(&tool.places)?;
     let commits = crate::procs::git_commits(&crate::procs::Processes::read());
-    let held = crate::unlanded::unheld_in(&tool.places, checkout, i64::MAX, &commits)?;
-    if !held.is_empty() {
+    let kept = crate::kept::read(&every, checkout, &commits)?;
+    if let Some(parked) = kept.parked.first() {
         fail!(
-            "{}",
-            crate::unlanded::refusal("retire", &checkout.top, &held)
+            "{top} holds the work of {parked}, parked there; take the item there (`builds item take`) to work on it"
         );
     }
+    kept.require_leavable("retire", &checkout.top)?;
     run_checked(
         git(&checkout.main)
             .arg("worktree")

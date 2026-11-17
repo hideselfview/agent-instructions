@@ -213,12 +213,19 @@ because landing rebases or cherry-picks it.
 
   builds new [<repo>] [-b <branch> | --resume <branch>] [--for <who>]
              [--project P]
-                              hand out a free side worktree (no claim, a clean
-                              tree, every commit on origin/main by patch, not
-                              an app checkout) with a fresh branch from
-                              origin/main, or add the next side-N when none is
-                              free; link it and run its post-checkout, which
-                              builds nothing. It claims the worktree for <who>
+                              hand out a free side worktree with a fresh
+                              branch from origin/main, or add the next side-N
+                              when none is free; link it and run its
+                              post-checkout, which builds nothing. A free
+                              worktree is not an app checkout, has no claim,
+                              and passes the check `release` makes: no item of
+                              any project runs or is parked there, its tree is
+                              clean, no `git commit` runs there, and every
+                              commit on its HEAD and on each branch it left
+                              since its last claim began is on origin/main by
+                              patch. new checks every worktree before it
+                              changes one, and it moves and deletes no
+                              branch: -b refuses a branch name that exists. It claims the worktree for <who>
                               (default "builds new") under a lock on the repo,
                               so two calls never get the same worktree. When
                               the worktree's host target is empty, new fills
@@ -239,7 +246,11 @@ because landing rebases or cherry-picks it.
   builds claim <checkout> <who> [--project P]
                               record that <who> works in the side worktree
                               (--project as for `new`; a claim renewed without
-                              it keeps its project)
+                              it keeps its project). When builds removes a
+                              claim (`release`, a landing, `builds item park`
+                              or `drop`), the worktree keeps it as its last
+                              claim, and `new` counts the branches the
+                              worktree left from that claim's start
   builds note <checkout> [--state waiting-on-you|winding-down|held] [<text>]
                               set the claim's note, or clear note and state
                               with no text; --state needs the text. --state
@@ -252,7 +263,8 @@ because landing rebases or cherry-picks it.
                               project runs in the worktree, and while it holds
                               work origin/main lacks that no item holds: commits
                               on HEAD, on a branch the worktree left since its
-                              claim began (HEAD's reflog says which) that no
+                              claim began (since its last claim began, when it
+                              has none; HEAD's reflog says which) that no
                               worktree checks out, files not committed, or a
                               `git commit` that runs there (its hook can run for
                               minutes before git commits the files). A detached
@@ -263,11 +275,14 @@ because landing rebases or cherry-picks it.
                               park`), or take it under an item held on the
                               person (`builds item take --held`). An item parked
                               there holds all of it. Only the person throws work
-                              away, by dropping its item
+                              away, by dropping its item. `new` hands out no
+                              worktree that this check would refuse
   builds retire <checkout>    remove a clean, unclaimed side worktree and its
                               build root; refuses an app checkout, a worktree
-                              an item is parked in, and one whose HEAD or files
-                              hold work origin/main lacks
+                              an item runs or is parked in, and one that
+                              `release` would refuse for its work: commits on
+                              its HEAD or on a branch it left since its last
+                              claim began, or files not committed
 
 
 CARGO

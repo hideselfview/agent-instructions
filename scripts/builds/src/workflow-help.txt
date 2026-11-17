@@ -51,9 +51,11 @@ branch, not the worktree, is the unit of work.
     waits in the queue, or one taken there held on the person (`builds item
     take --held`). `builds release` refuses every other worktree with such
     work, on its HEAD, on a branch it left since its claim began or in its
-    files, and names the three ways to keep it: land, park or take --held. Only the person throws work away, by
-    dropping its item (`builds item drop`), which records the commits and
-    files on the closed item, deletes the branch and frees the worktree.
+    files, and names the three ways to keep it: land, park or take --held.
+    `builds new` hands out no such worktree, and none where an item runs.
+    Only the person throws work away, by dropping its item (`builds item
+    drop`), which records the commits and files on the closed item, deletes
+    the branch and frees the worktree.
   - `builds health` lists each local branch with commits origin/main lacks
     that no worktree checks out and no open item names. Check it out in a
     worktree with `builds new <repo> --resume <branch>` and land it, or ask

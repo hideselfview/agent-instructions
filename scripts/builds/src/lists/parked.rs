@@ -117,17 +117,6 @@ pub fn parked_worktrees(
     Ok(parked)
 }
 
-/// The worktrees an open item is parked in, read from every store; fails
-/// when a store does not load, since `builds new`, `prune` and `retire` must
-/// never hand out or remove a parked worktree.
-pub fn parked_worktrees_now(places: &crate::places::Places) -> Result<Vec<String>> {
-    parked_worktrees(&crate::lists::store::load_all(places)).map_err(|fault| {
-        crate::fail::Fail::Message(format!(
-            "builds cannot tell which worktrees items are parked in: {fault}"
-        ))
-    })
-}
-
 /// What `builds health` says about parked items: one line for each parked
 /// item whose worktree is not a live worktree, since its work is no longer
 /// where the item says it waits.

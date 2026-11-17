@@ -170,6 +170,13 @@ impl Checkout {
         self.git_dir.join("builds-claim")
     }
 
+    /// The worktree's last claim, which `claim::unclaim` moves here when it
+    /// removes the claim. Its start bounds the branches the worktree left
+    /// that `builds new` checks while the worktree has no claim (kept.rs).
+    pub fn last_claim_file(&self) -> PathBuf {
+        self.git_dir.join("builds-last-claim")
+    }
+
     /// The project the claim's work is in, a file in the worktree's git dir
     /// beside the claim. A repo two projects hold (agent-instructions holds
     /// both bae's and builds' work) has no one project of its own: the

@@ -1,10 +1,12 @@
 //! Work that origin/main lacks. `builds release` and `builds retire` refuse a
-//! worktree that holds such work which nothing else holds (`in_worktree`), so
-//! a session can't drop it by releasing; `builds health` lists each local
-//! branch that holds such work while no worktree checks it out and no open
-//! item names it (`loose_branches`, `unheld`). Work leaves a worktree only by
-//! landing, by an item that holds it (running held on the person, or parked),
-//! or by the person dropping that item (lists/dropped.rs).
+//! worktree that holds such work which nothing else holds, and `builds new`
+//! hands out no such worktree (`in_worktree`, which kept.rs reads for all
+//! three), so a session can't drop the work by releasing. `builds health`
+//! lists each local branch that holds such work while no worktree checks it
+//! out and no open item names it (`loose_branches`, `unheld`). Work leaves a
+//! worktree only by landing, by an item that holds it (running held on the
+//! person, or parked), or by the person dropping that item
+//! (lists/dropped.rs).
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -276,7 +278,13 @@ pub fn unheld(
     loose: Vec<LooseBranch>,
     loaded: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
 ) -> Vec<LooseBranch> {
-    let named = named_branches(loaded.as_deref().unwrap_or_default());
+    let named = named_branches(
+        loaded
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|project| project.lists.as_ref().ok()),
+    );
     loose
         .into_iter()
         .filter(|b| !named.contains(&(b.repo.clone(), b.branch.clone())))
@@ -284,13 +292,12 @@ pub fn unheld(
 }
 
 /// The repo and branch of every running or parked place of an open item of
-/// <loaded>: the branches items hold.
-fn named_branches(loaded: &[crate::lists::store::Loaded]) -> BTreeSet<(String, String)> {
+/// <lists>: the branches items hold.
+pub fn named_branches<'a>(
+    lists: impl Iterator<Item = &'a crate::lists::Lists>,
+) -> BTreeSet<(String, String)> {
     let mut named = BTreeSet::new();
-    for lists in loaded
-        .iter()
-        .filter_map(|project| project.lists.as_ref().ok())
-    {
+    for lists in lists {
         for item in &lists.items {
             let places = item
                 .running
@@ -305,34 +312,4 @@ fn named_branches(loaded: &[crate::lists::store::Loaded]) -> BTreeSet<(String, S
         }
     }
     named
-}
-
-/// The work in <checkout> that origin/main lacks and that no open item holds,
-/// for a claim that began at <since>: none when an item is parked there,
-/// since the item holds all of it. <commits> are the `git commit`s that run,
-/// which the caller reads once. Fails when a store does not load, since its
-/// items may hold the work.
-pub fn unheld_in(
-    places: &crate::places::Places,
-    checkout: &Checkout,
-    since: i64,
-    commits: &crate::procs::GitCommits,
-) -> Result<Held> {
-    let loaded = crate::lists::store::load_all(places);
-    let top = checkout.top.display().to_string();
-    let parked = crate::lists::parked::parked_worktrees(&loaded).map_err(|fault| {
-        fail::Fail::Message(format!(
-            "builds cannot tell which items hold {top}'s work: {fault}"
-        ))
-    })?;
-    if parked.contains(&top) {
-        return Ok(Held::default());
-    }
-    let repo = checkout.repo();
-    let held: Vec<String> = named_branches(loaded.as_deref().unwrap_or_default())
-        .into_iter()
-        .filter(|(named_repo, _)| *named_repo == repo)
-        .map(|(_, branch)| branch)
-        .collect();
-    in_worktree(checkout, since, &held, commits)
 }

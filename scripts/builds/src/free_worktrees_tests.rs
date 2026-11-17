@@ -411,3 +411,124 @@ fn new_refuses_to_resume_a_missing_or_checked_out_branch() {
         "a refused new added a worktree"
     );
 }
+
+/// `new` hands out no worktree where an item runs, though the worktree has
+/// no claim, a clean tree and no commit missing from origin/main: the item's
+/// agent works there. On November 17 a drop removed bae/side-14's claim
+/// while other items ran there, and `new` handed the worktree out.
+#[test]
+fn new_refuses_a_worktree_where_an_item_runs() {
+    let demo = crate::lists::item_fixtures::demo("free-running");
+    let top = demo.add_side(1, "agent A", "work");
+    let worktree = top.display().to_string();
+    demo.store
+        .write(
+            &crate::lists::fixtures::stamp(crate::lists::fixtures::NOON),
+            "start",
+            |db| {
+                let id = crate::lists::fixtures::item(db, vec![]);
+                crate::lists::running::start(
+                    db,
+                    &[id],
+                    &[crate::lists::Running {
+                        worktree: worktree.clone(),
+                        branch: "work".into(),
+                        brief: "b.md".into(),
+                        since: crate::lists::fixtures::stamp(crate::lists::fixtures::NOON),
+                    }],
+                )
+            },
+        )
+        .unwrap();
+    let checkout = Checkout::find(&worktree).unwrap();
+    std::fs::remove_file(checkout.claim_file()).unwrap();
+
+    new(&demo.tool, &demo.main, &["--for", "agent B"]);
+    assert!(
+        demo.scratch.dir.join("demo-worktrees/side-2").exists(),
+        "new handed out the worktree where an item runs"
+    );
+    assert_eq!(checkout.branch().unwrap().as_deref(), Some("work"));
+    assert!(Claim::read(&checkout.claim_file()).unwrap().is_none());
+}
+
+/// `new` hands out no worktree that left a branch holding commits origin/main
+/// lacks since its last claim began, though its HEAD sits on origin/main, as
+/// a landing leaves it while it builds. Once those commits land, `new` hands
+/// the worktree out.
+#[test]
+fn new_refuses_a_worktree_whose_left_branch_holds_unlanded_commits() {
+    let scratch = Scratch::new("free-left-branch");
+    let (tool, main) = demo(&scratch);
+    new(&tool, &main, &["--for", "agent A"]);
+    new(&tool, &main, &["-b", "work", "--for", "agent B"]);
+    let top = side(&scratch, 2);
+    commit(&top, "unlanded");
+    let sha = head(&top);
+    git(&top, &["checkout", "-q", "--detach", "origin/main"]);
+    let checkout = Checkout::find(&top.display().to_string()).unwrap();
+    crate::claim::unclaim(&checkout).unwrap();
+
+    new(&tool, &main, &["--for", "agent C"]);
+    assert!(
+        side(&scratch, 3).exists(),
+        "new handed out a worktree that left a branch with unlanded commits"
+    );
+    let work = git_text(
+        crate::checkout::git(&main).args(["rev-parse", "work"]),
+        "read work",
+    )
+    .unwrap();
+    assert_eq!(work.trim(), sha, "new moved the branch that holds the work");
+
+    git(&main, &["cherry-pick", &sha]);
+    git(&main, &["push", "-q", "origin", "main"]);
+    new(&tool, &main, &["--for", "agent D"]);
+    assert!(
+        !side(&scratch, 4).exists(),
+        "new added a worktree while side-2's work had landed"
+    );
+    assert_eq!(
+        Claim::read(&checkout.claim_file()).unwrap().unwrap().who,
+        "agent D"
+    );
+}
+
+/// `new -b` with the name of a branch that holds commits origin/main lacks
+/// refuses, and the branch stays at its commit: new moves no branch.
+#[test]
+fn new_never_moves_a_branch_that_holds_work() {
+    let scratch = Scratch::new("free-branch-taken");
+    let (tool, main) = demo(&scratch);
+    new(&tool, &main, &["--for", "first"]);
+    release(&scratch, 1);
+    branch_with_a_commit(&main, "taken");
+    let before = git_text(
+        crate::checkout::git(&main).args(["rev-parse", "taken"]),
+        "read taken",
+    )
+    .unwrap();
+
+    let result = cmd_new(
+        &tool,
+        &[
+            main.display().to_string(),
+            "-b".into(),
+            "taken".into(),
+            "--for".into(),
+            "agent".into(),
+        ],
+    );
+    assert!(result.is_err(), "new took a branch name that exists");
+    let after = git_text(
+        crate::checkout::git(&main).args(["rev-parse", "taken"]),
+        "read taken",
+    )
+    .unwrap();
+    assert_eq!(after, before, "new moved the branch");
+    let checkout = Checkout::find(&side(&scratch, 1).display().to_string()).unwrap();
+    assert!(
+        Claim::read(&checkout.claim_file()).unwrap().is_none(),
+        "a refused new kept its claim"
+    );
+}
